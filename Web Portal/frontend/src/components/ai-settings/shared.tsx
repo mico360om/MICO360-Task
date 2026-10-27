@@ -1,4 +1,5 @@
 import { ApiError } from '../../lib/api-client';
+import { Toggle } from '../ui/Toggle';
 import { providerLabel, type aiApi, type AiCapability, type AiConfig, type ProviderKind } from '../../api/ai';
 
 /** The AI Management page's query: the whole (redacted) config. */
@@ -43,19 +44,7 @@ export function ProviderBadge({ provider }: { provider: { preset?: string | null
   );
 }
 
-/** An on/off switch. */
+/** An on/off switch (the shared one, 44px to tap on touch screens). */
 export function Switch({ on, label, disabled, onChange }: { on: boolean; label: string; disabled?: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className={`relative h-6 w-11 flex-none rounded-full transition-colors disabled:opacity-60 ${on ? 'bg-brand' : 'bg-line'}`}
-    >
-      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-soft transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
-    </button>
-  );
+  return <Toggle on={on} label={label} disabled={disabled} onChange={() => onChange(!on)} />;
 }

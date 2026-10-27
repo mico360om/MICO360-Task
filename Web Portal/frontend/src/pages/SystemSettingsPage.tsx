@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Toggle } from '../components/ui/Toggle';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -73,21 +74,6 @@ export function displayableSettings(settings: { key: string; value: unknown }[])
     if (value !== null) rows.push({ key: def.key, label: def.label, value });
   }
   return { rows, hidden: settings.length - rows.length };
-}
-
-function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: () => void; label: string; disabled?: boolean }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onChange}
-      className={`relative h-6 w-11 flex-none rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-brand' : 'bg-line'}`}
-    >
-      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-soft transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
-    </button>
-  );
 }
 
 export function SystemSettingsPage() {

@@ -275,7 +275,8 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
     const margin = 8;
     if (at.bottom > view.bottom) box.scrollTop += at.bottom - view.bottom + margin;
     else if (at.top < view.top) box.scrollTop -= view.top - at.top + margin;
-  }, [pathname]);
+    // Again when links come or go above it (Management appears once access is known).
+  }, [pathname, isAdmin, canLead]);
 
   return (
     <>

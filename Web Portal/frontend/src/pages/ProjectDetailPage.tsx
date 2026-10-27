@@ -268,7 +268,10 @@ export function ProjectDetailPage() {
       <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: project ? <bdi>{project.name}</bdi> : '…' }]} />
 
       {/* Header */}
-      <div className="mt-2 flex items-start gap-3 sm:gap-4">
+      {/* The title keeps at least 12rem: when the buttons would squeeze it more (a tablet with the
+          menu open, three labelled buttons), they move to their own row under it. */}
+      <div className="mt-2 flex flex-wrap items-start gap-3 sm:gap-4">
+        <div className="flex min-w-0 flex-1 basis-48 items-start gap-3 sm:gap-4">
         {!project ? (
           <span className="skeleton h-11 w-11 flex-none rounded-xl" aria-hidden="true" />
         ) : (
@@ -298,6 +301,8 @@ export function ProjectDetailPage() {
           )}
           {detailsProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{detailsProblem}</p> : null}
         </div>
+        </div>
+        <div className="flex flex-none flex-wrap items-center gap-2">
         {canShare ? (
           <button
             type="button"
@@ -337,6 +342,7 @@ export function ProjectDetailPage() {
             <ShortcutHint action="edit" />
           </button>
         ) : null}
+        </div>
       </div>
       {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
       {sharing && project ? (

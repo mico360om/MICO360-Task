@@ -50,15 +50,15 @@ function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
     <>
       <span className="flex min-w-0 items-baseline gap-2">
         {row.key ? <span className="flex-none font-mono text-xs text-ink-3">{row.key}</span> : null}
-        <span className="min-w-0 truncate text-sm font-medium text-ink">
+        <span className="min-w-0 truncate text-sm font-medium text-ink" title={row.title}>
           <bdi>{row.title}</bdi>
         </span>
       </span>
       <span className="flex min-w-0 flex-wrap gap-x-2 text-xs text-ink-2">
-        {row.project ? <bdi className="truncate">{row.project.name}</bdi> : null}
+        {row.project ? <bdi className="truncate" title={row.project.name}>{row.project.name}</bdi> : null}
         {due ? <span className={row.daysLate ? 'font-semibold text-danger' : ''}>{due}</span> : null}
         {row.at ? <span>{finishedText(row.at, timeZone)}</span> : null}
-        {row.people?.length ? <bdi className="truncate">{row.people.join(', ')}</bdi> : null}
+        {row.people?.length ? <bdi className="truncate" title={row.people.join(', ')}>{row.people.join(', ')}</bdi> : null}
       </span>
       {row.detail ? (
         <span className={`block text-xs font-medium ${TONE[row.tone ?? 'neutral']}`}>
@@ -115,7 +115,7 @@ export function ItemsSheet({
                 <li key={t.id}>
                   <button type="button" onClick={() => onOpenTask(t.id)} className="flex w-full min-w-0 items-baseline gap-2 rounded-md px-2 py-1 text-start text-sm hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
                     <span className="flex-none font-mono text-xs text-ink-3">{t.key}</span>
-                    <span className="min-w-0 truncate text-ink">
+                    <span className="min-w-0 truncate text-ink" title={t.title}>
                       <bdi>{t.title}</bdi>
                     </span>
                   </button>

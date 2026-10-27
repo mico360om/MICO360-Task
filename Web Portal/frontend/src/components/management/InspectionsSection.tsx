@@ -64,10 +64,10 @@ export function InspectionsSection({ data, onOpen }: { data: ManagementOverview[
                   {data.topItems.map((i) => (
                     <li key={`${i.formId}|${i.itemId}`} className="flex items-center justify-between gap-3 px-3 py-1.5">
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-ink">
+                        <span className="block truncate text-sm font-medium text-ink" title={i.label}>
                           <bdi>{i.label}</bdi>
                         </span>
-                        <span className="block truncate text-xs text-ink-3">
+                        <span className="block truncate text-xs text-ink-3" title={i.formTitle}>
                           <bdi>{i.formTitle}</bdi>
                         </span>
                       </span>
@@ -94,7 +94,7 @@ export function InspectionsSection({ data, onOpen }: { data: ManagementOverview[
                     const formId = f.formId ?? 'none';
                     return (
                       <li key={f.formId ?? f.title} className="px-3 py-2">
-                        <span className="block truncate text-sm font-medium text-ink">
+                        <span className="block truncate text-sm font-medium text-ink" title={f.title}>
                           <bdi>{f.title}</bdi>
                         </span>
                         <span className="flex flex-wrap items-center gap-x-1 text-xs text-ink-2">

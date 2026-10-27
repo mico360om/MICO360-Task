@@ -4,18 +4,21 @@
  * calendar-ui.tsx (taller on a touch screen); change them together.
  */
 export const MONTH_CELL = {
-  /** Padding (4px top and bottom), the day number (24px), the gap under it (2px) and the bottom border. */
-  chrome: 35,
-  /** One one-line entry (22px) and the gap after it (2px). */
-  pitch: 24,
-  /** The gap between entries (the last one has none after it). */
-  gap: 2,
-  /** The "+N more" line: as tall as an entry, so it is a 24px target with the gap (WCAG 2.2). */
+  /** Padding (4px top and bottom), the day number (24px), the gap under it (3px) and the bottom border. */
+  chrome: 36,
+  /** One one-line entry (22px) and the gap after it (3px). */
+  pitch: 25,
+  /**
+   * The gap between entries (the last one has none after it). 3px, not 2: a 22px entry's 24px target
+   * (WCAG 2.2) then clears its neighbours even when the cell sits on a fraction of a pixel.
+   */
+  gap: 3,
+  /** The "+N more" line: as tall as an entry, a 24px target with the gap (WCAG 2.2). */
   more: 22,
 } as const;
 
 /** On a touch screen entries and "+N more" are 28px tall, so a finger can hit them. */
-export const MONTH_CELL_TOUCH = { ...MONTH_CELL, pitch: 30, more: 28 } as const;
+export const MONTH_CELL_TOUCH = { ...MONTH_CELL, pitch: 31, more: 28 } as const;
 
 /** Entries shown when the cell's height isn't known (the month isn't sized to the window). */
 export const UNSIZED_SLOTS = 3;

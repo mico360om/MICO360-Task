@@ -94,7 +94,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: str
       data-day={cellKey}
       data-outside={outside ? 'true' : undefined}
       {...drop.props}
-      className={`flex min-w-0 flex-col gap-0.5 overflow-hidden border-b border-e border-line p-1 transition-colors ${rowHeight ? 'min-h-0' : 'min-h-[7.5rem]'} ${outside ? 'bg-ground/60' : 'bg-surface'} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
+      className={`flex min-w-0 flex-col gap-[3px] overflow-hidden border-b border-e border-line p-1 transition-colors ${rowHeight ? 'min-h-0' : 'min-h-[7.5rem]'} ${outside ? 'bg-ground/60' : 'bg-surface'} ${isToday ? 'bg-brand/[0.06]' : ''} ${drop.over ? 'bg-brand/10 ring-2 ring-inset ring-brand/50' : ''}`}
     >
       {/* 24px tall (see lib/calendar-fit.ts). */}
       <div className="flex h-6 flex-none items-center justify-between ps-1">
@@ -111,7 +111,7 @@ function MonthCell({ cellKey, dayNumber, outside, p, rowHeight }: { cellKey: str
           {dayNumber}
         </button>
       </div>
-      <ul className="flex min-w-0 flex-col gap-0.5">
+      <ul className="flex min-w-0 flex-col gap-[3px]">
         {shownMeetings.map((m) => (
           <li key={m.key} className="min-w-0">
             <MeetingChip meeting={m} color={m.projectId ? p.colorOf(m.projectId) : undefined} />

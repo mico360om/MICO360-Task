@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chipSlots } from './calendar-fit';
+import { chipSlots, MONTH_CELL, MONTH_CELL_TOUCH } from './calendar-fit';
 
 // A month cell sized to the window: its day number on top, then one-line entries, and a
 // "+N more" line when they don't all fit. How many entries go in is worked out from the height.
@@ -39,5 +39,16 @@ describe('chipSlots', () => {
     expect(chipSlots(60, 1)).toBe(1);
     expect(chipSlots(60, 2)).toBe(0);
     expect(chipSlots(40, 1)).toBe(0);
+  });
+});
+
+describe('month cell sizes', () => {
+  // 22px entries 3px apart: each entry's 24px target circle clears its neighbours with room to spare,
+  // even when a cell sits on a fraction of a pixel (2px apart sat exactly on the limit).
+  it('keeps entries 3px apart', () => {
+    expect(MONTH_CELL.gap).toBe(3);
+    expect(MONTH_CELL.pitch).toBe(25);
+    expect(MONTH_CELL.chrome).toBe(36);
+    expect(MONTH_CELL_TOUCH.pitch).toBe(31);
   });
 });

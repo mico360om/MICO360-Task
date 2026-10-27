@@ -25,7 +25,7 @@ export const INSPECTION_FORMS_PATH = '/templates?tab=inspections';
 /** To the forms, for whoever can make them (administrators, and whoever runs a project). */
 function ManageFormsLink({ className = '' }: { className?: string }) {
   return (
-    <Link to={INSPECTION_FORMS_PATH} className={`inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-brand hover:underline sm:min-h-0 ${className}`}>
+    <Link to={INSPECTION_FORMS_PATH} className={`inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-brand hover:underline sm:min-h-0 [@media(pointer:coarse)]:!min-h-11 ${className}`}>
       Manage forms
     </Link>
   );

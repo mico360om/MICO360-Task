@@ -33,7 +33,7 @@ export function PeopleSection({ people, week, limit, onOpen }: { people: PersonR
   const who = (p: PersonRow) => (
     <span className="flex min-w-0 items-center gap-2">
       <Avatar name={p.name} src={p.avatarUrl} size="sm" />
-      <span className="min-w-0 truncate font-medium text-ink">
+      <span className="min-w-0 truncate font-medium text-ink" title={p.name}>
         <bdi>{p.name}</bdi>
       </span>
     </span>
@@ -62,10 +62,10 @@ export function PeopleSection({ people, week, limit, onOpen }: { people: PersonR
                     <td className="max-w-[16rem] px-2 py-2">{who(p)}</td>
                     <td className="px-2 py-1.5 text-center">{late(p)}</td>
                     <td className="px-2 py-1.5">
-                      <span className="flex items-center gap-2">{over(p)}{days(p)}</span>
+                      <span className="flex flex-wrap items-center gap-x-2 whitespace-nowrap">{over(p)}{days(p)}</span>
                     </td>
                     <td className="px-2 py-1.5">
-                      <span className="flex items-center gap-1">{actions(p)}{overdue(p)}</span>
+                      <span className="flex flex-wrap items-center gap-x-1 whitespace-nowrap">{actions(p)}{overdue(p)}</span>
                     </td>
                   </tr>
                 ))}

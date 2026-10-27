@@ -100,6 +100,30 @@ describe('Sidebar on a short screen', () => {
     expect(list.scrollTop).toBeGreaterThanOrEqual(156); // 656 - 500: the link's bottom edge reaches the list's
   });
 
+  it('scrolls again when a link appears above it later (Management, once access is known)', () => {
+    // The current link starts in view; the Management link then arrives and pushes it below the fold.
+    let linkTop = 440;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.classList.contains('overflow-y-auto')) return rect(64, 500);
+      if (this.getAttribute('aria-current') === 'page') return rect(linkTop, linkTop + 36);
+      return rect(0, 0);
+    };
+    const view = render(
+      <MemoryRouter initialEntries={['/activity']}>
+        <Sidebar isAdmin={false} canLead={false} />
+      </MemoryRouter>,
+    );
+    const list = screen.getByRole('link', { name: /activity/i }).closest('.overflow-y-auto')!;
+    expect(list.scrollTop).toBe(0);
+    linkTop = 480; // now 516 at the bottom, below the list's 500
+    view.rerender(
+      <MemoryRouter initialEntries={['/activity']}>
+        <Sidebar isAdmin={false} canLead />
+      </MemoryRouter>,
+    );
+    expect(list.scrollTop).toBeGreaterThanOrEqual(16);
+  });
+
   it('leaves the list alone when the current link is already visible', () => {
     Element.prototype.getBoundingClientRect = function (this: Element) {
       if (this.classList.contains('overflow-y-auto')) return rect(64, 500);

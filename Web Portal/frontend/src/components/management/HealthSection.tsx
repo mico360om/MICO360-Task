@@ -40,7 +40,7 @@ function Milestone({ row, onOpen, onOpenTask }: { row: HealthRow; onOpen: OpenLi
   return (
     <span className="block min-w-0">
       <button type="button" onClick={() => onOpenTask(m.id)} className={`block min-w-0 max-w-full text-start hover:underline ${TOUCH}`}>
-        <span className="block truncate font-medium text-ink">
+        <span className="block truncate font-medium text-ink" title={m.title}>
           <bdi>{m.title}</bdi>
         </span>
       </button>
@@ -122,7 +122,7 @@ export function HealthSection({
     <Link to={`/projects/${encodeURIComponent(r.id)}`} className={`flex min-w-0 items-center gap-2 hover:underline ${TOUCH}`}>
       <ProjectAvatar project={r} size="sm" />
       <span className="min-w-0">
-        <span className="line-clamp-2 font-semibold text-ink">
+        <span className="line-clamp-2 font-semibold text-ink" title={r.name}>
           <bdi>{r.name}</bdi>
         </span>
         <span className="block truncate text-xs text-ink-3">
