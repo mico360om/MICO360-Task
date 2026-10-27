@@ -109,7 +109,21 @@ export interface InspectionDetail extends InspectionListItem {
   signatureRoles: { allowed: SignatureRole[]; required: SignatureRole[] };
   /** Goes up with each reopen: a finish sends the revision its signers saw. */
   revision: number;
+  /** Its project is archived: read-only (a report shown to the client can still be taken off). */
+  projectArchived?: boolean;
+  /** The last reopen (null: never reopened). */
+  reopened?: { at: string; by: Person } | null;
+  /** Earlier signed revisions (a reopen took their signatures off), oldest first; numbered from 1. */
+  earlierRevisions?: EarlierRevision[];
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
+}
+
+export interface EarlierRevision {
+  /** As people count them: the first signing is 1. */
+  number: number;
+  /** When a reopen took these signatures off. */
+  reopenedAt: string;
+  signatures: Array<{ role: SignatureRole; name: string; method: 'DRAWN' | 'TYPED'; signedAt: string }>;
 }
 
 /** One answer as a device sends it: the time it was changed there decides which edit wins. */
@@ -152,15 +166,25 @@ export interface FollowUpResult {
   task: { id: string; key: string; title: string } | null;
 }
 
-export interface ClientInspection {
+/** A shown report as the client's page lists it (the rest is read when it is opened). */
+export interface ClientInspectionSummary {
   id: string;
   title: string;
+  /** The day it was finished ('YYYY-MM-DD', company time zone). */
   date: string;
   place: string | null;
   counts: { total: number; passed: number; failed: number; na: number };
   result: string;
+  /** Which signing this is, counted from 1 (a reopen and a new signing make it 2). */
+  revisionNumber: number;
+  /** The day it was last reopened ('YYYY-MM-DD'); null if never. */
+  reopenedOn: string | null;
+}
+
+export interface ClientInspection extends ClientInspectionSummary {
   sections: Array<{ title: string; items: Array<{ label: string; kind: 'CHECK' | 'READING'; result: string | null; reading: string | null; limits: string | null; note: string | null }> }>;
-  signatures: Array<{ role: string; name: string; signedAt: string; image: string | null; typed: boolean }>;
+  /** `signedOn`: when, in words, in the company's time zone (as the PDF says it). */
+  signatures: Array<{ role: string; name: string; signedAt: string; signedOn: string; image: string | null; typed: boolean }>;
   unsigned: string[];
 }
 

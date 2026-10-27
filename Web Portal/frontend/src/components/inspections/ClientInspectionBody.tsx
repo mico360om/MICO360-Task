@@ -1,4 +1,4 @@
-import type { ClientInspection } from '../../api/inspections';
+import type { ClientInspection, ClientInspectionSummary } from '../../api/inspections';
 import { highlightNames } from '../../lib/name-highlight';
 
 /** Text with the names of the project's people marked (only the staff preview passes names). */
@@ -23,6 +23,19 @@ const when = (iso: string) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "2026-10-27" → "27 Oct 2026" (the day as given, never shifted by the device's zone). */
+function dayKeyText(key: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(key);
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : '';
+}
+
+/** "Revision 2 · reopened on 27 Oct 2026" for a report reopened and signed again; null for a first signing. */
+export function revisionLine(x: Pick<ClientInspectionSummary, 'revisionNumber' | 'reopenedOn'>): string | null {
+  if (!x.revisionNumber || x.revisionNumber < 2) return null;
+  return `Revision ${x.revisionNumber}${x.reopenedOn ? ` · reopened on ${dayKeyText(x.reopenedOn)}` : ''}`;
+}
+
 /**
  * A finished inspection's client copy, as the client's page shows it and as the staff preview shows it
  * before ticking "Show to client": the result, the failed items, every section's items, the
@@ -30,10 +43,12 @@ const when = (iso: string) => {
  * the project's people are highlighted in the notes when `names` are given (the staff preview).
  * No staff API here: the client's page uses it too.
  */
-export function ClientInspectionBody({ inspection: x, names = [] }: { inspection: ClientInspection; names?: string[] }) {
+export function ClientInspectionBody({ inspection: x, names = [], showRevision = true }: { inspection: ClientInspection; names?: string[]; /** False where the heading above already says it. */ showRevision?: boolean }) {
   const failed = x.sections.flatMap((s) => s.items.filter((i) => i.result === 'Fail').map((i) => ({ ...i, section: s.title })));
+  const revision = showRevision ? revisionLine(x) : null;
   return (
     <div className="flex flex-col gap-3">
+      {revision ? <p className="text-xs font-semibold text-ink-2">{revision}</p> : null}
       <p className="text-sm text-ink">
         <span className={`font-semibold ${x.counts.failed ? 'text-danger' : 'text-success'}`}>{x.result}</span>
         {/* The result already says how many failed: the rest of the count, without saying it twice. */}
@@ -92,7 +107,7 @@ export function ClientInspectionBody({ inspection: x, names = [] }: { inspection
               <p className="mt-1 text-xs text-ink">
                 <span className="font-semibold">{s.role}:</span> <span dir="auto">{s.name}</span>
               </p>
-              <p className="text-xs text-ink-2">Signed {when(s.signedAt)}{s.typed ? ' · typed name' : ''}</p>
+              <p className="text-xs text-ink-2">Signed {s.signedOn || when(s.signedAt)}{s.typed ? ' · typed name' : ''}</p>
             </li>
           ))}
           {x.unsigned.map((role) => (

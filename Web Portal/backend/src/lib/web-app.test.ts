@@ -46,6 +46,8 @@ describe('cacheControlFor', () => {
   it('caches hashed assets for a year and revalidates everything else', () => {
     expect(cacheControlFor('/assets/index-abc123.js')).toBe('public, max-age=31536000, immutable');
     expect(cacheControlFor('/favicon.ico')).toBe('no-cache');
+    // The service worker must be checked on every visit (a new one, or its kill switch, is picked up at once).
+    expect(cacheControlFor('/sw.js')).toBe('no-cache');
   });
 });
 

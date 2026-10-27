@@ -1339,6 +1339,9 @@ model Inspection {
   finishId               String?               @db.VarChar(64)
   /// Goes up with each reopen: a finish signed before a reopen (a reply lost, then sent again) is refused.
   revision               Int                   @default(0)
+  /// The last reopen: when, and who (the staff report says so; the client's copy says only when).
+  reopenedAt             DateTime?
+  reopenedById           String?
   /// Counts as of finishing (and kept up to date while in progress), for lists.
   itemCount              Int                   @default(0)
   passedCount            Int                   @default(0)
@@ -1386,7 +1389,8 @@ model InspectionAnswer {
 }
 
 /// A signature on a finished inspection: drawn (a PNG) or typed (the name alone), with the signer's
-/// typed name and when they signed. Written only together with finishing, removed only by a reopen.
+/// typed name and when they signed. Written only together with finishing; a reopen marks it superseded
+/// (kept, and listed on the staff report as an earlier signed revision).
 model InspectionSignature {
   id           String     @id @default(cuid())
   inspectionId String
@@ -1399,10 +1403,13 @@ model InspectionSignature {
   signedAt     DateTime
   /// The staff member whose device took it.
   capturedById String
+  /// The inspection's revision it signed; a reopen keeps it, marked superseded (an earlier signed revision).
+  revision     Int        @default(0)
+  supersededAt DateTime?
   createdAt    DateTime   @default(now())
   inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
-  @@unique([inspectionId, role])
+  @@unique([inspectionId, revision, role])
   @@map("inspection_signatures")
 }
 

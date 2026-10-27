@@ -19,6 +19,12 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// Signed out on purpose: what was held only in this page (the phone's storage was full) goes with
+// the person (their stored records are removed by the sign-out itself). An expired session keeps it.
+useAuthStore.subscribe((state, prev) => {
+  if (prev.user && !state.user && state.endedBy === 'user') inspectionOutbox.forgetUnsaved(prev.user.id);
+});
+
 let version = 0;
 inspectionOutbox.subscribe(() => {
   version += 1;
@@ -51,17 +57,23 @@ export function useInspectionDraft(inspectionId: string | undefined) {
   const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const send = useCallback(async (): Promise<FlushState> => {
-    if (!ownerId || !inspectionId) return 'sent';
-    setSync('sending');
-    const before = inspectionOutbox.view(ownerId, inspectionId);
-    const { state } = await inspectionOutbox.flush(ownerId, inspectionId);
-    setSync(state === 'sent' ? 'idle' : state);
-    if (state === 'offline') setOnline(false);
-    else setOnline(true);
-    if (state === 'sent' || state === 'problem') refreshInspectionQueries(qc, inspectionId, before?.projectId);
-    return state;
-  }, [ownerId, inspectionId, qc]);
+  /** Sends what waits; `force` tries at once even while waiting after a failure (back online, "Try now"). */
+  const send = useCallback(
+    async (opts: { force?: boolean } = {}): Promise<FlushState> => {
+      if (!ownerId || !inspectionId) return 'sent';
+      const before = inspectionOutbox.view(ownerId, inspectionId);
+      const waitingAfterFailure = !opts.force && !!before?.retryAt && Date.parse(before.retryAt) > Date.now();
+      if (!waitingAfterFailure) setSync('sending');
+      const { state } = await inspectionOutbox.flush(ownerId, inspectionId, opts);
+      setSync(state === 'sent' ? 'idle' : state);
+      // No signal is the device's; a server that can't be reached or is in trouble isn't.
+      if (state === 'offline') setOnline(false);
+      else if (state !== 'unreachable' && state !== 'retry') setOnline(true);
+      if (state === 'sent' || state === 'problem') refreshInspectionQueries(qc, inspectionId, before?.projectId);
+      return state;
+    },
+    [ownerId, inspectionId, qc],
+  );
 
   const sendSoon = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -77,7 +89,7 @@ export function useInspectionDraft(inspectionId: string | undefined) {
   useEffect(() => {
     const goOnline = () => {
       setOnline(true);
-      void send();
+      void send({ force: true });
     };
     const goOffline = () => setOnline(false);
     const shown = () => document.visibilityState === 'visible' && void send();
@@ -113,21 +125,22 @@ export function useInspectionOutboxSync(): void {
   useEffect(() => {
     if (!ownerId) return;
     let stopped = false;
-    const flush = async () => {
+    const flush = async (force = false) => {
       if (stopped || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
       const before = inspectionOutbox.waiting(ownerId);
       if (!before.length) return;
-      const r = await inspectionOutbox.flushAll(ownerId);
+      const r = await inspectionOutbox.flushAll(ownerId, { force });
       if (r.sent > 0) for (const w of before) refreshInspectionQueries(qc, w.inspectionId, w.projectId);
     };
     const shown = () => document.visibilityState === 'visible' && void flush();
+    const backOnline = () => void flush(true);
     void flush();
-    window.addEventListener('online', flush);
+    window.addEventListener('online', backOnline);
     document.addEventListener('visibilitychange', shown);
     const every = setInterval(() => void flush(), 60_000);
     return () => {
       stopped = true;
-      window.removeEventListener('online', flush);
+      window.removeEventListener('online', backOnline);
       document.removeEventListener('visibilitychange', shown);
       clearInterval(every);
     };

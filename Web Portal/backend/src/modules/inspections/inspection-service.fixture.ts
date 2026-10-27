@@ -37,6 +37,8 @@ export interface Fixture {
   failTaskNumber: { n: number };
   /** How many signatures were cleaned (drawn ones go through the picture library). */
   cleaned: { count: number };
+  /** How the picture library treats a drawn signature: re-draws it, can't read it, or isn't there. */
+  cleanMode: { value: 'ok' | 'unreadable' | 'unavailable' };
   addTask(projectId: string, title?: string): FakeTask;
 }
 
@@ -65,6 +67,7 @@ export function makeFixture(): Fixture {
   const failNextTask = { yes: false };
   const failTaskNumber = { n: 0 };
   const cleaned = { count: 0 };
+  const cleanMode: Fixture['cleanMode'] = { value: 'ok' };
   let n = 0;
   const addTask = (projectId: string, title = 'Inspect rig 3'): FakeTask => {
     const t: FakeTask = { id: `t${++n}`, key: `RIG-${n}`, title, projectId, description: null, assigneeIds: [], createdById: PEOPLE.owner, done: false, deleted: false };
@@ -121,11 +124,12 @@ export function makeFixture(): Fixture {
     audit: { record: async (e) => void audit.push({ userId: e.userId ?? null, action: e.action, module: e.module, entityId: e.entityId, newValue: e.newValue }) },
     cleanSignature: async (png) => {
       cleaned.count += 1;
-      return png;
+      if (cleanMode.value === 'unreadable') throw new Error('Input buffer contains unsupported image format');
+      return cleanMode.value === 'unavailable' ? null : png;
     },
   };
   const service = createInspectionService({ store, ports, now: () => now.at, newId: (() => { let k = 0; return () => `id${++k}`; })() });
-  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, addTask };
+  return { service, store, tasks, activity, audit, projects, now, gate, failNextTask, failTaskNumber, cleaned, cleanMode, addTask };
 }
 
 /** A form body: a reading with limits and two checks over two sections. */

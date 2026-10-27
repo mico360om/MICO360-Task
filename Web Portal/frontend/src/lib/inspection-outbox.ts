@@ -33,8 +33,9 @@ export interface DraftStorage {
 }
 
 const PREFIX = 'mico360.inspection.';
-/** Server errors in a row before a send is shown as a problem (the person may then try again or throw it away). */
-const MAX_RETRIES = 6;
+/** Waits between tries after a failed send: 5 s, doubling each time, at most 5 minutes. */
+const FIRST_WAIT_MS = 5_000;
+const LONGEST_WAIT_MS = 5 * 60_000;
 /** A problem that holds every send back (the answers were refused). */
 const blocks = (d: { problem: OutboxProblem | null }) => d.problem?.stage === 'answers';
 const keyOf = (ownerId: string, inspectionId: string) => `${PREFIX}${ownerId}.${inspectionId}`;
@@ -136,12 +137,26 @@ interface Draft {
   finish: QueuedFinish | null;
   followUps: Record<string, { assigneeId?: string | null; queuedAt: string }>;
   problem: OutboxProblem | null;
-  /** Server errors in a row (they become a problem after a few, instead of trying for ever). */
-  retries?: number;
+  /** Sends that failed for a reason that passes (no signal, the server unreachable or in trouble), in a row. */
+  failures?: number;
+  /** Not tried again before this (it waits longer after each failure, up to 5 minutes). */
+  retryAt?: string | null;
+  /** Why the last send failed, while it waits. */
+  lastFailure?: TransientState | null;
   /** A finish sent from here went through: its attached task, offered to be marked done (until answered). */
   finishedOffer?: InspectionDetail['taskOffer'] | null;
+  /** What became of the follow-up tasks asked for here, item by item (until the page has said so). */
+  followUpReport?: FollowUpOutcome[] | null;
   savedAt: string;
   sentAt: string | null;
+}
+
+/** One item's follow-up request, as the server answered it. */
+export interface FollowUpOutcome {
+  itemId: string;
+  /** created: made now · exists: it already had one · pending: another request is making it · not-failed: it no longer fails. */
+  status: FollowUpResult['status'];
+  taskKey: string | null;
 }
 
 export interface DraftView {
@@ -161,12 +176,21 @@ export interface DraftView {
   persisted: boolean;
   /** Signed and waiting to finish: no more answers until it is sent or taken back. */
   locked: boolean;
+  /** After a failed send: when it is tried again (null: not waiting). */
+  retryAt: string | null;
+  lastFailure: TransientState | null;
   finishedOffer: InspectionDetail['taskOffer'] | null;
+  followUpReport: FollowUpOutcome[] | null;
   savedAt: string;
   sentAt: string | null;
 }
 
-export type FlushState = 'sent' | 'offline' | 'signed-out' | 'retry' | 'problem';
+/**
+ * sent: nothing waits. offline: no signal. unreachable: the server can't be reached (502/503/504).
+ * retry: the server had trouble (5xx, 429). signed-out: sign in again. problem: refused (see `problem`).
+ */
+export type FlushState = 'sent' | 'offline' | 'unreachable' | 'retry' | 'signed-out' | 'problem';
+type TransientState = 'offline' | 'unreachable' | 'retry';
 
 export interface WaitingInspection {
   inspectionId: string;
@@ -206,7 +230,10 @@ export function detailView(detail: InspectionDetail): DraftView {
     problem: null,
     persisted: true,
     locked: false,
+    retryAt: null,
+    lastFailure: null,
     finishedOffer: null,
+    followUpReport: null,
     savedAt: '',
     sentAt: null,
   };
@@ -245,6 +272,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
   }
 
   const hasWork = (d: Draft) => Object.keys(d.answers).length > 0 || d.finish !== null || Object.keys(d.followUps).length > 0;
+  /** Something the person still has to see or answer (a problem, the task offer, a follow-up report). */
+  const hasNews = (d: Draft) => !!d.problem || !!d.finishedOffer || !!d.followUpReport?.length;
 
   /** Other records of this person with nothing waiting: kept only so an inspection opens without signal. */
   function makeRoom(ownerId: string, keep: string): void {
@@ -252,7 +281,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       if (!key.startsWith(ownerPrefix(ownerId)) || key === keep) continue;
       try {
         const d = JSON.parse(storage.get(key) ?? 'null') as Draft | null;
-        if (d && !hasWork(d) && !d.problem && !d.finishedOffer) storage.remove(key);
+        if (d && !hasWork(d) && !hasNews(d)) storage.remove(key);
       } catch {
         storage.remove(key);
       }
@@ -336,48 +365,57 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       problem: d.problem,
       persisted: !unsaved.has(keyOf(d.ownerId, d.inspectionId)),
       locked: d.finish !== null,
+      retryAt: d.retryAt ?? null,
+      lastFailure: d.lastFailure ?? null,
       finishedOffer: d.finishedOffer ?? null,
+      followUpReport: d.followUpReport?.length ? d.followUpReport : null,
       savedAt: d.savedAt,
       sentAt: d.sentAt,
     };
   }
 
-  /** Records a refusal (or a pause): what flush() answers. */
   /**
    * Records a refusal (or a pause): what flush() answers. A refused follow-up request is dropped and
    * a refused finish is dropped (its signers sign again): each leaves a note, and neither holds the
    * answers back. A refusal of the answers stops everything until the person decides.
    */
   function failed(ownerId: string, inspectionId: string, e: unknown, stage: OutboxProblem['stage'], itemIds: string[] = []): { state: FlushState } {
-    if (!(e instanceof ApiError)) return { state: 'offline' };
-    if (e.status === 401) return { state: 'signed-out' };
+    if (e instanceof ApiError && e.status === 401) return { state: 'signed-out' };
+    // Reasons that pass: kept as they are and tried again later, waiting longer each time. They
+    // never become a problem, and never stop anyone answering.
+    const passing: TransientState | null = !(e instanceof ApiError)
+      ? 'offline'
+      : e.status === 502 || e.status === 503 || e.status === 504
+        ? 'unreachable'
+        : e.status === 408 || e.status === 429 || e.status >= 500 || e.code === 'IDEMPOTENCY_IN_PROGRESS'
+          ? 'retry'
+          : null;
     const d = read(ownerId, inspectionId);
-    if (e.status === 408 || e.status === 429 || e.status >= 500 || e.code === 'IDEMPOTENCY_IN_PROGRESS') {
-      if (!d) return { state: 'retry' };
-      d.retries = (d.retries ?? 0) + 1;
-      if (d.retries < MAX_RETRIES) {
+    if (passing) {
+      if (d) {
+        d.failures = (d.failures ?? 0) + 1;
+        d.retryAt = new Date(now().getTime() + Math.min(LONGEST_WAIT_MS, FIRST_WAIT_MS * 2 ** (d.failures - 1))).toISOString();
+        d.lastFailure = passing;
         save(d);
-        return { state: 'retry' };
       }
-      d.retries = 0;
-      d.problem = { code: 'SERVER_ERROR', message: 'The server keeps failing to take these changes. Try again later, or throw them away.', stage: 'answers', at: isoNow(now) };
-      save(d);
-      return { state: 'problem' };
+      return { state: passing };
     }
+    const refused = e as ApiError;
     if (d) {
-      d.problem = { code: e.code, message: problemWords(e, stage), stage, at: isoNow(now) };
+      d.problem = { code: refused.code, message: problemWords(refused, stage), stage, at: isoNow(now) };
       // Signatures were given for answers that the server now holds differently: they sign again.
       if (stage === 'finish') d.finish = null;
       if (stage === 'follow-ups') for (const itemId of itemIds) delete d.followUps[itemId];
-      d.retries = 0;
       save(d);
     }
     return { state: 'problem' };
   }
 
-  /** A send went through: server errors in a row start counting afresh. */
+  /** A send went through: the waits start afresh. */
   function succeeded(d: Draft): void {
-    d.retries = 0;
+    d.failures = 0;
+    d.retryAt = null;
+    d.lastFailure = null;
     d.sentAt = isoNow(now);
   }
 
@@ -417,8 +455,9 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       groups.set(k, g);
     }
     for (const g of groups.values()) {
+      let results: FollowUpResult[];
       try {
-        await api.makeFollowUps(inspectionId, g);
+        results = await api.makeFollowUps(inspectionId, g);
       } catch (e) {
         const out = failed(ownerId, inspectionId, e, 'follow-ups', g.itemIds);
         if (out.state === 'problem' && read(ownerId, inspectionId)?.problem?.stage === 'follow-ups') continue; // dropped with a note
@@ -427,6 +466,9 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       const after = read(ownerId, inspectionId);
       if (!after) return null;
       for (const itemId of g.itemIds) delete after.followUps[itemId];
+      const told = new Map((after.followUpReport ?? []).map((r) => [r.itemId, r]));
+      for (const r of results) told.set(r.itemId, { itemId: r.itemId, status: r.status, taskKey: r.task?.key ?? null });
+      after.followUpReport = [...told.values()];
       succeeded(after);
       save(after);
     }
@@ -469,9 +511,11 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     return null;
   }
 
-  async function run(ownerId: string, inspectionId: string): Promise<{ state: FlushState }> {
+  async function run(ownerId: string, inspectionId: string, force: boolean): Promise<{ state: FlushState }> {
     const d = read(ownerId, inspectionId);
     if (!d) return { state: 'sent' };
+    // Waiting after a failed send (unless asked to try now: back online, "Try now").
+    if (!force && d.retryAt && Date.parse(d.retryAt) > now().getTime() && hasWork(d)) return { state: d.lastFailure ?? 'retry' };
     // Only a refusal of the answers holds everything back (the rest would be refused the same way).
     if (blocks(d)) return { state: 'problem' };
     for (const step of [sendAnswers, sendFollowUps, sendFinish]) {
@@ -502,7 +546,10 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
      * waiting changes stay over it — except those the server already has (as new, or newer).
      */
     remember(ownerId: string, detail: InspectionDetail): void {
-      const d: Draft = read(ownerId, detail.id) ?? fresh(ownerId, detail);
+      const had = read(ownerId, detail.id);
+      // On a shared computer nothing is left behind for someone who only looked at it.
+      if (!had && !detail.permissions.canAnswer) return;
+      const d: Draft = had ?? fresh(ownerId, detail);
       const server = new Map(detail.answers.map((a) => [a.itemId, a.editedAt]));
       for (const [itemId, w] of Object.entries(d.answers)) {
         const at = server.get(itemId);
@@ -518,7 +565,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       d.snapshot = { ...detail, answers: [...known.values()] };
       d.title = detail.title;
       d.projectId = detail.projectId;
-      if (detail.status === 'FINISHED' && !hasWork(d) && !d.problem && !d.finishedOffer) {
+      if (detail.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
         if (read(ownerId, detail.id)) {
           remove(ownerId, detail.id);
           notify();
@@ -531,6 +578,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     /** One answer changed on this device, worked out as the server will. */
     saveAnswer(ownerId: string, inspectionId: string, value: Content & { itemId: string }): { persisted: boolean } {
       const d = mustRead(ownerId, inspectionId);
+      // Signed (perhaps in another tab): changing an answer now would make the signatures wrong.
+      if (d.finish) throw new Error('This inspection is signed and waiting to finish, so its answers can’t change. Choose “Take the signatures back” first.');
       const item = itemsOf(d.snapshot.structure).find((i) => i.id === value.itemId);
       if (!item) throw new Error('That item isn’t on this inspection.');
       let reading: string | null = null;
@@ -584,6 +633,13 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       save(d);
     },
 
+    /** Signed out: changes held only in this page (the phone's storage was full) go with the person. */
+    forgetUnsaved(ownerId: string): void {
+      let gone = 0;
+      for (const key of [...unsaved.keys()]) if (key.startsWith(ownerPrefix(ownerId))) gone += unsaved.delete(key) ? 1 : 0;
+      if (gone) notify();
+    },
+
     /** Throws away what is saved on this device for the inspection. */
     discard(ownerId: string, inspectionId: string): void {
       remove(ownerId, inspectionId);
@@ -595,18 +651,29 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       const d = read(ownerId, inspectionId);
       if (!d) return;
       d.finishedOffer = null;
-      if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !d.problem) {
+      if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
+        remove(ownerId, inspectionId);
+        notify();
+      } else save(d);
+    },
+
+    /** The page has said what became of the follow-up tasks. */
+    ackFollowUpReport(ownerId: string, inspectionId: string): void {
+      const d = read(ownerId, inspectionId);
+      if (!d?.followUpReport) return;
+      d.followUpReport = null;
+      if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
         remove(ownerId, inspectionId);
         notify();
       } else save(d);
     },
 
     /** Sends what waits for one inspection (one send at a time per inspection). */
-    flush(ownerId: string, inspectionId: string): Promise<{ state: FlushState }> {
+    flush(ownerId: string, inspectionId: string, opts: { force?: boolean } = {}): Promise<{ state: FlushState }> {
       const key = keyOf(ownerId, inspectionId);
       const going = flights.get(key);
       if (going) return going;
-      const p = run(ownerId, inspectionId).finally(() => flights.delete(key));
+      const p = run(ownerId, inspectionId, opts.force === true).finally(() => flights.delete(key));
       flights.set(key, p);
       return p;
     },
@@ -626,13 +693,13 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     },
 
     /** Sends everything the person has waiting (on load, when back online, after signing in). */
-    async flushAll(ownerId: string): Promise<{ sent: number; waiting: number }> {
+    async flushAll(ownerId: string, opts: { force?: boolean } = {}): Promise<{ sent: number; waiting: number }> {
       let sent = 0;
       for (const w of this.waiting(ownerId)) {
         if (w.problem?.stage === 'answers') continue;
-        const r = await this.flush(ownerId, w.inspectionId);
+        const r = await this.flush(ownerId, w.inspectionId, opts);
         if (r.state === 'sent') sent += 1;
-        if (r.state === 'offline' || r.state === 'signed-out') break;
+        if (r.state === 'offline' || r.state === 'unreachable' || r.state === 'signed-out') break;
       }
       return { sent, waiting: this.waiting(ownerId).length };
     },

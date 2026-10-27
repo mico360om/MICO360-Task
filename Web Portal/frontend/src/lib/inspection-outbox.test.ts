@@ -214,7 +214,7 @@ describe('sending', () => {
     };
     expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'offline' });
     server.api.answer = answer;
-    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'sent' });
+    expect(await outbox.flush(OWNER, 'i1', { force: true })).toEqual({ state: 'sent' });
     expect(server.stored.size).toBe(1);
   });
 
@@ -235,12 +235,17 @@ describe('sending', () => {
     expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'sent' });
   });
 
-  it('server trouble: keeps everything to try again later', async () => {
+  it('a server it can’t reach (502, 503, 504) is like no signal: everything is kept and tried again later', async () => {
     outbox.remember(OWNER, detail());
     outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
-    server.failWith(() => new ApiError(503, 'INTERNAL', 'Something went wrong.'));
-    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'retry' });
+    for (const status of [502, 503, 504]) {
+      server.failWith(() => new ApiError(status, 'BAD_GATEWAY', 'Bad gateway'));
+      expect(await outbox.flush(OWNER, 'i1', { force: true })).toEqual({ state: 'unreachable' });
+    }
     expect(outbox.view(OWNER, 'i1')!.pending.answers).toBe(1);
+    expect(outbox.view(OWNER, 'i1')!.problem).toBeNull();
+    server.failWith(() => new ApiError(500, 'INTERNAL', 'Something went wrong.'));
+    expect(await outbox.flush(OWNER, 'i1', { force: true })).toEqual({ state: 'retry' });
     expect(outbox.view(OWNER, 'i1')!.problem).toBeNull();
   });
 
@@ -330,7 +335,7 @@ describe('finishing without signal', () => {
     server.failWith((kind) => (kind === 'finish' ? offline() : null));
     expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'offline' });
     server.failWith(null);
-    await outbox.flush(OWNER, 'i1');
+    await outbox.flush(OWNER, 'i1', { force: true });
     const ids = server.calls.filter((c) => c.kind === 'finish').map((c) => (c.body as { finishId: string }).finishId);
     expect(ids).toEqual(['finish-1', 'finish-1']);
   });
@@ -429,9 +434,33 @@ describe('follow-ups on a finished inspection (no record kept on the phone)', ()
     await outbox.flush(OWNER, 'i1');
     expect(server.calls.map((c) => c.kind)).toEqual(['follow-ups']);
     expect(outbox.view(OWNER, 'i1')!.pending.followUps).toBe(0);
-    // Read again from the server: nothing waits, so nothing is kept.
+    // What happened is kept until the page has said so…
+    outbox.remember(OWNER, finished);
+    expect(outbox.view(OWNER, 'i1')!.followUpReport).toEqual([{ itemId: 'r', status: 'created', taskKey: 'RIG-r' }]);
+    outbox.ackFollowUpReport(OWNER, 'i1');
+    // …then, read again from the server: nothing waits, so nothing is kept.
     outbox.remember(OWNER, finished);
     expect(outbox.draft(OWNER, 'i1')).toBeNull();
+  });
+
+  it('says what happened to each item: made, already had one, being made, or no longer failed', async () => {
+    const finished = detail({ status: 'FINISHED' });
+    server.api.makeFollowUps = async (_id, input) => {
+      server.calls.push({ kind: 'follow-ups', body: input });
+      const word = { p: 'created', v: 'exists', r: 'not-failed' } as const;
+      return input.itemIds.map((itemId) => ({
+        itemId,
+        status: word[itemId as keyof typeof word],
+        task: itemId === 'r' ? null : { id: `t-${itemId}`, key: `RIG-${itemId}`, title: 'Follow up' },
+      }));
+    };
+    outbox.queueFollowUps(OWNER, 'i1', ['p', 'v', 'r'], undefined, finished);
+    await outbox.flush(OWNER, 'i1');
+    expect(outbox.view(OWNER, 'i1')!.followUpReport).toEqual([
+      { itemId: 'p', status: 'created', taskKey: 'RIG-p' },
+      { itemId: 'v', status: 'exists', taskKey: 'RIG-v' },
+      { itemId: 'r', status: 'not-failed', taskKey: null },
+    ]);
   });
 });
 
@@ -487,18 +516,51 @@ describe('review fixes', () => {
     expect(outbox.view(OWNER, 'i1')!.answers[0]).toMatchObject({ result: 'PASS' });
   });
 
-  it('server errors that never stop become a problem to look at (not an endless "trying again")', async () => {
+  it('six 502s in a row: answering still works, the sends wait longer each time (up to 5 minutes), then it all goes', async () => {
     outbox.remember(OWNER, detail());
     outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
-    server.failWith(() => new ApiError(500, 'INTERNAL', 'Something went wrong.'));
-    for (let i = 0; i < 5; i++) expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'retry' });
-    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'problem' });
-    expect(outbox.view(OWNER, 'i1')!.problem).toMatchObject({ code: 'SERVER_ERROR', stage: 'answers' });
-    expect(outbox.view(OWNER, 'i1')!.pending.answers).toBe(1);
-    // "Try again" starts the count afresh.
-    outbox.clearProblem(OWNER, 'i1');
+    server.failWith(() => new ApiError(502, 'BAD_GATEWAY', 'Bad gateway'));
+    const waits: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'unreachable' });
+      const v = outbox.view(OWNER, 'i1')!;
+      expect(v.problem).toBeNull();
+      waits.push(Date.parse(v.retryAt!) - clock);
+      // Answering is never locked by server trouble.
+      expect(outbox.saveAnswer(OWNER, 'i1', { itemId: 'r', result: i % 2 ? 'PASS' : 'FAIL', reading: null, note: null })).toEqual({ persisted: true });
+      // Before its time, a send doesn't go (no hammering)…
+      expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'unreachable' });
+      tick(waits.at(-1)! + 1);
+    }
+    expect(waits).toEqual([5_000, 10_000, 20_000, 40_000, 80_000, 160_000]);
+    expect(server.calls.filter((c) => c.kind === 'answer')).toHaveLength(6);
     server.failWith(null);
     expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'sent' });
+    expect(server.stored.get('v')).toBeTruthy();
+    expect(server.stored.get('r')).toMatchObject({ result: 'PASS' });
+    expect(outbox.view(OWNER, 'i1')!.retryAt).toBeNull();
+  });
+
+  it('waits at most 5 minutes between tries, and coming back online tries at once', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    server.failWith(() => offline());
+    for (let i = 0; i < 9; i++) {
+      await outbox.flush(OWNER, 'i1', { force: true });
+    }
+    expect(Date.parse(outbox.view(OWNER, 'i1')!.retryAt!) - clock).toBe(300_000);
+    server.failWith(null);
+    expect(await outbox.flush(OWNER, 'i1', { force: true })).toEqual({ state: 'sent' });
+  });
+
+  it('a real refusal after server trouble is a problem of its own stage', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.queueFollowUps(OWNER, 'i1', ['r'], 'u-gone');
+    server.failWith(() => new ApiError(503, 'UNAVAILABLE', 'Down'));
+    await outbox.flush(OWNER, 'i1');
+    server.failWith((kind) => (kind === 'follow-ups' ? new ApiError(400, 'VALIDATION', 'Only active members of the project can be assigned.') : null));
+    await outbox.flush(OWNER, 'i1', { force: true });
+    expect(outbox.view(OWNER, 'i1')!.problem).toMatchObject({ stage: 'follow-ups', code: 'VALIDATION' });
   });
 
   it('signing out on purpose removes that person’s records (and only theirs)', () => {
@@ -508,5 +570,41 @@ describe('review fixes', () => {
     expect(removeOwnerRecords(storage, OWNER)).toBe(1);
     expect(outbox.draft(OWNER, 'i1')).toBeNull();
     expect(outbox.draft('u-other', 'i9')).not.toBeNull();
+  });
+});
+
+describe('shared devices', () => {
+  it('keeps a copy only for someone who can answer it (a team member just looking leaves nothing)', () => {
+    outbox.remember(OWNER, detail({ permissions: { ...detail().permissions, canAnswer: false } }));
+    expect(outbox.draft(OWNER, 'i1')).toBeNull();
+    outbox.remember(OWNER, detail());
+    expect(outbox.draft(OWNER, 'i1')).not.toBeNull();
+    // Once there is a record (it was theirs, or they asked for follow-ups), it is kept up to date.
+    outbox.remember(OWNER, detail({ title: 'Renamed', permissions: { ...detail().permissions, canAnswer: false } }));
+    expect(outbox.draft(OWNER, 'i1')!.title).toBe('Renamed');
+  });
+
+  it('forgets changes held only in the page (storage full) when the person signs out', () => {
+    outbox.remember(OWNER, detail());
+    storage.full = true;
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    expect(outbox.view(OWNER, 'i1')!.persisted).toBe(false);
+    outbox.forgetUnsaved(OWNER);
+    storage.full = false;
+    // What was stored stays (signing out with the warning accepted clears that too); the change held in the page is gone.
+    expect(outbox.draft(OWNER, 'i1')!.answers.v).toBeUndefined();
+    expect(outbox.view(OWNER, 'i1')!.persisted).toBe(true);
+  });
+});
+
+describe('a second tab', () => {
+  it('can’t change an answer while a finish signed in another tab waits (the signatures stay good)', () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    outbox.queueFinish(OWNER, 'i1', [{ role: 'INSPECTOR', name: 'Ivan', method: 'TYPED', signedAt: '2026-10-27T08:20:00.000Z' }]);
+    const otherTab = createInspectionOutbox({ storage, api: server.api, now: () => new Date(clock) });
+    expect(() => otherTab.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'FAIL', reading: null, note: null })).toThrow(/signed and waiting to finish/);
+    expect(outbox.draft(OWNER, 'i1')!.finish).not.toBeNull();
+    expect(outbox.draft(OWNER, 'i1')!.answers.v).toMatchObject({ result: 'PASS' });
   });
 });

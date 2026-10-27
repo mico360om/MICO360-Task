@@ -119,3 +119,24 @@ export function problemText(err: unknown, fallback: string): string {
   const m = err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : '';
   return m && !/^Request failed/.test(m) && !/Failed to fetch|NetworkError|Network request failed/i.test(m) ? m : fallback;
 }
+
+/** What became of follow-up tasks asked for, item by item, in the form's order. */
+export function followUpNotice(report: Array<{ itemId: string; status: 'created' | 'exists' | 'pending' | 'not-failed'; taskKey: string | null }>, order: Array<{ id: string; label: string }>): string {
+  const at = new Map(order.map((i, n) => [i.id, n]));
+  const sorted = [...report].sort((a, b) => (at.get(a.itemId) ?? 1e9) - (at.get(b.itemId) ?? 1e9));
+  if (!sorted.length) return '';
+  if (sorted.every((r) => r.status === 'created')) {
+    const keys = sorted.map((r) => r.taskKey).filter(Boolean).join(', ');
+    return sorted.length === 1 ? `Follow-up task made${keys ? `: ${keys}` : ''}.` : `${sorted.length} follow-up tasks made${keys ? `: ${keys}` : ''}.`;
+  }
+  const label = (id: string) => order.find((i) => i.id === id)?.label ?? 'An item';
+  const what = (r: (typeof sorted)[number]) =>
+    r.status === 'created'
+      ? `made${r.taskKey ? ` (${r.taskKey})` : ''}`
+      : r.status === 'exists'
+        ? `already had one${r.taskKey ? ` (${r.taskKey})` : ''}`
+        : r.status === 'pending'
+          ? 'already being made'
+          : 'not made, it no longer fails';
+  return `Follow-up tasks: ${sorted.map((r) => `${label(r.itemId)}: ${what(r)}.`).join(' ')}`;
+}

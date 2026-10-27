@@ -40,17 +40,7 @@ function input(over: Partial<ClientViewInput> = {}): ClientViewInput {
       },
     ],
     inspections: [
-      {
-        id: 'i1',
-        title: 'Rig daily check',
-        date: '2026-10-27',
-        place: 'Rig 3',
-        counts: { total: 1, passed: 0, failed: 1, na: 0 },
-        result: '1 failed',
-        sections: [{ title: 'Deck', items: [{ label: 'Pressure', kind: 'READING', result: 'Fail', reading: '162 psi', limits: '0–150 psi', note: 'High' }] }],
-        signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: null, typed: true }],
-        unsigned: ['Client'],
-      },
+      { id: 'i1', title: 'Rig daily check', date: '2026-10-27', place: 'Rig 3', result: '1 failed', counts: { total: 1, passed: 0, failed: 1, na: 0 }, revisionNumber: 2, reopenedOn: '2026-10-28' },
     ],
     timeZone: TZ,
     now: NOW,
@@ -82,11 +72,7 @@ describe('the client page payload: an explicit allow-list', () => {
         'minutes[].content.decisions', 'minutes[].content.risks', 'minutes[].content.nextSteps',
         'inspections', 'inspections[].id', 'inspections[].title', 'inspections[].date', 'inspections[].place', 'inspections[].result',
         'inspections[].counts', 'inspections[].counts.total', 'inspections[].counts.passed', 'inspections[].counts.failed', 'inspections[].counts.na',
-        'inspections[].sections', 'inspections[].sections[].title', 'inspections[].sections[].items',
-        'inspections[].sections[].items[].label', 'inspections[].sections[].items[].kind', 'inspections[].sections[].items[].result',
-        'inspections[].sections[].items[].reading', 'inspections[].sections[].items[].limits', 'inspections[].sections[].items[].note',
-        'inspections[].signatures', 'inspections[].signatures[].role', 'inspections[].signatures[].name', 'inspections[].signatures[].signedAt',
-        'inspections[].signatures[].image', 'inspections[].signatures[].typed', 'inspections[].unsigned',
+        'inspections[].revisionNumber', 'inspections[].reopenedOn',
         'generatedAt',
       ].sort(),
     );
@@ -97,9 +83,7 @@ describe('the client page payload: an explicit allow-list', () => {
     Object.assign(leaky.project, { description: 'INTERNAL margin 40%', ownerId: 'u-owner', notes: 'secret' });
     Object.assign(leaky.items[0]!, { description: 'internal', assignees: [{ name: 'Omar Ahmed' }], comments: ['hush'] });
     Object.assign(leaky.minutes[0]!, { organizerName: 'Omar Ahmed', approvedById: 'u-1', attendees: ['Bilal'] });
-    Object.assign(leaky.inspections![0]!, { inspectorId: 'u-1', startedBy: 'Omar Ahmed', followUps: ['RIG-9'] });
-    Object.assign(leaky.inspections![0]!.sections[0]!.items[0]!, { help: 'internal hint', followUpTask: 'RIG-9' });
-    Object.assign(leaky.inspections![0]!.signatures[0]!, { capturedById: 'u-1' });
+    Object.assign(leaky.inspections![0]!, { inspectorId: 'u-1', startedBy: 'Omar Ahmed', followUps: ['RIG-9'], sections: [{ title: 'internal' }], signatures: [{ name: 'Omar Ahmed' }] });
     const json = JSON.stringify(buildClientView(leaky));
     for (const secret of ['INTERNAL', 'u-owner', 'secret', 'internal', 'Omar Ahmed', 'hush', 'u-1', 'Bilal', 'RIG-9']) expect(json).not.toContain(secret);
   });

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { onlineManager, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '../lib/api-client';
+import { shouldRetryQuery } from '../lib/queryRetry';
 import { apiClient } from '../api/client';
 import { inspectionsApi, type InspectionDetail, type SignatureInput } from '../api/inspections';
 import { membersApi } from '../api/members';
@@ -12,18 +14,36 @@ import { usePageName } from '../lib/page-meta';
 import { detailView, type DraftView } from '../lib/inspection-outbox';
 import { refreshInspectionQueries, useInspectionDraft } from '../lib/inspection-sync';
 import { SIGNATURE_LABEL } from '../lib/inspection-rules';
+import { useProjectRealtime } from '../lib/useProjectRealtime';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
 import { InspectionItem, type ItemAnswer } from '../components/inspections/InspectionItem';
-import { SyncBanner } from '../components/inspections/SyncBanner';
+import { SyncAnnouncer, SyncBanner } from '../components/inspections/SyncBanner';
 import { SignFinishDialog } from '../components/inspections/SignFinishDialog';
 import { InspectionClientSwitch } from '../components/inspections/InspectionClientSwitch';
-import { dateTimeText, InspectIcon, OutcomePill, problemText } from '../components/inspections/inspection-ui';
+import { dateTimeText, dayText, followUpNotice, InspectIcon, OutcomePill, problemText } from '../components/inspections/inspection-ui';
 
 const api = () => inspectionsApi(apiClient);
 type Confirm = 'reopen' | 'take-over' | 'delete' | 'discard' | null;
+/** A request that never reached a server while the browser says there's no signal. */
+const noSignal = (e: unknown) => !(e instanceof ApiError) && (!onlineManager.isOnline() || (typeof navigator !== 'undefined' && navigator.onLine === false));
+/**
+ * What another person's change means for the one looking, after the page refreshed for it: taken
+ * over from them, or reopened (null: nothing worth saying; the page simply shows the new state).
+ */
+function changedElsewhere(before: InspectionDetail | undefined, after: InspectionDetail | undefined, me: string | null): string | null {
+  if (!before || !after || !me) return null;
+  if (before.inspector.id === me && after.inspector.id !== me && after.status === 'IN_PROGRESS') {
+    return `${after.inspector.name} took this inspection over: only they can answer and sign it now. Anything still saved on this phone for it isn’t sent.`;
+  }
+  if ((after.revision ?? 0) > (before.revision ?? 0) && after.reopened && after.reopened.by.id !== me) {
+    return `${after.reopened.by.name} reopened this inspection: its answers can be changed again, and it is signed again when it’s finished.`;
+  }
+  return null;
+}
+
 const memberName = (m: { firstName: string; lastName: string; username: string }) => [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username;
 
 /**
@@ -39,7 +59,15 @@ export function InspectionPage() {
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const { ownerId, view, sync, online, send, sendSoon, outbox } = useInspectionDraft(id);
-  const q = useQuery({ queryKey: ['inspection', id], queryFn: () => api().get(id), enabled: !!id });
+  // Asked even when the browser says there's no signal (the library would wait, and with no copy on
+  // this phone the page would never load): it fails at once, and the page says what it has.
+  const q = useQuery({
+    queryKey: ['inspection', id],
+    queryFn: () => api().get(id),
+    enabled: !!id,
+    networkMode: 'always',
+    retry: (count, e) => !noSignal(e) && shouldRetryQuery(count, e),
+  });
 
   // The server's copy is kept on this device (so the page opens without signal), under any changes waiting here.
   useEffect(() => {
@@ -61,6 +89,27 @@ export function InspectionPage() {
   const [assignee, setAssignee] = useState<string>('~default');
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [changeNote, setChangeNote] = useState<string | null>(null);
+
+  // Changed by someone else (or on another device) while open: refresh, and say so when it matters here.
+  const latest = useRef(q.data);
+  latest.current = q.data;
+  useProjectRealtime(d?.projectId, (change, payload) => {
+    if (!(change === 'all' || (change === 'inspections' && payload?.id === id))) return;
+    const before = latest.current;
+    void q.refetch().then((r) => {
+      const note = changedElsewhere(before, r.data, ownerId);
+      if (note) setChangeNote(note);
+    });
+  });
+
+  // What became of follow-up tasks asked for here (now, or sent later from this phone): said once.
+  const report = shown?.followUpReport ?? null;
+  useEffect(() => {
+    if (!report || !ownerId || !d) return;
+    setNotice(followUpNotice(report, d.structure.sections.flatMap((s) => s.items)));
+    outbox.ackFollowUpReport(ownerId, id);
+  }, [report, ownerId, id, outbox, d]);
 
   const answers = useMemo(() => new Map((shown?.answers ?? []).map((a) => [a.itemId, a])), [shown?.answers]);
   const followUps = useMemo(() => new Map((d?.followUps ?? []).map((f) => [f.itemId, f])), [d?.followUps]);
@@ -99,12 +148,24 @@ export function InspectionPage() {
 
   // Nothing to show: say which problem it is.
   if (!shown || !d) {
+    if (q.isError && noSignal(q.error)) {
+      return (
+        <PageProblem
+          title="No signal"
+          message="This inspection hasn’t been opened on this phone yet, so there’s no copy saved here. It opens once there’s a signal. (An inspection keeps working without signal, even if the page reloads, once you’ve opened it here.)"
+          backTo="/projects"
+          backLabel="Back to projects"
+          onRetry={() => void q.refetch()}
+          retrying={q.isFetching}
+        />
+      );
+    }
     if (q.isError) {
       const missing = isMissing(q.error);
       return (
         <PageProblem
           title={missing ? 'Inspection not found' : 'Couldn’t load this inspection'}
-          message={missing ? 'It may have been deleted, or the link is wrong.' : 'Check your connection and try again. (An inspection you have opened on this phone before opens without signal.)'}
+          message={missing ? 'It may have been deleted, or the link is wrong.' : 'Check your connection and try again. (An inspection keeps working without signal, even if the page reloads, once you’ve opened it here.)'}
           backTo="/projects"
           backLabel="Back to projects"
           onRetry={missing ? undefined : () => void q.refetch()}
@@ -117,7 +178,7 @@ export function InspectionPage() {
 
   const p = d.permissions;
   const finished = shown.status === 'FINISHED';
-  const archived = projectQ.data?.status === 'ARCHIVED';
+  const archived = d.projectArchived ?? projectQ.data?.status === 'ARCHIVED';
   const answersBlocked = !!shown.problem && shown.problem.stage === 'answers';
   const canAnswer = p.canAnswer && !finished && !shown.locked && !answersBlocked;
   const items = d.structure.sections.flatMap((s) => s.items);
@@ -144,9 +205,8 @@ export function InspectionPage() {
       setProblem(problemText(e, 'The follow-up tasks couldn’t be saved. Please try again.'));
       return;
     }
-    void send().then((state) => {
-      if (state === 'sent') setNotice(itemIds.length === 1 ? 'Follow-up task made.' : `${itemIds.length} follow-up tasks made.`);
-    });
+    // What became of each is said once they're sent (see the follow-up report above).
+    void send();
   };
 
   const startSigning = () => {
@@ -222,6 +282,11 @@ export function InspectionPage() {
               </>
             ) : null}
           </p>
+          {d.reopened ? (
+            <p className="mt-0.5 text-xs font-semibold text-ink-2">
+              Revision {(d.revision ?? 0) + 1} · reopened on {dayText(d.reopened.at, timeZone)} by <bdi>{d.reopened.by.name}</bdi>
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {finished ? (
@@ -248,6 +313,7 @@ export function InspectionPage() {
         </div>
       </div>
 
+      <SyncAnnouncer view={view} sync={sync} online={online} />
       <div className="sticky top-14 z-20 mt-3">
         <SyncBanner
           view={view}
@@ -255,7 +321,7 @@ export function InspectionPage() {
           online={online}
           onRetry={() => {
             if (ownerId) outbox.clearProblem(ownerId, id);
-            void send();
+            void send({ force: true });
           }}
           onDiscard={() => setConfirm('discard')}
           onLookAgain={() => {
@@ -264,13 +330,21 @@ export function InspectionPage() {
           }}
           onDismiss={() => ownerId && outbox.clearProblem(ownerId, id)}
         />
-        {view && q.isError && !q.data ? (
+        {view && !q.data && (q.isError || q.failureCount > 0) ? (
           <p role="status" className="rounded-xl border border-info/30 bg-info-soft px-3 py-2 text-sm text-info">
             No signal: showing the copy saved on this phone.
           </p>
         ) : null}
       </div>
 
+      {changeNote ? (
+        <p role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
+          <span>{changeNote}</span>
+          <button type="button" onClick={() => setChangeNote(null)} aria-label="Dismiss" className="shrink-0 rounded px-1 opacity-80 hover:opacity-100">
+            ✕
+          </button>
+        </p>
+      ) : null}
       {problem ? (
         <p role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           <span>{problem}</span>
@@ -446,8 +520,34 @@ export function InspectionPage() {
           </ul>
           {d.finishedAt ? <p className="mt-2 text-xs text-ink-2">Finished {dateTimeText(d.finishedAt, timeZone)}</p> : null}
           <div className="mt-3">
-            <InspectionClientSwitch inspectionId={id} clientVisible={d.clientVisible} canChange={p.canShowToClient} onChanged={refresh} />
+            <InspectionClientSwitch inspectionId={id} clientVisible={d.clientVisible} canChange={p.canShowToClient} archived={archived} onChanged={refresh} />
           </div>
+        </section>
+      ) : null}
+
+      {d.earlierRevisions?.length ? (
+        <section aria-labelledby="earlier-h" className="card mt-4 p-4">
+          <h2 id="earlier-h" className="text-sm font-semibold text-ink">
+            Earlier signed revisions
+          </h2>
+          <p className="mt-0.5 text-xs text-ink-2">Signatures a reopen took off. Kept here and in the staff report; the client sees only the current one.</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {d.earlierRevisions.map((r) => (
+              <li key={r.number} className="rounded-lg border border-line px-3 py-2 text-sm">
+                <p className="font-semibold text-ink">
+                  Revision {r.number} <span className="font-normal text-ink-2">· reopened on {dayText(r.reopenedAt, timeZone)}</span>
+                </p>
+                <ul className="mt-0.5 text-xs text-ink-2">
+                  {r.signatures.map((s) => (
+                    <li key={s.role}>
+                      {SIGNATURE_LABEL[s.role]}: <bdi>{s.name}</bdi> · signed {dateTimeText(s.signedAt, timeZone)}
+                      {s.method === 'TYPED' ? ' · typed name' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -480,7 +580,7 @@ export function InspectionPage() {
 
       {confirm === 'reopen' ? (
         <ConfirmDialog title="Reopen this inspection?" confirmLabel="Reopen" tone="primary" busy={actionM.isPending} error={problem} onConfirm={() => actionM.mutate('reopen')} onClose={() => setConfirm(null)}>
-          Its answers can be changed again. The signatures come off (it is signed again when it’s finished), and it leaves the client page if it was shown there.
+          Its answers can be changed again. The signatures come off (they’re kept as an earlier revision, and it is signed again when it’s finished), and it leaves the client page if it was shown there.
         </ConfirmDialog>
       ) : null}
       {confirm === 'take-over' ? (

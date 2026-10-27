@@ -34,8 +34,10 @@ function report(over: Partial<ClientInspection> = {}): ClientInspection {
       { title: 'Well head', items: [reading('Pressure', '162.5 psi', '0–150 psi', 'Fail', 'Gauge read high twice.'), check('Valves closed', 'Pass')] },
       { title: 'Deck', items: [reading('Air temperature', '3.25 °C', '-10 to 5 °C', 'Pass'), check('Guard rails fitted', 'Fail', 'One rail loose at the stairs.')] },
     ],
-    signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: drawn, typed: false }],
+    signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 12:30', image: drawn, typed: false }],
     unsigned: [],
+    revisionNumber: 1,
+    reopenedOn: null,
     ...over,
   };
 }
@@ -89,8 +91,8 @@ describe('the inspection report PDF', () => {
     const d = data({
       report: report({
         signatures: [
-          { role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: drawn, typed: false },
-          { role: 'Supervisor', name: 'Sara Al Hinai', signedAt: '2026-10-27T08:32:00.000Z', image: null, typed: true },
+          { role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 12:30', image: drawn, typed: false },
+          { role: 'Supervisor', name: 'Sara Al Hinai', signedAt: '2026-10-27T08:32:00.000Z', signedOn: '27 Oct 2026, 12:30', image: null, typed: true },
         ],
       }),
       unsigned: ['Client'],
@@ -116,7 +118,7 @@ describe('the inspection report PDF', () => {
   });
 
   it('says so when a signature picture can’t be shown', () => {
-    const text = textOf(data({ report: report({ signatures: [{ role: 'Inspector', name: 'Ivan', signedAt: '2026-10-27T08:30:00.000Z', image: 'data:image/png;base64,bm90IGEgcG5n', typed: false }] }) }));
+    const text = textOf(data({ report: report({ signatures: [{ role: 'Inspector', name: 'Ivan', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 12:30', image: 'data:image/png;base64,bm90IGEgcG5n', typed: false }] }) }));
     expect(text).toContain('signature image could not be shown');
     expect(text).toMatch(/Inspector: .*Ivan/);
   });
@@ -141,7 +143,7 @@ describe('the inspection report PDF', () => {
           sections: [{ title: 'رأس البئر', items: [check('الصمامات مغلقة', 'Fail', 'تسرب بسيط عند الصمام الرئيسي')] }],
           counts: { total: 1, passed: 0, failed: 1, na: 0 },
           result: '1 failed',
-          signatures: [{ role: 'Inspector', name: 'عمر أحمد', signedAt: '2026-10-27T08:30:00.000Z', image: null, typed: true }],
+          signatures: [{ role: 'Inspector', name: 'عمر أحمد', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 12:30', image: null, typed: true }],
         }),
       }),
     );
@@ -181,5 +183,22 @@ describe('the inspection report PDF', () => {
   it('names its file after the form and the day', () => {
     expect(inspectionPdfFileName('Rig daily check', '2026-10-27')).toBe('inspection-rig-daily-check-2026-10-27.pdf');
     expect(inspectionPdfFileName('فحص الحفارة', '2026-10-27')).toBe('inspection-2026-10-27.pdf');
+  });
+
+  it('says which revision a reopened report is, and when (the staff copy also by whom)', () => {
+    const reopened = report({ revisionNumber: 2, reopenedOn: '2026-10-28' });
+    const client = textOf(data({ report: reopened }));
+    expect(client).toContain('Revision 2 · reopened on 28 Oct 2026');
+    expect(client).not.toContain(' by Mona');
+    const staffCopy = textOf(data({ report: reopened, staff: { ...staff, reopenedBy: 'Mona Manager', earlierRevisions: [{ number: 1, reopenedAt: '2026-10-28T06:00:00.000Z', signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z' }] }] } }));
+    expect(staffCopy).toContain('Revision 2 · reopened on 28 Oct 2026 by Mona Manager');
+    expect(staffCopy).toContain('Earlier signed revisions');
+    expect(staffCopy).toMatch(/Revision 1 · reopened 28 Oct 2026, 10:00/);
+    expect(staffCopy).toMatch(/Inspector: Ivan Inspector · signed 27 Oct 2026, 12:30/);
+    expect(client).not.toContain('Earlier signed revisions');
+  });
+
+  it('says nothing about revisions for a report never reopened', () => {
+    expect(textOf(data())).not.toMatch(/Revision \d/);
   });
 });

@@ -43,6 +43,10 @@ export interface InspectionReportData {
     task: string | null;
     /** Per section, per item: its follow-up task's key. */
     followUps: Array<Array<string | null>>;
+    /** Who reopened it last (a reopened report). */
+    reopenedBy?: string | null;
+    /** Earlier signed revisions (taken off by reopens), oldest first. */
+    earlierRevisions?: Array<{ number: number; reopenedAt: string; signatures: Array<{ role: string; name: string; signedAt: string }> }>;
   };
   /** Signatures the form asks for that were not given ('Client'): printed as "Not signed". */
   unsigned?: string[];
@@ -136,6 +140,11 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
       ]
     : [['Items checked', String(r.counts.total)]];
   doc.keyValueColumns(left, right, { size: 9.5 });
+  // A reopened and signed-again report says which signing it is (the client's copy: no names).
+  if (r.revisionNumber > 1 && r.reopenedOn) {
+    doc.spacer(6);
+    doc.statusStrip(`Revision ${r.revisionNumber} · reopened on ${formatDay(r.reopenedOn)}${staff?.reopenedBy ? ` by ${isolate(staff.reopenedBy)}` : ''}`, 'muted');
+  }
 
   // ── Summary ─────────────────────────────────────────────────────────────────────────────────
   doc.spacer(10);
@@ -237,6 +246,19 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   if (drawn.length) {
     doc.spacer(6);
     doc.imageGrid(drawn, gridOpts);
+  }
+
+  // The staff copy keeps the signings a reopen took off (they no longer count).
+  const earlier = staff?.earlierRevisions ?? [];
+  if (earlier.length) {
+    doc.heading('Earlier signed revisions', { size: TYPE.heading, keepWith: 40 });
+    doc.text('These signatures were taken off when the inspection was reopened; they no longer count.', { size: TYPE.note, color: MUTED, gap: 4 });
+    for (const e of earlier) {
+      doc.keepTogether(16 + e.signatures.length * 14);
+      doc.text(`Revision ${e.number} · reopened ${when(e.reopenedAt)}`, { size: TYPE.body, bold: true, gap: 1, direction: 'ltr' });
+      for (const sig of e.signatures) doc.text(`${sig.role}: ${isolate(sig.name)} · signed ${when(sig.signedAt)}`, { size: TYPE.body, inset: 10, gap: 1, direction: 'ltr' });
+      doc.spacer(4);
+    }
   }
 
   return doc.build();

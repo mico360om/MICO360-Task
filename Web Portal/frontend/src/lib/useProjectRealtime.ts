@@ -19,12 +19,13 @@ export const PROJECT_MEETING_EVENTS = [
 ] as const;
 
 /**
- * Live updates for a project's dashboard: joins the project's room and reports whether its tasks
- * or its meetings changed (so the dashboard refetches just that), `all` after a reconnect (events
- * may have been missed) and `removed` when the signed-in person is taken off the project.
+ * Live updates for a project's dashboard: joins the project's room and reports whether its tasks,
+ * its meetings or one of its inspections (with its id) changed (so the dashboard refetches just
+ * that), `all` after a reconnect (events may have been missed) and `removed` when the signed-in
+ * person is taken off the project.
  * `live` says whether the connection is up.
  */
-export function useProjectRealtime(projectId: string | undefined, onChange: (change: ProjectChange) => void): { live: boolean } {
+export function useProjectRealtime(projectId: string | undefined, onChange: (change: ProjectChange, payload?: { id?: string }) => void): { live: boolean } {
   const cb = useRef(onChange);
   cb.current = onChange;
   const signedIn = useAuthStore((s) => Boolean(s.accessToken));
@@ -45,7 +46,8 @@ export function useProjectRealtime(projectId: string | undefined, onChange: (cha
       socket.on(ev, () => cb.current(ev === 'project:removed' ? 'removed' : 'tasks'));
     }
     for (const ev of PROJECT_MEETING_EVENTS) socket.on(ev, () => cb.current('meetings'));
-    socket.on('inspection:changed', () => cb.current('inspections'));
+    // Which inspection, so an open one refreshes only for itself.
+    socket.on('inspection:changed', (p?: { id?: unknown }) => cb.current('inspections', typeof p?.id === 'string' ? { id: p.id } : undefined));
     return () => {
       setLive(false);
       close();

@@ -7,7 +7,7 @@ import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore }
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
 import { buildClientMinutesPdf } from './client-minutes-pdf';
-import type { ClientInspection } from '../inspections/inspection-client-copy';
+import type { ClientInspection, ClientInspectionSummary } from '../inspections/inspection-client-copy';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from '../inspections/inspection-report-pdf';
 import { clientMinutesContent } from './client-minutes-content';
 import { hashToken, isWellFormedToken, newToken, normalizeEmail, sameText } from './client-tokens';
@@ -66,7 +66,9 @@ export interface ClientAccessDeps {
   limits?: Partial<ClientAccessLimits>;
   /** Finished inspection reports marked "Show to client" (the inspections module decides which). */
   inspections?: {
-    list(projectId: string): Promise<ClientInspection[]>;
+    /** Summaries (the page's list). */
+    list(projectId: string): Promise<ClientInspectionSummary[]>;
+    /** One report with its items and signatures (opened on the page, and its PDF). */
     one(projectId: string, inspectionId: string): Promise<ClientInspection | null>;
   };
 }
@@ -381,6 +383,20 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         generatedAt: now().toISOString(),
       });
       return { pdf, fileName: `minutes-${slugify(m.title)}.pdf` };
+    },
+
+    /** The share a link opens (null when it opens none): the PDF limit counts per share and device. */
+    async shareIdOf(link: unknown): Promise<string | null> {
+      if (!isWellFormedToken(link)) return null;
+      return (await store.findByLinkHash(hashToken(link)))?.id ?? null;
+    },
+
+    /** One shown report's details and signatures, when the client opens it on the page. */
+    async inspection(link: unknown, readSession: SessionReader, inspectionId: unknown): Promise<ClientInspection> {
+      const { share } = await openSession(link, readSession);
+      const report = typeof inspectionId === 'string' && inspectionId && deps.inspections ? await deps.inspections.one(share.projectId, inspectionId) : null;
+      if (!report) throw new NotFoundError('This inspection report isn’t shared with you.');
+      return report;
     },
 
     /** The client copy of a shown inspection report (never the staff PDF: no staff names but the signers'). */

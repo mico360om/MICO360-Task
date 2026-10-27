@@ -430,6 +430,13 @@ describe('the client’s own routes', () => {
     expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/minutes/m1/pdf', headers: { 'x-client-link': link } })).statusCode).toBe(401);
   });
 
+  it('an inspection report’s details need a signed-in device, and only a shown report is there', async () => {
+    const { link } = await shareP1(f);
+    const { cookie } = await signInOverHttp(f, link);
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/inspections/i1', headers: { 'x-client-link': link, cookie } })).statusCode).toBe(404);
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/inspections/i1', headers: { 'x-client-link': link } })).statusCode).toBe(401);
+  });
+
   it('an inspection report PDF needs a signed-in device, and only a shown report is there', async () => {
     const { link } = await shareP1(f);
     const { cookie } = await signInOverHttp(f, link);
@@ -455,6 +462,17 @@ describe('the client’s own routes', () => {
     const tryCode = () => limited.app.inject({ method: 'POST', url: '/api/v1/client/verify', headers: { 'x-client-link': link }, payload: { email: 'x@y.example', code: '123456' } });
     for (let i = 0; i < 10; i++) expect((await tryCode()).statusCode).toBe(401);
     expect((await tryCode()).statusCode).toBe(429);
+  });
+
+  it('counts PDFs (minutes and inspection reports) on the device’s session for that share: extra cookies don’t give a new allowance', async () => {
+    const limited = await makeFixture({ pdfLimit: 2 });
+    const { link } = await shareP1(limited);
+    const { cookie } = await signInOverHttp(limited, link);
+    const name = cookie.split('=')[0]!;
+    const pdf = (url: string, extra: string) => limited.app.inject({ method: 'GET', url, headers: { 'x-client-link': link, cookie: `${cookie}; ${extra}` } });
+    expect((await pdf('/api/v1/client/minutes/m1/pdf', 'junk=1')).statusCode).toBe(404);
+    expect((await pdf('/api/v1/client/inspections/i1/pdf', `${name}x=${'C'.repeat(43)}; other=2`)).statusCode).toBe(404);
+    expect((await pdf('/api/v1/client/minutes/m1/pdf', `junk=3; mico_client_fake=${'D'.repeat(43)}`)).statusCode).toBe(429);
   });
 
   it('limits minutes PDFs per signed-in device (10 a minute)', async () => {

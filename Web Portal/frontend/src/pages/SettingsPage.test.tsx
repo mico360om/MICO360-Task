@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { SettingsPage } from './SettingsPage';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -139,5 +140,21 @@ describe('SettingsPage — calendar and dates', () => {
     await waitFor(() => expect(puts).toContainEqual({ timeZone: 'Europe/London' }));
     fireEvent.click(screen.getByRole('button', { name: /use the company time zone/i }));
     await waitFor(() => expect(puts).toContainEqual({ timeZone: null }));
+  });
+});
+
+describe('signing out with inspection changes still on this device', () => {
+  it('asks first, and only "Log out anyway" signs out and removes them', async () => {
+    localStorage.setItem('mico360.inspection.u1.i1', JSON.stringify({ v: 1, ownerId: 'u1', inspectionId: 'i1', projectId: 'p1', title: 'Rig daily check', snapshot: { id: 'i1', projectId: 'p1', title: 'Rig daily check', status: 'IN_PROGRESS', structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, answers: [], revision: 0 }, answers: { v: { itemId: 'v', result: 'PASS', reading: null, note: null, editedAt: '2026-10-27T08:00:00.000Z' } }, finish: null, followUps: {}, problem: null, savedAt: '', sentAt: null }));
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('1 change saved on this device hasn’t been sent yet');
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Stay signed in' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Log out anyway' }));
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(localStorage.getItem('mico360.inspection.u1.i1')).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ClientViewScreen } from './ClientViewPage';
 import { ApiError } from '../lib/api-client';
-import type { ClientView, ClientViewApi } from '../api/client-view';
+import type { ClientInspection, ClientView, ClientViewApi } from '../api/client-view';
 
 const VIEW: ClientView = {
   viewer: { name: 'Fatma Al Harthy', email: 'fatma@client.example' },
@@ -26,19 +26,17 @@ const VIEW: ClientView = {
     },
   ],
   inspections: [
-    {
-      id: 'i1',
-      title: 'Rig daily check',
-      date: '2026-10-27',
-      place: 'Rig 3',
-      counts: { total: 2, passed: 1, failed: 1, na: 0 },
-      result: '1 failed',
-      sections: [{ title: 'Well head', items: [{ label: 'Pressure', kind: 'READING', result: 'Fail', reading: '162 psi', limits: '0–150 psi', note: 'Gauge read high' }, { label: 'Valves closed', kind: 'CHECK', result: 'Pass', reading: null, limits: null, note: null }] }],
-      signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: null, typed: true }],
-      unsigned: ['Client'],
-    },
+    { id: 'i1', title: 'Rig daily check', date: '2026-10-27', place: 'Rig 3', counts: { total: 2, passed: 1, failed: 1, na: 0 }, result: '1 failed', revisionNumber: 2, reopenedOn: '2026-10-27' },
+    { id: 'i2', title: 'Deck check', date: '2026-10-20', place: null, counts: { total: 1, passed: 1, failed: 0, na: 0 }, result: 'Passed', revisionNumber: 1, reopenedOn: null },
   ],
   generatedAt: '2026-10-26T08:00:00.000Z',
+};
+
+const REPORT: ClientInspection = {
+  ...VIEW.inspections![0]!,
+  sections: [{ title: 'Well head', items: [{ label: 'Pressure', kind: 'READING', result: 'Fail', reading: '162 psi', limits: '0–150 psi', note: 'Gauge read high' }, { label: 'Valves closed', kind: 'CHECK', result: 'Pass', reading: null, limits: null, note: null }] }],
+  signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', signedOn: '27 Oct 2026, 11:30', image: null, typed: true }],
+  unsigned: ['Client'],
 };
 
 const signInNeeded = () => new ApiError(401, 'CLIENT_SIGN_IN', 'Enter the code we email you to open this page.');
@@ -50,6 +48,7 @@ function fakeApi(over: Partial<ClientViewApi> = {}): ClientViewApi {
     verify: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
     minutesPdf: vi.fn(async () => ({ blob: new Blob(['%PDF']), fileName: 'minutes-kick-off.pdf' })),
+    inspection: vi.fn(async (id: string) => ({ ...REPORT, id })),
     inspectionPdf: vi.fn(async () => ({ blob: new Blob(['%PDF']), fileName: 'inspection-rig-daily-check-2026-10-27.pdf' })),
     ...over,
   };
@@ -175,7 +174,7 @@ describe('the client page', () => {
     expect(api.minutesPdf).toHaveBeenCalledWith('m1');
   });
 
-  it('shows the inspection reports shared with the client, their result, signatures and PDF', async () => {
+  it('lists the reports shared with the client; one opened shows its items, signatures and PDF', async () => {
     const user = userEvent.setup();
     const api = fakeApi();
     URL.createObjectURL = vi.fn(() => 'blob:x');
@@ -183,21 +182,47 @@ describe('the client page', () => {
     show(api);
     const section = await screen.findByRole('region', { name: 'Inspection reports' });
     const toggle = within(section).getByRole('button', { name: /^Rig daily check/ });
+    // The newest is opened, so it (alone) is read in full.
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(within(section).getAllByText('1 failed').length).toBeGreaterThan(0);
-    expect(within(section).getAllByText('Gauge read high', { exact: false }).length).toBeGreaterThan(0);
+    expect((await within(section).findAllByText('Gauge read high', { exact: false })).length).toBeGreaterThan(0);
     expect(within(section).getAllByText('Ivan Inspector').length).toBeGreaterThan(0);
     expect(within(section).getByText('Not signed', { exact: false })).toBeInTheDocument();
+    // Signed when, as the company's clock says it (the PDF says the same).
+    expect(within(section).getByText(/Signed 27 Oct 2026, 11:30/)).toBeInTheDocument();
+    expect(api.inspection).toHaveBeenCalledTimes(1);
+    expect(api.inspection).toHaveBeenCalledWith('i1');
     await user.click(within(section).getByRole('button', { name: 'Download the inspection report Rig daily check (PDF)' }));
     expect(api.inspectionPdf).toHaveBeenCalledWith('i1');
+    // Another one is read when it is opened.
+    await user.click(within(section).getByRole('button', { name: /^Deck check/ }));
+    await waitFor(() => expect(api.inspection).toHaveBeenCalledWith('i2'));
   });
 
-  it('says so when nothing has been shared yet', async () => {
+  it('says which revision a reopened and signed-again report is', async () => {
+    show(fakeApi());
+    const section = await screen.findByRole('region', { name: 'Inspection reports' });
+    expect(within(section).getAllByText(/Revision 2 · reopened on 27 Oct 2026/).length).toBeGreaterThan(0);
+    expect(within(section).queryByText(/Revision 1/)).toBeNull();
+  });
+
+  it('a report that can’t be read when opened says so, with a way to try again', async () => {
+    const user = userEvent.setup();
+    const inspection = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockImplementation(async (id: string) => ({ ...REPORT, id }));
+    show(fakeApi({ inspection }));
+    const section = await screen.findByRole('region', { name: 'Inspection reports' });
+    expect(await within(section).findByText('Couldn’t load this report.', { exact: false })).toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: 'Try again' }));
+    expect((await within(section).findAllByText('Gauge read high', { exact: false })).length).toBeGreaterThan(0);
+  });
+
+  it('says so when nothing has been shared yet (and has no reports section without any)', async () => {
     show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, milestones: [], tasks: [], minutes: [], inspections: [] })) }));
     expect(await screen.findByText('No milestones have been shared yet.')).toBeInTheDocument();
     expect(screen.getByText('No tasks have been shared yet.')).toBeInTheDocument();
     expect(screen.getByText('No meeting minutes have been shared yet.')).toBeInTheDocument();
-    expect(screen.getByText('No inspection reports have been shared yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Inspection reports' })).toBeNull();
+    expect(screen.queryByText(/inspection reports/i)).toBeNull();
   });
 
   it('signs this device out', async () => {

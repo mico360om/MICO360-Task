@@ -2,6 +2,8 @@ import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth-store';
+import { useSignOut } from '../lib/useSignOut';
+import { SignOutWarning } from '../components/SignOutWarning';
 import { PageHeader } from '../components/ui/PageHeader';
 import { apiClient, assetUrl } from '../api/client';
 import { notificationsApi } from '../api/notifications';
@@ -38,7 +40,9 @@ const LEAD_OPTIONS: { label: string; value: number | null }[] = [
 
 export function SettingsPage() {
   const qc = useQueryClient();
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
+  // Every sign-out asks first when changes are still on this device (see useSignOut).
+  const { signOut, unsent, cancel } = useSignOut();
   const [theme, setTheme] = useThemeChoice();
 
   const avatarRef = useRef<HTMLInputElement>(null);
@@ -282,12 +286,13 @@ export function SettingsPage() {
                 Change password
               </Link>
               <button
-                onClick={logout}
+                onClick={() => signOut()}
                 className="rounded-lg border border-line px-3 py-1.5 text-sm text-danger transition-colors hover:bg-danger-soft"
               >
                 Sign out
               </button>
             </div>
+            {unsent !== null ? <SignOutWarning unsent={unsent} onConfirm={() => signOut({ force: true })} onCancel={cancel} className="mt-3" /> : null}
           </div>
         </section>
       </div>

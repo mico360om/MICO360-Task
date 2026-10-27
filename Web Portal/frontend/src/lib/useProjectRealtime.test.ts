@@ -42,7 +42,8 @@ describe('useProjectRealtime', () => {
     const onChange = vi.fn();
     renderHook(() => useProjectRealtime('p1', onChange));
     handlers['inspection:changed']!({ id: 'i1', projectId: 'p1' });
-    expect(onChange).toHaveBeenCalledWith('inspections');
+    // Which one, so an open inspection refreshes only for itself.
+    expect(onChange).toHaveBeenCalledWith('inspections', { id: 'i1' });
   });
 
   it('refreshes everything after a reconnect, and reports a lost connection', () => {

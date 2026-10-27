@@ -1227,7 +1227,13 @@ async function main(): Promise<void> {
       userNames: resolveUserNames,
       recordActivity: recordTaskActivity,
       audit: auditService,
-      cleanSignature: imageShrinker.toPrintable,
+      // A signature the picture library can't read is refused; without the library it is kept as checked.
+      cleanSignature: async (png) => {
+        const out = await imageShrinker.toPrintable(png);
+        if (out) return out;
+        if (imageShrinker.status() === true) throw new Error('The signature picture could not be read.');
+        return null;
+      },
       logger,
     }),
   });
@@ -1251,7 +1257,7 @@ async function main(): Promise<void> {
     logger,
     // Finished inspection reports marked "Show to client".
     inspections: {
-      list: (projectId) => inspectionService.clientInspections(projectId, companyTz),
+      list: (projectId) => inspectionService.clientInspectionSummaries(projectId, companyTz),
       one: (projectId, id) => inspectionService.clientInspectionOf(projectId, id, companyTz),
     },
   });

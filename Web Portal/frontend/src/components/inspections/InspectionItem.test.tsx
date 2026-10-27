@@ -98,3 +98,57 @@ describe('read-only, and follow-ups', () => {
     expect(screen.getByText('Follow-up task saved on this phone: it’s made when you’re back online.')).toBeInTheDocument();
   });
 });
+
+describe('saved as it is typed (a phone may close the page mid-word)', () => {
+  it('a note is saved a moment after typing stops, without leaving the box', () => {
+    vi.useFakeTimers();
+    try {
+      const { onAnswer } = renderItem({ answer: { itemId: 'v', result: 'FAIL', reading: null, note: null, editedAt: '2026-10-27T08:00:00Z' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Add a note: Valves closed' }));
+      const note = screen.getByRole('textbox', { name: 'Note: Valves closed' });
+      fireEvent.change(note, { target: { value: 'Leak' } });
+      fireEvent.change(note, { target: { value: 'Leaking at the flange' } });
+      expect(onAnswer).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1000);
+      expect(onAnswer).toHaveBeenCalledTimes(1);
+      expect(onAnswer).toHaveBeenCalledWith({ result: 'FAIL', reading: null, note: 'Leaking at the flange' });
+      expect(document.activeElement === note || note.isConnected).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a reading too, once it is a number (something half-typed waits for the box to be left)', () => {
+    vi.useFakeTimers();
+    try {
+      const { onAnswer } = renderItem({ item: pressure });
+      const input = screen.getByRole('textbox', { name: 'Pressure, reading in psi' });
+      fireEvent.change(input, { target: { value: '12 p' } });
+      vi.advanceTimersByTime(1000);
+      expect(onAnswer).not.toHaveBeenCalled();
+      expect(screen.queryByText('Enter the reading as a number, like 12.5')).toBeNull();
+      fireEvent.change(input, { target: { value: '162.5' } });
+      vi.advanceTimersByTime(1000);
+      expect(onAnswer).toHaveBeenCalledWith({ result: null, reading: '162.5', note: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('what was typed is saved if the page goes before the moment passes', () => {
+    vi.useFakeTimers();
+    try {
+      const onAnswer = vi.fn();
+      const { unmount } = render(
+        <MemoryRouter>
+          <InspectionItem item={pressure} number={1} answer={undefined} readOnly={false} onAnswer={onAnswer} />
+        </MemoryRouter>,
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: 'Pressure, reading in psi' }), { target: { value: '99' } });
+      unmount();
+      expect(onAnswer).toHaveBeenCalledWith({ result: null, reading: '99', note: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -63,10 +63,23 @@ describe('AppShell', () => {
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /log out/i }));
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
-    expect(screen.getByRole('alert')).toHaveTextContent(/1 change made offline hasn’t synced/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/1 change saved on this device hasn’t been sent yet/i);
     await userEvent.click(screen.getByRole('button', { name: /log out anyway/i }));
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(getQueue(localStorageQueueStore)).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+
+  it('counts inspection changes still on this device in the same warning', async () => {
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    const uid = useAuthStore.getState().user!.id;
+    localStorage.setItem(`mico360.inspection.${uid}.i1`, JSON.stringify({ v: 1, ownerId: uid, inspectionId: 'i1', projectId: 'p1', title: 'Rig daily check', snapshot: { id: 'i1', projectId: 'p1', title: 'Rig daily check', status: 'IN_PROGRESS', structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, answers: [], revision: 0 }, answers: { a: { itemId: 'a', result: 'PASS', reading: null, note: null, editedAt: '2026-10-27T08:00:00.000Z' }, b: { itemId: 'b', result: 'FAIL', reading: null, note: null, editedAt: '2026-10-27T08:00:01.000Z' } }, finish: null, followUps: {}, problem: null, savedAt: '', sentAt: null }));
+    renderShell();
+    await userEvent.click(screen.getByRole('button', { name: /account menu/i }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /log out/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/2 changes saved on this device haven’t been sent yet/i);
+    await userEvent.click(screen.getByRole('button', { name: /log out anyway/i }));
+    expect(localStorage.getItem(`mico360.inspection.${uid}.i1`)).toBeNull();
     vi.unstubAllGlobals();
   });
 
