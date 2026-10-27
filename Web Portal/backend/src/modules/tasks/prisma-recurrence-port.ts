@@ -13,6 +13,8 @@ export interface PrismaRecurrencePortOptions {
   /** Company time zone — the new occurrence lands on today's board in this zone. */
   timeZone?: string;
   now?: () => Date;
+  /** Tests only: runs after the source is read and before its copy is made (to reproduce a race). */
+  beforeCopy?: (sourceTaskId: string) => Promise<void>;
 }
 
 /**
@@ -59,10 +61,21 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
       const assigneeIds = source.assignees.map((a) => a.userId).filter((id) => allowed.has(id));
       const watcherIds = source.watchers.map((w) => w.userId).filter((id) => allowed.has(id));
       const at = now();
+      await opts.beforeCopy?.(sourceTaskId);
 
       for (let attempt = 0; ; attempt++) {
         try {
           const created = await prisma.$transaction(async (tx) => {
+            // Read again, locked: a form deleted since the source was read (its schedules stopped) makes
+            // no copy, nor does a source whose repeat (or form) changed meanwhile. The locks make it
+            // right whichever commits first — a form delete waits for this, or this sees it — and are
+            // taken in the delete's order (the form, then the task), so the two can't deadlock.
+            if (source.inspectionFormId) {
+              const [form] = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>`SELECT deletedAt FROM inspection_forms WHERE id = ${source.inspectionFormId} FOR SHARE`;
+              if (!form || form.deletedAt) return null;
+            }
+            const [locked] = await tx.$queryRaw<Array<{ hasRule: number | bigint; formId: string | null }>>`SELECT (recurrenceRule IS NOT NULL) AS hasRule, inspectionFormId AS formId FROM tasks WHERE id = ${sourceTaskId} FOR UPDATE`;
+            if (!locked || !Number(locked.hasRule) || (locked.formId ?? null) !== (source.inspectionFormId ?? null)) return null;
             // The project's next number, read afresh on each try (a create that beat this one is
             // counted then): the highest used — old keys of tasks moved away too — plus one.
             const key = await firstFreeKey(tx, source.project.code, (await highestKeyNumber(tx, source.projectId)) + 1);
@@ -107,7 +120,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
             });
             return task;
           });
-          return { id: created.id, projectId: created.projectId };
+          return created ? { id: created.id, projectId: created.projectId } : null;
         } catch (err) {
           // This task already has its next copy (a repeat or concurrent call): nothing to add.
           if (isRecurrenceCopyConflict(err)) return null;

@@ -216,6 +216,8 @@ describe('createPrismaRecurrencePort', () => {
       },
     };
     fake.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(fake));
+    // The locked re-read inside the copy's transaction: the source still repeats, and has no form.
+    fake.$queryRaw = vi.fn(async () => [{ hasRule: 1, formId: null }]);
     return { fake, created };
   }
 

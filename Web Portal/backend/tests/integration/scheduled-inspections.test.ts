@@ -447,3 +447,22 @@ describe('the schedules source counts and caps in the database (MySQL)', () => {
     expect(four.rows.map((r) => r.key)).toEqual(['SCHED-3', 'SCHED-4', 'SCHED-2', 'SCHED-1']);
   });
 });
+
+describe('a form deleted while its schedule is being copied (MySQL)', () => {
+  it('the copy is not made: no new schedule is left carrying the repeat with a deleted form', async () => {
+    const clock = { at: new Date('2026-10-01T08:00:00Z') };
+    const w = world(clock);
+    const form = await newForm();
+    const head = await checkFor(w, form.id, { recurrenceRule: DAILY, dueDate: new Date('2026-09-30T00:00:00.000Z') });
+    // The sweep has read the schedule (its form still there); the form is deleted before it copies.
+    const racing = createPrismaRecurrencePort(prisma, {
+      timeZone: TZ,
+      now: () => NOW,
+      beforeCopy: async () => void (await w.inspections.deleteForm({ id: ownerId, roles: ['ADMIN'] }, form.id)),
+    });
+    const made = await createRecurrenceService({ tasks: racing, timeZone: TZ, now: () => NOW }).runSchedule();
+    expect(made.filter((m) => m.projectId === projectId)).toEqual([]);
+    expect(await prisma.task.count({ where: { recurrenceSourceId: head.id } })).toBe(0);
+    expect(await prisma.task.count({ where: { inspectionFormId: form.id, deletedAt: null, NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] } })).toBe(0);
+  });
+});

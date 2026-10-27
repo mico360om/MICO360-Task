@@ -129,7 +129,10 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
       const stopped = await prisma.$transaction(async (tx) => {
         const { count } = await tx.inspectionForm.updateMany({ where: { id: formId, deletedAt: null }, data: { deletedAt: new Date() } });
         if (count === 0) return null;
-        const heads = await tx.task.findMany({ where: { inspectionFormId: formId, deletedAt: null, NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] }, select: { id: true, recurrenceRule: true } });
+        // A locking read: it sees a copy the sweep committed a moment ago (a plain read in this
+        // transaction might not), and the sweep's own locking read then sees this delete.
+        const ids = (await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM tasks WHERE inspectionFormId = ${formId} AND deletedAt IS NULL AND recurrenceRule IS NOT NULL FOR UPDATE`).map((r) => r.id);
+        const heads = ids.length ? await tx.task.findMany({ where: { id: { in: ids } }, select: { id: true, recurrenceRule: true } }) : [];
         if (heads.length) await tx.task.updateMany({ where: { id: { in: heads.map((h) => h.id) } }, data: { recurrenceRule: Prisma.DbNull, version: { increment: 1 } } });
         return heads;
       });
