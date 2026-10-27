@@ -24,7 +24,8 @@ function timeZones(): string[] {
  */
 export function DatePreferences() {
   const qc = useQueryClient();
-  const { companyTimeZone, ownTimeZone, weekStart } = useDateSettings();
+  const { companyTimeZone, ownTimeZone, weekStart, ownWeekStart, companyWeekStart } = useDateSettings();
+  const companyDay = WEEK_STARTS.find((w) => w.value === companyWeekStart)!.label;
   const [problem, setProblem] = useState<string | null>(null);
   const zones = useMemo(() => timeZones().map((z) => ({ value: z, label: z.replace(/_/g, ' '), hint: z === companyTimeZone ? 'company' : undefined })), [companyTimeZone]);
   const save = useMutation({
@@ -43,6 +44,8 @@ export function DatePreferences() {
     onSuccess: (saved) => {
       qc.setQueryData(DATE_PREFS_KEY, saved);
       void qc.invalidateQueries({ queryKey: ['calendar'] });
+      void qc.invalidateQueries({ queryKey: ['workload'] });
+      void qc.invalidateQueries({ queryKey: ['projects', 'timeline'] });
     },
   });
 
@@ -51,7 +54,15 @@ export function DatePreferences() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="text-sm font-medium text-ink">Week starts on</div>
-          <div className="text-xs text-ink-2">The first column of the calendar.</div>
+          <div className="text-xs text-ink-2">
+            The first day of your Calendar, Workload and Timeline weeks.{' '}
+            {ownWeekStart === null ? `The company’s: ${companyDay}.` : `Your own choice. The company’s week starts on ${companyDay}.`}
+          </div>
+          {ownWeekStart !== null && ownWeekStart !== companyWeekStart ? (
+            <button type="button" onClick={() => save.mutate({ weekStart: null })} className="tap mt-1 text-xs font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
+              Use the company’s ({companyDay})
+            </button>
+          ) : null}
         </div>
         <div role="group" aria-label="Week starts on" className="inline-flex rounded-lg border border-line p-0.5">
           {WEEK_STARTS.map((w) => (

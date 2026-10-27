@@ -112,9 +112,11 @@ export function SystemSettingsPage() {
     onSuccess: () => {
       setSaveError(null);
       void qc.invalidateQueries({ queryKey: ['system-settings'] });
-      // The Workload page reads the daily limit and the working hours; the Management page the week start too.
+      // The Workload page reads the daily limit and the working hours; the Management page the week start too;
+      // /config says the company week start (everyone's default) and the weekly summary switch.
       void qc.invalidateQueries({ queryKey: ['workload'] });
       void qc.invalidateQueries({ queryKey: ['management'] });
+      void qc.invalidateQueries({ queryKey: ['app-config'] });
     },
     onError: () => setSaveError('Couldn’t save the setting. Please try again.'),
   });

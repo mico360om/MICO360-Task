@@ -132,6 +132,12 @@ const rowNames = () => bodyRows().map((r) => within(r).getByRole('rowheader').qu
 const workloadCalls = () => calls.filter((c) => c.url.includes('/workload?'));
 
 describe('WorkloadPage', () => {
+  it('shows exactly the seven days its address names (a link from the Management page counts a Monday week)', async () => {
+    renderPage('/workload?week=2026-10-26');
+    await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
+    expect(workloadCalls()[0]!.url).toContain('/workload?week=2026-10-26');
+  });
+
   it('asks for this week (from the person’s week start) and says who is over the daily limit', async () => {
     renderPage();
     await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
