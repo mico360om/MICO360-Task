@@ -145,6 +145,8 @@ interface Draft {
   lastFailure?: TransientState | null;
   /** A finish sent from here went through: its attached task, offered to be marked done (until answered). */
   finishedOffer?: InspectionDetail['taskOffer'] | null;
+  /** A finish sent from here completed its check (a task that carries a form): said once, then forgotten. */
+  finishedCompleted?: InspectionDetail['taskCompleted'] | null;
   /** What became of the follow-up tasks asked for here, item by item (until the page has said so). */
   followUpReport?: FollowUpOutcome[] | null;
   savedAt: string;
@@ -180,6 +182,7 @@ export interface DraftView {
   retryAt: string | null;
   lastFailure: TransientState | null;
   finishedOffer: InspectionDetail['taskOffer'] | null;
+  finishedCompleted: InspectionDetail['taskCompleted'] | null;
   followUpReport: FollowUpOutcome[] | null;
   savedAt: string;
   sentAt: string | null;
@@ -233,6 +236,7 @@ export function detailView(detail: InspectionDetail): DraftView {
     retryAt: null,
     lastFailure: null,
     finishedOffer: null,
+    finishedCompleted: null,
     followUpReport: null,
     savedAt: '',
     sentAt: null,
@@ -273,7 +277,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
 
   const hasWork = (d: Draft) => Object.keys(d.answers).length > 0 || d.finish !== null || Object.keys(d.followUps).length > 0;
   /** Something the person still has to see or answer (a problem, the task offer, a follow-up report). */
-  const hasNews = (d: Draft) => !!d.problem || !!d.finishedOffer || !!d.followUpReport?.length;
+  const hasNews = (d: Draft) => !!d.problem || !!d.finishedOffer || !!d.finishedCompleted || !!d.followUpReport?.length;
 
   /** Other records of this person with nothing waiting: kept only so an inspection opens without signal. */
   function makeRoom(ownerId: string, keep: string): void {
@@ -368,6 +372,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       retryAt: d.retryAt ?? null,
       lastFailure: d.lastFailure ?? null,
       finishedOffer: d.finishedOffer ?? null,
+      finishedCompleted: d.finishedCompleted ?? null,
       followUpReport: d.followUpReport?.length ? d.followUpReport : null,
       savedAt: d.savedAt,
       sentAt: d.sentAt,
@@ -502,9 +507,11 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     const after = read(ownerId, inspectionId) ?? d;
     after.snapshot = done;
     after.finish = null;
-    after.finishedOffer = done.taskOffer ?? null;
+    // A check (a task that carries a form) is completed by the finish itself: said, not offered.
+    after.finishedCompleted = done.taskCompleted ?? null;
+    after.finishedOffer = after.finishedCompleted ? null : (done.taskOffer ?? null);
     succeeded(after);
-    if (!after.finishedOffer && !hasWork(after) && !after.problem) {
+    if (!after.finishedOffer && !after.finishedCompleted && !hasWork(after) && !after.problem) {
       remove(ownerId, inspectionId);
       notify();
     } else save(after);
@@ -646,11 +653,12 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       notify();
     },
 
-    /** The person answered the "mark the task done?" offer. */
+    /** The person answered the "mark the task done?" offer, or the page said "Task KEY completed". */
     ackFinished(ownerId: string, inspectionId: string): void {
       const d = read(ownerId, inspectionId);
       if (!d) return;
       d.finishedOffer = null;
+      d.finishedCompleted = null;
       if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
         remove(ownerId, inspectionId);
         notify();

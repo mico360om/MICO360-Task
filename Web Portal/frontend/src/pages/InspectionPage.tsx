@@ -103,6 +103,17 @@ export function InspectionPage() {
     });
   });
 
+  // A finish (now, or sent later from this phone) that completed its check says so, once.
+  const completed = shown?.finishedCompleted ?? null;
+  const completedNote = useRef<string | null>(null);
+  useEffect(() => {
+    if (!completed || !ownerId) return;
+    completedNote.current = `Finished. Task ${completed.key} completed.`;
+    setNotice(completedNote.current);
+    outbox.ackFinished(ownerId, id);
+    void qc.invalidateQueries({ queryKey: ['task-inspections'] });
+  }, [completed, ownerId, id, outbox, qc]);
+
   // What became of follow-up tasks asked for here (now, or sent later from this phone): said once.
   const report = shown?.followUpReport ?? null;
   useEffect(() => {
@@ -225,7 +236,10 @@ export function InspectionPage() {
     outbox.queueFinish(ownerId, id, signatures);
     setSigning(false);
     const state = await send();
-    if (state === 'sent') setNotice('Finished. The report is ready.');
+    if (state === 'sent') {
+      const done = outbox.view(ownerId, id)?.finishedCompleted;
+      setNotice(done ? `Finished. Task ${done.key} completed.` : (completedNote.current ?? 'Finished. The report is ready.'));
+    }
     else if (state === 'offline' || state === 'signed-out' || state === 'retry') setNotice('Signed on this phone. It finishes when it can reach the server, and the report is made then.');
   };
 

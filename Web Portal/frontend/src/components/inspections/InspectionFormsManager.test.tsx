@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   createForm: vi.fn(),
   updateForm: vi.fn(),
   deleteForm: vi.fn(),
+  formUsage: vi.fn(),
 }));
 vi.mock('../../api/inspections', () => ({ inspectionsApi: () => api }));
 
@@ -46,6 +47,7 @@ const show = () =>
 beforeEach(() => {
   for (const f of Object.values(api)) f.mockReset();
   api.listForms.mockResolvedValue({ forms: [RIG, OTHERS], canCreate: true });
+  api.formUsage.mockResolvedValue({ schedules: 0, openChecks: 0 });
 });
 
 describe('the inspection forms manager', () => {
@@ -184,6 +186,24 @@ describe('the inspection forms manager', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Delete form' }));
     expect(api.deleteForm).toHaveBeenCalledWith('f1');
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  });
+
+  it('says before deleting how much the form is used: its schedules stop, the checks already made can still be done', async () => {
+    const user = userEvent.setup();
+    api.formUsage.mockResolvedValue({ schedules: 2, openChecks: 3 });
+    show();
+    await user.click(await screen.findByRole('button', { name: 'Delete Rig daily check' }));
+    const confirm = screen.getByRole('alertdialog', { name: 'Delete “Rig daily check”?' });
+    expect(await within(confirm).findByText('2 schedules use this form; they’ll stop. 3 checks already created can still be done.')).toBeInTheDocument();
+    expect(api.formUsage).toHaveBeenCalledWith('f1');
+  });
+
+  it('one schedule and one check read in the singular; a form nobody schedules says nothing extra', async () => {
+    const user = userEvent.setup();
+    api.formUsage.mockResolvedValueOnce({ schedules: 1, openChecks: 1 });
+    show();
+    await user.click(await screen.findByRole('button', { name: 'Delete Rig daily check' }));
+    expect(await screen.findByText('1 schedule uses this form; it’ll stop. 1 check already created can still be done.')).toBeInTheDocument();
   });
 
   it('asks before throwing away changes', async () => {

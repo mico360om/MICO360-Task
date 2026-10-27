@@ -63,7 +63,7 @@ function detail(over: Partial<InspectionDetail> = {}): InspectionDetail {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-let server: { detail: InspectionDetail; stored: Map<string, AnswerWrite>; offline: boolean; calls: string[]; followUpStatus: Record<string, string>; project: Record<string, unknown> };
+let server: { detail: InspectionDetail; stored: Map<string, AnswerWrite>; offline: boolean; calls: string[]; followUpStatus: Record<string, string>; project: Record<string, unknown>; finishExtra?: Record<string, unknown> };
 
 function stubFetch() {
   vi.stubGlobal(
@@ -84,7 +84,7 @@ function stubFetch() {
       }
       if (method === 'POST' && u === '/inspections/i1/finish') {
         server.detail = { ...server.detail, status: 'FINISHED', finishedAt: '2026-10-27T09:00:00.000Z', result: 'Passed', signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'TYPED', image: null, signedAt: '2026-10-27T09:00:00.000Z' }] };
-        return json({ data: { ...server.detail, answers: [...server.stored.values()], taskOffer: { id: 't1', key: 'RIG-1', title: 'Inspect rig 3', doneColumnId: 'c-done' } } });
+        return json({ data: { ...server.detail, answers: [...server.stored.values()], taskOffer: { id: 't1', key: 'RIG-1', title: 'Inspect rig 3', doneColumnId: 'c-done' }, ...(server.finishExtra ?? {}) } });
       }
       if (method === 'PATCH' && u === '/tasks/t1/move') return json({ data: { id: 't1' } });
       if (method === 'POST' && u === '/inspections/i1/follow-ups') {
@@ -207,6 +207,20 @@ describe('carrying out an inspection', () => {
     const offer = await screen.findByRole('alertdialog', { name: 'Mark RIG-1 done?' });
     await userEvent.click(within(offer).getByRole('button', { name: 'Mark it done' }));
     await waitFor(() => expect(server.calls).toContain('PATCH /tasks/t1/move'));
+  });
+
+  it('finishing a check (a task that carries a form) says the task was completed — no offer', async () => {
+    server.stored.set('p', { itemId: 'p', result: 'PASS', reading: '120', note: null, editedAt: '2026-10-27T08:10:00.000Z' });
+    server.stored.set('v', { itemId: 'v', result: 'PASS', reading: null, note: null, editedAt: '2026-10-27T08:11:00.000Z' });
+    server.finishExtra = { taskOffer: null, taskCompleted: { id: 't1', key: 'RIG-1', title: 'Daily rig check' } };
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign and finish' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign and finish' });
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Type my name instead' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Sign and finish' }));
+    expect(await screen.findByText('Finished. Task RIG-1 completed.')).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog', { name: /Mark RIG-1 done/ })).toBeNull();
+    expect(server.calls).not.toContain('PATCH /tasks/t1/move');
   });
 
   it('makes follow-up tasks for a finished inspection’s failed items', async () => {

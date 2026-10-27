@@ -328,6 +328,18 @@ describe('finishing without signal', () => {
     expect(outbox.view(OWNER, 'i1')).toBeNull();
   });
 
+  it('a finish that completed its check keeps "Task KEY completed" to say (and no offer) until the page has said it', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    outbox.queueFinish(OWNER, 'i1', [sign()]);
+    const finish = server.api.finish;
+    server.api.finish = async (id, input) => ({ ...(await finish(id, input)), taskOffer: null, taskCompleted: { id: 't1', key: 'RIG-1', title: 'Daily rig check' } });
+    await outbox.flush(OWNER, 'i1');
+    expect(outbox.view(OWNER, 'i1')).toMatchObject({ status: 'FINISHED', finishedOffer: null, finishedCompleted: { key: 'RIG-1' } });
+    outbox.ackFinished(OWNER, 'i1');
+    expect(outbox.view(OWNER, 'i1')).toBeNull();
+  });
+
   it('a finish that went through but whose answer was lost is sent again with the same id', async () => {
     outbox.remember(OWNER, detail());
     outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });

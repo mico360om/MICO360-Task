@@ -30,6 +30,26 @@ import {
   type Problems,
 } from './form-editor';
 
+/**
+ * What deleting a form does to its scheduled checks, in words (null when nothing uses it):
+ * "2 schedules use this form; they'll stop. 3 checks already created can still be done."
+ */
+export function formUsageText(u: { schedules: number; openChecks: number }): string | null {
+  const parts = [
+    u.schedules ? (u.schedules === 1 ? '1 schedule uses this form; it’ll stop.' : `${u.schedules} schedules use this form; they’ll stop.`) : '',
+    u.openChecks ? `${u.openChecks} ${u.openChecks === 1 ? 'check' : 'checks'} already created can still be done.` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' ') : null;
+}
+
+/** How much a form is used, while its delete is being confirmed. */
+function DeleteUsage({ formId }: { formId: string }) {
+  const q = useQuery({ queryKey: ['inspection-form-usage', formId], queryFn: () => inspectionsApi(apiClient).formUsage(formId), staleTime: 0 });
+  if (q.isLoading) return <p className="mb-2 text-ink-3">Checking where it’s used…</p>;
+  const text = q.data ? formUsageText(q.data) : null;
+  return text ? <p className="mb-2 font-medium text-ink">{text}</p> : null;
+}
+
 /** The list's and every form's query key: a saved or deleted form refreshes it. */
 export const INSPECTION_FORMS_KEY = ['inspection-forms'];
 
@@ -98,6 +118,9 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
       setDeleting(null);
       setNotice(`Deleted “${form.title}”.`);
       void qc.invalidateQueries({ queryKey: INSPECTION_FORMS_KEY });
+      // Its schedules stopped: every project's Inspections tab, and the tasks they are, change.
+      void qc.invalidateQueries({ queryKey: ['project-inspections'] });
+      void qc.invalidateQueries({ queryKey: ['task'] });
     },
     onError: (err) => setDeleteProblem(reason(err, 'Couldn’t delete the form. Please try again.')),
   });
@@ -214,6 +237,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
           onConfirm={() => deleteM.mutate(deleting)}
           onClose={() => setDeleting(null)}
         >
+          <DeleteUsage formId={deleting.id} />
           Nobody can start a new inspection from it. Inspections already made from it are kept, with their answers, signatures and reports.
         </ConfirmDialog>
       ) : null}
