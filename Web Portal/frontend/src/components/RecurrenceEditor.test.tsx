@@ -108,4 +108,23 @@ describe('RecurrenceEditor', () => {
     expect(withFrequency(null, 'DAILY')).toEqual({ freq: 'DAILY', interval: 1 });
     expect(withFrequency({ freq: 'WEEKLY', interval: 2, weekdays: [1], count: 4, createNext: 'ON_SCHEDULE' }, 'MONTHLY')).toEqual({ freq: 'MONTHLY', interval: 2, count: 4, createNext: 'ON_SCHEDULE' });
   });
+
+  it('a scheduled check: no "next copy" choice and no pause (every check is made on its day), counted in checks', async () => {
+    const onChange = vi.fn();
+    render(<RecurrenceEditor kind="check" value={{ freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE', count: 5 }} onChange={onChange} />);
+    expect(screen.queryByLabelText('Create the next copy')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Pause series/ })).toBeNull();
+    expect(screen.getByText('check(s)')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Number of occurrences'), { target: { value: '8' } });
+    expect(onChange).toHaveBeenLastCalledWith({ freq: 'DAILY', interval: 1, createNext: 'ON_SCHEDULE', count: 8, until: null });
+  });
+
+  it('can show only how the repeat ends (a preset picked the rest)', async () => {
+    const onChange = vi.fn();
+    render(<RecurrenceEditor kind="check" only="ends" value={{ freq: 'WEEKLY', interval: 1, weekdays: [0, 1, 2, 3, 4], createNext: 'ON_SCHEDULE' }} onChange={onChange} />);
+    expect(screen.queryByLabelText('Repeat every')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mon' })).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText('Ends'), 'COUNT');
+    expect(onChange).toHaveBeenCalledWith({ freq: 'WEEKLY', interval: 1, weekdays: [0, 1, 2, 3, 4], createNext: 'ON_SCHEDULE', count: 10, until: null });
+  });
 });

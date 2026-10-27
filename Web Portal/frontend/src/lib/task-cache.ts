@@ -26,6 +26,8 @@ export const TASK_QUERY_ROOTS = [
   'report-timeseries',
   // The Workload page counts open tasks due each day and overdue ones.
   'workload',
+  // A project's Inspections tab lists its due checks and schedules (tasks that carry a form).
+  'project-inspections',
 ] as const;
 
 /** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…) and the Timeline's. */

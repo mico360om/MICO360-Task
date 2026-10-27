@@ -1,5 +1,6 @@
 import type { ApiClient } from '../lib/api-client';
 import type { FormStructure, InspectionStatus, ItemResult, SignatureRole, SignatureRule } from '../lib/inspection-rules';
+import type { RecurrenceRule } from '../lib/recurrence';
 
 /** Inspection checklists: forms (templates), a project's inspections, answers, signing, follow-ups. */
 
@@ -59,7 +60,8 @@ export interface InspectionListItem {
   /** "Passed", "2 failed", "All N/A"; while in progress "12 of 40 answered". */
   result: string;
   clientVisible: boolean;
-  task: { id: string; key: string; title: string; done: boolean } | null;
+  /** `lateDays`: a finished check (a task that carries a form) done N days after its due day (0 on time). */
+  task: { id: string; key: string; title: string; done: boolean; lateDays?: number | null } | null;
 }
 
 export interface AnswerView {
@@ -116,6 +118,50 @@ export interface InspectionDetail extends InspectionListItem {
   /** Earlier signed revisions (a reopen took their signatures off), oldest first; numbered from 1. */
   earlierRevisions?: EarlierRevision[];
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
+  /** After a finish: the check it was for, completed automatically (a task that carries a form). */
+  taskCompleted?: { id: string; key: string; title: string } | null;
+}
+
+/** A form as a check names it: deleted since means the check can still be done, but nothing new uses it. */
+export interface FormRef {
+  id: string;
+  title: string;
+  deleted: boolean;
+}
+
+/** A repeating check on a project (its newest copy carries the repeat). */
+export interface InspectionSchedule {
+  taskId: string;
+  key: string;
+  title: string;
+  form: FormRef;
+  place: string | null;
+  assignees: Person[];
+  rule: RecurrenceRule;
+  /** "Every working day", "Repeats every week on Mon". */
+  repeat: string;
+  paused: boolean;
+  /** 'YYYY-MM-DD'; null when paused or ended. */
+  nextDue: string | null;
+  lastDone: string | null;
+  openChecks: number;
+  lateChecks: number;
+}
+
+/** An open check (a task that carries a form): late ones first. */
+export interface DueCheck {
+  taskId: string;
+  key: string;
+  title: string;
+  /** 'YYYY-MM-DD' */
+  dueDate: string | null;
+  state: 'DUE' | 'LATE';
+  daysLate: number;
+  scheduled: boolean;
+  form: FormRef;
+  place: string | null;
+  assignees: Person[];
+  inProgress: { inspectionId: string; inspector: Person } | null;
 }
 
 export interface EarlierRevision {
@@ -213,6 +259,11 @@ export function inspectionsApi(client: ApiClient) {
     remove: (id: string) => client.del<void>(`/inspections/${seg(id)}`),
     makeFollowUps: (id: string, input: { itemIds: string[]; assigneeId?: string | null }) =>
       client.post<{ data: FollowUpResult[] }>(`/inspections/${seg(id)}/follow-ups`, input).then((r) => r.data),
+    // Scheduled inspections
+    schedules: (projectId: string) =>
+      client.get<{ data: { schedules: InspectionSchedule[]; workingDays: number[] } }>(`/projects/${seg(projectId)}/inspection-schedules`).then((r) => r.data),
+    dueChecks: (projectId: string) => client.get<{ data: { checks: DueCheck[]; total: number } }>(`/projects/${seg(projectId)}/inspection-checks?state=open`).then((r) => r.data),
+    formUsage: (formId: string) => client.get<{ data: { schedules: number; openChecks: number } }>(`/inspection-forms/${seg(formId)}/usage`).then((r) => r.data),
     forTask: (taskId: string) =>
       client.get<{ data: { attached: InspectionListItem[]; followUpOf: { inspection: InspectionListItem; item: string } | null } }>(`/tasks/${seg(taskId)}/inspections`).then((r) => r.data),
     reportPdf: (id: string) => client.getBlob(`/inspections/${seg(id)}/report.pdf`),

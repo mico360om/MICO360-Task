@@ -108,6 +108,8 @@ export function ProjectDetailPage() {
     if (any('tasks', 'all')) {
       void qc.invalidateQueries({ queryKey: ['project-tasks', id] });
       void qc.invalidateQueries({ queryKey: ['columns', id] });
+      // Due checks and schedules are tasks too.
+      void qc.invalidateQueries({ queryKey: ['project-inspections', id] });
     }
     if (any('meetings', 'all')) void qc.invalidateQueries({ queryKey: ['meetings', 'project', id] });
     if (any('inspections', 'all')) void qc.invalidateQueries({ queryKey: ['project-inspections', id] });
@@ -434,7 +436,7 @@ export function ProjectDetailPage() {
           />
         ) : null}
 
-        {tab === 'inspections' ? <ProjectInspectionsTab projectId={id} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} /> : null}
+        {tab === 'inspections' ? <ProjectInspectionsTab projectId={id} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} onOpenTask={setOpenTaskId} /> : null}
 
         {tab === 'team' ? (
           <section className="card p-5">

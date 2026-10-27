@@ -12,8 +12,13 @@ export interface RecurrenceEditorProps {
   compact?: boolean;
   /** The form around it picks the frequency (see withFrequency): show only the schedule options. */
   hideFrequency?: boolean;
-  /** A meeting series: every meeting is created ahead, so there's no "next copy" choice or pause. */
-  kind?: 'task' | 'meeting';
+  /**
+   * A meeting series: every meeting is created ahead, so there's no "next copy" choice or pause.
+   * A scheduled inspection ('check'): every check is made on its day, so neither is there either.
+   */
+  kind?: 'task' | 'meeting' | 'check';
+  /** 'ends': only how the repeat ends (and the next dates) — a preset chose the rest. */
+  only?: 'ends';
 }
 
 const FREQS: RecurrenceRule['freq'][] = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
@@ -72,8 +77,12 @@ function nthWeekdayOf(dueKey: string): NonNullable<RecurrenceRule['nthWeekday']>
   return { week: week >= 5 ? -1 : (week as 1 | 2 | 3 | 4), day: d.getUTCDay() };
 }
 
-export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hideFrequency = false, kind = 'task' }: RecurrenceEditorProps) {
+export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hideFrequency = false, kind = 'task', only }: RecurrenceEditorProps) {
   const meeting = kind === 'meeting';
+  /** No "next copy" choice and no pause: a meeting series and a scheduled check. */
+  const fixedCopies = kind !== 'task';
+  const endsOnly = only === 'ends';
+  const counted = meeting ? 'meeting(s)' : kind === 'check' ? 'check(s)' : 'occurrence(s)';
   const rule = value;
   const dueKey = dueDate ? dueDate.slice(0, 10) : '';
 
@@ -143,7 +152,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
 
   return (
     <div className="flex flex-col gap-2.5 text-sm">
-      {hideFrequency ? null : <label className="flex items-center gap-2">
+      {hideFrequency || endsOnly ? null : <label className="flex items-center gap-2">
         <span className={compact ? 'sr-only' : 'text-ink-2'}>Repeat</span>
         <select aria-label="Repeat" value={rule?.freq ?? 'NONE'} onChange={(e) => setFreq(e.target.value)} className={compact ? 'h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9' : control}>
           <option value="NONE">Does not repeat</option>
@@ -153,7 +162,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </select>
       </label>}
 
-      {rule ? (
+      {rule && !endsOnly ? (
         <label className="flex items-center gap-2">
           <span className="text-ink-2">Repeat every</span>
           <input
@@ -168,7 +177,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </label>
       ) : null}
 
-      {rule?.freq === 'WEEKLY' ? (
+      {rule?.freq === 'WEEKLY' && !endsOnly ? (
         <div className="flex flex-wrap gap-1.5">
           {DAY_NAMES.map((name, day) => {
             const on = weekdays.includes(day);
@@ -188,7 +197,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </div>
       ) : null}
 
-      {rule && monthBased ? (
+      {rule && monthBased && !endsOnly ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-ink-2">On</span>
           <select
@@ -248,7 +257,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
                 onChange={(e) => setCount(Number(e.target.value))}
                 className={`w-16 ${control}`}
               />
-              <span className="text-ink-2">{meeting ? 'meeting(s)' : 'occurrence(s)'}</span>
+              <span className="text-ink-2">{counted}</span>
             </>
           ) : null}
           {ends === 'UNTIL' ? (
@@ -263,7 +272,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </div>
       ) : null}
 
-      {rule && !meeting ? (
+      {rule && !fixedCopies ? (
         <label className="flex flex-wrap items-center gap-2">
           <span className="text-ink-2">Create the next copy</span>
           <select aria-label="Create the next copy" value={rule.createNext ?? 'ON_COMPLETE'} onChange={(e) => setCreateNext(e.target.value)} className={control}>
@@ -279,7 +288,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
         </p>
       ) : null}
 
-      {rule && !meeting ? (
+      {rule && !fixedCopies ? (
         <div className="flex items-center gap-2">
           <button
             type="button"

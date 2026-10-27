@@ -11,6 +11,7 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ClientEyeIcon } from '../TaskCard';
 import { dayText, InspectIcon, OutcomePill, problemText } from './inspection-ui';
+import { DueChecksSection, SchedulesSection } from './ScheduledInspections';
 
 export interface InspectionTaskOption {
   id: string;
@@ -62,6 +63,11 @@ function Row({ x, timeZone }: { x: InspectionListItem; timeZone: string }) {
           </p>
         </div>
         <div className="flex flex-none flex-wrap items-center gap-1.5">
+          {finished && x.task?.lateDays ? (
+            <span className="inline-flex items-center rounded-md bg-warning-soft px-1.5 py-0.5 text-xs font-semibold text-warning">
+              Done late · {x.task.lateDays} {x.task.lateDays === 1 ? 'day' : 'days'}
+            </span>
+          ) : null}
           {x.clientVisible ? (
             <span className="inline-flex items-center gap-1 rounded-md bg-info-soft px-1.5 py-0.5 text-xs font-semibold text-info">
               <ClientEyeIcon size={12} />
@@ -225,11 +231,13 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
 }
 
 /**
- * A project's inspections: those in progress (with how far along) and finished ones (with their
- * result, the task they were for, and whether the client sees them); anyone on the team starts one
- * from a form. Inspections with changes still on this phone are named, so nobody wonders where they went.
+ * A project's inspections: the checks due (late ones first) and the schedules that make them, then
+ * those in progress (with how far along) and finished ones (with their result, the task they were
+ * for, whether it was done late, and whether the client sees them); anyone on the team starts one
+ * from a form or schedules one. Inspections with changes still on this phone are named, so nobody
+ * wonders where they went.
  */
-export function ProjectInspectionsTab({ projectId, tasks }: { projectId: string; tasks: InspectionTaskOption[] }) {
+export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projectId: string; tasks: InspectionTaskOption[]; onOpenTask?: (taskId: string) => void }) {
   const timeZone = useCompanyTimeZone();
   const [starting, setStarting] = useState(false);
   const q = useQuery({ queryKey: ['project-inspections', projectId], queryFn: () => inspectionsApi(apiClient).listForProject(projectId) });
@@ -270,6 +278,8 @@ export function ProjectInspectionsTab({ projectId, tasks }: { projectId: string;
       ) : null}
       {q.data ? (
         <>
+          <DueChecksSection projectId={projectId} canStart={q.data.canStart} onOpenTask={onOpenTask} />
+          <SchedulesSection projectId={projectId} canChange={q.data.canStart} />
           <Group title="In progress" items={inProgress} timeZone={timeZone} empty="None in progress." />
           <Group title="Finished" items={finished} timeZone={timeZone} empty="No finished inspections yet." />
         </>

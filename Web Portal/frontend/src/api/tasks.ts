@@ -55,6 +55,12 @@ export interface ApiTask {
   meeting?: TaskMeetingLink | null;
   /** Keys it had before it moved to another project, oldest first (single-task responses): "RIG-4" for OPS-17. */
   formerKeys?: string[];
+  /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
+  inspectionFormId?: string | null;
+  /** Where the check is done ("Rig 3"). */
+  inspectionPlace?: string | null;
+  /** That form (single-task responses): its title, and whether it was deleted since (it can still be done). */
+  inspectionForm?: { id: string; title: string; deleted: boolean } | null;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
   /** Aggregate counts for card badges (present on list responses). */
@@ -79,6 +85,9 @@ export interface NewTaskInput {
   assigneeIds?: string[];
   /** Its checklist's items, in order (e.g. from a task template), created with the task. */
   checklist?: string[];
+  /** The inspection form it is carried out with, and where (a check). */
+  inspectionFormId?: string | null;
+  inspectionPlace?: string | null;
 }
 
 export interface CreateTaskOptions {
