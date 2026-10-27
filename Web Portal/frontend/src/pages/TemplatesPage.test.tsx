@@ -54,7 +54,7 @@ function renderPage(path = '/templates') {
 
 describe('Templates page', () => {
   it('is built from a list of tabs another feature can add to', () => {
-    expect(TEMPLATE_TABS.map((t) => [t.key, t.label])).toEqual([['projects', 'Projects'], ['tasks', 'Tasks']]);
+    expect(TEMPLATE_TABS.map((t) => [t.key, t.label])).toEqual([['projects', 'Projects'], ['tasks', 'Tasks'], ['inspections', 'Inspection forms']]);
     for (const t of TEMPLATE_TABS) expect(t.element).toBeTruthy();
   });
 
@@ -62,7 +62,7 @@ describe('Templates page', () => {
     renderPage();
     expect(screen.getByRole('heading', { level: 1, name: 'Templates' })).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Projects', 'Tasks']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Projects', 'Tasks', 'Inspection forms']);
     expect(screen.getByRole('tab', { name: 'Projects' })).toHaveAttribute('aria-selected', 'true');
     const card = (await screen.findByRole('heading', { name: 'Rig inspection' })).closest('article')!;
     expect(within(card).getByText('12 tasks')).toBeInTheDocument();
