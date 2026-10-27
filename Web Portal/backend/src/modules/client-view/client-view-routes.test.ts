@@ -430,6 +430,13 @@ describe('the client’s own routes', () => {
     expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/minutes/m1/pdf', headers: { 'x-client-link': link } })).statusCode).toBe(401);
   });
 
+  it('an inspection report PDF needs a signed-in device, and only a shown report is there', async () => {
+    const { link } = await shareP1(f);
+    const { cookie } = await signInOverHttp(f, link);
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/inspections/i1/pdf', headers: { 'x-client-link': link, cookie } })).statusCode).toBe(404);
+    expect((await f.app.inject({ method: 'GET', url: '/api/v1/client/inspections/i1/pdf', headers: { 'x-client-link': link } })).statusCode).toBe(401);
+  });
+
   it('a staff token is never used on client routes: even an admin gets no page without the client’s code', async () => {
     const { link } = await shareP1(f);
     for (const userId of [ADMIN, OWNER, OUTSIDER]) {

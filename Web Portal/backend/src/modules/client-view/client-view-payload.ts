@@ -3,6 +3,7 @@ import { isTaskDone } from '../tasks/task-status';
 import { resolveMinutesTimeZone } from '../meetings/minutes';
 import type { FinalMinutesContent } from '../meetings/final-minutes';
 import { clientMinutesContent } from './client-minutes-content';
+import type { ClientInspection } from '../inspections/inspection-client-copy';
 
 /**
  * What a shared client's page shows, built from an explicit allow-list: every field below is copied
@@ -59,6 +60,8 @@ export interface ClientViewInput {
   counts: { total: number; done: number };
   items: ClientTaskSource[];
   minutes: ClientMinutesSource[];
+  /** Finished inspection reports marked "Show to client" (already the client's allow-listed copy). */
+  inspections?: ClientInspection[];
   /** The company time zone (today, due days). */
   timeZone: string;
   now: Date;
@@ -101,6 +104,7 @@ export interface ClientView {
   milestones: ClientItem[];
   tasks: ClientItem[];
   minutes: ClientMinutes[];
+  inspections: ClientInspection[];
   generatedAt: string;
 }
 
@@ -149,6 +153,26 @@ function minutesContent(c: FinalMinutesContent): FinalMinutesContent {
   };
 }
 
+/** A shown inspection report, copied field by field again (whatever else its object carries stays behind). */
+function inspectionCopy(i: ClientInspection): ClientInspection {
+  const text = (v: unknown) => (typeof v === 'string' ? v : null);
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return {
+    id: String(i.id),
+    title: String(i.title),
+    date: String(i.date),
+    place: text(i.place),
+    counts: { total: n(i.counts?.total), passed: n(i.counts?.passed), failed: n(i.counts?.failed), na: n(i.counts?.na) },
+    result: String(i.result),
+    sections: (i.sections ?? []).map((s) => ({
+      title: String(s.title),
+      items: (s.items ?? []).map((it) => ({ label: String(it.label), kind: it.kind === 'READING' ? 'READING' : 'CHECK', result: text(it.result), reading: text(it.reading), limits: text(it.limits), note: text(it.note) })),
+    })),
+    signatures: (i.signatures ?? []).map((sig) => ({ role: String(sig.role), name: String(sig.name), signedAt: String(sig.signedAt), image: text(sig.image), typed: sig.typed === true })),
+    unsigned: strings(i.unsigned),
+  };
+}
+
 export function buildClientView(input: ClientViewInput): ClientView {
   const { project: p, timeZone, now } = input;
   const today = todayKey(timeZone, now);
@@ -188,6 +212,7 @@ export function buildClientView(input: ClientViewInput): ClientView {
           content: clientMinutesContent(minutesContent(m.content), { names: m.people ?? [], includeRisks: m.showRisks === true }),
         };
       }),
+    inspections: (input.inspections ?? []).map(inspectionCopy),
     generatedAt: now.toISOString(),
   };
 }

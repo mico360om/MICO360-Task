@@ -95,6 +95,9 @@ import { createClientAccessService } from './modules/client-view/client-access-s
 import { createPrismaClientShareStore } from './modules/client-view/prisma-client-share-store';
 import { createPrismaClientViewSource } from './modules/client-view/client-view-source';
 import { createPrismaClientFlags } from './modules/client-view/prisma-client-flags';
+import { createInspectionService } from './modules/inspections/inspection-service';
+import { createPrismaInspectionStore } from './modules/inspections/prisma-inspection-store';
+import { createInspectionPorts } from './modules/inspections/prisma-inspection-ports';
 import { readProjectPicture } from './lib/pdf-image';
 import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 
@@ -1207,6 +1210,25 @@ async function main(): Promise<void> {
   // with a code emailed to them; nothing in it is a staff account or session.
   const readStoredProjectImage = async (url: string) =>
     url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null;
+
+  // Inspection checklists: forms, inspections on a project's team, follow-up tasks, reports.
+  const inspectionService = createInspectionService({
+    store: createPrismaInspectionStore(prisma),
+    ports: createInspectionPorts({
+      prisma,
+      access: projectAccess,
+      authz: projectAuthz,
+      tasks: taskService,
+      columns: columnService,
+      assignees: assigneeService,
+      broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+      userNames: resolveUserNames,
+      recordActivity: recordTaskActivity,
+      audit: auditService,
+      cleanSignature: imageShrinker.toPrintable,
+      logger,
+    }),
+  });
   const clientAccessService = createClientAccessService({
     store: createPrismaClientShareStore(prisma),
     source: createPrismaClientViewSource(prisma),
@@ -1225,6 +1247,11 @@ async function main(): Promise<void> {
     audit: auditService,
     projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
     logger,
+    // Finished inspection reports marked "Show to client".
+    inspections: {
+      list: (projectId) => inspectionService.clientInspections(projectId, companyTz),
+      one: (projectId, id) => inspectionService.clientInspectionOf(projectId, id, companyTz),
+    },
   });
   const clientFlags = createPrismaClientFlags(prisma, (taskId) => taskService.getTask(taskId));
   pruneClientAccess = () => clientAccessService.prune();
@@ -1374,6 +1401,12 @@ async function main(): Promise<void> {
     idempotencyStore: createPrismaIdempotencyStore(prisma),
     dataExporter: createPrismaDataExporter(prisma),
     clientView: { service: clientAccessService, secureCookies: env.NODE_ENV === 'production', tasks: clientFlags.tasks, minutes: clientFlags.minutes },
+    inspections: {
+      service: inspectionService,
+      timeZone: companyTz,
+      projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
+      userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
+    },
   });
 
   // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).

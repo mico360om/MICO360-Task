@@ -3,6 +3,7 @@ import { isolate, textDirection } from '../../lib/pdf-text';
 import { formatDateTime, formatDay, slugPart } from '../../lib/export-format';
 import { projectIconPaths, projectInitials } from '../projects/project-icons';
 import type { MinutesBrand } from '../meetings/minutes';
+import { resolveBrand } from '../email/brand';
 import type { ClientInspection, ClientInspectionItem } from './inspection-client-copy';
 
 /**
@@ -239,4 +240,17 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
   }
 
   return doc.build();
+}
+
+/** The report's brand: the same one every MICO360 PDF uses. */
+export function reportBrand(): InspectionReportData['brand'] {
+  const b = resolveBrand();
+  return {
+    productName: b.productName,
+    companyName: b.companyName,
+    websiteUrl: b.websiteUrl,
+    supportEmail: b.supportEmail,
+    companyAddress: b.companyAddress,
+    colors: { brand: b.colors.brand, ink: b.colors.ink, muted: b.colors.ink2, line: b.colors.line },
+  };
 }

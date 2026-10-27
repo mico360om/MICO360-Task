@@ -127,6 +127,13 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
     return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${fileName}"`).send(pdf);
   });
 
+  // A shown inspection report’s client copy (as many a minute as the minutes PDFs).
+  app.get('/client/inspections/:inspectionId/pdf', perSession, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { inspectionId } = req.params as { inspectionId: string };
+    const { pdf, fileName } = await service.inspectionPdf(linkOf(req), sessionFrom(req), inspectionId);
+    return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `attachment; filename="${fileName}"`).send(pdf);
+  });
+
   // ── Staff: sharing a project ─────────────────────────────────────────────
 
   /** 404 for someone who can't see the project, 403 for its members who don't run it. */

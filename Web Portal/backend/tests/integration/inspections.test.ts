@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { inspectionStoreContract } from '../../src/modules/inspections/inspection-store.contract';
 import { createPrismaInspectionStore } from '../../src/modules/inspections/prisma-inspection-store';
 import type { AnswerRecord, Counts } from '../../src/modules/inspections/inspection-store';
+import { createInspectionPorts } from '../../src/modules/inspections/prisma-inspection-ports';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. Only this file's projects
 // (codes INA, INB) and its person (insp-owner@mico360.test) are made and removed.
@@ -148,5 +149,50 @@ describe('inspections in the database', () => {
     const i = await store.createInspection({ projectId: a.id, formId: form.id, formVersion: 1, title: form.title, description: null, structure, place: null, taskId: task, inspectorId: ownerId, itemCount: 20, at: new Date() });
     await prisma.task.delete({ where: { id: task } });
     expect((await store.findInspection(i.id))!.taskId).toBeNull();
+  });
+});
+
+describe('the inspection service’s view of the app, in the database', () => {
+  beforeEach(setup);
+  const ports = () =>
+    createInspectionPorts({
+      prisma,
+      access: { canViewProject: async () => true, canViewTask: async () => true },
+      authz: { canManageProject: async () => true },
+      tasks: { createTask: async () => { throw new Error('not used'); } },
+      columns: { listColumns: async (projectId) => prisma.kanbanColumn.findMany({ where: { projectId } }) },
+      assignees: { eligibleAssignees: async (_p, ids) => ids, assertAssignable: async (_p, ids) => ids, notifyAssigned: async () => {} },
+      broadcast: () => {},
+      userNames: async () => new Map(),
+    });
+
+  it('knows who runs a project: its owner, a MANAGER member — not a plain member', async () => {
+    const plain = await prisma.user.create({ data: { email: 'insp-plain@mico360.test', username: 'insp-plain', passwordHash: 'x', firstName: 'Sam', lastName: 'Member' } });
+    const mgr = await prisma.user.create({ data: { email: 'insp-mgr@mico360.test', username: 'insp-mgr', passwordHash: 'x', firstName: 'Mona', lastName: 'Manager' } });
+    try {
+      await prisma.projectMember.createMany({ data: [{ projectId: a.id, userId: plain.id, role: 'MEMBER' }, { projectId: a.id, userId: mgr.id, role: 'MANAGER' }] });
+      const p = ports();
+      expect(await p.runsAnyProject(ownerId)).toBe(true);
+      expect(await p.runsAnyProject(mgr.id)).toBe(true);
+      expect(await p.runsAnyProject(plain.id)).toBe(false);
+      expect(await p.peopleNames(a.id)).toEqual(expect.arrayContaining(['Omar Ahmed', 'Mona Manager', 'Sam Member', 'Omar']));
+    } finally {
+      await prisma.projectMember.deleteMany({ where: { userId: { in: [plain.id, mgr.id] } } });
+      await prisma.user.deleteMany({ where: { id: { in: [plain.id, mgr.id] } } });
+    }
+  });
+
+  it('finds the first Done column, and tells a done task from an open one', async () => {
+    const p = ports();
+    expect(await p.doneColumnOf(a.id)).toBeNull();
+    const done = await prisma.kanbanColumn.create({ data: { projectId: a.id, name: 'Done', category: 'DONE', position: 5 } });
+    expect(await p.doneColumnOf(a.id)).toBe(done.id);
+    const open = await makeTask(a.id);
+    expect((await p.task(open))!.done).toBe(false);
+    await prisma.task.update({ where: { id: open }, data: { columnId: done.id } });
+    expect((await p.task(open))!.done).toBe(true);
+    await prisma.task.update({ where: { id: open }, data: { deletedAt: new Date() } });
+    expect(await p.task(open)).toBeNull();
+    expect((await p.taskSummaries([open])).get(open)).toMatchObject({ deleted: true });
   });
 });

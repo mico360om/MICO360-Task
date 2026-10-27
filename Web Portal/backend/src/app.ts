@@ -93,6 +93,7 @@ import type { MicoAiService } from './modules/mico-ai/mico-ai-service';
 import type { CorsOriginMatcher } from './lib/cors-origins';
 import type { DataExporter } from './modules/users/data-export';
 import { registerClientViewRoutes, type ClientViewRouteDeps } from './modules/client-view/client-view-routes';
+import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -254,6 +255,8 @@ export interface AppDeps extends AuthRouteDeps {
    * and the staff routes that share a project and mark its items "Show to client".
    */
   clientView?: Pick<ClientViewRouteDeps, 'service' | 'secureCookies' | 'tasks' | 'minutes' | 'rateLimits'>;
+  /** Inspection checklists: forms, a project's inspections, answers, signing, follow-up tasks, reports. */
+  inspections?: Omit<InspectionRouteDeps, 'guard' | 'broadcast'>;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -719,6 +722,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           broadcast: deps.onTaskEvent,
           onMinutesChanged: deps.onFinalMinutesChanged,
         });
+      }
+      if (deps.inspections) {
+        await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent });
       }
     },
     { prefix: '/api/v1' },
