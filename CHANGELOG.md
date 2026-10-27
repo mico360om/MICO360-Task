@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-10-28
+
 ### New features
 - Scheduled inspections: on a project's Inspections tab, anyone on the team can "Schedule an
   inspection" — pick the form, a name and place ("Rig 3"), the inspectors and how often it repeats
