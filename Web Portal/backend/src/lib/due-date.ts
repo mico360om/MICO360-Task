@@ -16,9 +16,21 @@ function toDate(value: DateInput): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Formatters are slow to build and cheap to reuse: one of each kind per time zone, kept for the life
+ * of the process (there are only ever a handful of zones).
+ */
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+
 /** 'YYYY-MM-DD' of an instant in an IANA time zone. */
 export function zonedDayKey(instant: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
+  let f = dayFormats.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    dayFormats.set(timeZone, f);
+  }
+  return f.format(instant);
 }
 
 /** Today's 'YYYY-MM-DD' in the company time zone. */
@@ -79,16 +91,21 @@ export function completedOnTime(due: DateInput, completedAt: DateInput, timeZone
 
 /** Offset (ms) of a time zone from UTC at a given instant. */
 export function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(instant);
+  let f = clockFormats.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    clockFormats.set(timeZone, f);
+  }
+  const parts = f.formatToParts(instant);
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
   const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
   return asUtc - Math.floor(instant.getTime() / 1000) * 1000;

@@ -9,6 +9,7 @@ import {
   overdueFrom,
   shiftDayKey,
   todayKey,
+  zonedDayKey,
   zonedStartOfDay,
 } from './due-date';
 
@@ -62,5 +63,31 @@ describe('due-date rules (company time zone)', () => {
     expect(zonedStartOfDay('2026-07-01', 'Europe/London').toISOString()).toBe('2026-06-30T23:00:00.000Z');
     expect(shiftDayKey('2026-02-28', 1)).toBe('2026-03-01');
     expect(todayKey(TZ, new Date('2026-09-30T20:30:00.000Z'))).toBe('2026-10-01');
+  });
+});
+
+describe('formatters are made once per time zone (they are slow to build)', () => {
+  it('zonedDayKey, todayKey, isOverdue and zonedStartOfDay reuse them, and give the same answers', () => {
+    const Real = Intl.DateTimeFormat;
+    let made = 0;
+    class Counting extends Real {
+      constructor(...args: ConstructorParameters<typeof Intl.DateTimeFormat>) {
+        super(...args);
+        made += 1;
+      }
+    }
+    Intl.DateTimeFormat = Counting as unknown as typeof Intl.DateTimeFormat;
+    try {
+    const at = new Date('2026-10-27T19:30:00.000Z');
+    for (let i = 0; i < 200; i++) {
+      expect(zonedDayKey(at, 'Asia/Muscat')).toBe('2026-10-27');
+      expect(zonedDayKey(at, 'Pacific/Auckland')).toBe('2026-10-28');
+      isOverdue('2026-10-26', 'Asia/Muscat', at);
+      expect(zonedStartOfDay('2026-10-27', 'Asia/Muscat').toISOString()).toBe('2026-10-26T20:00:00.000Z');
+    }
+    expect(made).toBeLessThanOrEqual(4);
+    } finally {
+      Intl.DateTimeFormat = Real;
+    }
   });
 });
