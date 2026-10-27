@@ -26,6 +26,9 @@ export interface LineChartProps {
 }
 
 const PAD = { left: 40, right: 16, top: 14, bottom: 26 };
+/** A generous width per character of a 10px axis label, and the space kept between two labels. */
+const LABEL_CHAR = 6;
+const LABEL_GAP = 6;
 
 /** Round a max value up to a clean axis top so gridline labels read nicely. */
 function niceCeil(v: number): number {
@@ -79,9 +82,26 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
   // Horizontal gridlines + y labels (0 .. top in 4 steps).
   const gridRows = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ v: Math.round(top * f), yy: y(top * f) }));
 
-  // Thin the x labels so a 30-day axis doesn't collide.
+  // The first and last axis labels sit against their edge, so they are never cut off.
+  const anchorOf = (i: number): 'start' | 'middle' | 'end' => (n <= 1 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle');
+  const tickX = (i: number) => (anchorOf(i) === 'start' ? Math.max(2, x(i) - 6) : anchorOf(i) === 'end' ? Math.min(width - 2, x(i) + 6) : x(i));
+
+  // Thin the x labels so a 30-day axis doesn't collide: about maxTicks of them, the last always shown,
+  // and any that would run into the one before it (a narrow chart) left out.
   const tickEvery = Math.max(1, Math.ceil(n / maxTicks));
-  const ticks = labels.map((label, i) => ({ label, i })).filter(({ i }) => i % tickEvery === 0 || i === n - 1);
+  const spanOf = ({ label, i }: { label: string; i: number }): [number, number] => {
+    const w = label.length * LABEL_CHAR;
+    const at = tickX(i);
+    const a = anchorOf(i);
+    return a === 'start' ? [at, at + w] : a === 'end' ? [at - w, at] : [at - w / 2, at + w / 2];
+  };
+  const ticks: { label: string; i: number }[] = [];
+  for (const t of labels.map((label, i) => ({ label, i })).filter(({ i }) => i % tickEvery === 0 || i === n - 1)) {
+    const fits = (prev: { label: string; i: number } | undefined) => !prev || spanOf(prev)[1] + LABEL_GAP <= spanOf(t)[0];
+    if (t.i === n - 1) while (ticks.length > 1 && !fits(ticks.at(-1))) ticks.pop();
+    else if (!fits(ticks.at(-1))) continue;
+    ticks.push(t);
+  }
 
   /** The runs of values without a gap: each is drawn as its own line (a lone value as a dot). */
   const runsOf = (vals: (number | null)[]) => {
@@ -99,10 +119,6 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
   const pointsAttr = (run: { i: number; v: number }[]) => run.map((p) => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
   const areaPath = (run: { i: number; v: number }[]) =>
     `M ${x(run[0]!.i).toFixed(1)},${baseY.toFixed(1)} ` + run.map((p) => `L ${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ') + ` L ${x(run.at(-1)!.i).toFixed(1)},${baseY.toFixed(1)} Z`;
-  // The first and last axis labels sit against their edge, so they are never cut off.
-  const anchorOf = (i: number): 'start' | 'middle' | 'end' => (n <= 1 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle');
-  const tickX = (i: number) => (anchorOf(i) === 'start' ? Math.max(2, x(i) - 6) : anchorOf(i) === 'end' ? Math.min(width - 2, x(i) + 6) : x(i));
-
   return (
     <div ref={ref} className="w-full">
       <svg role="img" aria-label={ariaLabel} width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block w-full">
