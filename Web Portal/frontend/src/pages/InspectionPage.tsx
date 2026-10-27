@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { onlineManager, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '../lib/api-client';
+import { shouldRetryQuery } from '../lib/queryRetry';
 import { apiClient } from '../api/client';
 import { inspectionsApi, type InspectionDetail, type SignatureInput } from '../api/inspections';
 import { membersApi } from '../api/members';
@@ -24,6 +26,8 @@ import { dateTimeText, InspectIcon, OutcomePill, problemText } from '../componen
 
 const api = () => inspectionsApi(apiClient);
 type Confirm = 'reopen' | 'take-over' | 'delete' | 'discard' | null;
+/** A request that never reached a server while the browser says there's no signal. */
+const noSignal = (e: unknown) => !(e instanceof ApiError) && (!onlineManager.isOnline() || (typeof navigator !== 'undefined' && navigator.onLine === false));
 const memberName = (m: { firstName: string; lastName: string; username: string }) => [m.firstName, m.lastName].filter(Boolean).join(' ') || m.username;
 
 /**
@@ -39,7 +43,15 @@ export function InspectionPage() {
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const { ownerId, view, sync, online, send, sendSoon, outbox } = useInspectionDraft(id);
-  const q = useQuery({ queryKey: ['inspection', id], queryFn: () => api().get(id), enabled: !!id });
+  // Asked even when the browser says there's no signal (the library would wait, and with no copy on
+  // this phone the page would never load): it fails at once, and the page says what it has.
+  const q = useQuery({
+    queryKey: ['inspection', id],
+    queryFn: () => api().get(id),
+    enabled: !!id,
+    networkMode: 'always',
+    retry: (count, e) => !noSignal(e) && shouldRetryQuery(count, e),
+  });
 
   // The server's copy is kept on this device (so the page opens without signal), under any changes waiting here.
   useEffect(() => {
@@ -99,12 +111,24 @@ export function InspectionPage() {
 
   // Nothing to show: say which problem it is.
   if (!shown || !d) {
+    if (q.isError && noSignal(q.error)) {
+      return (
+        <PageProblem
+          title="No signal"
+          message="This inspection hasn’t been opened on this phone yet, so there’s no copy saved here. It opens once there’s a signal. (An inspection keeps working without signal, even if the page reloads, once you’ve opened it here.)"
+          backTo="/projects"
+          backLabel="Back to projects"
+          onRetry={() => void q.refetch()}
+          retrying={q.isFetching}
+        />
+      );
+    }
     if (q.isError) {
       const missing = isMissing(q.error);
       return (
         <PageProblem
           title={missing ? 'Inspection not found' : 'Couldn’t load this inspection'}
-          message={missing ? 'It may have been deleted, or the link is wrong.' : 'Check your connection and try again. (An inspection you have opened on this phone before opens without signal.)'}
+          message={missing ? 'It may have been deleted, or the link is wrong.' : 'Check your connection and try again. (An inspection keeps working without signal, even if the page reloads, once you’ve opened it here.)'}
           backTo="/projects"
           backLabel="Back to projects"
           onRetry={missing ? undefined : () => void q.refetch()}
@@ -265,7 +289,7 @@ export function InspectionPage() {
           }}
           onDismiss={() => ownerId && outbox.clearProblem(ownerId, id)}
         />
-        {view && q.isError && !q.data ? (
+        {view && !q.data && (q.isError || q.failureCount > 0) ? (
           <p role="status" className="rounded-xl border border-info/30 bg-info-soft px-3 py-2 text-sm text-info">
             No signal: showing the copy saved on this phone.
           </p>

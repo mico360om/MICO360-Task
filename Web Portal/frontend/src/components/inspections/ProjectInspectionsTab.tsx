@@ -115,7 +115,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
             <h2 id={ids.title} className="font-display text-lg font-semibold text-ink">
               Start an inspection
             </h2>
-            <p className="mt-1 text-sm text-ink-2">You become its inspector. Once started it keeps working on your phone without signal.</p>
+            <p className="mt-1 text-sm text-ink-2">You become its inspector. It keeps working without signal, even if the page reloads, once you’ve opened it here.</p>
           </div>
           <form
             className="flex min-h-0 flex-1 flex-col"

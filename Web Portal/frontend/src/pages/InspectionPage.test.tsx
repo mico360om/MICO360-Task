@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { render, screen, waitFor, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -111,6 +111,37 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  onlineManager.setOnline(true);
+});
+
+/** The browser says there's no signal (as after a reload with the phone offline). */
+function noSignal() {
+  server.offline = true;
+  vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false);
+  onlineManager.setOnline(false);
+}
+
+describe('without signal, even after the page reloads', () => {
+  it('opens the copy saved on this phone with the notice (not a page that never loads), and answering goes on', async () => {
+    const first = show();
+    await screen.findByText('Valves closed');
+    first.unmount();
+    noSignal();
+    show();
+    expect(await screen.findByText('No signal: showing the copy saved on this phone.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'Pass' }));
+    expect(JSON.parse(localStorage.getItem('mico360.inspection.u-ivan.i1')!).answers.v).toMatchObject({ result: 'PASS' });
+  });
+
+  it('one never opened on this phone says so plainly, and how it works', async () => {
+    noSignal();
+    show();
+    expect(await screen.findByRole('heading', { name: 'No signal' })).toBeInTheDocument();
+    expect(screen.getByText(/hasn’t been opened on this phone yet/)).toBeInTheDocument();
+    expect(screen.getByText(/keeps working without signal, even if the page reloads, once you’ve opened it here/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading inspection')).toBeNull();
+  });
 });
 
 describe('carrying out an inspection', () => {

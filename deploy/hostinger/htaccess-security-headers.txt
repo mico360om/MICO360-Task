@@ -34,6 +34,11 @@
   <FilesMatch "\.(js|css|woff2?)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
+  # The service worker (sw.js) isn't fingerprinted: browsers must check it on each visit, so a new
+  # one (or its kill switch) is picked up at once. After the rule above, so it wins.
+  <FilesMatch "^sw\.js$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
   # The Android app (downloads/MICO360-Tasks.apk): the sign-in page's "Download for Android" button
   # always uses this one address, and a new build replaces the file in place. Browsers must check
   # for a new file each time, and save it rather than open it.

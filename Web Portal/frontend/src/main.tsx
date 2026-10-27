@@ -9,6 +9,7 @@ import { createAppQueryClient } from './lib/query-client';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
 import { initAuthSync } from './stores/auth-store';
 import { installKeyboardAwareness } from './lib/keyboard-aware';
+import { browserServiceWorkerWorld, setUpServiceWorker } from './lib/service-worker';
 import './index.css';
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
@@ -31,3 +32,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </React.StrictMode>,
 );
+
+// Production builds: the service worker (public/sw.js) lets an opened inspection load again without
+// signal. Set up once the page has loaded, so it never slows the first paint. Vite's dev server is
+// left alone (see lib/service-worker).
+if (document.readyState === 'complete') void setUpServiceWorker(browserServiceWorkerWorld());
+else window.addEventListener('load', () => void setUpServiceWorker(browserServiceWorkerWorld()), { once: true });
