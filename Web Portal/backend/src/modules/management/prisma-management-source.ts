@@ -186,12 +186,17 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
 
     async actionItems(projectIds, today) {
       if (projectIds.length === 0) return [];
+      // A project's action items as its page counts them: filed on it, or from one of its meetings (a
+      // meeting moved to another project takes them along); never a deleted meeting's; active people only.
       const rows = await prisma.$queryRaw<Array<{ userId: string; open: bigint; overdue: unknown }>>`
         SELECT a.assigneeId AS userId, COUNT(*) AS open,
                CAST(SUM(CASE WHEN ${dueBefore(Prisma.sql`a.dueDate`, today, timeZone)} THEN 1 ELSE 0 END) AS SIGNED) AS overdue
-          FROM action_items a LEFT JOIN meetings m ON m.id = a.meetingId
-         WHERE a.projectId IN (${inList(projectIds)}) AND a.assigneeId IS NOT NULL
+          FROM action_items a
+          LEFT JOIN meetings m ON m.id = a.meetingId
+          JOIN users u ON u.id = a.assigneeId
+         WHERE (a.projectId IN (${inList(projectIds)}) OR m.projectId IN (${inList(projectIds)}))
            AND a.status IN (${Prisma.join([...OPEN_ACTION])}) AND (a.meetingId IS NULL OR m.deletedAt IS NULL)
+           AND u.deletedAt IS NULL AND u.status = 'ACTIVE'
          GROUP BY a.assigneeId`;
       return rows.map((r) => ({ userId: r.userId, open: num(r.open), overdue: num(r.overdue) }));
     },
@@ -261,15 +266,51 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
       return { total: num(count[0]?.n), rows };
     },
 
-    async actionItemList({ projectIds, personId, limit }) {
+    async failedAnswers({ projectIds, from, to, formId, limit }) {
       if (projectIds.length === 0) return { total: 0, rows: [] };
+      const form = formId === null ? Prisma.sql`i.formId IS NULL` : Prisma.sql`i.formId = ${formId}`;
+      const where = Prisma.sql`a.result = 'FAIL' AND ${form} AND i.deletedAt IS NULL AND i.status = 'FINISHED'
+           AND i.finishedAt >= ${from} AND i.finishedAt < ${to} AND i.projectId IN (${inList(projectIds)})`;
+      const [count, rows] = await Promise.all([
+        prisma.$queryRaw<Array<{ n: bigint }>>`SELECT COUNT(*) AS n FROM inspection_answers a JOIN inspections i ON i.id = a.inspectionId WHERE ${where}`,
+        prisma.$queryRaw<Array<{ inspectionId: string; itemId: string; title: string; place: string | null; projectId: string; finishedAt: Date; note: string | null }>>`
+          SELECT i.id AS inspectionId, a.itemId AS itemId, i.title AS title, i.place AS place, i.projectId AS projectId, i.finishedAt AS finishedAt, a.note AS note
+            FROM inspection_answers a JOIN inspections i ON i.id = a.inspectionId
+           WHERE ${where}
+           ORDER BY i.finishedAt DESC, i.id ASC, a.itemId ASC
+           LIMIT ${limit}`,
+      ]);
+      return { total: num(count[0]?.n), rows };
+    },
+
+    async formTitles(ids) {
+      if (ids.length === 0) return [];
+      return prisma.inspectionForm.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
+    },
+
+    async actionItemList({ projectIds, personId, overdueOn, limit }) {
+      if (projectIds.length === 0) return { total: 0, rows: [] };
+      // Overdue only: the shared due-date rule (dueBefore) picks the ids; the list reads them as usual.
+      const overdueIds = overdueOn
+        ? (
+            await prisma.$queryRaw<Array<{ id: string }>>`
+              SELECT a.id AS id FROM action_items a WHERE a.dueDate IS NOT NULL AND ${dueBefore(Prisma.sql`a.dueDate`, overdueOn, timeZone)}
+                AND a.status IN (${Prisma.join([...OPEN_ACTION])})${personId ? Prisma.sql` AND a.assigneeId = ${personId}` : Prisma.empty}`
+          ).map((r) => r.id)
+        : null;
+      if (overdueIds && overdueIds.length === 0) return { total: 0, rows: [] };
+      // As the project page counts them: filed on the project, or from one of its meetings; never a deleted meeting's.
       const where: Prisma.ActionItemWhereInput = {
-        projectId: { in: projectIds },
         status: { in: [...OPEN_ACTION] },
         ...(personId ? { assigneeId: personId } : {}),
-        OR: [{ meetingId: null }, { meeting: { is: { deletedAt: null } } }],
+        ...(overdueIds ? { id: { in: overdueIds } } : {}),
+        AND: [
+          { OR: [{ projectId: { in: projectIds } }, { meeting: { is: { projectId: { in: projectIds } } } }] },
+          { OR: [{ meetingId: null }, { meeting: { is: { deletedAt: null } } }] },
+        ],
       };
-      const select = { id: true, description: true, projectId: true, meetingId: true, taskId: true, dueDate: true, status: true, assigneeId: true, meeting: { select: { title: true } } } as const;
+      const select = { id: true, description: true, projectId: true, meetingId: true, taskId: true, dueDate: true, status: true, assigneeId: true, meeting: { select: { title: true, projectId: true } } } as const;
+      const inScope = new Set(projectIds);
       // The most overdue first, then the ones with no due date.
       const [total, dated] = await Promise.all([
         prisma.actionItem.count({ where }),
@@ -286,7 +327,8 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
           (a): ActionLine => ({
             id: a.id,
             description: a.description,
-            projectId: a.projectId!,
+            // The meeting's project when it is one of these (it may have moved), else the one it was filed on.
+            projectId: a.meeting?.projectId && inScope.has(a.meeting.projectId) ? a.meeting.projectId : a.projectId!,
             meetingId: a.meetingId,
             meetingTitle: a.meeting?.title ?? null,
             taskId: a.taskId,

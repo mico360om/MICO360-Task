@@ -15,6 +15,8 @@ export interface ManagementRouteDeps {
   userName?: (userId: string) => Promise<string | null>;
   /** PDFs per signed-in person a minute (default 10): a PDF takes real work to make. */
   pdfsPerMinute?: number;
+  /** Overviews and lists per signed-in person a minute (default 120: plenty for refreshes on focus and opening lists). */
+  readsPerMinute?: number;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -56,7 +58,28 @@ const itemQuery = z.object({
   formId: idParam.optional(),
   itemId: z.string().min(1).max(40).optional(),
   rag: z.enum(['RED', 'AMBER', 'GREEN']).optional(),
+  failed: z
+    .enum(['1', 'true'])
+    .optional()
+    .transform((v) => (v ? true : undefined)),
 });
+
+/** Times per person within the last minute, kept in memory: false once `max` is reached. */
+function perMinute(max: number) {
+  const made = new Map<string, number[]>();
+  return (userId: string): boolean => {
+    const at = Date.now();
+    const recent = (made.get(userId) ?? []).filter((t) => at - t < 60_000);
+    if (recent.length >= max) {
+      made.set(userId, recent);
+      return false;
+    }
+    recent.push(at);
+    made.set(userId, recent);
+    if (made.size > 5000) for (const [k, v] of made) if (!v.some((t) => at - t < 60_000)) made.delete(k);
+    return true;
+  };
+}
 
 /**
  * The Management page over HTTP. Everyone signed in may ask whether they may see it (the sidebar
@@ -70,9 +93,18 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
 
   app.get('/management/access', auth, async (req) => ({ data: await service.access(viewer(req)) }));
 
-  app.get('/management/overview', auth, async (req) => ({ data: await service.overview(viewer(req), parseManagementFilters(req.query)) }));
+  // Each overview is some twenty grouped queries: counted per person (after the sign-in check).
+  const allowRead = perMinute(deps.readsPerMinute ?? 120);
+  const tooMany = () => new HttpError('Too many requests in a minute. Please wait a moment and try again.', 'RATE_LIMITED', 429);
+
+  app.get('/management/overview', auth, async (req) => {
+    const who = viewer(req);
+    if (!allowRead(who.id)) throw tooMany();
+    return { data: await service.overview(who, parseManagementFilters(req.query)) };
+  });
 
   app.get('/management/items', auth, async (req) => {
+    if (!allowRead(req.user!.id)) throw tooMany();
     const filters = parseManagementFilters(req.query);
     const parsed = itemQuery.safeParse(req.query ?? {});
     if (!parsed.success) throw new ValidationError('Say which list to show.', parsed.error.flatten());
@@ -81,20 +113,7 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
 
   // A PDF takes real work to make: each person gets `pdfsPerMinute` a minute (counted after the
   // sign-in check, so per person — a whole office shares one address).
-  const pdfLimit = deps.pdfsPerMinute ?? 10;
-  const pdfsMade = new Map<string, number[]>();
-  const allowPdf = (userId: string): boolean => {
-    const at = Date.now();
-    const recent = (pdfsMade.get(userId) ?? []).filter((t) => at - t < 60_000);
-    if (recent.length >= pdfLimit) {
-      pdfsMade.set(userId, recent);
-      return false;
-    }
-    recent.push(at);
-    pdfsMade.set(userId, recent);
-    if (pdfsMade.size > 5000) for (const [k, v] of pdfsMade) if (!v.some((t) => at - t < 60_000)) pdfsMade.delete(k);
-    return true;
-  };
+  const allowPdf = perMinute(deps.pdfsPerMinute ?? 10);
 
   app.get('/management/overview.pdf', auth, async (req, reply) => {
     const who = viewer(req);

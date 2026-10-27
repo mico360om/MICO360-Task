@@ -225,6 +225,39 @@ describe('Management source (integration)', () => {
     expect((await source.actionItemList({ projectIds: RIG_MICO(), limit: 2 })).rows.length).toBe(2);
   });
 
+  it('action items count for a project as its page counts them: stored on it, or from one of its meetings; only active people (M-3, M-9)', async () => {
+    // Filed on MICO, from a meeting that has since moved to RIG; and one for someone deactivated.
+    const moved = await prisma.actionItem.create({ data: { description: 'a9 moved', projectId: ids.mico!, meetingId: ids.meeting!, assigneeId: ids.zara, status: 'OPEN', createdById: ids.sara! } });
+    await prisma.actionItem.create({ data: { description: 'a10 inactive', projectId: ids.rig!, meetingId: ids.meeting!, assigneeId: ids.layla, status: 'OPEN', createdById: ids.sara! } });
+    const rig = new Map((await source.actionItems([ids.rig!], TODAY)).map((a) => [a.userId, a]));
+    expect(rig.get(ids.zara!)).toMatchObject({ open: 4, overdue: 1 }); // a1, a2, a7 and the moved one
+    expect(rig.has(ids.layla!)).toBe(false);
+    const mico = new Map((await source.actionItems([ids.mico!], TODAY)).map((a) => [a.userId, a]));
+    expect(mico.get(ids.zara!)).toMatchObject({ open: 1 }); // still filed on MICO, as MICO's page shows it
+    const both = new Map((await source.actionItems(RIG_MICO(), TODAY)).map((a) => [a.userId, a]));
+    expect(both.get(ids.zara!)).toMatchObject({ open: 4 }); // counted once
+    const list = await source.actionItemList({ projectIds: [ids.rig!], personId: ids.zara!, limit: 10 });
+    expect(list.total).toBe(4);
+    expect(list.rows.find((r) => r.id === moved.id)).toMatchObject({ projectId: ids.rig, meetingTitle: 'Rig weekly' });
+    expect((await source.actionItemList({ projectIds: [ids.rig!], limit: 20 })).rows.some((r) => r.description === 'a10 inactive')).toBe(true); // the list of all items still shows it
+  });
+
+  it('a form’s failed answers (newest first, with their notes), forms’ titles, and overdue action items only', async () => {
+    const from = new Date('2026-10-03T20:00:00.000Z');
+    const to = new Date('2026-10-31T20:00:00.000Z');
+    const failed = await source.failedAnswers({ projectIds: [ids.rig!], from, to, formId: ids.form!, limit: 10 });
+    expect(failed.total).toBe(3); // in2 valve, in1 hose, in1 valve (not the deleted or unfinished ones)
+    expect(failed.rows.map((r) => [r.inspectionId, r.itemId, r.note])).toEqual([
+      [ids.in2, 'valve', null],
+      [ids.in1, 'hose', null],
+      [ids.in1, 'valve', 'Leaking'],
+    ]);
+    expect((await source.failedAnswers({ projectIds: [ids.rig!], from, to, formId: ids.form!, limit: 1 })).rows).toHaveLength(1);
+    expect(await source.formTitles([ids.form!])).toEqual([{ id: ids.form, title: 'MG rig check' }]);
+    const overdue = await source.actionItemList({ projectIds: RIG_MICO(), personId: ids.zara!, overdueOn: TODAY, limit: 10 });
+    expect([overdue.total, overdue.rows.map((r) => r.description)]).toEqual([1, ['a1']]);
+  });
+
   it('the trend: created, completed and late per week (late judged at the week’s end; now for the current week)', async () => {
     const t = await source.trend(RIG_MICO(), [
       { from: new Date('2026-10-17T20:00:00.000Z'), to: new Date('2026-10-24T20:00:00.000Z'), lateDay: '2026-10-24', lateAt: new Date('2026-10-24T20:00:00.000Z') },

@@ -265,6 +265,18 @@ describe('the lists behind the numbers (always inside the caller’s scope)', ()
       ['in1', 'inspection', '8 passed · 2 failed'],
       ['in3', 'inspection', '5 passed · 0 failed'],
     ]);
+    // A form's numbers: its failed items, its inspections with a failure, all its inspections.
+    const failed = await svc.items(ADMIN, filters(), { metric: 'failed-form', formId: 'F1' });
+    expect([failed.total, failed.title]).toEqual([3, 'Failed items · Rig daily check']);
+    expect(failed.rows.map((r) => [r.id, r.title])).toEqual([
+      ['in2|valve', 'Valve sealed'],
+      ['in1|hose', 'Hose intact'],
+      ['in1|valve', 'Valve sealed'],
+    ]);
+    expect(failed.rows[0]).toMatchObject({ kind: 'inspection', inspectionId: 'in2', detail: 'Rig daily check' });
+    expect((await svc.items(ADMIN, filters(), { metric: 'inspections', formId: 'F1' })).rows.map((r) => r.id)).toEqual(['in2', 'in1']);
+    expect((await svc.items(ADMIN, filters(), { metric: 'inspections', formId: 'F1', failed: true })).title).toBe('Inspections with a failure · Rig daily check');
+    expect((await svc.items(ADMIN, filters(), { metric: 'inspections', formId: 'F2', failed: true })).rows).toEqual([]);
     const valve = await svc.items(ADMIN, filters(), { metric: 'failed-item', formId: 'F1', itemId: 'valve' });
     expect(valve.rows.map((r) => r.id)).toEqual(['in2', 'in1']);
     expect(valve.title).toBe('“Valve sealed” failed');
@@ -272,10 +284,16 @@ describe('the lists behind the numbers (always inside the caller’s scope)', ()
 
   it("a person's overloaded days (their tasks those days) and open action items, inside the scope", async () => {
     const { svc } = service();
+    // One row per overloaded day (the number on the page counts days), each with its tasks.
     const over = await svc.items(ADMIN, filters(), { metric: 'person-overloaded', personId: 'bilal' });
-    expect(over.rows.map((r) => r.id).sort()).toEqual(['m2', 'm3', 'm4', 'r3']);
-    expect(over.rows[0]!.detail).toBe('Wed 28 Oct: 4 due (limit 2)');
+    expect(over.total).toBe(1);
+    expect(over.rows).toHaveLength(1);
+    expect(over.rows[0]).toMatchObject({ kind: 'day', id: '2026-10-28', title: 'Wed 28 Oct', detail: '4 due (limit 2)', tone: 'danger' });
+    expect(over.rows[0]!.tasks!.map((t) => t.id).sort()).toEqual(['m2', 'm3', 'm4', 'r3']);
+    expect(over.title).toBe('Overloaded days · Bilal Ahmed');
     expect((await svc.items(SARA, filters(), { metric: 'person-overloaded', personId: 'bilal' })).rows).toEqual([]);
+    const overdue = await svc.items(ADMIN, filters(), { metric: 'overdue-actions', personId: 'zara' });
+    expect([overdue.total, overdue.rows.map((r) => r.id), overdue.title]).toEqual([1, ['a1'], 'Overdue action items · Zara Ahmed']);
     const actions = await svc.items(ADMIN, filters(), { metric: 'person-actions', personId: 'zara' });
     expect(actions.rows.map((r) => [r.id, r.kind, r.meetingId, r.tone])).toEqual([
       ['a1', 'action', 'mt1', 'danger'],
@@ -315,6 +333,24 @@ describe('the weekly summary’s figures (each person’s own scope)', () => {
     ]);
     const all = await svc.digest(ADMIN);
     expect(all!.worst.map((p) => p.id)).toEqual(['rig', 'mico', 'idle']);
+  });
+
+  it('“last week” is the week before the one the summary is for, whatever the company’s clock says (M-2)', async () => {
+    const source = fakeManagementSource(DATA);
+    const svc = createManagementService({
+      source,
+      workload: fakeWorkloadFor(DATA),
+      settings: { companyWeekStart: async () => 0, workingHours: async () => ({ days: [0, 1, 2, 3, 4] }), dailyLimit: async () => 2 },
+      timeZone: TZ,
+      // Saturday 24 October, 21:00 in Muscat (Sunday morning in Auckland).
+      now: () => new Date('2026-10-24T17:00:00.000Z'),
+    });
+    const d = await svc.digest(SARA, '2026-10-25');
+    expect(d!.lastWeek).toEqual({ start: '2026-10-18', end: '2026-10-24' });
+    expect(d!.doneLateLastWeek).toBe(1);
+    expect(d!.passRateLastWeek).toBe(80);
+    // Without a week: the one before the company's current week.
+    expect((await svc.digest(SARA))!.lastWeek).toEqual({ start: '2026-10-11', end: '2026-10-17' });
   });
 
   it('is null for someone with nothing in scope', async () => {

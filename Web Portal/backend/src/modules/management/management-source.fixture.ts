@@ -195,9 +195,20 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
         .map((i) => ({ inspectionId: i.id, title: i.title, place: i.place ?? null, projectId: i.projectId, finishedAt: at(i.finishedAt), note: null }));
       return { total: rows.length, rows: rows.slice(0, limit) };
     },
-    async actionItemList({ projectIds, personId, limit }) {
+    async failedAnswers({ projectIds, from, to, formId, limit }) {
+      const rows = finished(projectIds, from, to)
+        .filter((i) => i.formId === formId)
+        .sort((a, b) => at(b.finishedAt).getTime() - at(a.finishedAt).getTime())
+        .flatMap((i) => [...(i.failedItems ?? [])].sort().map((itemId) => ({ inspectionId: i.id, itemId, title: i.title, place: i.place ?? null, projectId: i.projectId, finishedAt: at(i.finishedAt), note: null })));
+      return { total: rows.length, rows: rows.slice(0, limit) };
+    },
+    async formTitles(ids) {
+      return d.inspections.filter((i) => i.formId && ids.includes(i.formId)).map((i) => ({ id: i.formId!, title: i.title })).slice(0, 1);
+    },
+    async actionItemList({ projectIds, personId, overdueOn, limit }) {
       const rows = d.actions
         .filter((a) => projectIds.includes(a.projectId) && a.open !== false && (!personId || a.assigneeId === personId))
+        .filter((a) => !overdueOn || (!!a.due && dueDayKey(at(a.due), TZ)! < overdueOn))
         .map((a) => ({
           id: a.id,
           description: a.description ?? a.id,

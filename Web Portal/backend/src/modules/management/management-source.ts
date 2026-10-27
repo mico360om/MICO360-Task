@@ -160,6 +160,10 @@ export interface ManagementSource {
   followUpTasks(q: { projectIds: string[]; limit: number }): Promise<{ total: number; rows: TaskLine[] }>;
   /** Where an item failed in [from, to): the inspections, newest first. `formId` null: inspections whose form is gone. */
   failedOccurrences(q: { projectIds: string[]; from: Date; to: Date; formId: string | null; itemId: string; limit: number }): Promise<{ total: number; rows: FailedOccurrence[] }>;
-  /** Open action items (one person's), the most overdue first. */
-  actionItemList(q: { projectIds: string[]; personId?: string; limit: number }): Promise<{ total: number; rows: ActionLine[] }>;
+  /** Open action items (one person's; only those due before `overdueOn` when given), the most overdue first. */
+  actionItemList(q: { projectIds: string[]; personId?: string; overdueOn?: string; limit: number }): Promise<{ total: number; rows: ActionLine[] }>;
+  /** Every failed answer of a form's inspections finished in [from, to), newest first. `formId` null: inspections whose form is gone. */
+  failedAnswers(q: { projectIds: string[]; from: Date; to: Date; formId: string | null; limit: number }): Promise<{ total: number; rows: (FailedOccurrence & { itemId: string })[] }>;
+  /** Forms' titles (deleted ones too). */
+  formTitles(ids: string[]): Promise<{ id: string; title: string }[]>;
 }

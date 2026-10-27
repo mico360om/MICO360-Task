@@ -8,7 +8,7 @@
  * Every read below is asked only about those projects.
  */
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
-import { daysUntilDue, dueDayKey, shiftDayKey, todayKey, zonedDayKey } from '../../lib/due-date';
+import { daysUntilDue, dueDayKey, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { weekOf, type WeekStart } from '../planning/timeline';
 import { buildWorkload, type WorkloadScope } from '../planning/workload';
 import { loadWorkload, type WorkloadStore } from '../planning/workload-service';
@@ -176,6 +176,8 @@ export const ITEM_METRICS = [
   'failed-item',
   'person-overloaded',
   'person-actions',
+  'overdue-actions',
+  'failed-form',
   'projects',
   'people-overloaded',
 ] as const;
@@ -190,10 +192,13 @@ export interface ItemQuery {
   itemId?: string;
   /** projects: one mark. */
   rag?: string;
+  /** inspections: only those with a failed item. */
+  failed?: boolean;
 }
 
 export interface ItemRow {
-  kind: 'task' | 'inspection' | 'action' | 'project' | 'person';
+  /** 'day': one overloaded day of a person, with its tasks. */
+  kind: 'task' | 'inspection' | 'action' | 'project' | 'person' | 'day';
   id: string;
   title: string;
   /** A task's key, a project's code. */
@@ -211,6 +216,10 @@ export interface ItemRow {
   taskId?: string | null;
   /** An inspection: when it was finished. */
   at?: string | null;
+  /** A failed answer's inspection (its row id is the inspection and the item). */
+  inspectionId?: string | null;
+  /** An overloaded day's tasks. */
+  tasks?: { id: string; key: string; title: string }[];
 }
 
 export interface ItemList {
@@ -307,7 +316,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
   }
   type Context = Awaited<ReturnType<typeof contextOf>>;
 
-  const checkWindow = (ctx: Context, done?: TrendWeek) => ({
+  const checkWindow = (ctx: Context, done?: Pick<TrendWeek, 'from' | 'to'>) => ({
     // A day either side: due dates kept as days, or as moments read in company time; judged one by one.
     dueFrom: utcDay(shiftDayKey(ctx.period.from, -1)),
     dueTo: utcDay(shiftDayKey(ctx.today, 2)),
@@ -316,7 +325,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
   });
 
   /** Each project's figures, mark and reasons, worst first; with the checks they were made from. */
-  async function healthOf(projects: MgmtProject[], ctx: Context, done?: TrendWeek) {
+  async function healthOf(projects: MgmtProject[], ctx: Context, done?: Pick<TrendWeek, 'from' | 'to'>) {
     const ids = projects.map((p) => p.id);
     const [figures, milestones, checks, followUps, owners] = await Promise.all([
       source.taskFigures(ids, ctx.today),
@@ -536,6 +545,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
     const ctx = await contextOf(filters.weeks);
     const projectOf = new Map(s.projects.map((p) => [p.id, { id: p.id, code: p.code, name: p.name }]));
     const person = q.personId ? (await source.people([q.personId]))[0] ?? null : null;
+    /** A form's title when the list has no row to take it from. */
+    const formTitleOf = async (formId: string | null) => (formId ? (await source.formTitles([formId]))[0]?.title ?? null : null);
     const suffix = q.projectId ? ` · ${projectOf.get(q.projectId)!.name}` : person ? ` · ${person.name}` : '';
     const list = (title: string, total: number, rows: ItemRow[]): ItemList => ({ metric, title: `${title}${suffix}`, total, limit: LIST_LIMIT, rows: rows.slice(0, LIST_LIMIT) });
 
@@ -553,11 +564,13 @@ export function createManagementService(deps: ManagementServiceDeps) {
         ...extra,
       };
     };
-    const byDue = (a: { dueDate: Date | null; id: string }, b: { dueDate: Date | null; id: string }) =>
-      (dueDayKey(a.dueDate, tz) ?? '9999').localeCompare(dueDayKey(b.dueDate, tz) ?? '9999') || collator.compare(a.id, b.id);
-    /** Checks matching `keep`, earliest due first, with their task details. */
+    /** Checks matching `keep`, earliest due first (each due day worked out once), with their task details. */
     const checkList = async (title: string, keep: (r: CheckRow) => boolean, describe?: (r: CheckRow) => Partial<ItemRow>) => {
-      const rows = (await source.checks(ids, checkWindow(ctx))).filter(keep).sort(byDue);
+      const rows = (await source.checks(ids, checkWindow(ctx)))
+        .filter(keep)
+        .map((r) => ({ r, day: dueDayKey(r.dueDate, tz) ?? '9999' }))
+        .sort((a, b) => a.day.localeCompare(b.day) || collator.compare(a.r.id, b.r.id))
+        .map((x) => x.r);
       const shown = rows.slice(0, LIST_LIMIT);
       const lines = new Map((await source.tasksByIds(shown.map((r) => r.id))).map((t) => [t.id, t]));
       return list(
@@ -602,9 +615,15 @@ export function createManagementService(deps: ManagementServiceDeps) {
         return list('Open follow-ups', r.total, r.rows.map((t) => taskRow(t)));
       }
       case 'inspections': {
-        const rows = (await source.finishedInspections(ids, ctx.trend[0]!.from, ctx.trend.at(-1)!.to)).sort((a, b) => b.finishedAt.getTime() - a.finishedAt.getTime());
+        const formId = q.formId === undefined ? undefined : q.formId === 'none' ? null : q.formId;
+        const rows = (await source.finishedInspections(ids, ctx.trend[0]!.from, ctx.trend.at(-1)!.to))
+          .filter((i) => formId === undefined || i.formId === formId)
+          .filter((i) => !q.failed || i.failed > 0)
+          .sort((a, b) => b.finishedAt.getTime() - a.finishedAt.getTime());
+        const formTitle = formId !== undefined ? rows[0]?.title ?? (await formTitleOf(formId)) : null;
+        const title = q.failed ? 'Inspections with a failure' : 'Inspections finished';
         return list(
-          'Inspections finished',
+          formTitle ? `${title} · ${formTitle}` : title,
           rows.length,
           rows.map((i) => ({
             kind: 'inspection',
@@ -614,6 +633,26 @@ export function createManagementService(deps: ManagementServiceDeps) {
             at: i.finishedAt.toISOString(),
             detail: [i.place, `${i.passed} passed · ${i.failed} failed`].filter(Boolean).join(' · '),
             tone: i.failed > 0 ? 'warning' : 'success',
+          })),
+        );
+      }
+      case 'failed-form': {
+        const formId = q.formId && q.formId !== 'none' ? q.formId : null;
+        const r = await source.failedAnswers({ projectIds: ids, from: ctx.trend[0]!.from, to: ctx.trend.at(-1)!.to, formId, limit: LIST_LIMIT });
+        const structures = new Map((r.rows.length ? await source.structures([...new Set(r.rows.map((o) => o.inspectionId))]) : []).map((x) => [x.id, x]));
+        const formTitle = r.rows[0]?.title ?? (await formTitleOf(formId));
+        return list(
+          formTitle ? `Failed items · ${formTitle}` : 'Failed items',
+          r.total,
+          r.rows.map((o) => ({
+            kind: 'inspection',
+            id: `${o.inspectionId}|${o.itemId}`,
+            inspectionId: o.inspectionId,
+            title: itemLabel(structures.get(o.inspectionId)?.structure, o.itemId) ?? 'An item no longer on the form',
+            project: projectOf.get(o.projectId) ?? null,
+            at: o.finishedAt.toISOString(),
+            detail: [o.title, o.place, o.note].filter(Boolean).join(' · '),
+            tone: 'danger',
           })),
         );
       }
@@ -629,22 +668,30 @@ export function createManagementService(deps: ManagementServiceDeps) {
         );
       }
       case 'person-overloaded': {
+        // One row per day over the limit (the number on the page counts days), each with its tasks.
         const over = await overloadedOf(viewer, ids, ctx);
         const theirs = over.people.find((p) => p.person.id === q.personId)?.days ?? [];
         const lines = new Map((await source.tasksByIds(theirs.flatMap((d) => d.taskIds))).map((t) => [t.id, t]));
-        const rows = theirs.flatMap((d) =>
-          d.taskIds
+        const rows: ItemRow[] = theirs.map((d) => ({
+          kind: 'day',
+          id: d.date,
+          title: shortDay(d.date),
+          detail: `${d.count} due (limit ${d.limit})`,
+          tone: 'danger',
+          tasks: d.taskIds
             .filter((id) => lines.has(id))
             .map((id) => lines.get(id)!)
             .sort((a, b) => collator.compare(a.key, b.key))
-            .map((t) => taskRow(t, { detail: `${shortDay(d.date)}: ${d.count} due (limit ${d.limit})`, tone: 'danger' })),
-        );
+            .map((t) => ({ id: t.id, key: t.key, title: t.title })),
+        }));
         return list('Overloaded days', rows.length, rows);
       }
-      case 'person-actions': {
-        const r = await source.actionItemList({ projectIds: ids, ...(q.personId ? { personId: q.personId } : {}), limit: LIST_LIMIT });
+      case 'person-actions':
+      case 'overdue-actions': {
+        const overdueOnly = metric === 'overdue-actions';
+        const r = await source.actionItemList({ projectIds: ids, ...(q.personId ? { personId: q.personId } : {}), ...(overdueOnly ? { overdueOn: ctx.today } : {}), limit: LIST_LIMIT });
         return list(
-          'Open action items',
+          overdueOnly ? 'Overdue action items' : 'Open action items',
           r.total,
           r.rows.map((a) => {
             const left = daysUntilDue(a.dueDate, tz, ctx.at);
@@ -688,8 +735,13 @@ export function createManagementService(deps: ManagementServiceDeps) {
 
   // ── The weekly summary ─────────────────────────────────────────────────────────────────────────
 
-  /** One person's weekly summary figures, or null when nothing is in their scope (no email then). */
-  async function digest(viewer: ManagementViewer): Promise<WeeklyDigest | null> {
+  /**
+   * One person's weekly summary figures, or null when nothing is in their scope (no email then).
+   * `week`: the company week the summary is for ('YYYY-MM-DD', its first day) — "last week" is the one
+   * before it, also for someone whose morning comes before the company's (far east of it). Without
+   * it, the week before the company's current week.
+   */
+  async function digest(viewer: ManagementViewer, week?: string): Promise<WeeklyDigest | null> {
     let s: Awaited<ReturnType<typeof scopeOf>>;
     try {
       s = await scopeOf(viewer, DEFAULT_FILTERS);
@@ -699,7 +751,9 @@ export function createManagementService(deps: ManagementServiceDeps) {
     }
     if (s.projects.length === 0) return null;
     const ctx = await contextOf(2);
-    const last = ctx.trend[0]!;
+    const last: Pick<TrendWeek, 'start' | 'end' | 'from' | 'to'> = week
+      ? { start: shiftDayKey(week, -7), end: shiftDayKey(week, -1), from: zonedStartOfDay(shiftDayKey(week, -7), tz), to: zonedStartOfDay(week, tz) }
+      : ctx.trend[0]!;
     const ids = s.projects.map((p) => p.id);
     const [health, finished, lateBy] = await Promise.all([healthOf(s.projects, ctx, last), source.finishedInspections(ids, last.from, last.to), source.lateByPerson(ids, ctx.today)]);
     const top = lateBy.filter((l) => l.count > 0).sort((a, b) => b.count - a.count).slice(0, MOST_LATE * 2);

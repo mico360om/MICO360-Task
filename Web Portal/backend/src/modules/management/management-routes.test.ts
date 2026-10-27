@@ -51,7 +51,7 @@ const tokenService = createTokenService({
 });
 const auth = async (id: string, roles: string[]) => ({ authorization: `Bearer ${(await tokenService.issueTokens({ id, roles })).accessToken}` });
 
-async function makeApp(opts: { pdfsPerMinute?: number } = {}) {
+async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -172,6 +172,29 @@ describe('Management routes', () => {
     expect(text).toContain('Projects you run');
     expect(text).toContain('Projects: Rig Inspection Portal');
     expect(text).not.toContain('MICO360 Platform');
+  });
+
+  it('lists take the flags the page sends (a form’s inspections with a failure)', async () => {
+    const app = await makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/management/items?metric=inspections&formId=F1&failed=1', headers: await auth('admin', ['ADMIN']) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.title).toBe('Inspections with a failure · Rig daily check');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/management/items?metric=inspections&failed=maybe', headers: await auth('admin', ['ADMIN']) })).statusCode).toBe(400);
+  });
+
+  it('the overview and its lists are limited per person a minute, generously (M-15)', async () => {
+    const app = await makeApp({ readsPerMinute: 3 });
+    const admin = await auth('admin', ['ADMIN']);
+    const get = (url: string, who = admin) => app.inject({ method: 'GET', url, headers: who });
+    expect((await get('/api/v1/management/overview')).statusCode).toBe(200);
+    expect((await get('/api/v1/management/items?metric=late-tasks')).statusCode).toBe(200);
+    expect((await get('/api/v1/management/overview')).statusCode).toBe(200);
+    const fourth = await get('/api/v1/management/overview');
+    expect(fourth.statusCode).toBe(429);
+    expect(fourth.json().error.message).toMatch(/wait a moment/i);
+    expect((await get('/api/v1/management/overview', await auth('sara', ['EMPLOYEE']))).statusCode).toBe(200);
+    // The access check (the sidebar link) is never limited here.
+    expect((await get('/api/v1/management/access')).statusCode).toBe(200);
   });
 
   it('PDF: limited per person a minute', async () => {
