@@ -82,6 +82,21 @@ describe('buildTimeline: one readable line per event', () => {
       buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [{ field: 'milestone', from: true, to: false }, { field: 'clientVisible', from: true, to: false, reason: 'moved' }] })])[0]!.text,
     ).toBe('cleared its milestone and hid this from the client (moved to another project)');
   });
+  it('a task’s inspection form and place (a scheduled check): every change has its words, a run of them too', () => {
+    const one = (change: Record<string, unknown>) => buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [change] })])[0]!.text;
+    expect(one({ field: 'inspectionForm', from: null, to: 'f1' })).toBe('gave it an inspection form');
+    expect(one({ field: 'inspectionForm', from: 'f1', to: 'f2' })).toBe('changed its inspection form');
+    expect(one({ field: 'inspectionForm', from: 'f1', to: null })).toBe('took off its inspection form');
+    expect(one({ field: 'inspectionPlace', from: null, to: 'Rig 3' })).toBe('set the place to “Rig 3”');
+    expect(one({ field: 'inspectionPlace', from: 'Rig 3', to: 'الحفار ٤' })).toBe('changed the place to “الحفار ٤”');
+    expect(one({ field: 'inspectionPlace', from: 'Rig 3', to: null })).toBe('removed the place');
+    // The form, then the place five minutes later: one line that says both.
+    const run = buildTimeline([
+      e('a2', 'UPDATED', 'A', 1, { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: 'Rig 4' }] }),
+      e('a1', 'UPDATED', 'A', 6, { changes: [{ field: 'inspectionForm', from: 'f1', to: 'f2' }] }),
+    ]);
+    expect(run.map((x) => x.text)).toEqual(['changed its inspection form and changed the place to “Rig 4”']);
+  });
   it('says where a task moved to another project, with the keys it had there and has now', () => {
     const moved = { fromProject: 'Rig Inspection', fromKey: 'RIG-4', toProject: 'Operations', toKey: 'OPS-17' };
     expect(buildTimeline([e('a1', 'PROJECT_CHANGED', 'Aisha Khan', 1, moved)])[0]).toMatchObject({

@@ -54,14 +54,15 @@ describe('updateActivity (the UPDATED timeline line an edit writes)', () => {
   it('lists the changes the timeline words', () => {
     expect(updateActivity(base, withChanges({ priority: 'HIGH' }), TZ)).toEqual({ changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }] });
   });
-  it('a change of inspection form or place is a plain "updated" line (no new wording), with what changed kept alongside', () => {
+  it('a change of inspection form or place is a real entry in the change list (so the line always says it)', () => {
     const before = withChanges({ inspectionFormId: 'f1', inspectionPlace: 'Rig 3' });
-    expect(updateActivity(before, withChanges({ inspectionFormId: 'f2', inspectionPlace: 'Rig 3' }), TZ)).toEqual({ changes: [], inspection: { formFrom: 'f1', formTo: 'f2', placeFrom: 'Rig 3', placeTo: 'Rig 3' } });
-    expect(updateActivity(before, withChanges({ inspectionFormId: 'f1', inspectionPlace: null }), TZ)).toEqual({ changes: [], inspection: { formFrom: 'f1', formTo: 'f1', placeFrom: 'Rig 3', placeTo: null } });
-    // With a worded change too: the line says that change.
+    expect(updateActivity(before, withChanges({ inspectionFormId: 'f2', inspectionPlace: 'Rig 3' }), TZ)).toEqual({ changes: [{ field: 'inspectionForm', from: 'f1', to: 'f2' }] });
+    expect(updateActivity(before, withChanges({ inspectionFormId: 'f1', inspectionPlace: null }), TZ)).toEqual({ changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: null }] });
     expect(updateActivity(base, withChanges({ title: 'Daily rig check', inspectionFormId: 'f1' }), TZ)).toEqual({
-      changes: [{ field: 'title', from: 'Prepare report', to: 'Daily rig check' }],
-      inspection: { formFrom: null, formTo: 'f1', placeFrom: null, placeTo: null },
+      changes: [
+        { field: 'title', from: 'Prepare report', to: 'Daily rig check' },
+        { field: 'inspectionForm', from: null, to: 'f1' },
+      ],
     });
   });
 });

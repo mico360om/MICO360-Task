@@ -80,6 +80,10 @@ describe.skipIf(!web)('activity: src/activity-feed.js matches the web app (lib/a
     ['INSPECTION_ATTACHED', { inspection: 'Rig daily check' }], ['INSPECTION_ATTACHED'], ['INSPECTION_FINISHED', { inspection: 'Rig daily check', failed: 0 }],
     ['INSPECTION_FINISHED', { inspection: 'فحص يومي', failed: 1 }], ['INSPECTION_FINISHED', { inspection: 'A', failed: 4 }], ['INSPECTION_FINISHED'],
     ['INSPECTION_FOLLOW_UP', { inspection: 'Rig daily check', item: 'Guard rails fitted' }], ['INSPECTION_FOLLOW_UP', { inspection: 'Rig daily check' }], ['INSPECTION_FOLLOW_UP'],
+    // A task's inspection form and place (scheduled checks).
+    ['UPDATED', { changes: [{ field: 'inspectionForm', from: null, to: 'f1' }] }], ['UPDATED', { changes: [{ field: 'inspectionForm', from: 'f1', to: 'f2' }] }],
+    ['UPDATED', { changes: [{ field: 'inspectionForm', from: 'f2', to: null }] }], ['UPDATED', { changes: [{ field: 'inspectionPlace', from: null, to: 'Rig 3' }] }],
+    ['UPDATED', { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: 'الحفار ٤' }] }], ['UPDATED', { changes: [{ field: 'inspectionPlace', from: 'Rig 3', to: null }] }],
   ];
   const ACTORS = ['Omar Ahmed', 'Aisha Khan', 'سارة'];
   const GAPS = [0, 1, 5, 29, 30, 31, 120];

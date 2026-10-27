@@ -193,6 +193,15 @@ function changeText(c: Change): string | null {
     case 'clientVisible':
       if (c.to) return 'made this visible to the client';
       return c.reason === 'moved' ? 'hid this from the client (moved to another project)' : 'hid this from the client';
+    // A scheduled check: the inspection form it is carried out with (ids, not named), and where.
+    case 'inspectionForm':
+      if (!from && to) return 'gave it an inspection form';
+      if (from && !to) return 'took off its inspection form';
+      return 'changed its inspection form';
+    case 'inspectionPlace':
+      if (!from && to) return `set the place to ${quote(to)}`;
+      if (from && !to) return 'removed the place';
+      return `changed the place to ${quote(to ?? '')}`;
     default:
       return null;
   }
