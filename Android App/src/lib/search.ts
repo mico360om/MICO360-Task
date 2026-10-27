@@ -75,6 +75,8 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   // Website pages the app has no screen for yet (planning, templates, MICO AI): they open on the website.
   timeline: { target: { kind: 'website', path: '/timeline' } },
   workload: { target: { kind: 'website', path: '/workload' } },
+  // Administrators only here (the app doesn't ask whether someone runs a project): on the website.
+  management: { target: { kind: 'website', path: '/management' } },
   templates: { target: { kind: 'website', path: '/templates' } },
   'mico-ai': { target: { kind: 'website', path: '/mico-ai' } },
   'admin-ai': { target: { kind: 'website', path: '/admin/ai' } },

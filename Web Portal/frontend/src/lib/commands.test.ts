@@ -68,6 +68,17 @@ describe('matchNavCommands', () => {
     expect(matchNavCommands('users', true).some((c) => c.to === '/admin/users')).toBe(true);
   });
 
+  it('finds Management for administrators and for the people who run a project, nobody else', () => {
+    for (const q of ['management', 'health', 'red amber green', 'leadership']) {
+      expect(matchNavCommands(q, true)[0]?.to, q).toBe('/management');
+      expect(matchNavCommands(q, false, true)[0]?.to, q).toBe('/management');
+      expect(matchNavCommands(q, false).some((c) => c.to === '/management'), q).toBe(false);
+    }
+    expect(parseCommand('go to management', false)).toBeNull();
+    expect(parseCommand('go to management', false, true)).toEqual({ type: 'navigate', to: '/management', label: 'Management' });
+    expect(NAV_COMMANDS.find((c) => c.id === 'management')).toMatchObject({ leads: true });
+  });
+
   it('returns the common pages for an empty query (non-admin excludes admin pages)', () => {
     const all = matchNavCommands('', false);
     expect(all.length).toBeGreaterThan(3);
