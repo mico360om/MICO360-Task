@@ -682,6 +682,69 @@ paths:
         '400': { description: 'VALIDATION: a missing or unreal week, or one more than two years from today' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /management/access:
+    get:
+      summary: May the caller see the Management page? (the sidebar link)
+      description: >-
+        `{ data: { allowed, scope: ALL|RUN|null } }` — ALL for administrators (every project), RUN for the people
+        who run a live project (its owner, named manager or a MANAGER member: the projects they run), else not allowed.
+      responses:
+        '200': { description: OK }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /management/overview:
+    get:
+      summary: >-
+        The Management page — every project's health (a red / amber / green mark with its reasons, worst first),
+        inspections (checks due, done, done late, missing, closed without a report, pass rate, most-failed items and
+        forms, open follow-ups), people (late work, days over the Workload daily limit this week, open action items)
+        and weekly trends (created, completed, late at each week's end, pass rate), for the caller's scope.
+      description: >-
+        Red: a milestone overdue and not done; late tasks at least 25% of the open ones with at least 3 late; or 3+
+        missing checks. Amber: otherwise any late task, any missing check, or an ACTIVE project with no activity for 14
+        days. Weeks are company weeks (company time zone; system setting `company.weekStart`, 0 Sunday by default, 1
+        Monday or 6 Saturday); the current week is the last (partial). The period (`weeks`) applies to the trends and the
+        inspection statistics; late tasks, missing checks, follow-ups, this week's workload and action items are now.
+      parameters:
+        - { name: projectIds, in: query, schema: { type: string }, description: 'Comma-separated project ids (each must be in the caller''s scope, else 404)' }
+        - { name: ownerId, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string }, description: 'Comma-separated project statuses; default PLANNING,ACTIVE,ON_HOLD' }
+        - { name: weeks, in: query, schema: { type: integer, enum: [4, 12, 26], default: 12 } }
+      responses:
+        '200': { description: '`{ data: { scope, generatedAt, timeZone, today, weekStart, filters, period, options, tiles, projects, inspections, people, workload, trends } }`' }
+        '400': { description: 'VALIDATION: an unknown status, a period other than 4, 12 or 26 weeks, or a malformed id' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: 'Not an administrator and runs no project' }
+        '404': { description: 'A chosen project outside the caller''s scope' }
+  /management/items:
+    get:
+      summary: The list behind a number on the Management page (at most 200 rows, with the full count), inside the caller's scope and filters
+      parameters:
+        - { name: metric, in: query, required: true, schema: { type: string, enum: [late-tasks, late-milestones, missing-checks, checks-due, checks-done, checks-done-late, checks-no-report, follow-ups, inspections, failed-item, person-overloaded, person-actions, projects, people-overloaded] } }
+        - { name: projectId, in: query, schema: { type: string }, description: 'One project (404 outside the caller''s scope)' }
+        - { name: personId, in: query, schema: { type: string }, description: 'One person''s rows (only inside the caller''s projects); required for person-overloaded' }
+        - { name: formId, in: query, schema: { type: string }, description: 'failed-item: the form (none: inspections whose form is gone)' }
+        - { name: itemId, in: query, schema: { type: string }, description: 'failed-item: the item (required)' }
+        - { name: rag, in: query, schema: { type: string, enum: [RED, AMBER, GREEN] }, description: 'projects: one mark' }
+        - { name: projectIds, in: query, schema: { type: string } }
+        - { name: ownerId, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: weeks, in: query, schema: { type: integer, enum: [4, 12, 26] } }
+      responses:
+        '200': { description: '`{ data: { metric, title, total, limit, rows: [{ kind: task|inspection|action|project|person, id, title, key, project, due, daysLate, people, detail, tone, meetingId, taskId, at }] } }`' }
+        '400': { description: 'VALIDATION: an unknown list, or a person / item missing' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: 'Not an administrator and runs no project' }
+        '404': { description: 'A project outside the caller''s scope' }
+  /management/overview.pdf:
+    get:
+      summary: The Management overview as a branded PDF (the same filters; logo, the filters in words, generated at in company time, page numbers)
+      description: Ten a minute per person. The file is named by the server (management-overview[-<one project>]-<company day>.pdf, Content-Disposition).
+      responses:
+        '200': { description: application/pdf }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: 'Not an administrator and runs no project' }
+        '429': { description: RATE_LIMITED }
+
   /search:
     get:
       summary: Global search across tasks / projects / users
