@@ -14,6 +14,38 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Scheduled inspections: on a project's Inspections tab, anyone on the team can "Schedule an
+  inspection" — pick the form, a name and place ("Rig 3"), the inspectors and how often it repeats
+  (every day, every working day, chosen weekdays, monthly or custom, with a start and an optional
+  end). Each check arrives on its day as a task with the form — in My Tasks, the Calendar, reminders
+  and the morning email — even if the last one wasn't done. "Start inspection" on the task opens the
+  checklist with the form and place filled in, and finishing it completes the task. A missed check
+  stays open as late and can still be done ("Done late · 2 days"). The tab lists the due checks
+  (late, due today, upcoming) and every schedule, with Edit and Stop. Any task can also carry an
+  inspection form from the New task form. Deleting a form stops the schedules that use it, and says
+  so first; checks already made can still be done.
+- Management (a new page for administrators and anyone who runs a project): every project's health
+  in one place — % done, late tasks, next milestone, last activity and a red / amber / green mark
+  with the reasons, worst first — plus inspections (checks due, done, done late and missing, the
+  pass rate, the most-failed items and forms, open follow-ups), people (late work, overloaded days
+  this week, open meeting action items) and 4, 12 or 26 weeks of trends. Filter by project, owner
+  and status; every count opens the list behind it; download it all as a PDF. Administrators see
+  every project, everyone else the projects they run.
+- A weekly management summary email on the first working morning of the week, with the projects
+  that need attention, late work, missing checks and a link to the Management page. Each person can
+  turn it off in Settings, and an administrator can turn it off for everyone.
+
+### Improvements
+- The company's first day of the week is now a setting (System Settings, Sunday unless changed).
+  The Calendar, Workload, Timeline and reports use it for everyone who hasn't chosen their own.
+- A task's history says when its inspection form or place changed.
+- On-off switches are easier to tap on phones and tablets.
+
+### Security
+- The Management page, its lists, its PDF and the weekly summary show each person only the projects
+  they run (administrators: all), and its requests are rate-limited.
+
 ## [1.17.0] - 2026-10-27
 
 ### New features
