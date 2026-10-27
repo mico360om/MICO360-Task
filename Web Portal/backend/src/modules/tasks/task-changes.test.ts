@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { taskChanges } from './task-changes';
+import { taskChanges, updateActivity } from './task-changes';
 import type { TaskRecord } from './task-repository';
 
 const TZ = 'Asia/Muscat';
@@ -44,5 +44,24 @@ describe('taskChanges (what an edit changed, for the activity timeline)', () => 
     expect(change).toMatchObject({ field: 'repeat', from: null });
     expect(String(change!.to)).toMatch(/week/i);
     expect(taskChanges(withChanges({ recurrenceRule: weekly }), base, TZ)).toEqual([{ field: 'repeat', from: change!.to, to: null }]);
+  });
+});
+
+describe('updateActivity (the UPDATED timeline line an edit writes)', () => {
+  it('is null when nothing worth a line changed', () => {
+    expect(updateActivity(base, withChanges({ columnId: 'c2' }), TZ)).toBeNull();
+  });
+  it('lists the changes the timeline words', () => {
+    expect(updateActivity(base, withChanges({ priority: 'HIGH' }), TZ)).toEqual({ changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }] });
+  });
+  it('a change of inspection form or place is a plain "updated" line (no new wording), with what changed kept alongside', () => {
+    const before = withChanges({ inspectionFormId: 'f1', inspectionPlace: 'Rig 3' });
+    expect(updateActivity(before, withChanges({ inspectionFormId: 'f2', inspectionPlace: 'Rig 3' }), TZ)).toEqual({ changes: [], inspection: { formFrom: 'f1', formTo: 'f2', placeFrom: 'Rig 3', placeTo: 'Rig 3' } });
+    expect(updateActivity(before, withChanges({ inspectionFormId: 'f1', inspectionPlace: null }), TZ)).toEqual({ changes: [], inspection: { formFrom: 'f1', formTo: 'f1', placeFrom: 'Rig 3', placeTo: null } });
+    // With a worded change too: the line says that change.
+    expect(updateActivity(base, withChanges({ title: 'Daily rig check', inspectionFormId: 'f1' }), TZ)).toEqual({
+      changes: [{ field: 'title', from: 'Prepare report', to: 'Daily rig check' }],
+      inspection: { formFrom: null, formTo: 'f1', placeFrom: null, placeTo: null },
+    });
   });
 });

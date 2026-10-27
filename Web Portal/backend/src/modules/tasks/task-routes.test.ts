@@ -50,6 +50,8 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
         recurrenceRule: data.recurrenceRule ?? null,
         recurrenceParentId: data.recurrenceParentId ?? null,
         meetingId: data.meetingId ?? null,
+        inspectionFormId: data.inspectionFormId ?? null,
+        inspectionPlace: data.inspectionPlace ?? null,
         version: 0,
         createdAt: now,
         updatedAt: now,
@@ -789,5 +791,82 @@ describe('POST /tasks — a project whose new tasks are due today', () => {
     const res = await post({ title: 'Site visit', projectId: 'p1', columnId: 'c1', boardDate: '2026-10-27' });
     expect(res.statusCode).toBe(201);
     expect(res.json().data).toMatchObject({ dueDate: '2026-10-27T00:00:00.000Z', boardDate: '2026-10-27T12:00:00.000Z' });
+  });
+});
+
+describe('Task routes — a task that carries an inspection form (scheduled checks)', () => {
+  // f-live is a form; f-gone was deleted (soft); anything else isn't there.
+  const FORMS: Record<string, { id: string; title: string; deleted: boolean }> = {
+    'f-live': { id: 'f-live', title: 'Rig daily check', deleted: false },
+    'f-gone': { id: 'f-gone', title: 'Old deck check', deleted: true },
+  };
+  async function build() {
+    const mem = inMemory();
+    const taskService = createTaskService({ ...mem, inspectionForms: { isLive: async (id) => FORMS[id]?.deleted === false } });
+    const built = await buildApp({ authService, tokenService, taskService, taskInspectionForm: async (id) => FORMS[id] ?? null });
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const post = (payload: Record<string, unknown>) => built.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload });
+    const put = (id: string, payload: Record<string, unknown>) => built.inject({ method: 'PUT', url: `/api/v1/tasks/${id}`, headers, payload });
+    const get = (url: string) => built.inject({ method: 'GET', url: `/api/v1${url}`, headers });
+    return { mem, post, put, get };
+  }
+  const base = { title: 'Daily rig check – Rig 3', projectId: 'p1', columnId: 'c1' };
+
+  it('creates one with its form and place (trimmed), and every read carries them', async () => {
+    const { post, get } = await build();
+    const made = await post({ ...base, inspectionFormId: 'f-live', inspectionPlace: '  Rig 3 – الحفار ٣  ' });
+    expect(made.statusCode).toBe(201);
+    expect(made.json().data).toMatchObject({ inspectionFormId: 'f-live', inspectionPlace: 'Rig 3 – الحفار ٣' });
+    const id = made.json().data.id;
+    expect((await get('/tasks?projectId=p1')).json().data[0]).toMatchObject({ inspectionFormId: 'f-live', inspectionPlace: 'Rig 3 – الحفار ٣' });
+    expect((await get(`/tasks/${id}`)).json().data).toMatchObject({ inspectionFormId: 'f-live', inspectionForm: { id: 'f-live', title: 'Rig daily check', deleted: false } });
+  });
+
+  it('a task without a form says so: no form, no place', async () => {
+    const { post, get } = await build();
+    const id = (await post({ ...base, inspectionPlace: '   ' })).json().data.id;
+    expect((await get(`/tasks/${id}`)).json().data).toMatchObject({ inspectionFormId: null, inspectionPlace: null, inspectionForm: null });
+  });
+
+  it('refuses a form that isn’t there, or was deleted, in plain words — and creates nothing', async () => {
+    const { post, mem } = await build();
+    for (const formId of ['f-gone', 'nope']) {
+      const res = await post({ ...base, inspectionFormId: formId });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.message).toBe('That inspection form isn’t there any more. Pick another form.');
+    }
+    expect(mem.rows.size).toBe(0);
+  });
+
+  it('refuses a place longer than 200 characters', async () => {
+    const { post } = await build();
+    expect((await post({ ...base, inspectionFormId: 'f-live', inspectionPlace: 'x'.repeat(201) })).statusCode).toBe(400);
+    expect((await post({ ...base, inspectionFormId: 'f-live', inspectionPlace: 'x'.repeat(200) })).statusCode).toBe(201);
+  });
+
+  it('edits change the form and place, and can clear them', async () => {
+    const { post, put } = await build();
+    const id = (await post(base)).json().data.id;
+    expect((await put(id, { inspectionFormId: 'f-live', inspectionPlace: 'Rig 4' })).json().data).toMatchObject({ inspectionFormId: 'f-live', inspectionPlace: 'Rig 4' });
+    expect((await put(id, { inspectionPlace: '' })).json().data).toMatchObject({ inspectionFormId: 'f-live', inspectionPlace: null });
+    expect((await put(id, { inspectionFormId: null })).json().data).toMatchObject({ inspectionFormId: null });
+    expect((await put(id, { inspectionFormId: 'f-gone' })).statusCode).toBe(400);
+  });
+
+  it('a check whose form was deleted keeps it through an edit of anything else (and even if it is sent back unchanged)', async () => {
+    const { post, put, mem } = await build();
+    const id = (await post({ ...base, inspectionFormId: 'f-live' })).json().data.id;
+    mem.rows.set(id, { ...mem.rows.get(id)!, inspectionFormId: 'f-gone' });
+    expect((await put(id, { title: 'Renamed' })).json().data).toMatchObject({ title: 'Renamed', inspectionFormId: 'f-gone' });
+    expect((await put(id, { inspectionFormId: 'f-gone' })).statusCode).toBe(200);
+  });
+
+  it('a repeating task with a form is a schedule: created and stopped through the normal task routes', async () => {
+    const { post, put } = await build();
+    const rule = { freq: 'WEEKLY', interval: 1, weekdays: [0, 1, 2, 3, 4], createNext: 'ON_SCHEDULE' };
+    const made = await post({ ...base, inspectionFormId: 'f-live', inspectionPlace: 'Rig 3', dueDate: '2026-10-28', recurrenceRule: rule });
+    expect(made.statusCode).toBe(201);
+    expect(made.json().data).toMatchObject({ inspectionFormId: 'f-live', recurrenceRule: rule });
+    expect((await put(made.json().data.id, { recurrenceRule: null })).json().data.recurrenceRule).toBeNull();
   });
 });

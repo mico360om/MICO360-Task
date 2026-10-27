@@ -13,6 +13,12 @@ export const TEXT_MAX_BYTES = 65_535;
 export const requiredText = z.string().trim().min(1).max(VARCHAR_MAX);
 /** A trimmed optional value that fits a VARCHAR(191) column. */
 export const shortText = z.string().trim().max(VARCHAR_MAX);
+/** Where an inspection is done ("Rig 3"): trimmed, at most 200 characters, blank → null. */
+export const inspectionPlace = z
+  .string()
+  .trim()
+  .max(200, 'A place can have at most 200 characters.')
+  .transform((v) => (v === '' ? null : v));
 /** An id reference (cuid) — bounded so an oversized value can't reach the database. */
 export const idString = z.string().trim().min(1).max(VARCHAR_MAX);
 /** Long text that fits a MySQL TEXT column (measured in UTF-8 bytes). */

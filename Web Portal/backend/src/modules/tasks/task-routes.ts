@@ -7,7 +7,7 @@ import type { AssigneeService } from './assignee-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { filterAndSortTasks, SORT_FIELDS, type TaskFilterCriteria } from './task-filter';
 import { boardDateFromKey } from './board-date';
-import { calendarDay, dateInput, hours, idString, longText, queryBoolean, requiredText, VARCHAR_MAX } from './validation';
+import { calendarDay, dateInput, hours, idString, inspectionPlace, longText, queryBoolean, requiredText, VARCHAR_MAX } from './validation';
 import { projectOccurrences } from './calendar-projection';
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
 
@@ -82,6 +82,10 @@ const createSchema = z.object({
   assigneeIds: z.array(idString).max(100).optional(),
   /** Its checklist's items, in order (a task template fills them in), written with the task. */
   checklist: z.array(requiredText).max(100).optional(),
+  /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
+  inspectionFormId: idString.nullable().optional(),
+  /** Where the check is done ("Rig 3"): trimmed, blank means none. */
+  inspectionPlace: inspectionPlace.nullable().optional(),
 });
 
 const updateSchema = z.object({
@@ -100,6 +104,9 @@ const updateSchema = z.object({
   expectedVersion: z.number().int().optional(),
   /** 'series' applies the edit to every occurrence of a recurring task. */
   scope: z.enum(['one', 'series']).optional(),
+  /** Changing the form only affects inspections started afterwards; null clears it. */
+  inspectionFormId: idString.nullable().optional(),
+  inspectionPlace: inspectionPlace.nullable().optional(),
 });
 
 const moveSchema = z.object({ columnId: idString, position: z.number().int().min(0).optional() });
@@ -143,6 +150,8 @@ export interface TaskRouteDeps {
   countSeries?: (seriesId: string) => Promise<number>;
   /** When provided, a task’s details name the meeting it was created from. */
   taskMeeting?: TaskMeetingLookup;
+  /** When provided, a task’s details name the inspection form it carries (and whether it was deleted). */
+  taskInspectionForm?: (formId: string) => Promise<{ id: string; title: string; deleted: boolean } | null>;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -264,7 +273,8 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Task not found.' } });
     }
     const task = await taskService.getTask(id);
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null) } };
+    const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm } };
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {

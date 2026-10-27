@@ -37,6 +37,10 @@ export interface TaskRecord {
   recurrenceNextId?: string | null;
   /** The meeting this task was created from (a Live note made into a task), when there is one. */
   meetingId?: string | null;
+  /** The inspection form the task is carried out with (a scheduled check, or a one-off task with a form). */
+  inspectionFormId?: string | null;
+  /** Where the check is done ("Rig 3"); given to the inspection when it starts. */
+  inspectionPlace?: string | null;
   /**
    * Keys the task had before it moved to another project, oldest first (set by findById): "RIG-4"
    * for a task that is OPS-17 now. Looking up an old key still finds the task.
@@ -77,6 +81,9 @@ export interface CreateTaskData {
   completedAt?: Date | null;
   /** The meeting the task is created from (a Live note made into a task). */
   meetingId?: string | null;
+  /** The inspection form it is carried out with, and where (a scheduled check). */
+  inspectionFormId?: string | null;
+  inspectionPlace?: string | null;
   /** Normalised tag names to attach (find-or-create) in the same write as the task. */
   tagNames?: string[];
   /** Users to assign in the same write as the task (already validated). */
@@ -125,6 +132,9 @@ export interface UpdateTaskData {
   recurrenceParentId?: string | null;
   boardDate?: Date | null;
   carryForwardLog?: CarryLogEntry[] | null;
+  /** The inspection form (null clears it) and where the check is done. */
+  inspectionFormId?: string | null;
+  inspectionPlace?: string | null;
 }
 
 export interface TaskListFilter {

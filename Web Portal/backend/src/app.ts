@@ -104,6 +104,8 @@ export interface AppDeps extends AuthRouteDeps {
   seriesInstanceCount?: (seriesId: string) => Promise<number>;
   /** The meeting a task came from, for its details (defaults to the meeting service + meeting access). */
   taskMeeting?: TaskMeetingLookup;
+  /** The inspection form a task carries, for its details: its title, and whether it was deleted. */
+  taskInspectionForm?: (formId: string) => Promise<{ id: string; title: string; deleted: boolean } | null>;
   /** Write a line to a task's activity timeline — checklist, comment, file and blocker changes. */
   recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
@@ -524,6 +526,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           carryForwardService: deps.carryForwardService,
           countSeries: deps.seriesInstanceCount,
           taskMeeting: deps.taskMeeting ?? taskMeetingFrom(deps),
+          taskInspectionForm: deps.taskInspectionForm,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,

@@ -42,7 +42,7 @@ import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
 import { DEFAULT_CARRY_STATUSES } from './modules/tasks/board-date';
 import { createAssigneeService } from './modules/tasks/assignee-service';
-import { taskChanges } from './modules/tasks/task-changes';
+import { updateActivity } from './modules/tasks/task-changes';
 import type { RecordTaskActivity } from './modules/activity/task-activity';
 import { createWatcherService } from './modules/tasks/watcher-service';
 import { createPrismaWatcherRepository } from './modules/tasks/prisma-watcher-repository';
@@ -259,6 +259,8 @@ async function main(): Promise<void> {
     onCreated: (task) => onTaskCreated(task),
     onUpdated: (before, after, actorId) => onTaskUpdated(before, after, actorId),
     onDeleting: (task) => onTaskDeleting(task),
+    // A task can carry an inspection form (a scheduled check): only a form that is there.
+    inspectionForms: { isLive: async (id) => (await prisma.inspectionForm.count({ where: { id, deletedAt: null } })) > 0 },
   });
 
   // The next occurrence lands on today's board in the company time zone.
@@ -627,9 +629,9 @@ async function main(): Promise<void> {
   // An edit: one activity row listing what changed (old → new), so the timeline can say it.
   onTaskUpdated = async (before, after, actorId) => {
     if (!actorId) return;
-    const changes = taskChanges(before, after, companyTz);
-    if (changes.length === 0) return;
-    await activityService.record({ taskId: after.id, projectId: after.projectId, userId: actorId, action: 'UPDATED', meta: { changes } });
+    const meta = updateActivity(before, after, companyTz);
+    if (!meta) return;
+    await activityService.record({ taskId: after.id, projectId: after.projectId, userId: actorId, action: 'UPDATED', meta: { ...meta } });
   };
 
   onTaskCreated = async (task) => {
@@ -1267,6 +1269,11 @@ async function main(): Promise<void> {
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
+    // A task's details name the form it carries (a form deleted since still names itself, marked).
+    taskInspectionForm: async (id) => {
+      const f = await prisma.inspectionForm.findUnique({ where: { id }, select: { id: true, title: true, deletedAt: true } });
+      return f ? { id: f.id, title: f.title, deleted: f.deletedAt !== null } : null;
+    },
     userPreferences: createPrismaPreferences(prisma),
     recordTaskActivity,
     userState: userStateLookup,

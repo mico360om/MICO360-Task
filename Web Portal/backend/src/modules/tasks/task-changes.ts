@@ -25,3 +25,27 @@ export function taskChanges(before: TaskRecord, after: TaskRecord, timeZone: str
   if (repeatBefore !== repeatAfter) changes.push({ field: 'repeat', from: repeatBefore, to: repeatAfter });
   return changes;
 }
+
+/** The inspection form and place before and after an edit (kept with the line; the timeline says "updated"). */
+export interface InspectionChange {
+  formFrom: string | null;
+  formTo: string | null;
+  placeFrom: string | null;
+  placeTo: string | null;
+}
+
+/**
+ * What an edit's UPDATED timeline line holds, or null when nothing worth a line changed. A change of
+ * the inspection form or place has no wording of its own (every app words the timeline the same way):
+ * on its own it reads "updated this task", and what changed is kept alongside under `inspection`.
+ */
+export function updateActivity(before: TaskRecord, after: TaskRecord, timeZone: string): { changes: TaskChange[]; inspection?: InspectionChange } | null {
+  const changes = taskChanges(before, after, timeZone);
+  const formFrom = before.inspectionFormId ?? null;
+  const formTo = after.inspectionFormId ?? null;
+  const placeFrom = before.inspectionPlace ?? null;
+  const placeTo = after.inspectionPlace ?? null;
+  const inspection = formFrom !== formTo || placeFrom !== placeTo ? { formFrom, formTo, placeFrom, placeTo } : null;
+  if (changes.length === 0 && !inspection) return null;
+  return inspection ? { changes, inspection } : { changes };
+}

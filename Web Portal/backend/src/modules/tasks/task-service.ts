@@ -33,6 +33,9 @@ export interface NewTask {
   recurrenceParentId?: string | null;
   /** The meeting the task is created from (a Live note made into a task). */
   meetingId?: string | null;
+  /** The inspection form the task is carried out with (it must be a live form), and where. */
+  inspectionFormId?: string | null;
+  inspectionPlace?: string | null;
   /** The board day this task should appear on; defaults to today (per-date boards). */
   boardDate?: Date | null;
   /** Normalised tag names, attached in the same write as the task. */
@@ -62,6 +65,8 @@ export interface TaskServiceDeps {
   onDeleting?: (task: TaskRecord) => void | Promise<void>;
   /** How far a task's checklist is (0-100; 0 without one) — the progress a re-opened task goes back to. */
   checklistPercent?: (taskId: string) => Promise<number>;
+  /** Is this inspection form there (not deleted)? A task can only be given a live form. */
+  inspectionForms?: { isLive(formId: string): Promise<boolean> };
 }
 
 /** How many consecutive key numbers to try when concurrent creates race for the same one. */
@@ -72,7 +77,7 @@ const SERIES_FIELDS = ['title', 'description', 'priority', 'estimatedHours'] as 
 const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
   (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
-export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onUpdated, onDeleting, checklistPercent }: TaskServiceDeps) {
+export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onUpdated, onDeleting, checklistPercent, inspectionForms }: TaskServiceDeps) {
   const todayAnchor = () => boardDateFromKey(boardDateKey(now(), timeZone));
   const dayOf = (d: Date): string => dueDayKey(d, timeZone) ?? '';
 
@@ -86,6 +91,12 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (start && due && dayOf(start) > dayOf(due)) {
       throw new ValidationError('The start date must be on or before the due date.');
     }
+  }
+
+  /** A form given to a task must be there: a deleted one (or a wrong id) is refused in words. */
+  async function assertLiveForm(formId: string | null | undefined): Promise<void> {
+    if (!formId || !inspectionForms) return;
+    if (!(await inspectionForms.isLive(formId))) throw new ValidationError('That inspection form isn’t there any more. Pick another form.');
   }
 
   async function requireColumn(columnId: string, projectId: string): Promise<ColumnInfo> {
@@ -110,6 +121,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       throw new ValidationError('Invalid recurrence rule.');
     }
     const column = await requireColumn(input.columnId, input.projectId);
+    await assertLiveForm(input.inspectionFormId);
     const at = now();
     // Per-date boards: a new task lands on today's board unless a board day was given.
     const boardDate = input.boardDate ?? todayAnchor();
@@ -184,6 +196,8 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (patch.recurrenceRule && current.recurrenceNextId) {
       throw new ConflictError('This is an earlier copy of a repeating series. Change the repeat on its newest copy.', 'RECURRENCE_NOT_NEWEST');
     }
+    // Only a newly chosen form is checked: a check whose form was deleted since keeps it (it can still be done).
+    if (patch.inspectionFormId !== undefined && patch.inspectionFormId !== (current.inspectionFormId ?? null)) await assertLiveForm(patch.inspectionFormId);
     const { columnId, ...rest } = patch;
     const next: UpdateTaskData = { ...rest };
     if (rest.dueDate !== undefined) next.dueDate = toDueDay(rest.dueDate) ?? null;
