@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { HealthRow } from '../../api/management';
+import type { HealthRow, ItemQuery, RagReason } from '../../api/management';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { EmptyState } from '../ui/EmptyState';
 import { STATUS_LABEL, idleText, milestoneText } from '../../lib/management';
-import { NumberButton, RagMark, Section, plural, type OpenList } from './parts';
+import { ListButton, NumberButton, RagMark, Section, plural, type OpenList } from './parts';
 
 type Sort = 'worst' | 'name' | 'late' | 'done';
 const SORTS: { value: Sort; label: string }[] = [
@@ -14,6 +14,8 @@ const SORTS: { value: Sort; label: string }[] = [
   { value: 'name', label: 'Name' },
 ];
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+/** 44px on touch screens (the global rule makes them only 32px). */
+const TOUCH = '[@media(pointer:coarse)]:!min-h-11';
 
 function sortRows(rows: HealthRow[], sort: Sort): HealthRow[] {
   if (sort === 'worst') return rows; // the server's order: red, amber, green; then most late; then name
@@ -23,26 +25,54 @@ function sortRows(rows: HealthRow[], sort: Sort): HealthRow[] {
   return copy.sort((a, b) => a.completionPct - b.completionPct || collator.compare(a.name, b.name));
 }
 
-function Milestone({ row, onOpenTask }: { row: HealthRow; onOpenTask: (id: string) => void }) {
+/** The list a reason is about, if it has one. */
+function reasonList(code: RagReason['code'], projectId: string): ItemQuery | null {
+  if (code === 'MILESTONE_LATE') return { metric: 'late-milestones', projectId };
+  if (code === 'MANY_LATE' || code === 'LATE_TASKS') return { metric: 'late-tasks', projectId };
+  if (code === 'MANY_MISSING_CHECKS' || code === 'MISSING_CHECKS') return { metric: 'missing-checks', projectId };
+  return null;
+}
+
+function Milestone({ row, onOpen, onOpenTask }: { row: HealthRow; onOpen: OpenList; onOpenTask: (id: string) => void }) {
   const m = row.nextMilestone;
   if (!m) return <span className="text-ink-3">—</span>;
   const late = m.daysLeft !== null && m.daysLeft < 0;
   return (
-    <button type="button" onClick={() => onOpenTask(m.id)} className="tap min-w-0 max-w-full text-start hover:underline">
-      <span dir="auto" className="block truncate font-medium text-ink">{m.title}</span>
-      <span className={`block text-xs ${late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{milestoneText(m)}</span>
-    </button>
+    <span className="block min-w-0">
+      <button type="button" onClick={() => onOpenTask(m.id)} className={`block min-w-0 max-w-full text-start hover:underline ${TOUCH}`}>
+        <span className="block truncate font-medium text-ink">
+          <bdi>{m.title}</bdi>
+        </span>
+      </button>
+      {late ? (
+        <ListButton label={`Late milestones in ${row.name}`} query={{ metric: 'late-milestones', projectId: row.id }} onOpen={onOpen} className="text-xs font-semibold text-danger">
+          {milestoneText(m)}
+        </ListButton>
+      ) : (
+        <span className="block text-xs text-ink-2">{milestoneText(m)}</span>
+      )}
+    </span>
   );
 }
 
-function Reasons({ row }: { row: HealthRow }) {
+function Reasons({ row, onOpen }: { row: HealthRow; onOpen: OpenList }) {
   return (
     <ul className="space-y-0.5 text-xs">
-      {row.reasons.map((r) => (
-        <li key={r.code + r.text} dir="auto" className={r.level === 'RED' ? 'text-danger' : r.level === 'AMBER' ? 'text-warning' : 'text-ink-2'}>
-          {r.text}
-        </li>
-      ))}
+      {row.reasons.map((r) => {
+        const tone = r.level === 'RED' ? 'text-danger' : r.level === 'AMBER' ? 'text-warning' : 'text-ink-2';
+        const query = reasonList(r.code, row.id);
+        return (
+          <li key={r.code + r.text} className={tone}>
+            {query ? (
+              <ListButton label={r.text} query={query} onOpen={onOpen}>
+                <bdi>{r.text}</bdi>
+              </ListButton>
+            ) : (
+              <bdi>{r.text}</bdi>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -60,10 +90,25 @@ function DoneBar({ pct }: { pct: number }) {
 
 /**
  * Project health: every project's mark (a word and a dot) with its reasons, % done, late tasks, the
- * next milestone, missing checks and the last activity — worst first. A table on wider screens,
- * cards on a phone. Every number opens the list behind it.
+ * next milestone, missing checks and the last activity — worst first. A table on wide screens, cards
+ * below them (a phone, a tablet, a narrow window beside the menu). Every count opens the list behind it.
  */
-export function HealthSection({ rows, today, timeZone, onOpen, onOpenTask }: { rows: HealthRow[]; today: string; timeZone: string; onOpen: OpenList; onOpenTask: (id: string) => void }) {
+export function HealthSection({
+  rows,
+  today,
+  timeZone,
+  onOpen,
+  onOpenTask,
+  chosenHidden,
+}: {
+  rows: HealthRow[];
+  today: string;
+  timeZone: string;
+  onOpen: OpenList;
+  onOpenTask: (id: string) => void;
+  /** Projects were chosen, but the status filter leaves them out. */
+  chosenHidden?: boolean;
+}) {
   const [sort, setSort] = useState<Sort>('worst');
   const shown = useMemo(() => sortRows(rows, sort), [rows, sort]);
   const late = (r: HealthRow) => (
@@ -73,10 +118,12 @@ export function HealthSection({ rows, today, timeZone, onOpen, onOpenTask }: { r
     <NumberButton value={r.missingChecks} label={`${plural(r.missingChecks, 'missing check')} in ${r.name}`} query={{ metric: 'missing-checks', projectId: r.id }} onOpen={onOpen} tone="danger" />
   );
   const name = (r: HealthRow) => (
-    <Link to={`/projects/${encodeURIComponent(r.id)}`} className="flex min-w-0 items-center gap-2 hover:underline">
+    <Link to={`/projects/${encodeURIComponent(r.id)}`} className={`flex min-w-0 items-center gap-2 hover:underline ${TOUCH}`}>
       <ProjectAvatar project={r} size="sm" />
       <span className="min-w-0">
-        <span dir="auto" className="block truncate font-semibold text-ink">{r.name}</span>
+        <span className="block truncate font-semibold text-ink">
+          <bdi>{r.name}</bdi>
+        </span>
         <span className="block truncate text-xs text-ink-3">
           {r.code} · {STATUS_LABEL[r.status]}
           {r.owner ? <> · <bdi>{r.owner.name}</bdi></> : null}
@@ -94,7 +141,7 @@ export function HealthSection({ rows, today, timeZone, onOpen, onOpenTask }: { r
         rows.length > 1 ? (
           <label className="flex items-center gap-1.5 text-sm text-ink-2">
             Sort
-            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="h-9 rounded-lg border border-line bg-surface px-2 text-sm text-ink">
+            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className={`h-9 rounded-lg border border-line bg-surface px-2 text-sm text-ink ${TOUCH}`}>
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
@@ -104,10 +151,18 @@ export function HealthSection({ rows, today, timeZone, onOpen, onOpenTask }: { r
       }
     >
       {rows.length === 0 ? (
-        <EmptyState bare title="No projects to show" description="No project matches these filters. Choose other statuses or projects, or clear the filters." />
+        <EmptyState
+          bare
+          title="No projects to show"
+          description={
+            chosenHidden
+              ? 'The projects you chose have a status the filter leaves out. Tick their status, or clear the filters.'
+              : 'No project matches these filters. Choose other statuses or projects, or clear the filters.'
+          }
+        />
       ) : (
         <>
-          <div className="hidden overflow-x-auto md:block">
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full text-sm">
               <caption className="sr-only">Project health, {SORTS.find((s) => s.value === sort)!.label.toLowerCase()}</caption>
               <thead>
@@ -129,23 +184,23 @@ export function HealthSection({ rows, today, timeZone, onOpen, onOpenTask }: { r
                     <td className="max-w-[16rem] px-2 py-2">{name(r)}</td>
                     <td className="px-2 py-2.5"><DoneBar pct={r.completionPct} /></td>
                     <td className="px-2 py-1.5 text-center">{late(r)}</td>
-                    <td className="max-w-[12rem] px-2 py-2"><Milestone row={r} onOpenTask={onOpenTask} /></td>
+                    <td className="max-w-[12rem] px-2 py-2"><Milestone row={r} onOpen={onOpen} onOpenTask={onOpenTask} /></td>
                     <td className="px-2 py-1.5 text-center">{missing(r)}</td>
                     <td className="whitespace-nowrap px-2 py-2.5 text-ink-2">{idleText(r.lastActivityAt, today, timeZone)}</td>
-                    <td className="min-w-[12rem] px-2 py-2.5"><Reasons row={r} /></td>
+                    <td className="min-w-[12rem] px-2 py-2.5"><Reasons row={r} onOpen={onOpen} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <ul className="flex flex-col gap-3 md:hidden" aria-label="Projects">
+          <ul className="grid gap-3 sm:grid-cols-2 lg:hidden" aria-label="Projects">
             {shown.map((r) => (
-              <li key={r.id} className="rounded-xl border border-line p-3">
+              <li key={r.id} className="min-w-0 rounded-xl border border-line p-3">
                 <div className="flex items-start justify-between gap-2">
                   {name(r)}
                   <RagMark rag={r.rag} />
                 </div>
-                <div className="mt-2"><Reasons row={r} /></div>
+                <div className="mt-2"><Reasons row={r} onOpen={onOpen} /></div>
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                   <div>
                     <dt className="text-xs text-ink-3">Done</dt>
@@ -165,7 +220,7 @@ export function HealthSection({ rows, today, timeZone, onOpen, onOpenTask }: { r
                   </div>
                   <div className="col-span-2">
                     <dt className="text-xs text-ink-3">Next milestone</dt>
-                    <dd><Milestone row={r} onOpenTask={onOpenTask} /></dd>
+                    <dd><Milestone row={r} onOpen={onOpen} onOpenTask={onOpenTask} /></dd>
                   </div>
                 </dl>
               </li>

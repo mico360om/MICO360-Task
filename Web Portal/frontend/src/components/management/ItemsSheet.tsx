@@ -2,7 +2,7 @@ import { useId } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
-import { managementApi, managementItemsKey, type ItemQuery, type ItemRow, type ManagementFilters } from '../../api/management';
+import { managementApi, managementItemsKey, type ItemMetric, type ItemQuery, type ItemRow, type ManagementFilters } from '../../api/management';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { LoadError } from '../ui/LoadError';
@@ -16,6 +16,25 @@ const TONE: Record<NonNullable<ItemRow['tone']>, string> = {
   neutral: 'text-ink-2',
 };
 const ROW = 'flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-3 py-2.5 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:!min-h-11';
+/** What a list counts, in words ("4 tasks", "1 day"). */
+const UNIT: Record<ItemMetric, [string, string]> = {
+  'late-tasks': ['task', 'tasks'],
+  'late-milestones': ['milestone', 'milestones'],
+  'missing-checks': ['check', 'checks'],
+  'checks-due': ['check', 'checks'],
+  'checks-done': ['check', 'checks'],
+  'checks-done-late': ['check', 'checks'],
+  'checks-no-report': ['check', 'checks'],
+  'follow-ups': ['task', 'tasks'],
+  inspections: ['inspection', 'inspections'],
+  'failed-item': ['inspection', 'inspections'],
+  'failed-form': ['failed item', 'failed items'],
+  'person-overloaded': ['day', 'days'],
+  'person-actions': ['action item', 'action items'],
+  'overdue-actions': ['action item', 'action items'],
+  projects: ['project', 'projects'],
+  'people-overloaded': ['person', 'people'],
+};
 
 /** "Finished Wed 21 Oct, 12:00" in the company time zone. */
 function finishedText(at: string, timeZone: string): string {
@@ -31,7 +50,9 @@ function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
     <>
       <span className="flex min-w-0 items-baseline gap-2">
         {row.key ? <span className="flex-none font-mono text-xs text-ink-3">{row.key}</span> : null}
-        <span dir="auto" className="min-w-0 truncate text-sm font-medium text-ink">{row.title}</span>
+        <span className="min-w-0 truncate text-sm font-medium text-ink">
+          <bdi>{row.title}</bdi>
+        </span>
       </span>
       <span className="flex min-w-0 flex-wrap gap-x-2 text-xs text-ink-2">
         {row.project ? <bdi className="truncate">{row.project.name}</bdi> : null}
@@ -40,8 +61,8 @@ function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
         {row.people?.length ? <bdi className="truncate">{row.people.join(', ')}</bdi> : null}
       </span>
       {row.detail ? (
-        <span dir="auto" className={`text-xs font-medium ${TONE[row.tone ?? 'neutral']}`}>
-          {row.detail}
+        <span className={`block text-xs font-medium ${TONE[row.tone ?? 'neutral']}`}>
+          <bdi>{row.detail}</bdi>
         </span>
       ) : null}
     </>
@@ -49,23 +70,65 @@ function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
 }
 
 /**
- * The list behind a number, in a side sheet: what the number counts, with the same filters. A task
- * opens in the task panel; an inspection, a meeting's action item, a project or a person opens its page.
+ * The list behind a number, in a side sheet: what the number counts, with the same filters (so a
+ * number N opens N rows). A task opens in the task panel; an inspection, a meeting's action item or a
+ * project opens its page; a person or an overloaded day opens the Workload page on the counted week.
  */
-export function ItemsSheet({ filters, query, label, timeZone, onClose, onOpenTask }: { filters: ManagementFilters; query: ItemQuery; label: string; timeZone: string; onClose: () => void; onOpenTask: (id: string) => void }) {
+export function ItemsSheet({
+  filters,
+  query,
+  label,
+  timeZone,
+  workloadWeek,
+  onClose,
+  onOpenTask,
+}: {
+  filters: ManagementFilters;
+  query: ItemQuery;
+  label: string;
+  timeZone: string;
+  /** The company week the people figures count (the Workload page shows exactly those days). */
+  workloadWeek: string;
+  onClose: () => void;
+  onOpenTask: (id: string) => void;
+}) {
   const titleId = useId();
   const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
   const q = useQuery({ queryKey: managementItemsKey(filters, query), queryFn: () => managementApi(apiClient).items(filters, query) });
   const data = q.data;
+  const unit = UNIT[query.metric] ?? ['item', 'items'];
+  const workload = `/workload?week=${encodeURIComponent(workloadWeek)}`;
 
   const open = (row: ItemRow) => {
-    if (row.kind === 'task') return <button type="button" className={ROW} onClick={() => onOpenTask(row.id)}><RowBody row={row} timeZone={timeZone} /></button>;
-    if (row.kind === 'inspection') return <Link className={ROW} to={`/inspections/${encodeURIComponent(row.id)}`}><RowBody row={row} timeZone={timeZone} /></Link>;
-    if (row.kind === 'project') return <Link className={ROW} to={`/projects/${encodeURIComponent(row.id)}`}><RowBody row={row} timeZone={timeZone} /></Link>;
-    if (row.kind === 'person') return <Link className={ROW} to="/workload"><RowBody row={row} timeZone={timeZone} /></Link>;
-    if (row.meetingId) return <Link className={ROW} to={`/meetings/${encodeURIComponent(row.meetingId)}`}><RowBody row={row} timeZone={timeZone} /></Link>;
-    if (row.taskId) return <button type="button" className={ROW} onClick={() => onOpenTask(row.taskId!)}><RowBody row={row} timeZone={timeZone} /></button>;
-    return <div className={ROW}><RowBody row={row} timeZone={timeZone} /></div>;
+    const body = <RowBody row={row} timeZone={timeZone} />;
+    if (row.kind === 'task') return <button type="button" className={ROW} onClick={() => onOpenTask(row.id)}>{body}</button>;
+    if (row.kind === 'inspection') return <Link className={ROW} to={`/inspections/${encodeURIComponent(row.inspectionId ?? row.id)}`}>{body}</Link>;
+    if (row.kind === 'project') return <Link className={ROW} to={`/projects/${encodeURIComponent(row.id)}`}>{body}</Link>;
+    if (row.kind === 'person') return <Link className={ROW} to={workload}>{body}</Link>;
+    if (row.kind === 'day') {
+      return (
+        <div>
+          <Link className={ROW} to={workload}>{body}</Link>
+          {row.tasks?.length ? (
+            <ul className="mb-2 ms-3 flex flex-col gap-0.5" aria-label={`Tasks due ${row.title}`}>
+              {row.tasks.map((t) => (
+                <li key={t.id}>
+                  <button type="button" onClick={() => onOpenTask(t.id)} className="flex w-full min-w-0 items-baseline gap-2 rounded-md px-2 py-1 text-start text-sm hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
+                    <span className="flex-none font-mono text-xs text-ink-3">{t.key}</span>
+                    <span className="min-w-0 truncate text-ink">
+                      <bdi>{t.title}</bdi>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      );
+    }
+    if (row.meetingId) return <Link className={ROW} to={`/meetings/${encodeURIComponent(row.meetingId)}`}>{body}</Link>;
+    if (row.taskId) return <button type="button" className={ROW} onClick={() => onOpenTask(row.taskId!)}>{body}</button>;
+    return <div className={ROW}>{body}</div>;
   };
 
   return (
@@ -82,8 +145,12 @@ export function ItemsSheet({ filters, query, label, timeZone, onClose, onOpenTas
         >
           <div className="flex items-start justify-between gap-3 border-b border-line px-4 pb-3 pt-4">
             <div className="min-w-0">
-              <h2 id={titleId} dir="auto" className="font-display text-lg font-semibold text-ink">{data?.title ?? label}</h2>
-              <p className="text-sm text-ink-2" role="status">{data ? (data.total ? plural(data.total, 'item') : 'Nothing here now.') : q.isLoading ? 'Loading…' : ''}</p>
+              <h2 id={titleId} className="font-display text-lg font-semibold text-ink">
+                <bdi>{data?.title ?? label}</bdi>
+              </h2>
+              <p className="text-sm text-ink-2" role="status">
+                {data ? (data.total ? `${data.total} ${data.total === 1 ? unit[0] : unit[1]}` : 'Nothing here now.') : q.isLoading ? 'Loading…' : ''}
+              </p>
             </div>
             <button type="button" onClick={onClose} aria-label="Close" className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>

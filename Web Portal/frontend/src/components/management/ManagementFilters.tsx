@@ -60,7 +60,7 @@ function ProjectPicker({ projects, chosen, onChange }: { projects: OptionProject
         >
           <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
             <span className="text-xs text-ink-2">{chosen.length ? `${chosen.length} chosen` : 'All projects'}</span>
-            <button type="button" onClick={() => onChange([])} disabled={chosen.length === 0} className="rounded px-1.5 py-1 text-xs font-semibold text-brand hover:bg-ground disabled:opacity-50">
+            <button type="button" onClick={() => onChange([])} disabled={chosen.length === 0} className="rounded px-1.5 py-1 text-xs font-semibold text-brand hover:bg-ground disabled:opacity-50 [@media(pointer:coarse)]:!min-h-11">
               Show all
             </button>
           </div>
@@ -108,8 +108,16 @@ export function ManagementFilters({ filters, projects, owners, onChange }: { fil
   return (
     <div className="card mb-4 flex flex-col gap-3 p-3 sm:p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <ProjectPicker projects={projects} chosen={filters.projectIds} onChange={(projectIds) => set({ projectIds })} />
-        <div className="w-full min-w-0 sm:w-56">
+        <ProjectPicker
+          projects={projects}
+          chosen={filters.projectIds}
+          onChange={(projectIds) => {
+            // A project picked whose status the filter leaves out brings its status in, so it shows.
+            const add = projects.filter((p) => projectIds.includes(p.id) && !filters.statuses.includes(p.status)).map((p) => p.status);
+            set({ projectIds, statuses: add.length ? PROJECT_STATUSES.filter((s) => filters.statuses.includes(s) || add.includes(s)) : filters.statuses });
+          }}
+        />
+        <div className="w-full min-w-0 sm:w-56 [@media(pointer:coarse)]:[&>button]:!min-h-11">
           <SearchableSelect
             ariaLabel="Owner"
             value={filters.ownerId ?? ''}
@@ -133,7 +141,7 @@ export function ManagementFilters({ filters, projects, owners, onChange }: { fil
           ))}
         </fieldset>
         {!isDefaultFilters(filters) ? (
-          <button type="button" onClick={() => onChange({ projectIds: [], ownerId: null, statuses: [...DEFAULT_STATUSES], weeks: 12 })} className="tap rounded-lg px-2 text-sm font-semibold text-brand hover:underline">
+          <button type="button" onClick={() => onChange({ projectIds: [], ownerId: null, statuses: [...DEFAULT_STATUSES], weeks: 12 })} className="tap rounded-lg px-2 text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
             Clear filters
           </button>
         ) : null}

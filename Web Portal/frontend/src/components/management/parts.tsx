@@ -67,6 +67,21 @@ export function NumberButton({
   );
 }
 
+/** Words that open the list behind them (a reason, "3 days late"): a dotted underline, like the numbers. */
+export function ListButton({ label, query, onOpen, children, className = '' }: { label: string; query: ItemQuery; onOpen: OpenList; children: ReactNode; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => onOpen(query, e.currentTarget)}
+      aria-label={`${label}: show the list`}
+      title="Show the list"
+      className={`inline-flex min-h-6 items-center text-start underline decoration-dotted underline-offset-4 hover:decoration-solid [@media(pointer:coarse)]:!min-h-11 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** A section card whose heading is its accessible name (a landmark region). */
 export function Section({ id, title, action, children, note }: { id: string; title: string; action?: ReactNode; note?: ReactNode; children: ReactNode }) {
   return (

@@ -126,6 +126,8 @@ export type ItemMetric =
   | 'failed-item'
   | 'person-overloaded'
   | 'person-actions'
+  | 'overdue-actions'
+  | 'failed-form'
   | 'projects'
   | 'people-overloaded';
 
@@ -137,10 +139,13 @@ export interface ItemQuery {
   formId?: string;
   itemId?: string;
   rag?: Rag;
+  /** inspections: only those with a failed item. */
+  failed?: boolean;
 }
 
 export interface ItemRow {
-  kind: 'task' | 'inspection' | 'action' | 'project' | 'person';
+  /** 'day': one overloaded day of a person, with its tasks. */
+  kind: 'task' | 'inspection' | 'action' | 'project' | 'person' | 'day';
   id: string;
   title: string;
   key?: string | null;
@@ -153,6 +158,10 @@ export interface ItemRow {
   meetingId?: string | null;
   taskId?: string | null;
   at?: string | null;
+  /** A failed answer's inspection (its row id is the inspection and the item). */
+  inspectionId?: string | null;
+  /** An overloaded day's tasks. */
+  tasks?: { id: string; key: string; title: string }[];
 }
 
 export interface ItemList {
@@ -184,7 +193,7 @@ export function managementApi(client: ApiClient) {
     overview: (f: ManagementFilters) => client.get<{ data: ManagementOverview }>(`/management/overview?${filterParams(f)}`).then((r) => r.data),
     items: (f: ManagementFilters, q: ItemQuery) => {
       const params = filterParams(f);
-      for (const [k, v] of Object.entries(q)) if (v) params.set(k, String(v));
+      for (const [k, v] of Object.entries(q)) if (v) params.set(k, v === true ? '1' : String(v));
       return client.get<{ data: ItemList }>(`/management/items?${params}`).then((r) => r.data);
     },
     /** The branded PDF (the server names the file). */

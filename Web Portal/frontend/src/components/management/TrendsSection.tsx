@@ -1,19 +1,27 @@
+import { useState } from 'react';
 import type { TrendRow } from '../../api/management';
 import { LineChart } from '../LineChart';
 import { dayMonth } from '../../lib/management';
 import { Section } from './parts';
 
+/** The weekly table shows this many weeks (the latest) until all are asked for. */
+const SHOWN_WEEKS = 6;
+
 /**
  * Weekly trends over the chosen period (company weeks, the current one last and still going): tasks
- * created against completed, tasks late at the end of each week, and the inspection pass rate — each
- * chart with the same figures in the table under them.
+ * created against completed, tasks late at the end of each week, and the inspection pass rate — the
+ * three charts over the same weeks (a gap where a week had no inspection), with the same figures in a
+ * table under them.
  */
 export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
-  const labels = weeks.map((w) => (w.current ? `${w.label} (now)` : w.label));
-  const rated = weeks.filter((w) => w.passRate !== null);
+  const [all, setAll] = useState(false);
+  const labels = weeks.map((w) => w.label);
   const last = weeks.at(-1);
+  const rated = weeks.filter((w) => w.passRate !== null);
+  const newestFirst = [...weeks].reverse();
+  const rows = all ? newestFirst : newestFirst.slice(0, SHOWN_WEEKS);
   return (
-    <Section id="mgmt-trends" title="Trends" note={`${weeks.length} weeks${weeks[0] ? ` from ${dayMonth(weeks[0].start)}` : ''}; this week is still going.`}>
+    <Section id="mgmt-trends" title="Trends" note={`${weeks.length} weeks${weeks[0] ? ` from ${dayMonth(weeks[0].start)}` : ''}; the last one is this week, still going.`}>
       <div className="grid gap-5 lg:grid-cols-3">
         <figure className="min-w-0">
           <figcaption className="mb-1 text-sm font-semibold text-ink">Tasks created and completed</figcaption>
@@ -42,9 +50,9 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
           <figcaption className="mb-1 text-sm font-semibold text-ink">Inspection pass rate</figcaption>
           {rated.length ? (
             <LineChart
-              ariaLabel={`Inspection pass rate in the weeks with finished inspections${rated.at(-1) ? `; latest ${rated.at(-1)!.passRate}%` : ''}. The figures are in the table below.`}
-              labels={rated.map((w) => (w.current ? `${w.label} (now)` : w.label))}
-              series={[{ name: 'Pass rate', color: 'rgb(var(--c-info))', values: rated.map((w) => w.passRate ?? 0) }]}
+              ariaLabel={`Inspection pass rate each week (no point where a week had no finished inspection); latest ${rated.at(-1)!.passRate}%. The figures are in the table below.`}
+              labels={labels}
+              series={[{ name: 'Pass rate', color: 'rgb(var(--c-info))', values: weeks.map((w) => w.passRate) }]}
               unit="%"
               height={180}
               maxTicks={4}
@@ -54,10 +62,9 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
           )}
         </figure>
       </div>
-      {/* It scrolls: focusable, so the keyboard can scroll it too. */}
-      <div tabIndex={0} role="region" aria-label="Weekly figures, scrollable" className="mt-4 max-h-72 overflow-auto rounded-xl border border-line focus-visible:outline focus-visible:outline-2 focus-visible:outline-[rgb(var(--c-brand-text))]">
+      <div className="mt-4 overflow-x-auto rounded-xl border border-line">
         <table className="w-full text-sm" aria-label="Weekly figures">
-          <thead className="sticky top-0 bg-surface-2">
+          <thead className="bg-surface-2">
             <tr className="text-xs font-semibold uppercase tracking-wide text-ink-3">
               <th scope="col" className="px-3 py-2 text-start">Week of</th>
               <th scope="col" className="px-3 py-2 text-end">Created</th>
@@ -67,7 +74,7 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {[...weeks].reverse().map((w) => (
+            {rows.map((w) => (
               <tr key={w.start} className="border-t border-line">
                 <th scope="row" className="whitespace-nowrap px-3 py-1.5 text-start font-medium text-ink">
                   {dayMonth(w.start)}
@@ -82,6 +89,11 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
           </tbody>
         </table>
       </div>
+      {weeks.length > SHOWN_WEEKS ? (
+        <button type="button" onClick={() => setAll((v) => !v)} aria-expanded={all} className="tap mt-2 rounded-lg px-2 text-sm font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
+          {all ? `Show the latest ${SHOWN_WEEKS} weeks` : `Show all ${weeks.length} weeks`}
+        </button>
+      ) : null}
     </Section>
   );
 }
