@@ -416,7 +416,7 @@ export function InspectionPage() {
                   {s.image ? (
                     <img src={s.image} alt={`${SIGNATURE_LABEL[s.role]} signature of ${s.name}`} className="max-h-16 max-w-full object-contain" />
                   ) : (
-                    <span dir="auto" className="font-serif text-xl italic text-[#1C1A17]">
+                    <span aria-hidden="true" dir="auto" className="font-serif text-xl italic text-[#1C1A17]">
                       {s.name}
                     </span>
                   )}

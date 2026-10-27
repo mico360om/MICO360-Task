@@ -25,6 +25,19 @@ const VIEW: ClientView = {
       content: { summary: 'Agreed the plan.', discussion: [{ topic: 'Scope', text: 'Three rigs.' }], decisions: ['Start 1 Oct'], risks: ['Weather'], nextSteps: ['Survey'] },
     },
   ],
+  inspections: [
+    {
+      id: 'i1',
+      title: 'Rig daily check',
+      date: '2026-10-27',
+      place: 'Rig 3',
+      counts: { total: 2, passed: 1, failed: 1, na: 0 },
+      result: '1 failed',
+      sections: [{ title: 'Well head', items: [{ label: 'Pressure', kind: 'READING', result: 'Fail', reading: '162 psi', limits: '0–150 psi', note: 'Gauge read high' }, { label: 'Valves closed', kind: 'CHECK', result: 'Pass', reading: null, limits: null, note: null }] }],
+      signatures: [{ role: 'Inspector', name: 'Ivan Inspector', signedAt: '2026-10-27T08:30:00.000Z', image: null, typed: true }],
+      unsigned: ['Client'],
+    },
+  ],
   generatedAt: '2026-10-26T08:00:00.000Z',
 };
 
@@ -37,6 +50,7 @@ function fakeApi(over: Partial<ClientViewApi> = {}): ClientViewApi {
     verify: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
     minutesPdf: vi.fn(async () => ({ blob: new Blob(['%PDF']), fileName: 'minutes-kick-off.pdf' })),
+    inspectionPdf: vi.fn(async () => ({ blob: new Blob(['%PDF']), fileName: 'inspection-rig-daily-check-2026-10-27.pdf' })),
     ...over,
   };
 }
@@ -161,11 +175,29 @@ describe('the client page', () => {
     expect(api.minutesPdf).toHaveBeenCalledWith('m1');
   });
 
+  it('shows the inspection reports shared with the client, their result, signatures and PDF', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi();
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    show(api);
+    const section = await screen.findByRole('region', { name: 'Inspection reports' });
+    const toggle = within(section).getByRole('button', { name: /^Rig daily check/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getAllByText('1 failed').length).toBeGreaterThan(0);
+    expect(within(section).getAllByText('Gauge read high', { exact: false }).length).toBeGreaterThan(0);
+    expect(within(section).getAllByText('Ivan Inspector').length).toBeGreaterThan(0);
+    expect(within(section).getByText('Not signed', { exact: false })).toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: 'Download the inspection report Rig daily check (PDF)' }));
+    expect(api.inspectionPdf).toHaveBeenCalledWith('i1');
+  });
+
   it('says so when nothing has been shared yet', async () => {
-    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, milestones: [], tasks: [], minutes: [] })) }));
+    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, milestones: [], tasks: [], minutes: [], inspections: [] })) }));
     expect(await screen.findByText('No milestones have been shared yet.')).toBeInTheDocument();
     expect(screen.getByText('No tasks have been shared yet.')).toBeInTheDocument();
     expect(screen.getByText('No meeting minutes have been shared yet.')).toBeInTheDocument();
+    expect(screen.getByText('No inspection reports have been shared yet.')).toBeInTheDocument();
   });
 
   it('signs this device out', async () => {

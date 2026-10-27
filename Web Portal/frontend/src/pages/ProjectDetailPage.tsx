@@ -34,12 +34,14 @@ import { usePageName } from '../lib/page-meta';
 import { ApiError } from '../lib/api-client';
 import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
 import { configApi } from '../api/config';
+import { ProjectInspectionsTab } from '../components/inspections/ProjectInspectionsTab';
 
-type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
+type Tab = 'overview' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
   { v: 'overview', label: 'Overview' },
   { v: 'tasks', label: 'Tasks' },
   { v: 'meetings', label: 'Meetings' },
+  { v: 'inspections', label: 'Inspections' },
   { v: 'team', label: 'Team' },
 ];
 
@@ -414,6 +416,8 @@ export function ProjectDetailPage() {
             onNew={canSchedule ? () => setNewMeeting(true) : undefined}
           />
         ) : null}
+
+        {tab === 'inspections' ? <ProjectInspectionsTab projectId={id} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} /> : null}
 
         {tab === 'team' ? (
           <section className="card p-5">

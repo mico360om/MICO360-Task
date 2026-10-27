@@ -25,6 +25,7 @@ import { TaskFormDialog } from './task-form/TaskFormDialog';
 import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
 import { projectsApi } from '../api/projects';
 import { clientSharesApi } from '../api/client-shares';
+import { TaskInspections } from './inspections/TaskInspections';
 import { moveAvailability, movedText } from '../lib/task-move';
 
 export interface TaskDrawerContainerProps {
@@ -399,6 +400,11 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
                     refreshTaskViews();
                   }
                 : undefined
+            }
+            inspections={
+              projectId ? (
+                <TaskInspections taskId={taskId} projectId={projectId} task={{ id: taskId, key: taskQ.data!.key, title: taskQ.data!.title }} canStart={project?.status !== 'ARCHIVED'} />
+              ) : undefined
             }
             onClose={onClose}
           />

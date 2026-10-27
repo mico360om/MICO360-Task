@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
@@ -101,6 +101,8 @@ export interface TaskDrawerProps {
    * project. Rejects with the reason to show when it couldn't be changed.
    */
   onSetClientVisible?: (visible: boolean) => Promise<void> | void;
+  /** The task's inspections (carried out for it, or the one it follows up), beside its details. */
+  inspections?: ReactNode;
   onClose: () => void;
 }
 
@@ -226,6 +228,7 @@ export function TaskDrawer({
   onMoveToProject,
   moveUnavailable,
   onSetClientVisible,
+  inspections,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -394,6 +397,7 @@ export function TaskDrawer({
               onScope={setScope}
             />
             {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
+            {inspections}
             <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
             {dependencies ? (
               <DependenciesSection taskId={task.id} dependencies={dependencies} availableTasks={availableTasks} onAdd={onAddDependency} onRemove={onRemoveDependency} />
