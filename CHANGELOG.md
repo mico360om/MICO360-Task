@@ -14,6 +14,27 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Templates (a new page in the menu): start a project from a template with its board columns and
+  standard tasks — each with its description, checklist, priority and a due date like "start + 5
+  days" (a day off moves to the next working day) — and choose who fills each role, such as
+  "Inspector" or "Site lead". Task templates fill in the New task form. Anyone who runs a project can
+  save it, or one of its tasks, as a template ("Save as template"), with a warning first that
+  everyone in the company will see it; administrators manage all templates.
+- Inspection checklists: inspection forms (on the Templates page) are checklists of Pass / Fail /
+  N/A items and readings with limits — a reading outside its limits fails by itself — ending with
+  the inspector's signature and, if the form asks, the client's or a supervisor's. Each project has
+  an Inspections tab, and an inspection can be attached to a task (finishing it offers to mark the
+  task done). Failed items become follow-up tasks with one tap, or all at once. Finishing makes a
+  branded PDF report. On a phone, an inspection you've started keeps working without signal — even
+  if the page reloads — and sends everything when you're back online. A finished report can be shown
+  on the project's client page when someone ticks "Show to client"; a reopened report says which
+  revision it is.
+
+### Improvements
+- The New task form has a checklist you can fill in before creating the task.
+- Every way of signing out now warns before throwing away changes that haven't been sent yet.
+
 ## [1.16.0] - 2026-10-26
 
 ### New features
