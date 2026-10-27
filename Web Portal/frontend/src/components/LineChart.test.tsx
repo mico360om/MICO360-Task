@@ -45,3 +45,30 @@ describe('LineChart', () => {
     expect(screen.getByText('Ideal')).toBeInTheDocument();
   });
 });
+
+describe('LineChart: edges and gaps', () => {
+  it('keeps the first and last axis labels inside the chart (anchored to their edge, not centred past it)', () => {
+    render(<LineChart ariaLabel="Weeks" labels={['4 Oct', '11 Oct', '18 Oct', '25 Oct']} series={[{ name: 'Late', color: 'rgb(1,1,1)', values: [1, 2, 3, 4] }]} maxTicks={4} />);
+    const ticks = [...screen.getByRole('img', { name: 'Weeks' }).querySelectorAll('text')].filter((t) => /Oct/.test(t.textContent ?? ''));
+    expect(ticks.map((t) => [t.textContent, t.getAttribute('text-anchor')])).toEqual([
+      ['4 Oct', 'start'],
+      ['11 Oct', 'middle'],
+      ['18 Oct', 'middle'],
+      ['25 Oct', 'end'],
+    ]);
+  });
+
+  it('leaves a gap (no line, no point) where a value is missing, so charts of the same weeks line up', () => {
+    render(<LineChart ariaLabel="Pass rate" labels={['a', 'b', 'c', 'd', 'e']} series={[{ name: 'Pass rate', color: 'rgb(1,1,1)', values: [null, 100, null, 80, 90] }]} unit="%" />);
+    const chart = screen.getByRole('img', { name: 'Pass rate' });
+    const lines = [...chart.querySelectorAll('polyline')].map((p) => p.getAttribute('points')!.trim().split(' ').length);
+    // 100 stands alone (a dot), then 80–90 is one line.
+    expect(lines).toEqual([2]);
+    expect(chart.querySelectorAll('circle[data-point]').length).toBe(3);
+  });
+
+  it('shows the empty note when every value is missing', () => {
+    render(<LineChart ariaLabel="None" labels={['a', 'b']} series={[{ name: 'x', color: 'rgb(1,1,1)', values: [null, null] }]} />);
+    expect(screen.getByText(/no data/i)).toBeInTheDocument();
+  });
+});

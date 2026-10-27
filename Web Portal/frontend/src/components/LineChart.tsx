@@ -4,8 +4,8 @@ export interface LineSeries {
   name: string;
   /** CSS colour string (pass theme tokens, e.g. rgb(var(--c-brand))). */
   color: string;
-  /** One value per x index — must align with `labels`. */
-  values: number[];
+  /** One value per x index — must align with `labels`. null: no value there (a gap in the line). */
+  values: (number | null)[];
   /** Fill the area under the line (low opacity). */
   area?: boolean;
   /** Dashed stroke — for reference lines like an ideal burndown. */
@@ -57,7 +57,7 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
   }, []);
 
   const n = Math.max(labels.length, ...series.map((s) => s.values.length), 0);
-  const hasData = series.length > 0 && n > 0 && series.some((s) => s.values.length > 0);
+  const hasData = series.length > 0 && n > 0 && series.some((s) => s.values.some((v) => v !== null));
 
   if (!hasData) {
     return (
@@ -69,7 +69,7 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
 
   const plotW = Math.max(1, width - PAD.left - PAD.right);
   const plotH = Math.max(1, height - PAD.top - PAD.bottom);
-  const rawMax = Math.max(1, ...series.flatMap((s) => s.values));
+  const rawMax = Math.max(1, ...series.flatMap((s) => s.values.filter((v): v is number => v !== null)));
   const top = niceCeil(rawMax);
 
   const x = (i: number) => (n <= 1 ? PAD.left + plotW / 2 : PAD.left + (i / (n - 1)) * plotW);
@@ -83,9 +83,25 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
   const tickEvery = Math.max(1, Math.ceil(n / maxTicks));
   const ticks = labels.map((label, i) => ({ label, i })).filter(({ i }) => i % tickEvery === 0 || i === n - 1);
 
-  const pointsAttr = (vals: number[]) => vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const areaPath = (vals: number[]) =>
-    `M ${x(0).toFixed(1)},${baseY.toFixed(1)} ` + vals.map((v, i) => `L ${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ') + ` L ${x(vals.length - 1).toFixed(1)},${baseY.toFixed(1)} Z`;
+  /** The runs of values without a gap: each is drawn as its own line (a lone value as a dot). */
+  const runsOf = (vals: (number | null)[]) => {
+    const runs: { i: number; v: number }[][] = [];
+    let run: { i: number; v: number }[] = [];
+    vals.forEach((v, i) => {
+      if (v === null) {
+        if (run.length) runs.push(run);
+        run = [];
+      } else run.push({ i, v });
+    });
+    if (run.length) runs.push(run);
+    return runs;
+  };
+  const pointsAttr = (run: { i: number; v: number }[]) => run.map((p) => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  const areaPath = (run: { i: number; v: number }[]) =>
+    `M ${x(run[0]!.i).toFixed(1)},${baseY.toFixed(1)} ` + run.map((p) => `L ${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ') + ` L ${x(run.at(-1)!.i).toFixed(1)},${baseY.toFixed(1)} Z`;
+  // The first and last axis labels sit against their edge, so they are never cut off.
+  const anchorOf = (i: number): 'start' | 'middle' | 'end' => (n <= 1 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle');
+  const tickX = (i: number) => (anchorOf(i) === 'start' ? Math.max(2, x(i) - 6) : anchorOf(i) === 'end' ? Math.min(width - 2, x(i) + 6) : x(i));
 
   return (
     <div ref={ref} className="w-full">
@@ -101,28 +117,40 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
           </g>
         ))}
 
-        {/* series: optional area, then line, then endpoint dot */}
-        {series.map((s) => (
-          <g key={s.name}>
-            {s.area ? <path d={areaPath(s.values)} fill={s.color} opacity={0.1} /> : null}
-            <polyline
-              points={pointsAttr(s.values)}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              {...(s.dashed ? { strokeDasharray: '5 4' } : {})}
-            />
-            {!s.dashed && s.values.length > 0 ? (
-              <circle cx={x(s.values.length - 1)} cy={y(s.values[s.values.length - 1]!)} r={3.5} fill={s.color} />
-            ) : null}
-          </g>
-        ))}
+        {/* series: optional area, then line, then endpoint dot; a series with gaps gets a dot on every value */}
+        {series.map((s) => {
+          const runs = runsOf(s.values);
+          const gaps = s.values.some((v) => v === null);
+          const last = runs.at(-1)?.at(-1);
+          return (
+            <g key={s.name}>
+              {s.area ? runs.filter((r) => r.length > 1).map((r) => <path key={`a${r[0]!.i}`} d={areaPath(r)} fill={s.color} opacity={0.1} />) : null}
+              {runs
+                .filter((r) => r.length > 1)
+                .map((r) => (
+                  <polyline
+                    key={`l${r[0]!.i}`}
+                    points={pointsAttr(r)}
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    {...(s.dashed ? { strokeDasharray: '5 4' } : {})}
+                  />
+                ))}
+              {gaps
+                ? runs.flat().map((p) => <circle key={`p${p.i}`} data-point cx={x(p.i)} cy={y(p.v)} r={3} fill={s.color} />)
+                : !s.dashed && last
+                  ? <circle cx={x(last.i)} cy={y(last.v)} r={3.5} fill={s.color} />
+                  : null}
+            </g>
+          );
+        })}
 
         {/* x tick labels */}
         {ticks.map(({ label, i }) => (
-          <text key={i} x={x(i)} y={height - 8} textAnchor="middle" fontSize={10} fill="rgb(var(--c-ink-3))">
+          <text key={i} x={tickX(i)} y={height - 8} textAnchor={anchorOf(i)} fontSize={10} fill="rgb(var(--c-ink-3))">
             {label}
           </text>
         ))}
