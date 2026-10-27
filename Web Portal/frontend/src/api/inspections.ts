@@ -82,6 +82,8 @@ export interface FollowUpView {
   itemId: string;
   task: { id: string; key: string; title: string; deleted: boolean; done: boolean } | null;
   pending: boolean;
+  /** Its task was moved to a project the reader can't see (so it isn't named). */
+  moved?: boolean;
 }
 
 export interface InspectionPermissions {
@@ -105,6 +107,8 @@ export interface InspectionDetail extends InspectionListItem {
   followUps: FollowUpView[];
   permissions: InspectionPermissions;
   signatureRoles: { allowed: SignatureRole[]; required: SignatureRole[] };
+  /** Goes up with each reopen: a finish sends the revision its signers saw. */
+  revision: number;
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
 }
 
@@ -135,6 +139,8 @@ export interface SignatureInput {
 export interface FinishInput {
   /** The device's id for this finish: sending it again is a no-op. */
   finishId: string;
+  /** The inspection's revision when it was signed: a reopen since then makes the server refuse it. */
+  revision: number;
   /** The answers the signers saw (each one's edit time). */
   seen: Array<{ itemId: string; editedAt: string }>;
   signatures: SignatureInput[];

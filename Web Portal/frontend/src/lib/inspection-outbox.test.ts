@@ -3,6 +3,7 @@ import { ApiError } from './api-client';
 import {
   createInspectionOutbox,
   memoryDraftStorage,
+  removeOwnerRecords,
   type InspectionOutbox,
   type OutboxApi,
 } from './inspection-outbox';
@@ -48,6 +49,7 @@ function detail(over: Partial<InspectionDetail> = {}): InspectionDetail {
     followUps: [],
     permissions: { canAnswer: true, canFinish: true, canReopen: false, canTakeOver: false, canDelete: true, canShowToClient: false, canMakeFollowUps: true },
     signatureRoles: { allowed: ['INSPECTOR'], required: ['INSPECTOR'] },
+    revision: 0,
     ...over,
   };
 }
@@ -430,5 +432,81 @@ describe('follow-ups on a finished inspection (no record kept on the phone)', ()
     // Read again from the server: nothing waits, so nothing is kept.
     outbox.remember(OWNER, finished);
     expect(outbox.draft(OWNER, 'i1')).toBeNull();
+  });
+});
+
+describe('review fixes', () => {
+  const sign = () => ({ role: 'INSPECTOR' as const, name: 'Ivan Inspector', method: 'TYPED' as const, signedAt: '2026-10-27T08:20:00.000Z' });
+
+  it('a finish carries the revision its signers saw', async () => {
+    outbox.remember(OWNER, detail({ revision: 2 }));
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    outbox.queueFinish(OWNER, 'i1', [sign()]);
+    await outbox.flush(OWNER, 'i1');
+    expect((server.calls.find((c) => c.kind === 'finish')!.body as { revision: number }).revision).toBe(2);
+  });
+
+  it('a refused follow-up request is dropped with a note, and doesn’t hold the answers or the finish back', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.queueFollowUps(OWNER, 'i1', ['r'], 'u-gone');
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    server.failWith((kind) => (kind === 'follow-ups' ? new ApiError(400, 'VALIDATION', 'Only active members of the project can be assigned.') : null));
+    await outbox.flush(OWNER, 'i1');
+    const v = outbox.view(OWNER, 'i1')!;
+    expect(v.problem).toMatchObject({ stage: 'follow-ups', message: 'Only active members of the project can be assigned.' });
+    expect(v.pending).toEqual({ answers: 0, finish: false, followUps: 0 });
+    // A later answer still goes, the note stays until it is read.
+    server.failWith(null);
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'r', result: 'FAIL', reading: null, note: null });
+    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'sent' });
+    expect(server.stored.get('r')).toMatchObject({ result: 'FAIL' });
+    expect(outbox.view(OWNER, 'i1')!.problem).toMatchObject({ stage: 'follow-ups' });
+  });
+
+  it('a refused finish doesn’t hold later answers back either', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    outbox.queueFinish(OWNER, 'i1', [sign()]);
+    server.failWith((kind) => (kind === 'finish' ? new ApiError(409, 'INSPECTION_REOPENED', 'This inspection was reopened after it was signed.') : null));
+    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'problem' });
+    server.failWith(null);
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'r', result: 'PASS', reading: null, note: null });
+    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'sent' });
+    expect(server.stored.get('r')).toBeTruthy();
+  });
+
+  it('an older copy read from the server doesn’t take back answers it already confirmed', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'FAIL', reading: null, note: 'Leak' });
+    await outbox.flush(OWNER, 'i1');
+    // A read that left before that send came back after it.
+    outbox.remember(OWNER, detail({ answers: [] }));
+    expect(outbox.view(OWNER, 'i1')!.answers).toEqual([expect.objectContaining({ itemId: 'v', result: 'FAIL', note: 'Leak' })]);
+    // A newer one from the server wins.
+    outbox.remember(OWNER, detail({ answers: [{ itemId: 'v', result: 'PASS', reading: null, note: null, editedAt: '2027-01-01T00:00:00.000Z' }] }));
+    expect(outbox.view(OWNER, 'i1')!.answers[0]).toMatchObject({ result: 'PASS' });
+  });
+
+  it('server errors that never stop become a problem to look at (not an endless "trying again")', async () => {
+    outbox.remember(OWNER, detail());
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    server.failWith(() => new ApiError(500, 'INTERNAL', 'Something went wrong.'));
+    for (let i = 0; i < 5; i++) expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'retry' });
+    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'problem' });
+    expect(outbox.view(OWNER, 'i1')!.problem).toMatchObject({ code: 'SERVER_ERROR', stage: 'answers' });
+    expect(outbox.view(OWNER, 'i1')!.pending.answers).toBe(1);
+    // "Try again" starts the count afresh.
+    outbox.clearProblem(OWNER, 'i1');
+    server.failWith(null);
+    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'sent' });
+  });
+
+  it('signing out on purpose removes that person’s records (and only theirs)', () => {
+    outbox.remember(OWNER, detail());
+    outbox.remember('u-other', detail({ id: 'i9' }));
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    expect(removeOwnerRecords(storage, OWNER)).toBe(1);
+    expect(outbox.draft(OWNER, 'i1')).toBeNull();
+    expect(outbox.draft('u-other', 'i9')).not.toBeNull();
   });
 });

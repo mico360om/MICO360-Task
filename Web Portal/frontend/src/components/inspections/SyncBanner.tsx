@@ -20,6 +20,7 @@ export function SyncBanner({
   onRetry,
   onDiscard,
   onLookAgain,
+  onDismiss,
 }: {
   view: DraftView | null;
   sync: SyncState;
@@ -27,40 +28,47 @@ export function SyncBanner({
   onRetry: () => void;
   onDiscard: () => void;
   onLookAgain: () => void;
+  /** The person read a note (a refused follow-up request): clear it. */
+  onDismiss: () => void;
 }) {
   if (!view) return null;
   const { pending, problem } = view;
   const waiting = pending.answers > 0 || pending.followUps > 0 || pending.finish;
 
-  if (problem) {
+  // A refused finish or follow-up request: a note to read. It holds nothing else back.
+  const note =
+    problem && problem.stage !== 'answers' ? (
+      <div role="alert" className="mb-2 flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning-soft px-3 py-2.5 text-sm text-warning sm:flex-row sm:items-start sm:justify-between">
+        <p className="flex items-start gap-2">
+          <span className="mt-0.5 flex-none">{InspectIcon.alert}</span>
+          <span>{problem.message}</span>
+        </p>
+        <button type="button" onClick={problem.stage === 'finish' ? onLookAgain : onDismiss} className="min-h-9 flex-none rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
+          {problem.stage === 'finish' ? 'Look again' : 'OK'}
+        </button>
+      </div>
+    ) : null;
+
+  if (problem && problem.stage === 'answers') {
     const gone = problem.code === 'INSPECTION_GONE' || problem.code === 'NOT_FOUND';
-    const signAgain = problem.stage === 'finish';
     return (
       <div role="alert" className="flex flex-col gap-2 rounded-xl border border-danger/30 bg-danger-soft px-3 py-2.5 text-sm text-danger sm:flex-row sm:items-start sm:justify-between">
         <p className="flex items-start gap-2">
           <span className="mt-0.5 flex-none">{InspectIcon.alert}</span>
           <span>
             {problem.message}
-            {waiting && !signAgain ? <span className="block text-xs text-danger/80">Still on this phone: {waitingWords(pending)}.</span> : null}
+            {waiting ? <span className="block text-xs text-danger/80">Still on this phone: {waitingWords(pending)}.</span> : null}
           </span>
         </p>
         <div className="flex flex-none flex-wrap gap-2">
-          {signAgain ? (
-            <button type="button" onClick={onLookAgain} className="min-h-9 rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
-              Look again
+          {!gone ? (
+            <button type="button" onClick={onRetry} className="min-h-9 rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
+              Try again
             </button>
-          ) : (
-            <>
-              {!gone ? (
-                <button type="button" onClick={onRetry} className="min-h-9 rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
-                  Try again
-                </button>
-              ) : null}
-              <button type="button" onClick={onDiscard} className="min-h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white hover:brightness-95">
-                Throw away what’s on this phone
-              </button>
-            </>
-          )}
+          ) : null}
+          <button type="button" onClick={onDiscard} className="min-h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white hover:brightness-95">
+            Throw away what’s on this phone
+          </button>
         </div>
       </div>
     );
@@ -96,16 +104,19 @@ export function SyncBanner({
   }
 
   return (
-    <div role="status" aria-live="polite" data-sync={!view.persisted ? 'memory' : waiting ? (online && sync !== 'offline' ? sync : 'offline') : 'sent'} className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${tone}`}>
-      <p className="flex items-start gap-2">
-        <span className="mt-0.5 flex-none">{icon}</span>
-        <span>{text}</span>
-      </p>
-      {action ? (
-        <button type="button" onClick={action.run} className="min-h-9 flex-none rounded-lg px-2.5 text-xs font-semibold underline">
-          {action.label}
-        </button>
-      ) : null}
-    </div>
+    <>
+      {note}
+      <div role="status" aria-live="polite" data-sync={!view.persisted ? 'memory' : waiting ? (online && sync !== 'offline' ? sync : 'offline') : 'sent'} className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm ${tone}`}>
+        <p className="flex items-start gap-2">
+          <span className="mt-0.5 flex-none">{icon}</span>
+          <span>{text}</span>
+        </p>
+        {action ? (
+          <button type="button" onClick={action.run} className="min-h-9 flex-none rounded-lg px-2.5 text-xs font-semibold underline">
+            {action.label}
+          </button>
+        ) : null}
+      </div>
+    </>
   );
 }

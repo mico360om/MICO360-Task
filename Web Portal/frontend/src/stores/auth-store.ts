@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { clearUserStorage } from '../lib/user-storage';
 import { localStorageQueueStore, removeOwnerItems } from '../lib/offline-queue';
+import { localDraftStorage, removeOwnerRecords } from '../lib/inspection-outbox';
 
 export interface AuthUser {
   id: string;
@@ -192,7 +193,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     removeFrom(storageFor(false));
     // Nothing of this person's may stay behind for the next one on a shared PC.
     clearUserStorage();
-    if (reason === 'user' && user) removeOwnerItems(localStorageQueueStore, user.id);
+    if (reason === 'user' && user) {
+      removeOwnerItems(localStorageQueueStore, user.id);
+      // Their inspections kept on this device (copies, and anything waiting: the menu asked first).
+      removeOwnerRecords(localDraftStorage, user.id);
+    }
     if (reason !== 'remote' && isAuthenticated) broadcast({ type: 'logout', userId: user?.id ?? null });
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false, endedBy: isAuthenticated ? reason : get().endedBy });
   },

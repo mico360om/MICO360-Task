@@ -262,6 +262,7 @@ export function InspectionPage() {
             if (ownerId) outbox.clearProblem(ownerId, id);
             void q.refetch();
           }}
+          onDismiss={() => ownerId && outbox.clearProblem(ownerId, id)}
         />
         {view && q.isError && !q.data ? (
           <p role="status" className="rounded-xl border border-info/30 bg-info-soft px-3 py-2 text-sm text-info">
@@ -355,7 +356,7 @@ export function InspectionPage() {
                   answer={answers.get(item.id)}
                   readOnly={!canAnswer}
                   onAnswer={(v) => saveAnswer(item.id, v)}
-                  followUp={f || waitingFollowUps.has(item.id) ? { task: f?.task ?? null, pending: f?.pending ?? false, queued: waitingFollowUps.has(item.id) } : null}
+                  followUp={f || waitingFollowUps.has(item.id) ? { task: f?.task ?? null, pending: f?.pending ?? false, queued: waitingFollowUps.has(item.id), moved: f?.moved === true } : null}
                   canMakeFollowUp={p.canMakeFollowUps && !archived}
                   onMakeFollowUp={() => makeFollowUps([item.id])}
                 />

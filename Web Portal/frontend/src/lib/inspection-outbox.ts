@@ -33,6 +33,10 @@ export interface DraftStorage {
 }
 
 const PREFIX = 'mico360.inspection.';
+/** Server errors in a row before a send is shown as a problem (the person may then try again or throw it away). */
+const MAX_RETRIES = 6;
+/** A problem that holds every send back (the answers were refused). */
+const blocks = (d: { problem: OutboxProblem | null }) => d.problem?.stage === 'answers';
 const keyOf = (ownerId: string, inspectionId: string) => `${PREFIX}${ownerId}.${inspectionId}`;
 const ownerPrefix = (ownerId: string) => `${PREFIX}${ownerId}.`;
 
@@ -62,6 +66,16 @@ export const localDraftStorage: DraftStorage = {
     }
   },
 };
+
+/**
+ * Removes every inspection record of this person on this device (signing out on purpose: nothing of
+ * theirs stays behind for the next person). Returns how many there were.
+ */
+export function removeOwnerRecords(storage: DraftStorage, ownerId: string): number {
+  const keys = storage.keys().filter((k) => k.startsWith(ownerPrefix(ownerId)));
+  for (const k of keys) storage.remove(k);
+  return keys.length;
+}
 
 /** In memory, for tests: `full` refuses every write, `limit` caps the characters stored in all. */
 export function memoryDraftStorage(): DraftStorage & { raw: Map<string, string>; full: boolean; limit: number | null } {
@@ -93,6 +107,8 @@ type Content = { result: ItemResult | null; reading: string | null; note: string
 
 interface QueuedFinish {
   finishId: string;
+  /** The inspection's revision when it was signed (a reopen since then makes the signing void). */
+  revision: number;
   signatures: SignatureInput[];
   /** What the signers saw, item by item. */
   signed: Record<string, Content>;
@@ -120,6 +136,8 @@ interface Draft {
   finish: QueuedFinish | null;
   followUps: Record<string, { assigneeId?: string | null; queuedAt: string }>;
   problem: OutboxProblem | null;
+  /** Server errors in a row (they become a problem after a few, instead of trying for ever). */
+  retries?: number;
   /** A finish sent from here went through: its attached task, offered to be marked done (until answered). */
   finishedOffer?: InspectionDetail['taskOffer'] | null;
   savedAt: string;
@@ -325,18 +343,42 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
   }
 
   /** Records a refusal (or a pause): what flush() answers. */
-  function failed(ownerId: string, inspectionId: string, e: unknown, stage: OutboxProblem['stage']): { state: FlushState } {
+  /**
+   * Records a refusal (or a pause): what flush() answers. A refused follow-up request is dropped and
+   * a refused finish is dropped (its signers sign again): each leaves a note, and neither holds the
+   * answers back. A refusal of the answers stops everything until the person decides.
+   */
+  function failed(ownerId: string, inspectionId: string, e: unknown, stage: OutboxProblem['stage'], itemIds: string[] = []): { state: FlushState } {
     if (!(e instanceof ApiError)) return { state: 'offline' };
     if (e.status === 401) return { state: 'signed-out' };
-    if (e.status === 408 || e.status === 429 || e.status >= 500 || e.code === 'IDEMPOTENCY_IN_PROGRESS') return { state: 'retry' };
     const d = read(ownerId, inspectionId);
+    if (e.status === 408 || e.status === 429 || e.status >= 500 || e.code === 'IDEMPOTENCY_IN_PROGRESS') {
+      if (!d) return { state: 'retry' };
+      d.retries = (d.retries ?? 0) + 1;
+      if (d.retries < MAX_RETRIES) {
+        save(d);
+        return { state: 'retry' };
+      }
+      d.retries = 0;
+      d.problem = { code: 'SERVER_ERROR', message: 'The server keeps failing to take these changes. Try again later, or throw them away.', stage: 'answers', at: isoNow(now) };
+      save(d);
+      return { state: 'problem' };
+    }
     if (d) {
       d.problem = { code: e.code, message: problemWords(e, stage), stage, at: isoNow(now) };
       // Signatures were given for answers that the server now holds differently: they sign again.
       if (stage === 'finish') d.finish = null;
+      if (stage === 'follow-ups') for (const itemId of itemIds) delete d.followUps[itemId];
+      d.retries = 0;
       save(d);
     }
     return { state: 'problem' };
+  }
+
+  /** A send went through: server errors in a row start counting afresh. */
+  function succeeded(d: Draft): void {
+    d.retries = 0;
+    d.sentAt = isoNow(now);
   }
 
   async function sendAnswers(ownerId: string, inspectionId: string): Promise<{ state: FlushState } | null> {
@@ -359,7 +401,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       if (after.answers[r.itemId]?.editedAt === sent.get(r.itemId)) delete after.answers[r.itemId];
     }
     after.snapshot = { ...after.snapshot, ...out.inspection, answers: [...snap.values()] };
-    after.sentAt = isoNow(now);
+    succeeded(after);
     save(after);
     return null;
   }
@@ -378,12 +420,14 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       try {
         await api.makeFollowUps(inspectionId, g);
       } catch (e) {
-        return failed(ownerId, inspectionId, e, 'follow-ups');
+        const out = failed(ownerId, inspectionId, e, 'follow-ups', g.itemIds);
+        if (out.state === 'problem' && read(ownerId, inspectionId)?.problem?.stage === 'follow-ups') continue; // dropped with a note
+        return out;
       }
       const after = read(ownerId, inspectionId);
       if (!after) return null;
       for (const itemId of g.itemIds) delete after.followUps[itemId];
-      after.sentAt = isoNow(now);
+      succeeded(after);
       save(after);
     }
     return null;
@@ -409,7 +453,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     }
     let done: InspectionDetail;
     try {
-      done = await api.finish(inspectionId, { finishId: d.finish.finishId, seen: d.snapshot.answers.map((a) => ({ itemId: a.itemId, editedAt: a.editedAt })), signatures: d.finish.signatures });
+      done = await api.finish(inspectionId, { finishId: d.finish.finishId, revision: d.finish.revision ?? d.snapshot.revision ?? 0, seen: d.snapshot.answers.map((a) => ({ itemId: a.itemId, editedAt: a.editedAt })), signatures: d.finish.signatures });
     } catch (e) {
       return failed(ownerId, inspectionId, e, 'finish');
     }
@@ -417,7 +461,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     after.snapshot = done;
     after.finish = null;
     after.finishedOffer = done.taskOffer ?? null;
-    after.sentAt = isoNow(now);
+    succeeded(after);
     if (!after.finishedOffer && !hasWork(after) && !after.problem) {
       remove(ownerId, inspectionId);
       notify();
@@ -428,7 +472,8 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
   async function run(ownerId: string, inspectionId: string): Promise<{ state: FlushState }> {
     const d = read(ownerId, inspectionId);
     if (!d) return { state: 'sent' };
-    if (d.problem) return { state: 'problem' };
+    // Only a refusal of the answers holds everything back (the rest would be refused the same way).
+    if (blocks(d)) return { state: 'problem' };
     for (const step of [sendAnswers, sendFollowUps, sendFinish]) {
       const stop = await step(ownerId, inspectionId);
       if (stop) return stop;
@@ -463,7 +508,14 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
         const at = server.get(itemId);
         if (at !== undefined && at >= w.editedAt) delete d.answers[itemId];
       }
-      d.snapshot = detail;
+      // Item by item, the later of what this device was told and what was just read: a read that
+      // crossed a send can't take back an answer the send's reply already confirmed.
+      const known = new Map(d.snapshot.answers.map((a) => [a.itemId, a]));
+      for (const a of detail.answers) {
+        const k = known.get(a.itemId);
+        if (!k || a.editedAt >= k.editedAt) known.set(a.itemId, a);
+      }
+      d.snapshot = { ...detail, answers: [...known.values()] };
       d.title = detail.title;
       d.projectId = detail.projectId;
       if (detail.status === 'FINISHED' && !hasWork(d) && !d.problem && !d.finishedOffer) {
@@ -501,7 +553,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       const d = mustRead(ownerId, inspectionId);
       const signed: Record<string, Content> = {};
       for (const a of merged(d)) signed[a.itemId] = contentOf(a);
-      d.finish = { finishId: newId(), signatures, signed, queuedAt: isoNow(now) };
+      d.finish = { finishId: newId(), revision: d.snapshot.revision ?? 0, signatures, signed, queuedAt: isoNow(now) };
       d.problem = null;
       return { persisted: save(d) };
     },
@@ -577,7 +629,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     async flushAll(ownerId: string): Promise<{ sent: number; waiting: number }> {
       let sent = 0;
       for (const w of this.waiting(ownerId)) {
-        if (w.problem) continue;
+        if (w.problem?.stage === 'answers') continue;
         const r = await this.flush(ownerId, w.inspectionId);
         if (r.state === 'sent') sent += 1;
         if (r.state === 'offline' || r.state === 'signed-out') break;

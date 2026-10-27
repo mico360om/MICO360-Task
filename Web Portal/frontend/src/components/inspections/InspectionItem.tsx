@@ -18,7 +18,7 @@ export interface InspectionItemProps {
   readOnly: boolean;
   onAnswer: (value: ItemAnswer) => void;
   /** Its follow-up task: made, being made, or waiting on this phone (queued). */
-  followUp?: (Pick<FollowUpView, 'task' | 'pending'> & { queued: boolean }) | null;
+  followUp?: (Pick<FollowUpView, 'task' | 'pending' | 'moved'> & { queued: boolean }) | null;
   canMakeFollowUp?: boolean;
   onMakeFollowUp?: () => void;
 }
@@ -241,6 +241,8 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                   Follow-up task: <span className="font-mono">{followUp.task.key}</span>
                   {followUp.task.deleted ? <span className="font-normal text-ink-3"> (deleted)</span> : followUp.task.done ? <span className="font-normal text-ink-2"> (done)</span> : null}
                 </Link>
+              ) : followUp?.moved ? (
+                <p className="text-ink-2">Its follow-up task was moved to another project.</p>
               ) : followUp?.queued ? (
                 <p className="text-ink-2">Follow-up task saved on this phone: it’s made when you’re back online.</p>
               ) : followUp?.pending ? (

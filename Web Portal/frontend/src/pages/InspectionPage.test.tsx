@@ -46,6 +46,7 @@ function detail(over: Partial<InspectionDetail> = {}): InspectionDetail {
     followUps: [],
     permissions: { canAnswer: true, canFinish: true, canReopen: false, canTakeOver: false, canDelete: true, canShowToClient: false, canMakeFollowUps: true },
     signatureRoles: { allowed: ['INSPECTOR'], required: ['INSPECTOR'] },
+    revision: 0,
     ...over,
   };
 }

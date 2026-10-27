@@ -77,6 +77,18 @@ describe('auth store', () => {
     expect(localStorage.getItem('mico360.theme')).toBe('dark');
   });
 
+  it('signing out on purpose removes the person’s inspection records; a session that expired keeps them to send later', () => {
+    useAuthStore.getState().setSession(session);
+    localStorage.setItem('mico360.inspection.u1.i1', '{}');
+    localStorage.setItem('mico360.inspection.u2.i2', '{}');
+    useAuthStore.getState().logout('expired');
+    expect(localStorage.getItem('mico360.inspection.u1.i1')).toBe('{}');
+    useAuthStore.getState().setSession(session);
+    useAuthStore.getState().logout('user');
+    expect(localStorage.getItem('mico360.inspection.u1.i1')).toBeNull();
+    expect(localStorage.getItem('mico360.inspection.u2.i2')).toBe('{}');
+  });
+
   it('an explicit logout revokes the refresh token on the server; an expired session does not call it', () => {
     const fetchMock = vi.fn(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetchMock);
