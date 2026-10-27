@@ -127,7 +127,7 @@ const listScalars = {
   id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
   priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true,
   clientVisible: true, createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
-  meetingId: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
+  meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
 } as const;
 
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
