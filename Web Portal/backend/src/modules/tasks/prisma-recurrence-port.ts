@@ -22,7 +22,8 @@ export interface PrismaRecurrencePortOptions {
  * a second copy of the same task — completing it twice, or from two apps at once, makes one.
  *
  * The next occurrence is a normal task: it sits on today's board, starts now, keeps the
- * series' assignees, watchers, tags and (unticked) checklist, and gets a CREATED activity row —
+ * series' assignees, watchers, tags, (unticked) checklist and inspection form and place, and gets a
+ * CREATED activity row —
  * all in one transaction with clearing the source's rule.
  */
 export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRecurrencePortOptions = {}): RecurrenceTaskPort {
@@ -39,9 +40,12 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
           watchers: { select: { userId: true } },
           tags: { select: { tagId: true } },
           checklist: { select: { text: true, position: true }, orderBy: { position: 'asc' } },
+          inspectionForm: { select: { deletedAt: true } },
         },
       });
       if (!source) throw new NotFoundError('Task not found.');
+      // A scheduled check whose form was deleted makes no more checks (deleting a form also stops them).
+      if (source.inspectionForm?.deletedAt) return null;
       // Start the new instance in the project's first enabled, not-done column (a fresh state).
       const firstColumn = await prisma.kanbanColumn.findFirst({
         where: { projectId: source.projectId, enabled: true, category: { not: 'DONE' } },
@@ -75,6 +79,9 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 clientVisible: source.clientVisible,
                 // The next copy still comes from the same meeting.
                 meetingId: source.meetingId ?? undefined,
+                // A scheduled check: every copy is carried out with the same form, at the same place.
+                inspectionFormId: source.inspectionFormId ?? undefined,
+                inspectionPlace: source.inspectionPlace ?? undefined,
                 estimatedHours: source.estimatedHours ?? undefined,
                 startDate: at,
                 dueDate: nextDueDate,
@@ -115,6 +122,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
           deletedAt: null,
           project: { is: { deletedAt: null, status: { notIn: ['ARCHIVED', 'COMPLETED'] } } },
           NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }],
+          // A scheduled check whose form was deleted makes no more checks.
+          OR: [{ inspectionFormId: null }, { inspectionForm: { is: { deletedAt: null } } }],
         },
         select: { id: true, dueDate: true, startDate: true, recurrenceRule: true, recurrenceParentId: true },
       });
