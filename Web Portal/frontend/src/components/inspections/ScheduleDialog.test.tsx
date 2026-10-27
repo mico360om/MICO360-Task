@@ -188,6 +188,24 @@ describe('the schedule dialog (new)', () => {
     expect(keys[1]).not.toBe(keys[0]);
   });
 
+  it('required fields are announced, and a failed save marks the field, describes it with the problem and moves focus to it', async () => {
+    show();
+    const formTrigger = within(dialog()).getByRole('button', { name: 'Form' });
+    expect(formTrigger).toHaveAccessibleDescription(/Required\./);
+    const inspectors = within(dialog()).getByRole('combobox', { name: 'Add inspectors' });
+    expect(inspectors).toHaveAttribute('aria-required', 'true');
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));
+    expect(formTrigger).toHaveAttribute('aria-invalid', 'true');
+    expect(formTrigger).toHaveAccessibleDescription(/Pick a form\./);
+    expect(formTrigger).toHaveFocus();
+    await pickForm(/Rig daily check/);
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));
+    expect(formTrigger).not.toHaveAttribute('aria-invalid');
+    expect(inspectors).toHaveAttribute('aria-invalid', 'true');
+    expect(inspectors).toHaveAccessibleDescription(/Pick at least one inspector\./);
+    expect(inspectors).toHaveFocus();
+  });
+
   it('needs a form and at least one inspector, and says so', async () => {
     show();
     await userEvent.click(within(dialog()).getByRole('button', { name: 'Schedule it' }));

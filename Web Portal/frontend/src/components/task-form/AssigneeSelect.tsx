@@ -27,6 +27,9 @@ export function AssigneeSelect({
   addLabel = 'Add people',
   noPeopleText = 'No one is on this project yet',
   allChosenText = 'Everyone on this project is assigned.',
+  required,
+  invalid,
+  describedBy,
 }: {
   people: PersonOption[];
   value: string[];
@@ -44,6 +47,11 @@ export function AssigneeSelect({
   noPeopleText?: string;
   /** Said when everyone has been picked. */
   allChosenText?: string;
+  /** At least one person must be picked (said to a screen reader on the search box). */
+  required?: boolean;
+  invalid?: boolean;
+  /** Ids of what describes the search box (a problem with the pick). */
+  describedBy?: string;
 }) {
   const [query, setQuery] = useState('');
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -82,6 +90,9 @@ export function AssigneeSelect({
         openOnFocus
         inline
         disabled={disabled || people.length === 0}
+        required={required}
+        invalid={invalid}
+        describedBy={describedBy}
         options={matches.map((p) => ({
           id: p.id,
           label: p.name,

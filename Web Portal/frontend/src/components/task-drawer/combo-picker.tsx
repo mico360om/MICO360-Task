@@ -29,6 +29,9 @@ export function ComboPicker({
   autoFocus = false,
   onClose,
   disabled = false,
+  required,
+  invalid,
+  describedBy,
 }: {
   label: string;
   placeholder?: string;
@@ -47,6 +50,11 @@ export function ComboPicker({
   /** Escape with nothing typed (e.g. to close the popover around it). */
   onClose?: () => void;
   disabled?: boolean;
+  /** Something must be picked (said to a screen reader). */
+  required?: boolean;
+  /** The pick is wrong or missing (with the problem's id in `describedBy`). */
+  invalid?: boolean;
+  describedBy?: string;
 }) {
   const listId = useId();
   const [focused, setFocused] = useState(false);
@@ -130,6 +138,9 @@ export function ComboPicker({
         aria-controls={listed ? listId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={listed ? optionId(current) : undefined}
+        aria-required={required || undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         value={query}
         disabled={disabled}
         placeholder={placeholder}

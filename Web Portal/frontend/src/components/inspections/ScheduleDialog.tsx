@@ -59,7 +59,7 @@ export function ScheduleDialog({
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const today = todayKey(timeZone);
-  const ids = { title: useId(), name: useId(), place: useId(), starts: useId(), presets: useId(), sentence: useId(), inspectors: useId() };
+  const ids = { title: useId(), name: useId(), place: useId(), starts: useId(), presets: useId(), sentence: useId(), inspectors: useId(), form: useId(), formHint: useId(), problem: useId() };
 
   const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms() });
   const membersQ = useQuery({ queryKey: ['members', projectId], queryFn: () => membersApi(apiClient).list(projectId) });
@@ -83,7 +83,11 @@ export function ScheduleDialog({
   const [preset, setPreset] = useState<SchedulePreset>(schedule ? presetOf(schedule.rule, workingDays) : 'WORKING_DAYS');
   const [rule, setRule] = useState<RecurrenceRule>(schedule ? onSchedule(schedule.rule) : presetRule('WORKING_DAYS', today, workingDays));
   const [problem, setProblem] = useState<string | null>(null);
+  /** The field the problem is about (marked invalid, described by the problem, focused). */
+  const [problemField, setProblemField] = useState<'form' | 'inspectors' | 'name' | 'starts' | 'repeat' | null>(null);
   const [saving, setSaving] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const startsRef = useRef<HTMLInputElement>(null);
   const busy = useRef(false);
   // One key for the dialog's life: a retry after a lost reply gets the schedule already made (the
   // server answers it again), never a second one. Changed only once the server refused a try (a 4xx:
@@ -111,19 +115,30 @@ export function ScheduleDialog({
   async function save() {
     if (busy.current) return;
     const title = name.trim();
-    const problemNow = !formId
-      ? 'Pick a form.'
-      : !inspectorIds.length
-        ? 'Pick at least one inspector.'
-        : !title
-          ? 'Give the schedule a name.'
-          : !editing && (!validStart || startsOn < today)
-            ? 'Pick today or a later day to start.'
-            : rule.until && firstDay && rule.until.slice(0, 10) < firstDay
-              ? 'The repeat can’t end before the first check.'
-              : null;
+    const [bad, problemNow] = (
+      !formId
+        ? ['form', 'Pick a form.']
+        : !inspectorIds.length
+          ? ['inspectors', 'Pick at least one inspector.']
+          : !title
+            ? ['name', 'Give the schedule a name.']
+            : !editing && (!validStart || startsOn < today)
+              ? ['starts', 'Pick today or a later day to start.']
+              : rule.until && firstDay && rule.until.slice(0, 10) < firstDay
+                ? ['repeat', 'The repeat can’t end before the first check.']
+                : [null, null]
+    ) as [typeof problemField, string | null];
     setProblem(problemNow);
-    if (problemNow) return;
+    setProblemField(bad);
+    if (problemNow) {
+      // To the field the problem is about.
+      if (bad === 'form') document.getElementById(ids.form)?.focus();
+      else if (bad === 'inspectors') dialogRef.current?.querySelector<HTMLElement>('input[role="combobox"][aria-label="Add inspectors"]')?.focus();
+      else if (bad === 'name') nameRef.current?.focus();
+      else if (bad === 'starts') startsRef.current?.focus();
+      else dialogRef.current?.querySelector<HTMLElement>('select[aria-label="Ends"], input[aria-label="End date"]')?.focus();
+      return;
+    }
     busy.current = true;
     setSaving(true);
     try {
@@ -171,6 +186,7 @@ export function ScheduleDialog({
         onClose();
         return;
       }
+      setProblemField(null);
       setProblem(problemText(e, editing ? 'Couldn’t save the changes. Check your connection and try again.' : 'Couldn’t schedule it. Check your connection and try again.'));
     } finally {
       busy.current = false;
@@ -205,7 +221,13 @@ export function ScheduleDialog({
                 <span className={label}>
                   Form <span aria-hidden="true" className="text-danger">*</span>
                 </span>
+                <span id={ids.formHint} className="sr-only">
+                  Required.
+                </span>
                 <SearchableSelect
+                  id={ids.form}
+                  invalid={problemField === 'form'}
+                  describedBy={problemField === 'form' ? `${ids.formHint} ${ids.problem}` : ids.formHint}
                   size="lg"
                   ariaLabel="Form"
                   placeholder={formsQ.isLoading ? 'Loading forms…' : forms.length ? 'Choose a form' : 'No inspection forms yet'}
@@ -215,6 +237,7 @@ export function ScheduleDialog({
                   onChange={(v) => {
                     setFormId(v);
                     setProblem(null);
+                    setProblemField(null);
                   }}
                   disabled={saving}
                 />
@@ -233,8 +256,12 @@ export function ScheduleDialog({
                     Name
                   </label>
                   <input
+                    ref={nameRef}
                     id={ids.name}
                     dir="auto"
+                    aria-required="true"
+                    aria-invalid={problemField === 'name' || undefined}
+                    aria-describedby={problemField === 'name' ? ids.problem : undefined}
                     value={name}
                     maxLength={TITLE_MAX}
                     onChange={(e) => setTypedName(e.target.value)}
@@ -255,7 +282,11 @@ export function ScheduleDialog({
                   onChange={(next) => {
                     setInspectorIds(next);
                     setProblem(null);
+                    setProblemField(null);
                   }}
+                  required
+                  invalid={problemField === 'inspectors'}
+                  describedBy={problemField === 'inspectors' ? ids.problem : undefined}
                   listLabel="Inspectors"
                   addLabel="Add inspectors"
                   allChosenText="Everyone on this project is an inspector."
@@ -269,7 +300,18 @@ export function ScheduleDialog({
                   <label htmlFor={ids.starts} className={label}>
                     Starts on
                   </label>
-                  <input id={ids.starts} type="date" min={today} value={startsOn} onChange={(e) => chooseStart(e.target.value)} className={field} disabled={saving} />
+                  <input
+                    ref={startsRef}
+                    id={ids.starts}
+                    type="date"
+                    min={today}
+                    value={startsOn}
+                    onChange={(e) => chooseStart(e.target.value)}
+                    aria-invalid={problemField === 'starts' || undefined}
+                    aria-describedby={problemField === 'starts' ? ids.problem : undefined}
+                    className={field}
+                    disabled={saving}
+                  />
                 </div>
               ) : null}
 
@@ -312,7 +354,7 @@ export function ScheduleDialog({
               </fieldset>
 
               {problem ? (
-                <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                <p id={ids.problem} role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                   {problem}
                 </p>
               ) : null}
