@@ -345,7 +345,8 @@ export function createBackupService(deps: BackupServiceDeps) {
       ]);
       const running = recent.find((r) => r.status === 'RUNNING');
       const finished = recent.filter((r) => r.status !== 'RUNNING');
-      const lastOk = finished.find((r) => r.status === 'OK');
+      // The last backup is the newest copy kept here (a restored database lists copies of another server).
+      const lastOk = kept[0]?.row;
       const latest = finished[0];
       let warning: string | null = null;
       if (latest?.status === 'FAILED') warning = `${failedText(latest.trigger)}: ${latest.error ?? 'no reason was given.'}`;

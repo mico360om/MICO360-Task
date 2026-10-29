@@ -376,6 +376,16 @@ describe('keeping 7 nightly + 4 weekly copies', () => {
     expect(view.warning).toBeNull();
   });
 
+  it('a copy that isn’t in this server’s folder (a restored database on a new server) is not "the last backup"', async () => {
+    const row = await repo.create({ trigger: 'NIGHTLY', localDate: '2026-10-29', startedAt: muscat('2026-10-29', '02:00'), requestedById: null });
+    await repo.update(row.id, { status: 'OK', fileName: `mico360-tasks-backup-2026-10-29-0200-${row.id.slice(-6)}.tar.gz`, sizeBytes: 5, finishedAt: muscat('2026-10-29', '02:01') });
+    clock = muscat('2026-10-29', '09:00');
+    const view = await service().overview();
+    expect(view.copies).toEqual([]);
+    expect(view.lastSuccess).toBeNull();
+    expect(view.warning).toBeNull();
+  });
+
   it('a copy whose file is gone from the folder is not listed and can’t be downloaded', async () => {
     await seedCopies(['2026-10-29', '2026-10-30']);
     rmSync(join(dir, repo.rows[1]!.fileName!));
