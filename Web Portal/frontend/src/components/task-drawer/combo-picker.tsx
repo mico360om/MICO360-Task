@@ -179,6 +179,9 @@ export function ComboPicker({
           id={listId}
           role="listbox"
           aria-label={label}
+          // Never a Tab stop: Chrome makes a scrolling list with nothing focusable in it one, and
+          // focus moving here would close the list under it (the options follow aria-activedescendant).
+          tabIndex={-1}
           className={`${alwaysOpen || inline ? 'mt-1' : 'absolute inset-x-0 top-full z-30 mt-1 shadow-lift'} max-h-60 overflow-y-auto rounded-lg border border-line bg-surface py-1`}
         >
           {options.map((o, i) => (

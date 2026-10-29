@@ -45,4 +45,22 @@ describe('ComboPicker', () => {
     await userEvent.tab({ shift: true });
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
   });
+
+  it('its list is never a Tab stop of its own, so Tab from the box reaches the next control', async () => {
+    // Chrome (130+) makes a scrolling box with nothing focusable inside a Tab stop. A long list
+    // would take the focus from the box, the box's blur would close the list, and the focus would
+    // fall to the page — the controls after the picker could not be reached by Tab. The options
+    // are followed with aria-activedescendant, so the list itself never needs the focus.
+    render(
+      <div>
+        <Harness />
+        <button type="button">Next control</button>
+      </div>,
+    );
+    await userEvent.click(screen.getByRole('combobox', { name: 'Add people' }));
+    expect(screen.getByRole('listbox', { name: 'Add people' })).toHaveAttribute('tabindex', '-1');
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Next control' })).toHaveFocus();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
 });
