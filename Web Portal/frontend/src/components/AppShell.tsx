@@ -150,7 +150,7 @@ export function AppShell() {
           <div className="flex flex-none items-center gap-1.5 sm:gap-2">
             <SyncStatus />
             {/* The header's N is the fallback: a page with its own "New …" takes the key. */}
-            <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11" />
+            <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11" />
             <span className="hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
             <NotificationsBell />
             <ProfileMenu />

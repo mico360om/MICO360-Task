@@ -70,7 +70,7 @@ export function NotificationsBell() {
         <div className="fixed inset-x-2 top-14 z-40 overflow-hidden rounded-xl border border-line bg-surface shadow-lift sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <span className="text-sm font-semibold text-ink">Notifications</span>
-            <button onClick={() => markAllRead()} className="tap -my-1 rounded px-1 text-xs font-medium text-brand hover:underline [@media(pointer:coarse)]:min-h-11">
+            <button onClick={() => markAllRead()} className="tap -my-1 rounded px-1 text-xs font-medium text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
               Mark all read
             </button>
           </div>
@@ -92,7 +92,7 @@ export function NotificationsBell() {
                       openNotification(n);
                       if (notificationTarget(n)) setOpen(false);
                     }}
-                    className="w-full text-start [@media(pointer:coarse)]:min-h-11"
+                    className="w-full text-start [@media(pointer:coarse)]:!min-h-11"
                   >
                     {/* Read = a quieter tone and weight. (Fading the row with opacity dropped it below 4.5:1.) */}
                     <p dir="auto" className={`text-sm ${n.readAt ? 'text-ink-2' : 'font-medium text-ink'}`}>

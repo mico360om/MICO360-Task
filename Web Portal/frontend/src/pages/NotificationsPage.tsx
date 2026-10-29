@@ -28,7 +28,7 @@ export function NotificationsPage() {
         subtitle="Mentions, assignments and updates across your work."
         actions={
           unread ? (
-            <button onClick={() => markAllRead()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand [@media(pointer:coarse)]:min-h-11">
+            <button onClick={() => markAllRead()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand [@media(pointer:coarse)]:!min-h-11">
               Mark all read
             </button>
           ) : undefined

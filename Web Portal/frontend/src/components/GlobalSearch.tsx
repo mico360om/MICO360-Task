@@ -52,8 +52,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  // A phone's box holds about one word: the whole hint was cut to "Sea" / "Search or ty".
-  const roomy = useMediaQuery('(min-width: 40em)', true);
+  // The whole hint fits only the full-width box (a wide screen); a narrower box was cutting it to
+  // "Sea" / "Search or ty" on a phone and "Search or type a comm" on a tablet.
+  const roomy = useMediaQuery('(min-width: 80em)', true);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(term), debounceMs);
@@ -244,7 +245,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           onFocus={() => { cancelClose(); setOpen(true); }}
           onBlur={() => { cancelClose(); closeTimer.current = setTimeout(() => setOpen(false), 160); }}
           onKeyDown={onKeyDown}
-          className="w-full rounded-lg border border-line bg-ground py-1.5 pl-8 pr-3 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 sm:pr-16 [@media(pointer:coarse)]:min-h-11"
+          className="w-full rounded-lg border border-line bg-ground py-1.5 pl-8 pr-3 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 sm:pr-14 [@media(pointer:coarse)]:!min-h-11"
         />
         <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:block">{shortcutLabel('search', platform)}</kbd>
       </div>
@@ -280,7 +281,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                         // appears under a pointer at rest — Enter then opened that row, not the first.
                         onMouseMove={() => { if (i !== active) setActive(i); }}
                         onClick={() => void it.run()}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors [@media(pointer:coarse)]:min-h-11 ${i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'}`}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors [@media(pointer:coarse)]:!min-h-11 ${i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'}`}
                       >
                         {it.icon}
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}

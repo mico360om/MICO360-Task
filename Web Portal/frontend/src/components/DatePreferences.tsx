@@ -71,7 +71,7 @@ export function DatePreferences() {
               type="button"
               onClick={() => save.mutate({ weekStart: w.value })}
               aria-pressed={weekStart === w.value}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors [@media(pointer:coarse)]:min-h-11 ${weekStart === w.value ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:text-ink'}`}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors [@media(pointer:coarse)]:!min-h-11 ${weekStart === w.value ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:text-ink'}`}
             >
               {w.label}
             </button>

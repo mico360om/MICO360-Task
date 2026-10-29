@@ -248,7 +248,7 @@ export function SettingsPage() {
                   key={t}
                   onClick={() => setTheme(t)}
                   aria-pressed={theme === t}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors [@media(pointer:coarse)]:min-h-11 ${
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors [@media(pointer:coarse)]:!min-h-11 ${
                     theme === t ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:text-ink'
                   }`}
                 >

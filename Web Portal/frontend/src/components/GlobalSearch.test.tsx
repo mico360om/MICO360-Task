@@ -32,15 +32,18 @@ function windowWidth(px: number) {
 }
 
 describe('GlobalSearch', () => {
-  it('words its hint for the room it has: the whole hint on a wide screen, just “Search…” on a phone', () => {
+  it('words its hint for the room it has: the whole hint on a wide screen, just “Search…” on a phone or tablet', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: [] }))));
     windowWidth(1280);
     const { unmount } = setup(<GlobalSearch />);
     expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveAttribute('placeholder', 'Search or type a command…');
     unmount();
-    windowWidth(375);
-    setup(<GlobalSearch />);
-    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveAttribute('placeholder', 'Search…');
+    for (const width of [375, 1024]) {
+      windowWidth(width);
+      const { unmount: done } = setup(<GlobalSearch />);
+      expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveAttribute('placeholder', 'Search…');
+      done();
+    }
     vi.unstubAllGlobals();
   });
 
