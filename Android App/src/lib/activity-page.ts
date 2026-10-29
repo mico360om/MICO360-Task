@@ -135,7 +135,7 @@ export function activityRowLabel(a: ApiActivityRow, now: number = Date.now(), ti
 
 /** The rows of one filter; "Completed" keeps re-opened tasks too (the website's rule). */
 export function filterActivity<T extends Pick<ApiActivityRow, 'action'>>(rows: readonly T[], filter: string): T[] {
-  return rows.filter((a) => !filter || a.action === filter || (filter === 'COMPLETED' && a.action === 'REOPENED'));
+  return rows.filter((a) => !filter || a.action === filter || (filter === 'COMPLETED' && (a.action === 'REOPENED' || a.action === 'APPROVED')));
 }
 
 /** Why the list is empty: none of this kind (with "Show all activity"), or nothing yet. */

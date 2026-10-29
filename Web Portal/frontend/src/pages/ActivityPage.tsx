@@ -113,7 +113,7 @@ export function ActivityPage() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const rows = (q.data ?? []).filter(
-    (a) => !filter || a.action === filter || (filter === 'COMPLETED' && a.action === 'REOPENED'),
+    (a) => !filter || a.action === filter || (filter === 'COMPLETED' && (a.action === 'REOPENED' || a.action === 'APPROVED')),
   );
 
   const groups = useMemo(() => {

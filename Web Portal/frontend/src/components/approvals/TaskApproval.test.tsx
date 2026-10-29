@@ -96,6 +96,17 @@ describe('the task panel’s approval section', () => {
     expect(onSet).toHaveBeenCalledWith(false);
   });
 
+  it('turning approval off that fails keeps the question open and says why', async () => {
+    const onSet = vi.fn(async () => {
+      throw new Error('Only the people who run this project can turn off approval while the task is waiting.');
+    });
+    render(<TaskApproval task={waiting} onApprove={vi.fn()} onSendBack={vi.fn()} onSetNeedsApproval={onSet} />);
+    await userEvent.click(screen.getByRole('switch', { name: 'Needs approval' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Turn off and mark done' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Turn off approval?' });
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Only the people who run this project');
+  });
+
   it('approved: says who approved it', () => {
     render(<TaskApproval task={{ ...base, needsApproval: true, columnCategory: 'DONE', completedAt: '2026-10-30T08:00:00Z', approvedAt: '2026-10-30T08:00:00Z', approval: { canApprove: false, requestedBy: null, approvedBy: { id: 'omar', name: 'Omar Ahmed' }, approverName: null } }} />);
     expect(screen.getByText(/Approved by/)).toHaveTextContent('Approved by Omar Ahmed');

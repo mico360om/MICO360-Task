@@ -39,18 +39,21 @@ export function TaskApproval({ task, onSetNeedsApproval, onApprove, onSendBack }
   const [confirmOff, setConfirmOff] = useState(false);
   const lockedOn = waiting && !canApprove;
 
-  async function run(kind: 'tick' | 'approve', action: () => Promise<void>, fallback: string) {
+  /** Runs an action; false when it failed (the reason is shown). */
+  async function run(kind: 'tick' | 'approve', action: () => Promise<void>, fallback: string): Promise<boolean> {
     setBusy(kind);
     setError(null);
     try {
       await action();
+      return true;
     } catch (e) {
       setError(messageOf(e, fallback));
+      return false;
     } finally {
       setBusy(null);
     }
   }
-  const setTick = (on: boolean) => (onSetNeedsApproval ? run('tick', () => onSetNeedsApproval(on), 'Couldn’t change it. Please try again.') : undefined);
+  const setTick = async (on: boolean) => (onSetNeedsApproval ? run('tick', () => onSetNeedsApproval(on), 'Couldn’t change it. Please try again.') : false);
 
   return (
     <section aria-labelledby={`${id}-heading`} data-testid="task-approval" className="min-w-0">
@@ -155,8 +158,8 @@ export function TaskApproval({ task, onSetNeedsApproval, onApprove, onSendBack }
           onClose={() => setConfirmOff(false)}
           onConfirm={() => {
             void (async () => {
-              await setTick(false);
-              setConfirmOff(false);
+              // Closed once it is done; a failure keeps the question open, saying why.
+              if (await setTick(false)) setConfirmOff(false);
             })();
           }}
         >

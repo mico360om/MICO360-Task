@@ -154,12 +154,15 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     void queryClient.invalidateQueries({ queryKey: ['comments', taskId] }); // a send-back's reason is a comment
     refreshTaskViews();
   };
+  // A refusal (changed meanwhile, approved by someone else) reloads the task, so a retry is from what is there now.
+  const reloadTask = () => void queryClient.invalidateQueries({ queryKey: ['task', taskId] });
   const tickM = useMutation({
     mutationFn: (on: boolean) => tasksApi(apiClient).update(taskId, { needsApproval: on, expectedVersion: taskQ.data?.version }),
     onSuccess: afterApproval,
+    onError: reloadTask,
   });
-  const approveM = useMutation({ mutationFn: () => tasksApi(apiClient).approve(taskId, taskQ.data?.version), onSuccess: afterApproval });
-  const sendBackM = useMutation({ mutationFn: (reason: string) => tasksApi(apiClient).sendBack(taskId, reason, taskQ.data?.version), onSuccess: afterApproval });
+  const approveM = useMutation({ mutationFn: () => tasksApi(apiClient).approve(taskId, taskQ.data?.version), onSuccess: afterApproval, onError: reloadTask });
+  const sendBackM = useMutation({ mutationFn: (reason: string) => tasksApi(apiClient).sendBack(taskId, reason, taskQ.data?.version), onSuccess: afterApproval, onError: reloadTask });
 
   const invalidateAttachments = () => {
     queryClient.invalidateQueries({ queryKey: ['attachments', taskId] });

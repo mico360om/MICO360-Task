@@ -482,6 +482,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
       if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
       if (draft.approval !== done.approval) fields.needsApproval = draft.approval;
+      // The tick and a new status in one request, so the server judges them together (an approver
+      // unticking a waiting task and moving it elsewhere moves it — it isn't completed first).
+      const moveWithTick = draft.approval !== done.approval && draft.columnId !== done.columnId;
+      if (moveWithTick) fields.columnId = draft.columnId;
       if (draft.formId !== done.formId) fields.inspectionFormId = draft.formId || null;
       // Without a form there is no place; with one, the place as typed (blank: none).
       const placeNow = draft.formId ? draft.place.trim() || null : null;
@@ -491,7 +495,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (Object.keys(fields).length) {
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
-        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
       if (ruleChanged && series) {

@@ -550,6 +550,17 @@ describe('Edit task form', () => {
     expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ needsApproval: true, expectedVersion: 7 });
   });
 
+  it('the tick and a new status in one Save go in one request (the server judges them together)', async () => {
+    const { onSaved } = renderDialog({ task: TASK });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    await userEvent.click(screen.getByRole('checkbox', { name: /needs approval/i }));
+    await pick('Column', 'Doing');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ needsApproval: true, columnId: 'c2', expectedVersion: 7 });
+    expect(calls.some((c) => c.url.endsWith('/tasks/t1/move'))).toBe(false);
+  });
+
   it('a task waiting for approval: only a project manager can untick it here', async () => {
     const waiting = { ...TASK, needsApproval: true, approvalRequestedAt: '2026-10-30T08:00:00Z', approval: { canApprove: false, requestedBy: null, approvedBy: null, approverName: null } };
     renderDialog({ task: waiting });
