@@ -15,7 +15,9 @@ describe('room for a backup', () => {
     dir = mkdtempSync(join(tmpdir(), 'mico-bk-space-'));
     const free = await diskFree(dir);
     expect(free).toBeGreaterThan(0);
-    expect(await diskFree(join(dir, 'not-made-yet', 'deeper'))).toBe(free); // asks the nearest folder that exists
+    // Asks the nearest folder that exists (the same disk; other tests may be writing to it meanwhile).
+    const nested = await diskFree(join(dir, 'not-made-yet', 'deeper'));
+    expect(Math.abs(nested! - free!)).toBeLessThan(512 * 1024 * 1024);
   });
 
   it('needs the uploads, twice the database (the work files and the copy) and 50 MB to spare', async () => {
