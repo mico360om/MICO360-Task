@@ -71,7 +71,7 @@ async function tableNames(client: PrismaClient): Promise<string[]> {
 async function fingerprint(client: PrismaClient): Promise<Record<string, { rows: number; checksum: string }>> {
   const out: Record<string, { rows: number; checksum: string }> = {};
   for (const t of await tableNames(client)) {
-    if (t === '_prisma_migrations') continue;
+    if (t === '_prisma_migrations' || t === 'backup_runs') continue;
     const [count] = await client.$queryRawUnsafe<{ n: bigint }[]>(`SELECT COUNT(*) AS n FROM \`${t}\``);
     const [cs] = await client.$queryRawUnsafe<{ Checksum: bigint }[]>(`CHECKSUM TABLE \`${t}\``);
     out[t] = { rows: Number(count!.n), checksum: String(cs!.Checksum) };
@@ -111,6 +111,10 @@ async function seed() {
     data: { inspectionId: inspection.id, role: 'CLIENT', name: 'Omar', method: 'DRAWN', image: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0xff]), randomBytes(5000)]), signedAt: new Date(), capturedById: user.id },
   });
 
+  // The backup list as the server sees it while this copy is made: an earlier good copy, and this one running.
+  await prisma.backupRun.create({ data: { id: `${MARK}okrun`, trigger: 'NIGHTLY', status: 'OK', localDate: '2026-10-29', fileName: 'old.tar.gz', sizeBytes: 123n } });
+  await prisma.backupRun.create({ data: { id: `${MARK}running`, trigger: 'MANUAL', status: 'RUNNING', localDate: '2026-10-30' } });
+
   mkdirSync(join(uploads, 'nested', 'deeper'), { recursive: true });
   writeFileSync(join(uploads, 'a1b2c3.png'), randomBytes(1234));
   writeFileSync(join(uploads, 'nested', 'deeper', 'مرفق جديد.pdf'), Buffer.from('%PDF-1.4 arabic name'));
@@ -119,6 +123,7 @@ async function seed() {
 }
 
 async function cleanup() {
+  await prisma.backupRun.deleteMany({ where: { id: { startsWith: MARK } } });
   const users = await prisma.user.findMany({ where: { email: { startsWith: MARK } }, select: { id: true } });
   const projects = await prisma.project.findMany({ where: { createdById: { in: users.map((u) => u.id) } }, select: { id: true } });
   await prisma.inspection.deleteMany({ where: { projectId: { in: projects.map((p) => p.id) } } });
@@ -229,6 +234,9 @@ describe('Backup → restore round trip (integration)', () => {
       expect(user!.notificationPrefs).toEqual({ muted: ['TASK_COMMENT'], weeklySummary: false, note: 'قيمة "مقتبسة"' });
       const project = await target.project.findUnique({ where: { id: ids.project } });
       expect(project!.description).toBe('');
+      // The copy's own "being made" entry is left out of the restored backup list (it would read as a failure).
+      expect((await target.backupRun.findMany({ orderBy: { id: 'asc' } })).map((r) => [r.id, r.status])).toEqual([[`${MARK}okrun`, 'OK']]);
+      expect(report.warnings).toContain('The entry for this copy, which was being made when it was taken, is left out of the restored list of backups.');
     } finally {
       await target.$disconnect();
     }

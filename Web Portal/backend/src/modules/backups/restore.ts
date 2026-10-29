@@ -325,6 +325,11 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
       }
     }
     if (problems.length) throw new RestoreError(`The restored data does not match the copy:\n- ${problems.slice(0, 10).join('\n- ')}`);
+    // The copy's own row in the backup list says "being made" (it was, when the copy was taken). Left in,
+    // the restored app would report it as a backup that stopped part-way.
+    if (made.has('backup_runs') && (await sql.execute("DELETE FROM `backup_runs` WHERE `status` = 'RUNNING'")) > 0) {
+      warnings.push('The entry for this copy, which was being made when it was taken, is left out of the restored list of backups.');
+    }
     if (!filesInto && check.files) warnings.push(`The ${check.files} uploaded files were not restored (no folder was given).`);
     if (manifest.files.skipped.length) warnings.push(`${manifest.files.skipped.length} file(s) with unusual names were not in the copy.`);
 
