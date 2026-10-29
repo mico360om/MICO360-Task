@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { ChatPage, CHAT_PAGE_SIZE } from './ChatPage';
 import { useAuthStore } from '../stores/auth-store';
 import { isChatMuted } from '../lib/notificationSound';
@@ -553,6 +554,35 @@ describe('ChatPage conversation header', () => {
     expect(await screen.findByRole('status', { name: /connection/i })).toHaveTextContent(/offline/i);
     act(() => { window.dispatchEvent(new Event('online')); });
     await waitFor(() => expect(screen.getByRole('status', { name: /connection/i })).toHaveTextContent(/reconnecting/i));
+  });
+});
+
+describe('ChatPage with nothing to read yet', () => {
+  it('says there are no conversations — not "Select a conversation" — and offers a new message', async () => {
+    override = (u, method) => (u.endsWith('/projects') && method === 'GET' ? json({ data: [] }) : undefined);
+    renderWithQuery(<ChatPage />);
+    const pane = await screen.findByText('No conversations yet');
+    expect(screen.queryByText('Select a conversation')).not.toBeInTheDocument();
+    expect(pane.closest('section')).toHaveTextContent(/each project gets its own channel/i);
+    await userEvent.click(await within(pane.closest('section')!).findByRole('button', { name: 'New message' }));
+    // The same picker as the list's "+": open, ready to choose someone.
+    expect(screen.getByRole('button', { name: 'New direct message' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Start a direct message' })).toBeInTheDocument();
+  });
+
+  it('with nobody else on the team yet, points to Projects instead of an empty list of people', async () => {
+    override = (u, method) =>
+      u.endsWith('/projects') && method === 'GET' ? json({ data: [] }) : u.endsWith('/users/directory') ? json({ data: [{ id: 'me', username: 'me', firstName: 'Mo', lastName: 'Me' }] }) : undefined;
+    renderWithQuery(<MemoryRouter><ChatPage /></MemoryRouter>);
+    const section = (await screen.findByText('No conversations yet')).closest('section')!;
+    expect(within(section).queryByRole('button', { name: 'New message' })).not.toBeInTheDocument();
+    expect(within(section).getByRole('link', { name: /go to projects/i })).toHaveAttribute('href', '/projects');
+  });
+
+  it('with channels but none open, asks to pick one and still offers a new message', async () => {
+    renderWithQuery(<ChatPage />);
+    const section = (await screen.findByText('Select a conversation')).closest('section')!;
+    expect(await within(section).findByRole('button', { name: 'New message' })).toBeInTheDocument();
   });
 });
 

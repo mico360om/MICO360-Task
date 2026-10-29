@@ -12,17 +12,21 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { type ActionMenuItem } from '../components/meeting/ActionMenu';
 import { MeetingCard } from '../components/meeting/MeetingCard';
 import { UpNextCard } from '../components/meeting/UpNextCard';
+import { NothingComingUp } from '../components/meeting/NothingComingUp';
+import { MeetingSummaryStrip, STRIP_GRID } from '../components/meeting/MeetingSummaryStrip';
 import { FilterChips, FiltersButton } from '../components/meeting/MeetingListFilters';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
-import { filterChips, filterMeetings, groupMeetings, hasActiveFilters, nextUpMeeting, type DateRange, type FilterChip, type GroupKey, type MeetingFilters, type MeetingSort } from '../lib/meeting-list';
+import { FOCUSES, filterChips, filterMeetings, groupMeetings, hasActiveFilters, lastMeeting, meetingSummary, nextUpMeeting, type DateRange, type FilterChip, type GroupKey, type MeetingFilters, type MeetingFocus, type MeetingSort } from '../lib/meeting-list';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useNow } from '../lib/useNow';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 
-/** The cards: one column on a phone, up to four on a wide screen. */
-// As many columns as fit with each card at least 20rem wide (one on a phone or beside the sidebar
-// on a tablet), so titles, places and organizers keep room to be read.
-const GRID = 'grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))]';
+/**
+ * The cards: one column on a phone, two on a tablet and a laptop, three on a wide screen (from
+ * 1600px) — never four or five small ones, so two or three meetings fill a row instead of sitting
+ * in a corner, and each card has room for its title, place, project and people.
+ */
+const GRID = 'grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 min-[100em]:grid-cols-3';
 type Scope = 'all' | 'mine';
 /** How many of each group show before "Show more" (Today always shows in full); rows of 3 or 4 cards. */
 const PAGE: Record<GroupKey, number> = { today: Infinity, next7: 12, later: 12, drafts: 12, past: 12 };
@@ -32,6 +36,7 @@ const CHIP_CLEARS: Record<FilterChip['key'], Record<string, undefined>> = {
   date: { date: undefined, from: undefined, to: undefined },
   status: { status: undefined },
   sort: { sort: undefined },
+  focus: { show: undefined },
 };
 
 /** Filters live in the address, so a refresh, a shared link or Back keeps them. */
@@ -44,6 +49,7 @@ function useListState() {
     range: (params.get('date') as DateRange | null) ?? 'any',
     from: params.get('from') ?? undefined,
     to: params.get('to') ?? undefined,
+    focus: FOCUSES.find((f) => f === params.get('show')),
   };
   const scope: Scope = params.get('scope') === 'mine' ? 'mine' : 'all';
   const sort = (params.get('sort') as MeetingSort | null) ?? 'date';
@@ -104,15 +110,20 @@ export function MeetingsPage() {
   const draftCount = all.filter((m) => m.status === 'DRAFT').length;
   const filtered = hasActiveFilters(filters);
   const chips = filterChips(filters, sort, ctx);
-  const filterCount = chips.filter((c) => c.key !== 'sort').length;
-  // The next meeting, on top — unless the list is being searched or filtered.
+  // The Filters button counts what its own panel sets (not the sort, nor a number pressed above the list).
+  const filterCount = chips.filter((c) => c.key !== 'sort' && c.key !== 'focus').length;
+  const summary = meetingSummary(all, ctx);
+  // The next meeting, on top — unless the list is being searched or filtered. When nothing is
+  // coming up, that place says so, names the last meeting and offers to schedule one.
   const upNext = filtered ? null : nextUpMeeting(all, now);
+  const quiet = meetingsQ.isSuccess && !filtered && all.length > 0 && !upNext;
   const update = (changes: Record<string, string | undefined>) => {
     setShown({});
     set(changes);
   };
-  const clearFilters = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined });
-  const clearAll = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, sort: undefined });
+  const clearFilters = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, show: undefined });
+  const clearAll = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, show: undefined, sort: undefined });
+  const showFocus = (focus: MeetingFocus | undefined) => update({ show: focus });
 
   function rowActions(m: Meeting): ActionMenuItem[] {
     const canEdit = m.canEdit !== false;
@@ -189,6 +200,17 @@ export function MeetingsPage() {
         </div>
       </div>
 
+      {/* The numbers: once there is a meeting (four zeros over an empty page say nothing). */}
+      {meetingsQ.isLoading ? (
+        <div aria-hidden="true" className={STRIP_GRID}>
+          {FOCUSES.map((f) => (
+            <div key={f} className="skeleton h-11 rounded-xl lg:h-[5.0625rem]" />
+          ))}
+        </div>
+      ) : meetingsQ.isSuccess && all.length > 0 ? (
+        <MeetingSummaryStrip summary={summary} focus={filters.focus} onFocus={showFocus} />
+      ) : null}
+
       {filtered || chips.length ? (
         <FilterChips
           chips={chips}
@@ -206,6 +228,7 @@ export function MeetingsPage() {
       ) : null}
 
       {upNext ? <UpNextCard meeting={upNext} timeZone={timeZone} now={now} project={upNext.projectId ? projectOf(upNext.projectId) : null} /> : null}
+      {quiet ? <NothingComingUp last={lastMeeting(all, now)} timeZone={timeZone} now={now} onSchedule={() => setShowNew(true)} /> : null}
       {/* The "Up next" card's place while meetings load, so the list doesn't jump down under it. */}
       {meetingsQ.isLoading && !filtered ? <div aria-hidden="true" className="skeleton mb-4 h-[5.75rem] rounded-2xl" /> : null}
 

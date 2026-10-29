@@ -101,6 +101,7 @@ export function HealthSection({
   onOpen,
   onOpenTask,
   chosenHidden,
+  noneAtAll,
 }: {
   rows: HealthRow[];
   today: string;
@@ -109,6 +110,8 @@ export function HealthSection({
   onOpenTask: (id: string) => void;
   /** Projects were chosen, but the status filter leaves them out. */
   chosenHidden?: boolean;
+  /** The company has no project at all (not just none matching the filters). */
+  noneAtAll?: boolean;
 }) {
   const [sort, setSort] = useState<Sort>('worst');
   const shown = useMemo(() => sortRows(rows, sort), [rows, sort]);
@@ -151,7 +154,18 @@ export function HealthSection({
         ) : null
       }
     >
-      {rows.length === 0 ? (
+      {rows.length === 0 && noneAtAll ? (
+        <EmptyState
+          bare
+          title="No projects yet"
+          description="Each project’s health shows here once there is one: its late tasks, milestones and checks."
+          action={
+            <Link to="/projects" className={`inline-flex items-center rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH}`}>
+              Go to Projects
+            </Link>
+          }
+        />
+      ) : rows.length === 0 ? (
         <EmptyState
           bare
           title="No projects to show"

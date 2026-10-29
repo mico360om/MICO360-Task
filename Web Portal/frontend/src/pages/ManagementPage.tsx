@@ -186,7 +186,7 @@ export function ManagementPage() {
             {tile({ label: 'Open follow-ups', value: t.openFollowUps, hint: 'From failed inspection items', tone: 'brand', query: { metric: 'follow-ups' }, count: t.openFollowUps, action: `${plural(t.openFollowUps, 'open follow-up')}` })}
           </div>
 
-          <HealthSection rows={data.projects} today={data.today} timeZone={data.timeZone} onOpen={openList} onOpenTask={openTask} chosenHidden={filters.projectIds.length > 0} />
+          <HealthSection rows={data.projects} today={data.today} timeZone={data.timeZone} onOpen={openList} onOpenTask={openTask} chosenHidden={filters.projectIds.length > 0} noneAtAll={data.options.projects.length === 0} />
           <div className="grid gap-4 xl:grid-cols-2">
             <InspectionsSection data={data.inspections} onOpen={openList} />
             <PeopleSection people={data.people} week={data.workload.week} limit={data.workload.limit} onOpen={openList} />

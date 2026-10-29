@@ -47,7 +47,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderIt(canEdit = true) {
+function renderIt(canEdit = true, ended = false) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
@@ -59,6 +59,7 @@ function renderIt(canEdit = true) {
         canEdit={canEdit}
         pollMs={false}
         draftFrom={{ title: 'Pump station review', description: 'Monthly check', projectId: 'p4', peopleIds: ['u1', 'u2'] }}
+        ended={ended}
       />
     </QueryClientProvider>,
   );
@@ -127,5 +128,19 @@ describe('Meeting page: agenda rows', () => {
     renderIt();
     const box = await screen.findByRole('checkbox', { name: `Covered: "${long}"` });
     expect(box.closest('label')).not.toBeNull();
+  });
+});
+
+describe('Meeting page: the agenda of a meeting that is over', () => {
+  it('speaks of it in the past, and still lets the organizer write down what was covered', async () => {
+    renderIt(true, true);
+    expect(await screen.findByText(/no agenda was set for this meeting/i)).toBeInTheDocument();
+    expect(screen.queryByText(/topics you plan to cover/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('New agenda item')).toBeEnabled();
+  });
+
+  it('for someone who can’t change it, simply says none was set', async () => {
+    renderIt(false, true);
+    expect(await screen.findByText('No agenda was set for this meeting.')).toBeInTheDocument();
   });
 });

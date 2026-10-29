@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import type { ManagementOverview } from '../../api/management';
 import { EmptyState } from '../ui/EmptyState';
+import { Link } from 'react-router-dom';
+import { TOUCH_TALL } from '../../lib/touch';
 import { NumberButton, Section, plural, type OpenList } from './parts';
 
 /** One figure: its number (opening the list behind it) over its words. */
@@ -24,7 +26,16 @@ export function InspectionsSection({ data, onOpen }: { data: ManagementOverview[
   return (
     <Section id="mgmt-inspections" title="Inspections" note="Checks are tasks that carry an inspection form. Due, done and the pass rate cover the chosen period; missing checks and follow-ups are now.">
       {nothing ? (
-        <EmptyState bare title="No inspections yet" description="Checks due and inspections finished in this period show here." />
+        <EmptyState
+          bare
+          title="No inspections yet"
+          description="Checks due and inspections finished in this period show here. Start with a form in Templates, then schedule checks from a project’s Inspections tab."
+          action={
+            <Link to="/templates?tab=inspections" className={`inline-flex items-center rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}>
+              Inspection forms
+            </Link>
+          }
+        />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

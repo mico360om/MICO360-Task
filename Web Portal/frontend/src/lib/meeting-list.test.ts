@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EMPTY_FILTERS, filterChips, filterMeetings, groupMeetings, hasActiveFilters, nextUpMeeting, startsLabel, type ListContext } from './meeting-list';
+import { EMPTY_FILTERS, filterChips, filterMeetings, groupMeetings, hasActiveFilters, hasEnded, lastMeeting, meetingSummary, nextUpMeeting, startsLabel, whenItWas, type ListContext } from './meeting-list';
 import { formatClockTime } from './meetingFormat';
 import type { Meeting } from '../api/meetings';
 
@@ -172,5 +172,104 @@ describe('filterMeetings', () => {
     expect(hasActiveFilters({ ...EMPTY_FILTERS, q: ' ' })).toBe(false);
     expect(hasActiveFilters({ ...EMPTY_FILTERS, status: 'COMPLETED' })).toBe(true);
     expect(hasActiveFilters({ ...EMPTY_FILTERS, range: 'today' })).toBe(true);
+  });
+});
+
+describe('meetingSummary — the numbers above the list', () => {
+  // The same meetings, with how far each one got.
+  const withProgress = list.map((x) =>
+    x.id === 'yesterday' ? { ...x, minutes: 'DRAFT' as const, openActionItemCount: 2 }
+      : x.id === 'last-month' ? { ...x, minutes: 'FINAL' as const, openActionItemCount: 1 }
+        : x.id === 'today-night' ? { ...x, minutes: 'NONE' as const }
+          : x,
+  );
+
+  it('counts what is still to come in the next 7 days (today and the six days after), never a draft, cancelled or finished one', () => {
+    // The stand-up is under way, the budget review is later today, the Arabic meeting is on the 12th.
+    // The night handover (02:30) is over; the vendor call is cancelled; the draft and 2 Nov are out.
+    expect(meetingSummary(withProgress, ctx).week).toBe(3);
+    expect(ids(filterMeetings(withProgress, { ...EMPTY_FILTERS, focus: 'week' }, ctx))).toEqual(['today-late', 'today-early', 'soon']);
+    // The sixth day ahead is in, the seventh is not.
+    const edge = [m({ id: 'd6', startAt: '2026-10-16T06:00:00.000Z' }), m({ id: 'd7', startAt: '2026-10-17T06:00:00.000Z' })];
+    expect(meetingSummary(edge, ctx).week).toBe(1);
+  });
+
+  it('adds up the open action items, and shows the meetings that have them', () => {
+    const s = meetingSummary(withProgress, ctx);
+    expect(s.actions).toBe(3);
+    expect(s.actionMeetings).toBe(2);
+    expect(ids(filterMeetings(withProgress, { ...EMPTY_FILTERS, focus: 'actions' }, ctx))).toEqual(['yesterday', 'last-month']);
+  });
+
+  it('counts the meetings that are over without final minutes (a finished one with final minutes is done)', () => {
+    expect(meetingSummary(withProgress, ctx).minutes).toBe(2);
+    expect(ids(filterMeetings(withProgress, { ...EMPTY_FILTERS, focus: 'minutes' }, ctx))).toEqual(['today-night', 'yesterday']);
+  });
+
+  it('counts the meetings held this month in the company’s time zone (over, not cancelled)', () => {
+    expect(meetingSummary(withProgress, ctx).held).toBe(2);
+    expect(ids(filterMeetings(withProgress, { ...EMPTY_FILTERS, focus: 'held' }, ctx))).toEqual(['today-night', 'yesterday']);
+    // 1 Oct 01:00 in Muscat is still 30 Sep in UTC: it belongs to October.
+    const early = m({ id: 'oct1', status: 'COMPLETED', startAt: '2026-09-30T21:00:00.000Z' });
+    expect(meetingSummary([early], ctx).held).toBe(1);
+  });
+
+  it('reads 0 for everything when there are no meetings', () => {
+    expect(meetingSummary([], ctx)).toEqual({ week: 0, actions: 0, actionMeetings: 0, minutes: 0, held: 0 });
+  });
+
+  it('the owner’s case: two finished meetings with drafted minutes, nothing coming up', () => {
+    const now = new Date('2026-10-29T20:46:00.000Z'); // 30 Oct, 00:46 in Muscat
+    const owner = [
+      m({ id: 'iso', status: 'COMPLETED', startAt: '2026-10-29T05:00:00.000Z', endAt: '2026-10-29T13:00:00.000Z', minutes: 'DRAFT', openActionItemCount: 0 }),
+      m({ id: 'oct', status: 'COMPLETED', startAt: '2026-10-06T09:00:00.000Z', endAt: null, minutes: 'DRAFT', openActionItemCount: 2 }),
+    ];
+    expect(meetingSummary(owner, { ...ctx, now })).toEqual({ week: 0, actions: 2, actionMeetings: 1, minutes: 2, held: 2 });
+    expect(nextUpMeeting(owner, now)).toBeNull();
+    expect(lastMeeting(owner, now)?.id).toBe('iso');
+    expect(whenItWas(owner[0]!.startAt, now, 'Asia/Muscat')).toBe('yesterday');
+  });
+});
+
+describe('the focus filters', () => {
+  it('are filters like the others: on, named as a chip, and kept apart from the Filters panel', () => {
+    expect(hasActiveFilters({ ...EMPTY_FILTERS, focus: 'minutes' })).toBe(true);
+    expect(filterChips({ ...EMPTY_FILTERS, focus: 'minutes', status: 'COMPLETED' }, 'date', ctx)).toEqual([
+      { key: 'status', label: 'Status: Completed' },
+      { key: 'focus', label: 'Minutes to finish' },
+    ]);
+    expect(filterChips({ ...EMPTY_FILTERS, focus: 'week' }, 'date', ctx)).toEqual([{ key: 'focus', label: 'Next 7 days' }]);
+    expect(filterChips({ ...EMPTY_FILTERS, focus: 'actions' }, 'date', ctx)).toEqual([{ key: 'focus', label: 'With open action items' }]);
+    expect(filterChips({ ...EMPTY_FILTERS, focus: 'held' }, 'date', ctx)).toEqual([{ key: 'focus', label: 'Held this month' }]);
+  });
+});
+
+describe('hasEnded', () => {
+  it('a finished meeting, or a scheduled one past its end (an hour when it has none); never one under way, a draft or a cancelled one', () => {
+    expect(hasEnded(m({ status: 'COMPLETED', startAt: '2026-10-11T06:00:00.000Z' }), ctx.now)).toBe(true);
+    expect(hasEnded(m({ startAt: '2026-10-09T22:30:00.000Z' }), ctx.now)).toBe(true);
+    expect(hasEnded(m({ startAt: '2026-10-10T04:30:00.000Z' }), ctx.now)).toBe(false);
+    expect(hasEnded(m({ startAt: '2026-10-10T02:00:00.000Z', endAt: '2026-10-10T06:00:00.000Z' }), ctx.now)).toBe(false);
+    expect(hasEnded(m({ status: 'IN_PROGRESS', startAt: '2026-10-01T06:00:00.000Z' }), ctx.now)).toBe(false);
+    expect(hasEnded(m({ status: 'DRAFT', startAt: '2026-10-01T06:00:00.000Z' }), ctx.now)).toBe(false);
+    expect(hasEnded(m({ status: 'CANCELLED', startAt: '2026-10-01T06:00:00.000Z' }), ctx.now)).toBe(false);
+  });
+});
+
+describe('lastMeeting and whenItWas — the "Nothing coming up" line', () => {
+  it('is the most recent meeting that is over, never a draft or a cancelled one', () => {
+    expect(lastMeeting(list, ctx.now)?.id).toBe('today-night');
+    expect(lastMeeting([list[5]!, list[6]!], ctx.now)?.id).toBe('yesterday');
+    expect(lastMeeting([list[7]!, list[8]!], ctx.now)).toBeNull();
+    expect(lastMeeting([], ctx.now)).toBeNull();
+  });
+
+  it('says when, from today, in the company’s time zone', () => {
+    const TZ = 'Asia/Muscat';
+    expect(whenItWas('2026-10-09T22:30:00.000Z', ctx.now, TZ)).toBe('earlier today');
+    expect(whenItWas('2026-10-09T10:00:00.000Z', ctx.now, TZ)).toBe('yesterday');
+    expect(whenItWas('2026-10-05T06:00:00.000Z', ctx.now, TZ)).toBe('on Monday');
+    expect(whenItWas('2026-10-03T06:00:00.000Z', ctx.now, TZ)).toBe('on Sat 3 Oct');
+    expect(whenItWas('2025-12-01T06:00:00.000Z', ctx.now, TZ)).toBe('on 1 Dec 2025');
   });
 });

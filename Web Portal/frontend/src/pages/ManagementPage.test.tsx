@@ -297,6 +297,28 @@ describe('ManagementPage', () => {
     renderPage();
     expect(await screen.findByText('No projects to show')).toBeInTheDocument();
     expect(screen.getByText('No inspections yet')).toBeInTheDocument();
+    // …and where to start: the inspection forms.
+    expect(screen.getByRole('link', { name: /inspection forms/i })).toHaveAttribute('href', '/templates?tab=inspections');
+  });
+
+  it('in a company with no projects at all, says so and points to Projects (not "clear the filters")', async () => {
+    data = overview({ projects: [], people: [], options: { ...overview().options, projects: [] } });
+    renderPage();
+    expect(await screen.findByText('No projects yet')).toBeInTheDocument();
+    expect(screen.queryByText(/clear the filters/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to projects/i })).toHaveAttribute('href', '/projects');
+  });
+
+  it('a quiet period says so in words instead of a flat chart (whose scale would be made up)', async () => {
+    const quiet = weeks(4).map((w) => ({ ...w, created: 0, completed: 0, late: 0, passed: 0, failed: 0, passRate: null }));
+    data = overview({ trends: quiet });
+    renderPage();
+    const trends = await screen.findByRole('region', { name: 'Trends' });
+    expect(within(trends).getByText('No tasks were created or completed in these weeks.')).toBeInTheDocument();
+    expect(within(trends).getByText('No task was late at a week’s end.')).toBeInTheDocument();
+    expect(within(trends).queryAllByRole('img')).toHaveLength(0);
+    // The table still gives every week's figures.
+    expect(within(trends).getByRole('table', { name: /weekly figures/i })).toBeInTheDocument();
   });
 
   it('says it couldn’t load, with a retry', async () => {

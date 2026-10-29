@@ -246,7 +246,8 @@ export function AuditPage() {
         )}
       </div>
 
-      {!q.isLoading && !q.isError ? (
+      {/* How many are shown (and Load more) once there is something; the empty state says enough. */}
+      {!q.isLoading && !q.isError && rows.length > 0 ? (
         <div className="mt-3 flex items-center justify-center gap-3 text-xs text-ink-3">
           <span>{rows.length} entr{rows.length === 1 ? 'y' : 'ies'} shown</span>
           {q.hasNextPage ? (
