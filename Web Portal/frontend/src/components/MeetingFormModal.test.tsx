@@ -452,3 +452,17 @@ describe('MeetingFormModal: AI help', () => {
     expect(screen.getByLabelText('Describe the meeting')).toBeInTheDocument();
   });
 });
+
+describe('MeetingFormModal on a phone', () => {
+  it('gives the start and end times a full row each, side by side only from sm up, so the time is never cut off', () => {
+    renderModal();
+    const row = screen.getByLabelText(/^starts/i).closest('.grid')!;
+    expect(row).toContainElement(screen.getByLabelText(/^ends/i));
+    expect(row.className).not.toMatch(/(^|\s)grid-cols-2(\s|$)/);
+    expect(row.className).toMatch(/sm:grid-cols-2/);
+    const place = screen.getByLabelText('Location').closest('.grid')!;
+    expect(place).toContainElement(screen.getByLabelText('Online link'));
+    expect(place.className).not.toMatch(/(^|\s)grid-cols-2(\s|$)/);
+    expect(place.className).toMatch(/sm:grid-cols-2/);
+  });
+});
