@@ -9,8 +9,10 @@ import type { ClientInspectionSummary } from '../inspections/inspection-client-c
  * What a shared client's page shows, built from an explicit allow-list: every field below is copied
  * one by one, so nothing else a row carries (people, descriptions, comments, files, internal notes,
  * column names, ids of anything but the minutes) can reach the client. Only tasks (milestones are
- * tasks) and approved final minutes marked "Show to client" are listed; the project's % done counts
- * every task without naming any.
+ * tasks), approved final minutes and finished inspection reports marked "Show to client" are listed
+ * (a report, opened, shows its item notes and the signers' names: see inspection-client-copy, and
+ * the wording of the staff's Share with client panel); the project's % done counts every task
+ * without naming any — the same share of tasks finished as the staff's Completion tile.
  */
 
 export interface ClientProjectSource {

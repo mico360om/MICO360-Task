@@ -123,10 +123,17 @@ export function ClientSharePanel({
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
-            <p id={ids.intro} className="text-sm leading-relaxed text-ink-2">
-              A client follows this project on a private, read-only page: its progress and timeline, and only the milestones, tasks and approved minutes marked
-              “Show to client”. They never see people, comments, files or internal notes. Their link opens only with a code we email to them.
-            </p>
+            {/* What the client page really shows (client-view-payload, inspection-client-copy): keep it true when either changes. */}
+            <div id={ids.intro} className="flex flex-col gap-2 text-sm leading-relaxed text-ink-2">
+              <p>A client follows this project on a private, read-only page. Their link opens only with a code we email to them.</p>
+              <p>They see the project’s progress and timeline, and only what is marked “Show to client”:</p>
+              <ul className="list-disc space-y-1 ps-5">
+                <li>milestones and tasks: the title, status and due date;</li>
+                <li>approved meeting minutes: as written, without who owns each next step;</li>
+                <li>inspection reports: the results, the inspector’s notes on each item, and the signatures with the signers’ names — the inspector’s too.</li>
+              </ul>
+              <p>They never see the team or who is assigned, comments, files, task descriptions or the notes taken in meetings.</p>
+            </div>
 
             {archived ? (
               <p className="rounded-lg bg-ground px-3 py-2 text-sm text-ink-2">
