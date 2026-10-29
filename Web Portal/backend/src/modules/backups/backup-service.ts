@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, rm, unlink } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ConflictError } from '../../lib/http-errors';
 import { zonedDayKey } from '../../lib/due-date';
@@ -334,8 +334,9 @@ export function createBackupService(deps: BackupServiceDeps) {
       const row = await deps.repo.find(id);
       if (!row || row.status !== 'OK' || !row.fileName || !isBackupFileName(row.fileName)) return null;
       const path = join(deps.backupDir, row.fileName);
-      if (!existsSync(path)) return null;
-      return { path, fileName: row.fileName, sizeBytes: row.sizeBytes ?? 0 };
+      const info = await stat(path).catch(() => null);
+      if (!info?.isFile()) return null;
+      return { path, fileName: row.fileName, sizeBytes: info.size };
     },
 
     async overview(): Promise<BackupOverview> {

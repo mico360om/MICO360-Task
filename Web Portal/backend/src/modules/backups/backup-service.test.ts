@@ -404,6 +404,9 @@ describe('keeping 7 nightly + 4 weekly copies', () => {
     expect((await svc.overview()).copies.map((c) => c.id)).toEqual([repo.rows[0]!.id]);
     expect(await svc.fileFor(repo.rows[1]!.id)).toBeNull();
     expect(await svc.fileFor(repo.rows[0]!.id)).toMatchObject({ fileName: repo.rows[0]!.fileName, path: join(dir, repo.rows[0]!.fileName!) });
+    // The size sent with a download is the file's own, whatever the row says.
+    await repo.update(repo.rows[0]!.id, { sizeBytes: 999 });
+    expect((await svc.fileFor(repo.rows[0]!.id))!.sizeBytes).toBe(10);
   });
 });
 
