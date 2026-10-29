@@ -371,7 +371,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-5 py-4">
             <h2 id={ids.title} className="flex-1 font-display text-xl font-bold text-ink">{editing ? 'Edit project' : 'New project'}</h2>
-            <button type="button" onClick={requestClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink">
+            <button type="button" onClick={requestClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>

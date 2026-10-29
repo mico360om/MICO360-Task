@@ -43,7 +43,7 @@ function Shell({ title, onClose, busy, children, footer }: { title: string; onCl
           <div className="flex flex-none items-center gap-3 border-b border-line px-5 py-4">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand">{TemplateGlyph.save}</span>
             <h2 id={headingId} className="flex-1 font-display text-xl font-bold text-ink">{title}</h2>
-            <button type="button" onClick={onClose} disabled={busy} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink disabled:opacity-40">
+            <button type="button" onClick={onClose} disabled={busy} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
