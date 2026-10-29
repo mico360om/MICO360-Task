@@ -120,6 +120,27 @@ describe('Task approvals on MySQL (integration)', () => {
     expect(reopened).toMatchObject({ completedAt: null, approvedAt: null, approvedById: null, needsApproval: true });
   });
 
+  it('the project setting is kept, changed, left alone by an update without it, and ticks a template’s tasks', async () => {
+    expect((await projects.findById(projectId))?.newTasksNeedApproval).toBe(false);
+    expect(await projectService.updateProject(projectId, { newTasksNeedApproval: true })).toMatchObject({ newTasksNeedApproval: true });
+    expect(await projectService.updateProject(projectId, { name: 'Renamed' })).toMatchObject({ newTasksNeedApproval: true });
+    const fromTemplate = await projects.create({
+      code: 'APRB',
+      name: 'From a template',
+      createdById: managerId,
+      newTasksNeedApproval: true,
+      startWith: {
+        columns: [{ name: 'To do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }],
+        startColumn: 0,
+        tasks: [{ title: 'Kick-off', description: null, priority: 'NORMAL', startDate: null, dueDate: null, assigneeIds: [], checklist: [] }],
+        boardDate: NOW,
+        templateName: 'Rig job',
+      },
+    });
+    expect(fromTemplate.newTasksNeedApproval).toBe(true);
+    expect(await prisma.task.findMany({ where: { projectId: fromTemplate.id }, select: { needsApproval: true } })).toEqual([{ needsApproval: true }]);
+  });
+
   it('two approvals at the same moment: one wins, the other is told it isn’t waiting any more', async () => {
     const t = await taskService.createTask({ title: 'Survey', projectId, columnId: await col('IN_PROGRESS'), createdById: workerId, needsApproval: true });
     await taskService.moveTask(t.id, await col('DONE'), undefined, workerId);

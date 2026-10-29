@@ -51,6 +51,8 @@ export const createSchema = z.object({
   // (older apps, including the Android app, send project updates without them).
   carryForward: z.boolean().optional(),
   defaultDueToday: z.boolean().optional(),
+  /** "New tasks in this project need approval": ticks the box on its new tasks. */
+  newTasksNeedApproval: z.boolean().optional(),
   // New projects only: the people put on its team at once (the creator and the owner join anyway).
   memberIds: z.array(idString).max(500).optional(),
 });
