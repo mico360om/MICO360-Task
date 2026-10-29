@@ -44,7 +44,7 @@ export function SyncBanner({
           <span className="mt-0.5 flex-none">{InspectIcon.alert}</span>
           <span>{problem.message}</span>
         </p>
-        <button type="button" onClick={problem.stage === 'finish' ? onLookAgain : onDismiss} className="min-h-9 flex-none rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
+        <button type="button" onClick={problem.stage === 'finish' ? onLookAgain : onDismiss} className="min-h-9 [@media(pointer:coarse)]:!min-h-11 flex-none rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
           {problem.stage === 'finish' ? 'Look again' : 'OK'}
         </button>
       </div>
@@ -63,11 +63,11 @@ export function SyncBanner({
         </p>
         <div className="flex flex-none flex-wrap gap-2">
           {!gone ? (
-            <button type="button" onClick={onRetry} className="min-h-9 rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
+            <button type="button" onClick={onRetry} className="min-h-9 [@media(pointer:coarse)]:!min-h-11 rounded-lg bg-surface px-3 text-xs font-semibold text-ink hover:bg-ground">
               Try again
             </button>
           ) : null}
-          <button type="button" onClick={onDiscard} className="min-h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={onDiscard} className="min-h-9 [@media(pointer:coarse)]:!min-h-11 rounded-lg bg-danger px-3 text-xs font-semibold text-white hover:brightness-95">
             Throw away what’s on this phone
           </button>
         </div>
@@ -120,7 +120,7 @@ export function SyncBanner({
           <span>{text}</span>
         </p>
         {action ? (
-          <button type="button" onClick={action.run} className="min-h-9 flex-none rounded-lg px-2.5 text-xs font-semibold underline">
+          <button type="button" onClick={action.run} className="min-h-9 [@media(pointer:coarse)]:!min-h-11 flex-none rounded-lg px-2.5 text-xs font-semibold underline">
             {action.label}
           </button>
         ) : null}

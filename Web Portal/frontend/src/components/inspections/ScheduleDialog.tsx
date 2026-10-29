@@ -13,6 +13,7 @@ import { todayKey } from '../../lib/due-date';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { newIdempotencyKey } from '../../lib/offline-queue';
 import { invalidateTaskQueries } from '../../lib/task-cache';
+import { TOUCH_TALL } from '../../lib/touch';
 import { defaultScheduleName, firstCheckDay, presetOf, presetRule, SCHEDULE_PRESETS, scheduleSentence, type SchedulePreset } from '../../lib/inspection-schedule';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
@@ -324,7 +325,7 @@ export function ScheduleDialog({
                   {SCHEDULE_PRESETS.map((p) => (
                     <label
                       key={p.value}
-                      className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium focus-within:ring-2 focus-within:ring-brand/40 sm:min-h-9 ${preset === p.value ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink hover:bg-ground'}`}
+                      className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium focus-within:ring-2 focus-within:ring-brand/40 sm:min-h-9 [@media(pointer:coarse)]:min-h-11 ${preset === p.value ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink hover:bg-ground'}`}
                     >
                       <input type="radio" name="schedule-preset" value={p.value} checked={preset === p.value} onChange={() => choosePreset(p.value)} className="accent-[rgb(var(--c-brand))]" disabled={saving} />
                       {p.label}
@@ -361,10 +362,10 @@ export function ScheduleDialog({
               ) : null}
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5">
-              <Button type="button" variant="secondary" onClick={onClose} disabled={saving} className="min-h-11 sm:min-h-0">
+              <Button type="button" variant="secondary" onClick={onClose} disabled={saving} className={TOUCH_TALL}>
                 Cancel
               </Button>
-              <Button type="submit" loading={saving} className="min-h-11 sm:min-h-0">
+              <Button type="submit" loading={saving} className={TOUCH_TALL}>
                 {editing ? 'Save changes' : 'Schedule it'}
               </Button>
             </div>

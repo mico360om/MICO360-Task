@@ -6,6 +6,7 @@ import { inspectionsApi, type FormRef, type InspectionListItem } from '../../api
 import { Button } from '../ui/Button';
 import { InspectIcon, OutcomePill, problemText } from './inspection-ui';
 import { StartDialog, type InspectionTaskOption } from './ProjectInspectionsTab';
+import { TOUCH_TALL } from '../../lib/touch';
 
 const primaryLink =
   'inline-flex items-center justify-center gap-2 rounded-xl bg-brand-gradient px-3 py-1.5 text-sm font-semibold text-white shadow-brand transition-all hover:-translate-y-0.5 hover:shadow-lift [@media(pointer:coarse)]:min-h-11';
@@ -45,7 +46,7 @@ function CheckForm({ form, place, taskId, projectId, attached, canStart }: { for
             View report
           </Link>
         ) : canStart ? (
-          <Button size="sm" onClick={() => startM.mutate()} loading={startM.isPending} className="[@media(pointer:coarse)]:min-h-11">
+          <Button size="sm" onClick={() => startM.mutate()} loading={startM.isPending} className={TOUCH_TALL}>
             Start inspection
           </Button>
         ) : null}
@@ -117,7 +118,7 @@ export function TaskInspections({
       ) : null}
       {/* Another inspection for it (a check that has none yet has its own button above). */}
       {canStart && !(form && !attached.length) ? (
-        <button type="button" onClick={() => setStarting(true)} className="tap mt-1.5 text-xs font-semibold text-brand hover:underline">
+        <button type="button" onClick={() => setStarting(true)} className={`tap mt-1.5 text-xs font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
           {form ? 'Start another inspection' : 'Start an inspection for this task'}
         </button>
       ) : null}

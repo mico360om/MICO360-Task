@@ -12,6 +12,7 @@ import { Button } from '../ui/Button';
 import { ClientEyeIcon } from '../TaskCard';
 import { dayText, InspectIcon, OutcomePill, problemText } from './inspection-ui';
 import { DueChecksSection, SchedulesSection } from './ScheduledInspections';
+import { TOUCH_TALL } from '../../lib/touch';
 
 export interface InspectionTaskOption {
   id: string;
@@ -216,10 +217,10 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
               ) : null}
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-line px-5 py-3 sm:flex-row sm:justify-end">
-              <Button type="button" variant="secondary" onClick={onClose} disabled={startM.isPending}>
+              <Button type="button" variant="secondary" onClick={onClose} disabled={startM.isPending} className={TOUCH_TALL}>
                 Cancel
               </Button>
-              <Button type="submit" loading={startM.isPending}>
+              <Button type="submit" loading={startM.isPending} className={TOUCH_TALL}>
                 Start
               </Button>
             </div>
@@ -256,7 +257,7 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {formsQ.data?.canCreate ? <ManageFormsLink /> : null}
-          {q.data?.canStart ? <Button onClick={() => setStarting(true)}>Start an inspection</Button> : null}
+          {q.data?.canStart ? <Button onClick={() => setStarting(true)} className={TOUCH_TALL}>Start an inspection</Button> : null}
         </div>
       </div>
       {waiting.length ? (

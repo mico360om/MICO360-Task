@@ -13,6 +13,7 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { dayText, InspectIcon, problemText } from './inspection-ui';
 import { isStaleSchedule, ScheduleDialog } from './ScheduleDialog';
+import { TOUCH_TALL } from '../../lib/touch';
 
 /** The query keys of a project's scheduled inspections (under the tab's own key, so they refresh with it). */
 export const scheduleKeys = {
@@ -21,7 +22,8 @@ export const scheduleKeys = {
 };
 
 const listNames = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
-const coarse = '[@media(pointer:coarse)]:min-h-11';
+/** 44px tall on a touch screen (see lib/touch.ts for why it is forced). */
+const coarse = TOUCH_TALL;
 
 /** Who does the checks: their pictures, named for a screen reader. */
 function Inspectors({ people }: { people: Person[] }) {
@@ -271,7 +273,7 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
       count={q.data ? list.length : null}
       action={
         canChange ? (
-          <Button size="sm" onClick={() => { setNotice(null); setEditing({ schedule: null }); }} className={coarse}>
+          <Button size="sm" variant="secondary" onClick={() => { setNotice(null); setEditing({ schedule: null }); }} className={coarse}>
             Schedule an inspection
           </Button>
         ) : null
