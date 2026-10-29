@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { AiSummaryCard } from '../AiSummaryCard';
 import { deadlines, milestones, projectTimeline, taskStats, workload, type MilestoneState } from '../../lib/project-dashboard';
 import { formatMeetingDay, formatMeetingTimes } from '../../lib/meetingFormat';
+import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyNote, FlagIcon, LinkButton, ProgressBar, RepeatIcon, SectionCard, dayText, relativeDays } from './parts';
 import type { TaskFilter, TaskGroup } from './TasksTab';
 
@@ -99,17 +100,17 @@ export function OverviewTab(p: OverviewProps) {
             <span className="text-xs text-ink-3">New tasks default-assign to the owner.</span>
           </div>
 
-          <div className="mt-4 grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+          <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4 border-t border-line pt-4">
             <div>
-              <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
-                <span className="font-semibold text-ink">Work done</span>
+              <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
+                <span className="whitespace-nowrap font-semibold text-ink">Work done</span>
                 <span className="tabular-nums text-ink-2">{p.statsReady ? `${stats.completed} of ${stats.total} tasks · ${stats.avgProgress}% overall` : '…'}</span>
               </div>
               <ProgressBar value={p.statsReady ? stats.avgProgress : 0} label="Work done" tone="success" />
             </div>
             <div>
-              <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
-                <span className="font-semibold text-ink">Time</span>
+              <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
+                <span className="whitespace-nowrap font-semibold text-ink">Time</span>
                 <span className={`tabular-nums ${timeline?.state === 'late' ? 'font-semibold text-danger' : 'text-ink-2'}`}>
                   {!timeline
                     ? 'Set a start and target date'
@@ -125,13 +126,13 @@ export function OverviewTab(p: OverviewProps) {
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link to={`/board?project=${encodeURIComponent(project.id)}`} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand">Open board</Link>
-            <button type="button" onClick={() => p.onShow('tasks')} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground">View all tasks</button>
-            <button type="button" onClick={() => p.onShow('meetings')} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground">Meetings</button>
+            <Link to={`/board?project=${encodeURIComponent(project.id)}`} className={`inline-flex items-center rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand ${TOUCH_TALL}`}>Open board</Link>
+            <button type="button" onClick={() => p.onShow('tasks')} className={`rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground ${TOUCH_TALL}`}>View all tasks</button>
+            <button type="button" onClick={() => p.onShow('meetings')} className={`rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink hover:bg-ground ${TOUCH_TALL}`}>Meetings</button>
           </div>
         </SectionCard>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-4">
           <SectionCard id="pd-milestones" title="Milestones" action={marks.length ? <LinkButton onClick={() => p.onShow('tasks', 'milestones')}>All {marks.length}</LinkButton> : null}>
             {!p.statsReady ? (
               <div className="skeleton h-16 rounded-lg" />
@@ -162,14 +163,16 @@ export function OverviewTab(p: OverviewProps) {
             ) : soon.length === 0 ? (
               <EmptyNote>Nothing due in the next two weeks.</EmptyNote>
             ) : (
-              <ul className="flex flex-col gap-2">
+              <ul className="flex flex-col gap-2.5">
                 {soon.slice(0, 6).map((d) => (
                   <li key={d.task.id}>
-                    <button type="button" onClick={() => p.onOpenTask(d.task.id)} className="flex w-full items-center gap-2 text-start">
-                      <span className="w-14 flex-none font-mono text-[11px] text-ink-3">{d.task.key}</span>
-                      <span dir="auto" className="min-w-0 flex-1 truncate text-sm font-medium text-ink hover:text-brand">{d.task.title}</span>
-                      <span className={`flex-none text-xs tabular-nums ${d.daysLeft < 0 ? 'font-semibold text-danger' : d.daysLeft <= 2 ? 'font-semibold text-warning' : 'text-ink-2'}`}>
-                        {d.daysLeft < 0 ? `Late · ${dayText(d.due)}` : relativeDays(d.daysLeft)}
+                    <button type="button" onClick={() => p.onOpenTask(d.task.id)} title={d.task.title} className="group block w-full min-w-0 text-start">
+                      <span dir="auto" className="block truncate text-sm font-medium text-ink group-hover:text-brand">{d.task.title}</span>
+                      <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                        <span className="font-mono text-[11px] text-ink-3">{d.task.key}</span>
+                        <span className={`tabular-nums ${d.daysLeft < 0 ? 'font-semibold text-danger' : d.daysLeft <= 2 ? 'font-semibold text-warning' : 'text-ink-2'}`}>
+                          {d.daysLeft < 0 ? `Late · ${dayText(d.due)}` : relativeDays(d.daysLeft)}
+                        </span>
                       </span>
                     </button>
                   </li>
@@ -224,7 +227,7 @@ export function OverviewTab(p: OverviewProps) {
             <div className="skeleton h-20 rounded-lg" />
           ) : focus ? (
             <div>
-              <Link to={`/meetings/${focus.id}`} className="block font-semibold text-ink hover:text-brand"><bdi>{focus.title}</bdi></Link>
+              <Link to={`/meetings/${focus.id}`} className="block font-semibold text-ink hover:text-brand [@media(pointer:coarse)]:flex [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:items-center"><bdi>{focus.title}</bdi></Link>
               <p className="mt-0.5 text-sm text-ink-2">
                 {formatMeetingDay(focus.startAt, focus.timeZone || timeZone)} · {formatMeetingTimes(focus.startAt, focus.endAt, focus.timeZone || timeZone)}
               </p>

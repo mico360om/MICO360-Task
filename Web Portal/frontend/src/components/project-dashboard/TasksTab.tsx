@@ -6,6 +6,7 @@ import { taskPhase, type TaskPhase } from '../../lib/project-dashboard';
 import { formatDueDay } from '../../lib/due-display';
 import { EmptyNote, FlagIcon } from './parts';
 import { ClientEyeIcon } from '../TaskCard';
+import { TOUCH_TALL } from '../../lib/touch';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -115,7 +116,7 @@ export function TasksTab({
               type="button"
               aria-pressed={filter === f.v}
               onClick={() => onFilter(f.v)}
-              className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'} ${f.v === 'overdue' && counts.overdue ? 'text-danger' : ''}`}
+              className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'} ${f.v === 'overdue' && counts.overdue ? 'text-danger' : ''}`}
             >
               {f.label} <span className="tabular-nums text-ink-3">{counts[f.v]}</span>
             </button>
@@ -123,7 +124,7 @@ export function TasksTab({
         </div>
         <label className="relative sm:w-60">
           <span className="sr-only">Find a task</span>
-          <input type="search" data-page-search value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…" className="h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+          <input type="search" data-page-search value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…" className="h-9 [@media(pointer:coarse)]:h-11 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
         </label>
       </div>
       {shown.length === 0 ? (

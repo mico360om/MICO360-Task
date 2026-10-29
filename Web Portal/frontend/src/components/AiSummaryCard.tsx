@@ -38,14 +38,14 @@ export function AiSummaryCard({ onSummarize, title = 'AI summary' }: AiSummaryCa
   }
 
   return (
-    <section className="card p-5">
+    <section className="card p-4 sm:p-5">
       <div className="mb-2 flex items-center gap-2">
         <h2 className="eyebrow flex items-center gap-1.5 text-brand"><Sparkle />{title}</h2>
         <button
           type="button"
           onClick={() => void run()}
           disabled={busy}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-brand transition-colors hover:border-brand disabled:opacity-50"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-brand transition-colors hover:border-brand disabled:opacity-50 [@media(pointer:coarse)]:!min-h-11"
         >
           {busy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand/30 border-t-brand" aria-hidden /> : <Sparkle />}
           {busy ? 'Thinking…' : summary ? 'Regenerate' : 'Generate summary'}

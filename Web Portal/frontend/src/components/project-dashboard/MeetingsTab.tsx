@@ -8,6 +8,7 @@ import { formatMeetingTimes, meetingStatusTone } from '../../lib/meetingFormat';
 import { meetingRepeatText } from '../../lib/meeting-repeat';
 import { zonedDayKey } from '../../lib/due-date';
 import { EmptyNote, RepeatIcon, SectionCard, dayText } from './parts';
+import { TOUCH_TALL } from '../../lib/touch';
 
 type Filter = MeetingPhase | 'all';
 const FILTERS: Array<{ v: Filter; label: string }> = [
@@ -32,7 +33,7 @@ function MeetingCard({ m, timeZone }: { m: ProjectMeeting; timeZone: string }) {
       <DateLeaf iso={m.startAt} timeZone={zone} tone={muted ? 'muted' : 'upcoming'} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Link to={`/meetings/${m.id}`} className={`min-w-0 break-words font-semibold hover:text-brand ${m.phase === 'cancelled' ? 'text-ink-3 line-through' : 'text-ink'}`}>
+          <Link to={`/meetings/${m.id}`} className={`min-w-0 break-words font-semibold hover:text-brand [@media(pointer:coarse)]:inline-flex [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:items-center ${m.phase === 'cancelled' ? 'text-ink-3 line-through' : 'text-ink'}`}>
             <bdi>{m.title}</bdi>
           </Link>
           {m.phase === 'ongoing' ? <Badge tone="brand" dot>Under way</Badge> : m.status !== 'SCHEDULED' ? <Badge tone={meetingStatusTone(m.status)}>{MEETING_STATUS_LABELS[m.status]}</Badge> : null}
@@ -125,7 +126,7 @@ export function MeetingsTab({
                   setFilter(f.v);
                   setAllMeetings(false);
                 }}
-                className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'}`}
+                className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'}`}
               >
                 {f.label} <span className="tabular-nums text-ink-3">{counts[f.v]}</span>
               </button>

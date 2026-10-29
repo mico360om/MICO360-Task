@@ -418,6 +418,27 @@ describe('ProjectDetailPage', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'MICO Platform' })).toBeInTheDocument();
   });
 
+  it('draws the page once its first data is in, so nothing on screen jumps as the parts arrive', async () => {
+    // The people directory (owner and manager names) answers last: until then the header, tiles and
+    // tabs wait as one placeholder; they never appear half-filled and then move down.
+    const base = fetch;
+    let release: () => void = () => {};
+    const later = new Promise<void>((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/users/directory')) await later;
+      return base(url, init);
+    }));
+    renderPage();
+    expect(await screen.findByLabelText('Loading project')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Overview' })).toBeNull();
+    release();
+    expect(await screen.findByRole('heading', { level: 1, name: 'MICO Platform' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Overview' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading project')).toBeNull();
+  });
+
   it('shows placeholders, not zero counters, while the project and its tasks are loading', async () => {
     const base = fetch;
     const never = new Promise<Response>(() => {});

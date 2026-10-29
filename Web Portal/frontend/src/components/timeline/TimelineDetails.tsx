@@ -6,7 +6,7 @@ import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { HealthPill } from './parts';
 import type { TimelineDetail } from './TimelineChart';
 
-const LINK = 'inline-flex min-h-[2rem] items-center rounded-lg border px-2.5 text-xs font-bold transition-colors';
+const LINK = 'inline-flex min-h-[2rem] [@media(pointer:coarse)]:min-h-11 items-center rounded-lg border px-2.5 text-xs font-bold transition-colors';
 const MAIN_LINK = `${LINK} border-info/40 bg-info-soft text-info hover:border-info`;
 const OTHER_LINK = `${LINK} border-line bg-surface text-ink hover:border-brand/40`;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
