@@ -4,6 +4,11 @@ import { LineChart } from '../LineChart';
 import { dayMonth } from '../../lib/management';
 import { Section } from './parts';
 
+/** In a chart's place when there is nothing to draw: what that means, in words. */
+function Quiet({ children }: { children: string }) {
+  return <p className="rounded-lg bg-ground/60 px-3 py-8 text-center text-sm text-ink-2">{children}</p>;
+}
+
 /** The weekly table shows this many weeks (the latest) until all are asked for. */
 const SHOWN_WEEKS = 6;
 
@@ -25,7 +30,10 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
       <div className="grid gap-5 lg:grid-cols-3">
         <figure className="min-w-0">
           <figcaption className="mb-1 text-sm font-semibold text-ink">Tasks created and completed</figcaption>
-          <LineChart
+          {/* A quiet period says so: a flat line would only show a made-up scale. */}
+          {weeks.every((w) => !w.created && !w.completed) ? (
+            <Quiet>No tasks were created or completed in these weeks.</Quiet>
+          ) : <LineChart
             ariaLabel={`Tasks created and completed each week${last ? `; this week ${last.created} created, ${last.completed} completed` : ''}. The figures are in the table below.`}
             labels={labels}
             series={[
@@ -34,17 +42,19 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
             ]}
             height={180}
             maxTicks={4}
-          />
+          />}
         </figure>
         <figure className="min-w-0">
           <figcaption className="mb-1 text-sm font-semibold text-ink">Late tasks at each week’s end</figcaption>
-          <LineChart
+          {weeks.every((w) => !w.late) ? (
+            <Quiet>No task was late at a week’s end.</Quiet>
+          ) : <LineChart
             ariaLabel={`Late tasks at the end of each week${last ? `; now ${last.late}` : ''}. The figures are in the table below.`}
             labels={labels}
             series={[{ name: 'Late', color: 'rgb(var(--c-danger))', values: weeks.map((w) => w.late), area: true }]}
             height={180}
             maxTicks={4}
-          />
+          />}
         </figure>
         <figure className="min-w-0">
           <figcaption className="mb-1 text-sm font-semibold text-ink">Inspection pass rate</figcaption>
@@ -58,7 +68,7 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
               maxTicks={4}
             />
           ) : (
-            <p className="rounded-lg bg-ground/60 px-3 py-8 text-center text-sm text-ink-2">No inspections finished in these weeks.</p>
+            <Quiet>No inspections finished in these weeks.</Quiet>
           )}
         </figure>
       </div>
