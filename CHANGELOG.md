@@ -14,6 +14,22 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Nightly backups: every night at 02:00 the server saves a copy of everything — all the data and every
+  uploaded file. It keeps the last 7 nights and one copy a week for the 4 weeks before; older copies
+  are deleted by themselves.
+- System Settings → Backups (administrators): when the last copy was made, a clear warning if one
+  failed, "Back up now", and a Download button for each copy kept.
+- The copies can also go to your own Google Drive, into a "MICO360 Tasks backups" folder, once Google
+  Drive is connected in System Settings (a one-time setup).
+- If a nightly copy fails, or can't reach Google Drive, the administrators get an email.
+
+### Security
+- Backups are kept in a private server folder the website never shows; only administrators can see or
+  download them, and every download is recorded in the Audit Logs. Google Drive access is limited to
+  the files the app makes. Copies can be encrypted with a backup key (BACKUP_ENCRYPTION_KEY); keep that
+  key safe off the server, because no encrypted copy opens without it.
+
 ## [1.18.1] - 2026-10-29
 
 ### Improvements
