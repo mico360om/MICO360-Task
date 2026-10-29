@@ -97,6 +97,7 @@ import { registerTemplateRoutes } from './modules/templates/template-routes';
 import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
+import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -268,6 +269,8 @@ export interface AppDeps extends AuthRouteDeps {
   inspections?: Omit<InspectionRouteDeps, 'guard' | 'broadcast'>;
   /** The Management page: every project's health, inspections, people and trends; its lists and its PDF. */
   management?: Omit<ManagementRouteDeps, 'guard'>;
+  /** System Settings → Backups: the copies, "Back up now", downloads and Google Drive (administrators only). */
+  backups?: Omit<BackupRouteDeps, 'guard' | 'audit'>;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -747,6 +750,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.inspections) {
         await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent });
+      }
+      if (deps.backups) {
+        await registerBackupRoutes(api, { ...deps.backups, guard, audit: deps.auditService });
       }
     },
     { prefix: '/api/v1' },
