@@ -359,7 +359,8 @@ export function ProjectDetailPage() {
         <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" className={TILE_SPAN[3]} />
         <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" className={TILE_SPAN[4]} />
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-ground">
+      {/* The completion tile as a bar (its track drawn in the line colour: on the page ground it was invisible). */}
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-line" aria-hidden="true">
         <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${stats.pct}%` }} />
       </div>
 
@@ -424,7 +425,7 @@ export function ProjectDetailPage() {
         ) : null}
 
         {tab === 'tasks' ? (
-          <TasksTab groups={groups} today={today} timeZone={timeZone} loading={tasksQ.isLoading || columnsQ.isLoading} filter={taskFilter} onFilter={setTaskFilter} onOpen={setOpenTaskId} />
+          <TasksTab groups={groups} today={today} timeZone={timeZone} loading={tasksQ.isLoading || columnsQ.isLoading} filter={taskFilter} onFilter={setTaskFilter} onOpen={setOpenTaskId} onNew={canSchedule ? () => setNewTask(true) : undefined} />
         ) : null}
 
         {tab === 'meetings' ? (
@@ -499,7 +500,7 @@ function ProjectPageSkeleton() {
           <StatTile key={label} label={label} value="—" hint={i === 0 ? '' : undefined} className={TILE_SPAN[i]} />
         ))}
       </div>
-      <div className="mt-3 h-2 rounded-full bg-ground" />
+      <div className="mt-3 h-2 rounded-full bg-line" />
       <div className="mt-5 flex gap-1 border-b border-line pb-2" aria-hidden="true">
         {[16, 12, 16, 18, 12].map((w, i) => (
           <span key={i} className="skeleton h-6 rounded-md" style={{ width: `${w * 0.25}rem` }} />

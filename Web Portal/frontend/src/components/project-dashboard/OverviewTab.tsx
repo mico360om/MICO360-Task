@@ -79,6 +79,8 @@ export function OverviewTab(p: OverviewProps) {
   const next = p.meetings?.stats.nextMeetingId ? p.meetings.meetings.find((m) => m.id === p.meetings!.stats.nextMeetingId) ?? null : null;
   const live = p.meetings?.meetings.find((m) => m.phase === 'ongoing') ?? null;
   const focus = live ?? next;
+  // Nothing planned: the latest meeting held, so "No meeting planned" isn't all it says.
+  const lastHeld = focus ? null : [...(p.meetings?.meetings ?? [])].filter((m) => m.phase === 'completed').sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt))[0] ?? null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -132,7 +134,8 @@ export function OverviewTab(p: OverviewProps) {
           </div>
         </SectionCard>
 
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-4">
+        {/* Each card is as tall as its own list: an empty one doesn't stretch beside a long one. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] items-start gap-4">
           <SectionCard id="pd-milestones" title="Milestones" action={marks.length ? <LinkButton onClick={() => p.onShow('tasks', 'milestones')}>All {marks.length}</LinkButton> : null}>
             {!p.statsReady ? (
               <div className="skeleton h-16 rounded-lg" />
@@ -238,7 +241,16 @@ export function OverviewTab(p: OverviewProps) {
               </p>
             </div>
           ) : (
-            <EmptyNote>No meeting planned.</EmptyNote>
+            <EmptyNote>
+              No meeting planned.
+              {lastHeld ? (
+                <>
+                  {' '}The last one was{' '}
+                  <Link to={`/meetings/${lastHeld.id}`} className="font-medium text-ink underline decoration-ink-3 underline-offset-2 hover:text-brand"><bdi>{lastHeld.title}</bdi></Link>
+                  , {formatMeetingDay(lastHeld.startAt, lastHeld.timeZone || timeZone)}.
+                </>
+              ) : null}
+            </EmptyNote>
           )}
           {p.meetings ? (
             <p className="mt-3 border-t border-line pt-3 text-xs text-ink-2">

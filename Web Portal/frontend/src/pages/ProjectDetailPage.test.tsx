@@ -126,6 +126,18 @@ describe('ProjectDetailPage: the dashboard', () => {
     expect(within(next).getByText(/1 upcoming · 1 held · 1 open action item/)).toBeInTheDocument();
   });
 
+  it('with nothing planned, “Next meeting” says so and names the last meeting held', async () => {
+    overview = {
+      ...overview,
+      meetings: (overview.meetings as Array<{ id: string }>).filter((m) => m.id !== 'weekly'),
+      stats: { ...(overview.stats as object), upcoming: 0, nextMeetingId: null },
+    };
+    renderPage();
+    const next = await screen.findByRole('region', { name: 'Next meeting' });
+    expect(await within(next).findByText(/No meeting planned\. The last one was/)).toBeInTheDocument();
+    expect(within(next).getByRole('link', { name: 'Kick-off' })).toHaveAttribute('href', '/meetings/kick');
+  });
+
   it('has an Inspections tab, where the team starts one', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('tab', { name: 'Inspections' }));
@@ -170,6 +182,18 @@ describe('ProjectDetailPage: the dashboard', () => {
     expect(within(screen.getByRole('region', { name: 'Decisions' })).getByText('Go live on 1 Nov')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Action items' })).getByText('Book the venue')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Repeating meetings' })).getByText(/Repeats every week/)).toBeInTheDocument();
+  });
+
+  it('with nothing coming up, the Meetings tab says so in a box and offers the held ones', async () => {
+    overview = {
+      ...overview,
+      meetings: (overview.meetings as Array<{ id: string }>).filter((m) => m.id !== 'weekly'),
+      stats: { ...(overview.stats as object), upcoming: 0, nextMeetingId: null },
+    };
+    renderPage('/projects/p1?tab=meetings');
+    expect(await screen.findByText('No upcoming meetings.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show held (1)' }));
+    expect(within(screen.getByRole('list', { name: 'Meetings' })).getByRole('link', { name: 'Kick-off' })).toBeInTheDocument();
   });
 
   it('lists the next dozen meetings of a busy project, the rest on request', async () => {
