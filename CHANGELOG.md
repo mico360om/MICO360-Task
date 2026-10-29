@@ -14,6 +14,42 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Tablets: the menu is a slim rail of icons (each item its own icon, with its name on hover), so
+  pages get the width of the screen. The full menu returns from 1024px wide; phones keep the ☰ menu.
+- Wide screens: reading pages stay at most about 1680px wide and centred, with the top bar and
+  footer on the same edges. The Board, Calendar, Timeline, Workload and Chat still use the full
+  width.
+- Kanban Board: the board fits the window and each column scrolls on its own under a header that
+  stays in view; long column names wrap and show in full on hover.
+- Phones: My Tasks keeps its filters behind one Filters button that shows how many are in use;
+  project numbers sit in one compact strip; Reports, Audit Logs and User Management lay out their
+  filters and tables to fit; the meeting form, agenda, action items and ⋯ menus stay on screen.
+- Fingers: buttons, fields, tick boxes, switches and menu items are at least 44px on phones and
+  tablets everywhere, including the task panel, task form, board cards, meetings and inspections.
+- Pages no longer jump while they load (the project page most of all), and page titles keep their
+  whole width beside their buttons instead of being squeezed.
+- Small laptops: the meeting page gives the agenda, notes and action items the full width; long
+  meeting titles keep their room on tablets.
+- Arabic and English lines side by side keep their own direction in meeting minutes, action items,
+  activity and the client page.
+- The sign-in pages show the MICO360 logo in the right colours in dark mode; Forgot / Reset
+  password sit in the sign-in card.
+- Overlapping profile pictures no longer show each other's initials; the Dashboard's completion
+  bars are drawn against 100%.
+
+### Bug fixes
+- In New project and New task, pressing Tab from an open people list now moves to the next field
+  (it got lost in newer Chrome).
+- The client page accepts a pasted sign-in code with spaces or a line break around it (it kept only
+  the first two digits).
+- An inspection finished on another device now shows the finished report's own answers on the
+  phone that was offline, so its counts and the failed items to turn into tasks are right.
+- Audit Logs: the module filter lists every module in the log, not only those on the rows loaded so
+  far.
+- A task opened from the Board or the Dashboard is now in the page address, so it stays open after
+  a reload and the link can be shared.
+
 ## [1.18.0] - 2026-10-28
 
 ### New features
