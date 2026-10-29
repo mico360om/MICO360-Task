@@ -38,7 +38,9 @@ export function Avatar({ name, size = 'md', src }: AvatarProps) {
     <span
       title={name}
       aria-label={name}
-      className={`inline-flex flex-none items-center justify-center rounded-full border border-surface bg-brand/10 font-semibold text-brand ${SIZE[size]}`}
+      // The brand tint over a solid card-coloured backing: it looks the same on a card, but avatars
+      // stacked over each other no longer show the letters behind through the tint.
+      className={`inline-flex flex-none items-center justify-center rounded-full border border-surface bg-surface bg-[linear-gradient(rgb(var(--c-brand)/0.1),rgb(var(--c-brand)/0.1))] font-semibold text-brand ${SIZE[size]}`}
     >
       {initials}
     </span>
