@@ -264,29 +264,30 @@ export function ReportsPage() {
           Couldn’t load reports (admin only). <button className="font-semibold underline" onClick={() => { projectsQ.refetch(); statusQ.refetch(); workloadQ.refetch(); completionQ.refetch(); }}>Retry</button>
         </p>
       ) : isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-24 rounded-2xl" />)}
         </div>
       ) : (
         <div className="flex flex-col gap-5">
           {/* Filters */}
-          <div className="card flex flex-wrap items-center gap-2 p-2.5">
-            <span className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
-            <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} /></div>
-            <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by team member" value={teamFilter} onChange={setTeamFilter} options={teamOptions} /></div>
+          {/* On a phone the two filters sit side by side under their label; one wrapping line from sm up. */}
+          <div className="card grid grid-cols-2 items-center gap-2 p-2.5 sm:flex sm:flex-wrap">
+            <span className="col-span-2 px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
+            <div className="min-w-0 sm:w-44"><SearchableSelect ariaLabel="Filter by project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} /></div>
+            <div className="min-w-0 sm:w-44"><SearchableSelect ariaLabel="Filter by team member" value={teamFilter} onChange={setTeamFilter} options={teamOptions} /></div>
             {filtersActive ? (
-              <button onClick={() => { setProjectFilter(''); setTeamFilter(''); }} className="rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
+              <button type="button" onClick={() => { setProjectFilter(''); setTeamFilter(''); }} className="justify-self-start rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
             ) : null}
             {filtersActive ? (
-              <span dir="auto" className="ml-auto text-xs text-ink-3">
+              <span dir="auto" className="text-xs text-ink-3 max-sm:col-span-2 sm:ml-auto">
                 Showing {projectFilter ? projectLabel(projectFilter) : 'all projects'}
                 {teamFilter ? ` · ${teamLabel(teamFilter)}’s tasks` : ''} — charts, tiles and exports
               </span>
             ) : null}
           </div>
 
-          {/* Summary tiles */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Summary tiles: two to a row on a phone, four on a wide screen (as on Management). */}
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatTile label="Total tasks" value={totals.total} tone="brand" hint={`${rows.length} project${rows.length === 1 ? '' : 's'}`} />
             <StatTile label="Completed" value={totals.completed} tone="success" hint={`${completionPct}% completion`} />
             <StatTile label="Overdue" value={totals.overdue} tone="danger" hint={totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : '—'} />

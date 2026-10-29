@@ -62,10 +62,32 @@ describe('MyActionItemsPage', () => {
     expect(screen.queryByText(/nothing on your plate/i)).not.toBeInTheDocument();
   });
 
-  it('keeps Arabic descriptions right-to-left (ARB-02)', async () => {
+  it('keeps Arabic descriptions right-to-left (ARB-02), isolated inline (bdi) so they stay beside their status row', async () => {
     routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ description: 'مراجعة العقد' })] }) : undefined);
     renderIt(<MyActionItemsPage />);
-    expect((await screen.findByText('مراجعة العقد')).getAttribute('dir')).toBe('auto');
+    const text = await screen.findByText('مراجعة العقد');
+    // <bdi> takes the text's own direction (right-to-left here) without moving it to the other side.
+    expect(text.tagName).toBe('BDI');
+    expect(text.closest('[dir="auto"]')).toBeNull();
+  });
+
+  it('on a phone lets the status picker drop under the item instead of squeezing it; a long meeting name shows in full on hover', async () => {
+    const long = 'Reliability review — Quarterly cross-department infrastructure reliability review and remediation planning';
+    routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ meetingId: 'm1', description: 'Book the room' })] }) : u.endsWith('/meetings') ? json({ data: [{ id: 'm1', title: long }] }) : undefined);
+    renderIt(<MyActionItemsPage />);
+    const link = await screen.findByRole('link', { name: new RegExp(long) });
+    expect(link).toHaveAttribute('title', long);
+    const words = screen.getByText('Book the room').closest('p')!.parentElement!;
+    expect(words.className).toMatch(/flex-\[1_1_16rem\]/);
+    expect(words.parentElement!.className).toMatch(/flex-wrap/);
+  });
+
+  it('marks the meeting link with a drawn icon, not a text arrow', async () => {
+    routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ meetingId: 'm1' })] }) : u.endsWith('/meetings') ? json({ data: [{ id: 'm1', title: 'Weekly review' }] }) : undefined);
+    renderIt(<MyActionItemsPage />);
+    const link = await screen.findByRole('link', { name: /Weekly review|meeting/ });
+    expect(link.textContent).not.toContain('↗');
+    expect(link.querySelector('svg')).not.toBeNull();
   });
 });
 

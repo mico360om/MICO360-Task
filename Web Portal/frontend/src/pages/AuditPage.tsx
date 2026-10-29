@@ -166,20 +166,21 @@ export function AuditPage() {
     <div>
       <PageHeader eyebrow="Admin" title="Audit Logs" subtitle="Security-relevant events across the workspace — who did what, from where, and what changed." />
 
-      <div className="card mb-4 flex flex-wrap items-end gap-2 p-2.5">
-        <span className="self-center px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
-        <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by module" value={boxes.module} onChange={(v) => set({ module: v })} options={moduleOptions} /></div>
-        <div className="w-48 max-w-full"><SearchableSelect ariaLabel="Filter by user" value={boxes.userId} onChange={(v) => set({ userId: v })} options={userOptions} /></div>
-        <label className="flex flex-col gap-0.5 text-[11px] text-ink-2">
+      {/* On a phone two to a row (module and person, from and to); one wrapping line from sm up. */}
+      <div className="card mb-4 grid grid-cols-2 items-end gap-2 p-2.5 sm:flex sm:flex-wrap">
+        <span className="col-span-2 self-center px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
+        <div className="min-w-0 sm:w-44"><SearchableSelect ariaLabel="Filter by module" value={boxes.module} onChange={(v) => set({ module: v })} options={moduleOptions} /></div>
+        <div className="min-w-0 sm:w-48"><SearchableSelect ariaLabel="Filter by user" value={boxes.userId} onChange={(v) => set({ userId: v })} options={userOptions} /></div>
+        <label className="flex min-w-0 flex-col gap-0.5 text-[11px] text-ink-2">
           From
-          <input type="date" aria-label="From date" value={boxes.from} max={to || undefined} aria-invalid={backwards || undefined} onChange={(e) => set({ from: e.target.value })} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand" />
+          <input type="date" aria-label="From date" value={boxes.from} max={to || undefined} aria-invalid={backwards || undefined} onChange={(e) => set({ from: e.target.value })} className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand sm:w-auto" />
         </label>
-        <label className="flex flex-col gap-0.5 text-[11px] text-ink-2">
+        <label className="flex min-w-0 flex-col gap-0.5 text-[11px] text-ink-2">
           To
-          <input type="date" aria-label="To date" value={boxes.to} min={from || undefined} aria-invalid={backwards || undefined} onChange={(e) => set({ to: e.target.value })} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand" />
+          <input type="date" aria-label="To date" value={boxes.to} min={from || undefined} aria-invalid={backwards || undefined} onChange={(e) => set({ to: e.target.value })} className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-brand sm:w-auto" />
         </label>
         {filtersActive ? (
-          <button onClick={() => setFilters(NO_FILTERS)} className="self-center rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
+          <button type="button" onClick={() => setFilters(NO_FILTERS)} className="col-span-2 self-center justify-self-start rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
         ) : null}
       </div>
 
@@ -200,7 +201,9 @@ export function AuditPage() {
             description={filtersActive ? 'Try a wider date range or clear the filters.' : 'Security-relevant actions across the workspace will be logged here.'}
           />
         ) : (
-          <table className="w-full text-sm">
+          // At least 56rem: on a narrow screen the table scrolls sideways (the region above) instead of
+          // squeezing "Changes" into a tall thin column.
+          <table className="w-full min-w-[56rem] text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
                 <th className="p-3">When</th>
@@ -219,7 +222,7 @@ export function AuditPage() {
                   <tr key={a.id} className="border-b border-line align-top last:border-0">
                     <td className="whitespace-nowrap p-3 text-ink-2">{a.createdAt ? when(a.createdAt) : '—'}</td>
                     <td dir="auto" className="p-3 font-medium text-ink">{nameOf(a.userId)}</td>
-                    <td className="p-3"><Badge tone={actionTone(a.action)} dot>{a.action}</Badge></td>
+                    <td className="p-3"><Badge tone={actionTone(a.action)} dot className="whitespace-nowrap">{a.action}</Badge></td>
                     <td className="p-3 text-ink-2">{a.module}</td>
                     <td className="p-3 font-mono text-xs text-ink-2">{a.entityId ?? '—'}</td>
                     <td className="p-3 text-xs text-ink-2">

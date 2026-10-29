@@ -315,23 +315,27 @@ function FinalView({
         <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success">Final</span>
         Approved by {minutes.approvedBy?.name ?? 'someone'}{when ? ` on ${when}` : ''}.
       </p>
-      {content.summary ? <p dir="auto" className="whitespace-pre-line text-sm text-ink">{content.summary}</p> : null}
-      {content.discussion.length ? (
-        <div>
-          <h3 className="text-sm font-semibold text-ink">Discussion</h3>
-          <dl className="mt-1 space-y-2">
-            {content.discussion.map((d, i) => (
-              <div key={i}>
-                <dt dir="auto" className="text-sm font-medium text-ink">{d.topic}</dt>
-                <dd dir="auto" className="whitespace-pre-line text-sm text-ink-2">{d.text}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
-      {list('Decisions', content.decisions)}
-      {list('Risks & open issues', content.risks)}
-      {list('Next steps', content.nextSteps)}
+      {/* A readable measure on a wide screen: about 75 characters a line (ch of the text's own size). */}
+      <div className="flex max-w-[75ch] flex-col gap-4 text-sm">
+        {/* Each line takes its own direction, so English and Arabic lines sit side by side (as in the notes). */}
+        {content.summary ? <p className="whitespace-pre-line text-start text-sm text-ink [unicode-bidi:plaintext]">{content.summary}</p> : null}
+        {content.discussion.length ? (
+          <div>
+            <h3 className="text-sm font-semibold text-ink">Discussion</h3>
+            <dl className="mt-1 space-y-2">
+              {content.discussion.map((d, i) => (
+                <div key={i}>
+                  <dt dir="auto" className="text-sm font-medium text-ink">{d.topic}</dt>
+                  <dd className="whitespace-pre-line text-start text-sm text-ink-2 [unicode-bidi:plaintext]">{d.text}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
+        {list('Decisions', content.decisions)}
+        {list('Risks & open issues', content.risks)}
+        {list('Next steps', content.nextSteps)}
+      </div>
       <div className="flex flex-wrap gap-2 border-t border-line pt-3">
         <Button type="button" size="sm" variant="secondary" loading={downloading} onClick={onDownload}>Download minutes (PDF)</Button>
         {canEdit ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onReopen}>Reopen</Button> : null}

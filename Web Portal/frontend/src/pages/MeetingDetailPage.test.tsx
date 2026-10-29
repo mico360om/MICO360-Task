@@ -129,6 +129,25 @@ describe('MeetingDetailPage — header and actions', () => {
     expect(within(header).getByRole('link', { name: /join online/i })).toBeInTheDocument();
   });
 
+  it('gives a long title the full width on a tablet: the next-step button and ⋯ sit under it below lg (1024px)', async () => {
+    renderPage();
+    const title = await screen.findByRole('heading', { level: 1, name: 'Weekly sync' });
+    const row = title.parentElement!.parentElement!;
+    expect(row.className).toMatch(/lg:flex-row/);
+    expect(row.className).not.toMatch(/(^|\s)md:flex-row/);
+  });
+
+  it('keeps the side column for wide screens (xl): on a small laptop the agenda, notes and action items get the full width, with About and People side by side under them', async () => {
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Weekly sync' });
+    const aside = screen.getByRole('complementary', { name: 'Meeting information' });
+    const layout = aside.parentElement!;
+    expect(layout.className).toMatch(/xl:grid-cols-\[minmax\(0,1fr\)_22rem\]/);
+    expect(layout.className).not.toMatch(/(^|\s)lg:grid-cols-/);
+    expect(aside.className).toMatch(/lg:grid-cols-2/);
+    expect(aside.className).toMatch(/xl:flex/);
+  });
+
   it('has a Final MOM card; the one minutes PDF carries it once final (no second PDF)', async () => {
     const done = { summary: 'Done.', discussion: [], decisions: [], risks: [], nextSteps: [] };
     override = (u, method) =>

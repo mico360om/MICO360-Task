@@ -147,3 +147,20 @@ describe('summarizeChange', () => {
     expect(lines[3]).toBe('+3 more');
   });
 });
+
+describe('AuditPage layout', () => {
+  it('on a phone sets the filters two to a row (module and person, from and to) instead of a ragged wrap', async () => {
+    renderPage();
+    const bar = (await screen.findByRole('button', { name: /filter by module/i })).closest('.card')!;
+    expect(bar.className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
+    expect(bar.className).toMatch(/sm:flex/);
+  });
+
+  it('keeps the columns readable, scrolling sideways instead of squeezing them, and an action on one line', async () => {
+    pages = () => [entry({ action: 'INSPECTION-FORM.CREATED' })];
+    renderPage();
+    const action = await screen.findByText('INSPECTION-FORM.CREATED');
+    expect(action.closest('table')!.className).toMatch(/min-w-\[/);
+    expect(action.closest('[data-tone]')!.className).toMatch(/whitespace-nowrap/);
+  });
+});

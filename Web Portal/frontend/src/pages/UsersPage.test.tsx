@@ -47,6 +47,16 @@ describe('UsersPage (admin management)', () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/status') && c.body?.status === 'SUSPENDED')).toBe(true));
   });
 
+  it('keeps whose row it is in view while the table scrolls sideways on a phone, tablet or small laptop, and says it scrolls', async () => {
+    renderPage();
+    const name = await screen.findByText('omar');
+    // The table is wider than the page below xl (1280px), not only on a phone.
+    expect(name.className).toMatch(/max-xl:sticky/);
+    expect(screen.getByText(/swipe the table sideways/i).className).toMatch(/xl:hidden/);
+    const boxes = screen.queryAllByRole('checkbox');
+    for (const box of boxes) expect(box.closest('label')).not.toBeNull();
+  });
+
   it('names each row’s buttons after the user, so a screen reader does not hear "Edit, Edit, Edit"', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());

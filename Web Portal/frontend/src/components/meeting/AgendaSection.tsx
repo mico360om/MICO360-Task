@@ -141,7 +141,10 @@ export function AgendaSection({
     <Section id="agenda" title="Agenda" count={items.length || undefined} aside={total}>
       <SectionError message={opError} onDismiss={() => setOpError(null)} />
       {agendaQ.isLoading ? (
-        <div className="skeleton h-16 w-full" />
+        // About three topics' height, so the page below doesn't jump as far when they arrive.
+        <div aria-hidden="true" className="flex flex-col gap-2">
+          {[0, 1, 2].map((i) => <div key={i} className="skeleton h-12 w-full" />)}
+        </div>
       ) : agendaQ.isError ? (
         <LoadError what="the agenda" onRetry={() => void agendaQ.refetch()} />
       ) : items.length === 0 ? (
@@ -154,18 +157,23 @@ export function AgendaSection({
                 <AgendaEditRow meetingId={meetingId} item={item} directory={directory} onDone={() => { setEditing(null); void refresh(); }} />
               </li>
             ) : (
-              <li key={item.id} className="flex items-center gap-2.5 py-2">
-                <span className="w-5 shrink-0 text-right text-xs tabular-nums text-ink-3">{index + 1}</span>
-                <input
-                  type="checkbox"
-                  checked={item.completed}
-                  disabled={!canEdit}
-                  onChange={(e) => toggleMut.mutate({ item, completed: e.target.checked })}
-                  aria-label={`Covered: "${item.title}"`}
-                  className="h-4 w-4 shrink-0 accent-[color:rgb(var(--c-brand))]"
-                />
-                <div className="min-w-0 flex-1">
-                  <span title={item.title} className={`block truncate text-sm font-medium ${item.completed ? 'text-ink-3 line-through' : 'text-ink'}`}>
+              // The topic wraps (never cut short); on a narrow screen the buttons move under it, to the end.
+              <li key={item.id} className="flex items-start gap-1.5 py-2">
+                <span className="mt-2.5 w-5 shrink-0 text-right text-xs tabular-nums text-ink-3">{index + 1}</span>
+                {/* The tick box's label is the finger-sized target around it (the box itself stays 16px). */}
+                <label className={`-my-0.5 grid h-10 w-8 shrink-0 place-items-center ${canEdit ? 'cursor-pointer' : ''} [@media(pointer:coarse)]:w-11`}>
+                  <input
+                    type="checkbox"
+                    checked={item.completed}
+                    disabled={!canEdit}
+                    onChange={(e) => toggleMut.mutate({ item, completed: e.target.checked })}
+                    aria-label={`Covered: "${item.title}"`}
+                    className="h-4 w-4 accent-[color:rgb(var(--c-brand))]"
+                  />
+                </label>
+                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-0.5">
+                <div className="min-w-0 flex-[1_1_12rem] pt-2">
+                  <span className={`block text-sm font-medium leading-snug [overflow-wrap:anywhere] ${item.completed ? 'text-ink-3 line-through' : 'text-ink'}`}>
                     <bdi>{item.title}</bdi>
                   </span>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
@@ -174,13 +182,14 @@ export function AgendaSection({
                   </div>
                 </div>
                 {canEdit ? (
-                  <div className="flex shrink-0 items-center">
+                  <div className="ms-auto flex shrink-0 items-center">
                     <button type="button" onClick={() => move(index, -1)} disabled={index === 0 || reorderMut.isPending} aria-label={`Move "${item.title}" up`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink disabled:opacity-30 sm:h-8 sm:w-8">{Icon.up}</button>
                     <button type="button" onClick={() => move(index, 1)} disabled={index === items.length - 1 || reorderMut.isPending} aria-label={`Move "${item.title}" down`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink disabled:opacity-30 sm:h-8 sm:w-8">{Icon.down}</button>
                     <button type="button" onClick={() => setEditing(item.id)} aria-label={`Edit "${item.title}"`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink sm:h-8 sm:w-8">{Icon.edit}</button>
                     <ConfirmRemoveButton label={`Remove "${item.title}"`} onConfirm={() => removeMut.mutate(item.id)} disabled={removeMut.isPending} />
                   </div>
                 ) : null}
+                </div>
               </li>
             ),
           )}

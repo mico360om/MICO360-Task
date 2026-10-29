@@ -300,7 +300,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
           {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
-            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
+            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
               <h2 className="mb-1 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
               {error ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
@@ -326,7 +326,8 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 <FieldLabel htmlFor="mf-title" required>Title</FieldLabel>
                 <input id="mf-title" ref={titleRef} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly project sync" className={fieldClass(false)} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              {/* Side by side from sm up; on a phone each date-time box takes the row, so its time shows in full. */}
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="mf-start" required>Starts</FieldLabel>
                   <input
@@ -349,7 +350,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                     className={fieldClass(false)}
                   />
                 </div>
-                <p id="mf-tz" className="col-span-2 -mt-1 text-xs text-ink-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
+                <p id="mf-tz" className="-mt-1 text-xs text-ink-2 sm:col-span-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
               </div>
               <FreeTimes userIds={freeTimeUsers} startAt={startIso} minutes={lengthMinutes} rule={seriesId ? null : rule} excludeMeetingId={meeting?.id} onPick={pickTime} />
               <div className="flex flex-col gap-1.5">
@@ -388,7 +389,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
                 <p className="text-xs text-ink-2">Optional — leave blank for a standalone meeting.</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="mf-loc">Location</FieldLabel>
                   <input id="mf-loc" dir="auto" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room 2 / Office" className={fieldClass(false)} />
@@ -410,7 +411,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                     className={fieldClass(!!linkError)}
                   />
                 </div>
-                {linkError ? <p id="mf-link-error" role="alert" className="col-span-2 -mt-1 text-xs font-medium text-danger">{linkError}</p> : null}
+                {linkError ? <p id="mf-link-error" role="alert" className="-mt-1 text-xs font-medium text-danger sm:col-span-2">{linkError}</p> : null}
               </div>
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Status</FieldLabel>
@@ -456,7 +457,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 </>
               ) : null}
             </div>
-            <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
+            <div className="flex flex-none items-center gap-2 border-t border-line px-4 py-3 sm:px-6">
               <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
                 Cancel
               </button>

@@ -48,6 +48,17 @@ describe('Share with client', () => {
     expect(within(screen.getByRole('listitem', { name: 'Bilal' })).getByText('Not viewed yet')).toBeInTheDocument();
   });
 
+  it('keeps a client’s name and address readable: Arabic names isolated, cut text in full on hover, buttons below on a narrow screen', async () => {
+    api.list.mockResolvedValue([{ ...FATMA, name: 'فاطمة الحارثي', email: 'fatma.al-harthy@a-very-long-client-company-domain.example' }]);
+    show();
+    const name = await screen.findByText('فاطمة الحارثي');
+    expect(name.tagName).toBe('BDI');
+    expect(name.closest('[title]')).toHaveAttribute('title', 'فاطمة الحارثي');
+    expect(screen.getByText('fatma.al-harthy@a-very-long-client-company-domain.example')).toHaveAttribute('title', 'fatma.al-harthy@a-very-long-client-company-domain.example');
+    // The words ask for at least 12rem, so Resend and Remove move under them instead of squeezing them.
+    expect(name.closest('li')!.firstElementChild!.className).toMatch(/flex-\[1_1_12rem\]/);
+  });
+
   it('shares with a name and an address, and says the invitation went', async () => {
     const user = userEvent.setup();
     api.add.mockResolvedValue({ ...BILAL, id: 's3', name: 'Huda', email: 'huda@client.example' });

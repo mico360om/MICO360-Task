@@ -342,7 +342,8 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
                 ref={listRef}
                 aria-label="Everyone and their daily emails"
                 aria-busy={q.isPlaceholderData || undefined}
-                className={`flex flex-col gap-3 ${q.isPlaceholderData ? 'opacity-60' : ''}`}
+                // Two to a row on a wide screen: ten people made the page about 3,600px tall at 1440.
+                className={`grid gap-3 xl:grid-cols-2 ${q.isPlaceholderData ? 'opacity-60' : ''}`}
               >
                 {shown.map((p) => (
                   <PersonCard

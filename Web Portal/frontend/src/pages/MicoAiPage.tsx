@@ -554,7 +554,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       <div
         ref={frameRef}
         style={frameOffset !== null ? ({ '--chat-top': `${frameOffset}px` } as React.CSSProperties) : undefined}
-        className="chat-frame chat-frame-keyboard grid overflow-hidden bg-surface [--chat-top:57px] lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]"
+        className="chat-frame chat-frame-keyboard grid overflow-hidden bg-surface [--chat-top:56px] lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]"
       >
         <aside className="hidden min-h-0 border-e border-line bg-ground/60 lg:flex lg:flex-col">{list}</aside>
 

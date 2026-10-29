@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useMenu } from '../task-drawer/menus';
 import { ShortcutHint, useShortcutSettings } from '../shortcuts/ShortcutProvider';
 import { SHORTCUTS, ariaKeyshortcuts, type ShortcutAction } from '../../lib/shortcuts';
@@ -21,6 +21,8 @@ const DOTS = (
   </svg>
 );
 
+const ALIGN = { right: 'right-0', left: 'left-0', 'start-below-lg': 'left-0 lg:left-auto lg:right-0' } as const;
+
 /**
  * A "⋯" (or labelled) button with a popup menu. Opening it focuses the first item; ↑/↓, Home and
  * End move between items; Escape closes it and returns to the button. Destructive items sit at the
@@ -39,7 +41,9 @@ export function ActionMenu({
   items: ActionMenuItem[];
   /** Visible button content; defaults to "⋯". */
   children?: ReactNode;
-  align?: 'left' | 'right';
+  /** Which edge of the button the menu lines up with. 'start-below-lg': the left edge on a phone or
+   *  tablet (where the button sits at the left under a title), the right edge from lg up. */
+  align?: 'left' | 'right' | 'start-below-lg';
   className?: string;
   buttonClassName?: string;
 }) {
@@ -48,6 +52,20 @@ export function ActionMenu({
   const ariaFor = (a?: ShortcutAction) =>
     a && (singleKeys || !SHORTCUTS.find((s) => s.action === a)?.single) ? ariaKeyshortcuts(a, platform) : undefined;
   const menuRef = useRef<HTMLDivElement>(null);
+  // How far the open menu moves sideways to stay on screen (8px from either edge): a button near an
+  // edge of a narrow phone would otherwise open it partly off the screen.
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open) {
+      setShift(0);
+      return;
+    }
+    const r = menuRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const vw = document.documentElement.clientWidth;
+    if (r.right > vw - 8) setShift(Math.max(8 - r.left, vw - 8 - r.right));
+    else if (r.left < 8) setShift(8 - r.left);
+  }, [open]);
 
   useEffect(() => {
     if (open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
@@ -118,7 +136,8 @@ export function ActionMenu({
           role="menu"
           aria-label={label}
           onKeyDown={onKeyDown}
-          className={`absolute top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift ${align === 'right' ? 'right-0' : 'left-0'}`}
+          style={shift ? { transform: `translateX(${shift}px)` } : undefined}
+          className={`absolute top-full z-30 mt-1 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift ${ALIGN[align]}`}
         >
           {safe.map(item)}
           {danger.length > 0 && safe.length > 0 ? <div role="separator" className="my-1 border-t border-line" /> : null}

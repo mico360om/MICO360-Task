@@ -81,6 +81,9 @@ const EnvelopeIcon = () => (
   </svg>
 );
 
+/** A tick box's finger-sized target on a touch screen: its label, 44px, in the cell's padding (the box stays 16px). */
+const TICK_TARGET = 'grid cursor-pointer place-items-center [@media(pointer:coarse)]:-m-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
+
 export function UsersPage() {
   const qc = useQueryClient();
   const meId = useAuthStore((s) => s.user?.id);
@@ -266,8 +269,8 @@ export function UsersPage() {
         ) : null}
       </div>
 
-      {/* On a phone the table is wider than the screen: the names stay put while the rest scrolls. */}
-      <p className="mb-2 text-xs text-ink-2 sm:hidden">Swipe the table sideways to see status, last sign-in and actions.</p>
+      {/* Below xl (a phone, a tablet, a small laptop) the table is wider than the page: the names stay put while the rest scrolls. */}
+      <p className="mb-2 text-xs text-ink-2 xl:hidden">Swipe the table sideways to see status, last sign-in and actions.</p>
       <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Users">
         {q.isLoading ? (
           <p className="p-4 text-ink-2">Loading…</p>
@@ -283,11 +286,13 @@ export function UsersPage() {
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
                 {emailEnabled ? (
-                  <th className="w-10 p-3 max-sm:sticky max-sm:z-[1] max-sm:bg-surface max-sm:start-0">
-                    <input type="checkbox" checked={allShownSelected} onChange={toggleShown} aria-label="Select everyone shown" className="h-4 w-4 accent-brand" />
+                  <th className="w-10 p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0">
+                    <label className={TICK_TARGET}>
+                      <input type="checkbox" checked={allShownSelected} onChange={toggleShown} aria-label="Select everyone shown" className="h-4 w-4 accent-brand" />
+                    </label>
                   </th>
                 ) : null}
-                <th className={`p-3 max-sm:sticky max-sm:z-[1] max-sm:bg-surface max-sm:border-e max-sm:border-line ${emailEnabled ? 'max-sm:start-10' : 'max-sm:start-0'}`}>User</th>
+                <th className={`p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>User</th>
                 <th className="p-3">Email</th>
                 <th className="p-3">Roles</th>
                 <th className="p-3">Status</th>
@@ -302,11 +307,13 @@ export function UsersPage() {
                 return (
                   <tr key={u.id} className="border-b border-line last:border-0">
                     {emailEnabled ? (
-                      <td className="p-3 max-sm:sticky max-sm:z-[1] max-sm:bg-surface max-sm:start-0">
-                        <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)} aria-label={`Select ${u.username}`} className="h-4 w-4 accent-brand" />
+                      <td className="p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0">
+                        <label className={TICK_TARGET}>
+                          <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)} aria-label={`Select ${u.username}`} className="h-4 w-4 accent-brand" />
+                        </label>
                       </td>
                     ) : null}
-                    <td className={`p-3 font-medium text-ink max-sm:sticky max-sm:z-[1] max-sm:bg-surface max-sm:border-e max-sm:border-line ${emailEnabled ? 'max-sm:start-10' : 'max-sm:start-0'}`}>{u.username}</td>
+                    <td className={`p-3 font-medium text-ink max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>{u.username}</td>
                     <td className="p-3 text-ink-2">{u.email}</td>
                     <td className="p-3 text-ink-2">{u.roles.join(', ') || '—'}</td>
                     <td className="p-3">

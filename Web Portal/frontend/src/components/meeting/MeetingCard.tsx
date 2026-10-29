@@ -85,10 +85,11 @@ export function MeetingCard({
               </>
             ) : null}
           </p>
-          <p className="mt-1 flex min-w-0 items-center gap-x-3 text-xs">
+          {/* The organizer moves under the project when both don't fit, instead of shrinking to a letter. */}
+          <p className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
             <MeetingProject project={project} />
             {organizer ? (
-              <span className="inline-flex min-w-0 items-center gap-1 text-ink-3" title="Organizer">
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-ink-3" title="Organizer">
                 <span className="flex-none">{Icon.user}</span>
                 <span className="sr-only">Organizer: </span>
                 <span className="truncate"><bdi>{organizer}</bdi></span>
