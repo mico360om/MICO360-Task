@@ -73,4 +73,20 @@ describe('Breadcrumbs', () => {
       delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
     }
   });
+
+  it('also when the crumb is an element (a meeting title isolated in <bdi>)', () => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', { configurable: true, get() { return 400; } });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 120; } });
+    try {
+      render(
+        <MemoryRouter>
+          <Breadcrumbs items={[{ label: 'Meetings', to: '/meetings' }, { label: <bdi>اجتماع المراجعة الأسبوعي</bdi> }]} />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('اجتماع المراجعة الأسبوعي').closest('[aria-current="page"]')).toHaveAttribute('title', 'اجتماع المراجعة الأسبوعي');
+    } finally {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollWidth;
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+    }
+  });
 });

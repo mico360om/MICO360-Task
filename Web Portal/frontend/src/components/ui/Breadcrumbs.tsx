@@ -49,7 +49,8 @@ export function Breadcrumbs({ items, children, className = '' }: { items: Crumb[
 function CurrentCrumb({ label }: { label: ReactNode }) {
   const [ref, cut] = useTruncated<HTMLSpanElement>(label);
   return (
-    <span ref={ref} aria-current="page" title={cut && typeof label === 'string' ? label : undefined} className="truncate text-ink-2">
+    // The words themselves (a label may be an element, e.g. <bdi> around a meeting's title).
+    <span ref={ref} aria-current="page" title={cut ? (typeof label === 'string' ? label : ref.current?.textContent ?? undefined) : undefined} className="truncate text-ink-2">
       {label}
     </span>
   );
