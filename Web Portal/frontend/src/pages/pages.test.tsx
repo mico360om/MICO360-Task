@@ -60,6 +60,14 @@ describe('NotificationsPage', () => {
     expect(screen.getByText('No notifications yet')).toBeInTheDocument();
   });
 
+  it('keeps the list at a readable width on a wide screen (centred, as Activity)', async () => {
+    const { container } = renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    await screen.findByText('You were assigned a task');
+    const page = container.firstElementChild as HTMLElement;
+    expect(page.className).toMatch(/max-w-4xl/);
+    expect(page.className).toMatch(/mx-auto/);
+  });
+
   it('a failed load is the shared “Couldn’t load … Retry” message', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'X', message: 'down' } }), { status: 500 })));
     renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);

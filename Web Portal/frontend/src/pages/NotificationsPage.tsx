@@ -23,7 +23,9 @@ export function NotificationsPage() {
   const noProjectsYet = useNoProjectsYet();
 
   return (
-    <div>
+    // A readable width on a wide screen, centred (as Activity and About): across 1,600px a
+    // notification's time sat a whole screen away from its words.
+    <div className="mx-auto max-w-4xl">
       <PageHeader
         eyebrow="Workspace"
         title="Notifications"
