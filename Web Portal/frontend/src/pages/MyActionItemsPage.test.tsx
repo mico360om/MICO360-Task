@@ -71,6 +71,17 @@ describe('MyActionItemsPage', () => {
     expect(text.closest('[dir="auto"]')).toBeNull();
   });
 
+  it('on a phone lets the status picker drop under the item instead of squeezing it; a long meeting name shows in full on hover', async () => {
+    const long = 'Reliability review — Quarterly cross-department infrastructure reliability review and remediation planning';
+    routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ meetingId: 'm1', description: 'Book the room' })] }) : u.endsWith('/meetings') ? json({ data: [{ id: 'm1', title: long }] }) : undefined);
+    renderIt(<MyActionItemsPage />);
+    const link = await screen.findByRole('link', { name: new RegExp(long) });
+    expect(link).toHaveAttribute('title', long);
+    const words = screen.getByText('Book the room').closest('p')!.parentElement!;
+    expect(words.className).toMatch(/flex-\[1_1_16rem\]/);
+    expect(words.parentElement!.className).toMatch(/flex-wrap/);
+  });
+
   it('marks the meeting link with a drawn icon, not a text arrow', async () => {
     routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ meetingId: 'm1' })] }) : u.endsWith('/meetings') ? json({ data: [{ id: 'm1', title: 'Weekly review' }] }) : undefined);
     renderIt(<MyActionItemsPage />);

@@ -123,17 +123,18 @@ function ActionRow({
 }) {
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   return (
-    <div className="card flex items-center gap-3 p-4">
-      <div className="min-w-0 flex-1">
+    // The words ask for 16rem: on a phone the status picker drops under them instead of squeezing them.
+    <div className="card flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
+      <div className="min-w-0 flex-[1_1_16rem]">
         {/* bdi: an Arabic description reads right-to-left but stays on the row's side, above its status. */}
         <p className={`text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{item.description}</bdi></p>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
           <Badge tone={actionStatusTone(item.status)}>{ACTION_STATUS_LABELS[item.status]}</Badge>
           {item.dueDate ? <span className={overdue ? 'font-medium text-danger' : 'text-ink-3'}>due {formatDueDate(item.dueDate, timeZone)}{overdue ? ' · overdue' : ''}</span> : null}
           {item.meetingId ? (
-            <Link to={`/meetings/${item.meetingId}`} className="tap min-w-0 gap-1 text-ink-3 hover:text-brand">
+            <Link to={`/meetings/${item.meetingId}`} title={meetingName ?? undefined} className="tap min-w-0 max-w-full gap-1 text-ink-3 hover:text-brand">
               <span className="flex-none">{Icon.calendar}</span>
-              <bdi className="min-w-0">{meetingName ?? 'meeting'}</bdi>
+              <bdi className="line-clamp-1 min-w-0">{meetingName ?? 'meeting'}</bdi>
             </Link>
           ) : null}
         </div>
@@ -142,7 +143,7 @@ function ActionRow({
         aria-label={`Status for ${item.description}`}
         value={item.status}
         onChange={(e) => onStatus(e.target.value as ActionItemStatus)}
-        className={`${fieldClass(false)} !py-1.5 text-sm`}
+        className={`${fieldClass(false)} !py-1.5 text-sm max-sm:flex-1`}
       >
         {ACTION_STATUSES.map((s) => <option key={s} value={s}>{ACTION_STATUS_LABELS[s]}</option>)}
       </select>
