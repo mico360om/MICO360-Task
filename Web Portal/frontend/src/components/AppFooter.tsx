@@ -23,7 +23,7 @@ const FRESH_FOR_MS = 30 * 1000;
  * newer web app has been deployed since this page was loaded, it says so and offers to reload, so
  * nobody keeps working on — or reading the footer of — an old copy.
  */
-export function AppFooter() {
+export function AppFooter({ frameClass = 'mx-auto w-[95%]' }: { frameClass?: string } = {}) {
   const timeZone = useCompanyTimeZone();
   const versionQ = useQuery({
     queryKey: ['app-version'],
@@ -72,7 +72,7 @@ export function AppFooter() {
     <>
       <footer
         ref={ref}
-        className="mx-auto flex w-[95%] flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 text-xs text-ink-2"
+        className={`${frameClass} flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 text-xs text-ink-2`}
       >
         <p className="min-w-0">
           <span className="whitespace-nowrap">
