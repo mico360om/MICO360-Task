@@ -123,6 +123,9 @@ model User {
   managedProjects  Project[]        @relation("ProjectManager")
   createdProjects  Project[]        @relation("ProjectCreator")
   createdTasks     Task[]           @relation("TaskCreator")
+  /// Tasks this person finished that are waiting for approval, and tasks they approved last.
+  approvalsRequested Task[]         @relation("TaskApprovalRequester")
+  approvalsGiven     Task[]         @relation("TaskApprover")
   assignments      TaskAssignee[]
   watching         TaskWatcher[]
   comments         Comment[]
@@ -195,6 +198,8 @@ model Project {
   carryForward    Boolean   @default(true)
   /// A task created in the project without a due date gets today's date (the company's calendar day).
   defaultDueToday Boolean   @default(false)
+  /// "New tasks in this project need approval": a task created in it without saying gets the tick.
+  newTasksNeedApproval Boolean @default(false)
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -286,6 +291,15 @@ model Task {
   inspectionFormId String?
   /// Where the check is done ("Rig 3"); given to the inspection when it starts.
   inspectionPlace  String? @db.VarChar(200)
+  /// Needs approval: the person who runs the project must approve it before it counts as done.
+  needsApproval         Boolean   @default(false)
+  /// Set while it waits for approval (someone who can't approve finished it): it is NOT done.
+  approvalRequestedAt   DateTime?
+  /// Who finished it (asked for approval).
+  approvalRequestedById String?
+  /// Its last approval (history; cleared when it is re-opened).
+  approvedAt            DateTime?
+  approvedById          String?
   version        Int       @default(0) // optimistic concurrency (T4.3)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -294,6 +308,8 @@ model Task {
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column       KanbanColumn     @relation(fields: [columnId], references: [id])
   createdBy    User             @relation("TaskCreator", fields: [createdById], references: [id])
+  approvalRequestedBy User?     @relation("TaskApprovalRequester", fields: [approvalRequestedById], references: [id], onDelete: SetNull)
+  approvedBy   User?            @relation("TaskApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   assignees    TaskAssignee[]
   watchers     TaskWatcher[]
   tags         TaskTag[]
@@ -321,6 +337,10 @@ model Task {
   @@index([recurrenceParentId])
   @@index([priority])
   @@index([boardDate])
+  /// The tasks waiting for approval (To approve lists, the daily email, Management).
+  @@index([approvalRequestedAt])
+  @@index([approvalRequestedById])
+  @@index([approvedById])
   @@fulltext([title, description])
   @@map("tasks")
 }
