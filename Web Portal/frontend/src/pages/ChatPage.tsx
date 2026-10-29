@@ -8,7 +8,10 @@ import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import { ApiError } from '../lib/api-client';
 import { useAuthStore } from '../stores/auth-store';
+import { Link } from 'react-router-dom';
 import { EmptyState } from '../components/ui/EmptyState';
+import { Button } from '../components/ui/Button';
+import { TOUCH_TALL } from '../lib/touch';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useChatRealtime, type ChatEventPayload } from '../lib/useChatRealtime';
 import { usePresence } from '../lib/usePresence';
@@ -747,6 +750,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
 
   const showThread = active !== null || openError !== null;
+  // No channel (no project) and no direct message yet: there is nothing to pick on the left.
+  const nothingYet = projectsQ.isSuccess && inboxQ.isSuccess && projects.length === 0 && !inbox.some((s) => s.conversation.kind === 'DIRECT');
   const waiting = pending.filter((p) => p.state === 'queued').length;
 
   return (
@@ -805,7 +810,34 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
               </div>
             ) : (
               <div className="grid h-full place-items-center">
-                <EmptyState bare title="Select a conversation" description="Pick a project channel or a direct message to start chatting." />
+                {/* Nothing yet at all: say so (there is nothing to pick) and offer the first step. */}
+                {nothingYet ? (
+                  <EmptyState
+                    bare
+                    title="No conversations yet"
+                    description={
+                      dmOptions.length
+                        ? 'Each project gets its own channel here. To talk to one person, send them a direct message.'
+                        : 'Each project gets its own channel here, and anyone on the team can message anyone directly. Start with a project.'
+                    }
+                    action={
+                      dmOptions.length ? (
+                        <Button onClick={() => setDmOpen(true)} className={TOUCH_TALL}>New message</Button>
+                      ) : (
+                        <Link to="/projects" className={`inline-flex items-center rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}>
+                          Go to Projects
+                        </Link>
+                      )
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    bare
+                    title="Select a conversation"
+                    description="Pick a project channel or a direct message to start chatting."
+                    action={dmOptions.length ? <Button variant="secondary" onClick={() => setDmOpen(true)} className={TOUCH_TALL}>New message</Button> : undefined}
+                  />
+                )}
               </div>
             )
           ) : (

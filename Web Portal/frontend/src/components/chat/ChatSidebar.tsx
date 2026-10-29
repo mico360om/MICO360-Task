@@ -242,7 +242,7 @@ export function ChatSidebar(p: ChatSidebarProps) {
                 ) : p.loadingProjects ? (
                   <li className="px-2.5 py-1 text-xs text-ink-2">Loading…</li>
                 ) : p.sections.channels.length === 0 && !searching ? (
-                  <li className="px-2.5 py-1 text-xs text-ink-2">No project channels yet.</li>
+                  <li className="px-2.5 py-1 text-xs text-ink-2">No project channels yet. Each project gets one.</li>
                 ) : (
                   rows(p.sections.channels)
                 )}
@@ -259,8 +259,14 @@ export function ChatSidebar(p: ChatSidebarProps) {
                   <li className="px-2.5 py-1 text-xs text-ink-2">Loading…</li>
                 ) : p.sections.directs.length === 0 && !searching ? (
                   <li className="px-2.5 py-1 text-xs text-ink-2">
-                    No direct messages yet.{' '}
-                    <button type="button" onClick={p.onToggleDm} className="font-semibold text-brand hover:underline">Start one</button>
+                    No direct messages yet.
+                    {/* Only when there is someone to message (a new company may have just the one account). */}
+                    {p.dmOptions.length ? (
+                      <>
+                        {' '}
+                        <button type="button" onClick={p.onToggleDm} className="font-semibold text-brand hover:underline">Start one</button>
+                      </>
+                    ) : null}
                   </li>
                 ) : (
                   rows(p.sections.directs)
