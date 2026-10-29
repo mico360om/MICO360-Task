@@ -255,9 +255,10 @@ function SignIn({
               id={`${id}-code`}
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={6}
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              // Digits only, then six: a code pasted with spaces or a line break (as copied from the
+              // email) keeps all its digits (a maxLength would cut the paste before the clean-up).
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               aria-invalid={problem ? true : undefined}
               aria-describedby={problem ? `${id}-problem` : undefined}
               className={fieldClass(Boolean(problem), 'w-full font-mono text-lg')}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPage } from './BoardPage';
@@ -269,6 +269,28 @@ describe('BoardPage', () => {
     localStorage.setItem(userStorageKey('u1', 'board.projectId'), 'p1');
     renderPage('/board?project=p2');
     expect(await screen.findByRole('region', { name: 'Ops To Do' })).toBeInTheDocument();
+  });
+
+  it('opens a card’s task through the address (?task=<id>), keeping the board’s own settings', async () => {
+    let search = '';
+    function Address() {
+      search = useLocation().search;
+      return null;
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/board?project=p1']}>
+          <BoardPage />
+          <Address />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByText('Prepare report'));
+    await waitFor(() => expect(new URLSearchParams(search).get('task')).toBe('t1'));
+    expect(new URLSearchParams(search).get('project')).toBe('p1');
+    // The app shell's task panel opens it from there (reload, Back and a shared link work); the board has none of its own.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('remembers the last project per user', async () => {

@@ -37,6 +37,8 @@ export interface AuditListQuery {
 export interface AuditRepository {
   create(data: CreateAuditData): Promise<AuditRecord>;
   list(query?: AuditListQuery): Promise<AuditRecord[]>;
+  /** Every module the log holds, A–Z (for the module filter: a page of entries holds only some). */
+  modules(): Promise<string[]>;
 }
 
 /** In-memory implementation with the same filtering and ordering as the Prisma one (tests / dev). */
@@ -72,6 +74,9 @@ export function createMemoryAuditRepository(now: () => Date = () => new Date()):
         )
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1))
         .slice(0, q.limit ?? 100);
+    },
+    async modules() {
+      return [...new Set(rows.map((r) => r.module))].sort();
     },
   };
 }

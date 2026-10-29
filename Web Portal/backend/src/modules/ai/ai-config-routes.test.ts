@@ -13,7 +13,7 @@ const tokenService = createTokenService({
   refreshStore: { async save() {}, async findValid() { return null; }, async revoke() {}, async revokeAllForUser() {} },
 });
 
-const noAudit = { async record() { return {} as never; }, async list() { return [] as never; } };
+const noAudit = { async record() { return {} as never; }, async list() { return [] as never; }, async modules() { return []; } };
 
 /** A stand-in provider: an empty model list, and "OK" to any chat request. */
 const fakeProvider = (async (url: string) =>

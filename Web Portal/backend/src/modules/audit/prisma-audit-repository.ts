@@ -32,5 +32,10 @@ export function createPrismaAuditRepository(prisma: PrismaClient): AuditReposito
       });
       return rows.map((a) => ({ id: a.id, userId: a.userId, action: a.action, module: a.module, entityId: a.entityId, oldValue: a.oldValue, newValue: a.newValue, ip: a.ip, createdAt: a.createdAt }));
     },
+    async modules() {
+      // GROUP BY on the indexed column: one row per module, however long the log is.
+      const groups = await prisma.auditLog.groupBy({ by: ['module'], orderBy: { module: 'asc' } });
+      return groups.map((g) => g.module);
+    },
   };
 }

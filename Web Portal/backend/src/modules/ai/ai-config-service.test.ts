@@ -13,6 +13,9 @@ function fakeAudit() {
       async list() {
         return [] as never;
       },
+      async modules() {
+        return [];
+      },
     },
     entries,
   };

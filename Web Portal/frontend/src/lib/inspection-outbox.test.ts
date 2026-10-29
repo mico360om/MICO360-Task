@@ -274,6 +274,40 @@ describe('sending', () => {
     expect(outbox.view(OWNER, 'i1')!.problem).toMatchObject({ code: 'NOT_THE_INSPECTOR', message: expect.stringContaining('Olivia Owner') });
   });
 
+  it('finished on another device: the report shows what the server holds, not what this phone could not send', async () => {
+    outbox.remember(OWNER, detail());
+    tick();
+    outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });
+    server.failWith(() => new ApiError(409, 'INSPECTION_FINISHED', 'This inspection is finished.'));
+    expect(await outbox.flush(OWNER, 'i1')).toEqual({ state: 'problem' });
+    // The page reads it again: another device failed the valves (before this phone's change) and finished it.
+    const at = '2026-10-27T08:05:00.000Z';
+    outbox.remember(
+      OWNER,
+      detail({
+        status: 'FINISHED',
+        finishedAt: '2026-10-27T08:09:00.000Z',
+        permissions: { ...detail().permissions, canAnswer: false, canFinish: false },
+        answers: [
+          { itemId: 'p', result: 'PASS', reading: '100', note: null, editedAt: at },
+          { itemId: 'v', result: 'FAIL', reading: null, note: 'Leak', editedAt: at },
+          { itemId: 'r', result: 'PASS', reading: null, note: null, editedAt: at },
+        ],
+      }),
+    );
+    const v = outbox.view(OWNER, 'i1')!;
+    // The finished report's answers and counts (and so its failed items, made into tasks from here) are the server's.
+    expect(v.answers.map((a) => [a.itemId, a.result])).toEqual([
+      ['p', 'PASS'],
+      ['v', 'FAIL'],
+      ['r', 'PASS'],
+    ]);
+    expect(v.counts).toMatchObject({ answered: 3, failed: 1 });
+    // What this phone couldn't send is still kept, with the reason, until it is thrown away.
+    expect(v.pending.answers).toBe(1);
+    expect(v.problem).toMatchObject({ code: 'INSPECTION_FINISHED' });
+  });
+
   it('two sends at once go out once', async () => {
     outbox.remember(OWNER, detail());
     outbox.saveAnswer(OWNER, 'i1', { itemId: 'v', result: 'PASS', reading: null, note: null });

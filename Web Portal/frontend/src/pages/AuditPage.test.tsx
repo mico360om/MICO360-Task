@@ -13,14 +13,18 @@ const entry = (over: Record<string, unknown> = {}) => ({
 
 let urls: string[];
 let pages: (url: string) => unknown[];
+/** What GET /audit-logs/modules answers (every module the whole log holds). */
+let modules: string[];
 beforeEach(() => {
   urls = [];
   pages = () => [entry()];
+  modules = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const u = String(url);
     urls.push(u);
     if (u.endsWith('/users/directory')) return json({ data: [{ id: 'admin', username: 'root', firstName: 'Amal', lastName: 'Admin' }, { id: 'u2', username: 'omar', firstName: 'Omar', lastName: 'A' }] });
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: new Date().toISOString() } });
+    if (u.endsWith('/audit-logs/modules')) return json({ data: modules });
     return json({ data: pages(u) });
   }));
 });
@@ -91,6 +95,28 @@ describe('AuditPage filters', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /filter by module/i }));
     for (const name of ['All modules', 'projects', 'settings', 'users']) expect(await screen.findByRole('option', { name })).toBeInTheDocument();
+  });
+
+  it('offers every module the log holds, also those only in entries not loaded yet', async () => {
+    // The newest page holds only "users" entries; "projects" and "ai" are further back.
+    modules = ['ai', 'projects', 'users'];
+    renderPage();
+    await screen.findAllByText('users');
+    await userEvent.click(screen.getByRole('button', { name: /filter by module/i }));
+    for (const name of ['All modules', 'ai', 'projects', 'users']) expect(await screen.findByRole('option', { name })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('option', { name: 'projects' }));
+    await waitFor(() => expect(auditCalls().some((u) => u.includes('module=projects'))).toBe(true));
+  });
+
+  it('without the module list (it failed to load), still offers the modules it has seen', async () => {
+    pages = () => [entry({ id: 'a' }), entry({ id: 'b', module: 'settings' })];
+    const plain = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).endsWith('/audit-logs/modules') ? new Response('{}', { status: 500 }) : plain(url))));
+    renderPage();
+    await screen.findAllByText('settings');
+    await userEvent.click(screen.getByRole('button', { name: /filter by module/i }));
+    for (const name of ['All modules', 'settings', 'users']) expect(await screen.findByRole('option', { name })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('explains a start date after the end date instead of reporting a failed load', async () => {

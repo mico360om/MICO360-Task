@@ -94,3 +94,23 @@ describe('GET /audit-logs', () => {
     await app.close();
   });
 });
+
+describe('GET /audit-logs/modules', () => {
+  it('lists every module the log holds, A–Z, also those older than any page (for the module filter)', async () => {
+    const { app, admin } = await makeApp();
+    // The newest page holds only "settings"; the other modules are further back.
+    expect(((await app.inject({ method: 'GET', url: '/api/v1/audit-logs?limit=1', headers: admin })).json().data as Row[]).map((r) => r.module)).toEqual(['settings']);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/audit-logs/modules', headers: admin });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual(['projects', 'settings', 'users']);
+    await app.close();
+  });
+
+  it('is admin-only', async () => {
+    const { app } = await makeApp();
+    const employee = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'e1', roles: ['EMPLOYEE'] })).accessToken}` };
+    expect((await app.inject({ method: 'GET', url: '/api/v1/audit-logs/modules', headers: employee })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/audit-logs/modules' })).statusCode).toBe(401);
+    await app.close();
+  });
+});

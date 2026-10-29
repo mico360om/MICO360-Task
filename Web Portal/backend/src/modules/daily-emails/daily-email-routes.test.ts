@@ -79,6 +79,7 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
       return { id: 'x', ip: null, oldValue: null, createdAt: new Date(), ...d, entityId: d.entityId ?? null, userId: d.userId ?? null, newValue: d.newValue };
     }),
     list: vi.fn(async () => []),
+    modules: vi.fn(async () => []),
   };
   const app = await buildApp({
     authService,

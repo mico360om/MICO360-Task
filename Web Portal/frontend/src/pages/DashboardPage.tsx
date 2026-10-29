@@ -15,8 +15,8 @@ import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { namedProjectOption } from '../components/project-option';
-import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { daysUntilDue } from '../lib/due-date';
+import { useOpenTask } from '../lib/useOpenTask';
 import { isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
@@ -87,7 +87,8 @@ export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const [projectFilter, setProjectFilter] = useState('');
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // Tasks open in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
+  const openTask = useOpenTask();
   const timeZone = useCompanyTimeZone();
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
@@ -225,7 +226,7 @@ export function DashboardPage() {
                 ) : (
                   <ul className="flex flex-col">
                     {openTasks.slice(0, 8).map((t) => (
-                      <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => setOpenTaskId(t.id)} />
+                      <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} />
                     ))}
                   </ul>
                 )}
@@ -252,7 +253,7 @@ export function DashboardPage() {
               ) : (
                 <ul className="flex flex-col">
                   {dueSoon.map((t) => (
-                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => setOpenTaskId(t.id)} showDue stacked />
+                    <TaskRow key={t.id} task={t} timeZone={timeZone} onOpen={() => openTask(t.id)} showDue stacked />
                   ))}
                 </ul>
               )}
@@ -274,7 +275,7 @@ export function DashboardPage() {
               ) : (
                 <ul className="flex flex-col gap-3">
                   {recent.map((a) => (
-                    <ActivityRow key={a.id} a={a} onOpenTask={(id) => setOpenTaskId(id)} />
+                    <ActivityRow key={a.id} a={a} onOpenTask={openTask} />
                   ))}
                 </ul>
               )}
@@ -283,7 +284,6 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
     </div>
   );
 }

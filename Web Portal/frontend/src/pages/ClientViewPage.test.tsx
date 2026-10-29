@@ -103,6 +103,24 @@ describe('the client page', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' })).toBeInTheDocument();
   });
 
+  it('takes a pasted code with the spaces and line break it was copied with', async () => {
+    const user = userEvent.setup();
+    const api = fakeApi({ view: vi.fn(async () => Promise.reject(signInNeeded())) });
+    show(api);
+    await user.type(await screen.findByLabelText('Email address'), 'fatma@client.example');
+    await user.click(screen.getByRole('button', { name: 'Email me a code' }));
+    const box = await screen.findByLabelText('6-digit code');
+    // As copied from the plain-text email (indented, then a line break), and as written "482 913".
+    for (const pasted of ['    482913\n', '482 913']) {
+      await user.clear(box);
+      await user.click(box);
+      await user.paste(pasted);
+      expect(box).toHaveValue('482913');
+    }
+    await user.click(screen.getByRole('button', { name: 'Open the project' }));
+    expect(api.verify).toHaveBeenCalledWith('fatma@client.example', '482913');
+  });
+
   it('says plainly when a code didn’t work, and keeps the code box ready for another try', async () => {
     const user = userEvent.setup();
     const refusal = 'That code didn’t work. Use the email address this page was shared with and the newest code we sent.';
