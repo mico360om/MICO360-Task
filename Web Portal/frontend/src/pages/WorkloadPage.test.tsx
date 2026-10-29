@@ -172,6 +172,13 @@ describe('WorkloadPage', () => {
     expect(within(sara!).getByRole('button', { name: 'Sara Ahmed, Sunday 25 October: 2 tasks due' })).toHaveAttribute('data-tone', 'below');
   });
 
+  it('its table scrolls from the keyboard too: the scroll area is a named, focusable region', async () => {
+    renderPage();
+    const region = await screen.findByRole('region', { name: 'Workload table' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(region.querySelector('table')).not.toBeNull();
+  });
+
   it('finds a person by name', async () => {
     renderPage();
     await screen.findByRole('table', { name: /Open tasks due each day, per person/ });
