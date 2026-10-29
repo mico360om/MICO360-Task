@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { PROJECTS_OVERVIEW_KEY, projectsApi, type ApiProject, type ProjectOverview, type ProjectStatus } from '../api/projects';
 import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
@@ -31,6 +32,13 @@ import {
 import { useProjectListState } from '../lib/useProjectListState';
 
 const OVERVIEW_KEY = PROJECTS_OVERVIEW_KEY;
+
+const FOLDER_ICON = (
+  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <path d="M12 11v5M9.5 13.5h5" />
+  </svg>
+);
 const PANEL_ID = 'projects-panel';
 const tabId = (t: StatusTab) => `projects-tab-${t}`;
 
@@ -72,6 +80,21 @@ export function ProjectsPage() {
   // Set when a card is about to leave the current tab, so focus can land on the list instead of nowhere.
   const refocusList = useRef(false);
   useShortcut('new', () => setForm('new'));
+  // /projects?new=1 (e.g. "New project" where there is no project yet) opens the form on arrival.
+  const [params, setParams] = useSearchParams();
+  const askedNew = params.get('new') === '1';
+  useEffect(() => {
+    if (!askedNew) return;
+    setForm('new');
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('new');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [askedNew]);
 
   const query = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => projectsApi(apiClient).overview() });
   const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
@@ -171,6 +194,10 @@ export function ProjectsPage() {
 
   const loading = query.isLoading;
   const summary = loading || query.isError || all.length === 0 ? null : headerSummary(all, today, timeZone);
+  // No project at all yet: the tabs, search and filters have nothing to work on, so only the invitation shows.
+  const firstRun = query.isSuccess && all.length === 0;
+  // One or two projects in a wide grid: a tile to start another sits beside them, so they don't look lost.
+  const offerAnother = !filtersOn && visible.length > 0 && visible.length <= 2 && (state.status === 'all' || state.status === 'active' || state.status === 'planning');
 
   return (
     <div>
@@ -184,6 +211,19 @@ export function ProjectsPage() {
         </Button>
       </div>
 
+      {firstRun ? (
+        <EmptyState
+          icon={FOLDER_ICON}
+          title="No projects yet"
+          description={
+            admin
+              ? 'A project holds one piece of work — a contract, a client job or an in-house task list — with its board, people, meetings and inspections. Create the first one to get started.'
+              : 'Projects you’re part of will appear here — or create one with “New project”.'
+          }
+          action={<Button onClick={() => setForm('new')} className="[@media(pointer:coarse)]:!min-h-11">+ New project</Button>}
+        />
+      ) : (
+      <>
       {/* Status at a glance — also the main filter. */}
       <div role="tablist" aria-label="Project status" onKeyDown={onTabKey} className="mb-3 flex flex-wrap gap-2">
         {STATUS_TABS.map((t) => {
@@ -301,13 +341,21 @@ export function ProjectsPage() {
                 />
               );
             })}
+            {offerAnother ? (
+              <button
+                type="button"
+                onClick={() => setForm('new')}
+                // Beside two cards it only fills a third column (a laptop and up); alone on a row of its own it would just be a hole.
+                className={`group flex min-h-[8rem] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line p-6 text-center sm:min-h-[12rem] ${visible.length === 2 ? 'max-xl:hidden' : ''} transition-colors hover:border-brand/50 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30`}
+              >
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/10 text-brand transition-transform group-hover:scale-105" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                </span>
+                <span className="font-semibold text-ink">Start another project</span>
+                <span className="max-w-[16rem] text-sm text-ink-2">Keep each job, client or site in a project of its own.</span>
+              </button>
+            ) : null}
           </div>
-        ) : all.length === 0 ? (
-          <EmptyState
-            title="No projects yet"
-            description={admin ? 'Create your first project with “New project”.' : 'Projects you’re part of will appear here — or create one with “New project”.'}
-            action={<Button onClick={() => setForm('new')}>+ New project</Button>}
-          />
         ) : filtersOn ? (
           <EmptyState
             title="No projects match"
@@ -321,6 +369,8 @@ export function ProjectsPage() {
           />
         )}
       </div>
+      </>
+      )}
 
       {form ? <ProjectFormDialog project={form === 'new' ? null : form} onClose={() => setForm(null)} /> : null}
       {archiving ? (

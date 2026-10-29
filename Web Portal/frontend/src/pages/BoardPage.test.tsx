@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BoardPage } from './BoardPage';
+import { BoardPage, emptyDayText } from './BoardPage';
 import { BOARD_FIT_QUERY } from '../lib/board';
 import { useAuthStore } from '../stores/auth-store';
 import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
@@ -75,6 +75,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Where the page went (a link or button that leads elsewhere). */
+function Where() {
+  const loc = useLocation();
+  return <p data-testid="where">{loc.pathname + loc.search}</p>;
+}
+
 function renderPage(path = '/board') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -117,11 +123,44 @@ describe('BoardPage: layout', () => {
     expect(screen.queryByText('Loading…')).toBeNull();
   });
 
-  it('says plainly when there is no project yet', async () => {
+  it('says plainly when there is no project yet, and offers to make the first one', async () => {
     const base = fetch;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).endsWith('/projects') ? json({ data: [] }) : base(url, init))));
-    renderPage();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/board']}>
+          <BoardPage />
+          <Where />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
     expect(await screen.findByText('No projects yet')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '+ New project' }));
+    // The Projects page opens with its New project form.
+    expect(screen.getByTestId('where')).toHaveTextContent('/projects?new=1');
+  });
+
+  it('a day with nothing on it says so once, above the columns', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('/tasks') ? json({ data: [] }) : base(url, init))));
+    renderPage();
+    await screen.findByRole('region', { name: 'To Do' });
+    expect(await screen.findByText(/Nothing on today’s board yet/)).toBeInTheDocument();
+  });
+
+  it('a day with tasks says nothing extra', async () => {
+    renderPage();
+    await screen.findByText('Prepare report');
+    expect(screen.queryByText(/Nothing (on|planned|was)/)).toBeNull();
+  });
+});
+
+describe('emptyDayText', () => {
+  it('today, a day ahead and a day gone each say why they are empty', () => {
+    expect(emptyDayText('2026-10-30', '2026-10-30')).toMatch(/^Nothing on today’s board yet/);
+    expect(emptyDayText('2026-10-31', '2026-10-30')).toMatch(/^Nothing planned for this day yet/);
+    expect(emptyDayText('2026-10-29', '2026-10-30')).toMatch(/move on to the next day/);
   });
 });
 

@@ -99,6 +99,9 @@ export function MeetingsTab({
     return [...list].sort((a, b) => (latestFirst ? -1 : 1) * (Date.parse(a.startAt) - Date.parse(b.startAt)));
   }, [meetings, filter]);
 
+  // Nothing under this filter: the next one that has meetings (held, usually, once nothing is coming up).
+  const elsewhere = shown.length === 0 ? FILTERS.find((f) => f.v !== filter && f.v !== 'all' && counts[f.v] > 0) ?? null : null;
+
   if (failed && !data) {
     return (
       <p role="alert" className="card p-5 text-sm text-danger">
@@ -135,11 +138,19 @@ export function MeetingsTab({
           {onNew ? <Button size="sm" onClick={onNew} className={TOUCH_TALL}>+ New meeting</Button> : null}
         </div>
         {shown.length === 0 ? (
-          <EmptyNote>
-            {meetings.length === 0
-              ? 'No meetings in this project yet. Schedule one — it can repeat daily, weekly or monthly.'
-              : `No ${FILTERS.find((f) => f.v === filter)!.label.toLowerCase()} meetings.`}
-          </EmptyNote>
+          // On the page itself (not in a card), so it gets a box of its own.
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-2">
+            <p>
+              {meetings.length === 0
+                ? 'No meetings in this project yet. Schedule one — it can repeat daily, weekly or monthly.'
+                : `No ${FILTERS.find((f) => f.v === filter)!.label.toLowerCase()} meetings.`}
+            </p>
+            {elsewhere ? (
+              <button type="button" onClick={() => setFilter(elsewhere.v)} className={`text-sm font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
+                Show {elsewhere.label.toLowerCase()} ({counts[elsewhere.v]})
+              </button>
+            ) : null}
+          </div>
         ) : (
           <>
             <ul aria-label="Meetings" className="flex flex-col gap-2">

@@ -7,6 +7,8 @@ import { formatDueDay } from '../../lib/due-display';
 import { EmptyNote, FlagIcon } from './parts';
 import { ClientEyeIcon } from '../TaskCard';
 import { TOUCH_TALL } from '../../lib/touch';
+import { EmptyState } from '../ui/EmptyState';
+import { Button } from '../ui/Button';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -58,7 +60,8 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
         ) : (
           <span className="text-xs text-ink-3">Unassigned</span>
         )}
-        <span className={`w-24 flex-none text-xs tabular-nums sm:text-end ${overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>
+        {/* Wide enough for "Overdue · Oct 27, 2026" on one line, so every row is the same height. */}
+        <span className={`w-24 flex-none text-xs tabular-nums sm:text-end lg:w-40 lg:whitespace-nowrap ${overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>
           {overdue ? 'Overdue · ' : ''}{dueText || 'No due date'}
         </span>
       </span>
@@ -78,6 +81,7 @@ export function TasksTab({
   filter,
   onFilter,
   onOpen,
+  onNew,
 }: {
   groups: TaskGroup[];
   today: string;
@@ -86,6 +90,8 @@ export function TasksTab({
   filter: TaskFilter;
   onFilter: (f: TaskFilter) => void;
   onOpen: (taskId: string) => void;
+  /** Add a task to this project (absent when it takes no new work). */
+  onNew?: () => void;
 }) {
   const [q, setQ] = useState('');
   const all = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
@@ -104,7 +110,15 @@ export function TasksTab({
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
-  if (all.length === 0) return <div className="card p-8 text-center text-sm text-ink-2">No tasks in this project yet.</div>;
+  if (all.length === 0) {
+    return (
+      <EmptyState
+        title="No tasks in this project yet"
+        description="Tasks are the work to be done: each has its people, a due date and a place on the board."
+        action={onNew ? <Button onClick={onNew} className={TOUCH_TALL}>+ New task</Button> : undefined}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">

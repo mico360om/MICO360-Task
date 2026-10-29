@@ -269,7 +269,8 @@ export function WorkloadPage() {
           {/* On a phone the days don't fit beside the names: the names stay put while the days scroll. */}
           <p className="mb-2 text-xs text-ink-2 sm:hidden">Swipe the table sideways to see each day.</p>
           <div className="card overflow-hidden">
-            <div className="relative overflow-x-auto">
+            {/* Focusable, so the table can be scrolled from the keyboard even when no cell has a button (an empty week). */}
+            <div tabIndex={0} role="region" aria-label="Workload table" className="relative overflow-x-auto rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40">
               <table className="w-full min-w-[42rem] border-separate border-spacing-0 text-sm sm:min-w-[48rem]">
                 <caption className="sr-only">Open tasks due each day, per person — {weekLabel(week, today)}</caption>
                 <thead>

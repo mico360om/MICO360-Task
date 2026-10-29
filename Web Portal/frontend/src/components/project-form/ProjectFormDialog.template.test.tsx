@@ -209,6 +209,15 @@ describe('New project from a template', () => {
     expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent('Unassigned · Site lead');
   });
 
+  it('with no project template yet, a new project offers no template picker (it could only say “Blank project”)', async () => {
+    override = (u, method) => (u.endsWith('/templates/projects') && method === 'GET' ? json({ data: [] }) : undefined);
+    renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    await waitFor(() => expect(requests.some((r) => r.url.endsWith('/templates/projects'))).toBe(true));
+    await waitFor(() => expect(within(dialog).queryByRole('button', { name: /Template/ })).toBeNull());
+    expect(within(dialog).getByLabelText(/^name/i)).toBeInTheDocument();
+  });
+
   it('editing a project offers no template', async () => {
     renderForm({ project: { id: 'p1', code: 'MICO', name: 'MICO', description: null, clientName: null, status: 'ACTIVE', priority: 'NORMAL', color: '#8B1E1E', imageUrl: null, ownerId: null, startDate: null, targetDate: null, createdAt: '', updatedAt: '' } });
     const dialog = screen.getByRole('dialog', { name: 'Edit project' });

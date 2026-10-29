@@ -334,11 +334,15 @@ describe('New task form', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Project' })).toHaveTextContent('Ops Board'));
   });
 
-  it('says so when there are no projects to add a task to', async () => {
+  it('says so when there are no projects to add a task to, and leads to making one instead of an unusable form', async () => {
     override = (u) => (u.endsWith('/projects') ? json({ data: [] }) : undefined);
     renderDialog();
     expect(await screen.findByText(/create a project first/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create task' })).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
+    // No fields to fill and no Create task button that can't work.
+    expect(screen.queryByRole('button', { name: 'Create task' })).toBeNull();
+    expect(screen.queryByLabelText(/task title/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 });
 

@@ -341,7 +341,36 @@ describe('ProjectsPage', () => {
     overview = [];
     renderPage();
     expect(await screen.findByText('No projects yet', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText(/A project holds one piece of work/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /new project/i })).toHaveLength(2);
+    // Nothing to filter yet: no tabs, search, owner or sort, and no "No projects" count line.
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Sort' })).toBeNull();
+    expect(screen.queryByTestId('projects-count')).toBeNull();
+  });
+
+  it('opens the New project form from the address (/projects?new=1), then drops it from the address', async () => {
+    renderPage('/projects?new=1');
+    expect(await screen.findByRole('dialog', { name: 'New project' })).toBeInTheDocument();
+    await waitFor(() => expect(where()).toBe('/projects'));
+  });
+
+  it('beside one or two projects, a tile starts another (not with more, and not while filtering)', async () => {
+    overview = LIST.slice(0, 2);
+    renderPage();
+    await loaded();
+    await userEvent.click(screen.getByRole('button', { name: /Start another project/ }));
+    expect(await screen.findByRole('dialog', { name: 'New project' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search projects' }), 'rig');
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Start another project/ })).toBeNull());
+  });
+
+  it('no “Start another project” tile beside three or more projects', async () => {
+    renderPage();
+    await loaded();
+    expect(screen.queryByRole('button', { name: /Start another project/ })).toBeNull();
   });
 });
 

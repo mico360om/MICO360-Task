@@ -302,7 +302,15 @@ export function TimelinePage() {
       ) : query.isError ? (
         <LoadError what="the timeline" onRetry={() => void query.refetch()} />
       ) : !data ? null : all.length === 0 ? (
-        <EmptyState title="No open projects" description="Projects that are not completed or archived appear here, along their dates." />
+        <EmptyState
+          title="No open projects"
+          description="Projects that are not completed or archived appear here, along their dates."
+          action={
+            <Link to="/projects" className={`inline-flex items-center justify-center rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}>
+              Go to Projects
+            </Link>
+          }
+        />
       ) : shown.length === 0 ? (
         <EmptyState
           title={state.show === 'late' ? 'No late projects' : state.show === 'at-risk' ? 'No projects at risk' : 'No projects for this owner'}

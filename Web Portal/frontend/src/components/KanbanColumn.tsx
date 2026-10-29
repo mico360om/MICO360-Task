@@ -123,19 +123,19 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
             <button
               type="button"
               onClick={onAddTask}
-              className="group flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center transition-colors hover:border-brand/60 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+              className="group flex flex-1 flex-col items-center justify-start gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center transition-colors hover:border-brand/60 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3 group-hover:text-brand"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
               <span className="text-xs font-medium text-ink-3">No tasks</span>
-              <span className="text-[11px] text-ink-3/80">
+              <span className="text-xs text-ink-3">
                 <span className="font-semibold text-brand">Add a task</span> or drop a card here
               </span>
             </button>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center">
+            <div className="flex flex-1 flex-col items-center justify-start gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
               <p className="text-xs font-medium text-ink-3">No tasks</p>
-              <p className="text-[11px] text-ink-3/80">Drop a card here</p>
+              <p className="text-xs text-ink-3">Drop a card here</p>
             </div>
           )
         ) : null}
