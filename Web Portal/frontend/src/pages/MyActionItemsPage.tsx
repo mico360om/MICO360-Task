@@ -143,7 +143,7 @@ function ActionRow({
         aria-label={`Status for ${item.description}`}
         value={item.status}
         onChange={(e) => onStatus(e.target.value as ActionItemStatus)}
-        className={`${fieldClass(false)} !py-1.5 text-sm max-sm:flex-1`}
+        className={`${fieldClass(false)} !py-1.5 text-sm max-sm:flex-auto`}
       >
         {ACTION_STATUSES.map((s) => <option key={s} value={s}>{ACTION_STATUS_LABELS[s]}</option>)}
       </select>
