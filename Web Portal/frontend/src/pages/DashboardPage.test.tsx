@@ -193,6 +193,18 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('heading', { name: /set up your workspace/i })).not.toBeInTheDocument();
   });
 
+  it('says who was given a task in Recent activity (“assigned MICO-3 to Omar”, not “assigned to MICO-3”)', async () => {
+    const ok = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) =>
+      String(args[0]).endsWith('/activity')
+        ? json({ data: [{ id: 'a1', action: 'ASSIGNED', createdAt: new Date().toISOString(), meta: { assignee: 'Omar Ahmed' }, actor: { id: 'u1', name: 'Aisha Khan' }, task: { id: 't3', key: 'MICO-3', title: 'x' } }] })
+        : ok(...args),
+    ));
+    renderPage();
+    const line = (await screen.findByRole('button', { name: 'MICO-3' })).closest('p')!;
+    expect(line).toHaveTextContent('Aisha Khan assigned MICO-3 to Omar Ahmed');
+  });
+
   it('holds the place of the lists while they load (rows, not a line of text), so nothing jumps', async () => {
     const ok = fetch;
     vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) => (/\/(tasks|activity)/.test(String(args[0])) ? new Promise<Response>(() => {}) : ok(...args))));

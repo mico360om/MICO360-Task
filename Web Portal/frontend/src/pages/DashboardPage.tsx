@@ -58,7 +58,7 @@ function StatIcon({ children }: { children: ReactNode }) {
 }
 
 const ACTION_LABEL: Record<string, string> = {
-  CREATED: 'created', MOVED: 'moved', COMPLETED: 'completed', REOPENED: 'reopened', ASSIGNED: 'assigned to',
+  CREATED: 'created', MOVED: 'moved', COMPLETED: 'completed', REOPENED: 'reopened', ASSIGNED: 'assigned',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? (a || '').toLowerCase().replace(/_/g, ' ');
 const actionTone = (a: string): string =>
@@ -360,16 +360,23 @@ function RowsSkeleton({ label, rows, stacked = false, activity = false }: { labe
 
 function ActivityRow({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: string) => void }) {
   const who = a.actor?.name ?? 'Someone';
+  // "Aisha Khan assigned MICO-3 to Omar Ahmed" (it read "assigned to MICO-3").
+  const assignee = a.action === 'ASSIGNED' && typeof a.meta?.assignee === 'string' ? a.meta.assignee : null;
   return (
     <li className="flex gap-2 text-sm">
       <Avatar name={who} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="leading-snug text-ink">
-          <span dir="auto" className="font-semibold">{who}</span> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}
+          <bdi className="font-semibold">{who}</bdi> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}
           {a.task ? (
             <button onClick={() => onOpenTask(a.task!.id)} className="font-mono text-xs text-brand hover:underline">{a.task.key}</button>
           ) : a.project ? (
-            <span dir="auto" className="text-ink-2">{a.project.name}</span>
+            <bdi className="text-ink-2">{a.project.name}</bdi>
+          ) : null}
+          {assignee ? (
+            <>
+              {' '}to <bdi className="font-medium">{assignee}</bdi>
+            </>
           ) : null}
         </p>
         <p className="text-[11px] text-ink-2">{timeAgo(a.createdAt)}</p>
