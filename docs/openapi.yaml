@@ -469,12 +469,44 @@ paths:
       responses: { '204': { description: Deleted } }
   /tasks/{id}/move:
     patch:
-      summary: Move a task to a column (Kanban drag-drop persistence)
+      summary: >-
+        Move a task to a column (Kanban drag-drop persistence). A task that needs approval, moved to a
+        Done column by someone who doesn't run its project, waits instead: the answer is the task in its
+        project's first Review column (or where it was), with approvalRequestedAt set and no completedAt.
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       requestBody:
         required: true
         content: { application/json: { schema: { type: object, required: [columnId], properties: { columnId: { type: string }, position: { type: integer } } } } }
       responses: { '200': { description: OK } }
+  /tasks/approvals:
+    get:
+      summary: >-
+        Task approvals — the tasks waiting for the caller's approval (they run the project, or are an
+        administrator), the longest waiting first, and whether the caller approves any project's tasks.
+      responses: { '200': { description: '{ data: { canApprove, tasks: [task + project + requestedBy] } }' } }
+  /tasks/{id}/approve:
+    post:
+      summary: >-
+        Approve a task waiting for approval: it moves to the first Done column and is done now. Only
+        whoever runs its project (or an administrator); 404 when the task can't be seen.
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { expectedVersion: { type: integer } } } } } }
+      responses:
+        '200': { description: The task, done }
+        '403': { description: The caller doesn't run the project }
+        '409': { description: NOT_WAITING (approved or sent back already) or VERSION_CONFLICT }
+  /tasks/{id}/send-back:
+    post:
+      summary: >-
+        Send a waiting task back with a reason (required, up to 2000 characters): it returns to In
+        progress, and the reason becomes the approver's comment and goes to its assignees and finisher.
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string }, expectedVersion: { type: integer } } } } } }
+      responses:
+        '200': { description: The task, in progress again }
+        '400': { description: No reason given }
+        '403': { description: The caller doesn't run the project }
+        '409': { description: NOT_WAITING or VERSION_CONFLICT }
   /tasks/{id}/assignees:
     get: { summary: List assignees, parameters: [ { name: id, in: path, required: true, schema: { type: string } } ], responses: { '200': { description: OK } } }
     post:
