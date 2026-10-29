@@ -41,8 +41,12 @@ export function People({ names = [], count }: { names?: string[]; count?: number
     <span className="relative z-10 flex min-w-0 items-center gap-2 text-xs text-ink-2" title={names.length ? `${names.join(', ')}${total > names.length ? ' …' : ''}` : undefined}>
       {shown.length ? (
         <span className="flex flex-none -space-x-1.5 rtl:space-x-reverse">
+          {/* Each face on a solid backing: the initials' tint is see-through, and an overlapped face's
+              letters would show through the one in front. */}
           {shown.map((n, i) => (
-            <Avatar key={`${i}-${n}`} name={n} size="sm" />
+            <span key={`${i}-${n}`} className="flex-none rounded-full bg-surface">
+              <Avatar name={n} size="sm" />
+            </span>
           ))}
           {more > 0 ? (
             <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-surface bg-ground px-1 text-[10px] font-semibold text-ink-2">+{more}</span>

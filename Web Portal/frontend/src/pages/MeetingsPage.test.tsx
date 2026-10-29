@@ -92,6 +92,20 @@ describe('MeetingsPage', () => {
     expect(await rowOf('Sprint retro')).toHaveTextContent('Completed');
   });
 
+  it('keeps stacked faces readable: each sits on a solid backing, so the one behind never shows through', async () => {
+    renderPage();
+    const card = await rowOf('Budget review');
+    for (const name of ['Aisha Khan', 'Omar Said', 'Sara Ali']) expect(within(card).getByLabelText(name).parentElement!.className).toMatch(/(^|\s)bg-surface(\s|$)/);
+  });
+
+  it('lets the organizer move under the project instead of shrinking to a letter', async () => {
+    renderPage();
+    const card = await rowOf('Budget review');
+    await waitFor(() => expect(card).toHaveTextContent('Aisha Khan'));
+    const organizer = within(card).getByTitle('Organizer');
+    expect(organizer.parentElement!.className).toMatch(/flex-wrap/);
+  });
+
   it('groups meetings into Today, Next 7 days, Drafts and Past', async () => {
     renderPage();
     await rowOf('Budget review');
