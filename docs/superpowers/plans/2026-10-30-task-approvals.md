@@ -55,6 +55,13 @@
 19. **Activity actions:** `APPROVAL_REQUESTED` ("finished this task and asked for approval"), `APPROVED` ("approved this task", status path), `SENT_BACK` ("sent this task back: <reason>"), `APPROVAL_WITHDRAWN` ("withdrew the approval request"), COMPLETED + `meta.approved` ("completed this task (approved)"), UPDATED change `needsApproval` ("turned on Needs approval" / "turned off Needs approval"). No new timeline kinds (the Android copy has a closed kind list): the new actions are `other` lines, APPROVED is a `completed` line.
 20. **Board feedback:** after a move that ends waiting, the board/My Tasks/panel say "KEY needs approval — it’s waiting for a project manager." (`lib/approvals.ts`).
 
+### Rulings added after the code review (30 Oct)
+21. **Moves of waiting tasks are version-guarded:** a move that asks for approval, approves, or moves a waiting task is saved only from the version just read (VERSION_CONFLICT otherwise), so a drag-back racing an approval can't leave a "done" task in To do. Other moves are unchanged. [low]
+22. **Turning approval off on a waiting repeating task applies to that copy only:** the next copy still needs approval. [if wrong: the series keeps needing approval — one click per copy]
+23. **No Done column while tasks wait:** a column holding waiting tasks can't be changed to the Done category (409 TASKS_WAITING); a ticked task can't be created into a project that has only Done columns (409 NO_OPEN_COLUMN). [rare]
+24. **Steps after a decision never fail it:** a failing comment/notice after Approve or Send back is logged; the saved decision is answered as saved. The web form sends the tick and a new status in one request when both change.
+25. **Kept as the spec says (flagged to the owner):** anyone who can edit a task may untick "Needs approval" while it is NOT waiting (owner decision 1: "each task can still be unticked"), so an assignee can untick and then finish. One-line change to limit unticking to approvers if the owner wants.
+
 ## Review Focus
 
 1. Two approvers press Approve at the same moment → one approval, the other gets "isn’t waiting any more" (expectedVersion + NOT_WAITING).
