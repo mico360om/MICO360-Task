@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { DashboardPage } from './DashboardPage';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -69,6 +70,30 @@ describe('DashboardPage', () => {
     // a finished task is never "due soon"/overdue
     await waitFor(() => expect(screen.getByText(/nothing due/i)).toBeInTheDocument());
     expect(screen.queryByText('Finished early')).not.toBeInTheDocument();
+  });
+
+  it('opens a task through the address (?task=<id>), so a reload or a shared link opens it again', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    const task = { id: 't1', key: 'T1', title: 'Still open', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', columnCategory: 'TODO' };
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => json({ data: String(url).endsWith('/tasks/mine') ? [task] : [] }));
+    let search = '';
+    function Address() {
+      search = useLocation().search;
+      return null;
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <DashboardPage />
+          <Address />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /Still open/ }));
+    await waitFor(() => expect(new URLSearchParams(search).get('task')).toBe('t1'));
+    // The app's one task panel (in the app shell) opens it from there; the page has none of its own.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows an error with Retry — not “all clear” — when the task list fails to load', async () => {

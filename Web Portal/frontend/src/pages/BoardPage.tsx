@@ -8,6 +8,7 @@ import { tasksApi, type ApiTask } from '../api/tasks';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
 import { todayKey as companyTodayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/company-clock';
+import { useOpenTask } from '../lib/useOpenTask';
 import { ApiError } from '../lib/api-client';
 import { enqueueOffline } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
@@ -20,7 +21,6 @@ import { KanbanBoard } from '../components/KanbanBoard';
 import { ColumnManager } from '../components/ColumnManager';
 import { TaskFormDialog } from '../components/task-form/TaskFormDialog';
 import { useCurrentProject } from '../components/CurrentProject';
-import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
@@ -68,7 +68,8 @@ export function BoardPage() {
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const userId = useAuthStore((s) => s.user?.id);
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
+  const openTask = useOpenTask();
   const [manageColumns, setManageColumns] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskColumn, setNewTaskColumn] = useState('');
@@ -374,20 +375,19 @@ export function BoardPage() {
         if (projectId === ALL_PROJECTS) void qc.invalidateQueries({ queryKey: ['board', ALL_PROJECTS] });
         if (removedId && removedId === projectId) {
           setNotice(`You were removed from ${project?.name ?? 'this project'}, so its board was closed.`);
-          setOpenTaskId(null);
           setAddingTask(false);
           setSelectedProjectId('');
           writeUserValue(userId, PROJECT_PREF, null);
-          if (urlProjectId) {
-            setSearchParams(
-              (prev) => {
-                const next = new URLSearchParams(prev);
-                next.delete('project');
-                return next;
-              },
-              { replace: true },
-            );
-          }
+          // Close an open task with the board (and leave the project named in the address).
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete('task');
+              if (urlProjectId) next.delete('project');
+              return next;
+            },
+            { replace: true },
+          );
         }
         return;
       }
@@ -562,12 +562,11 @@ export function BoardPage() {
           cardMenu={cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
-            if (id) setOpenTaskId(id);
+            if (id) openTask(id);
           }}
         />
       )}
 
-      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
 
       {movingTask ? (
         <MoveTaskDialog
