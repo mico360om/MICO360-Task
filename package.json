@@ -1,6 +1,6 @@
 {
   "name": "mico360-tasks",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "private": true,
   "description": "MICO360 Tasks — Kanban task & project management (web app + Chrome extension + Node/TS API + MySQL).",
   "workspaces": [

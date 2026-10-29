@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-10-29
+
 ### Improvements
 - Tablets: the menu is a slim rail of icons (each item its own icon, with its name on hover), so
   pages get the width of the screen. The full menu returns from 1024px wide; phones keep the ☰ menu.
