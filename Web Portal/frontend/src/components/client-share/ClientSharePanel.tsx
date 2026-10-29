@@ -229,9 +229,10 @@ function ShareRow({
   const nameId = useId();
   return (
     <li aria-labelledby={nameId} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <p id={nameId} dir="auto" className="truncate text-sm font-semibold text-ink">{s.name}</p>
-        <p className="truncate text-xs text-ink-2">{s.email}</p>
+      {/* The words ask for 12rem: on a narrow screen Resend and Remove move under them instead of squeezing them. */}
+      <div className="min-w-0 flex-[1_1_12rem]">
+        <p id={nameId} title={s.name} className="truncate text-sm font-semibold text-ink"><bdi>{s.name}</bdi></p>
+        <p title={s.email} className="truncate text-xs text-ink-2">{s.email}</p>
         <p className="text-xs text-ink-2">
           <span>{s.lastViewedAt ? `Last viewed ${relativeTime(s.lastViewedAt)}` : 'Not viewed yet'}</span>
           {s.linkSentAt ? <span> · Link sent {day(s.linkSentAt)}</span> : null}
