@@ -22,9 +22,11 @@ describe('PageHeader', () => {
     render(<PageHeader eyebrow="Admin" title="Reports" subtitle="Task delivery, project progress and team workload." actions={<button type="button">Export</button>} />);
     const heading = screen.getByRole('heading', { level: 1, name: 'Reports' });
     const description = screen.getByText(/Task delivery/);
-    // flex-shrink weights: the description shrinks (almost entirely) first, the title only after.
-    expect(description.className).toMatch(/\[flex-shrink:1000\]/);
-    expect(heading.className).not.toMatch(/flex-shrink:1000/);
+    // A grid: the title's column is sized to the title (auto) before the description's 0–1fr column
+    // gets what is left, so the description is cut first.
+    const line = heading.parentElement!;
+    expect(line.className).toMatch(/grid-cols-\[auto_auto_auto_minmax\(0,1fr\)\]/);
+    expect(line.lastElementChild).toBe(description);
   });
 
   it('works without a section or a subtitle', () => {

@@ -10,10 +10,16 @@ export interface PageHeaderProps {
   actions?: ReactNode;
 }
 
-/** "Workspace / Meetings": the page's section and its title (the page's h1), on one line. */
+/**
+ * "Workspace / Meetings": the page's section and its title (the page's h1), on one line. A grid, so
+ * that when the line is short the description (the last, 0–1fr column) gives way first and the title
+ * (an auto column, which gets its full width before any fr column) only once the description is gone.
+ * As flex items they shrank together, and Reports at 1280px read "Re…" beside a description.
+ */
 export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<PageHeaderProps, 'actions'> & { className?: string }) {
+  const columns = eyebrow ? 'grid-cols-[auto_auto_auto_minmax(0,1fr)]' : 'grid-cols-[auto_minmax(0,1fr)]';
   return (
-    <div className={`flex min-w-0 items-baseline gap-x-2 ${className}`}>
+    <div data-page-title className={`grid min-w-0 items-baseline gap-x-2 ${columns} ${className}`}>
       {eyebrow ? (
         <>
           <span className="flex-none text-xs font-semibold uppercase tracking-wide text-ink-3">{eyebrow}</span>
@@ -21,9 +27,7 @@ export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<Pag
         </>
       ) : null}
       <h1 className="min-w-0 truncate font-display text-xl font-extrabold tracking-tightish text-ink sm:text-2xl">{title}</h1>
-      {/* Gives way first when the line is short (a far larger shrink weight than the title's): the
-          title stays whole and the description is cut, not the other way round ("Re…"). */}
-      {subtitle ? <p className="ms-1 hidden min-w-0 truncate text-sm text-ink-3 [flex-shrink:1000] xl:block">{subtitle}</p> : null}
+      {subtitle ? <p className="ms-1 hidden min-w-0 truncate text-sm text-ink-3 xl:block">{subtitle}</p> : null}
     </div>
   );
 }
