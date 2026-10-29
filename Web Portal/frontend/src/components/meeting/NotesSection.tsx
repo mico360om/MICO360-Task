@@ -53,6 +53,7 @@ export function NotesSection({
   canEdit,
   pollMs,
   timeZone,
+  ended = false,
 }: {
   meetingId: string;
   meetingProjectId: string | null;
@@ -60,6 +61,8 @@ export function NotesSection({
   canEdit: boolean;
   pollMs: number | false;
   timeZone: string;
+  /** The meeting is over: with no notes, say none were taken (and what adding them now is for). */
+  ended?: boolean;
 }) {
   const qc = useQueryClient();
   const myId = useAuthStore((s) => s.user?.id);
@@ -204,7 +207,11 @@ export function NotesSection({
       ) : notesQ.isError ? (
         <LoadError what="the notes" onRetry={() => void notesQ.refetch()} />
       ) : shown.length === 0 ? (
-        <p className="text-sm text-ink-2">{notes.length === 0 ? 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.' : 'No notes in this category.'}</p>
+        <p className="text-sm text-ink-2">{notes.length === 0
+            ? ended
+              ? `No notes were taken.${canEdit ? ' Add what was discussed, decided and agreed: the Final MOM below can be drafted from them.' : ''}`
+              : 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.'
+            : 'No notes in this category.'}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {shown.map((note) => (

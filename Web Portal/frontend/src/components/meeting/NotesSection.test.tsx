@@ -49,12 +49,12 @@ afterEach(() => {
   useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
 });
 
-function renderSection() {
+function renderSection(ended = false) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <NotesSection meetingId="m1" meetingProjectId={null} directory={[]} canEdit pollMs={false} timeZone="Asia/Muscat" />
+        <NotesSection meetingId="m1" meetingProjectId={null} directory={[]} canEdit pollMs={false} timeZone="Asia/Muscat" ended={ended} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -108,5 +108,21 @@ describe('NotesSection — formatted notes', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true));
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ body: '<p><em>Plain &lt;b&gt;as typed&lt;/b&gt;</em></p>', format: 'RICH', type: 'DISCUSSION' });
+  });
+});
+
+describe('NotesSection — a meeting that is over', () => {
+  it('with no notes, says none were taken and what writing them now is for (not "as the meeting unfolds")', async () => {
+    notes = [];
+    renderSection(true);
+    expect(await screen.findByText(/no notes were taken/i)).toBeInTheDocument();
+    expect(screen.getByText(/no notes were taken/i)).toHaveTextContent(/final mom/i);
+    expect(screen.queryByText(/as the meeting unfolds/i)).not.toBeInTheDocument();
+  });
+
+  it('before or during the meeting, still invites notes as it unfolds', async () => {
+    notes = [];
+    renderSection(false);
+    expect(await screen.findByText(/as the meeting unfolds/i)).toBeInTheDocument();
   });
 });

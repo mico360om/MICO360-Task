@@ -25,6 +25,7 @@ export function AgendaSection({
   canEdit,
   pollMs,
   draftFrom,
+  ended = false,
 }: {
   meetingId: string;
   startAt: string;
@@ -34,6 +35,8 @@ export function AgendaSection({
   pollMs: number | false;
   /** What "Draft agenda" works from (the meeting's details and who is invited, the organizer included). */
   draftFrom?: { title: string; description: string | null; projectId: string | null; peopleIds: string[] };
+  /** The meeting is over: an empty agenda is spoken of in the past. */
+  ended?: boolean;
 }) {
   const qc = useQueryClient();
   const [drafted, setDrafted] = useState<AiAgendaItem[] | null>(null);
@@ -148,7 +151,15 @@ export function AgendaSection({
       ) : agendaQ.isError ? (
         <LoadError what="the agenda" onRetry={() => void agendaQ.refetch()} />
       ) : items.length === 0 ? (
-        <p className="text-sm text-ink-2">{canEdit ? 'No agenda yet. Add the topics you plan to cover, who presents each and for how long.' : 'No agenda yet.'}</p>
+        <p className="text-sm text-ink-2">
+          {ended
+            ? canEdit
+              ? 'No agenda was set for this meeting. You can still add the topics that were covered.'
+              : 'No agenda was set for this meeting.'
+            : canEdit
+              ? 'No agenda yet. Add the topics you plan to cover, who presents each and for how long.'
+              : 'No agenda yet.'}
+        </p>
       ) : (
         <ol className="flex flex-col divide-y divide-line">
           {items.map((item, index) =>

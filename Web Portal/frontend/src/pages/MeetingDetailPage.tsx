@@ -192,6 +192,7 @@ export function MeetingDetailPage() {
             endAt={meeting.endAt}
             directory={directory}
             canEdit={canEdit}
+            ended={meeting.status === 'COMPLETED'}
             pollMs={pollMs}
             // Draft agenda: the meeting's details, and its organizer and invited team members as leads.
             draftFrom={{
@@ -201,7 +202,7 @@ export function MeetingDetailPage() {
               peopleIds: [...new Set([meeting.organizerId, ...(Array.isArray(attendeesQ.data) ? attendeesQ.data : []).flatMap((a) => (a.userId ? [a.userId] : []))])],
             }}
           />
-          <NotesSection meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
+          <NotesSection meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={meeting.status === 'COMPLETED'} />
           <ActionItemsSection meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
           <FinalMinutesSection meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />
         </div>
