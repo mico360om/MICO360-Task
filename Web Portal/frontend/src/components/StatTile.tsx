@@ -63,19 +63,17 @@ function useCountUp(value: string | number) {
 export function StatTile({ label, value, hint, icon, tone = 'brand', onClick, actionLabel }: StatTileProps) {
   const display = useCountUp(value);
   const t = TONE[tone];
+  // The icon sits in the top corner beside the number only; the label and the hint under them have
+  // the tile's whole width. (Beside all three, a phone's half-width tile split "workspaces" in two.)
   const body = (
     <>
       <span className="pointer-events-none absolute -right-8 -top-10 block h-24 w-24 rounded-full bg-brand/5 blur-2xl transition-opacity duration-300 group-hover:opacity-80" />
-      <span className="flex items-start justify-between gap-3">
-        <span className="block min-w-0">
-          <span className="block font-display text-3xl font-extrabold tracking-tightish text-ink">{display}</span>
-          <span className="eyebrow mt-1 block">{label}</span>
-          {hint ? <span className="mt-1 block text-xs text-ink-2">{hint}</span> : null}
-        </span>
-        {icon ? (
-          <span className={`grid h-10 w-10 flex-none place-items-center rounded-xl ${t.bubble}`}>{icon}</span>
-        ) : null}
-      </span>
+      {icon ? (
+        <span data-stat-icon aria-hidden="true" className={`absolute end-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${t.bubble}`}>{icon}</span>
+      ) : null}
+      <span className={`block font-display text-3xl font-extrabold tracking-tightish text-ink ${icon ? 'pe-12' : ''}`}>{display}</span>
+      <span className="eyebrow mt-1 block">{label}</span>
+      {hint ? <span className="mt-1 block text-xs text-ink-2">{hint}</span> : null}
     </>
   );
   if (onClick) {
