@@ -158,6 +158,10 @@ export interface ManagementSource {
   tasksByIds(ids: string[]): Promise<TaskLine[]>;
   /** Open follow-up tasks. */
   followUpTasks(q: { projectIds: string[]; limit: number }): Promise<{ total: number; rows: TaskLine[] }>;
+  /** How many tasks wait for approval in each of these projects (projects with none left out). */
+  awaitingApproval(projectIds: string[]): Promise<{ projectId: string; count: number }[]>;
+  /** The tasks waiting for approval, the longest waiting first. */
+  awaitingApprovalTasks(q: { projectIds: string[]; limit: number }): Promise<{ total: number; rows: TaskLine[] }>;
   /** Where an item failed in [from, to): the inspections, newest first. `formId` null: inspections whose form is gone. */
   failedOccurrences(q: { projectIds: string[]; from: Date; to: Date; formId: string | null; itemId: string; limit: number }): Promise<{ total: number; rows: FailedOccurrence[] }>;
   /** Open action items (one person's; only those due before `overdueOn` when given), the most overdue first. */

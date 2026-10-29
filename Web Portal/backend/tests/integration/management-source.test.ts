@@ -204,6 +204,21 @@ describe('Management source (integration)', () => {
     expect(where.rows.map((r) => [r.inspectionId, r.note])).toEqual([[ids.in2, null], [ids.in1, 'Leaking']]);
   });
 
+  it('tasks waiting for approval: counted per project, listed the longest waiting first (deleted ones never)', async () => {
+    const waitAt = (taskKey: string, at: string) => prisma.task.update({ where: { id: ids[taskKey]! }, data: { approvalRequestedAt: new Date(at) } });
+    try {
+      await waitAt('today', '2026-10-26T10:00:00.000Z');
+      await waitAt('late1', '2026-10-25T10:00:00.000Z');
+      await waitAt('deleted', '2026-10-24T10:00:00.000Z');
+      expect(await source.awaitingApproval(RIG_MICO())).toEqual([{ projectId: ids.rig, count: 2 }]);
+      const list = await source.awaitingApprovalTasks({ projectIds: RIG_MICO(), limit: 10 });
+      expect([list.total, list.rows.map((r) => r.title)]).toEqual([2, ['late1', 'today']]);
+      expect(await source.awaitingApproval([ids.mico!])).toEqual([]);
+    } finally {
+      await prisma.task.updateMany({ where: { id: { in: [ids.today!, ids.late1!, ids.deleted!] } }, data: { approvalRequestedAt: null } });
+    }
+  });
+
   it('open follow-ups (their task open and live, the inspection live)', async () => {
     expect(await source.openFollowUps(RIG_MICO())).toEqual([{ projectId: ids.rig, count: 1 }]);
     const list = await source.followUpTasks({ projectIds: [ids.rig!], limit: 10 });

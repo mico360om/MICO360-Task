@@ -84,7 +84,7 @@ function checkStore() {
   return { record: async (at: Date) => { last = at; }, last: async () => last };
 }
 
-function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; configured?: boolean; failures?: number; blocked?: string[]; checks?: ReturnType<typeof checkStore> } = {}) {
+function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; completed?: DailyTask[]; awaiting?: number; configured?: boolean; failures?: number; blocked?: string[]; checks?: ReturnType<typeof checkStore> } = {}) {
   let now = at('2026-10-21T02:00:00Z'); // 06:00 in Muscat
   const { repo, rows, failFinishes, failClaimsFor } = memoryRepo(() => now);
   let listFails = false;
@@ -107,7 +107,7 @@ function setup(opts: { people?: DailyRecipient[]; pending?: DailyTask[]; complet
       },
       find: async (id) => people.find((p) => p.id === id) ?? null,
     },
-    tasks: { pending, completedBetween },
+    tasks: { pending, completedBetween, awaitingApproval: async () => opts.awaiting ?? 0 },
     send: async (to: string, content: EmailContent, template: string) => {
       if (held) {
         const h = held;
@@ -194,6 +194,12 @@ describe('daily task emails: the morning sweep', () => {
     expect(userId).toBe('ada');
     expect(from.toISOString()).toBe('2026-10-19T20:00:00.000Z'); // 20 Oct 00:00 in Muscat
     expect(to.toISOString()).toBe('2026-10-20T20:00:00.000Z'); // 21 Oct 00:00 in Muscat
+  });
+
+  it('the pending email goes when only approvals wait for the person (none of their own tasks)', async () => {
+    const s = setup({ pending: [], completed: [], awaiting: 2 });
+    await s.service.runSweep();
+    expect(s.sent.map((m) => [m.template, m.subject])).toEqual([['daily-pending', '2 tasks waiting for your approval']]);
   });
 
   it('skips an email with nothing in it, and records that', async () => {

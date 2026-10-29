@@ -39,6 +39,32 @@ describe('taskLink', () => {
   });
 });
 
+describe('pendingEmail: tasks waiting for the person to approve them', () => {
+  const base = { name: 'Ada', timeZone: TZ, now: NOW, appUrl: APP };
+  it('a line saying how many, near the top, with a button to the To approve list', () => {
+    const e = pendingEmail({ ...base, tasks: [task('RIG-3')], awaitingApproval: 3 });
+    expect(e.subject).toBe('Your pending tasks: 1');
+    expect(e.text).toContain('3 tasks waiting for your approval.');
+    expect(e.text.indexOf('waiting for your approval')).toBeLessThan(e.text.indexOf('RIG-3'));
+    expect(e.html).toContain('https://task.example/my-tasks#to-approve');
+    expect(pendingEmail({ ...base, tasks: [task('RIG-3')], awaitingApproval: 1 }).text).toContain('1 task waiting for your approval.');
+  });
+  it('none waiting: no line, no button', () => {
+    for (const awaitingApproval of [0, undefined]) {
+      const e = pendingEmail({ ...base, tasks: [task('RIG-3')], awaitingApproval });
+      expect(e.text).not.toContain('approval');
+      expect(e.html).not.toContain('#to-approve');
+    }
+  });
+  it('nothing of their own pending but approvals waiting: the email is about those', () => {
+    const e = pendingEmail({ ...base, tasks: [], awaitingApproval: 2 });
+    expect(e.subject).toBe('2 tasks waiting for your approval');
+    expect(e.text).toContain('You have no pending tasks of your own.');
+    expect(e.text).toContain('2 tasks waiting for your approval.');
+    expect(e.text).not.toContain('aren’t done yet');
+  });
+});
+
 describe('pendingEmail (tasks assigned and not done)', () => {
   const tasks = [
     task('RIG-1', { dueDate: day('2026-10-25'), priority: 'LOW' }),

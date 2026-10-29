@@ -6,6 +6,8 @@ import { createPrismaProjectLookup, createPrismaTaskRepository } from '../../src
 import { createTaskService } from '../../src/modules/tasks/task-service';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
+import { createPrismaApprovalSource } from '../../src/modules/tasks/prisma-approval-source';
+import { managesProject } from '../../src/modules/projects/project-managers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -15,7 +17,7 @@ const TZ = 'Asia/Muscat';
 const NOW = new Date('2026-10-30T06:00:00Z');
 const recurrence = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => NOW }), timeZone: TZ, now: () => NOW });
 const CODES = ['APRA', 'APRB'];
-const EMAILS = ['approvals-manager@mico360.test', 'approvals-worker@mico360.test'];
+const EMAILS = ['approvals-manager@mico360.test', 'approvals-worker@mico360.test', 'approvals-admin@mico360.test'];
 let managerId = '';
 let workerId = '';
 const copies: string[] = [];
@@ -147,5 +149,59 @@ describe('Task approvals on MySQL (integration)', () => {
     const results = await Promise.allSettled([taskService.approveTask(t.id, managerId), taskService.approveTask(t.id, managerId)]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ code: 'NOT_WAITING' });
+  });
+});
+
+describe('The To approve list and who is told, on MySQL (integration)', () => {
+  // As the server wires it: admins, and whoever runs the project (owner, named manager, MANAGER members).
+  const source = createPrismaApprovalSource(prisma, {
+    canManageProject: async (userId, roles, pid) => {
+      if (roles.includes('ADMIN')) return true;
+      const p = await prisma.project.findUniqueOrThrow({ where: { id: pid }, select: { ownerId: true, managerId: true, members: { select: { userId: true, role: true } } } });
+      return managesProject(p, userId);
+    },
+  });
+  let adminId = '';
+  beforeEach(async () => {
+    const role = await prisma.role.upsert({ where: { name: 'ADMIN' }, update: {}, create: { name: 'ADMIN' } });
+    adminId = (await prisma.user.create({ data: { email: EMAILS[2]!, username: 'approvals-admin', passwordHash: 'x', firstName: 'Ada', lastName: 'Admin', roles: { create: [{ roleId: role.id }] } } })).id;
+  });
+  async function waitingTask(title = 'Inspection report') {
+    const t = await taskService.createTask({ title, projectId, columnId: await col('IN_PROGRESS'), createdById: workerId, needsApproval: true, assigneeIds: [workerId] });
+    return taskService.moveTask(t.id, await col('DONE'), undefined, workerId);
+  }
+
+  it('lists the waiting tasks for whoever runs the project and for admins, longest waiting first — nobody else', async () => {
+    const first = await waitingTask('First');
+    await prisma.task.update({ where: { id: first.id }, data: { approvalRequestedAt: new Date('2026-10-29T06:00:00Z') } });
+    const second = await waitingTask('Second');
+    await taskService.createTask({ title: 'Not finished', projectId, columnId: await col('TODO'), createdById: workerId, needsApproval: true });
+    const mine = await source.list({ id: managerId, roles: ['EMPLOYEE'] });
+    expect(mine.map((t) => t.id)).toEqual([first.id, second.id]);
+    expect(mine[1]).toMatchObject({ key: second.key, project: { id: projectId, code: 'APRA', name: 'Approvals' }, requestedBy: { id: workerId, name: 'Sara Worker' }, assignees: [{ id: workerId, name: 'Sara Worker' }] });
+    expect((await source.list({ id: adminId, roles: ['ADMIN'] })).map((t) => t.id)).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect(await source.list({ id: workerId, roles: ['EMPLOYEE'] })).toEqual([]);
+    expect(await source.canApproveAny({ id: managerId, roles: ['EMPLOYEE'] })).toBe(true);
+    expect(await source.canApproveAny({ id: workerId, roles: ['EMPLOYEE'] })).toBe(false);
+    expect(await source.countFor(managerId)).toBe(2);
+    expect(await source.countFor(workerId)).toBe(0);
+    expect(await source.countFor(adminId)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a task’s details: who may approve, who finished it, the one approver’s name', async () => {
+    const w = await waitingTask();
+    expect(await source.details({ id: managerId, roles: ['EMPLOYEE'] }, w)).toEqual({ canApprove: true, requestedBy: { id: workerId, name: 'Sara Worker' }, approvedBy: null, approverName: 'Omar Manager' });
+    expect((await source.details({ id: workerId, roles: ['EMPLOYEE'] }, w)).canApprove).toBe(false);
+    const approved = await taskService.approveTask(w.id, managerId);
+    expect((await source.details({ id: workerId, roles: ['EMPLOYEE'] }, approved)).approvedBy).toEqual({ id: managerId, name: 'Omar Manager' });
+  });
+
+  it('who is told a task waits: the people who run the project (never the finisher) — the admins when nobody does', async () => {
+    expect(await source.approvers(projectId, workerId)).toEqual([managerId]);
+    await prisma.project.update({ where: { id: projectId }, data: { managerId: null } });
+    const told = await source.approvers(projectId, workerId);
+    expect(told).toContain(adminId);
+    expect(told).not.toContain(workerId);
+    expect(told).not.toContain(managerId);
   });
 });

@@ -163,15 +163,41 @@ function settingsNote(appUrl: string, what: string): Block {
   return { kind: 'text', text: `You get ${what} every morning. To change the time or turn it off, open Settings → Daily task emails: ${base(appUrl)}/settings` };
 }
 
+/** The To approve list on My Tasks. */
+export const toApproveLink = (appUrl: string) => `${base(appUrl)}/my-tasks#to-approve`;
+
+/** "3 tasks waiting for your approval", with a button to the list — nothing when none wait. */
+function approvalBlocks(n: number | undefined, appUrl: string): Block[] {
+  if (!n) return [];
+  return [
+    { kind: 'text', text: `${plural(n, 'task')} waiting for your approval.` },
+    { kind: 'button', label: 'Review them', href: toApproveLink(appUrl) },
+  ];
+}
+
 /**
  * The morning email of someone's pending tasks (assigned to them, not done): the day at a glance, then
  * a section per project (the one with the most urgent task first), each with its details and its
  * tasks, most urgent first (overdue, due today, upcoming, no due date; then priority).
+ *
+ * `awaitingApproval`: how many tasks wait for this person's approval (they run the project, or are an
+ * administrator) — a line near the top with a button to the To approve list. With none of their own
+ * tasks pending, the email is about those alone.
  */
 export function pendingEmail(
-  p: { name: string; tasks: DailyTask[]; timeZone: string; now: Date; appUrl: string; assetUrl?: string },
+  p: { name: string; tasks: DailyTask[]; timeZone: string; now: Date; appUrl: string; assetUrl?: string; awaitingApproval?: number },
   opts?: TemplateOptions,
 ): EmailContent {
+  if (p.tasks.length === 0) {
+    const waiting = p.awaitingApproval ?? 0;
+    const line = `${plural(waiting, 'task')} waiting for your approval`;
+    const blocks: Block[] = [
+      { kind: 'text', text: 'You have no pending tasks of your own.' },
+      ...approvalBlocks(waiting, p.appUrl),
+      settingsNote(p.appUrl, 'this email'),
+    ];
+    return render(line, `${line}.`, `Good morning, ${p.name}`, todayLabel(p.now, p.timeZone), blocks, opts);
+  }
   const days = (t: DailyTask) => daysUntilDue(t.dueDate, p.timeZone, p.now);
   const isOverdue = (t: DailyTask) => (days(t) ?? 0) < 0;
   const isToday = (t: DailyTask) => days(t) === 0;
@@ -198,6 +224,7 @@ export function pendingEmail(
   const n = p.tasks.length;
   const blocks: Block[] = [
     { kind: 'text', text: `You have ${plural(n, 'task')} that ${n === 1 ? 'isn’t' : 'aren’t'} done yet${groups.length > 1 ? `, in ${groups.length} projects` : ''}.` },
+    ...approvalBlocks(p.awaitingApproval, p.appUrl),
     ...glance([
       overdue > 0 && { text: `${overdue} overdue`, tone: 'danger' },
       today > 0 && { text: `${today} due today`, tone: 'warning' },

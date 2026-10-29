@@ -175,6 +175,8 @@ export interface TaskListFilter {
   dueAfter?: Date;
   /** Only tasks that carry a repeat rule (the newest copy of each series). */
   recurring?: boolean;
+  /** Only tasks waiting for approval (task-approval). */
+  awaitingApproval?: boolean;
 }
 
 export interface SeriesUpdateOptions {

@@ -65,4 +65,10 @@ describe('updateActivity (the UPDATED timeline line an edit writes)', () => {
       ],
     });
   });
+
+  it('ticking or unticking "Needs approval" is a change (so the history says who did it)', () => {
+    expect(updateActivity(base, withChanges({ needsApproval: true }), TZ)).toEqual({ changes: [{ field: 'needsApproval', from: false, to: true }] });
+    expect(updateActivity(withChanges({ needsApproval: true }), withChanges({ needsApproval: false }), TZ)).toEqual({ changes: [{ field: 'needsApproval', from: true, to: false }] });
+    expect(updateActivity(withChanges({ needsApproval: true }), withChanges({ needsApproval: true, approvalRequestedAt: new Date() }), TZ)).toBeNull();
+  });
 });

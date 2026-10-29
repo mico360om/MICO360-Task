@@ -38,6 +38,8 @@ import { createTaskMoveService, type MoveResult } from './modules/tasks/task-mov
 import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move-repository';
 import { createMoveNotifier } from './modules/tasks/task-move-notices';
 import { createStatusChangeEffects, type StatusChangeEffects } from './modules/tasks/task-status-effects';
+import { createPrismaApprovalSource } from './modules/tasks/prisma-approval-source';
+import type { MoveExtra } from './modules/tasks/task-service';
 import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
 import { DEFAULT_CARRY_STATUSES } from './modules/tasks/board-date';
@@ -239,12 +241,19 @@ async function main(): Promise<void> {
 
   // Late-bound so moving a task to a DONE column can spawn the next recurring instance (below).
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
-  let onTaskMoved: (task: TaskRec, prevColumnId: string, actorId?: string) => Promise<void> = async () => {};
+  let onTaskMoved: (task: TaskRec, prevColumnId: string, actorId?: string, extra?: MoveExtra) => Promise<void> = async () => {};
   let onTaskCreated: (task: TaskRec) => Promise<void> = async () => {};
   let onTaskDeleting: (task: TaskRec) => Promise<void> = async () => {};
   let onTaskUpdated: (before: TaskRec, after: TaskRec, actorId?: string) => Promise<void> = async () => {};
 
   const companyTz = resolveTimeZone(env.COMPANY_TIMEZONE);
+  // Task approvals: who may approve a project's tasks is who may manage it (admins, owner, named
+  // manager, MANAGER members) — the person's current roles, read at the moment they act.
+  const roleNamesOf = async (userId: string): Promise<string[]> => {
+    const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: 'ACTIVE' }, select: { roles: { select: { role: { select: { name: true } } } } } });
+    return u ? u.roles.map((r) => r.role.name) : [];
+  };
+  const approvalSource = createPrismaApprovalSource(prisma, { canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p) });
   const taskService = createTaskService({
     tasks: createPrismaTaskRepository(prisma),
     projects: createPrismaProjectLookup(prisma),
@@ -256,7 +265,12 @@ async function main(): Promise<void> {
         return col?.category ?? null;
       },
     },
-    onMoved: (task, prevColumnId, actorId) => onTaskMoved(task, prevColumnId, actorId),
+    onMoved: (task, prevColumnId, actorId, extra) => onTaskMoved(task, prevColumnId, actorId, extra),
+    // A task that needs approval, finished by someone who can't approve, waits (task-approval).
+    approvals: {
+      canApprove: async (userId, projectId) => projectAuthz.canManageProject(userId, await roleNamesOf(userId), projectId),
+      columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
+    },
     // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
     checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
     onCreated: (task) => onTaskCreated(task),
@@ -286,7 +300,7 @@ async function main(): Promise<void> {
     // A move into or out of a Done column is a status change too: the next repeat copy, meeting
     // action items and the timeline line, as for a card moved on the board. Quietly: the move's own
     // notice says it was completed or re-opened (one notice, not a second "moved to Done").
-    onStatusChanged: (task, prevColumnId, actorId) => statusChanged(task, prevColumnId, actorId, { notify: false }),
+    onStatusChanged: (task, prevColumnId, actorId, extra) => statusChanged(task, prevColumnId, actorId, { notify: false, ...(extra ?? {}) }),
     onMoved: (move) => onTaskProjectMoved(move),
     onError: (err, taskId) => logger.error('moving a task to another project: a follow-up step failed', { err, taskId }),
   });
@@ -651,11 +665,20 @@ async function main(): Promise<void> {
     announceCopy: async (copyId, projectId) => broadcast(projectId, 'task:created', await taskService.getTask(copyId)),
     followActionItems: (taskId, done) => actionItemService.followTask(taskId, done).then(() => undefined),
     recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId),
+    // Approvals: a task starting to wait tells whoever runs its project (else the admins); approved and
+    // sent back tell its assignees and whoever finished it — each only while they can open the task.
+    approvers: async (task, actorId) => visibleTaskRecipients(task.id, await approvalSource.approvers(task.projectId, actorId), actorId),
+    approvalAudience: async (task, actorId, requestedById) => {
+      const assignees = await prisma.taskAssignee.findMany({ where: { taskId: task.id }, select: { userId: true } });
+      return visibleTaskRecipients(task.id, [...assignees.map((a) => a.userId), ...(requestedById ? [requestedById] : [])], actorId);
+    },
+    // The reason a task was sent back is the approver's comment on it (its notice is the sent-back one).
+    sentBackComment: (task, actorId, reason) => prisma.comment.create({ data: { taskId: task.id, userId: actorId, body: reason } }),
     notify: (n) => notificationService.notify(n),
     record: (entry) => activityService.record(entry),
     onError: (err, taskId) => logger.error('action items could not follow their task', { err, taskId }),
   });
-  onTaskMoved = (task, prevColumnId, actorId) => statusChanged(task, prevColumnId, actorId);
+  onTaskMoved = (task, prevColumnId, actorId, extra) => statusChanged(task, prevColumnId, actorId, extra ?? {});
 
   // Deleting just the newest copy of a recurring series skips it: the next copy is made first, so
   // the series carries on instead of ending with it.
@@ -1128,7 +1151,8 @@ async function main(): Promise<void> {
   const dailyEmailService = createDailyEmailService({
     repo: dailyEmailRepository,
     people: dailyEmailSources.people,
-    tasks: dailyEmailSources.tasks,
+    // The pending email also says how many tasks wait for the person's approval.
+    tasks: { ...dailyEmailSources.tasks, awaitingApproval: (userId) => approvalSource.countFor(userId) },
     send: (to, content, template) => emailService.sendPrepared(template, to, content),
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
@@ -1303,6 +1327,9 @@ async function main(): Promise<void> {
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
+    // Task approvals: the To approve list, and who may approve a task (its details).
+    approvalSource,
+    taskApprovalDetails: (viewer, task) => approvalSource.details(viewer, task),
     // A task's details name the form it carries (a form deleted since still names itself, marked).
     taskInspectionForm: async (id) => {
       const f = await prisma.inspectionForm.findUnique({ where: { id }, select: { id: true, title: true, deletedAt: true } });

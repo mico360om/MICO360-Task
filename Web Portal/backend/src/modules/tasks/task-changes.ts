@@ -6,7 +6,9 @@ import type { TaskRecord } from './task-repository';
 export type TaskChange =
   | { field: 'title' | 'priority' | 'dueDate' | 'repeat' | 'inspectionForm' | 'inspectionPlace'; from: string | null; to: string | null }
   /** The text itself is left out: it can be long, and the task shows the current one. */
-  | { field: 'description' };
+  | { field: 'description' }
+  /** "Needs approval" ticked or unticked (task approvals). */
+  | { field: 'needsApproval'; from: boolean; to: boolean };
 
 /**
  * What an edit changed in the fields people care about. Moves (column) and progress are left out —
@@ -26,6 +28,7 @@ export function taskChanges(before: TaskRecord, after: TaskRecord, timeZone: str
   // A scheduled check: the form it is carried out with (by id) and where.
   if ((before.inspectionFormId ?? null) !== (after.inspectionFormId ?? null)) changes.push({ field: 'inspectionForm', from: before.inspectionFormId ?? null, to: after.inspectionFormId ?? null });
   if ((before.inspectionPlace ?? null) !== (after.inspectionPlace ?? null)) changes.push({ field: 'inspectionPlace', from: before.inspectionPlace ?? null, to: after.inspectionPlace ?? null });
+  if (Boolean(before.needsApproval) !== Boolean(after.needsApproval)) changes.push({ field: 'needsApproval', from: Boolean(before.needsApproval), to: Boolean(after.needsApproval) });
   return changes;
 }
 
