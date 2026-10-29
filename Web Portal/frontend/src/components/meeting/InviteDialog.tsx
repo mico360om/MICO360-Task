@@ -22,12 +22,14 @@ export function SendResults({ report, what }: { report: SendReport; what: string
         {what} sent to {report.sent} of {total}.{failed ? ` ${failed} couldn’t be delivered.` : ''}
       </p>
       {report.recipients?.length ? (
-        <ul className="max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line text-sm">
+        // A scrolling list: focusable, so the keyboard can scroll it too.
+        <ul tabIndex={0} aria-label="Results, person by person" className="max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line text-sm">
           {report.recipients.map((r) => (
             <li key={r.email} className="flex items-start gap-2 px-3 py-2">
               <span aria-hidden="true" className={r.ok ? 'text-success' : 'text-danger'}>{r.ok ? '✓' : '✕'}</span>
               <span className="min-w-0 flex-1">
-                <bdi className="font-medium text-ink">{r.name}</bdi> <span className="text-ink-3">{r.email}</span>
+                <bdi title={r.name} className="block truncate font-medium text-ink">{r.name}</bdi>
+                <span title={r.email} className="block truncate text-xs text-ink-3">{r.email}</span>
                 {!r.ok ? <span className="block text-xs text-danger">{r.error ?? 'Not delivered.'}</span> : <span className="sr-only">delivered</span>}
               </span>
             </li>
@@ -147,14 +149,16 @@ export function InviteDialog({ meeting, onClose }: { meeting: Meeting; onClose: 
                 ) : null}
 
                 <div>
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">Recipients ({targets.length})</h3>
-                  <ul className="max-h-56 divide-y divide-line overflow-y-auto rounded-lg border border-line text-sm">
+                  <h3 id={`${meeting.id}-recipients`} className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">Recipients ({targets.length})</h3>
+                  {/* A scrolling list: focusable, so the keyboard can scroll it too. Name and address on lines of their own. */}
+                  <ul tabIndex={0} aria-labelledby={`${meeting.id}-recipients`} className="max-h-56 divide-y divide-line overflow-y-auto rounded-lg border border-line text-sm">
                     {preview.recipients.map((r) => {
                       const included = targets.includes(r);
                       return (
                         <li key={r.email} className={`flex items-center gap-2 px-3 py-2 ${included ? '' : 'opacity-50'}`}>
-                          <span className="min-w-0 flex-1 truncate">
-                            <bdi className="font-medium text-ink">{r.name}</bdi> <span className="text-ink-3">{r.email}</span>
+                          <span className="min-w-0 flex-1">
+                            <bdi title={r.name} className="block truncate font-medium text-ink">{r.name}</bdi>
+                            <span title={r.email} className="block truncate text-xs text-ink-3">{r.email}</span>
                           </span>
                           <span className="shrink-0 text-xs text-ink-3">{KIND[r.kind]}</span>
                           {r.alreadyInvited ? <span className="shrink-0 rounded bg-ground px-1.5 py-0.5 text-[11px] text-ink-2">Already invited</span> : null}
