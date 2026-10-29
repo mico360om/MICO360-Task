@@ -21,7 +21,7 @@ const DOTS = (
   </svg>
 );
 
-const ALIGN = { right: 'right-0', left: 'left-0', 'start-below-md': 'left-0 md:left-auto md:right-0' } as const;
+const ALIGN = { right: 'right-0', left: 'left-0', 'start-below-lg': 'left-0 lg:left-auto lg:right-0' } as const;
 
 /**
  * A "⋯" (or labelled) button with a popup menu. Opening it focuses the first item; ↑/↓, Home and
@@ -41,9 +41,9 @@ export function ActionMenu({
   items: ActionMenuItem[];
   /** Visible button content; defaults to "⋯". */
   children?: ReactNode;
-  /** Which edge of the button the menu lines up with. 'start-below-md': the left edge on a phone or
-   *  small tablet (where the button sits at the left under a title), the right edge from md up. */
-  align?: 'left' | 'right' | 'start-below-md';
+  /** Which edge of the button the menu lines up with. 'start-below-lg': the left edge on a phone or
+   *  tablet (where the button sits at the left under a title), the right edge from lg up. */
+  align?: 'left' | 'right' | 'start-below-lg';
   className?: string;
   buttonClassName?: string;
 }) {

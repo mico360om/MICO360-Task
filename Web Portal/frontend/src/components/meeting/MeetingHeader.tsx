@@ -71,7 +71,8 @@ export function MeetingHeader({
           ) : null}
         </div>
       </Breadcrumbs>
-      <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      {/* Beside the title from lg up; on a phone or tablet under it, so a long title keeps the full width. */}
+      <div className="mt-1.5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           {/* Inline title (bdi): an Arabic title stays on the same side as everything else. */}
           <h1 className={`break-words font-display text-xl font-bold leading-tight text-ink sm:text-2xl ${cancelled ? 'line-through decoration-2' : ''}`}>
@@ -103,11 +104,11 @@ export function MeetingHeader({
               {PRIMARY_LABEL[primary]}
             </Button>
           ) : null}
-          {/* Below md the buttons sit at the left under the title: the menu opens rightwards, on screen. */}
+          {/* Below lg the buttons sit at the left under the title: the menu opens rightwards, on screen. */}
           <ActionMenu
             label="More meeting actions"
             items={menu}
-            align="start-below-md"
+            align="start-below-lg"
             buttonClassName="grid h-10 w-10 place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand/30 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           />
         </div>
