@@ -16,6 +16,16 @@ import { dueDayKey } from '../../lib/due-date';
 const STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
+
+// An item's controls wrap by the room the section really has (beside the side column on a laptop,
+// full width on a tablet): owner + due date, then priority + status, side by side when both pairs fit.
+// A fixed four-column row squeezed the owner to a letter at 768–1279px.
+const PAIRS = 'flex flex-wrap gap-2';
+const PAIR_A = 'flex min-w-0 flex-[1_1_21.5rem] flex-wrap gap-2';
+const PAIR_B = 'flex min-w-0 flex-[1_1_15.5rem] flex-wrap gap-2';
+const OWNER = 'min-w-0 flex-[1_1_12rem]';
+const DATE = 'min-w-0 flex-[1_1_9rem]';
+const PRIORITY = 'min-w-0 flex-[1_1_7rem]';
 const small = `${fieldClass(false)} !min-h-9 !py-1 text-xs`;
 
 /** Follow-ups from the meeting: who owns each, by when, how urgent, where it stands — and its task. */
@@ -110,15 +120,21 @@ export function ActionItemsSection({
         </ul>
       )}
 
-      <form onSubmit={submitAdd} className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,7rem)_auto]">
-        <input aria-label="New action item" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What needs to be done?" className={`${fieldClass(!!addError)} col-span-full`} />
-        <SearchableSelect ariaLabel="Owner of the new item" placeholder="Owner" options={peopleOptions(directory, 'Unassigned')} value={assigneeId} onChange={setAssigneeId} />
-        <input aria-label="Due date of the new item" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={fieldClass(false)} />
-        <select aria-label="Priority of the new item" value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={fieldClass(false)}>
-          {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
-        </select>
-        <Button type="submit" size="sm" loading={addMut.isPending}>Add</Button>
-        {addError ? <p role="alert" className="col-span-full text-xs font-medium text-danger">{addError}</p> : null}
+      <form onSubmit={submitAdd} className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+        <input aria-label="New action item" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What needs to be done?" className={fieldClass(!!addError)} />
+        <div className={PAIRS}>
+          <div className={PAIR_A}>
+            <SearchableSelect ariaLabel="Owner of the new item" className={OWNER} placeholder="Owner" options={peopleOptions(directory, 'Unassigned')} value={assigneeId} onChange={setAssigneeId} />
+            <input aria-label="Due date of the new item" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={`${fieldClass(false)} ${DATE}`} />
+          </div>
+          <div className={PAIR_B}>
+            <select aria-label="Priority of the new item" value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={`${fieldClass(false)} ${PRIORITY}`}>
+              {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+            </select>
+            <Button type="submit" size="sm" loading={addMut.isPending} className="flex-none">Add</Button>
+          </div>
+        </div>
+        {addError ? <p role="alert" className="text-xs font-medium text-danger">{addError}</p> : null}
       </form>
     </Section>
   );
@@ -166,15 +182,19 @@ function ActionItemRow({
         </div>
         {canRemove ? <ConfirmRemoveButton label={`Remove ${item.description}`} onConfirm={onRemove} disabled={removing} /> : null}
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,12rem)_9rem_7rem_8rem]">
-        <SearchableSelect ariaLabel={`Owner of ${item.description}`} className="col-span-2 sm:col-span-1" placeholder="Unassigned" options={peopleOptions(directory, 'Unassigned')} value={item.assigneeId ?? ''} onChange={(v) => onChange({ assigneeId: v || null })} />
-        <input aria-label={`Due date for ${item.description}`} type="date" value={day} onChange={(e) => onChange({ dueDate: e.target.value ? `${e.target.value}T00:00:00.000Z` : null })} className={small} />
-        <select aria-label={`Priority for ${item.description}`} value={item.priority} onChange={(e) => onChange({ priority: e.target.value as Priority })} className={small}>
-          {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
-        </select>
-        <select aria-label={`Status for ${item.description}`} value={item.status} onChange={(e) => onChange({ status: e.target.value as ActionItemStatus })} className={small}>
-          {STATUSES.map((s) => <option key={s} value={s}>{ACTION_STATUS_LABELS[s]}</option>)}
-        </select>
+      <div className={`mt-2 ${PAIRS}`}>
+        <div className={PAIR_A}>
+          <SearchableSelect ariaLabel={`Owner of ${item.description}`} className={OWNER} placeholder="Unassigned" options={peopleOptions(directory, 'Unassigned')} value={item.assigneeId ?? ''} onChange={(v) => onChange({ assigneeId: v || null })} />
+          <input aria-label={`Due date for ${item.description}`} type="date" value={day} onChange={(e) => onChange({ dueDate: e.target.value ? `${e.target.value}T00:00:00.000Z` : null })} className={`${small} ${DATE}`} />
+        </div>
+        <div className={PAIR_B}>
+          <select aria-label={`Priority for ${item.description}`} value={item.priority} onChange={(e) => onChange({ priority: e.target.value as Priority })} className={`${small} ${PRIORITY}`}>
+            {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+          </select>
+          <select aria-label={`Status for ${item.description}`} value={item.status} onChange={(e) => onChange({ status: e.target.value as ActionItemStatus })} className={`${small} min-w-0 flex-[1_1_8rem]`}>
+            {STATUSES.map((s) => <option key={s} value={s}>{ACTION_STATUS_LABELS[s]}</option>)}
+          </select>
+        </div>
       </div>
     </li>
   );
