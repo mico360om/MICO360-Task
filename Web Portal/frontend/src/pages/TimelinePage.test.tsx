@@ -471,6 +471,7 @@ describe('TimelinePage', () => {
     renderPage();
     expect(await screen.findByText('No open projects')).toBeInTheDocument();
     expect(screen.getByText(/not completed or archived/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to Projects' })).toHaveAttribute('href', '/projects');
   });
 
   it('shows a load error with Retry', async () => {

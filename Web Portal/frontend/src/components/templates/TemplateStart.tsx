@@ -88,6 +88,9 @@ export function TemplateStart({
 
   const choose = (id: string) => onChange(id ? { id, startDate: choice?.startDate || today, roles: {} } : null);
 
+  // No template to start from (a new company): a picker offering only "Blank project" says nothing.
+  if (listQ.isSuccess && templates.length === 0 && !choice) return null;
+
   return (
     <section aria-labelledby={ids.heading} className="rounded-2xl border border-line bg-ground/40 p-4">
       <div className="mb-2 flex items-center gap-2">
