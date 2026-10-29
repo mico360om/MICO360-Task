@@ -103,9 +103,11 @@ export function MeetingHeader({
               {PRIMARY_LABEL[primary]}
             </Button>
           ) : null}
+          {/* Below md the buttons sit at the left under the title: the menu opens rightwards, on screen. */}
           <ActionMenu
             label="More meeting actions"
             items={menu}
+            align="start-below-md"
             buttonClassName="grid h-10 w-10 place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand/30 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
           />
         </div>

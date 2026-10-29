@@ -21,6 +21,8 @@ const DOTS = (
   </svg>
 );
 
+const ALIGN = { right: 'right-0', left: 'left-0', 'start-below-md': 'left-0 md:left-auto md:right-0' } as const;
+
 /**
  * A "⋯" (or labelled) button with a popup menu. Opening it focuses the first item; ↑/↓, Home and
  * End move between items; Escape closes it and returns to the button. Destructive items sit at the
@@ -39,7 +41,9 @@ export function ActionMenu({
   items: ActionMenuItem[];
   /** Visible button content; defaults to "⋯". */
   children?: ReactNode;
-  align?: 'left' | 'right';
+  /** Which edge of the button the menu lines up with. 'start-below-md': the left edge on a phone or
+   *  small tablet (where the button sits at the left under a title), the right edge from md up. */
+  align?: 'left' | 'right' | 'start-below-md';
   className?: string;
   buttonClassName?: string;
 }) {
@@ -118,7 +122,7 @@ export function ActionMenu({
           role="menu"
           aria-label={label}
           onKeyDown={onKeyDown}
-          className={`absolute top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift ${align === 'right' ? 'right-0' : 'left-0'}`}
+          className={`absolute top-full z-30 mt-1 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lift ${ALIGN[align]}`}
         >
           {safe.map(item)}
           {danger.length > 0 && safe.length > 0 ? <div role="separator" className="my-1 border-t border-line" /> : null}

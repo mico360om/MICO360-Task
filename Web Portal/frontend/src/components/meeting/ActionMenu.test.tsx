@@ -14,4 +14,19 @@ describe('ActionMenu', () => {
     expect(focusedWhenActing).toBe(button);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
+
+  it('opens towards the screen: from the left edge of its button below md where the button sits at the left, from the right edge above', async () => {
+    render(<ActionMenu label="More meeting actions" align="start-below-md" items={[{ label: 'Edit details', onSelect: () => {} }]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'More meeting actions' }));
+    const menu = screen.getByRole('menu');
+    expect(menu.className).toMatch(/(^|\s)left-0(\s|$)/);
+    expect(menu.className).toMatch(/md:left-auto/);
+    expect(menu.className).toMatch(/md:right-0/);
+  });
+
+  it('never runs wider than the screen', async () => {
+    render(<ActionMenu label="More" items={[{ label: 'Edit details', onSelect: () => {} }]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('menu').className).toMatch(/max-w-\[calc\(100vw-2rem\)\]/);
+  });
 });
