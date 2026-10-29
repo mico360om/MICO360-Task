@@ -44,6 +44,14 @@ function renderPage() {
   );
 }
 
+describe('SettingsPage — layout', () => {
+  it('keeps each card its own height (the short Profile card was stretched to the Notifications card’s)', () => {
+    renderPage();
+    const grid = screen.getByRole('heading', { name: 'Profile' }).closest('section')!.parentElement!;
+    expect(grid.className).toMatch(/(^|\s)items-start(\s|$)/);
+  });
+});
+
 describe('SettingsPage — daily task emails', () => {
   it('has the daily task emails card', async () => {
     renderPage();
