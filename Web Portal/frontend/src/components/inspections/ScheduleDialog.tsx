@@ -29,7 +29,7 @@ export const isStaleSchedule = (e: unknown) => e instanceof ApiError && e.status
 const TITLE_MAX = 191;
 const fullName = (u: { firstName?: string | null; lastName?: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 const onSchedule = (rule: RecurrenceRule): RecurrenceRule => ({ ...rule, createNext: 'ON_SCHEDULE' });
-const field = 'block h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-10 sm:text-sm';
+const field = 'block h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-10 sm:text-sm [@media(pointer:coarse)]:h-11';
 const label = 'mb-1 block text-sm font-semibold text-ink';
 
 /**

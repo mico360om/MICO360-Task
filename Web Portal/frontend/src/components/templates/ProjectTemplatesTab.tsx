@@ -68,7 +68,7 @@ export function ProjectTemplatesTab() {
           icon={TemplateGlyph.project}
           title="No project templates yet"
           description={isAdmin ? 'Create the first one, or open a project and choose “Save as template”.' : 'Open a project you run and choose “Save as template” to make the first one.'}
-          action={isAdmin ? <Button onClick={() => setEditing('new')}>New project template</Button> : undefined}
+          action={isAdmin ? <Button onClick={() => setEditing('new')} className="!min-h-[44px]">New project template</Button> : undefined}
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Project templates">

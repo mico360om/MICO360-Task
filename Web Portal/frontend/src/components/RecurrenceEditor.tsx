@@ -154,7 +154,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
     <div className="flex flex-col gap-2.5 text-sm">
       {hideFrequency || endsOnly ? null : <label className="flex items-center gap-2">
         <span className={compact ? 'sr-only' : 'text-ink-2'}>Repeat</span>
-        <select aria-label="Repeat" value={rule?.freq ?? 'NONE'} onChange={(e) => setFreq(e.target.value)} className={compact ? 'h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9' : control}>
+        <select aria-label="Repeat" value={rule?.freq ?? 'NONE'} onChange={(e) => setFreq(e.target.value)} className={compact ? 'h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9 [@media(pointer:coarse)]:h-11' : control}>
           <option value="NONE">Does not repeat</option>
           {FREQS.map((f) => (
             <option key={f} value={f}>{FREQ_LABEL[f]}</option>

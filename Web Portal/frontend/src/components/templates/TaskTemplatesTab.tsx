@@ -68,7 +68,7 @@ export function TaskTemplatesTab() {
           icon={TemplateGlyph.task}
           title="No task templates yet"
           description={isAdmin ? 'Create the first one, or open a task and choose “Save as template” in its ⋯ menu.' : 'Open a task in a project you run and choose “Save as template” in its ⋯ menu.'}
-          action={isAdmin ? <Button onClick={() => setEditing('new')}>New task template</Button> : undefined}
+          action={isAdmin ? <Button onClick={() => setEditing('new')} className="!min-h-[44px]">New task template</Button> : undefined}
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Task templates">

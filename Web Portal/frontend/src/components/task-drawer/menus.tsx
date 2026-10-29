@@ -46,7 +46,7 @@ export const EyeIcon = ({ filled }: { filled?: boolean }) => (
 
 const menuItemClass = 'flex w-full items-center gap-2 px-3 py-2 text-start text-sm text-ink hover:bg-ground focus-visible:bg-ground sm:py-1.5 sm:text-xs';
 const headerButtonClass =
-  'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors sm:h-8';
+  'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors sm:h-8 [@media(pointer:coarse)]:h-11';
 
 /** "Export" in the header: download the task as Excel or PDF. */
 export function ExportMenu({ onExport, className = '' }: { onExport: (format: 'xlsx' | 'pdf') => Promise<void>; className?: string }) {

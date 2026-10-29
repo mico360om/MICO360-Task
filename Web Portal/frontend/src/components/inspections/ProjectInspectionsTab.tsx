@@ -193,7 +193,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
                   <label htmlFor={ids.task} className="text-sm font-semibold text-ink">
                     For a task (optional)
                   </label>
-                  <select id={ids.task} value={taskId} onChange={(e) => setTaskId(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-base text-ink sm:h-9 sm:text-sm">
+                  <select id={ids.task} value={taskId} onChange={(e) => setTaskId(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-base text-ink sm:h-9 sm:text-sm [@media(pointer:coarse)]:h-11">
                     <option value="">No task</option>
                     {tasks.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -208,7 +208,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
                 <label htmlFor={ids.place} className="text-sm font-semibold text-ink">
                   Place (optional)
                 </label>
-                <input id={ids.place} value={place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => setPlace(e.target.value)} dir="auto" className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-ink sm:h-9 sm:text-sm" placeholder="e.g. Rig 3, north deck" />
+                <input id={ids.place} value={place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => setPlace(e.target.value)} dir="auto" className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-ink sm:h-9 sm:text-sm [@media(pointer:coarse)]:h-11" placeholder="e.g. Rig 3, north deck" />
               </div>
               {problem ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
