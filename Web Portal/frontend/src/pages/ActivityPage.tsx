@@ -113,7 +113,8 @@ export function ActivityPage() {
     `rounded-full px-3 py-1 text-xs font-medium transition-colors ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
 
   return (
-    <div>
+    // A readable width on a wide screen (centred, as About): a feed line across a 1,900px window is hard to follow.
+    <div className="mx-auto max-w-4xl">
       <PageHeader eyebrow="Workspace" title="Activity" subtitle="Who did what, across your tasks and projects." />
 
       <div className="mb-4 flex flex-wrap gap-1.5">

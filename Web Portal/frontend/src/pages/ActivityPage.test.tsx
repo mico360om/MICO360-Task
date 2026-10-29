@@ -136,4 +136,12 @@ describe('ActivityPage', () => {
     expect(screen.getByRole('button', { name: 'Moved' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
   });
+
+  it('keeps the feed at a readable width on a wide screen (centred, about 56rem)', async () => {
+    const { container } = renderPage();
+    await screen.findByText('Omar Ahmed');
+    const page = container.firstElementChild as HTMLElement;
+    expect(page.className).toMatch(/max-w-4xl/);
+    expect(page.className).toMatch(/mx-auto/);
+  });
 });
