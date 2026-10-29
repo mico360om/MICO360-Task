@@ -8,6 +8,11 @@ describe('Avatar', () => {
     expect(screen.getByText('AL')).toBeInTheDocument();
   });
 
+  it('builds the initials from letters only, so a name with brackets doesn’t show a bracket', () => {
+    render(<Avatar name="Mohammed (OXY)" />);
+    expect(screen.getByLabelText('Mohammed (OXY)')).toHaveTextContent(/^MO$/);
+  });
+
   it('exposes the full name as an accessible title', () => {
     render(<Avatar name="omar" />);
     expect(screen.getByTitle('omar')).toBeInTheDocument();

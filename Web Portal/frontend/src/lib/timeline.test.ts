@@ -358,6 +358,7 @@ describe('task rows', () => {
     expect(initialsOf('Sara Ahmed')).toBe('SA');
     expect(initialsOf(' omar  bin said ')).toBe('OB');
     expect(initialsOf('Layla')).toBe('L');
+    expect(initialsOf('Yaqoob (OXY IT)')).toBe('YO'); // letters only, as on every avatar
   });
 
   it('draws a bar from start to the end of the due day, else a marker on the due day, cut to the shown weeks', () => {
