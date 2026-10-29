@@ -142,7 +142,7 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                   className="mt-0.5 h-4 w-4 flex-none accent-brand disabled:opacity-50"
                 />
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <label htmlFor="nu-welcome" className={`text-sm font-medium ${emailEnabled ? 'text-ink' : 'text-ink-2'}`}>Send a welcome email</label>
+                  <label htmlFor="nu-welcome" className={`tap text-sm font-medium ${emailEnabled ? 'text-ink' : 'text-ink-2'}`}>Send a welcome email</label>
                   <p id="nu-welcome-hint" className="text-xs text-ink-2">
                     {emailEnabled
                       ? 'They get their username and a link to set their own password (it works for 7 days).'
@@ -150,7 +150,8 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              {/* Side by side from sm up; on a phone the password (with its hints) and the role take a row each. */}
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="nu-password" required={!sendWelcome}>
                     Temp password{sendWelcome ? <span className="font-normal text-ink-2"> (optional)</span> : null}

@@ -117,6 +117,16 @@ describe('CreateUserModal — "Send a welcome email"', () => {
     await waitFor(() => expect(posted).toEqual({ firstName: 'Sara', lastName: 'K', username: 'sara', email: 'sara@x.test', roleNames: ['EMPLOYEE'], sendWelcome: true }));
   });
 
+  it('gives the welcome choice a finger-sized target, and on a phone the password and role a row each', async () => {
+    renderModal();
+    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    expect(screen.getByText('Send a welcome email').className).toMatch(/(^|\s)tap(\s|$)/);
+    const row = screen.getByLabelText(/temp password/i).closest('.grid')!;
+    expect(row).toContainElement(screen.getByLabelText('Role'));
+    expect(row.className).not.toMatch(/(^|\s)grid-cols-2(\s|$)/);
+    expect(row.className).toMatch(/sm:grid-cols-2/);
+  });
+
   it('a password given with it still has to meet the rule, and is sent along', async () => {
     renderModal();
     await screen.findByRole('checkbox', { name: 'Send a welcome email' });
