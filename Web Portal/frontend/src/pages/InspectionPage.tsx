@@ -9,6 +9,7 @@ import { membersApi } from '../api/members';
 import { projectsApi } from '../api/projects';
 import { tasksApi } from '../api/tasks';
 import { invalidateTaskQueries } from '../lib/task-cache';
+import { approvalNotice } from '../lib/approvals';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { usePageName } from '../lib/page-meta';
@@ -119,6 +120,18 @@ export function InspectionPage() {
     void qc.invalidateQueries({ queryKey: ['task-inspections'] });
   }, [completed, ownerId, id, outbox, qc]);
 
+  // …or made its check wait for approval (a task that needs a project manager's OK): said once too.
+  const waiting = shown?.finishedWaiting ?? null;
+  useEffect(() => {
+    if (!waiting || !ownerId) return;
+    completedNote.current = `Finished. Task ${waiting.key} needs approval, so it’s waiting for a project manager.`;
+    setNotice(completedNote.current);
+    outbox.ackFinished(ownerId, id);
+    void invalidateTaskQueries(qc);
+    void qc.invalidateQueries({ queryKey: ['task', waiting.id] });
+    void qc.invalidateQueries({ queryKey: ['task-inspections'] });
+  }, [waiting, ownerId, id, outbox, qc]);
+
   // What became of follow-up tasks asked for here (now, or sent later from this phone): said once.
   const report = shown?.followUpReport ?? null;
   useEffect(() => {
@@ -154,9 +167,10 @@ export function InspectionPage() {
   });
   const doneM = useMutation({
     mutationFn: (offer: NonNullable<DraftView['finishedOffer']>) => tasksApi(apiClient).move(offer.id, offer.doneColumnId),
-    onSuccess: (_r, offer) => {
+    onSuccess: (moved, offer) => {
       if (ownerId) outbox.ackFinished(ownerId, id);
-      setNotice('The task is marked done.');
+      // A task that needs approval waits for a project manager instead of being done.
+      setNotice(approvalNotice(offer.doneColumnId, moved) ?? 'The task is marked done.');
       void invalidateTaskQueries(qc);
       void qc.invalidateQueries({ queryKey: ['task', offer.id] });
       void qc.invalidateQueries({ queryKey: ['task-inspections'] });
@@ -244,8 +258,16 @@ export function InspectionPage() {
     setSigning(false);
     const state = await send();
     if (state === 'sent') {
-      const done = outbox.view(ownerId, id)?.finishedCompleted;
-      setNotice(done ? `Finished. Task ${done.key} completed.` : (completedNote.current ?? 'Finished. The report is ready.'));
+      const view = outbox.view(ownerId, id);
+      const done = view?.finishedCompleted;
+      const waits = view?.finishedWaiting;
+      setNotice(
+        done
+          ? `Finished. Task ${done.key} completed.`
+          : waits
+            ? `Finished. Task ${waits.key} needs approval, so it’s waiting for a project manager.`
+            : (completedNote.current ?? 'Finished. The report is ready.'),
+      );
     }
     else if (state === 'offline' || state === 'signed-out' || state === 'retry') setNotice('Signed on this phone. It finishes when it can reach the server, and the report is made then.');
   };

@@ -58,6 +58,12 @@ describe('SettingsPage — notification switches', () => {
     expect(await screen.findByRole('switch', { name: 'Notify me: Added to a project' })).toBeInTheDocument();
   });
 
+  it('lets people mute the approval notices (waiting for you; yours approved or sent back)', async () => {
+    renderPage();
+    expect(await screen.findByRole('switch', { name: 'Notify me: Approvals' })).toBeInTheDocument();
+    expect(screen.getByText('When a task waits for your approval, or yours is approved or sent back')).toBeInTheDocument();
+  });
+
   it('says so when a switch could not be saved (it used to flip back without a word)', async () => {
     saveAnswer = () => json({ error: { code: 'INTERNAL', message: 'boom' } }, 500);
     renderPage();
