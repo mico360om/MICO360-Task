@@ -36,10 +36,11 @@ export function NotificationsPage() {
       />
       <div className="flex flex-col gap-2">
         {q.isLoading ? (
-          // Rows where the notifications will be, so the page doesn't jump when they arrive.
-          <div role="status" aria-label="Loading notifications" className="flex flex-col gap-2">
-            {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} data-skeleton-row className="skeleton h-16 rounded-lg" />
+          // Rows where the notifications will be, a screenful of them: the footer waits below the
+          // fold instead of being shoved off it when the list arrives.
+          <div role="status" aria-label="Loading notifications" className="flex h-[100dvh] flex-col gap-2 overflow-hidden">
+            {Array.from({ length: 14 }, (_, i) => (
+              <div key={i} data-skeleton-row className="skeleton h-16 flex-none rounded-lg" />
             ))}
           </div>
         ) : q.isError ? (

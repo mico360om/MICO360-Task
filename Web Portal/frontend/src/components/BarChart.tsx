@@ -36,7 +36,7 @@ export function BarChart({ data, unit = '', ariaLabel = 'Bar chart', max: fullAt
         const pct = Math.min(100, Math.max(0, (d.value / max) * 100));
         return (
           <li key={d.label} className="flex items-center gap-3">
-            <span dir="auto" className="w-24 flex-none truncate text-start text-xs font-medium text-ink-2 sm:w-28" title={d.label}>
+            <span dir="auto" className="w-24 flex-none truncate text-start text-xs font-medium text-ink-2 sm:w-28 xl:w-40" title={d.label}>
               {d.label}
             </span>
             <span className="sr-only">: </span>

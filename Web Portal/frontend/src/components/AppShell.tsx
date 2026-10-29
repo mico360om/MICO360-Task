@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { Sidebar, SidebarBody } from './Sidebar';
-import { useManagementAccess } from '../lib/useManagementAccess';
+import { useManagementLink } from '../lib/useManagementLink';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
 import { GlobalSearch } from './GlobalSearch';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
@@ -67,8 +67,9 @@ export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Unread chat messages, live: on the sidebar's Chat icon and, on a phone, the menu button.
   const chatUnread = useChatBadge();
-  // The Management page's link: administrators and the people who run a project.
-  const { allowed: canLead } = useManagementAccess();
+  // The Management page's link: administrators and the people who run a project (until the server
+  // answers, what it said last time — the link no longer pops in and shifts the menu).
+  const canLead = useManagementLink();
   // Global task drawer: any page/command can open a task by putting ?task=<id> in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const openTaskId = searchParams.get('task');
