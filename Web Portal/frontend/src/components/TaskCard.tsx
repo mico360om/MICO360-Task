@@ -118,14 +118,13 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       {task.project ? (
         <span data-testid="card-project" className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-ink-2 ${menuSpace ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
           <ProjectAvatar project={task.project} size="xs" />
-          <span dir="auto" className="truncate">{task.project.name}</span>
+          <span dir="auto" title={task.project.name} className="truncate">{task.project.name}</span>
         </span>
       ) : null}
 
       <div className={`flex items-center justify-between gap-2 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
-          {task.inspection ? <InspectionChip /> : null}
+          <span className="whitespace-nowrap rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
         </span>
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
@@ -155,8 +154,11 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
 
       <div dir="auto" className="line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand">{task.title}</div>
 
-      {hasDue || (c && (c.checklistTotal > 0 || c.comments > 0 || c.attachments > 0)) ? (
+      {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and
+          the flags, it overlapped them in a narrow column and broke the key in two). */}
+      {task.inspection || hasDue || (c && (c.checklistTotal > 0 || c.comments > 0 || c.attachments > 0)) ? (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          {task.inspection ? <InspectionChip /> : null}
           {hasDue ? (
             <span
               className={`inline-flex items-center gap-1 rounded px-1 text-[11px] ${overdue ? 'bg-danger-soft font-semibold text-danger' : 'text-ink-2'}`}

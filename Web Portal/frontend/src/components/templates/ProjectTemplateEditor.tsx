@@ -131,7 +131,7 @@ const reason = (err: unknown) => (err instanceof ApiError && err.message && !/^R
 
 const field = 'w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20';
 // 36px: above the site's 32px touch rule (index.css, coarse pointers), as the meeting kit's buttons.
-const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent';
+const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const ARROW = {
   up: <svg data-arrow="up" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6" /></svg>,
   down: <svg data-arrow="down" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>,
@@ -295,7 +295,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
           <div className="flex flex-none items-center gap-3 border-b border-line px-4 py-3.5 sm:px-6">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand">{TemplateGlyph.project}</span>
             <h2 id={ids.title} className="flex-1 font-display text-xl font-bold text-ink">{heading}</h2>
-            <button type="button" onClick={requestClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink">{ARROW.close}</button>
+            <button type="button" onClick={requestClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">{ARROW.close}</button>
           </div>
           <p data-testid="move-status" aria-live="polite" className="sr-only">{moved}</p>
 
@@ -312,7 +312,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                 loadQ.isError ? (
                   <p role="alert" className="text-sm text-danger">Couldn’t load the template. <button type="button" className="font-semibold underline" onClick={() => void loadQ.refetch()}>Retry</button></p>
                 ) : (
-                  <div className="space-y-3" aria-label="Loading the template"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-40 rounded-xl" /></div>
+                  <div className="space-y-3" role="status" aria-label="Loading the template"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-40 rounded-xl" /></div>
                 )
               ) : (
                 <>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { AnswerView, FollowUpView } from '../../api/inspections';
 import { effectiveResult, INSPECTION_LIMITS, limitsText, parseReading, readingText, type FormItem, type ItemResult } from '../../lib/inspection-rules';
 import { ResultChip } from './inspection-ui';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 
 export interface ItemAnswer {
   result: ItemResult | null;
@@ -164,7 +165,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                 return (
                   <label
                     key={c.value}
-                    className={`flex min-h-11 cursor-pointer items-center justify-center gap-1 rounded-lg border text-sm font-semibold transition-colors focus-within:ring-2 focus-within:ring-brand/40 sm:min-h-9 ${on ? c.on : 'border-line text-ink-2 hover:bg-ground'}`}
+                    className={`flex min-h-11 cursor-pointer items-center justify-center gap-1 rounded-lg border text-sm font-semibold transition-colors focus-within:ring-2 focus-within:ring-brand/40 sm:min-h-9 [@media(pointer:coarse)]:min-h-11 ${on ? c.on : 'border-line text-ink-2 hover:bg-ground'}`}
                   >
                     <input type="radio" name={`result-${item.id}`} value={c.value} checked={on} onChange={() => save({ result: c.value })} className="sr-only" />
                     {on ? <span aria-hidden="true">{c.value === 'PASS' ? '✓' : c.value === 'FAIL' ? '✕' : '–'}</span> : null}
@@ -211,7 +212,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                       aria-invalid={readingError ? true : undefined}
                       aria-describedby={[readingError ? ids.readingError : null, failed ? ids.readingHint : null].filter(Boolean).join(' ') || undefined}
                       placeholder="Reading"
-                      className="h-11 w-32 rounded-lg border border-line bg-surface px-3 text-base text-ink outline-none focus:border-brand sm:h-9 sm:text-sm"
+                      className="h-11 w-32 rounded-lg border border-line bg-surface px-3 text-base text-ink outline-none focus:border-brand sm:h-9 sm:text-sm [@media(pointer:coarse)]:!h-11"
                     />
                     {item.unit ? <span className="text-sm text-ink-2">{item.unit}</span> : null}
                   </div>
@@ -226,7 +227,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                       }}
                       aria-label={`N/A: ${item.label}`}
                       aria-pressed={!answer?.reading && answer?.result === 'NA'}
-                      className={`min-h-11 rounded-lg border px-2.5 text-xs font-semibold sm:min-h-9 ${!answer?.reading && answer?.result === 'NA' ? 'border-ink-3 bg-ground text-ink' : 'border-line text-ink-2 hover:bg-ground'}`}
+                      className={`min-h-11 rounded-lg border px-2.5 text-xs font-semibold sm:min-h-9 ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${!answer?.reading && answer?.result === 'NA' ? 'border-ink-3 bg-ground text-ink' : 'border-line text-ink-2 hover:bg-ground'}`}
                     >
                       N/A
                     </button>
@@ -240,7 +241,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                       }}
                       aria-label={`Couldn’t take it (fail): ${item.label}`}
                       aria-pressed={!answer?.reading && answer?.result === 'FAIL'}
-                      className={`min-h-11 rounded-lg border px-2.5 text-xs font-semibold sm:min-h-9 ${!answer?.reading && answer?.result === 'FAIL' ? 'border-danger bg-danger-soft text-danger' : 'border-line text-ink-2 hover:bg-ground'}`}
+                      className={`min-h-11 rounded-lg border px-2.5 text-xs font-semibold sm:min-h-9 ${TOUCH_TALL} ${!answer?.reading && answer?.result === 'FAIL' ? 'border-danger bg-danger-soft text-danger' : 'border-line text-ink-2 hover:bg-ground'}`}
                     >
                       Couldn’t take it
                     </button>
@@ -290,7 +291,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
               />
             </div>
           ) : (
-            <button type="button" onClick={() => setNoteOpen(true)} aria-label={`Add a note: ${item.label}`} className="tap mt-1.5 text-xs font-semibold text-brand hover:underline">
+            <button type="button" onClick={() => setNoteOpen(true)} aria-label={`Add a note: ${item.label}`} className={`tap mt-1.5 text-xs font-semibold text-brand hover:underline ${TOUCH_SQUARE}`}>
               + Note
             </button>
           )}
@@ -298,7 +299,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
           {failed ? (
             <div className="mt-2 text-xs">
               {followUp?.task ? (
-                <Link to={`?task=${encodeURIComponent(followUp.task.id)}`} className="tap inline-flex items-center gap-1 font-semibold text-brand hover:underline">
+                <Link to={`?task=${encodeURIComponent(followUp.task.id)}`} className={`tap inline-flex items-center gap-1 font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
                   Follow-up task: <span className="font-mono">{followUp.task.key}</span>
                   {followUp.task.deleted ? <span className="font-normal text-ink-3"> (deleted)</span> : followUp.task.done ? <span className="font-normal text-ink-2"> (done)</span> : null}
                 </Link>
@@ -309,7 +310,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
               ) : followUp?.pending ? (
                 <p className="text-ink-2">Its follow-up task is being made…</p>
               ) : canMakeFollowUp && onMakeFollowUp ? (
-                <button type="button" onClick={onMakeFollowUp} aria-label={`Make a follow-up task: ${item.label}`} className="tap font-semibold text-brand hover:underline">
+                <button type="button" onClick={onMakeFollowUp} aria-label={`Make a follow-up task: ${item.label}`} className={`tap font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
                   Make a follow-up task
                 </button>
               ) : null}

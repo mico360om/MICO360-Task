@@ -12,6 +12,7 @@ import { Button } from '../ui/Button';
 import { ClientEyeIcon } from '../TaskCard';
 import { dayText, InspectIcon, OutcomePill, problemText } from './inspection-ui';
 import { DueChecksSection, SchedulesSection } from './ScheduledInspections';
+import { TOUCH_TALL } from '../../lib/touch';
 
 export interface InspectionTaskOption {
   id: string;
@@ -25,7 +26,7 @@ export const INSPECTION_FORMS_PATH = '/templates?tab=inspections';
 /** To the forms, for whoever can make them (administrators, and whoever runs a project). */
 function ManageFormsLink({ className = '' }: { className?: string }) {
   return (
-    <Link to={INSPECTION_FORMS_PATH} className={`inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-brand hover:underline sm:min-h-0 [@media(pointer:coarse)]:!min-h-11 ${className}`}>
+    <Link to={INSPECTION_FORMS_PATH} className={`inline-flex min-h-11 items-center whitespace-nowrap rounded-lg px-2 text-sm font-semibold text-brand hover:underline sm:min-h-0 [@media(pointer:coarse)]:!min-h-11 ${className}`}>
       Manage forms
     </Link>
   );
@@ -192,7 +193,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
                   <label htmlFor={ids.task} className="text-sm font-semibold text-ink">
                     For a task (optional)
                   </label>
-                  <select id={ids.task} value={taskId} onChange={(e) => setTaskId(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-base text-ink sm:h-9 sm:text-sm">
+                  <select id={ids.task} value={taskId} onChange={(e) => setTaskId(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-2 text-base text-ink sm:h-9 sm:text-sm [@media(pointer:coarse)]:h-11">
                     <option value="">No task</option>
                     {tasks.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -207,7 +208,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
                 <label htmlFor={ids.place} className="text-sm font-semibold text-ink">
                   Place (optional)
                 </label>
-                <input id={ids.place} value={place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => setPlace(e.target.value)} dir="auto" className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-ink sm:h-9 sm:text-sm" placeholder="e.g. Rig 3, north deck" />
+                <input id={ids.place} value={place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => setPlace(e.target.value)} dir="auto" className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-ink sm:h-9 sm:text-sm [@media(pointer:coarse)]:h-11" placeholder="e.g. Rig 3, north deck" />
               </div>
               {problem ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -216,10 +217,10 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
               ) : null}
             </div>
             <div className="flex flex-col-reverse gap-2 border-t border-line px-5 py-3 sm:flex-row sm:justify-end">
-              <Button type="button" variant="secondary" onClick={onClose} disabled={startM.isPending}>
+              <Button type="button" variant="secondary" onClick={onClose} disabled={startM.isPending} className={TOUCH_TALL}>
                 Cancel
               </Button>
-              <Button type="submit" loading={startM.isPending}>
+              <Button type="submit" loading={startM.isPending} className={TOUCH_TALL}>
                 Start
               </Button>
             </div>
@@ -256,7 +257,7 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {formsQ.data?.canCreate ? <ManageFormsLink /> : null}
-          {q.data?.canStart ? <Button onClick={() => setStarting(true)}>Start an inspection</Button> : null}
+          {q.data?.canStart ? <Button onClick={() => setStarting(true)} className={TOUCH_TALL}>Start an inspection</Button> : null}
         </div>
       </div>
       {waiting.length ? (
@@ -267,7 +268,7 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
           </span>
         </p>
       ) : null}
-      {q.isLoading ? <div className="skeleton h-28 rounded-xl" aria-label="Loading inspections" /> : null}
+      {q.isLoading ? <div className="skeleton h-28 rounded-xl" role="status" aria-label="Loading inspections" /> : null}
       {q.isError ? (
         <p role="alert" className="text-danger">
           {problemText(q.error, 'Couldn’t load the inspections.')}{' '}

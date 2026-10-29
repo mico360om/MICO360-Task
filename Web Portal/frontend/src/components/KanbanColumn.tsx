@@ -34,7 +34,7 @@ function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => voi
       onClick={onAddTask}
       aria-label={`Add a task to ${name}`}
       title={`Add a task to ${name}`}
-      className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+      className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand [@media(pointer:coarse)]:-my-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
     >
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">{PLUS}</svg>
     </button>
@@ -58,7 +58,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         <button
           onClick={() => setCollapsed(false)}
           aria-label={`Expand ${column.name}`}
-          className="grid h-6 w-6 place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand"
+          className="grid h-6 w-6 place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
@@ -90,7 +90,7 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
           <button
             onClick={() => setCollapsed(true)}
             aria-label={`Collapse ${column.name}`}
-            className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand"
+            className="grid h-6 w-6 flex-none place-items-center rounded-md text-ink-2 transition-colors hover:bg-ground hover:text-brand [@media(pointer:coarse)]:-my-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
           >
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
           </button>

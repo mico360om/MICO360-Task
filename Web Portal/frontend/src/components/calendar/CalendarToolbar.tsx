@@ -11,8 +11,9 @@ const VIEWS: { v: CalendarView; label: string }[] = [
   { v: 'agenda', label: 'Agenda' },
 ];
 
-const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand';
-const pill = 'h-9 rounded-xl border px-3 text-sm font-semibold transition-colors';
+// 44px on a touch screen (a tablet or phone), the dense 36px with a mouse.
+const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
+const pill = 'h-9 whitespace-nowrap rounded-xl border px-3 text-sm font-semibold transition-colors [@media(pointer:coarse)]:h-11';
 
 /**
  * Previous / today / next and the period shown on the left; the views, a date to jump to and
@@ -35,7 +36,8 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
   const newHint = useShortcutHint('new');
   return (
     <div className="contents">
-      <div className="flex min-w-0 items-center gap-1.5">
+      {/* On a very narrow phone the period goes under the buttons rather than squeezing "Today". */}
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <button type="button" onClick={onPrev} aria-label={`Previous ${unit}`} title={`Previous ${unit}`} className={iconButton}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="rtl:rotate-180"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
@@ -46,14 +48,14 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
         <h2 aria-live="polite" className="ms-1.5 min-w-0 truncate font-display text-lg font-bold text-ink">{period}</h2>
       </div>
       <div className="ms-auto flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View" className="inline-flex rounded-xl border border-line bg-surface p-0.5">
+        <div role="group" aria-label="View" className="inline-flex rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
           {VIEWS.map(({ v, label }) => (
             <button
               key={v}
               type="button"
               onClick={() => onView(v)}
               aria-pressed={view === v}
-              className={`min-h-[2rem] rounded-lg px-3 text-sm font-semibold transition-colors ${view === v ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+              className={`min-h-[2rem] rounded-lg px-3 text-sm font-semibold transition-colors [@media(pointer:coarse)]:!min-h-11 ${view === v ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
             >
               {label}
             </button>
@@ -66,11 +68,11 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
             aria-label="Go to date"
             value={cursor}
             onChange={(e) => e.target.value && onGoTo(e.target.value)}
-            className="h-9 rounded-xl border border-line bg-surface px-2.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
+            className="h-9 rounded-xl border border-line bg-surface px-2.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:h-11"
           />
         </label>
         {onNew ? (
-          <button type="button" onClick={onNew} title={newHint ? newHint.title('New task') : undefined} aria-keyshortcuts={newHint?.aria} className="h-9 rounded-xl bg-brand-gradient px-3.5 text-sm font-semibold text-white shadow-brand max-sm:hidden">+ Task</button>
+          <button type="button" onClick={onNew} title={newHint ? newHint.title('New task') : undefined} aria-keyshortcuts={newHint?.aria} className="h-9 rounded-xl bg-brand-gradient px-3.5 text-sm font-semibold text-white shadow-brand max-sm:hidden [@media(pointer:coarse)]:h-11">+ Task</button>
         ) : null}
       </div>
     </div>
@@ -79,7 +81,7 @@ export function CalendarToolbar({ view, onView, period, unit, onPrev, onNext, on
 
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="inline-flex min-h-[2.25rem] cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-ink hover:bg-ground">
+    <label className="inline-flex min-h-[2.25rem] cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-ink hover:bg-ground [@media(pointer:coarse)]:min-h-11">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--c-brand))]" />
       {label}
     </label>
@@ -129,7 +131,7 @@ export function CalendarFilterBar({ filters, onChange, projectOptions, assigneeO
   );
   const clear =
     count > 0 ? (
-      <button type="button" onClick={() => onChange(DEFAULT_FILTERS)} className="h-9 rounded-xl px-2.5 text-sm font-semibold text-ink-2 underline-offset-2 hover:text-brand hover:underline">
+      <button type="button" onClick={() => onChange(DEFAULT_FILTERS)} className="h-9 rounded-xl px-2.5 text-sm font-semibold text-ink-2 underline-offset-2 hover:text-brand hover:underline [@media(pointer:coarse)]:h-11">
         Clear filters ({count})
       </button>
     ) : null;
@@ -148,7 +150,7 @@ export function CalendarFilterBar({ filters, onChange, projectOptions, assigneeO
             onChange={(e) => set({ q: e.target.value })}
             aria-label="Search tasks"
             placeholder="Search tasks"
-            className="h-9 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-2 focus:border-brand focus:ring-2 focus:ring-brand/20"
+            className="h-9 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-2 focus:border-brand focus:ring-2 focus:ring-brand/20 [@media(pointer:coarse)]:h-11"
           />
         </label>
         {compact ? null : (

@@ -37,6 +37,7 @@ import { ApiError } from '../lib/api-client';
 import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
 import { configApi } from '../api/config';
 import { ProjectInspectionsTab } from '../components/inspections/ProjectInspectionsTab';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 
 type Tab = 'overview' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
@@ -261,31 +262,34 @@ export function ProjectDetailPage() {
   }
 
   const statsReady = !tasksQ.isLoading && !columnsQ.isLoading;
+  // Until its first data is in, the page is one placeholder of about its size; then the header, tiles,
+  // tabs and overview appear together, filled. Drawn part by part, each arrival (the owner's and
+  // manager's names, a long name wrapping, the overview's lists) pushed everything under it down.
+  const firstLoad = !project || directoryQ.isLoading || membersQ.isLoading || !statsReady || meetingsQ.isLoading;
   const tabCount = (t: Tab) => (t === 'tasks' ? stats.total : t === 'meetings' ? overview?.stats.upcoming ?? 0 : t === 'team' ? members.length : 0);
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: project ? <bdi>{project.name}</bdi> : '…' }]} />
+      <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: project && !firstLoad ? <bdi>{project.name}</bdi> : '…' }]} />
 
+      {firstLoad || !project ? (
+        <ProjectPageSkeleton key="loading" />
+      ) : (
+      <div key="page">
       {/* Header */}
       {/* The title keeps at least 12rem: when the buttons would squeeze it more (a tablet with the
           menu open, three labelled buttons), they move to their own row under it. */}
       <div className="mt-2 flex flex-wrap items-start gap-3 sm:gap-4">
         <div className="flex min-w-0 flex-1 basis-48 items-start gap-3 sm:gap-4">
-        {!project ? (
-          <span className="skeleton h-11 w-11 flex-none rounded-xl" aria-hidden="true" />
-        ) : (
-          <ProjectAvatar project={project} size="lg" label className="shadow-soft" />
-        )}
+        <ProjectAvatar project={project} size="lg" label className="shadow-soft" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 dir="auto" className="min-w-0 break-words font-display text-2xl font-bold text-ink">
-              {project ? project.name : <><span className="sr-only">Loading project…</span><span className="skeleton inline-block h-7 w-56 max-w-full align-middle" aria-hidden="true" /></>}
+              {project.name}
             </h1>
-            {project ? <Badge tone={PROJECT_STATUS_TONE[project.status] ?? 'neutral'} dot>{statusLabel(project.status)}</Badge> : null}
+            <Badge tone={PROJECT_STATUS_TONE[project.status] ?? 'neutral'} dot>{statusLabel(project.status)}</Badge>
           </div>
-          {project ? (
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
               <span className="font-mono">{project.code}</span>
               {project.number ? <><span aria-hidden>·</span><span>Project no. <span className="font-mono">{project.number}</span></span></> : null}
               {project.clientName ? <><span aria-hidden>·</span><span dir="auto">{project.clientName}</span></> : null}
@@ -293,12 +297,6 @@ export function ProjectDetailPage() {
               <span>Owner: {ownerName(project.ownerId)}</span>
               {managerName ? <><span aria-hidden>·</span><span>Project manager: {managerName}</span></> : null}
             </p>
-          ) : (
-            // The details line's place, so nothing under it moves when the project arrives.
-            <p className="mt-0.5 flex h-5 items-center" aria-hidden="true">
-              <span className="skeleton inline-block h-3.5 w-72 max-w-full" />
-            </p>
-          )}
           {detailsProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{detailsProblem}</p> : null}
         </div>
         </div>
@@ -308,7 +306,7 @@ export function ProjectDetailPage() {
             type="button"
             onClick={() => setSharing(true)}
             title="Share this project with a client (read-only)"
-            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+            className={`inline-flex flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand ${TOUCH_SQUARE}`}
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
@@ -321,7 +319,7 @@ export function ProjectDetailPage() {
             type="button"
             onClick={() => setSavingTemplate(true)}
             title="Save this project’s board and tasks as a template for new projects"
-            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+            className={`inline-flex flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand ${TOUCH_SQUARE}`}
           >
             {TemplateGlyph.save}
             <span className="max-sm:sr-only">Save as template</span>
@@ -333,7 +331,7 @@ export function ProjectDetailPage() {
             onClick={() => setEditing(true)}
             title={editHint?.title('Edit project')}
             aria-keyshortcuts={editHint?.aria}
-            className="inline-flex flex-none items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+            className={`inline-flex flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand ${TOUCH_SQUARE}`}
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
@@ -352,14 +350,13 @@ export function ProjectDetailPage() {
       {savingTemplate && project ? <SaveProjectTemplateDialog projectId={id} projectName={project.name} onClose={() => setSavingTemplate(false)} /> : null}
 
       {/* Stat tiles — a snapshot of every task by where it stands */}
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className={TILE_GRID}>
         {/* "—" until the tasks arrive: a zero would read as "this project has no tasks". */}
-        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : ''} />
-        <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" />
-        <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" />
-        <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" />
-        {/* Two to a row on a phone: the fifth fills its row. */}
-        <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" className="max-sm:col-span-2" />
+        <StatTile label="Total tasks" value={statsReady ? stats.total : '—'} hint={statsReady && stats.pending ? `${stats.pending} not started` : ''} className={TILE_SPAN[0]} />
+        <StatTile label="Completed" value={statsReady ? stats.completed : '—'} tone="success" className={TILE_SPAN[1]} />
+        <StatTile label="Ongoing" value={statsReady ? stats.ongoing : '—'} tone="info" className={TILE_SPAN[2]} />
+        <StatTile label="Overdue" value={statsReady ? stats.overdue : '—'} tone="danger" className={TILE_SPAN[3]} />
+        <StatTile label="Completion" value={statsReady ? `${stats.pct}%` : '—'} tone="brand" className={TILE_SPAN[4]} />
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-ground">
         <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${stats.pct}%` }} />
@@ -375,7 +372,7 @@ export function ProjectDetailPage() {
               role="tab"
               aria-selected={tab === t.v}
               onClick={() => show(t.v)}
-              className={`flex flex-none items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${tab === t.v ? 'border-brand text-brand' : 'border-transparent text-ink-2 hover:text-ink'}`}
+              className={`flex flex-none items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${TOUCH_TALL} ${tab === t.v ? 'border-brand text-brand' : 'border-transparent text-ink-2 hover:text-ink'}`}
             >
               {t.label}
               {tabCount(t.v) ? <span className="rounded-full bg-ground px-1.5 text-xs text-ink-2">{tabCount(t.v)}</span> : null}
@@ -396,8 +393,6 @@ export function ProjectDetailPage() {
             <p role="alert" className="text-danger">
               Couldn’t load this project. <button className="font-semibold underline" onClick={() => projectQ.refetch()}>Retry</button>
             </p>
-          ) : !project ? (
-            <div className="skeleton h-28 rounded-xl" aria-label="Loading project" />
           ) : (
             <OverviewTab
               project={project}
@@ -473,6 +468,43 @@ export function ProjectDetailPage() {
 
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
       {newMeeting ? <MeetingFormModal defaultProjectId={id} onClose={() => setNewMeeting(false)} /> : null}
+      </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The five tiles: two to a row on a phone (the fifth across both), three then two wider ones from a
+ * small tablet (no empty slot), all five in a row from a laptop.
+ */
+const TILE_SPAN = ['sm:col-span-2 lg:col-span-1', 'sm:col-span-2 lg:col-span-1', 'sm:col-span-2 lg:col-span-1', 'sm:col-span-3 lg:col-span-1', 'max-sm:col-span-2 sm:col-span-3 lg:col-span-1'];
+const TILE_GRID = 'mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6 lg:grid-cols-5';
+
+/** The page's shape while its first data loads: header, tiles (no zero counters), tabs and a panel. */
+function ProjectPageSkeleton() {
+  return (
+    <div aria-busy="true">
+      <div className="mt-2 flex items-start gap-3 sm:gap-4" aria-hidden="true">
+        <span className="skeleton h-11 w-11 flex-none rounded-xl" />
+        <div className="min-w-0 flex-1">
+          <span className="skeleton block h-7 w-56 max-w-full" />
+          <span className="skeleton mt-2 block h-3.5 w-72 max-w-full" />
+        </div>
+      </div>
+      <div className={TILE_GRID}>
+        {['Total tasks', 'Completed', 'Ongoing', 'Overdue', 'Completion'].map((label, i) => (
+          <StatTile key={label} label={label} value="—" hint={i === 0 ? '' : undefined} className={TILE_SPAN[i]} />
+        ))}
+      </div>
+      <div className="mt-3 h-2 rounded-full bg-ground" />
+      <div className="mt-5 flex gap-1 border-b border-line pb-2" aria-hidden="true">
+        {[16, 12, 16, 18, 12].map((w, i) => (
+          <span key={i} className="skeleton h-6 rounded-md" style={{ width: `${w * 0.25}rem` }} />
+        ))}
+      </div>
+      {/* About a screen tall, so the page footer stays out of view until the page is drawn. */}
+      <div className="skeleton mt-4 h-[60vh] min-h-[16rem] rounded-2xl" role="status" aria-label="Loading project" />
     </div>
   );
 }

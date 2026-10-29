@@ -13,6 +13,7 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { dayText, InspectIcon, problemText } from './inspection-ui';
 import { isStaleSchedule, ScheduleDialog } from './ScheduleDialog';
+import { TOUCH_TALL } from '../../lib/touch';
 
 /** The query keys of a project's scheduled inspections (under the tab's own key, so they refresh with it). */
 export const scheduleKeys = {
@@ -21,7 +22,8 @@ export const scheduleKeys = {
 };
 
 const listNames = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
-const coarse = '[@media(pointer:coarse)]:min-h-11';
+/** 44px tall on a touch screen (see lib/touch.ts for why it is forced). */
+const coarse = TOUCH_TALL;
 
 /** Who does the checks: their pictures, named for a screen reader. */
 function Inspectors({ people }: { people: Person[] }) {
@@ -170,7 +172,7 @@ export function DueChecksSection({ projectId, canStart, onOpenTask }: { projectI
   const checks = q.data?.checks ?? [];
   return (
     <Section title="Due checks" count={q.data ? q.data.total : null}>
-      {q.isLoading ? <div className="skeleton h-16 rounded-xl" aria-label="Loading due checks" /> : null}
+      {q.isLoading ? <div className="skeleton h-16 rounded-xl" role="status" aria-label="Loading due checks" /> : null}
       {q.isError ? (
         <p role="alert" className="text-sm text-danger">
           {problemText(q.error, 'Couldn’t load the due checks.')}{' '}
@@ -227,7 +229,7 @@ function ScheduleRow({ s, timeZone, canChange, onEdit, onStop }: { s: Inspection
             <Button size="sm" variant="secondary" onClick={onEdit} aria-label={`Edit ${s.title}`} className={coarse}>
               Edit
             </Button>
-            <Button size="sm" variant="ghost" onClick={onStop} aria-label={`Stop ${s.title}`} className={`text-danger hover:text-danger ${coarse}`}>
+            <Button size="sm" variant="ghost" onClick={onStop} aria-label={`Stop ${s.title}`} className={`!text-danger hover:!text-danger ${coarse}`}>
               Stop
             </Button>
           </div>
@@ -271,7 +273,7 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
       count={q.data ? list.length : null}
       action={
         canChange ? (
-          <Button size="sm" onClick={() => { setNotice(null); setEditing({ schedule: null }); }} className={coarse}>
+          <Button size="sm" variant="secondary" onClick={() => { setNotice(null); setEditing({ schedule: null }); }} className={coarse}>
             Schedule an inspection
           </Button>
         ) : null
@@ -282,7 +284,7 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
           {notice}
         </p>
       ) : null}
-      {q.isLoading ? <div className="skeleton h-16 rounded-xl" aria-label="Loading schedules" /> : null}
+      {q.isLoading ? <div className="skeleton h-16 rounded-xl" role="status" aria-label="Loading schedules" /> : null}
       {q.isError ? (
         <p role="alert" className="text-sm text-danger">
           {problemText(q.error, 'Couldn’t load the schedules.')}{' '}

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { TOUCH_TALL } from '../../lib/touch';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -48,7 +49,7 @@ export function ProgressBar({ value, label, tone = 'brand', className = '' }: { 
 /** A small text button styled as a link (opens a tab, a filter…). */
 export function LinkButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="tap text-xs font-semibold text-brand hover:underline">
+    <button type="button" onClick={onClick} className={`tap text-xs font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
       {children}
     </button>
   );

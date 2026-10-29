@@ -48,7 +48,8 @@ export function ProjectTemplatesTab() {
             ? 'A template sets a new project’s board, its standard tasks and the roles that do them. Create one here, or save a project as a template from the project’s page.'
             : 'A template sets a new project’s board, its standard tasks and the roles that do them. Anyone who runs a project can save it as a template from the project’s page.'}
         </p>
-        {isAdmin ? (
+        {/* An empty list offers the same button in its message: one call to action, not two. */}
+        {isAdmin && !(listQ.isSuccess && templates.length === 0) ? (
           <Button onClick={() => setEditing('new')} className="!min-h-[44px]">
             {TemplateGlyph.plus}
             New project template
@@ -59,7 +60,7 @@ export function ProjectTemplatesTab() {
       {listQ.isError ? (
         <LoadError what="the project templates" onRetry={() => void listQ.refetch()} />
       ) : listQ.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Loading templates">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading templates">
           {[0, 1, 2].map((i) => <div key={i} className="skeleton h-40 rounded-2xl" aria-hidden="true" />)}
         </div>
       ) : templates.length === 0 ? (
@@ -67,7 +68,7 @@ export function ProjectTemplatesTab() {
           icon={TemplateGlyph.project}
           title="No project templates yet"
           description={isAdmin ? 'Create the first one, or open a project and choose “Save as template”.' : 'Open a project you run and choose “Save as template” to make the first one.'}
-          action={isAdmin ? <Button onClick={() => setEditing('new')}>New project template</Button> : undefined}
+          action={isAdmin ? <Button onClick={() => setEditing('new')} className="!min-h-[44px]">New project template</Button> : undefined}
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Project templates">

@@ -32,6 +32,7 @@ import { InspectionChip } from '../components/inspections/inspection-ui';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
 import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
+import { TOUCH_TALL } from '../lib/touch';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -283,13 +284,13 @@ export function MyTasksPage() {
       {/* Toolbar: filters + sort + view toggle */}
       {counts.total > 0 ? (
         <div className="card mb-4 flex flex-wrap items-center gap-2 p-2.5">
-          <div className="w-40 max-w-full"><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
-          <div className="w-36 max-w-full"><SearchableSelect ariaLabel="Filter by status" value={status} onChange={setStatus} options={statusOptions} /></div>
-          <div className="w-36 max-w-full"><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
-          <div className="w-36 max-w-full"><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
-          <div className="w-36 max-w-full"><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
+          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
+          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by status" value={status} onChange={setStatus} options={statusOptions} /></div>
+          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
+          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
+          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
           {filtersActive ? (
-            <button onClick={clearFilters} className="rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
+            <button onClick={clearFilters} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>Clear</button>
           ) : null}
 
           <div className="ml-auto flex items-center gap-2">
@@ -297,7 +298,7 @@ export function MyTasksPage() {
               <span aria-hidden>Sort</span>
               <div className="w-32"><SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={SORT_OPTIONS} /></div>
             </div>
-            <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5">
+            <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
               <ViewButton active={view === 'grid'} onClick={() => setView('grid')} label="Grid view">
                 <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
               </ViewButton>
@@ -331,7 +332,7 @@ export function MyTasksPage() {
       ) : (
         <>
           <div className="mb-2 flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs font-medium text-ink-2">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-ink-2 [@media(pointer:coarse)]:min-h-11">
               <input type="checkbox" aria-label="Select all tasks" checked={allVisibleSelected} onChange={toggleSelectAll} className="h-3.5 w-3.5 accent-brand" />
               Select all
             </label>
@@ -406,7 +407,7 @@ function Chip({ label, value, onClick, active, tone = 'neutral', plain = false }
     <button
       onClick={onClick}
       aria-pressed={!!active}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${TOUCH_TALL} ${
         active ? 'border-brand/40 bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'
       }`}
     >
@@ -423,7 +424,7 @@ function ViewButton({ active, onClick, label, children }: { active: boolean; onC
       onClick={onClick}
       aria-label={label}
       aria-pressed={active}
-      className={`grid h-8 w-8 place-items-center rounded-lg transition-colors ${active ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+      className={`grid h-8 w-8 place-items-center rounded-lg transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ${active ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
     >
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}
@@ -467,7 +468,7 @@ function Assignees({ list }: { list: { id: string; name: string }[] }) {
  */
 function SelectBox({ taskKey, checked, onChange }: { taskKey: string; checked: boolean; onChange: () => void }) {
   return (
-    <label className="relative z-10 -m-1.5 grid h-7 w-7 flex-none cursor-pointer place-items-center">
+    <label className="relative z-10 -m-1.5 grid h-7 w-7 flex-none cursor-pointer place-items-center [@media(pointer:coarse)]:-m-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
       <input type="checkbox" aria-label={`Select ${taskKey}`} checked={checked} onChange={onChange} className="h-4 w-4 cursor-pointer accent-brand" />
     </label>
   );
@@ -534,44 +535,49 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
       className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
     >
       {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
-      <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: m.color }} title={m.label} aria-hidden />
-      <span className="hidden w-16 flex-none font-mono text-xs text-ink-3 sm:block">{t.key}</span>
-      <div className="min-w-0 flex-1">
+      {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
+      <span role="img" aria-label={m.label} title={m.label} className="hidden h-2.5 w-2.5 flex-none rounded-full sm:block 2xl:hidden" style={{ background: m.color }} />
+      <span title={t.key} className="hidden w-[5.5rem] flex-none truncate whitespace-nowrap font-mono text-xs text-ink-3 sm:block">{t.key}</span>
+      {/* The title takes the room left; a check's Inspection chip sits at its end, so the columns
+          after it line up from row to row. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
         <button
           type="button"
           onClick={onOpen}
           dir="auto"
           title={t.title}
-          className={`block w-full cursor-pointer truncate text-start text-sm font-medium text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
+          className={`min-w-0 flex-1 basis-0 cursor-pointer truncate text-start text-sm font-medium text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
         >
           {t.title}
         </button>
+        {t.inspectionFormId ? (
+          <span className="hidden flex-none sm:inline-flex">
+            <InspectionChip />
+          </span>
+        ) : null}
         {/* Phones have no room for the columns: the same facts go on a second line. */}
-        <div data-phone-meta className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
+        <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <span className="font-mono text-[11px] text-ink-3">{t.key}</span>
+          <StatusPill category={e.cat} />
           {t.inspectionFormId ? <InspectionChip /> : null}
           <PriorityBadge priority={t.priority} />
           <DueLabel e={e} className="text-xs tabular-nums" />
         </div>
       </div>
-      {t.inspectionFormId ? (
-        <span className="hidden flex-none sm:inline-flex">
-          <InspectionChip />
-        </span>
-      ) : null}
       {e.project ? (
         <span className="hidden w-36 flex-none items-center gap-1.5 xl:flex">
           <ProjectAvatar project={e.project} size="xs" />
           <span dir="auto" title={e.project.name} className="truncate text-xs text-ink-2">{e.project.name}</span>
         </span>
-      ) : null}
-      <span className="hidden sm:block"><PriorityBadge priority={t.priority} /></span>
+      ) : <span className="hidden w-36 flex-none xl:block" />}
+      <span className="hidden w-28 flex-none 2xl:block"><StatusPill category={e.cat} /></span>
+      <span className="hidden w-[4.5rem] flex-none sm:block"><PriorityBadge priority={t.priority} /></span>
       <DueLabel e={e} className="hidden w-24 flex-none text-right text-xs tabular-nums sm:block" />
       <div className="hidden w-20 flex-none items-center gap-1.5 lg:flex">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground"><div className="h-full rounded-full bg-brand-sheen" style={{ width: `${t.progress}%` }} /></div>
         <span className="w-8 text-right text-[11px] tabular-nums text-ink-3">{t.progress}%</span>
       </div>
-      <span className="hidden lg:block"><Assignees list={t.assignees ?? []} /></span>
+      <span className="hidden w-[4.5rem] flex-none justify-end lg:flex"><Assignees list={t.assignees ?? []} /></span>
     </div>
   );
 }

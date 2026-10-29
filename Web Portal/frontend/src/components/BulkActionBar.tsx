@@ -29,7 +29,7 @@ const PRIORITIES: { value: Priority; label: string }[] = [
 ];
 
 const selectClass =
-  'rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none transition-colors focus:border-brand disabled:opacity-50';
+  'rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none transition-colors focus:border-brand disabled:opacity-50 [@media(pointer:coarse)]:!min-h-11';
 
 /** Floating bar of bulk actions for a multi-selected set of tasks (My Tasks). */
 /** A complete, plausible calendar date — never a half-typed year like 0002. */
@@ -52,7 +52,7 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
         <button
           onClick={onComplete}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-success/10 px-2.5 py-1 text-xs font-semibold text-success transition-colors hover:bg-success/20 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-success/10 px-2.5 py-1 text-xs font-semibold text-success transition-colors hover:bg-success/20 disabled:opacity-50 [@media(pointer:coarse)]:!min-h-11"
         >
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
           Complete
@@ -72,22 +72,22 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
             type="button"
             onClick={() => { onSetDueDate(due); setDue(''); }}
             disabled={busy || !isCompleteDate(due)}
-            className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-brand transition-colors hover:border-brand disabled:opacity-50"
+            className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-brand transition-colors hover:border-brand disabled:opacity-50 [@media(pointer:coarse)]:!min-h-11"
           >
             Set date
           </button>
           {confirmClear ? (
             <span role="alert" className="inline-flex items-center gap-1">
               <span className="text-danger">Clear the due date on {count} task{count === 1 ? '' : 's'}?</span>
-              <button type="button" onClick={() => { setConfirmClear(false); onSetDueDate(null); }} disabled={busy} className="rounded-lg bg-danger px-2 py-1 font-semibold text-white">
+              <button type="button" onClick={() => { setConfirmClear(false); onSetDueDate(null); }} disabled={busy} className="rounded-lg bg-danger px-2 py-1 font-semibold text-white [@media(pointer:coarse)]:!min-h-11">
                 Clear dates
               </button>
-              <button type="button" onClick={() => setConfirmClear(false)} className="rounded-lg px-1.5 py-1 font-medium text-ink-2 hover:bg-ground">
+              <button type="button" onClick={() => setConfirmClear(false)} className="rounded-lg px-1.5 py-1 font-medium text-ink-2 hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
                 Keep
               </button>
             </span>
           ) : (
-            <button type="button" onClick={() => setConfirmClear(true)} disabled={busy} className="rounded-lg px-1.5 py-1 font-medium text-ink-2 hover:bg-ground hover:text-danger disabled:opacity-50">
+            <button type="button" onClick={() => setConfirmClear(true)} disabled={busy} className="rounded-lg px-1.5 py-1 font-medium text-ink-2 hover:bg-ground hover:text-danger disabled:opacity-50 [@media(pointer:coarse)]:!min-h-11">
               Clear date…
             </button>
           )}
@@ -121,7 +121,7 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
               aria-disabled={moveUnavailable ? 'true' : undefined}
               aria-describedby={moveUnavailable ? moveWhyId : undefined}
               title={moveUnavailable ?? 'Move the selected tasks to another project'}
-              className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink transition-colors hover:border-brand hover:text-brand disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-line aria-disabled:hover:text-ink"
+              className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink transition-colors hover:border-brand hover:text-brand disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-line aria-disabled:hover:text-ink [@media(pointer:coarse)]:!min-h-11"
             >
               Move to project…
             </button>
@@ -134,7 +134,7 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
         ) : null}
 
         <span className="h-5 w-px bg-line" aria-hidden />
-        <button onClick={onClear} aria-label="Clear selection" className="rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">
+        <button onClick={onClear} aria-label="Clear selection" className="rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:!min-h-11">
           Clear
         </button>
       </div>

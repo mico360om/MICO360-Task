@@ -37,7 +37,7 @@ export const Sparkle = () => (
 );
 
 const selectClass =
-  'h-10 w-full appearance-none rounded-lg border border-line bg-surface ps-8 pe-8 text-sm text-ink outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60 sm:h-9';
+  'h-10 w-full appearance-none rounded-lg border border-line bg-surface ps-8 pe-8 text-sm text-ink outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60 sm:h-9 [@media(pointer:coarse)]:h-11';
 const Chevron = () => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-ink-3">
     <path d="m6 9 6 6 6-6" />
@@ -177,7 +177,7 @@ function PriorityField({
             disabled={suggesting}
             aria-label="Suggest priority with AI"
             title="Suggest a priority with AI"
-            className="inline-flex h-10 flex-none items-center gap-1 rounded-lg border border-line px-2 text-[11px] font-semibold text-brand transition-colors hover:border-brand disabled:opacity-60 sm:h-9"
+            className="inline-flex h-10 flex-none items-center gap-1 rounded-lg border border-line px-2 text-[11px] font-semibold text-brand transition-colors hover:border-brand disabled:opacity-60 sm:h-9 [@media(pointer:coarse)]:h-11"
           >
             {suggesting ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand/30 border-t-brand" aria-hidden /> : <Sparkle />}
             AI
@@ -205,7 +205,7 @@ function PriorityField({
           </p>
           {suggestion.priority === value ? (
             <div className="mt-2 flex gap-2">
-              <button type="button" onClick={() => setSuggestion(null)} className="h-8 rounded-md px-2.5 font-medium text-ink-2 hover:bg-ground">
+              <button type="button" onClick={() => setSuggestion(null)} className="h-8 rounded-md px-2.5 font-medium text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
                 OK
               </button>
             </div>
@@ -219,11 +219,11 @@ function PriorityField({
                   setSuggestion(null);
                   void apply(next);
                 }}
-                className="h-8 rounded-md bg-brand px-2.5 font-semibold text-white hover:bg-brand-2"
+                className="h-8 rounded-md bg-brand px-2.5 font-semibold text-white hover:bg-brand-2 [@media(pointer:coarse)]:h-11"
               >
                 Apply
               </button>
-              <button type="button" onClick={() => setSuggestion(null)} className="h-8 rounded-md px-2.5 text-ink-2 hover:bg-ground">
+              <button type="button" onClick={() => setSuggestion(null)} className="h-8 rounded-md px-2.5 text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
                 Dismiss
               </button>
             </div>
@@ -275,7 +275,7 @@ function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: str
           value={value}
           disabled={save.busy}
           onChange={(e) => void apply(e.target.value)}
-          className={`h-10 min-w-0 flex-1 rounded-lg border bg-surface px-3 text-sm outline-none transition-colors focus:ring-2 sm:h-9 ${overdue ? 'border-danger font-semibold text-danger focus:ring-danger/20' : 'border-line text-ink hover:border-ink-3 focus:border-brand focus:ring-brand/20'}`}
+          className={`h-10 min-w-0 flex-1 rounded-lg border bg-surface px-3 text-sm outline-none transition-colors focus:ring-2 sm:h-9 [@media(pointer:coarse)]:h-11 ${overdue ? 'border-danger font-semibold text-danger focus:ring-danger/20' : 'border-line text-ink hover:border-ink-3 focus:border-brand focus:ring-brand/20'}`}
         />
         {value ? (
           <button
@@ -284,7 +284,7 @@ function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: str
             disabled={save.busy}
             aria-label="Clear due date"
             title="Clear due date"
-            className="grid h-10 w-10 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-danger sm:h-9 sm:w-9"
+            className="grid h-10 w-10 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-danger sm:h-9 sm:w-9 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
           >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <path d="M18 6 6 18M6 6l12 12" />
@@ -357,7 +357,7 @@ function AssigneesField({
                 onClick={() => void save.run(() => onUnassign(a.id))}
                 aria-label={`Remove ${a.name}`}
                 title={`Remove ${a.name}`}
-                className="grid h-7 w-7 flex-none place-items-center rounded-full text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-5 sm:w-5"
+                className="grid h-7 w-7 flex-none place-items-center rounded-full text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-5 sm:w-5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:-my-2 [@media(pointer:coarse)]:-me-2.5"
               >
                 ×
               </button>
@@ -368,7 +368,7 @@ function AssigneesField({
           <button
             type="button"
             onClick={() => setPicking(true)}
-            className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-ink-2 transition-colors hover:border-brand hover:text-brand sm:h-7"
+            className="inline-flex h-8 items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-ink-2 transition-colors hover:border-brand hover:text-brand sm:h-7 [@media(pointer:coarse)]:h-11"
           >
             <span aria-hidden="true">+</span> Add assignee
           </button>
@@ -391,7 +391,7 @@ function AssigneesField({
             }}
             onClose={() => setPicking(false)}
           />
-          <button type="button" onClick={() => { setPicking(false); setQuery(''); }} className="mt-1.5 h-8 rounded-md px-2 text-xs font-medium text-ink-2 hover:bg-ground">
+          <button type="button" onClick={() => { setPicking(false); setQuery(''); }} className="mt-1.5 h-8 rounded-md px-2 text-xs font-medium text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
             Done
           </button>
         </div>
@@ -445,7 +445,7 @@ export function PropertiesPanel({
             Edits apply to
           </span>
           {(['one', 'series'] as const).map((s) => (
-            <label key={s} className="inline-flex min-h-[32px] cursor-pointer items-center gap-1.5 text-ink">
+            <label key={s} className="inline-flex min-h-[32px] cursor-pointer items-center gap-1.5 text-ink [@media(pointer:coarse)]:min-h-11">
               <input type="radio" name="task-edit-scope" checked={scope === s} onChange={() => onScope(s)} className="accent-brand" />
               {s === 'one' ? 'This task' : 'Entire series'}
             </label>

@@ -132,6 +132,13 @@ const rowNames = () => bodyRows().map((r) => within(r).getByRole('rowheader').qu
 const workloadCalls = () => calls.filter((c) => c.url.includes('/workload?'));
 
 describe('WorkloadPage', () => {
+  it('while it loads, the placeholder is a named status (an aria-label needs a role)', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('/workload?') ? new Promise<Response>(() => {}) : base(url, init))));
+    renderPage();
+    expect(await screen.findByRole('status', { name: 'Loading the workload' })).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('shows exactly the seven days its address names (a link from the Management page counts a Monday week)', async () => {
     renderPage('/workload?week=2026-10-26');
     await screen.findByRole('table', { name: /Open tasks due each day, per person/ });

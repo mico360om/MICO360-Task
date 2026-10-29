@@ -25,6 +25,7 @@ import { SyncAnnouncer, SyncBanner } from '../components/inspections/SyncBanner'
 import { SignFinishDialog } from '../components/inspections/SignFinishDialog';
 import { InspectionClientSwitch } from '../components/inspections/InspectionClientSwitch';
 import { dateTimeText, dayText, followUpNotice, InspectIcon, OutcomePill, problemText } from '../components/inspections/inspection-ui';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 
 const api = () => inspectionsApi(apiClient);
 type Confirm = 'reopen' | 'take-over' | 'delete' | 'discard' | null;
@@ -190,7 +191,7 @@ export function InspectionPage() {
         />
       );
     }
-    return <div className="skeleton h-40 rounded-xl" aria-label="Loading inspection" />;
+    return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading inspection" />;
   }
 
   const p = d.permissions;
@@ -296,7 +297,7 @@ export function InspectionPage() {
             {d.task ? (
               <>
                 <span aria-hidden="true">·</span>
-                <Link to={`?task=${encodeURIComponent(d.task.id)}`} className="tap text-brand hover:underline">
+                <Link to={`?task=${encodeURIComponent(d.task.id)}`} className={`tap gap-1 text-brand hover:underline ${TOUCH_TALL}`}>
                   For <span className="font-mono">{d.task.key}</span>
                 </Link>
               </>
@@ -310,23 +311,23 @@ export function InspectionPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {finished ? (
-            <Button variant="secondary" size="sm" onClick={() => void download()} loading={downloading}>
+            <Button variant="secondary" size="sm" onClick={() => void download()} loading={downloading} className={TOUCH_TALL}>
               {InspectIcon.download}
               <span className="ms-1">Report (PDF)</span>
             </Button>
           ) : null}
           {p.canTakeOver ? (
-            <Button variant="secondary" size="sm" onClick={() => setConfirm('take-over')}>
+            <Button variant="secondary" size="sm" onClick={() => setConfirm('take-over')} className={TOUCH_TALL}>
               Take over
             </Button>
           ) : null}
           {p.canReopen ? (
-            <Button variant="secondary" size="sm" onClick={() => setConfirm('reopen')}>
+            <Button variant="secondary" size="sm" onClick={() => setConfirm('reopen')} className={TOUCH_TALL}>
               Reopen
             </Button>
           ) : null}
           {p.canDelete ? (
-            <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')}>
+            <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')} className={`!text-danger hover:!text-danger ${TOUCH_TALL}`}>
               Delete
             </Button>
           ) : null}
@@ -360,7 +361,7 @@ export function InspectionPage() {
       {changeNote ? (
         <p role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
           <span>{changeNote}</span>
-          <button type="button" onClick={() => setChangeNote(null)} aria-label="Dismiss" className="shrink-0 rounded px-1 opacity-80 hover:opacity-100">
+          <button type="button" onClick={() => setChangeNote(null)} aria-label="Dismiss" className={`grid shrink-0 place-items-center rounded px-1 opacity-80 hover:opacity-100 ${TOUCH_SQUARE}`}>
             ✕
           </button>
         </p>
@@ -368,7 +369,7 @@ export function InspectionPage() {
       {problem ? (
         <p role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           <span>{problem}</span>
-          <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className="shrink-0 rounded px-1 opacity-80 hover:opacity-100">
+          <button type="button" onClick={() => setProblem(null)} aria-label="Dismiss" className={`grid shrink-0 place-items-center rounded px-1 opacity-80 hover:opacity-100 ${TOUCH_SQUARE}`}>
             ✕
           </button>
         </p>
@@ -376,7 +377,7 @@ export function InspectionPage() {
       {notice ? (
         <p role="status" className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
           <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 rounded px-1 opacity-80 hover:opacity-100">
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className={`grid shrink-0 place-items-center rounded px-1 opacity-80 hover:opacity-100 ${TOUCH_SQUARE}`}>
             ✕
           </button>
         </p>
@@ -425,7 +426,7 @@ export function InspectionPage() {
                 <option value="~nobody">Nobody yet</option>
               </select>
             </label>
-            <Button size="sm" onClick={() => makeFollowUps(failedWithout)} disabled={!failedWithout.length}>
+            <Button size="sm" onClick={() => makeFollowUps(failedWithout)} disabled={!failedWithout.length} className={TOUCH_TALL}>
               {failedWithout.length ? `Create tasks for all failed items (${failedWithout.length})` : 'Every failed item has a task'}
             </Button>
           </div>
@@ -469,7 +470,7 @@ export function InspectionPage() {
           {shown.locked ? (
             <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-sm text-ink-2">
               <p>Signed on this phone. It finishes as soon as it reaches the server.</p>
-              <Button variant="secondary" size="sm" onClick={() => ownerId && outbox.cancelFinish(ownerId, id)}>
+              <Button variant="secondary" size="sm" onClick={() => ownerId && outbox.cancelFinish(ownerId, id)} className={TOUCH_TALL}>
                 Take the signatures back
               </Button>
             </div>
@@ -494,7 +495,7 @@ export function InspectionPage() {
                 </div>
               ) : null}
               <div className="mt-3">
-                <Button onClick={startSigning} disabled={!canAnswer}>
+                <Button onClick={startSigning} disabled={!canAnswer} className={TOUCH_TALL}>
                   Sign and finish
                 </Button>
               </div>

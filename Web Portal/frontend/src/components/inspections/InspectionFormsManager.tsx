@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FieldError, FieldLabel, fieldClass } from '../ui/Field';
+import { TemplateGlyph } from '../templates/TemplateCard';
 import {
   addItem,
   addSection,
@@ -78,7 +79,7 @@ function IconButton({ label, onClick, disabled, danger, children }: { label: str
       disabled={disabled}
       aria-label={label}
       title={label}
-      className={`grid h-8 w-8 flex-none place-items-center rounded-lg border border-line bg-surface text-ink-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10 ${danger ? 'hover:border-danger/40 hover:bg-danger-soft hover:text-danger' : 'hover:border-brand/30 hover:text-brand'}`}
+      className={`grid h-8 w-8 flex-none place-items-center rounded-lg border border-line bg-surface text-ink-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ${danger ? 'hover:border-danger/40 hover:bg-danger-soft hover:text-danger' : 'hover:border-brand/30 hover:text-brand'}`}
     >
       {children}
     </button>
@@ -131,7 +132,9 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
         setNotice(null);
         setEditing({ form: null });
       }}
+      className="!min-h-[44px]"
     >
+      {TemplateGlyph.plus}
       New form
     </Button>
   );
@@ -175,7 +178,8 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
         <ul className="divide-y divide-line rounded-2xl border border-line bg-surface">
           {forms.map((f) => (
             <li key={f.id} aria-label={f.title} className="flex flex-wrap items-start gap-3 px-4 py-3 sm:flex-nowrap">
-              <div className="min-w-0 flex-1">
+              {/* On a phone Edit and Delete go under the text rather than squeezing it into a column. */}
+              <div className="min-w-0 flex-[1_1_16rem]">
                 <p dir="auto" className="break-words font-semibold text-ink">{f.title}</p>
                 {f.description ? <p dir="auto" className="mt-0.5 line-clamp-2 text-sm text-ink-2">{f.description}</p> : null}
                 <p className="mt-1 text-xs text-ink-2">
@@ -189,6 +193,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
                   <Button
                     size="sm"
                     variant="secondary"
+                    className="[@media(pointer:coarse)]:!min-h-11"
                     aria-label={`Edit ${f.title}`}
                     onClick={() => {
                       setNotice(null);
@@ -200,6 +205,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
                   <Button
                     size="sm"
                     variant="ghost"
+                    className="!text-danger hover:!text-danger [@media(pointer:coarse)]:!min-h-11"
                     aria-label={`Delete ${f.title}`}
                     onClick={() => {
                       setNotice(null);
@@ -313,7 +319,7 @@ function FormEditorDialog({ form, onClose, onSaved }: { form: InspectionForm | n
             <h2 id={titleId} className="font-display text-lg font-semibold text-ink">
               {form ? 'Edit inspection form' : 'New inspection form'}
             </h2>
-            <button type="button" onClick={requestClose} aria-label="Close" className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink">
+            <button type="button" onClick={requestClose} aria-label="Close" className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <path d="M18 6 6 18M6 6l12 12" />
               </svg>
@@ -413,7 +419,7 @@ function FormEditorDialog({ form, onClose, onSaved }: { form: InspectionForm | n
                 />
               ))}
               <div>
-                <Button variant="secondary" size="sm" onClick={() => setDraft(addSection(draft))} disabled={draft.sections.length >= L.sectionsMax || count >= L.itemsMax}>
+                <Button variant="secondary" size="sm" onClick={() => setDraft(addSection(draft))} disabled={draft.sections.length >= L.sectionsMax || count >= L.itemsMax} className="[@media(pointer:coarse)]:!min-h-11">
                   Add a section
                 </Button>
                 {draft.sections.length >= L.sectionsMax ? <p className="mt-1 text-xs text-ink-2">A form can have at most {L.sectionsMax} sections.</p> : null}
@@ -434,10 +440,10 @@ function FormEditorDialog({ form, onClose, onSaved }: { form: InspectionForm | n
               </p>
             ) : null}
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button variant="secondary" onClick={requestClose} disabled={saveM.isPending}>
+              <Button variant="secondary" onClick={requestClose} disabled={saveM.isPending} className="[@media(pointer:coarse)]:!min-h-11">
                 Cancel
               </Button>
-              <Button onClick={save} loading={saveM.isPending}>
+              <Button onClick={save} loading={saveM.isPending} className="[@media(pointer:coarse)]:!min-h-11">
                 Save form
               </Button>
             </div>
@@ -515,10 +521,10 @@ function SectionEditor({ section: s, index, total, full, draft, onChange, shown,
       <FieldError id={fieldId(`section:${s.key}:items`)}>{shown(`section:${s.key}:items`)}</FieldError>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={() => add('CHECK')} disabled={full}>
+        <Button variant="secondary" size="sm" onClick={() => add('CHECK')} disabled={full} className="[@media(pointer:coarse)]:!min-h-11">
           Add a Pass / Fail / N/A item
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => add('READING')} disabled={full}>
+        <Button variant="secondary" size="sm" onClick={() => add('READING')} disabled={full} className="[@media(pointer:coarse)]:!min-h-11">
           Add a reading
         </Button>
       </div>

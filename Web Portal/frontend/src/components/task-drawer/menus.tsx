@@ -46,7 +46,7 @@ export const EyeIcon = ({ filled }: { filled?: boolean }) => (
 
 const menuItemClass = 'flex w-full items-center gap-2 px-3 py-2 text-start text-sm text-ink hover:bg-ground focus-visible:bg-ground sm:py-1.5 sm:text-xs';
 const headerButtonClass =
-  'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors sm:h-8';
+  'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors sm:h-8 [@media(pointer:coarse)]:h-11';
 
 /** "Export" in the header: download the task as Excel or PDF. */
 export function ExportMenu({ onExport, className = '' }: { onExport: (format: 'xlsx' | 'pdf') => Promise<void>; className?: string }) {
@@ -176,7 +176,7 @@ export function MoreActionsMenu({
         aria-expanded={open}
         aria-label="More actions"
         title="More actions"
-        className="grid h-9 w-9 place-items-center rounded-lg border border-line text-ink-2 transition-colors hover:border-brand hover:text-brand"
+        className="grid h-9 w-9 place-items-center rounded-lg border border-line text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
       >
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
           <circle cx="5" cy="12" r="1.8" />

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { InspectionItem } from './InspectionItem';
 import type { FormItem } from '../../lib/inspection-rules';
+import { TOUCH_TALL } from '../../lib/touch';
 
 const pressure: FormItem = { id: 'p', kind: 'READING', label: 'Pressure', help: 'At the well head gauge', unit: 'psi', min: 0, max: 150 };
 const valves: FormItem = { id: 'v', kind: 'CHECK', label: 'Valves closed', help: null };
@@ -149,6 +150,24 @@ describe('saved as it is typed (a phone may close the page mid-word)', () => {
       expect(onAnswer).toHaveBeenCalledWith({ result: null, reading: '99', note: null });
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('a finger-sized target on a touch screen (gloves, outdoors)', () => {
+  // index.css gives buttons a 32px floor on touch screens with a selector that outranks a plain
+  // utility, so the 44px size must be the forced (!) touch-screen class (see lib/touch.ts).
+  it('the reading’s N/A and “Couldn’t take it”, and “+ Note”, are 44px tall on a touch screen', () => {
+    renderItem({ item: pressure });
+    for (const name of ['N/A: Pressure', 'Couldn’t take it (fail): Pressure', 'Add a note: Pressure']) {
+      expect(screen.getByRole('button', { name }).className).toContain(TOUCH_TALL);
+    }
+  });
+
+  it('Pass / Fail / N/A are 44px tall on any touch screen, a tablet too', () => {
+    renderItem();
+    for (const name of ['Pass', 'Fail', 'N/A']) {
+      expect(screen.getByRole('radio', { name }).closest('label')!.className).toContain('[@media(pointer:coarse)]:min-h-11');
     }
   });
 });

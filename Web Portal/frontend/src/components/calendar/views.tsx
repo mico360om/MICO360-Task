@@ -266,7 +266,7 @@ function WeekDay({ day, p, phone, meta, fit }: { day: string; p: ViewProps; phon
         onClick={() => p.onOpenDay(day)}
         aria-label={`${dayLabel(day)}${countLabel(items.length, meetings.length)}`}
         aria-current={isToday ? 'date' : undefined}
-        className={`flex items-baseline justify-between rounded-md px-1.5 py-1 text-start transition-colors hover:bg-ground ${isToday ? 'text-brand' : 'text-ink'}`}
+        className={`flex items-baseline justify-between rounded-md px-1.5 py-1 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:items-center ${isToday ? 'text-brand' : 'text-ink'}`}
       >
         <span className="text-xs font-bold uppercase tracking-wide">{dayLabel(day, { weekday: 'short' })}{isToday ? ' · Today' : ''}</span>
         <span className="text-sm font-semibold tabular-nums">{dayLabel(day, { day: 'numeric', month: 'short' })}</span>
@@ -326,14 +326,14 @@ export function AgendaView({
           <h3 className="mb-2 text-sm font-bold text-danger">Overdue · {overdue.length}</h3>
           <ul className="grid gap-1.5 sm:grid-cols-2">{overdueShown.map(chip)}</ul>
           {overdue.length > OVERDUE_PREVIEW ? (
-            <button type="button" onClick={() => setAllOverdue((v) => !v)} aria-expanded={allOverdue} className="mt-2 text-xs font-semibold text-danger underline-offset-2 hover:underline">
+            <button type="button" onClick={() => setAllOverdue((v) => !v)} aria-expanded={allOverdue} className="mt-2 text-xs font-semibold text-danger underline-offset-2 hover:underline [@media(pointer:coarse)]:!min-h-11">
               {allOverdue ? 'Show fewer' : `Show all ${overdue.length} overdue tasks`}
             </button>
           ) : null}
         </section>
       ) : null}
       {earlier.length > 0 ? (
-        <button type="button" onClick={() => setShowEarlier((v) => !v)} aria-expanded={showEarlier} className="self-start rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-ink-2 hover:border-brand hover:text-brand">
+        <button type="button" onClick={() => setShowEarlier((v) => !v)} aria-expanded={showEarlier} className="self-start rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-ink-2 hover:border-brand hover:text-brand [@media(pointer:coarse)]:!min-h-11">
           {showEarlier ? 'Hide earlier days' : `Show earlier days this month (${earlier.length})`}
         </button>
       ) : null}

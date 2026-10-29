@@ -46,7 +46,7 @@ const EMPTY_TAB: Record<StatusTab, string> = {
 
 /** Owner and Sort: side by side at half width on a phone, their own width on a larger screen. */
 const SELECT_BOX =
-  'flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20 sm:flex-none';
+  'flex h-10 min-w-0 flex-[1_1_9rem] [@media(pointer:coarse)]:h-11 items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20 sm:flex-none';
 const SELECT = 'h-full min-w-0 cursor-pointer rounded-xl bg-transparent pe-2 text-sm font-medium text-ink outline-none';
 
 /**
@@ -179,7 +179,7 @@ export function ProjectsPage() {
           <PageTitle eyebrow="Workspace" title="Projects" />
           {summary ? <p className="text-sm text-ink-2">{summary}</p> : loading ? <span className="skeleton inline-block h-4 w-40 self-center" aria-hidden="true" /> : null}
         </div>
-        <Button onClick={() => setForm('new')} title="New project" shortcut="new">
+        <Button onClick={() => setForm('new')} title="New project" shortcut="new" className="[@media(pointer:coarse)]:!min-h-11">
           + New project
         </Button>
       </div>
@@ -198,7 +198,7 @@ export function ProjectsPage() {
               aria-controls={PANEL_ID}
               tabIndex={selected ? 0 : -1}
               onClick={() => update({ status: t.value })}
-              className={`inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
+              className={`inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:h-11 ${
                 selected ? 'border-transparent bg-brand-gradient text-white shadow-sm' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'
               }`}
             >
@@ -225,7 +225,7 @@ export function ProjectsPage() {
             value={state.q}
             onChange={(e) => update({ q: e.target.value })}
             placeholder="Search name, code, client or project number…"
-            className="h-10 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
+            className="h-10 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm [@media(pointer:coarse)]:h-11 text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
           />
         </div>
         <div className={SELECT_BOX}>
@@ -246,7 +246,7 @@ export function ProjectsPage() {
           </select>
         </div>
         {admin ? (
-          <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-sm text-ink-2 hover:text-ink">
+          <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-sm text-ink-2 hover:text-ink [@media(pointer:coarse)]:h-11">
             <input type="checkbox" checked={state.mine} onChange={(e) => update({ mine: e.target.checked })} className="h-4 w-4 accent-[rgb(var(--c-brand))]" />
             Only my projects
           </label>
@@ -267,7 +267,7 @@ export function ProjectsPage() {
         </p>
 
         {loading ? (
-          <div className="grid project-grid gap-4" aria-busy="true" aria-label="Loading projects">
+          <div className="grid project-grid gap-4" aria-busy="true" role="status" aria-label="Loading projects">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="card p-4">
                 <div className="flex gap-3">

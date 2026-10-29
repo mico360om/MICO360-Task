@@ -164,6 +164,16 @@ describe('without signal, even after the page reloads', () => {
   });
 });
 
+describe('the header', () => {
+  it('links its task as “For RIG-1”, with the space kept on a touch screen (where the link is a flex box)', async () => {
+    show();
+    const link = await screen.findByRole('link', { name: /RIG-1/ });
+    // A flex box drops the space between "For" and the key: a gap keeps them apart.
+    expect(link).toHaveClass('gap-1');
+    expect(link.textContent).toBe('For RIG-1');
+  });
+});
+
 describe('carrying out an inspection', () => {
   it('saves each answer on the phone and sends it, then says all is sent', async () => {
     show();

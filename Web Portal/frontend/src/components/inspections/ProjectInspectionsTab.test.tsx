@@ -288,6 +288,9 @@ describe('scheduled inspections on the Inspections tab', () => {
     await userEvent.click(within(region).getByRole('button', { name: /^Edit/ }));
     expect(await screen.findByRole('dialog', { name: 'Edit schedule' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    // The tab's one filled button is "Start an inspection": scheduling is the secondary action.
+    expect(screen.getByRole('button', { name: 'Schedule an inspection' })).toHaveAttribute('data-variant', 'secondary');
+    expect(screen.getByRole('button', { name: 'Start an inspection' })).toHaveAttribute('data-variant', 'primary');
     await userEvent.click(screen.getByRole('button', { name: 'Schedule an inspection' }));
     expect(await screen.findByRole('dialog', { name: 'Schedule an inspection' })).toBeInTheDocument();
   });

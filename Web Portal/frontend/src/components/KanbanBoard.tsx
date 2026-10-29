@@ -103,7 +103,9 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveKey(null)}
     >
-      <div className="kanban-scroll flex gap-3 overflow-x-auto pb-3" tabIndex={0} role="region" aria-label="Board columns">
+      {/* The columns reach the bottom of the window (lanes to drop into, and the page doesn't jump when
+          the board replaces its placeholder); a longer column makes the page scroll as before. */}
+      <div className="kanban-scroll flex min-h-[calc(100dvh-12rem)] gap-3 overflow-x-auto pb-3" tabIndex={0} role="region" aria-label="Board columns">
         {columns.map((column) => (
           <KanbanColumn
             key={column.id}

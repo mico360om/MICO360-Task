@@ -106,10 +106,10 @@ export function SignFinishDialog({
             ) : null}
           </div>
           <div className="flex flex-col-reverse gap-2 border-t border-line px-5 py-3 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={onClose} disabled={busy}>
+            <Button variant="secondary" onClick={onClose} disabled={busy} className="[@media(pointer:coarse)]:!min-h-11">
               Cancel
             </Button>
-            <Button onClick={submit} loading={busy}>
+            <Button onClick={submit} loading={busy} className="[@media(pointer:coarse)]:!min-h-11">
               Sign and finish
             </Button>
           </div>

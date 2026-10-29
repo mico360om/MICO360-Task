@@ -98,7 +98,7 @@ export function InlineTitle({ title, onSave }: { title: string; onSave?: (title:
             onClick={() => setDraft(title)}
             aria-label="Edit title"
             title="Edit title"
-            className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-brand sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+            className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-brand sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:opacity-100"
           >
             <PencilIcon />
           </button>
@@ -165,7 +165,7 @@ export function InlineDescription({ description, onSave }: { description: string
             onClick={() => void commit()}
             disabled={save.busy}
             aria-label="Save description"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-xs font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-60 sm:h-8"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3.5 text-xs font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-60 sm:h-8 [@media(pointer:coarse)]:h-11"
           >
             {save.busy ? 'Saving…' : 'Save'}
           </button>
@@ -193,7 +193,7 @@ export function InlineDescription({ description, onSave }: { description: string
           <button
             type="button"
             onClick={() => setDraft('')}
-            className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-dashed border-line px-3 text-start text-sm text-ink-3 transition-colors hover:border-brand hover:text-brand"
+            className="flex !min-h-[44px] w-full items-center gap-2 rounded-lg border border-dashed border-line px-3 text-start text-sm text-ink-3 transition-colors hover:border-brand hover:text-brand"
           >
             <PencilIcon />
             Add a description
@@ -216,7 +216,7 @@ export function InlineDescription({ description, onSave }: { description: string
           onClick={() => setDraft(description)}
           aria-label="Edit description"
           title="Edit description"
-          className="absolute end-0 top-0 grid h-8 w-8 place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-brand sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          className="absolute end-0 top-0 grid h-8 w-8 place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-brand sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:opacity-100"
         >
           <PencilIcon />
         </button>

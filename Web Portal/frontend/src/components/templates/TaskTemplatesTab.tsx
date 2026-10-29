@@ -48,7 +48,8 @@ export function TaskTemplatesTab() {
             ? 'A task template fills in a new task’s title, description, checklist and priority. Create one here, or save a task as a template from its panel.'
             : 'A task template fills in a new task’s title, description, checklist and priority. Anyone who runs a project can save one of its tasks as a template from the task’s panel.'}
         </p>
-        {isAdmin ? (
+        {/* An empty list offers the same button in its message: one call to action, not two. */}
+        {isAdmin && !(listQ.isSuccess && templates.length === 0) ? (
           <Button onClick={() => setEditing('new')} className="!min-h-[44px]">
             {TemplateGlyph.plus}
             New task template
@@ -59,7 +60,7 @@ export function TaskTemplatesTab() {
       {listQ.isError ? (
         <LoadError what="the task templates" onRetry={() => void listQ.refetch()} />
       ) : listQ.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Loading templates">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading templates">
           {[0, 1, 2].map((i) => <div key={i} className="skeleton h-36 rounded-2xl" aria-hidden="true" />)}
         </div>
       ) : templates.length === 0 ? (
@@ -67,7 +68,7 @@ export function TaskTemplatesTab() {
           icon={TemplateGlyph.task}
           title="No task templates yet"
           description={isAdmin ? 'Create the first one, or open a task and choose “Save as template” in its ⋯ menu.' : 'Open a task in a project you run and choose “Save as template” in its ⋯ menu.'}
-          action={isAdmin ? <Button onClick={() => setEditing('new')}>New task template</Button> : undefined}
+          action={isAdmin ? <Button onClick={() => setEditing('new')} className="!min-h-[44px]">New task template</Button> : undefined}
         />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Task templates">

@@ -273,10 +273,10 @@ export function SignaturePad({ label, defaultName = '', required = false, value,
       </p>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" variant="secondary" onClick={undo} disabled={disabled || typed || strokeCount === 0}>
+        <Button type="button" size="sm" variant="secondary" className="[@media(pointer:coarse)]:!min-h-11" onClick={undo} disabled={disabled || typed || strokeCount === 0}>
           Undo last stroke
         </Button>
-        <Button type="button" size="sm" variant="secondary" onClick={clear} disabled={disabled || typed || !hasDrawing}>
+        <Button type="button" size="sm" variant="secondary" className="[@media(pointer:coarse)]:!min-h-11" onClick={clear} disabled={disabled || typed || !hasDrawing}>
           Clear
         </Button>
         <label htmlFor={ids.typed} className={`ms-auto inline-flex min-h-[2.75rem] items-center gap-2 text-sm text-ink ${disabled ? 'opacity-60' : 'cursor-pointer'}`}>

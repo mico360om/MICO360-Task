@@ -66,7 +66,7 @@ export function ActivityTimeline({ activity }: { activity: DrawerActivity[] }) {
         ))}
       </ul>
       {items.length > shown ? (
-        <button type="button" onClick={() => setShown((n) => n + MORE)} className="mt-2 h-9 rounded-lg px-2 text-xs font-semibold text-brand hover:bg-ground sm:h-8">
+        <button type="button" onClick={() => setShown((n) => n + MORE)} className="mt-2 h-9 rounded-lg px-2 text-xs font-semibold text-brand hover:bg-ground sm:h-8 [@media(pointer:coarse)]:h-11">
           Load more
         </button>
       ) : null}
