@@ -108,6 +108,14 @@ describe('a project’s look', () => {
     expect(projectInitials('  ')).toBe('?');
     expect(projectInitials('مشروع الحفر')).toBe('ما');
   });
+
+  it('uses letters only, as the website’s tile: no bracket, dash or number; a name without a letter keeps its digits', () => {
+    expect(projectInitials('(OXY) Pipeline Survey')).toBe('OP');
+    expect(projectInitials('Rig - Phase 2')).toBe('RP');
+    expect(projectInitials('2026 Audit')).toBe('AU');
+    expect(projectInitials('2026')).toBe('20');
+    expect(projectInitials('— · —')).toBe('?');
+  });
 });
 
 describe('colours', () => {
@@ -173,12 +181,18 @@ const serverIcons = resolve(portal, 'backend/src/modules/projects/project-icons.
 const webIcons = resolve(portal, 'frontend/src/lib/project-icons.tsx');
 const webEditor = resolve(portal, 'frontend/src/components/project-form/IdentityEditor.tsx');
 const webProjects = resolve(portal, 'frontend/src/api/projects.ts');
+/** The helpers the website's project-icons.tsx imports and these tests need (its initials, from letters only). */
+const webIconsImports = { './initials': resolve(portal, 'frontend/src/lib/initials.ts') };
 
-/** A website module with JSX, loaded without React: its JSX is only in functions these tests don't call. */
-function loadTsx(file: string): Record<string, unknown> {
+/**
+ * A website module with JSX, loaded without React: its JSX is only in functions these tests don't
+ * call. Only the imports named in `imports` are loaded (the same way); any other comes back empty.
+ */
+function loadTsx(file: string, imports: Record<string, string> = {}): Record<string, unknown> {
   const { code } = transformSync(readFileSync(file, 'utf8'), { loader: 'tsx', jsx: 'transform', jsxFactory: '__h', format: 'cjs' });
   const mod = { exports: {} as Record<string, unknown> };
-  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({}));
+  const load = (spec: string) => (imports[spec] ? loadTsx(imports[spec]) : {});
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, load);
   return mod.exports;
 }
 
@@ -194,7 +208,7 @@ describe.skipIf(!existsSync(serverIcons))('the same as the server', () => {
 describe.skipIf(!existsSync(webIcons) || !existsSync(webEditor) || !existsSync(webProjects))('the same as the website', () => {
   type Fn = (...a: unknown[]) => unknown;
   it('has the website’s icon names, colours and colour names', () => {
-    const web = loadTsx(webIcons);
+    const web = loadTsx(webIcons, webIconsImports);
     expect([...PROJECT_ICON_KEYS]).toEqual(web.PROJECT_ICON_KEYS);
     expect(PROJECT_ICON_LABEL).toEqual(web.PROJECT_ICON_LABEL);
     expect(PROJECT_COLORS).toEqual(web.PROJECT_COLORS);
@@ -202,9 +216,10 @@ describe.skipIf(!existsSync(webIcons) || !existsSync(webEditor) || !existsSync(w
   });
 
   it('works out readable text, initials, code problems and suggested codes alike', () => {
-    const web = loadTsx(webIcons) as Record<string, Fn>;
+    const web = loadTsx(webIcons, webIconsImports) as Record<string, Fn>;
     for (const c of [...PROJECT_COLORS, '#FFFFFF', '#FFE680', '#000000', 'bad', '#abc']) expect(readableOn(c)).toBe(web.readableOn!(c));
-    const names = ['Rig Inspection Portal', 'Mobile App', 'Payroll', 'مشروع الحفر', 'Café Opening', '', '  ', 'A', '2026 Budget Plan', 'Ünïcode Work Stream Five Six', 'x y'];
+    const names = ['Rig Inspection Portal', 'Mobile App', 'Payroll', 'مشروع الحفر', 'Café Opening', '', '  ', 'A', '2026 Budget Plan', 'Ünïcode Work Stream Five Six', 'x y',
+      '(OXY) Pipeline Survey', 'Rig - Phase 2', '2026 Audit', '2026', '٢٠٢٦', '— · —', '🚀 Launch', 'مُشروع'];
     for (const n of names) {
       expect(projectInitials(n), n).toBe(web.projectInitials!(n));
       expect(suggestCode(n), n).toBe(web.suggestCode!(n));

@@ -80,16 +80,8 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
   };
 }
 
-/** A face without a photo: the first letters of the first two words, as the website's Avatar. */
-export function personInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0] ?? '')
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
+/** A face without a photo: the first letters of the first two words, from letters only, as the website's Avatar (lib/initials). */
+export { personInitials } from './initials';
 
 /** A due day as the website's card writes it: "Oct 20, 2026" (its own calendar day, company time). */
 export function cardDueText(due: string | null, timeZone: string = appTimeZone()): string | null {

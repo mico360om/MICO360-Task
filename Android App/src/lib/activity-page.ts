@@ -3,6 +3,7 @@ import type { Tone } from './tone';
 import { appTimeZone, zonedDayKey } from './due-date';
 import { dayLabel, shiftDayKey } from './calendar';
 import { relativeTime } from './relative-time';
+import { personInitials } from './initials';
 
 /**
  * The Activity screen (5c), as the website's Activity page (Web Portal/frontend/src/pages/
@@ -100,16 +101,9 @@ export function activityLine(a: ApiActivityRow, { project = true }: { project?: 
   return [titleOf(a), activityDetail(a), project ? a.project?.name : null].filter(Boolean).join(' · ');
 }
 
-/** Who did it, as the website's avatar shows a person without a picture: the first letters of two words. */
+/** Who did it, as the website's avatar shows a person without a picture: the first letters of two words, from letters only ("?" for none). */
 export function actorInitials(name: string): string {
-  const initials = name
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0] ?? '')
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-  return initials || '?';
+  return personInitials(name);
 }
 
 /** The row read out whole: "Omar Ahmed moved OPS-12, Fix the pump, To Do → Done, in Rig Ops, 5m ago". */

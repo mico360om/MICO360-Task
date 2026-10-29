@@ -122,10 +122,18 @@ describe('the cards follow the website’s card rules (drift)', () => {
 });
 
 describe('a face without a photo shows initials, as the website’s Avatar does (4b)', () => {
-  it('the first letters of the first two words', () => {
+  it('the first letters of the first two words, from letters only', async () => {
     expect(personInitials('Ann Lee')).toBe('AL');
     expect(personInitials('  maryam  al balushi ')).toBe('MA');
     expect(personInitials('omar')).toBe('O');
-    expect(readFileSync(resolve(__dirname, '../../../Web Portal/frontend/src/components/ui/Avatar.tsx'), 'utf8')).toMatch(/\.split\(\/\\s\+\/\)\s*\.map\(\(part\) => part\[0\] \?\? ''\)\s*\.slice\(0, 2\)/);
+    expect(personInitials('Mohammed (OXY)')).toBe('MO');
+    expect(personInitials('  ')).toBe('?');
+    // The website's Avatar makes them with lib/initials.ts personInitials: the same faces here.
+    const portal = resolve(__dirname, '../../../Web Portal/frontend/src');
+    expect(readFileSync(resolve(portal, 'components/ui/Avatar.tsx'), 'utf8')).toMatch(/const initials = personInitials\(name\);/);
+    const web = (await import(/* @vite-ignore */ resolve(portal, 'lib/initials.ts'))) as { personInitials: (n: string) => string };
+    for (const n of ['Ann Lee', '  maryam  al balushi ', 'omar', 'Mohammed (OXY)', 'Sara - Ahmed', '(2) Bilal Khan', 'محمد علي', '🚀 Launch', '', '  ']) {
+      expect(personInitials(n), n).toBe(web.personInitials(n));
+    }
   });
 });
