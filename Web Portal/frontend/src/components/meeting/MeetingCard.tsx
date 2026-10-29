@@ -64,10 +64,10 @@ export function MeetingCard({
       data-meeting-card
       className={`relative row-span-2 grid grid-rows-subgrid gap-y-0 rounded-xl border bg-surface shadow-soft transition-[border-color,box-shadow] hover:border-brand/35 hover:shadow-lift focus-within:z-20 ${live ? 'border-brand/50' : 'border-line'} ${cancelled ? 'bg-ground/40' : ''}`}
     >
-      <div className="flex min-w-0 gap-3 p-3.5 pb-3 sm:gap-3.5 sm:p-4 sm:pb-3">
+      <div className="flex min-w-0 gap-3 p-3 pb-2.5 lg:gap-3.5 lg:p-4 lg:pb-3">
         <DateLeaf iso={m.startAt} timeZone={timeZone} tone={tone} className="self-start" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-semibold leading-snug sm:text-base">
+          <h3 className="text-[15px] font-semibold leading-snug lg:text-base">
             {/* The title is inline (bdi), so an Arabic title stays beside its details instead of
                 jumping to the far side. Its link covers the card. */}
             <Link
@@ -109,7 +109,7 @@ export function MeetingCard({
       {/* The footer: who's coming, then how far it got. On a narrow card the chips take the line under
           the people; on a wide one (a container query on the card's width, the same for every card
           of a row) they sit on the right, wrapping downwards — never under the people. */}
-      <div data-card-footer className="min-w-0 border-t border-line px-3.5 py-2.5 [container-type:inline-size] sm:px-4">
+      <div data-card-footer className="min-w-0 border-t border-line px-3 py-2.5 [container-type:inline-size] lg:px-4">
         <div className="flex flex-col items-start gap-y-1.5 [@container(min-width:27rem)]:flex-row [@container(min-width:27rem)]:gap-x-3">
           <People names={m.attendees} count={m.attendeeCount} className="flex-none" />
           {/* py-0.5: a line of chips is as tall as the faces, so beside them it sits level. */}
