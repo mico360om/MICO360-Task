@@ -345,7 +345,8 @@ export function ProjectsPage() {
               <button
                 type="button"
                 onClick={() => setForm('new')}
-                className="group flex min-h-[8rem] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line p-6 sm:min-h-[12rem] text-center transition-colors hover:border-brand/50 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                // Beside two cards it only fills a third column (a laptop and up); alone on a row of its own it would just be a hole.
+                className={`group flex min-h-[8rem] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line p-6 text-center sm:min-h-[12rem] ${visible.length === 2 ? 'max-xl:hidden' : ''} transition-colors hover:border-brand/50 hover:bg-brand/5 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30`}
               >
                 <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand/10 text-brand transition-transform group-hover:scale-105" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
