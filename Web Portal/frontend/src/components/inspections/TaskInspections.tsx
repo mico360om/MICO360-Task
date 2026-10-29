@@ -86,9 +86,15 @@ export function TaskInspections({
   const heading = useId();
   const [starting, setStarting] = useState(false);
   const q = useQuery({ queryKey: ['task-inspections', taskId], queryFn: () => inspectionsApi(apiClient).forTask(taskId), retry: false });
+  // The company's forms (shared with the Start dialog): with none, there is nothing to start from, so a
+  // task of a company that doesn't do inspections carries no "Start an inspection" line at all.
+  const formsQ = useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms(), enabled: canStart && !form });
+  const noForms = Array.isArray(formsQ.data?.forms) && formsQ.data.forms.length === 0;
+  const offerStart = canStart && !noForms;
   const attached = q.data?.attached ?? [];
   const of = q.data?.followUpOf ?? null;
-  if (!q.data || (!attached.length && !of && !canStart && !form)) return null;
+  if (!q.data || (canStart && !form && formsQ.isLoading)) return null;
+  if (!attached.length && !of && !offerStart && !form) return null;
   return (
     <section role="region" aria-labelledby={heading}>
       <h3 id={heading} className="eyebrow mb-1.5 flex items-center gap-1.5">
@@ -117,7 +123,7 @@ export function TaskInspections({
         </ul>
       ) : null}
       {/* Another inspection for it (a check that has none yet has its own button above). */}
-      {canStart && !(form && !attached.length) ? (
+      {offerStart && !(form && !attached.length) ? (
         <button type="button" onClick={() => setStarting(true)} className={`tap mt-1.5 text-xs font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
           {form ? 'Start another inspection' : 'Start an inspection for this task'}
         </button>

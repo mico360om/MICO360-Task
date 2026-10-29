@@ -440,12 +440,15 @@ export function AttachmentsSection({
             <span className="text-xs font-medium text-ink-2">
               {dragging ? 'Drop to upload' : (
                 <>
-                  Drop files here or <span className="font-semibold text-brand underline-offset-2 hover:underline">browse</span>
+                  {/* A phone or tablet has nothing to drop and no paste key: it says what a tap does. */}
+                  <span className="[@media(pointer:coarse)]:hidden">Drop files here or <span className="font-semibold text-brand underline-offset-2 hover:underline">browse</span></span>
+                  <span className="hidden [@media(pointer:coarse)]:inline">Tap to add <span className="font-semibold text-brand">files or photos</span></span>
                 </>
               )}
             </span>
             <span className="text-[11px] text-ink-3">
-              Or paste a picture ({pasteKey}) · up to {MAX_UPLOAD_MB} MB each · pictures are made smaller to save space
+              <span className="[@media(pointer:coarse)]:hidden">Or paste a picture ({pasteKey}) · up to {MAX_UPLOAD_MB} MB each · pictures are made smaller to save space</span>
+              <span className="hidden [@media(pointer:coarse)]:inline">Up to {MAX_UPLOAD_MB} MB each · pictures are made smaller to save space</span>
             </span>
             <input
               type="file"

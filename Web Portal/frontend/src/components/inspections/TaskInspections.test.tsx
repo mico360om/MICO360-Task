@@ -23,9 +23,12 @@ const item = (id: string, over: Record<string, unknown> = {}) => ({
 });
 let data: unknown;
 let posts: Array<{ url: string; body: unknown }>;
+/** The company's inspection forms. */
+let companyForms: unknown[];
 
 beforeEach(() => {
   data = { attached: [item('a')], followUpOf: null };
+  companyForms = [{ id: 'f1', title: 'Rig daily check', description: null, structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, version: 1, sectionCount: 1, itemCount: 2, createdBy: null, updatedAt: '', canEdit: false }];
   posts = [];
   vi.stubGlobal(
     'fetch',
@@ -36,7 +39,7 @@ beforeEach(() => {
         return json({ data: { ...item('new', { status: 'IN_PROGRESS' }), structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, answers: [] } }, 201);
       }
       if (u === '/tasks/t1/inspections') return json({ data });
-      if (u === '/inspection-forms') return json({ data: { forms: [], canCreate: false } });
+      if (u === '/inspection-forms') return json({ data: { forms: companyForms, canCreate: false } });
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
     }),
   );
@@ -76,6 +79,22 @@ describe('inspections on a task’s panel', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Start an inspection for this task' }));
     const dialog = await screen.findByRole('dialog', { name: 'Start an inspection' });
     expect(within(dialog).getByText('RIG-1')).toBeInTheDocument();
+  });
+
+  it('a company with no inspection form: no “Start an inspection” line on its tasks (nothing to start from)', async () => {
+    data = { attached: [], followUpOf: null };
+    companyForms = [];
+    const { container } = show();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('…but the inspections a task already has still show', async () => {
+    companyForms = [];
+    show();
+    const section = await screen.findByRole('region', { name: 'Inspections' });
+    expect(within(section).getByRole('link', { name: /Rig daily check/ })).toBeInTheDocument();
+    expect(within(section).queryByRole('button', { name: /Start an inspection/ })).toBeNull();
   });
 
   it('shows nothing at all when there is nothing and it can’t start one', async () => {
