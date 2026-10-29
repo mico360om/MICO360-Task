@@ -81,10 +81,11 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
       }`}
     >
       <span className="-mx-2.5 -mt-2.5 h-1" style={{ background: column.color }} aria-hidden="true" />
-      <header className="flex items-center justify-between px-1 py-0.5">
+      {/* A long name wraps onto a second line, and past that gives its full name on hover. */}
+      <header className="flex flex-none items-center justify-between gap-1 px-1 py-0.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2.5 w-2.5 flex-none rounded-full ring-2 ring-surface" style={{ background: column.color }} />
-          <span dir="auto" className="truncate text-sm font-bold text-ink">{column.name}</span>
+          <span dir="auto" title={column.name} className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink">{column.name}</span>
           <span className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{column.tasks.length}</span>
         </div>
         <div className="flex flex-none items-center gap-0.5">

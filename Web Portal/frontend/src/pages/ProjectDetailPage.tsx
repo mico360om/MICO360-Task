@@ -277,10 +277,11 @@ export function ProjectDetailPage() {
       ) : (
       <div key="page">
       {/* Header */}
-      {/* The title keeps at least 12rem: when the buttons would squeeze it more (a tablet with the
-          menu open, three labelled buttons), they move to their own row under it. */}
+      {/* The title (with its picture) keeps at least 20rem: when the buttons would squeeze it more (a
+          tablet, three labelled buttons), they move to their own row under it — a long name never
+          breaks mid-word. */}
       <div className="mt-2 flex flex-wrap items-start gap-3 sm:gap-4">
-        <div className="flex min-w-0 flex-1 basis-48 items-start gap-3 sm:gap-4">
+        <div className="flex min-w-0 flex-1 basis-80 items-start gap-3 sm:gap-4">
         <ProjectAvatar project={project} size="lg" label className="shadow-soft" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -475,11 +476,12 @@ export function ProjectDetailPage() {
 }
 
 /**
- * The five tiles: two to a row on a phone (the fifth across both), three then two wider ones from a
- * small tablet (no empty slot), all five in a row from a laptop.
+ * The five numbers. On a phone: one compact strip, the five side by side in a single card (three rows
+ * of tiles took a screenful before the tabs). From a small tablet: tiles, three then two wider ones
+ * (no empty slot); all five in a row from a laptop.
  */
-const TILE_SPAN = ['sm:col-span-2 lg:col-span-1', 'sm:col-span-2 lg:col-span-1', 'sm:col-span-2 lg:col-span-1', 'sm:col-span-3 lg:col-span-1', 'max-sm:col-span-2 sm:col-span-3 lg:col-span-1'];
-const TILE_GRID = 'mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6 lg:grid-cols-5';
+const TILE_SPAN = ['sm:col-span-2 lg:col-span-1', 'sm:col-span-2 lg:col-span-1', 'sm:col-span-2 lg:col-span-1', 'sm:col-span-3 lg:col-span-1', 'sm:col-span-3 lg:col-span-1'];
+const TILE_GRID = 'mt-4 grid grid-cols-5 sm:grid-cols-6 sm:gap-3 lg:grid-cols-5 max-sm:card max-sm:divide-x max-sm:divide-line max-sm:overflow-hidden rtl:max-sm:divide-x-reverse';
 
 /** The page's shape while its first data loads: header, tiles (no zero counters), tabs and a panel. */
 function ProjectPageSkeleton() {
@@ -518,11 +520,12 @@ const TILE_TONE: Record<string, string> = {
 };
 function StatTile({ label, value, tone = 'default', hint, className = '' }: { label: string; value: string | number; tone?: keyof typeof TILE_TONE; hint?: string; className?: string }) {
   return (
-    <div className={`card p-4 ${className}`}>
-      <p className={`font-display text-2xl font-bold ${TILE_TONE[tone]}`}>{value}</p>
-      <p className="mt-0.5 text-xs font-medium text-ink-2">{label}</p>
+    // A tile; on a phone, a cell of the strip (no card of its own, the number over its label).
+    <div title={hint || undefined} className={`card p-4 max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:px-1 max-sm:py-2.5 max-sm:text-center max-sm:shadow-none ${className}`}>
+      <p className={`font-display text-2xl font-bold tabular-nums max-sm:text-lg max-sm:leading-tight ${TILE_TONE[tone]}`}>{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-ink-2 max-sm:text-[11px] max-sm:leading-tight">{label}</p>
       {/* An empty hint still keeps its line, so the tiles don't grow when the numbers arrive. */}
-      {hint !== undefined ? <p className="min-h-[1rem] text-[11px] leading-4 text-ink-2">{hint}</p> : null}
+      {hint !== undefined ? <p className="min-h-[1rem] text-[11px] leading-4 text-ink-2 max-sm:hidden">{hint}</p> : null}
     </div>
   );
 }

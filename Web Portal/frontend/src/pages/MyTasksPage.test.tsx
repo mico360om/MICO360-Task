@@ -138,6 +138,36 @@ describe('MyTasksPage', () => {
     expect(row.querySelector('[data-phone-meta]')).toHaveTextContent('To Do');
   });
 
+  it('on a phone, keeps the five filters behind one “Filters” button that counts the ones in use', async () => {
+    const mm = vi.fn((q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
+    vi.stubGlobal('matchMedia', mm);
+    Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter>
+            <MyTasksPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const button = await screen.findByRole('button', { name: /^filters/i });
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('button', { name: 'Filter by project' })).toBeNull();
+      // The grid / list switch stays on the toolbar.
+      expect(screen.getByRole('button', { name: /list view/i })).toBeInTheDocument();
+      await userEvent.click(button);
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+      for (const name of ['Filter by project', 'Filter by status', 'Filter by priority', 'Filter by assignee', 'Filter by due date', 'Sort tasks']) {
+        expect(screen.getByRole('button', { name })).toBeInTheDocument();
+      }
+      // A filter in use (here from the Overdue chip) is counted on the button.
+      await userEvent.click(screen.getByRole('button', { name: /overdue/i, pressed: false }));
+      expect(screen.getByRole('button', { name: /^filters/i })).toHaveTextContent('Filters (1)');
+    } finally {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
   it('list view keeps the priority and due date on a phone, under the title', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

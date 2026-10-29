@@ -27,6 +27,13 @@ describe('KanbanBoard', () => {
     expect(within(done).getByText('1')).toBeInTheDocument();
   });
 
+  it('a long column name wraps onto a second line and, if still cut, gives its full name on hover', () => {
+    render(<KanbanBoard columns={[{ id: 'c9', name: 'Waiting on the client / Blocked', color: '#C0422F', tasks: [] }]} />);
+    const name = within(screen.getByRole('region', { name: 'Waiting on the client / Blocked' })).getByText('Waiting on the client / Blocked');
+    expect(name).toHaveAttribute('title', 'Waiting on the client / Blocked');
+    expect(name).toHaveClass('line-clamp-2');
+  });
+
   it('renders the task cards inside their columns', () => {
     render(<KanbanBoard columns={columns} />);
     expect(screen.getByText('Task A')).toBeInTheDocument();
