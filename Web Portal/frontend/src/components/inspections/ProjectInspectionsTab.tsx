@@ -11,7 +11,8 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ClientEyeIcon } from '../TaskCard';
 import { dayText, InspectIcon, OutcomePill, problemText } from './inspection-ui';
-import { DueChecksSection, SchedulesSection } from './ScheduledInspections';
+import { DueChecksSection, SchedulesSection, scheduleKeys } from './ScheduledInspections';
+import { EmptyState } from '../ui/EmptyState';
 import { TOUCH_TALL } from '../../lib/touch';
 
 export interface InspectionTaskOption {
@@ -31,6 +32,9 @@ function ManageFormsLink({ className = '' }: { className?: string }) {
     </Link>
   );
 }
+
+/** A list that came back empty (not one that is missing or failed). */
+const isEmptyList = (x: unknown) => Array.isArray(x) && x.length === 0;
 
 const useForms = () => useQuery({ queryKey: ['inspection-forms'], queryFn: () => inspectionsApi(apiClient).listForms() });
 
@@ -247,6 +251,35 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
   const all = useMemo(() => q.data?.inspections ?? [], [q.data]);
   const inProgress = all.filter((x) => x.status === 'IN_PROGRESS');
   const finished = all.filter((x) => x.status === 'FINISHED');
+  // The sections' own lists (the same requests, shared): together they tell a project that has never
+  // had an inspection, nor any form to start one from, which gets one invitation instead of four empty boxes.
+  const checksQ = useQuery({ queryKey: scheduleKeys.checks(projectId), queryFn: () => inspectionsApi(apiClient).dueChecks(projectId) });
+  const schedulesQ = useQuery({ queryKey: scheduleKeys.schedules(projectId), queryFn: () => inspectionsApi(apiClient).schedules(projectId) });
+  const settled = !!q.data && (formsQ.isSuccess || formsQ.isError) && (checksQ.isSuccess || checksQ.isError) && (schedulesQ.isSuccess || schedulesQ.isError);
+  const firstRun =
+    settled &&
+    all.length === 0 &&
+    waiting.length === 0 &&
+    isEmptyList(formsQ.data?.forms) &&
+    isEmptyList(checksQ.data?.checks) &&
+    isEmptyList(schedulesQ.data?.schedules);
+
+  if (firstRun) {
+    return (
+      <EmptyState
+        icon={<span className="[&>svg]:h-6 [&>svg]:w-6">{InspectIcon.clipboard}</span>}
+        title="No inspections on this project yet"
+        description={`Inspections are checklists done on site — Pass / Fail items, readings and signatures — that end in a report. They start from a form${formsQ.data?.canCreate ? ': make the first one, then start an inspection here or schedule regular checks.' : '. Ask an administrator or whoever runs a project to make one.'}`}
+        action={
+          formsQ.data?.canCreate ? (
+            <Link to={INSPECTION_FORMS_PATH} className={`inline-flex items-center justify-center rounded-xl bg-brand-gradient px-4 py-2 text-sm font-semibold text-white shadow-brand transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift ${TOUCH_TALL}`}>
+              Make an inspection form
+            </Link>
+          ) : undefined
+        }
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -268,7 +301,7 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
           </span>
         </p>
       ) : null}
-      {q.isLoading ? <div className="skeleton h-28 rounded-xl" role="status" aria-label="Loading inspections" /> : null}
+      {q.isLoading || (q.data && !settled) ? <div className="skeleton h-28 rounded-xl" role="status" aria-label="Loading inspections" /> : null}
       {q.isError ? (
         <p role="alert" className="text-danger">
           {problemText(q.error, 'Couldn’t load the inspections.')}{' '}
@@ -277,7 +310,7 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
           </button>
         </p>
       ) : null}
-      {q.data ? (
+      {q.data && settled ? (
         <>
           <DueChecksSection projectId={projectId} canStart={q.data.canStart} onOpenTask={onOpenTask} />
           <SchedulesSection projectId={projectId} canChange={q.data.canStart} />

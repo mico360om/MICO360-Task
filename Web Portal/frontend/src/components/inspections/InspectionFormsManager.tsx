@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FieldError, FieldLabel, fieldClass } from '../ui/Field';
 import { TemplateGlyph } from '../templates/TemplateCard';
+import { InspectIcon } from './inspection-ui';
 import {
   addItem,
   addSection,
@@ -170,6 +171,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
         </p>
       ) : forms.length === 0 ? (
         <EmptyState
+          icon={<span className="[&>svg]:h-6 [&>svg]:w-6">{InspectIcon.clipboard}</span>}
           title="No inspection forms yet"
           description={canCreate ? 'Make the first checklist: its sections, the items to check and the readings to take.' : 'Administrators and people who run a project can create forms.'}
           action={canCreate ? newForm : undefined}

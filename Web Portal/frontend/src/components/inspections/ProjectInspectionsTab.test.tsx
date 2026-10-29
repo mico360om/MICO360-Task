@@ -306,6 +306,33 @@ describe('scheduled inspections on the Inspections tab', () => {
     expect(screen.queryByRole('button', { name: /^Stop/ })).toBeNull();
   });
 
+  it('a project with no inspection yet, and no form to start one from, gets one invitation to make a form', async () => {
+    list = { inspections: [], canStart: true };
+    forms = { forms: [], canCreate: true };
+    show();
+    expect(await screen.findByText('No inspections on this project yet')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Make an inspection form' })).toHaveAttribute('href', INSPECTION_FORMS_PATH);
+    // Not four empty boxes, nor a Start button that leads nowhere.
+    expect(screen.queryByRole('region', { name: /Due checks/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Start an inspection' })).toBeNull();
+  });
+
+  it('…and someone who can’t make forms is told who can', async () => {
+    list = { inspections: [], canStart: true };
+    forms = { forms: [], canCreate: false };
+    show();
+    expect(await screen.findByText(/Ask an administrator or whoever runs a project to make one/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Make an inspection form' })).toBeNull();
+  });
+
+  it('with a form to start from, a project with no inspection yet shows its sections and Start', async () => {
+    list = { inspections: [], canStart: true };
+    show();
+    expect(await screen.findByRole('region', { name: 'Due checks (0)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start an inspection' })).toBeInTheDocument();
+    expect(screen.queryByText('No inspections on this project yet')).toBeNull();
+  });
+
   it('“Schedules” says when there are none, and how to make one', async () => {
     show();
     const region = await screen.findByRole('region', { name: 'Schedules (0)' });
