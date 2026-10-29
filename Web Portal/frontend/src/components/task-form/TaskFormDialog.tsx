@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useInRouterContext } from 'react-router-dom';
 import { apiClient } from '../../api/client';
 import { projectsApi } from '../../api/projects';
 import { columnsApi } from '../../api/columns';
@@ -547,7 +548,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
               {banner ? <p role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
-              {noProjects ? <p className="rounded-xl bg-ground px-3.5 py-3 text-sm text-ink-2">Create a project first, then you can add tasks to it.</p> : null}
+              {noProjects ? (
+                <NoProjectYet />
+              ) : (
+              <>
 
               {!editing && !noProjects && taskTemplates.length ? (
                 <div>
@@ -600,7 +604,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                     value={draft.columnId}
                     onChange={(v) => { setPlaceChosen(true); set({ columnId: v }); }}
                     disabled={columns.length === 0}
-                    placeholder={columnsQ.isLoading || !draft.projectId ? 'Loading…' : 'This project has no columns'}
+                    placeholder={!draft.projectId ? (projectsQ.isLoading ? 'Loading…' : 'Choose a project first') : columnsQ.isLoading ? 'Loading…' : 'This project has no columns'}
                     options={columnOptions}
                   />
                 </div>
@@ -767,6 +771,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   <p className="mt-1 text-xs text-ink-2">The title, description and priority go to every copy when you choose the series; dates change on this copy only.</p>
                 </fieldset>
               ) : null}
+              </>
+              )}
             </div>
 
             <div className="flex flex-none items-center gap-2 border-t border-line bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
@@ -775,7 +781,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   Cancel
                 </button>
               ) : null}
-              <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} disabled={noProjects} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
+              {noProjects ? (
+                <CreateProjectLink onGo={onClose} />
+              ) : (
+              <Button type="submit" shortcut={editing ? 'save' : 'submit'} showShortcut loading={saving} className="!min-h-[44px] flex-[2] sm:flex-none sm:min-w-[9.5rem]">
                 {created
                   ? 'Done'
                   : saving
@@ -788,6 +797,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                       ? 'Save changes'
                       : 'Create task'}
               </Button>
+              )}
             </div>
           </form>
         </div>
@@ -804,5 +814,36 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         </ConfirmDialog>
       ) : null}
     </ModalPortal>
+  );
+}
+
+/** Where a new project is made: the Projects page, with its New project form open. */
+export const NEW_PROJECT_PATH = '/projects?new=1';
+
+/** No project to add a task to yet: what a task needs, in place of the form's fields. */
+function NoProjectYet() {
+  return (
+    <div className="grid place-items-center gap-2 px-2 py-10 text-center">
+      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-brand/10 text-brand" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <path d="M12 11v5M9.5 13.5h5" />
+        </svg>
+      </span>
+      <p className="font-semibold text-ink">Create a project first</p>
+      <p className="max-w-sm text-sm text-ink-2">Every task belongs to a project, with its board and people. Make the first project, then you can add tasks to it.</p>
+    </div>
+  );
+}
+
+const CREATE_PROJECT_LINK =
+  'inline-flex !min-h-[44px] flex-[2] items-center justify-center gap-2 rounded-xl bg-brand-gradient px-4 text-sm font-semibold text-white shadow-brand transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift sm:flex-none sm:min-w-[9.5rem]';
+
+/** The form's main button when there is no project: off to make one (a plain link outside the app's router). */
+function CreateProjectLink({ onGo }: { onGo: () => void }) {
+  return useInRouterContext() ? (
+    <Link to={NEW_PROJECT_PATH} onClick={onGo} className={CREATE_PROJECT_LINK}>Create a project</Link>
+  ) : (
+    <a href={NEW_PROJECT_PATH} className={CREATE_PROJECT_LINK}>Create a project</a>
   );
 }
