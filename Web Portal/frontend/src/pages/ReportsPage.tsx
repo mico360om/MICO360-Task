@@ -264,7 +264,7 @@ export function ReportsPage() {
           Couldn’t load reports (admin only). <button className="font-semibold underline" onClick={() => { projectsQ.refetch(); statusQ.refetch(); workloadQ.refetch(); completionQ.refetch(); }}>Retry</button>
         </p>
       ) : isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-24 rounded-2xl" />)}
         </div>
       ) : (
@@ -285,8 +285,8 @@ export function ReportsPage() {
             ) : null}
           </div>
 
-          {/* Summary tiles */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Summary tiles: two to a row on a phone, four on a wide screen (as on Management). */}
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatTile label="Total tasks" value={totals.total} tone="brand" hint={`${rows.length} project${rows.length === 1 ? '' : 's'}`} />
             <StatTile label="Completed" value={totals.completed} tone="success" hint={`${completionPct}% completion`} />
             <StatTile label="Overdue" value={totals.overdue} tone="danger" hint={totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : '—'} />
