@@ -1,4 +1,5 @@
 import { assetUrl } from '../../api/client';
+import { personInitials } from '../../lib/initials';
 
 export interface AvatarProps {
   name: string;
@@ -26,13 +27,8 @@ export function Avatar({ name, size = 'md', src }: AvatarProps) {
     );
   }
 
-  const initials = name
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0] ?? '')
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+  // Letters only: "Mohammed (OXY)" is "MO", not "M(".
+  const initials = personInitials(name);
 
   return (
     <span

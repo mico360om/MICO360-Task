@@ -138,7 +138,9 @@ describe('Minutes PDF route', () => {
     const text = inspectPdf(res.rawPayload).pages.flat();
     expect(text).toContain('Action Items');
     expect(text).toContain('Book the conference room');
-    expect(text).toEqual(expect.arrayContaining(['User u7', 'Oct 5, 2026', 'In progress', 'High']));
+    expect(text).toEqual(expect.arrayContaining(['User u7', 'In progress', 'High']));
+    // Day-month-year; still open, so marked Overdue once 5 Oct has passed (the PDF is made today).
+    expect(text.some((l) => /^5 Oct 2026( · Overdue)?$/.test(l))).toBe(true);
   });
 
   it('prints an action item’s due day in the meeting’s time zone (a due date stored as local midnight is not a day early)', async () => {
@@ -155,8 +157,8 @@ describe('Minutes PDF route', () => {
     expect(res.statusCode).toBe(200);
     const text = inspectPdf(res.rawPayload).pages.flat();
     expect(text.some((l) => l.includes('Send the revised quote'))).toBe(true);
-    expect(text.some((l) => l.includes('Oct 10, 2026'))).toBe(true);
-    expect(text.some((l) => l.includes('Oct 9, 2026'))).toBe(false);
+    expect(text.some((l) => l.includes('10 Oct 2026'))).toBe(true);
+    expect(text.some((l) => l.includes('9 Oct 2026'))).toBe(false);
   });
 
   it('names each action item’s task, and doesn’t print a tracked action note twice', async () => {

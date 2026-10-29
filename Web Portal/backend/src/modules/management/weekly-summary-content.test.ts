@@ -69,4 +69,31 @@ describe('weeklySummaryEmail', () => {
     expect(calm.text).toContain('No inspections finished');
     expect(calm.text).not.toContain('Most late work');
   });
+
+  it('after the three worst projects, says how many more need attention, with a link to the Management page', () => {
+    const w = (id: string, rag: 'RED' | 'AMBER'): WeeklyDigest['worst'][number] => ({ id, code: id.toUpperCase(), name: `Project ${id}`, rag, reasons: [{ code: 'LATE_TASKS', level: rag, text: '2 late tasks' }] });
+    const busy = weeklySummaryEmail({
+      name: 'Aisha',
+      // 1 red and 4 amber; the digest names the worst three (in its own order).
+      digest: { ...DIGEST, scope: 'ALL', projects: 6, red: 1, amber: 4, green: 1, worst: [w('a', 'RED'), w('b', 'AMBER'), w('c', 'AMBER')] },
+      week: '2026-10-25',
+      appUrl: 'https://task.mico360.com/',
+    });
+    // The shown projects keep their order; then the rest are counted, never dropped silently.
+    const text = busy.text;
+    expect(text.indexOf('Red: Project a')).toBeLessThan(text.indexOf('Amber: Project b'));
+    expect(text.indexOf('Amber: Project b')).toBeLessThan(text.indexOf('Amber: Project c'));
+    expect(text).toContain('and 2 more on the Management page: https://task.mico360.com/management');
+    expect(text.indexOf('Amber: Project c')).toBeLessThan(text.indexOf('and 2 more on the Management page'));
+    expect(text.indexOf('and 2 more on the Management page')).toBeLessThan(text.indexOf('Late tasks'));
+    expect(busy.html).toMatch(/<a href="https:\/\/task\.mico360\.com\/management"[^>]*>and 2 more on the Management page<\/a>/);
+
+    const one = weeklySummaryEmail({ name: 'Aisha', digest: { ...DIGEST, red: 2, amber: 2, worst: [w('a', 'RED'), w('b', 'RED'), w('c', 'AMBER')] }, week: '2026-10-25', appUrl: 'https://task.mico360.com' });
+    expect(one.text).toContain('and 1 more on the Management page: https://task.mico360.com/management');
+  });
+
+  it('says nothing about more projects when every red and amber one is named', () => {
+    expect(mail.text).not.toMatch(/and \d+ more/);
+    expect(mail.html).not.toMatch(/and \d+ more/);
+  });
 });

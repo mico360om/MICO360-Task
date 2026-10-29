@@ -111,6 +111,44 @@ describe('OtpService.requestLoginOtp', () => {
     expect(h.warnings.some((w) => /throttled/.test(w))).toBe(true);
   });
 
+  it('says so when the same address asks again within a minute — nothing sent, and how long to wait', async () => {
+    const h = makeHarness();
+    await expect(h.svc.requestLoginOtp('ada')).resolves.toEqual({ sent: true });
+    await h.flush(); // the code is made and sent now
+    h.advance(20_000);
+    await expect(h.svc.requestLoginOtp('ada')).resolves.toEqual({ sent: false, retryAfterSeconds: 40 });
+    await h.flush();
+    expect(h.emails).toHaveLength(1);
+    // Asking too soon doesn't restart the wait.
+    h.advance(39_500);
+    await expect(h.svc.requestLoginOtp('ada')).resolves.toEqual({ sent: false, retryAfterSeconds: 1 });
+    h.advance(1_000);
+    await expect(h.svc.requestLoginOtp('ada')).resolves.toEqual({ sent: true });
+    await h.flush();
+    expect(h.emails).toHaveLength(2);
+  });
+
+  it('answers "too soon" the same for an address with no account, so it never tells whether an account exists', async () => {
+    const h = makeHarness({ user: null });
+    await expect(h.svc.requestLoginOtp('ghost@nowhere.test')).resolves.toEqual({ sent: true });
+    h.advance(20_000);
+    await expect(h.svc.requestLoginOtp('ghost@nowhere.test')).resolves.toEqual({ sent: false, retryAfterSeconds: 40 });
+  });
+
+  it('counts an address however it is typed (capitals, spaces)', async () => {
+    const h = makeHarness();
+    await h.svc.requestLoginOtp(' Ada@Mico360.test ');
+    await expect(h.svc.requestLoginOtp('ada@mico360.test')).resolves.toEqual({ sent: false, retryAfterSeconds: 60 });
+  });
+
+  it('keeps the plain answer when another name of the same account asks within the minute (no hint that they are one account)', async () => {
+    const h = makeHarness();
+    await h.svc.requestLoginOtp('ada');
+    await expect(h.svc.requestLoginOtp('ada@mico360.test')).resolves.toEqual({ sent: true });
+    await h.flush();
+    expect(h.emails).toHaveLength(1); // the account's own limit still holds, silently
+  });
+
   it('invalidates the previous code when a new one is issued', async () => {
     const h = makeHarness();
     await h.svc.requestLoginOtp('ada');

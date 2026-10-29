@@ -35,6 +35,14 @@ describe('initials and colours', () => {
     expect(projectInitials('مشروع الإطلاق')).toBe('ما');
     expect(projectInitials('')).toBe('?');
   });
+  it('uses letters only: no bracket, dash or number in the tile', () => {
+    expect(projectInitials('(OXY) Pipeline Survey')).toBe('OP');
+    expect(projectInitials('Rig - Phase 2')).toBe('RP');
+    expect(projectInitials('2026 Audit')).toBe('AU');
+    // A name without a letter keeps its digits; nothing usable at all is "?".
+    expect(projectInitials('2026')).toBe('20');
+    expect(projectInitials('— · —')).toBe('?');
+  });
   it('picks dark or light text so it reads on the colour', () => {
     expect(readableOn('#8B1E1E')).toBe('#ffffff');
     expect(readableOn('#F2C94C')).toBe('#1f1a17');

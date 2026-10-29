@@ -38,9 +38,22 @@ export function projectIconPaths(icon: string | null | undefined): readonly stri
   return icon && Object.prototype.hasOwnProperty.call(PROJECT_ICON_PATHS, icon) ? PROJECT_ICON_PATHS[icon as ProjectIcon] : null;
 }
 
-/** Two letters for the project's tile, as the web app shows them: the first letters of the first two words (any script). */
+/** The words of a name as their characters of one kind: letters (\p{L}) or digits (\p{N}). */
+const wordsOf = (name: string, kind: RegExp) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .map((w) => (w.match(kind) ?? []).join(''))
+    .filter(Boolean);
+
+/**
+ * Two letters for the project's tile, as the web app shows them: the first letters of the first
+ * two words (any script), from letters only — "(OXY) Pipeline" is "OP". A name without a letter
+ * keeps its digits ("2026" → "20").
+ */
 export function projectInitials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = wordsOf(name, /\p{L}/gu);
+  const words = letters.length ? letters : wordsOf(name, /\p{N}/gu);
   if (words.length === 0) return '?';
   const pick = words.length > 1 ? `${[...words[0]!][0]}${[...words[1]!][0]}` : [...words[0]!].slice(0, 2).join('');
   return pick.toLocaleUpperCase();

@@ -1,5 +1,6 @@
 import type { ProjectHealth, TimelineMeeting, TimelineMilestone, TimelineProject } from '../api/planning';
 import { shiftDayKey } from './due-date';
+import { personInitials } from './initials';
 
 /**
  * The Timeline page's rules: which weeks a view shows, sorting, the owner and status filters, the
@@ -476,15 +477,8 @@ export function taskShape(t: { start: string | null; due: string }, range: { fro
   return { kind: 'marker', x: xOf(t.due, range.from, total) + 50 / total };
 }
 
-/** "Sara Ahmed" → "SA". */
-export const initialsOf = (name: string) =>
-  name
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0] ?? '')
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+/** "Sara Ahmed" → "SA", from letters only as on every avatar ("Yaqoob (OXY IT)" → "YO"). */
+export const initialsOf = (name: string) => personInitials(name);
 
 /** "Today · 24 Oct". */
 export const todayLabel = (today: string) => `Today · ${shortDay(today, today)}`;

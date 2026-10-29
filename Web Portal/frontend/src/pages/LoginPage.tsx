@@ -7,6 +7,7 @@ import { androidAppLink, checkHostedApk, type AndroidAppLink } from '../lib/andr
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
+import { forgetCodeStep, recallCodeStep, rememberCodeStep, RESEND_AFTER_MS, type CodeStep } from '../lib/login-code-step';
 import logoW from '../assets/logo-w.png';
 import { HeroField } from '../components/HeroField';
 import { BrandLogo } from '../components/ui/BrandLogo';
@@ -19,6 +20,16 @@ const api = createApiClient({
 interface AuthResponse {
   data: Session;
 }
+
+/** The answer to "email me a code": `sent: false` when the same address asked less than a minute ago. */
+interface CodeRequestResponse {
+  data?: { sent?: boolean; retryAfterSeconds?: number };
+}
+
+// Said alike for every address, so it never tells whether an account exists.
+const CODE_SENT = 'If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.';
+const tooSoon = (seconds: number) =>
+  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds}\u00a0s.`; // no line break between the number and its unit
 
 export function LoginPage() {
   const setSession = useAuthStore((s) => s.setSession);
@@ -46,9 +57,15 @@ export function LoginPage() {
     refetchOnWindowFocus: false,
   });
   const androidAvailable = !androidLink.hosted || apkQ.data !== false;
-  const [info, setInfo] = useState<string | null>(null);
+  // A reload on the "Email code" step comes back to it (remembered for this browser tab only).
+  const [resumed] = useState<CodeStep | null>(() => recallCodeStep());
+  const [info, setInfo] = useState<string | null>(resumed ? CODE_SENT : null);
   const [loading, setLoading] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
+  const [codeSent, setCodeSent] = useState(resumed !== null);
+  /** When another code may be asked for: as the server said (asked too soon), or as remembered. */
+  const [waitUntil, setWaitUntil] = useState<number | null>(resumed?.resendAt ?? null);
+  // Back on a remembered code step, it stays usable while the server hasn't said yet whether email works.
+  const otpOn = emailEnabled || (resumed !== null && configQ.data === undefined);
 
   function fail(e: unknown) {
     setLockedForSeconds(null);
@@ -74,6 +91,8 @@ export function LoginPage() {
     setLockedForSeconds(null);
     setInfo(null);
     setCodeSent(false);
+    setWaitUntil(null);
+    forgetCodeStep();
   }
 
   async function handleLogin(identifier: string, password: string, keepSignedIn = true) {
@@ -95,13 +114,20 @@ export function LoginPage() {
     setError(null);
     setErrorCode(null);
     try {
-      await api.post('/auth/otp/request', { identifier });
-      // A new code replaces the one before it (the server stops accepting the old one).
-      setInfo(
-        codeSent
-          ? 'We’ve sent a new code. Use the newest one — the earlier code no longer works.'
-          : 'If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.',
-      );
+      const res = await api.post<CodeRequestResponse>('/auth/otp/request', { identifier });
+      const wait = res?.data?.sent === false && typeof res.data.retryAfterSeconds === 'number' ? Math.max(1, Math.ceil(res.data.retryAfterSeconds)) : null;
+      if (wait !== null) {
+        // Nothing was sent: say so, and wait as long as the server asks. The code sent before still works.
+        const at = Date.now() + wait * 1000;
+        setInfo(tooSoon(wait));
+        setWaitUntil(at);
+        rememberCodeStep({ identifier, resendAt: at });
+      } else {
+        // A new code replaces the one before it (the server stops accepting the old one).
+        setInfo(codeSent ? 'We’ve sent a new code. Use the newest one — the earlier code no longer works.' : CODE_SENT);
+        setWaitUntil(null);
+        rememberCodeStep({ identifier, resendAt: Date.now() + RESEND_AFTER_MS });
+      }
       setCodeSent(true);
     } catch (e) {
       fail(e);
@@ -116,6 +142,7 @@ export function LoginPage() {
     setErrorCode(null);
     try {
       const res = await api.post<AuthResponse>('/auth/otp/verify', { identifier, code });
+      forgetCodeStep();
       setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
       fail(e);
@@ -200,14 +227,16 @@ export function LoginPage() {
             <div className="mt-6">
               <LoginForm
                 onSubmit={handleLogin}
-                onRequestCode={emailEnabled ? handleRequestCode : undefined}
-                onVerifyCode={emailEnabled ? handleVerifyCode : undefined}
+                onRequestCode={otpOn ? handleRequestCode : undefined}
+                onVerifyCode={otpOn ? handleVerifyCode : undefined}
                 error={error}
                 errorCode={errorCode}
                 lockedForSeconds={lockedForSeconds}
                 info={info}
                 loading={loading}
                 codeSent={codeSent}
+                resume={resumed}
+                waitUntil={waitUntil}
                 onModeChange={clearMessages}
                 forgotTo={canReset ? '/forgot' : undefined}
                 canResetByEmail={!emailOff}

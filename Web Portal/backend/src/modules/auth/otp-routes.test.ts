@@ -73,6 +73,21 @@ describe('OTP login routes', () => {
     await app.close();
   });
 
+  it('POST /auth/otp/request asked again within a minute: 200 with sent:false and the wait, the same for an unknown address', async () => {
+    const { app, emails, flush } = await makeApp();
+    for (const identifier of ['ada', 'ghost']) {
+      await app.inject({ method: 'POST', url: '/api/v1/auth/otp/request', payload: { identifier } });
+      const again = await app.inject({ method: 'POST', url: '/api/v1/auth/otp/request', payload: { identifier } });
+      expect(again.statusCode, identifier).toBe(200);
+      expect(again.json().data.sent, identifier).toBe(false);
+      expect(again.json().data.retryAfterSeconds, identifier).toBeGreaterThan(55);
+      expect(again.json().data.retryAfterSeconds, identifier).toBeLessThanOrEqual(60);
+    }
+    await flush();
+    expect(emails).toHaveLength(1);
+    await app.close();
+  });
+
   it('POST /auth/otp/request answers 503 EMAIL_NOT_CONFIGURED for any identifier when email is off', async () => {
     const { app } = await makeApp(false);
     for (const identifier of ['ada', 'ghost']) {

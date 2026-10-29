@@ -40,8 +40,13 @@ describe('Share with client', () => {
   it('says what a client sees — and never sees — and lists each client with when they last viewed it', async () => {
     show();
     const dialog = screen.getByRole('dialog', { name: 'Share with client' });
-    expect(dialog).toHaveTextContent(/only the milestones, tasks and approved minutes marked “Show to client”/);
-    expect(dialog).toHaveTextContent(/never see people, comments, files or internal notes/);
+    expect(dialog).toHaveTextContent(/only what is marked “Show to client”/);
+    expect(dialog).toHaveTextContent(/milestones and tasks: the title, status and due date/);
+    expect(dialog).toHaveTextContent(/approved meeting minutes/);
+    // Shared inspection reports carry the inspector's name and notes (by design): the panel says so.
+    expect(dialog).toHaveTextContent(/inspection reports: the results, the inspector’s notes on each item, and the signatures with the signers’ names — the inspector’s too/);
+    expect(dialog).toHaveTextContent(/They never see the team or who is assigned, comments, files, task descriptions or the notes taken in meetings/);
+    expect(dialog).not.toHaveTextContent(/never see people/);
     const fatma = await screen.findByRole('listitem', { name: 'Fatma Al Harthy' });
     expect(within(fatma).getByText('fatma@client.example')).toBeInTheDocument();
     expect(within(fatma).getByText('Last viewed 3h ago')).toBeInTheDocument();

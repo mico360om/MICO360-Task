@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LoginPage } from './LoginPage';
 import { useAuthStore } from '../stores/auth-store';
@@ -194,6 +194,60 @@ describe('LoginPage', () => {
       const address = screen.getByLabelText(/email or username/i);
       expect(address).not.toHaveAttribute('readonly');
       expect(address).toHaveFocus();
+    });
+
+    const stored = (s: Storage) => Array.from({ length: s.length }, (_, i) => `${s.key(i)}=${s.getItem(s.key(i)!)}`).join('\n');
+
+    it('keeps the code step after the page is reloaded: remembered for this browser tab, never in the address', async () => {
+      await askForCode();
+      cleanup(); // the page is reloaded 25 s later
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 25_000);
+      renderPage();
+      const code = await screen.findByLabelText(/one-time code/i);
+      expect(screen.getByRole('tab', { name: /email code/i })).toHaveAttribute('aria-selected', 'true');
+      const address = screen.getByLabelText(/email or username/i);
+      expect(address).toHaveValue('ada@mico360.test');
+      expect(address).toHaveAttribute('readonly');
+      expect(screen.getByRole('status')).toHaveTextContent('If that account exists, we’ve emailed it a one-time code.');
+      // The wait for another code carries on where it was.
+      expect(screen.getByRole('button', { name: /resend code/i })).toHaveTextContent(/Resend code in 0:3[45]/);
+      expect(window.location.href).not.toContain('ada');
+      expect(stored(localStorage)).not.toContain('ada@mico360.test');
+      await userEvent.type(code, '482913');
+      await userEvent.click(screen.getByRole('button', { name: /verify & sign in/i }));
+      await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
+      expect(sent).toContainEqual({ url: expect.stringContaining('/auth/otp/verify'), body: { identifier: 'ada@mico360.test', code: '482913' } });
+      // Signed in: the step is forgotten.
+      expect(stored(sessionStorage)).not.toContain('ada@mico360.test');
+    });
+
+    it('forgets the code step when the person goes back to Password or to another address', async () => {
+      await askForCode();
+      await userEvent.click(screen.getByRole('tab', { name: /password/i }));
+      cleanup();
+      renderPage();
+      expect(await screen.findByLabelText(/^password/i)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/one-time code/i)).not.toBeInTheDocument();
+      cleanup();
+      await askForCode();
+      await userEvent.click(screen.getByRole('button', { name: /use a different email/i }));
+      cleanup();
+      renderPage();
+      expect(await screen.findByLabelText(/^password/i)).toBeInTheDocument();
+    });
+
+    it('asked again within a minute, says no new code was sent and how long to wait — and still takes the code already sent', async () => {
+      otpRequest = () => json({ data: { sent: false, retryAfterSeconds: 42 } });
+      await askForCode();
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in 42 s.',
+      );
+      expect(screen.getByRole('status')).not.toHaveTextContent(/emailed it/);
+      expect(screen.getByRole('status').textContent).toContain('42\u00a0s.'); // the number and its unit never split across lines
+      expect(screen.getByRole('button', { name: /resend code/i })).toHaveTextContent(/Resend code in 0:4[12]/);
+      await userEvent.type(screen.getByLabelText(/one-time code/i), '482913');
+      await userEvent.click(screen.getByRole('button', { name: /verify & sign in/i }));
+      await waitFor(() => expect(useAuthStore.getState().isAuthenticated).toBe(true));
     });
   });
 

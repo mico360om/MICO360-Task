@@ -73,7 +73,7 @@ describe('buildMinutesPdf', () => {
     });
     expect(text).toContain('Action Items');
     expect(text).toEqual(expect.arrayContaining(['Action', 'Owner', 'Due', 'Priority', 'Status', 'Task']));
-    expect(text).toEqual(expect.arrayContaining(['Book the conference room', 'Grace Hopper', 'Oct 5, 2026', 'High', 'In progress', 'MICO-12']));
+    expect(text).toEqual(expect.arrayContaining(['Book the conference room', 'Grace Hopper', '5 Oct 2026', 'High', 'In progress', 'MICO-12']));
     // No owner or date: say so rather than leave a gap.
     expect(text).toEqual(expect.arrayContaining(['Send the vendor shortlist', 'Unassigned', '—', 'Open']));
     // An action note that isn't tracked as an item is still there.
@@ -137,7 +137,7 @@ describe('buildMinutesPdf', () => {
     const item = { description: 'File the report', ownerName: 'Ada Lovelace', dueDate: '2026-10-05', statusLabel: 'Open', priorityLabel: 'Normal' };
     for (const timeZone of ['Pacific/Honolulu', 'Asia/Muscat', 'Pacific/Kiritimati']) {
       const text = lines({ ...data, meeting: { ...data.meeting, timeZone }, actionItems: [item] });
-      expect(text.some((l) => l.includes('Oct 5, 2026')), timeZone).toBe(true);
+      expect(text.some((l) => l.includes('5 Oct 2026')), timeZone).toBe(true);
     }
   });
 
@@ -191,7 +191,7 @@ describe('buildMinutesPdf', () => {
     expect(text).toContain('Acme Corp'); // client
     expect(text).toContain('Grace Hopper'); // owner
     expect(text).toContain('FAL'); // code
-    expect(text).toContain('Jan 1, 2026  –  Dec 31, 2026'); // timeline
+    expect(text).toContain('1 Jan 2026  –  31 Dec 2026'); // timeline
     // Named as the project's, so it isn't read as the meeting's status.
     expect(text).toContain('Project status');
     expect(text.indexOf('Project status')).toBeGreaterThan(text.indexOf('Project details'));
@@ -234,7 +234,7 @@ describe('buildMinutesPdf', () => {
 });
 
 describe('minutes time zone (MTG-01)', () => {
-  const at = (d: MinutesData) => lines(d).find((t) => /\d:\d\d [AP]M – /.test(t));
+  const at = (d: MinutesData) => lines(d).find((t) => /^\d\d:\d\d – /.test(t));
   const saved = process.env.COMPANY_TIMEZONE;
   afterEach(() => {
     if (saved === undefined) delete process.env.COMPANY_TIMEZONE;
@@ -242,31 +242,31 @@ describe('minutes time zone (MTG-01)', () => {
   });
 
   it('uses the meeting\'s own zone when it has one', () => {
-    expect(at(data)).toBe('9:00 AM – 10:30 AM (UTC)');
-    expect(at({ ...data, meeting: { ...data.meeting, timeZone: 'Asia/Dubai' } })).toBe('1:00 PM – 2:30 PM (GMT+4)');
+    expect(at(data)).toBe('09:00 – 10:30 (UTC)');
+    expect(at({ ...data, meeting: { ...data.meeting, timeZone: 'Asia/Dubai' } })).toBe('13:00 – 14:30 (GMT+4)');
   });
 
   it('falls back to the company zone (Asia/Muscat), not UTC, when the meeting has none', () => {
     delete process.env.COMPANY_TIMEZONE;
     const noZone: MinutesData = { ...data, meeting: { ...data.meeting, timeZone: null } };
-    expect(at(noZone)).toBe('1:00 PM – 2:30 PM (GMT+4)');
-    expect(lines(noZone)).toContain('Thursday, October 1, 2026');
+    expect(at(noZone)).toBe('13:00 – 14:30 (GMT+4)');
+    expect(lines(noZone)).toContain('Thursday 1 October 2026');
   });
 
   it('honours the company zone passed by the caller, then COMPANY_TIMEZONE, and skips invalid zones', () => {
     const noZone: MinutesData = { ...data, meeting: { ...data.meeting, timeZone: null } };
-    expect(at({ ...noZone, companyTimeZone: 'Europe/London' })).toBe('10:00 AM – 11:30 AM (GMT+1)');
+    expect(at({ ...noZone, companyTimeZone: 'Europe/London' })).toBe('10:00 – 11:30 (GMT+1)');
     process.env.COMPANY_TIMEZONE = 'Asia/Kolkata';
-    expect(at(noZone)).toBe('2:30 PM – 4:00 PM (GMT+5:30)');
-    expect(at({ ...data, meeting: { ...data.meeting, timeZone: 'Not/AZone' }, companyTimeZone: 'Asia/Muscat' })).toBe('1:00 PM – 2:30 PM (GMT+4)');
+    expect(at(noZone)).toBe('14:30 – 16:00 (GMT+5:30)');
+    expect(at({ ...data, meeting: { ...data.meeting, timeZone: 'Not/AZone' }, companyTimeZone: 'Asia/Muscat' })).toBe('13:00 – 14:30 (GMT+4)');
   });
 
   it('shows note and footer timestamps in the same zone', () => {
     delete process.env.COMPANY_TIMEZONE;
     const noZone: MinutesData = { ...data, meeting: { ...data.meeting, timeZone: null } };
     const text = lines(noZone);
-    expect(text).toContain('— Ada Lovelace · Oct 1, 1:15 PM'); // 09:15Z decision in Muscat
-    expect(text.some((t) => t.startsWith('Generated Oct 1, 3:00 PM by Ada Lovelace'))).toBe(true);
+    expect(text).toContain('— Ada Lovelace · 1 Oct 2026, 13:15'); // 09:15Z decision in Muscat
+    expect(text.some((t) => t.startsWith('Generated 1 Oct 2026, 15:00 by Ada Lovelace'))).toBe(true);
   });
 
   it('resolveMinutesTimeZone: meeting → caller company zone → env → Asia/Muscat', () => {
@@ -393,7 +393,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(pages[0]).toContain('FINAL');
     const text = pages.flat();
     expect(text).toEqual(expect.arrayContaining(['Final Minutes of Meeting', 'Q4 priorities were agreed.', 'Sprint cadence', 'Two weeks suits both teams.', 'Hiring may slip.', 'Draft the Q4 OKRs — Grace, by Friday']));
-    expect(text.some((l) => /FINAL · Approved by Grace Hopper on Oct 2/.test(l))).toBe(true);
+    expect(text.some((l) => /FINAL · Approved by Grace Hopper on 2 Oct 2026, 08:00/.test(l))).toBe(true);
     // The Final MOM first, then attendance, agenda, action items and the notes taken.
     const at = (s: string) => text.indexOf(s);
     expect(at('Final Minutes of Meeting')).toBeGreaterThan(-1);
@@ -401,7 +401,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(at('Attendees')).toBeLessThan(at('Agenda'));
     expect(at('Agenda')).toBeLessThan(at('Notes taken during the meeting'));
     // Who prepared and approved them closes the Final MOM (not a page of its own at the end).
-    const signed = text.findIndex((l) => /^Prepared by Ada Lovelace .*Approved by Grace Hopper on Oct 2/.test(l));
+    const signed = text.findIndex((l) => /^Prepared by Ada Lovelace .*Approved by Grace Hopper on 2 Oct 2026, 08:00/.test(l));
     expect(signed).toBeGreaterThan(at('Draft the Q4 OKRs — Grace, by Friday'));
     expect(signed).toBeLessThan(at('Attendees'));
     // The notes stay as they were taken, with who wrote them.
@@ -447,8 +447,58 @@ describe('buildMinutesPdf: project header and layout', () => {
     });
     const at = text.indexOf('Next Steps');
     expect(at).toBeGreaterThan(text.indexOf('Discussion & Notes'));
-    expect(text.slice(at)).toEqual(expect.arrayContaining(['Book the room — Grace Hopper, by Oct 5, 2026', 'Send the vendor shortlist — unassigned']));
-    expect(text.indexOf('Book the room — Grace Hopper, by Oct 5, 2026')).toBeLessThan(text.indexOf('Send the vendor shortlist — unassigned'));
+    expect(text.slice(at)).toEqual(expect.arrayContaining(['Book the room — Grace Hopper, by 5 Oct 2026', 'Send the vendor shortlist — unassigned']));
+    expect(text.indexOf('Book the room — Grace Hopper, by 5 Oct 2026')).toBeLessThan(text.indexOf('Send the vendor shortlist — unassigned'));
     expect(text.slice(at).some((l) => l.includes('Old item'))).toBe(false);
+  });
+});
+
+describe('buildMinutesPdf: dates as the other PDFs write them, and late action items', () => {
+  const late: MinutesData = {
+    ...data,
+    project: { name: 'Falcon CRM', code: 'FAL', startDate: '2026-09-01T00:00:00.000Z', targetDate: '2026-12-31T00:00:00.000Z' },
+    // Made on 10 Oct (UTC, the meeting's zone): an open item due on 5 Oct is late; one due today is not yet.
+    generatedAt: '2026-10-10T08:00:00.000Z',
+    actionItems: [
+      { description: 'Book the room', ownerName: 'Grace Hopper', dueDate: '2026-10-05', statusLabel: 'Open', priorityLabel: 'High', open: true },
+      { description: 'Send the agenda', ownerName: 'Ada Lovelace', dueDate: '2026-10-10', statusLabel: 'In progress', priorityLabel: 'Normal', open: true },
+      { description: 'Order the badges', ownerName: null, dueDate: '2026-10-20', statusLabel: 'Open', priorityLabel: 'Low', open: true },
+      { description: 'Old item', ownerName: 'Ada', dueDate: '2026-09-01', statusLabel: 'Completed', priorityLabel: 'Low', open: false },
+    ],
+  };
+  const MONTH_FIRST = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}(,|\b)/;
+  const TWELVE_HOUR = /\d{1,2}:\d{2}\s?[AP]M\b/;
+
+  it('writes every date day-month-year and every time on the 24-hour clock, as the task and Management PDFs do', () => {
+    const final = { content: { summary: 'Agreed.', discussion: [], decisions: ['Go'], risks: [], nextSteps: [] }, status: 'FINAL' as const, approvedByName: 'Grace Hopper', approvedAt: '2026-10-02T08:00:00.000Z' };
+    for (const d of [late, { ...late, final }]) {
+      const text = lines(d);
+      expect(text).toContain('Thursday 1 October 2026');
+      expect(text).toContain('09:00 – 10:30 (UTC)');
+      expect(text).toEqual(expect.arrayContaining(['1 Sep 2026  –  31 Dec 2026']));
+      expect(text.some((l) => l.startsWith('Generated 10 Oct 2026, 08:00 by Ada Lovelace'))).toBe(true);
+      expect(text.filter((l) => MONTH_FIRST.test(l)), 'month-first dates').toEqual([]);
+      expect(text.filter((l) => TWELVE_HOUR.test(l)), '12-hour times').toEqual([]);
+    }
+  });
+
+  it('marks an open action item past its due day "Overdue" beside its date, in words (not by colour alone)', () => {
+    const text = lines(late);
+    expect(text).toContain('5 Oct 2026 · Overdue');
+    // Due today is not late yet; later, or already done, never.
+    expect(text).toEqual(expect.arrayContaining(['10 Oct 2026', '20 Oct 2026', '1 Sep 2026']));
+    expect(text.filter((l) => /Overdue/.test(l) && !/^Open action items/.test(l))).toEqual(['5 Oct 2026 · Overdue', 'Book the room — Grace Hopper, by 5 Oct 2026 · Overdue']);
+    // The summary tile counts them too.
+    expect(text).toEqual(expect.arrayContaining(['Open action items', '3', '1 overdue']));
+  });
+
+  it('keeps the meeting record’s action items marked in a Final MOM’s PDF too', () => {
+    const text = lines({ ...late, final: { content: { summary: 'Agreed.', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'FINAL', approvedByName: 'Grace Hopper', approvedAt: '2026-10-02T08:00:00.000Z' } });
+    expect(text).toContain('5 Oct 2026 · Overdue');
+  });
+
+  it('says nothing about late items when none is late', () => {
+    const text = lines({ ...late, generatedAt: '2026-10-01T11:00:00.000Z' });
+    expect(text.some((l) => /overdue/i.test(l))).toBe(false);
   });
 });

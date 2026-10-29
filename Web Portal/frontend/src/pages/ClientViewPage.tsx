@@ -14,8 +14,10 @@ import { fieldClass } from '../components/ui/Field';
  * The client page: someone outside the company follows one shared project, read-only, with no
  * MICO360 account. The address carries a private link; the page opens only with a code emailed to
  * the address it was shared with, and the device then stays signed in for 30 days. It shows the
- * project's progress, its timeline, and only the milestones, tasks and approved meeting minutes
- * marked "Show to client" — never people, comments, files or notes. None of the staff app (its
+ * project's progress, its timeline, and only the milestones, tasks, approved meeting minutes and
+ * finished inspection reports marked "Show to client" — never the team, assignees, comments, files,
+ * descriptions or meeting notes. (An inspection report does show the signers' names, the
+ * inspector's included, and the item notes: Share with client says so.) None of the staff app (its
  * navigation, its sign-in, its API client) is part of it.
  */
 export function ClientViewPage() {

@@ -388,6 +388,17 @@ describe('ProjectDetailPage', () => {
     expect(screen.getByText('Completed').previousElementSibling).toHaveTextContent('1');
   });
 
+  it('shows one completion figure: "Work done" says the same share of tasks finished as the Completion tile', async () => {
+    // An open task 90% of the way through: the tasks' average progress (38%) is not the project's completion (1 of 5 = 20%).
+    extraTasks = [task('t5', { progress: 90 })];
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Completion').previousElementSibling).toHaveTextContent('20%'));
+    const work = await screen.findByText(/^1 of 5 tasks/);
+    expect(work).toHaveTextContent('1 of 5 tasks · 20% done');
+    expect(screen.queryByText(/38%/)).not.toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Work done' })).toHaveAttribute('aria-valuenow', '20');
+  });
+
   it('a project that does not exist gets a clear "not found" page, not a broken one', async () => {
     const base = fetch;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

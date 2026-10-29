@@ -22,14 +22,15 @@ describe('project dashboard: tasks', () => {
     expect(taskPhase(task({ columnCategory: 'BACKLOG' }), TODAY)).toBe('pending');
   });
 
-  it('counts each phase and works out progress from finished work', () => {
+  it('counts each phase and works out completion from finished tasks only (a half-done task is not half counted)', () => {
     const s = taskStats([
       task({ id: 'a', columnCategory: 'DONE', progress: 100, priority: 'HIGH' }),
       task({ id: 'b', columnCategory: 'IN_PROGRESS', progress: 50, priority: 'URGENT' }),
       task({ id: 'c', dueDate: day('2026-10-01'), priority: 'HIGH' }),
       task({ id: 'd' }),
     ], TODAY);
-    expect(s).toMatchObject({ total: 4, completed: 1, ongoing: 1, overdue: 1, pending: 1, pct: 25, avgProgress: 38 });
+    expect(s).toMatchObject({ total: 4, completed: 1, ongoing: 1, overdue: 1, pending: 1, pct: 25 });
+    expect(s).not.toHaveProperty('avgProgress'); // one completion figure for a project, not two
     expect(s.byPriority).toEqual({ URGENT: 1, HIGH: 1, NORMAL: 1, LOW: 0 }); // open tasks only
   });
 
@@ -41,7 +42,7 @@ describe('project dashboard: tasks', () => {
   });
 
   it('is zero, not NaN, for a project without tasks', () => {
-    expect(taskStats([], TODAY)).toMatchObject({ total: 0, pct: 0, avgProgress: 0 });
+    expect(taskStats([], TODAY)).toMatchObject({ total: 0, pct: 0 });
   });
 });
 

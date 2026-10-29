@@ -18,6 +18,10 @@ export interface LoginFormProps {
   loading?: boolean;
   /** Controlled: true once a code has been emailed, so the code entry step shows. */
   codeSent?: boolean;
+  /** A code step remembered across a reload: the form starts on it, with this address (read when it first shows). */
+  resume?: { identifier: string } | null;
+  /** When another code may be asked for, as the server said (or as remembered): "Resend" waits until then. */
+  waitUntil?: number | null;
   /** Called when the user switches auth mode or edits the email, to clear stale state. */
   onModeChange?: () => void;
   /** Route for the "Forgot password?" link shown next to "Keep me signed in". */
@@ -89,12 +93,14 @@ export function LoginForm({
   info,
   loading = false,
   codeSent = false,
+  resume = null,
+  waitUntil = null,
   onModeChange,
   forgotTo,
   canResetByEmail = true,
 }: LoginFormProps) {
-  const [mode, setMode] = useState<Mode>('password');
-  const [identifier, setIdentifier] = useState('');
+  const [mode, setMode] = useState<Mode>(resume ? 'code' : 'password');
+  const [identifier, setIdentifier] = useState(resume?.identifier ?? '');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -123,6 +129,16 @@ export function LoginForm({
     startResendWait();
     codeRef.current?.focus();
   }, [codeStep]);
+  // After the code step's own minute (above): a wait the server gave, or one remembered over a reload.
+  useEffect(() => {
+    if (!waitUntil) return;
+    setResendAt(waitUntil);
+    setNow(Date.now());
+  }, [waitUntil]);
+  // Email codes found to be off while on the code step (a remembered one, after a reload): the password it is.
+  useEffect(() => {
+    if (!otpAvailable && mode === 'code') setMode('password');
+  }, [otpAvailable, mode]);
   const waiting = resendIn > 0;
   useEffect(() => {
     if (!waiting) return;

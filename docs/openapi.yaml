@@ -353,7 +353,7 @@ paths:
       requestBody:
         required: true
         content: { application/json: { schema: { type: object, required: [identifier], properties: { identifier: { type: string } } } } }
-      responses: { '200': { description: A code is emailed if the account exists } }
+      responses: { '200': { description: '{ sent: true }: a code is emailed if the account exists. { sent: false, retryAfterSeconds }: the same address asked less than a minute ago, so nothing was sent (answered alike for every address, so it never tells whether an account exists).' } }
   /auth/otp/verify:
     post:
       security: []

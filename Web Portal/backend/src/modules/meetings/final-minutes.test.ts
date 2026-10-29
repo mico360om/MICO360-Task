@@ -50,13 +50,13 @@ describe('draftFromNotes: a first draft without AI', () => {
       ],
       decisions: ['Go-live moves to 1 November.'],
       risks: ['Field tablets may not be updated in time.', 'Open question: Who trains the inspectors?'],
-      nextSteps: ['Send the revised form to the client — Bilal, by Oct 18, 2026'],
+      nextSteps: ['Send the revised form to the client — Bilal, by 18 Oct 2026'],
     });
   });
 
   it('writes a plain summary when the meeting has no description', () => {
     const draft = draftFromNotes({ ...data, meeting: { ...data.meeting, description: null } });
-    expect(draft.summary).toBe('Weekly progress review on Wednesday, October 14, 2026: 1 of 2 attendees present, 1 of 2 agenda items covered, 1 decision.');
+    expect(draft.summary).toBe('Weekly progress review on Wednesday 14 October 2026: 1 of 2 attendees present, 1 of 2 agenda items covered, 1 decision.');
   });
 });
 
