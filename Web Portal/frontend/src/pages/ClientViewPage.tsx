@@ -41,6 +41,8 @@ function dayText(key: string | null): string {
 }
 
 const RESEND_WAIT_SECONDS = 60;
+/** Each line (paragraph) of a text takes its own direction and starts on its own side. */
+const OWN_LINES = '[unicode-bidi:plaintext] text-start';
 
 export function ClientViewScreen({ api }: { api: ClientViewApi }) {
   const [stage, setStage] = useState<Stage>({ kind: 'loading' });
@@ -118,7 +120,7 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
       <footer className="border-t border-line bg-surface">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-ink-2 sm:px-6">
           <span>Shared with you through MICO360 Tasks. Read-only.</span>
-          <Link to="/privacy" className="font-semibold text-brand underline-offset-2 hover:underline">Privacy policy</Link>
+          <Link to="/privacy" className="tap font-semibold text-brand underline-offset-2 hover:underline">Privacy policy</Link>
         </div>
       </footer>
     </div>
@@ -460,7 +462,8 @@ function Items({ items, empty, milestone = false }: { items: ClientViewItem[]; e
             <span aria-hidden="true" className="mt-1.5 block h-2.5 w-2.5 flex-none rounded-full border-2 border-ink-3" />
           )}
           <div className="min-w-0 flex-1">
-            <p dir="auto" className="break-words text-sm font-medium text-ink">{t.title}</p>
+            {/* bdi: an Arabic title reads right-to-left but starts on the row's side, beside its due date. */}
+            <p className="break-words text-sm font-medium text-ink"><bdi>{t.title}</bdi></p>
             <p className="text-xs text-ink-2">{t.dueDate ? `Due ${dayText(t.dueDate)}` : 'No due date'}</p>
           </div>
           <Status label={t.status} />
@@ -527,7 +530,8 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
       </h3>
       {expanded ? (
         <div id={panelId} className="flex flex-col gap-3 border-t border-line px-4 py-4">
-          {c.summary ? <p dir="auto" className="whitespace-pre-line text-sm text-ink">{c.summary}</p> : null}
+          {/* Each line takes its own direction: an Arabic line among English ones reads right (as in the notes). */}
+          {c.summary ? <p className={`whitespace-pre-line text-sm text-ink ${OWN_LINES}`}>{c.summary}</p> : null}
           {c.discussion.length ? (
             <div>
               <h4 className="text-sm font-semibold text-ink">Discussion</h4>
@@ -535,7 +539,7 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
                 {c.discussion.map((d, i) => (
                   <div key={i}>
                     <dt dir="auto" className="text-sm font-medium text-ink">{d.topic}</dt>
-                    <dd dir="auto" className="whitespace-pre-line text-sm text-ink-2">{d.text}</dd>
+                    <dd className={`whitespace-pre-line text-sm text-ink-2 ${OWN_LINES}`}>{d.text}</dd>
                   </div>
                 ))}
               </dl>

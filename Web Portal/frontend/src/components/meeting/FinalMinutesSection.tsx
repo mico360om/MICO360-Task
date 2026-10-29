@@ -315,7 +315,8 @@ function FinalView({
         <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success">Final</span>
         Approved by {minutes.approvedBy?.name ?? 'someone'}{when ? ` on ${when}` : ''}.
       </p>
-      {content.summary ? <p dir="auto" className="whitespace-pre-line text-sm text-ink">{content.summary}</p> : null}
+      {/* Each line takes its own direction, so English and Arabic lines sit side by side (as in the notes). */}
+      {content.summary ? <p className="whitespace-pre-line text-start text-sm text-ink [unicode-bidi:plaintext]">{content.summary}</p> : null}
       {content.discussion.length ? (
         <div>
           <h3 className="text-sm font-semibold text-ink">Discussion</h3>
@@ -323,7 +324,7 @@ function FinalView({
             {content.discussion.map((d, i) => (
               <div key={i}>
                 <dt dir="auto" className="text-sm font-medium text-ink">{d.topic}</dt>
-                <dd dir="auto" className="whitespace-pre-line text-sm text-ink-2">{d.text}</dd>
+                <dd className="whitespace-pre-line text-start text-sm text-ink-2 [unicode-bidi:plaintext]">{d.text}</dd>
               </div>
             ))}
           </dl>

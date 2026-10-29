@@ -136,6 +136,14 @@ describe('Final minutes: for attendees', () => {
     expect(within(section()).getByRole('button', { name: 'Download minutes (PDF)' })).toBeInTheDocument();
     expect(within(section()).queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
   });
+
+  it('lets each line of the summary and the discussion take its own direction (English and Arabic lines side by side)', async () => {
+    current = { ...final, canEdit: false };
+    renderSection(false);
+    const summary = await within(await screen.findByRole('region', { name: /final mom/i })).findByText('Progress was reviewed and go-live moved.');
+    expect(summary.className).toContain('[unicode-bidi:plaintext]');
+    expect(within(section()).getByText('The client needs time to test.').className).toContain('[unicode-bidi:plaintext]');
+  });
 });
 
 describe('Final minutes: shown to the project’s client', () => {

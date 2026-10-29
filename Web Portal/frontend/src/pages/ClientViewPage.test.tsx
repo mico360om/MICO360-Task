@@ -137,7 +137,9 @@ describe('the client page', () => {
     expect(within(timeline).getByText('20 Nov 2026')).toBeInTheDocument();
     expect(within(timeline).getByText(/Today/)).toBeInTheDocument();
     const milestones = screen.getByRole('region', { name: 'Milestones' });
-    expect(within(milestones).getByText('مسح الموقع')).toHaveAttribute('dir', 'auto');
+    // An Arabic title keeps its own direction (bdi) but starts on the same side as the rest of the row.
+    expect(within(milestones).getByText('مسح الموقع').tagName).toBe('BDI');
+    expect(within(milestones).getByText('مسح الموقع').closest('[dir="auto"]')).toBeNull();
     expect(within(milestones).getByText('Done')).toBeInTheDocument();
     const tasks = screen.getByRole('region', { name: 'Tasks' });
     expect(within(tasks).getByText('Install sensors')).toBeInTheDocument();
@@ -151,6 +153,20 @@ describe('the client page', () => {
     expect(minutes.querySelector('summary, details')).toBeNull();
     expect(within(minutes).getByText('Agreed the plan.')).toBeInTheDocument();
     expect(within(minutes).getByRole('button', { name: 'Download the minutes of Kick-off (PDF)' })).toBeInTheDocument();
+  });
+
+  it('lets each line of the minutes take its own direction, so an Arabic line among English ones reads right', async () => {
+    const summary = ['Agreed the plan.', 'تم الاتفاق على الخطة.'].join('\n');
+    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, minutes: [{ ...VIEW.minutes[0]!, content: { ...VIEW.minutes[0]!.content, summary } }] })) }));
+    const text = await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === summary);
+    expect(text.className).toContain('[unicode-bidi:plaintext]');
+    expect(within(screen.getByRole('region', { name: 'Meeting minutes' })).getByText('Three rigs.').className).toContain('[unicode-bidi:plaintext]');
+  });
+
+  it('gives the footer link a finger-sized target', async () => {
+    show(fakeApi());
+    await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });
+    expect(screen.getByRole('link', { name: 'Privacy policy' }).className).toMatch(/(^|\s)tap(\s|$)/);
   });
 
   it('opens and closes a meeting’s minutes with its heading button', async () => {
