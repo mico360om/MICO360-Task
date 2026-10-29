@@ -85,7 +85,17 @@ export interface InspectionPorts {
   /** The project; null when it is gone. */
   project(projectId: string): Promise<ProjectInfo | null>;
   /** A live task (with the inspection form it carries, and where, for a check). */
-  task(taskId: string): Promise<{ id: string; key: string; title: string; projectId: string; done: boolean; inspectionFormId?: string | null; inspectionPlace?: string | null } | null>;
+  task(taskId: string): Promise<{
+    id: string;
+    key: string;
+    title: string;
+    projectId: string;
+    done: boolean;
+    /** It waits for approval (task-approval): finished, but not done until a project manager approves it. */
+    waiting?: boolean;
+    inspectionFormId?: string | null;
+    inspectionPlace?: string | null;
+  } | null>;
   /** Tasks by id, deleted ones too (marked), with the project each is in now. */
   taskSummaries(ids: string[]): Promise<Map<string, TaskSummary>>;
   canViewTask(userId: string, roles: string[], taskId: string): Promise<boolean>;
@@ -343,20 +353,23 @@ export function createInspectionService(deps: InspectionServiceDeps) {
    * make one move; this in-process queue only saves the second one a wasted try).
    *
    * `completed` is the task when it is done now; `offer` says whether today's "mark the task done
-   * too?" offer still applies (a task without a form, or a check that couldn't be completed).
+   * too?" offer still applies (a task without a form, or a check that couldn't be completed);
+   * `waiting` is the task when finishing it made it wait for approval (it needs a manager's OK).
    * A repeat of a finish (`replay`) leaves alone a task someone moved or reopened by hand since the
    * inspection was finished, and nothing is completed on an archived project. Reopening the
    * inspection never reopens the task.
    */
-  async function completeCheck(actor: Actor, r: InspectionRecord, replay: boolean): Promise<{ completed: InspectionDetail['taskCompleted']; offer: boolean }> {
+  type CheckOutcome = { completed: InspectionDetail['taskCompleted']; offer: boolean; waiting?: InspectionDetail['taskWaiting'] };
+  async function completeCheck(actor: Actor, r: InspectionRecord, replay: boolean): Promise<CheckOutcome> {
     if (!r.taskId) return { completed: null, offer: true };
     const before = completing.get(r.taskId);
-    const run = (async (): Promise<{ completed: InspectionDetail['taskCompleted']; offer: boolean }> => {
+    const run = (async (): Promise<CheckOutcome> => {
       if (before) await before.catch(() => undefined);
       const t = await ports.task(r.taskId!);
       if (!t || !t.inspectionFormId || !(await ports.canViewTask(actor.id, actor.roles, t.id))) return { completed: null, offer: true };
       const ref = { id: t.id, key: t.key, title: t.title };
       if (t.done) return { completed: ref, offer: false };
+      if (t.waiting) return { completed: null, offer: false, waiting: ref };
       const project = await ports.project(r.projectId);
       if (!project || project.status === 'ARCHIVED') return { completed: null, offer: false };
       // Moved or reopened by hand since it was finished: left open on purpose, and nothing is offered.
@@ -370,7 +383,8 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       }
       // Told as it is now: done by this finish, by another one at the same moment, or not at all.
       const after = await ports.task(t.id);
-      return after?.done ? { completed: ref, offer: false } : { completed: null, offer: true };
+      if (after?.done) return { completed: ref, offer: false };
+      return after?.waiting ? { completed: null, offer: false, waiting: ref } : { completed: null, offer: true };
     })();
     completing.set(r.taskId, run);
     try {
@@ -383,12 +397,16 @@ export function createInspectionService(deps: InspectionServiceDeps) {
   async function taskOffer(actor: Actor, r: InspectionRecord): Promise<InspectionDetail['taskOffer']> {
     if (!r.taskId) return null;
     const t = await ports.task(r.taskId);
-    if (!t || t.done || !(await ports.canViewTask(actor.id, actor.roles, t.id))) return null;
+    if (!t || t.done || t.waiting || !(await ports.canViewTask(actor.id, actor.roles, t.id))) return null;
     const doneColumnId = await ports.doneColumnOf(t.projectId);
     return doneColumnId ? { id: t.id, key: t.key, title: t.title, doneColumnId } : null;
   }
 
-  async function detail(actor: Actor, r: InspectionRecord, extra: { offer?: boolean; completed?: InspectionDetail['taskCompleted']; noOffer?: boolean } = {}): Promise<InspectionDetail> {
+  async function detail(
+    actor: Actor,
+    r: InspectionRecord,
+    extra: { offer?: boolean; completed?: InspectionDetail['taskCompleted']; waiting?: InspectionDetail['taskWaiting']; noOffer?: boolean } = {},
+  ): Promise<InspectionDetail> {
     const [answers, signatures, earlier, followUps, project, manage] = await Promise.all([
       store.answers(r.id),
       store.signatures(r.id),
@@ -436,14 +454,16 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       earlierRevisions: earlierRevisionsOf(earlier),
       permissions,
       signatureRoles: signatureRolesOf(r.structure, requiredSignatures(r.structure)),
-      ...(extra.offer ? { taskCompleted: extra.completed ?? null, taskOffer: extra.completed || extra.noOffer ? null : await taskOffer(actor, r) } : {}),
+      ...(extra.offer
+        ? { taskCompleted: extra.completed ?? null, taskWaiting: extra.waiting ?? null, taskOffer: extra.completed || extra.noOffer ? null : await taskOffer(actor, r) }
+        : {}),
     };
   }
 
   /** A finished inspection as its finish (or a repeat of it) answers: its check completed, or the offer. */
   async function finished(actor: Actor, r: InspectionRecord, replay: boolean): Promise<InspectionDetail> {
-    const { completed, offer } = await completeCheck(actor, r, replay);
-    return detail(actor, r, { offer: true, completed, noOffer: !offer });
+    const { completed, offer, waiting } = await completeCheck(actor, r, replay);
+    return detail(actor, r, { offer: true, completed, waiting, noOffer: !offer });
   }
 
   // ── Forms ───────────────────────────────────────────────────────────────────────────────────

@@ -191,4 +191,9 @@ describe('a task’s status in plain words (its column’s stage, never the colu
   ])('%s (completed %s) → %s', (category, completedAt, label) => {
     expect(clientTaskStatus({ columnCategory: category, completedAt })).toBe(label);
   });
+
+  it('a task waiting for approval is shown as in progress (clients see nothing about approvals)', () => {
+    expect(clientTaskStatus({ columnCategory: 'REVIEW', completedAt: null, awaitingApproval: true })).toBe('In progress');
+    expect(clientTaskStatus({ columnCategory: 'TODO', completedAt: null, awaitingApproval: true })).toBe('In progress');
+  });
 });

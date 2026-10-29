@@ -25,6 +25,7 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         select: {
           id: true, key: true, title: true, projectId: true, columnId: true, isMilestone: true, clientVisible: true, dueDate: true, startDate: true, boardDate: true,
           completedAt: true, recurrenceRule: true, recurrenceParentId: true, version: true,
+          needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true,
           column: { select: { category: true } },
           assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } }, orderBy: { assignedAt: 'asc' } },
         },
@@ -43,6 +44,10 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
         boardDate: t.boardDate,
         completedAt: t.completedAt,
         version: t.version,
+        needsApproval: t.needsApproval,
+        approvalRequestedAt: t.approvalRequestedAt,
+        approvalRequestedById: t.approvalRequestedById,
+        approvedAt: t.approvedAt,
         repeats: t.recurrenceRule !== null,
         inSeries: t.recurrenceRule !== null || t.recurrenceParentId !== null,
         assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),

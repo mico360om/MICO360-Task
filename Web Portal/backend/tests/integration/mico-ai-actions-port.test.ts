@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { createMicoAiActionsPort } from '../../src/modules/mico-ai/mico-ai-actions-port';
+import { createMicoAiActionsPort, WAITING_FOR_APPROVAL } from '../../src/modules/mico-ai/mico-ai-actions-port';
 import { createTaskService } from '../../src/modules/tasks/task-service';
 import { createPrismaProjectLookup, createPrismaTaskRepository } from '../../src/modules/tasks/prisma-task-repository';
 import { createAssigneeService } from '../../src/modules/tasks/assignee-service';
@@ -30,6 +30,11 @@ const taskService = createTaskService({
   onCreated: async (t) => void (await activityService.record({ taskId: t.id, projectId: t.projectId, userId: t.createdById, action: 'CREATED', meta: { title: t.title } })),
   onUpdated: async (before, after, actorId) => {
     if (actorId) await activityService.record({ taskId: after.id, projectId: after.projectId, userId: actorId, action: 'UPDATED', meta: { changes: taskChanges(before, after, TZ) } });
+  },
+  // Approvals: the project's owner approves (task-approval).
+  approvals: {
+    canApprove: async (userId) => userId === ids.owner,
+    columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
   },
 });
 const assigneeService = createAssigneeService({
@@ -152,6 +157,15 @@ describe('MICO AI’s changes through the app’s services (integration)', () =>
       ['ASSIGNED', 'mico-ai'],
       ['UNASSIGNED', 'mico-ai'],
     ]);
+  });
+
+  it('moving a task that needs approval to Done: saved, waiting (not done), with a warning that says so', async () => {
+    const t = await port.createTask(as(ids.sara), { projectId: ids.project, columnId: ids.todo, title: 'Report', description: '', priority: 'NORMAL', due: null, assigneeIds: [ids.sara] });
+    await prisma.task.update({ where: { id: t.id }, data: { needsApproval: true } });
+    const r = await port.updateTask(as(ids.sara), t.id, { columnId: ids.done }, t.version);
+    expect(r.warning).toBe(WAITING_FOR_APPROVAL);
+    expect(r.state).toMatchObject({ columnId: ids.todo, category: 'TODO' });
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: t.id }, select: { completedAt: true, approvalRequestedById: true } })).toEqual({ completedAt: null, approvalRequestedById: ids.sara });
   });
 
   it('Undo takes back the task its card made in one guarded write: only its creator, only untouched', async () => {

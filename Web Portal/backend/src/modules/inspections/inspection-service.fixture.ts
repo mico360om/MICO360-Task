@@ -27,6 +27,10 @@ export interface FakeTask {
   completedAt: Date | null;
   /** Carries the repeat (the newest copy of a series): a schedule when it carries a form. */
   repeats: boolean;
+  /** Needs approval: completing it (as someone who can't approve) makes it wait instead. */
+  needsApproval?: boolean;
+  /** Waits for approval (not done). */
+  waiting?: boolean;
 }
 
 export interface Fixture {
@@ -111,7 +115,7 @@ export function makeFixture(): Fixture {
     },
     task: async (taskId) => {
       const t = tasks.get(taskId);
-      return t && !t.deleted ? { id: t.id, key: t.key, title: t.title, projectId: t.projectId, done: t.done, inspectionFormId: t.inspectionFormId, inspectionPlace: t.inspectionPlace } : null;
+      return t && !t.deleted ? { id: t.id, key: t.key, title: t.title, projectId: t.projectId, done: t.done, waiting: t.waiting ?? false, inspectionFormId: t.inspectionFormId, inspectionPlace: t.inspectionPlace } : null;
     },
     taskSummaries: async (ids) =>
       new Map(
@@ -129,7 +133,13 @@ export function makeFixture(): Fixture {
       const t = tasks.get(taskId);
       if (!t || t.deleted || t.done || noDoneColumn.has(t.projectId)) return false;
       if (completeMode.value === 'fails-before-save') throw new Error('database down');
+      if (t.waiting) return false;
       completions.push({ taskId, actorId });
+      // As the task service does for someone who can't approve: it waits, not done.
+      if (t.needsApproval) {
+        t.waiting = true;
+        return true;
+      }
       Object.assign(t, { done: true, completedAt: now.at });
       if (completeMode.value === 'fails-after-save') throw new Error('a notice could not be written');
       return true;

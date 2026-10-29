@@ -33,6 +33,8 @@ export interface ClientTaskSource {
   columnCategory: string | null;
   completedAt: Date | null;
   dueDate: Date | null;
+  /** It waits for a project manager's approval (task-approval): clients see it as in progress. */
+  awaitingApproval?: boolean;
 }
 
 export interface ClientMinutesSource {
@@ -111,8 +113,10 @@ export interface ClientView {
 const PROJECT_STATUS: Record<string, string> = { PLANNING: 'Planning', ACTIVE: 'In progress', ON_HOLD: 'On hold', COMPLETED: 'Completed' };
 
 /** A task's stage in plain words, from its column's category (a column's own name is internal). */
-export function clientTaskStatus(t: { columnCategory?: string | null; completedAt?: Date | string | null }): ClientTaskStatus {
+export function clientTaskStatus(t: { columnCategory?: string | null; completedAt?: Date | string | null; awaitingApproval?: boolean }): ClientTaskStatus {
   if (isTaskDone(t)) return 'Done';
+  // Finished but waiting for a manager's OK: still being worked on, as far as the client is concerned.
+  if (t.awaitingApproval) return 'In progress';
   switch (t.columnCategory) {
     case 'IN_PROGRESS':
       return 'In progress';

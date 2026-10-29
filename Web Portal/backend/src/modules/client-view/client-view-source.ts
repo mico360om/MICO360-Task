@@ -111,7 +111,7 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
     async items(projectId) {
       const rows = await prisma.task.findMany({
         where: { projectId, deletedAt: null, clientVisible: true },
-        select: { title: true, isMilestone: true, clientVisible: true, dueDate: true, completedAt: true, column: { select: { category: true } } },
+        select: { title: true, isMilestone: true, clientVisible: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } } },
       });
       return rows.map((t) => ({
         title: t.title,
@@ -120,6 +120,7 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
         dueDate: t.dueDate,
         completedAt: t.completedAt,
         columnCategory: t.column?.category ?? null,
+        awaitingApproval: t.approvalRequestedAt !== null,
       }));
     },
     async minutes(projectId) {

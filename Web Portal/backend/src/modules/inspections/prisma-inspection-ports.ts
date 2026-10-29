@@ -64,10 +64,19 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
     async task(taskId) {
       const t = await prisma.task.findFirst({
         where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } },
-        select: { id: true, key: true, title: true, projectId: true, completedAt: true, inspectionFormId: true, inspectionPlace: true, column: { select: { category: true } } },
+        select: { id: true, key: true, title: true, projectId: true, completedAt: true, approvalRequestedAt: true, inspectionFormId: true, inspectionPlace: true, column: { select: { category: true } } },
       });
       return t
-        ? { id: t.id, key: t.key, title: t.title, projectId: t.projectId, done: isTaskDone({ completedAt: t.completedAt, columnCategory: t.column?.category ?? null }), inspectionFormId: t.inspectionFormId, inspectionPlace: t.inspectionPlace }
+        ? {
+            id: t.id,
+            key: t.key,
+            title: t.title,
+            projectId: t.projectId,
+            done: isTaskDone({ completedAt: t.completedAt, columnCategory: t.column?.category ?? null }),
+            waiting: t.approvalRequestedAt !== null,
+            inspectionFormId: t.inspectionFormId,
+            inspectionPlace: t.inspectionPlace,
+          }
         : null;
     },
     async taskSummaries(ids) {
@@ -121,7 +130,8 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
     async statusChangedSince(taskId, since) {
       // Every status change made by someone (a move on the board, an edit, a move to another project,
       // MICO AI) writes one of these lines (task-status-effects).
-      return (await prisma.activity.count({ where: { taskId, action: { in: ['REOPENED', 'MOVED'] }, createdAt: { gt: since } } })) > 0;
+      // A send-back, or a waiting task moved back by hand, is a change made by someone too (task approvals).
+      return (await prisma.activity.count({ where: { taskId, action: { in: ['REOPENED', 'MOVED', 'SENT_BACK', 'APPROVAL_WITHDRAWN'] }, createdAt: { gt: since } } })) > 0;
     },
     async deleteFormStoppingSchedules(formId, actorId) {
       // One transaction: the form is deleted and every schedule using it stops (its repeat cleared, as
