@@ -226,6 +226,13 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   };
 
   const showPanel = open && (items.length > 0 || (searchEnabled && q.isLoading) || (searchEnabled && !q.isLoading && items.length === 0) || status !== null);
+  // The search found nothing (the menu may still offer pages and "Ask MICO AI"): say so first, so
+  // those offers are not read as results. With little in the system this is a common answer.
+  const found = q.data;
+  // (Not for a typed command — "go to calendar" is an instruction, not a search.)
+  const nothingFound =
+    searchEnabled && q.isSuccess && !!found && !items.some((it) => it.group === 'Command') &&
+    found.tasks.length === 0 && found.projects.length === 0 && found.users.length === 0 && (found.meetings ?? []).length === 0;
   let idx = -1; // running index across groups for keyboard highlight
 
   return (
@@ -264,6 +271,12 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           ) : items.length === 0 && searchEnabled ? (
             <p className="px-3 py-3 text-sm text-ink-2">No matches for “{debounced}”.</p>
           ) : (
+            <>
+            {nothingFound ? (
+              <p className="border-b border-line px-3 py-2 text-sm text-ink-2">
+                Nothing matches “<span dir="auto">{debounced}</span>” in tasks, projects, people or meetings.
+              </p>
+            ) : null}
             <div ref={listRef} className="max-h-96 overflow-y-auto py-1">
               {groupItems(items).map(([group, groupItemList]) => (
                 <div key={group} className="py-1">
@@ -295,6 +308,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                 </div>
               ))}
             </div>
+            </>
           )}
         </div>
       ) : null}
