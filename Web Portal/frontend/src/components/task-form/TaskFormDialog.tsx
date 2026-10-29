@@ -786,6 +786,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-warning"><WaitingIcon size={14} /></span>Needs approval</span>
                   <span id={ids.approvalHint} className="block text-xs text-ink-2">{APPROVAL_HINT}</span>
                   {approvalLocked ? <span className="block text-xs text-ink-3">Only a project manager can turn this off while it waits.</span> : null}
+                  {editing && task?.approvalRequestedAt && !approvalLocked ? <span className="block text-xs text-ink-3">It is waiting for approval: turning this off marks it done.</span> : null}
                 </span>
               </label>
 
