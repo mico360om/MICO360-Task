@@ -69,10 +69,11 @@ export interface TaskStats {
   overdue: number;
   ongoing: number;
   pending: number;
-  /** Share of tasks finished. */
+  /**
+   * Share of tasks finished: the project's one completion figure (the Completion tile and Work
+   * done, as the website's). Not the tasks' average progress.
+   */
   pct: number;
-  /** The tasks' average progress (finished ones count as 100%). */
-  avgProgress: number;
   /** Open tasks by priority. */
   byPriority: Record<Priority, number>;
 }
@@ -80,11 +81,9 @@ export interface TaskStats {
 export function taskStats(tasks: ApiTask[], today: string, timeZone: string = appTimeZone()): TaskStats {
   const count = { completed: 0, overdue: 0, ongoing: 0, pending: 0 };
   const byPriority: Record<Priority, number> = { URGENT: 0, HIGH: 0, NORMAL: 0, LOW: 0 };
-  let progress = 0;
   for (const t of tasks) {
     const phase = taskPhase(t, today, timeZone);
     count[phase] += 1;
-    progress += phase === 'completed' ? 100 : Math.max(0, Math.min(100, t.progress ?? 0));
     if (phase !== 'completed') byPriority[t.priority] += 1;
   }
   const total = tasks.length;
@@ -92,7 +91,6 @@ export function taskStats(tasks: ApiTask[], today: string, timeZone: string = ap
     total,
     ...count,
     pct: total ? Math.round((count.completed / total) * 100) : 0,
-    avgProgress: total ? Math.round(progress / total) : 0,
     byPriority,
   };
 }
@@ -117,9 +115,9 @@ export function statTiles(s: TaskStats, ready: boolean): StatTile[] {
   ];
 }
 
-/** "3 of 8 tasks · 52% overall". */
+/** "1 of 11 tasks · 9% done": the same share of tasks finished as the Completion tile. */
 export function workDoneText(s: TaskStats, ready: boolean): string {
-  return ready ? `${s.completed} of ${s.total} tasks · ${s.avgProgress}% overall` : '…';
+  return ready ? `${s.completed} of ${s.total} tasks · ${s.pct}% done` : '…';
 }
 
 export function priorityLine(s: TaskStats): string {

@@ -134,7 +134,7 @@ describe('where each task stands', () => {
     expect(taskPhase(task('g'), TODAY, 'UTC')).toBe('pending');
   });
 
-  it('adds up the stat tiles, the average progress and the open tasks by priority', () => {
+  it('adds up the stat tiles, completion from finished tasks only (a half-done task is not half counted) and the open tasks by priority', () => {
     const s = taskStats(
       [
         task('a', { columnCategory: 'DONE', priority: 'HIGH' }),
@@ -152,10 +152,9 @@ describe('where each task stands', () => {
       ongoing: 1,
       pending: 1,
       pct: 25,
-      avgProgress: 63,
       byPriority: { URGENT: 1, HIGH: 0, NORMAL: 1, LOW: 1 },
     });
-    expect(taskStats([], TODAY, 'UTC')).toMatchObject({ total: 0, pct: 0, avgProgress: 0 });
+    expect(taskStats([], TODAY, 'UTC')).toMatchObject({ total: 0, pct: 0 });
   });
 });
 
@@ -228,7 +227,8 @@ describe('the dashboard’s words', () => {
 
   it('sums up the work done and the open tasks by priority', () => {
     const s = taskStats([task('a', { columnCategory: 'DONE' }), task('b', { columnCategory: 'TODO', progress: 40, priority: 'URGENT' })], TODAY, 'UTC');
-    expect(workDoneText(s, true)).toBe('1 of 2 tasks · 70% overall');
+    // The Completion tile's figure (tasks finished), not the tasks' average progress (was "70% overall").
+    expect(workDoneText(s, true)).toBe('1 of 2 tasks · 50% done');
     expect(workDoneText(s, false)).toBe('…');
     expect(priorityLine(s)).toBe('Open by priority: 1 urgent · 0 high · 0 normal · 0 low');
   });
@@ -358,6 +358,14 @@ describe.skipIf(!existsSync(webDashboard) || !existsSync(webParts))('the same as
         }
       }
     }
+  });
+
+  it('shows one completion figure under Work done, as the website’s Overview (components/project-dashboard/OverviewTab.tsx)', () => {
+    const overview = readFileSync(resolve(webParts, '../OverviewTab.tsx'), 'utf8');
+    expect(overview).toContain('`${stats.completed} of ${stats.total} tasks · ${stats.pct}% done`');
+    expect(overview).toContain('<ProgressBar value={p.statsReady ? stats.pct : 0} label="Work done"');
+    const s = taskStats(sample, TODAY, 'UTC');
+    expect(workDoneText(s, true)).toBe(`${s.completed} of ${s.total} tasks · ${s.pct}% done`);
   });
 
   it('writes days the website’s way', () => {

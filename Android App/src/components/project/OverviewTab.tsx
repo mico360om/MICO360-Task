@@ -102,7 +102,8 @@ export function OverviewTab(p: OverviewProps) {
               <Text style={s.barTitle}>Work done</Text>
               <Text style={s.barText}>{workDoneText(stats, p.statsReady)}</Text>
             </View>
-            <ProgressBar value={p.statsReady ? stats.avgProgress : 0} label="Work done" tone="success" />
+            {/* The project's one completion figure (the Completion tile's too): tasks finished. */}
+            <ProgressBar value={p.statsReady ? stats.pct : 0} label="Work done" tone="success" />
           </View>
           <View style={s.barBlock}>
             <View style={s.barHead}>
