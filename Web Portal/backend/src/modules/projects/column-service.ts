@@ -9,9 +9,11 @@ export interface AddColumnInput {
 
 export interface ColumnServiceDeps {
   columns: ColumnRepository;
+  /** How many live tasks in the column wait for approval (task approvals). */
+  waitingTasksIn?: (columnId: string) => Promise<number>;
 }
 
-export function createColumnService({ columns }: ColumnServiceDeps) {
+export function createColumnService({ columns, waitingTasksIn }: ColumnServiceDeps) {
   async function listColumns(projectId: string): Promise<ColumnRecord[]> {
     return columns.listForProject(projectId);
   }
@@ -31,6 +33,16 @@ export function createColumnService({ columns }: ColumnServiceDeps) {
   }
 
   async function updateColumn(id: string, patch: UpdateColumnData): Promise<ColumnRecord> {
+    // Tasks waiting for approval are never in a Done column (there they would count as done).
+    if (patch.category === 'DONE' && waitingTasksIn) {
+      const waiting = await waitingTasksIn(id);
+      if (waiting > 0) {
+        throw new ConflictError(
+          `${waiting} task${waiting === 1 ? ' in this column is' : 's in this column are'} waiting for approval. Approve or send ${waiting === 1 ? 'it' : 'them'} back first, then make it a Done column.`,
+          'TASKS_WAITING',
+        );
+      }
+    }
     return columns.update(id, patch);
   }
 

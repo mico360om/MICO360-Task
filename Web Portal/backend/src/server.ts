@@ -219,7 +219,11 @@ async function main(): Promise<void> {
   const peopleLookup = createPrismaPeopleLookup(prisma);
   const projectService = createProjectService({ projects: projectRepository, people: peopleLookup });
 
-  const columnService = createColumnService({ columns: createPrismaColumnRepository(prisma) });
+  const columnService = createColumnService({
+    columns: createPrismaColumnRepository(prisma),
+    // A column with tasks waiting for approval can't become a Done column (they would count as done).
+    waitingTasksIn: (columnId) => prisma.task.count({ where: { columnId, deletedAt: null, approvalRequestedAt: { not: null } } }),
+  });
 
   // Late-bound (chat + realtime are created further down): a removed member leaves the project's
   // chat channel and live room at once instead of when their tab closes.
@@ -271,6 +275,8 @@ async function main(): Promise<void> {
       canApprove: async (userId, projectId) => projectAuthz.canManageProject(userId, await roleNamesOf(userId), projectId),
       columnsOf: (projectId) => prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, category: true, position: true, enabled: true } }),
     },
+    // An approval or send-back is saved: a step after it that fails (a notice, the comment) is logged.
+    onError: (err, taskId) => logger.error('task approvals: a step after the decision failed', { err, taskId }),
     // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
     checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
     onCreated: (task) => onTaskCreated(task),
@@ -674,6 +680,8 @@ async function main(): Promise<void> {
     },
     // The reason a task was sent back is the approver's comment on it (its notice is the sent-back one).
     sentBackComment: (task, actorId, reason) => prisma.comment.create({ data: { taskId: task.id, userId: actorId, body: reason } }),
+    // Approval turned off on one waiting copy: the series' next copy still needs approval.
+    keepApprovalOnCopy: (copyId) => prisma.task.update({ where: { id: copyId }, data: { needsApproval: true } }),
     notify: (n) => notificationService.notify(n),
     record: (entry) => activityService.record(entry),
     onError: (err, taskId) => logger.error('action items could not follow their task', { err, taskId }),

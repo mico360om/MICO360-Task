@@ -24,6 +24,7 @@ function world() {
     approvers: vi.fn(async () => ['omar', 'zara']),
     approvalAudience: vi.fn(async () => ['sara', 'bilal']),
     sentBackComment: vi.fn(async () => undefined),
+    keepApprovalOnCopy: vi.fn(async () => undefined),
     notify: vi.fn(async (_n: { userId: string; title: string }) => undefined),
     record: vi.fn(async () => undefined),
     onError: vi.fn(),
@@ -101,6 +102,16 @@ describe('What an approval step does', () => {
     await w.statusChanged(task({ columnId: 'done', completedAt: NOW, recurrenceRule: { freq: 'DAILY', interval: 1 } }), 'review', 'omar', { approval: 'SWITCHED_OFF' });
     expect(w.deps.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'COMPLETED', meta: { from: 'Review', to: 'Done' } }));
     expect(w.deps.nextCopy).toHaveBeenCalledTimes(1);
+    // Turned off for this task only: the series' next copy still needs approval.
+    expect(w.deps.keepApprovalOnCopy).toHaveBeenCalledWith('copy1');
+  });
+
+  it('the send-back comment failing is reported, and the people are still told', async () => {
+    const w = world();
+    w.deps.sentBackComment.mockRejectedValueOnce(new Error('database busy'));
+    await w.statusChanged(task({ columnId: 'doing' }), 'review', 'omar', { approval: 'SENT_BACK', reason: 'Redo', requestedById: 'sara' });
+    expect(w.deps.onError).toHaveBeenCalledWith(expect.any(Error), 't1');
+    expect(w.deps.notify).toHaveBeenCalledTimes(2);
   });
 
   it('quietly (a move to another project): no approval notices either', async () => {

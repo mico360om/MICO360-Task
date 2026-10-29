@@ -82,6 +82,7 @@ export const APPROVAL_WORDS = {
   notWaiting: 'This task isn’t waiting for approval any more.',
   noDone: 'This project has no Done column. Add one in Manage columns, then approve the task.',
   noReason: 'Say why you’re sending it back.',
+  noOpenColumn: 'This project has only Done columns. Add another column before adding a task that needs approval.',
   longReason: `Keep the reason under ${SEND_BACK_REASON_MAX} characters.`,
 } as const;
 
@@ -112,6 +113,8 @@ export interface TaskServiceDeps {
   inspectionForms?: { isLive(formId: string): Promise<boolean> };
   /** Task approvals (task-approval). Without it, "Needs approval" is kept but changes nothing. */
   approvals?: TaskApprovalPorts;
+  /** A step after an approval or a send-back was saved that failed (logged; the decision stands). */
+  onError?: (err: unknown, taskId: string) => void;
 }
 
 /** How many consecutive key numbers to try when concurrent creates race for the same one. */
@@ -129,7 +132,7 @@ const asCheckRule = (rule: RecurrenceRule, formId: string | null | undefined): R
 const sameInstant = (a: Date | null | undefined, b: Date | null | undefined): boolean =>
   (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
 
-export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onUpdated, onDeleting, checklistPercent, inspectionForms, approvals }: TaskServiceDeps) {
+export function createTaskService({ tasks, projects, now = () => new Date(), timeZone = defaultCompanyTimeZone(), onMoved, onCreated, onUpdated, onDeleting, checklistPercent, inspectionForms, approvals, onError }: TaskServiceDeps) {
   const todayAnchor = () => boardDateFromKey(boardDateKey(now(), timeZone));
   const dayOf = (d: Date): string => dueDayKey(d, timeZone) ?? '';
 
@@ -178,7 +181,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
    * instead of completing when the mover can't approve (task-approval). `unchanged`: it already waits
    * and someone who can't approve finished it again — nothing is to be written.
    */
-  async function columnChange(current: TaskRecord, columnId: string, actorId?: string): Promise<{ patch: UpdateTaskData; event: ApprovalEvent | null; unchanged: boolean }> {
+  async function columnChange(current: TaskRecord, columnId: string, actorId?: string): Promise<{ patch: UpdateTaskData; event: ApprovalEvent | null; unchanged: boolean; guarded: boolean }> {
     const column = await requireColumn(columnId, current.projectId);
     let target = { columnId, category: column.category };
     let approval: UpdateTaskData = {};
@@ -188,14 +191,17 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       const canApprove = finishing ? await mayApprove(actorId, current.projectId) : false;
       const waitColumn = finishing && !canApprove && !isAwaitingApproval(current) ? pickColumn(await approvals.columnsOf(current.projectId), WAIT_CATEGORIES) : null;
       const d = approvalOnEntry(current, target, { canApprove, actorId, at: now(), waitColumn });
-      if (d.unchanged) return { patch: {}, event: null, unchanged: true };
+      if (d.unchanged) return { patch: {}, event: null, unchanged: true, guarded: false };
       target = { columnId: d.columnId, category: d.category };
       approval = d.patch;
       event = d.event;
     }
     // Entering a DONE column completes the task (once); leaving one re-opens it (task-status).
     const change = await completionAt(current, target.category);
-    return { patch: { columnId: target.columnId, ...change, ...approval }, event, unchanged: false };
+    // An approval step, or a move of a task that waits: saved only from the version just read, so an
+    // approval (or a send-back) made meanwhile is never overwritten by a move computed before it.
+    const guarded = event !== null || isAwaitingApproval(current);
+    return { patch: { columnId: target.columnId, ...change, ...approval }, event, unchanged: false, guarded };
   }
 
   async function createTask(input: NewTask): Promise<TaskRecord> {
@@ -232,11 +238,11 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       } else {
         const columns = await approvals.columnsOf(input.projectId);
         const wait = pickColumn(columns, WAIT_CATEGORIES) ?? firstOpenColumn(columns);
-        if (wait) {
-          columnId = wait.id;
-          completion = { approvalRequestedAt: at, approvalRequestedById: input.createdById };
-          waits = true;
-        }
+        // Nowhere to wait but a Done column (where it would count as done): refused.
+        if (!wait) throw new ConflictError(APPROVAL_WORDS.noOpenColumn, 'NO_OPEN_COLUMN');
+        columnId = wait.id;
+        completion = { approvalRequestedAt: at, approvalRequestedById: input.createdById };
+        waits = true;
       }
     }
     const data = { ...input, columnId, dueDate, startDate, boardDate, recurrenceRule, needsApproval, ...completion };
@@ -330,8 +336,10 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const moving = columnId !== undefined && columnId !== current.columnId;
     let columnChanged = moving;
     let event: ApprovalEvent | null = null;
+    let guardVersion = expectedVersion;
     if (moving) {
       const c = await columnChange(subject, columnId, actorId);
+      if (c.guarded && guardVersion === undefined) guardVersion = current.version;
       if (c.unchanged) {
         // It already waits and was finished again: the move changes nothing (any other field is saved).
         columnChanged = false;
@@ -341,6 +349,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
         event = c.event;
       }
     } else if (switchingOff) {
+      if (guardVersion === undefined) guardVersion = current.version;
       Object.assign(next, { approvalRequestedAt: null, approvalRequestedById: null });
       const done = pickColumn(await approvals!.columnsOf(current.projectId), ['DONE']);
       if (done) {
@@ -354,7 +363,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     // above answers early, this one also holds when two edits arrive together.
     let updated: TaskRecord;
     try {
-      updated = await tasks.update(id, next, expectedVersion !== undefined ? { expectedVersion } : undefined);
+      updated = await tasks.update(id, next, guardVersion !== undefined ? { expectedVersion: guardVersion } : undefined);
     } catch (err) {
       if (err instanceof TaskVersionConflictError) throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
       throw err;
@@ -390,18 +399,20 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     // Reordering within the same column is not a status change.
     let patch: UpdateTaskData = { columnId };
     let event: ApprovalEvent | null = null;
+    let guardVersion = opts.expectedVersion;
     if (columnId !== current.columnId) {
       const c = await columnChange(current, columnId, actorId);
       // It already waits and someone who can't approve finished it again: nothing changes.
       if (c.unchanged) return current;
       patch = c.patch;
       event = c.event;
+      if (c.guarded && guardVersion === undefined) guardVersion = current.version;
     }
     // The drop position is for the column asked for (not where a task waiting for approval goes).
     if (position !== undefined && patch.columnId === columnId) patch.position = position;
     let after: TaskRecord;
     try {
-      after = await tasks.update(id, patch, opts.expectedVersion !== undefined ? { expectedVersion: opts.expectedVersion } : undefined);
+      after = await tasks.update(id, patch, guardVersion !== undefined ? { expectedVersion: guardVersion } : undefined);
     } catch (err) {
       if (err instanceof TaskVersionConflictError) throw stale();
       throw err;
@@ -417,6 +428,16 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (!isAwaitingApproval(current)) throw new ConflictError(APPROVAL_WORDS.notWaiting, 'NOT_WAITING');
     if (expectedVersion !== undefined && current.version !== expectedVersion) throw new ConflictError('This task was changed by someone else. Reload and try again.', 'VERSION_CONFLICT');
     return current;
+  }
+
+  /** What follows a saved decision (history, notices, the comment, the next copy): a failure is reported, never thrown — the decision stands. */
+  async function afterDecision(updated: TaskRecord, current: TaskRecord, actorId: string, extra: MoveExtra): Promise<void> {
+    try {
+      await moved(updated, current.columnId, actorId, extra);
+    } catch (err) {
+      if (!onError) throw err;
+      onError(err, updated.id);
+    }
   }
 
   /** Save an approver's decision from the version just read: when another came first, it isn't waiting any more. */
@@ -449,7 +470,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       approvalRequestedAt: null,
       approvalRequestedById: null,
     });
-    await moved(updated, current.columnId, actorId, { approval: 'APPROVED', requestedById: current.approvalRequestedById ?? null });
+    await afterDecision(updated, current, actorId, { approval: 'APPROVED', requestedById: current.approvalRequestedById ?? null });
     return updated;
   }
 
@@ -466,7 +487,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const back = pickColumn(await approvals!.columnsOf(current.projectId), SEND_BACK_CATEGORIES);
     const target = back ?? { id: current.columnId, category: current.columnCategory ?? 'TODO' };
     const updated = await saveDecision(current, { columnId: target.id, ...(await completionAt(current, target.category)), approvalRequestedAt: null, approvalRequestedById: null });
-    await moved(updated, current.columnId, actorId, { approval: 'SENT_BACK', reason: text, requestedById: current.approvalRequestedById ?? null });
+    await afterDecision(updated, current, actorId, { approval: 'SENT_BACK', reason: text, requestedById: current.approvalRequestedById ?? null });
     return updated;
   }
 

@@ -169,3 +169,35 @@ describe('send back', () => {
     expect(s.moved.at(-1)).toMatchObject({ prev: 'q-doing', approval: 'SENT_BACK' });
   });
 });
+
+describe('what the review found', () => {
+  it('a move made from a waiting copy that an approval overtook is refused, never half-applied', async () => {
+    const t = await s.make({ needsApproval: true });
+    const waiting = await s.svc.moveTask(t.id, 'done', undefined, 'sara');
+    // Sara drags it back while Omar approves it: her move was read while it still waited.
+    const tasks = s.rows;
+    const stale = { ...tasks.get(waiting.id)! };
+    await s.svc.approveTask(waiting.id, 'omar');
+    const approved = { ...tasks.get(waiting.id)! };
+    tasks.set(waiting.id, stale); // the move reads the old copy…
+    const read = s.svc.moveTask(waiting.id, 'doing', undefined, 'sara');
+    tasks.set(waiting.id, approved); // …and writes after the approval
+    await expect(read).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(tasks.get(waiting.id)).toMatchObject({ columnId: 'done', completedAt: NOW });
+  });
+
+  it('created straight into Done in a project with only Done columns: refused, not completed without approval', async () => {
+    const all = setup();
+    await expect(all.svc.createTask({ title: 'x', projectId: 'p3', columnId: 'z-done', createdById: 'sara', needsApproval: true })).rejects.toMatchObject({ status: 409, code: 'NO_OPEN_COLUMN' });
+  });
+
+  it('a step after an approval or a send-back that fails never turns the saved decision into a failure', async () => {
+    const errors: unknown[] = [];
+    const w = setup({}, { failMoved: true, onError: (e) => errors.push(e) });
+    const t = await w.make({ needsApproval: true });
+    await w.svc.moveTask(t.id, 'done', undefined, 'sara').catch(() => undefined);
+    expect(await w.svc.sendBackTask(t.id, 'omar', 'Redo')).toMatchObject({ columnId: 'doing', approvalRequestedAt: null });
+    expect(errors).toHaveLength(1);
+  });
+});
+

@@ -19,6 +19,8 @@ export interface StatusEffectsDeps {
   approvalAudience?: (task: TaskRecord, actorId?: string, requestedById?: string | null) => Promise<string[]>;
   /** The reason a task was sent back, as the approver's comment on it. */
   sentBackComment?: (task: TaskRecord, actorId: string, reason: string) => Promise<unknown>;
+  /** A next copy made when approval was turned off on a waiting task: it still needs approval (that was for this one only). */
+  keepApprovalOnCopy?: (copyId: string) => Promise<unknown>;
   notify: (n: { userId: string; type: string; title: string; body: string | null; entityType: string; entityId: string }) => Promise<unknown>;
   /** Write a line to the task's timeline. */
   record: (entry: { taskId: string; projectId: string; userId: string; action: string; meta: Record<string, unknown> }) => Promise<unknown>;
@@ -88,11 +90,15 @@ export function createStatusChangeEffects(deps: StatusEffectsDeps) {
 
     if (task.recurrenceRule && done) {
       const next = await deps.nextCopy(task);
+      // Approval turned off on this waiting task only: the series' next copy still needs it.
+      if (next && approval === 'SWITCHED_OFF') await deps.keepApprovalOnCopy?.(next.id);
       if (next) await deps.announceCopy(next.id, task.projectId);
     }
     // Best effort: the change has happened, so a failure here is reported rather than undoing it.
     if (done !== wasDone) await deps.followActionItems(task.id, done).catch((err) => deps.onError?.(err, task.id));
-    if (approval === 'SENT_BACK' && actorId && opts.reason) await deps.sentBackComment?.(task, actorId, opts.reason);
+    if (approval === 'SENT_BACK' && actorId && opts.reason) {
+      await Promise.resolve(deps.sentBackComment?.(task, actorId, opts.reason)).catch((err) => deps.onError?.(err, task.id));
+    }
 
     if (opts.notify === false) return;
     const tell = async (userIds: string[], type: string, title: string) => {

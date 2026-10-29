@@ -12,11 +12,13 @@ export const COLUMNS: (ColumnInfo & { position: number; enabled: boolean })[] = 
   { id: 'q-todo', projectId: 'p2', category: 'TODO', position: 0, enabled: true },
   { id: 'q-doing', projectId: 'p2', category: 'IN_PROGRESS', position: 1, enabled: true },
   { id: 'q-done', projectId: 'p2', category: 'DONE', position: 2, enabled: true },
+  // Project p3 has nothing but a Done column.
+  { id: 'z-done', projectId: 'p3', category: 'DONE', position: 0, enabled: true },
 ];
 export const APPROVERS = new Set(['omar', 'admin']);
 export const NOW = new Date('2026-10-30T08:00:00Z');
 
-export function approvalWorld(settings: Record<string, { newTasksNeedApproval: boolean }> = {}) {
+export function approvalWorld(settings: Record<string, { newTasksNeedApproval: boolean }> = {}, opts: { failMoved?: boolean; onError?: (err: unknown, taskId: string) => void } = {}) {
   const rows = new Map<string, TaskRecord>();
   let seq = 0;
   const cat = (id: string) => COLUMNS.find((c) => c.id === id)?.category ?? null;
@@ -58,7 +60,7 @@ export function approvalWorld(settings: Record<string, { newTasksNeedApproval: b
     async reorderInColumn() {},
   };
   const projects: ProjectLookup = {
-    async getCodeById(id) { return id === 'p1' ? 'RIG' : id === 'p2' ? 'OPS' : null; },
+    async getCodeById(id) { return ({ p1: 'RIG', p2: 'OPS', p3: 'END' } as Record<string, string>)[id] ?? null; },
     async getTaskSettings(id) { return { defaultDueToday: false, ...(settings[id] ?? {}) }; },
   };
   const moved: { taskId: string; prev: string; actor?: string; approval?: ApprovalEvent; reason?: string }[] = [];
@@ -71,7 +73,10 @@ export function approvalWorld(settings: Record<string, { newTasksNeedApproval: b
       canApprove: async (userId) => APPROVERS.has(userId),
       columnsOf: async (projectId) => COLUMNS.filter((c) => c.projectId === projectId),
     },
+    onError: opts.onError,
     onMoved: (task, prev, actor, extra) => {
+      // A step after the decision that fails (a notice, the comment, the next copy).
+      if (opts.failMoved && (extra?.approval === 'APPROVED' || extra?.approval === 'SENT_BACK')) throw new Error('the notices could not be written');
       moved.push({ taskId: task.id, prev, actor, ...(extra?.approval ? { approval: extra.approval } : {}), ...(extra?.reason ? { reason: extra.reason } : {}) });
     },
   });
