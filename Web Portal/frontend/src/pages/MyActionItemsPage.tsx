@@ -10,6 +10,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { fieldClass } from '../components/ui/Field';
 import { actionStatusTone, formatDueDate, isActionItemOverdue } from '../lib/meetingFormat';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
+import { Icon } from '../components/meeting/kit';
 
 const ACTION_STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 type Scope = 'open' | 'all';
@@ -124,12 +125,16 @@ function ActionRow({
   return (
     <div className="card flex items-center gap-3 p-4">
       <div className="min-w-0 flex-1">
-        <p dir="auto" className={`text-start text-sm font-medium ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>{item.description}</p>
+        {/* bdi: an Arabic description reads right-to-left but stays on the row's side, above its status. */}
+        <p className={`text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{item.description}</bdi></p>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
           <Badge tone={actionStatusTone(item.status)}>{ACTION_STATUS_LABELS[item.status]}</Badge>
           {item.dueDate ? <span className={overdue ? 'font-medium text-danger' : 'text-ink-3'}>due {formatDueDate(item.dueDate, timeZone)}{overdue ? ' · overdue' : ''}</span> : null}
           {item.meetingId ? (
-            <Link to={`/meetings/${item.meetingId}`} className="tap gap-1 text-ink-3 hover:text-brand">↗ <span dir="auto">{meetingName ?? 'meeting'}</span></Link>
+            <Link to={`/meetings/${item.meetingId}`} className="tap min-w-0 gap-1 text-ink-3 hover:text-brand">
+              <span className="flex-none">{Icon.calendar}</span>
+              <bdi className="min-w-0">{meetingName ?? 'meeting'}</bdi>
+            </Link>
           ) : null}
         </div>
       </div>
