@@ -163,6 +163,15 @@ describe('the client page', () => {
     expect(within(screen.getByRole('region', { name: 'Meeting minutes' })).getByText('Three rigs.').className).toContain('[unicode-bidi:plaintext]');
   });
 
+  it('keeps the minutes at a readable width on a wide screen (about 75 characters a line)', async () => {
+    show(fakeApi());
+    const minutes = await screen.findByRole('region', { name: 'Meeting minutes' });
+    let measure: HTMLElement | null = within(minutes).getByText('Agreed the plan.');
+    while (measure && !measure.className.includes('max-w-[75ch]')) measure = measure.parentElement;
+    expect(measure).not.toBeNull();
+    expect(measure).toContainElement(within(minutes).getByText('Start 1 Oct'));
+  });
+
   it('gives the footer link a finger-sized target', async () => {
     show(fakeApi());
     await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });

@@ -144,6 +144,17 @@ describe('Final minutes: for attendees', () => {
     expect(summary.className).toContain('[unicode-bidi:plaintext]');
     expect(within(section()).getByText('The client needs time to test.').className).toContain('[unicode-bidi:plaintext]');
   });
+
+  it('keeps the minutes at a readable width on a wide screen (about 75 characters a line)', async () => {
+    current = { ...final, canEdit: false };
+    renderSection(false);
+    const summary = await within(await screen.findByRole('region', { name: /final mom/i })).findByText('Progress was reviewed and go-live moved.');
+    let measure: HTMLElement | null = summary;
+    while (measure && !measure.className.includes('max-w-[75ch]')) measure = measure.parentElement;
+    expect(measure).not.toBeNull();
+    expect(measure).toContainElement(within(section()).getByText('Go-live moves to 1 November.'));
+    expect(measure!.className).toMatch(/(^|\s)text-sm(\s|$)/); // 75ch of the text's own size
+  });
 });
 
 describe('Final minutes: shown to the project’s client', () => {

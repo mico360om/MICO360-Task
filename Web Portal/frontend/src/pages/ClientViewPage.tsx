@@ -530,24 +530,27 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
       </h3>
       {expanded ? (
         <div id={panelId} className="flex flex-col gap-3 border-t border-line px-4 py-4">
-          {/* Each line takes its own direction: an Arabic line among English ones reads right (as in the notes). */}
-          {c.summary ? <p className={`whitespace-pre-line text-sm text-ink ${OWN_LINES}`}>{c.summary}</p> : null}
-          {c.discussion.length ? (
-            <div>
-              <h4 className="text-sm font-semibold text-ink">Discussion</h4>
-              <dl className="mt-1 space-y-2">
-                {c.discussion.map((d, i) => (
-                  <div key={i}>
-                    <dt dir="auto" className="text-sm font-medium text-ink">{d.topic}</dt>
-                    <dd className={`whitespace-pre-line text-sm text-ink-2 ${OWN_LINES}`}>{d.text}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          ) : null}
-          {list('Decisions', c.decisions)}
-          {list('Risks & open issues', c.risks)}
-          {list('Next steps', c.nextSteps)}
+          {/* A readable measure on a wide screen: about 75 characters a line (ch of the text's own size). */}
+          <div className="flex max-w-[75ch] flex-col gap-3 text-sm">
+            {/* Each line takes its own direction: an Arabic line among English ones reads right (as in the notes). */}
+            {c.summary ? <p className={`whitespace-pre-line text-sm text-ink ${OWN_LINES}`}>{c.summary}</p> : null}
+            {c.discussion.length ? (
+              <div>
+                <h4 className="text-sm font-semibold text-ink">Discussion</h4>
+                <dl className="mt-1 space-y-2">
+                  {c.discussion.map((d, i) => (
+                    <div key={i}>
+                      <dt dir="auto" className="text-sm font-medium text-ink">{d.topic}</dt>
+                      <dd className={`whitespace-pre-line text-sm text-ink-2 ${OWN_LINES}`}>{d.text}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ) : null}
+            {list('Decisions', c.decisions)}
+            {list('Risks & open issues', c.risks)}
+            {list('Next steps', c.nextSteps)}
+          </div>
           {problem ? <p role="alert" className="text-sm text-danger">{problem}</p> : null}
           <div>
             <Button type="button" size="sm" variant="secondary" loading={busy} onClick={() => void download()} aria-label={`Download the minutes of ${m.title} (PDF)`}>
