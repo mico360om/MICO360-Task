@@ -22,6 +22,7 @@ import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { Icon } from '../components/meeting/kit';
+import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -124,6 +125,12 @@ export function DashboardPage() {
   );
   const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t)), [myTasksQ.data]);
   const recent = (activityQ.data ?? []).slice(0, 6);
+  // A company's (or a newcomer's) first day: no project and no task yet, as the server says (never
+  // while loading or after a failed load). Empty charts and "nothing due" would say nothing useful:
+  // the page welcomes them and points to the first steps instead.
+  const noProjectsYet = useNoProjectsYet();
+  const firstDay =
+    noProjectsYet && myTasksQ.isSuccess && (myTasksQ.data ?? []).length === 0 && allTasksQ.isSuccess && (allTasksQ.data ?? []).length === 0;
 
   const today = (() => {
     try {
@@ -143,33 +150,55 @@ export function DashboardPage() {
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-white/70">{today}</div>
             <h1 className="font-display text-2xl font-extrabold tracking-tightish sm:text-[1.75rem]">
-              Welcome back, <bdi>{user?.username ?? 'there'}</bdi>.
+              {firstDay ? 'Welcome' : 'Welcome back'}, <bdi>{user?.username ?? 'there'}</bdi>.
             </h1>
             <p className="mt-0.5 hidden text-sm text-white/80 sm:block">
-              Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.
+              {firstDay
+                ? 'Your workspace is ready. A few steps and your team’s work will show up here.'
+                : 'Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.'}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link to="/board" className={`${BAND_LINK} bg-white text-[#8B1E1E] shadow-soft hover:shadow-lift`}>
-              Open board
-            </Link>
-            <Link to="/my-tasks" className={`${BAND_LINK} border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20`}>
-              View my tasks
-            </Link>
-          </div>
+          {/* On day one the board and My Tasks are empty: the first steps below take their place. */}
+          {firstDay ? null : (
+            <div className="flex flex-wrap gap-2">
+              <Link to="/board" className={`${BAND_LINK} bg-white text-[#8B1E1E] shadow-soft hover:shadow-lift`}>
+                Open board
+              </Link>
+              <Link to="/my-tasks" className={`${BAND_LINK} border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20`}>
+                View my tasks
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Stat tiles — each links to the relevant page. Four in a row for an administrator; the two
-          everyone else sees share the row (in a four-column grid they left half of it empty). */}
-      <div data-testid="stat-tiles" data-count={isAdmin ? 4 : 2} className={`grid gap-3 sm:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : ''}`}>
+          everyone else sees share the row (in a four-column grid they left half of it empty). Two to
+          a row on a phone too: one per row took a screenful for two or four numbers. */}
+      <div data-testid="stat-tiles" data-count={isAdmin ? 4 : 2} className={`grid grid-cols-2 gap-3 ${isAdmin ? 'lg:grid-cols-4' : ''}`}>
         <Reveal delay={1} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
         <Reveal delay={2} className="h-full"><Link to="/projects" className={TILE_LINK}><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
         {isAdmin ? <Reveal delay={3} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
-        {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data && totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : undefined} /></Link></Reveal> : null}
+        {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data ? (totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet') : undefined} /></Link></Reveal> : null}
       </div>
 
-      {/* Main content: charts / open tasks (left) + due soon & activity (right rail) */}
+      {firstDay ? (
+        // Day one: the first steps where the charts and lists will be.
+        <Reveal>
+          <EmptyState
+            titleAs="h2"
+            icon={FirstStepsIcon}
+            title={isAdmin ? 'Set up your workspace' : 'You’re not on a project yet'}
+            description={
+              isAdmin
+                ? 'Create your first project, then add the people who will work in it. Their tasks, due dates and progress will show up here.'
+                : 'Ask your administrator to add you to a project, or create your own to start adding tasks.'
+            }
+            action={<FirstStepsActions />}
+          />
+        </Reveal>
+      ) : (
+      /* Main content: charts / open tasks (left) + due soon & activity (right rail) */
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-4 lg:col-span-2">
           {isAdmin ? (
@@ -271,7 +300,7 @@ export function DashboardPage() {
               ) : activityQ.isLoading ? (
                 <RowsSkeleton label="Loading recent activity" rows={6} activity />
               ) : recent.length === 0 ? (
-                <p className="py-4 text-center text-sm text-ink-2">No activity yet.</p>
+                <p className="py-4 text-center text-sm text-ink-2">No activity yet — new, moved and finished tasks show up here.</p>
               ) : (
                 <ul className="flex flex-col gap-3">
                   {recent.map((a) => (
@@ -283,7 +312,7 @@ export function DashboardPage() {
           </Reveal>
         </div>
       </div>
-
+      )}
     </div>
   );
 }

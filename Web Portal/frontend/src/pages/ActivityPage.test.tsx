@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { ActivityPage } from './ActivityPage';
 
 function json(body: unknown): Response {
@@ -135,6 +136,20 @@ describe('ActivityPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Moved' }));
     expect(screen.getByRole('button', { name: 'Moved' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('with no activity at all, shows no filters over the empty page', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => json({ data: String(url).endsWith('/projects') ? [{ id: 'p1' }] : [] })));
+    renderPage();
+    expect(await screen.findByText('No activity yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Created' })).not.toBeInTheDocument();
+  });
+
+  it('on a company’s first day (no projects), points to the first step', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={qc}><MemoryRouter><ActivityPage /></MemoryRouter></QueryClientProvider>);
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
   });
 
   it('keeps the feed at a readable width on a wide screen (centred, about 56rem)', async () => {

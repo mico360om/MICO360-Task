@@ -11,7 +11,9 @@ import { SavedViewsBar } from '../components/SavedViewsBar';
 import { BulkActionBar } from '../components/BulkActionBar';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
-import { Button } from '../components/ui/Button';
+import { Button, buttonClass } from '../components/ui/Button';
+import { Link } from 'react-router-dom';
+import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
 import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
@@ -79,6 +81,7 @@ export function MyTasksPage() {
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const tasks = useMemo(() => (Array.isArray(tasksQ.data) ? tasksQ.data : []), [tasksQ.data]);
   const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
+  const noProjectsYet = useNoProjectsYet();
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   // "Today" / "overdue" are company calendar days (a task due today is never overdue; finished work never is).
@@ -364,11 +367,22 @@ export function MyTasksPage() {
       ) : tasksQ.isError ? (
         <LoadError what="your tasks" onRetry={() => void tasksQ.refetch()} />
       ) : counts.total === 0 ? (
-        <EmptyState
-          icon={CheckIcon}
-          title="No tasks assigned to you"
-          description="When a task is assigned to you it shows up here — across every project."
-        />
+        noProjectsYet ? (
+          // A company's first day: tasks live in projects, so the first step is a project.
+          <EmptyState
+            icon={FirstStepsIcon}
+            title="No tasks yet"
+            description="Tasks live in projects. Create your first project, then add tasks and assign them — yours will show up here."
+            action={<FirstStepsActions />}
+          />
+        ) : (
+          <EmptyState
+            icon={CheckIcon}
+            title="No tasks assigned to you"
+            description="When a task is assigned to you it shows up here — across every project. Everyone’s work is on the board."
+            action={<Link to="/board" className={buttonClass('secondary', 'md', TOUCH_TALL)}>Open the board</Link>}
+          />
+        )
       ) : sorted.length === 0 ? (
         <div className="card flex flex-col items-center gap-3 p-10 text-center">
           <p className="text-sm font-semibold text-ink">No tasks match these filters</p>

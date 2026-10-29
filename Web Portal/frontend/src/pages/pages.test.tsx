@@ -46,6 +46,20 @@ describe('NotificationsPage', () => {
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 
+  it('with nothing yet in a company with projects, says “all caught up”', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => json({ data: String(url).endsWith('/projects') ? [{ id: 'p1' }] : [] })));
+    renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByText('You’re all caught up')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create a project' })).not.toBeInTheDocument();
+  });
+
+  it('on a company’s first day (no projects), points to the first step', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
+    renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(screen.getByText('No notifications yet')).toBeInTheDocument();
+  });
+
   it('a failed load is the shared “Couldn’t load … Retry” message', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'X', message: 'down' } }), { status: 500 })));
     renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);

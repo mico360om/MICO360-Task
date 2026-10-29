@@ -319,3 +319,30 @@ describe('MyTasksPage: moving the selected tasks to another project', () => {
     for (const chip of screen.getAllByText('Inspection')) expect(chip.closest('[data-task-key]')?.getAttribute('data-task-key')).toBe('RIG-1');
   });
 });
+
+describe('MyTasksPage: nothing assigned yet', () => {
+  function renderEmpty(projects: unknown[]) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => json({ data: String(url).endsWith('/projects') ? projects : [] })));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('with projects in the company, points to everyone’s work on the board', async () => {
+    renderEmpty([{ id: 'p1', code: 'MICO', name: 'MICO Platform', status: 'ACTIVE' }]);
+    expect(await screen.findByText('No tasks assigned to you')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open the board' })).toHaveAttribute('href', '/board');
+    expect(screen.queryByRole('link', { name: 'Create a project' })).not.toBeInTheDocument();
+  });
+
+  it('on a company’s first day (no projects yet), points to the first step instead', async () => {
+    renderEmpty([]);
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open the board' })).not.toBeInTheDocument();
+  });
+});
