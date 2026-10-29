@@ -172,7 +172,7 @@ export function DueChecksSection({ projectId, canStart, onOpenTask }: { projectI
   const checks = q.data?.checks ?? [];
   return (
     <Section title="Due checks" count={q.data ? q.data.total : null}>
-      {q.isLoading ? <div className="skeleton h-16 rounded-xl" aria-label="Loading due checks" /> : null}
+      {q.isLoading ? <div className="skeleton h-16 rounded-xl" role="status" aria-label="Loading due checks" /> : null}
       {q.isError ? (
         <p role="alert" className="text-sm text-danger">
           {problemText(q.error, 'Couldn’t load the due checks.')}{' '}
@@ -284,7 +284,7 @@ export function SchedulesSection({ projectId, canChange }: { projectId: string; 
           {notice}
         </p>
       ) : null}
-      {q.isLoading ? <div className="skeleton h-16 rounded-xl" aria-label="Loading schedules" /> : null}
+      {q.isLoading ? <div className="skeleton h-16 rounded-xl" role="status" aria-label="Loading schedules" /> : null}
       {q.isError ? (
         <p role="alert" className="text-sm text-danger">
           {problemText(q.error, 'Couldn’t load the schedules.')}{' '}

@@ -267,7 +267,7 @@ export function ProjectsPage() {
         </p>
 
         {loading ? (
-          <div className="grid project-grid gap-4" aria-busy="true" aria-label="Loading projects">
+          <div className="grid project-grid gap-4" aria-busy="true" role="status" aria-label="Loading projects">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="card p-4">
                 <div className="flex gap-3">

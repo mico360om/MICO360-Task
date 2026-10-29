@@ -103,7 +103,7 @@ export function TasksTab({
     (!words || t.title.toLocaleLowerCase().includes(words) || t.key.toLocaleLowerCase().includes(words));
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
-  if (loading) return <div className="skeleton h-40 rounded-xl" aria-label="Loading tasks" />;
+  if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
   if (all.length === 0) return <div className="card p-8 text-center text-sm text-ink-2">No tasks in this project yet.</div>;
 
   return (

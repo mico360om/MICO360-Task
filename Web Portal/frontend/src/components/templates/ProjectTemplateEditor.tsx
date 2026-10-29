@@ -312,7 +312,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                 loadQ.isError ? (
                   <p role="alert" className="text-sm text-danger">Couldn’t load the template. <button type="button" className="font-semibold underline" onClick={() => void loadQ.refetch()}>Retry</button></p>
                 ) : (
-                  <div className="space-y-3" aria-label="Loading the template"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-40 rounded-xl" /></div>
+                  <div className="space-y-3" role="status" aria-label="Loading the template"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-40 rounded-xl" /></div>
                 )
               ) : (
                 <>

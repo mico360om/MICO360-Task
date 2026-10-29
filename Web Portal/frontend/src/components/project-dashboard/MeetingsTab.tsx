@@ -106,7 +106,7 @@ export function MeetingsTab({
       </p>
     );
   }
-  if (loading && !data) return <div className="skeleton h-48 rounded-xl" aria-label="Loading meetings" />;
+  if (loading && !data) return <div className="skeleton h-48 rounded-xl" role="status" aria-label="Loading meetings" />;
 
   const items = data?.actionItems ?? [];
   const openItems = items.filter((x) => x.status !== 'COMPLETED' && x.status !== 'CANCELLED');

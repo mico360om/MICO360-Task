@@ -290,7 +290,7 @@ export function TimelinePage() {
       </p>
 
       {loading ? (
-        <div className="card p-4" aria-busy="true" aria-label="Loading the timeline">
+        <div className="card p-4" aria-busy="true" role="status" aria-label="Loading the timeline">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 py-3">
               <div className="skeleton h-8 w-8 flex-none rounded-lg" />

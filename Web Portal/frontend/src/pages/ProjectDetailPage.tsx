@@ -504,7 +504,7 @@ function ProjectPageSkeleton() {
         ))}
       </div>
       {/* About a screen tall, so the page footer stays out of view until the page is drawn. */}
-      <div className="skeleton mt-4 h-[60vh] min-h-[16rem] rounded-2xl" aria-label="Loading project" />
+      <div className="skeleton mt-4 h-[60vh] min-h-[16rem] rounded-2xl" role="status" aria-label="Loading project" />
     </div>
   );
 }

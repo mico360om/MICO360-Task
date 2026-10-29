@@ -191,7 +191,7 @@ export function InspectionPage() {
         />
       );
     }
-    return <div className="skeleton h-40 rounded-xl" aria-label="Loading inspection" />;
+    return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading inspection" />;
   }
 
   const p = d.permissions;

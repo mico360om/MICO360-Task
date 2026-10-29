@@ -268,7 +268,7 @@ export function ProjectInspectionsTab({ projectId, tasks, onOpenTask }: { projec
           </span>
         </p>
       ) : null}
-      {q.isLoading ? <div className="skeleton h-28 rounded-xl" aria-label="Loading inspections" /> : null}
+      {q.isLoading ? <div className="skeleton h-28 rounded-xl" role="status" aria-label="Loading inspections" /> : null}
       {q.isError ? (
         <p role="alert" className="text-danger">
           {problemText(q.error, 'Couldn’t load the inspections.')}{' '}

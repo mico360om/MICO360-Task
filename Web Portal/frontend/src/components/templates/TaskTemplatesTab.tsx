@@ -60,7 +60,7 @@ export function TaskTemplatesTab() {
       {listQ.isError ? (
         <LoadError what="the task templates" onRetry={() => void listQ.refetch()} />
       ) : listQ.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Loading templates">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading templates">
           {[0, 1, 2].map((i) => <div key={i} className="skeleton h-36 rounded-2xl" aria-hidden="true" />)}
         </div>
       ) : templates.length === 0 ? (

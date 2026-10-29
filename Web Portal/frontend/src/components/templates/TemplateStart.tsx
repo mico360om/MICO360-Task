@@ -146,7 +146,7 @@ export function TemplateStart({
           {planError ? (
             <p role="alert" className="text-sm text-danger">Couldn’t load the template’s tasks. <button type="button" onClick={onRetry} className="font-semibold underline">Retry</button></p>
           ) : !current ? (
-            <div className="skeleton h-32 rounded-xl" aria-label="Loading the template’s tasks" />
+            <div className="skeleton h-32 rounded-xl" role="status" aria-label="Loading the template’s tasks" />
           ) : (
             <div>
               <p className="text-sm text-ink">
