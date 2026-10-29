@@ -104,7 +104,7 @@ export function MeetingDetailPage() {
         <div className="skeleton h-4 w-24" />
         <div className="skeleton mt-4 h-8 w-80 max-w-full" />
         <div className="skeleton mt-3 h-4 w-96 max-w-full" />
-        <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="skeleton h-64 w-full" />
           <div className="skeleton h-48 w-full" />
         </div>
@@ -181,8 +181,10 @@ export function MeetingDetailPage() {
         </div>
       ) : null}
 
-      {/* Phone: one column in reading order. Desktop: the work in the middle, people and facts on the side. */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* Phone to small laptop: one column in reading order, About and People side by side under the
+          work from lg. Wide screen (xl): the work in the middle, people and facts on the side — below xl
+          a side column left the agenda, notes and action items only about 400px. */}
+      <div className="grid gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
           <AgendaSection
             meetingId={id}
@@ -203,7 +205,7 @@ export function MeetingDetailPage() {
           <ActionItemsSection meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
           <FinalMinutesSection meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />
         </div>
-        <aside className="flex min-w-0 flex-col gap-4 lg:gap-5" aria-label="Meeting information">
+        <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
             {meeting.description ? <p dir="auto" className="mb-3 whitespace-pre-wrap text-start text-sm text-ink">{meeting.description}</p> : <p className="mb-3 text-sm text-ink-3">No description.</p>}
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
