@@ -17,7 +17,9 @@ interface NavItem {
   leadsOnly?: boolean;
 }
 
-// Compact 24x24 stroke icons (no external dependency).
+// Compact 24x24 stroke icons (no external dependency). Every item has its own: on the tablet rail
+// the icon is all there is to tell them apart (My Action Items and AI Management used to borrow
+// My Tasks' tick box and MICO AI's sparkle; Meetings and Templates looked like Calendar and Board).
 const I = {
   chat: (
     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
@@ -84,11 +86,20 @@ const I = {
     </>
   ),
   activity: <path d="M3 12h4l2.5 7 5-14 2.5 7H21" />,
+  // Two people at a table.
   meetings: (
     <>
-      <rect x="3" y="4.5" width="18" height="16.5" rx="2.5" />
-      <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
-      <path d="M8.5 14l2 2 4-4" />
+      <circle cx="8" cy="6.5" r="2.4" />
+      <circle cx="16" cy="6.5" r="2.4" />
+      <path d="M4 13.5a4 4 0 0 1 8 0M12 13.5a4 4 0 0 1 8 0" />
+      <path d="M2.5 15.5h19M5 15.5V21M19 15.5V21" />
+    </>
+  ),
+  // A checklist.
+  actionItems: (
+    <>
+      <path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11M3.5 18l1.5 1.5L7.5 17" />
+      <path d="M11 6.5h9.5M11 12.5h9.5M11 18.5h9.5" />
     </>
   ),
   settings: (
@@ -118,17 +129,26 @@ const I = {
       <path d="M9 11.5l2 2 4-4" />
     </>
   ),
+  // A copy of a page, from the one behind it.
   templates: (
     <>
-      <rect x="7" y="3" width="14" height="13" rx="2" />
-      <path d="M3 7.5V18a3 3 0 0 0 3 3h10.5" />
-      <path d="M11.5 3v13M16.5 3v13" />
+      <rect x="8" y="8" width="13" height="13" rx="2" />
+      <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+      <path d="M11.5 12.5h6M11.5 16.5h3.5" />
     </>
   ),
   ai: (
     <>
       <path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 15l-1.6-4.6L6 8.8l4.4-1.6z" />
       <path d="M18 14l.7 1.9L21 16.6l-2.3.7L18 20l-.7-2.3-2.3-.8 2.3-.9z" />
+    </>
+  ),
+  // A chip with a spark: the AI service's settings.
+  aiManagement: (
+    <>
+      <rect x="5.5" y="5.5" width="13" height="13" rx="2.5" />
+      <path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3" />
+      <path d="M12 8.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9z" />
     </>
   ),
 };
@@ -143,7 +163,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Timeline', to: '/timeline', icon: I.timeline },
   { label: 'Workload', to: '/workload', icon: I.workload },
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
-  { label: 'My Action Items', to: '/my-action-items', icon: I.tasks },
+  { label: 'My Action Items', to: '/my-action-items', icon: I.actionItems },
   { label: 'Templates', to: '/templates', icon: I.templates },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
   { label: 'Reports', to: '/reports', icon: I.reports, adminOnly: true },
@@ -156,7 +176,7 @@ const COMMUNICATION: NavItem[] = [
 ];
 const ADMIN: NavItem[] = [
   { label: 'User Management', to: '/admin/users', icon: I.users },
-  { label: 'AI Management', to: '/admin/ai', icon: I.ai },
+  { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
   { label: 'Audit Logs', to: '/admin/audit', icon: I.audit },
 ];

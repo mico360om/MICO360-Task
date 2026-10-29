@@ -95,6 +95,19 @@ describe('the menu as a slim rail on a tablet (768–1023px)', () => {
     });
   });
 
+  it('gives every item its own icon (on the rail the icon is all that tells them apart)', () => {
+    for (const isAdmin of [true, false]) {
+      const view = render(
+        <MemoryRouter initialEntries={['/dashboard']}>
+          <Sidebar isAdmin={isAdmin} canLead />
+        </MemoryRouter>,
+      );
+      const icons = screen.getAllByRole('link').map((link) => link.querySelector('svg')!.innerHTML);
+      expect(new Set(icons).size).toBe(icons.length);
+      view.unmount();
+    }
+  });
+
   it('the phone menu is never a rail', () => {
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
