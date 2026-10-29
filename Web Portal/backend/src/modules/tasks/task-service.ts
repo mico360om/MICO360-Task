@@ -71,6 +71,8 @@ export interface TaskApprovalPorts {
 export interface MoveExtra {
   approval?: ApprovalEvent;
   reason?: string;
+  /** Who had finished it (asked for approval) before this step cleared it. */
+  requestedById?: string | null;
 }
 
 /** Plain words for the approval refusals. */
@@ -371,7 +373,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       }
     }
 
-    if (columnChanged || event) await moved(updated, current.columnId, actorId, event ? { approval: event } : null);
+    if (columnChanged || event) await moved(updated, current.columnId, actorId, event ? { approval: event, requestedById: current.approvalRequestedById ?? null } : null);
     await onUpdated?.(current, updated, actorId);
     return updated;
   }
@@ -404,7 +406,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       if (err instanceof TaskVersionConflictError) throw stale();
       throw err;
     }
-    await moved(after, current.columnId, actorId, event ? { approval: event } : null);
+    await moved(after, current.columnId, actorId, event ? { approval: event, requestedById: current.approvalRequestedById ?? null } : null);
     return after;
   }
 
@@ -447,7 +449,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
       approvalRequestedAt: null,
       approvalRequestedById: null,
     });
-    await moved(updated, current.columnId, actorId, { approval: 'APPROVED' });
+    await moved(updated, current.columnId, actorId, { approval: 'APPROVED', requestedById: current.approvalRequestedById ?? null });
     return updated;
   }
 
@@ -464,7 +466,7 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     const back = pickColumn(await approvals!.columnsOf(current.projectId), SEND_BACK_CATEGORIES);
     const target = back ?? { id: current.columnId, category: current.columnCategory ?? 'TODO' };
     const updated = await saveDecision(current, { columnId: target.id, ...(await completionAt(current, target.category)), approvalRequestedAt: null, approvalRequestedById: null });
-    await moved(updated, current.columnId, actorId, { approval: 'SENT_BACK', reason: text });
+    await moved(updated, current.columnId, actorId, { approval: 'SENT_BACK', reason: text, requestedById: current.approvalRequestedById ?? null });
     return updated;
   }
 
