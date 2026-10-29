@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UsersPage } from './UsersPage';
 import { useAuthStore } from '../stores/auth-store';
@@ -40,6 +40,16 @@ function renderPage() {
 }
 
 describe('UsersPage (admin management)', () => {
+  it('shows each person by their full name, with the username they sign in with under it', async () => {
+    renderPage();
+    const username = await screen.findByText('omar');
+    const cell = username.closest('td')!;
+    expect(within(cell).getByText('Omar A')).toBeInTheDocument();
+    expect(cell).toHaveTextContent('Omar A@omar');
+    // Names are people's own text: set apart, so an Arabic name keeps its own direction.
+    expect(within(cell).getByText('Omar A').tagName).toBe('BDI');
+  });
+
   it('changes a user’s status via the API', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('omar')).toBeInTheDocument());
@@ -49,7 +59,7 @@ describe('UsersPage (admin management)', () => {
 
   it('keeps whose row it is in view while the table scrolls sideways on a phone, tablet or small laptop, and says it scrolls', async () => {
     renderPage();
-    const name = await screen.findByText('omar');
+    const name = (await screen.findByText('omar')).closest('td')!;
     // The table is wider than the page below xl (1280px), not only on a phone.
     expect(name.className).toMatch(/max-xl:sticky/);
     expect(screen.getByText(/swipe the table sideways/i).className).toMatch(/xl:hidden/);

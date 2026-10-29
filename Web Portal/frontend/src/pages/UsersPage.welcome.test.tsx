@@ -69,7 +69,8 @@ const shownNames = () =>
   screen
     .getAllByRole('row')
     .slice(1)
-    .map((r) => within(r).getAllByRole('cell')[1]!.textContent);
+    // The person cell shows the name with the username under it: read the username.
+    .map((r) => within(r).getAllByRole('cell')[1]!.querySelector('[data-username]')!.textContent);
 
 describe('User Management: last sign-in', () => {
   it('shows each person’s last sign-in in the company time zone, or "Never signed in", and when a welcome email went', async () => {

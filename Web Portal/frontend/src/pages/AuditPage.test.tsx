@@ -40,6 +40,13 @@ function renderPage() {
 }
 
 describe('AuditPage', () => {
+  it('with nothing logged yet, shows the empty state alone — no "0 entries shown" under it', async () => {
+    pages = () => [];
+    renderPage();
+    expect(await screen.findByText('No audit entries yet')).toBeInTheDocument();
+    expect(screen.queryByText(/entries shown/)).not.toBeInTheDocument();
+  });
+
   it('renders audit entries from the API', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('USER_CREATED')).toBeInTheDocument());

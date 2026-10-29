@@ -313,7 +313,17 @@ export function UsersPage() {
                         </label>
                       </td>
                     ) : null}
-                    <td className={`p-3 font-medium text-ink max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>{u.username}</td>
+                    <td className={`p-3 font-medium text-ink max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>
+                      {/* The person's name, and under it the username they sign in with. */}
+                      {fullName(u) !== u.username ? (
+                        <>
+                          <bdi className="block whitespace-nowrap">{fullName(u)}</bdi>
+                          <span className="block text-xs font-normal text-ink-3"><span>@</span><span data-username>{u.username}</span></span>
+                        </>
+                      ) : (
+                        <span data-username>{u.username}</span>
+                      )}
+                    </td>
                     <td className="p-3 text-ink-2">{u.email}</td>
                     <td className="p-3 text-ink-2">{u.roles.join(', ') || '—'}</td>
                     <td className="p-3">
