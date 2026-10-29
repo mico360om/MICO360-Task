@@ -10,10 +10,12 @@ const directory = [
 ];
 let calls: Array<{ url: string; method: string; body?: Record<string, unknown> }>;
 let draftReply: Response | null;
+let agenda: unknown[];
 
 beforeEach(() => {
   calls = [];
   draftReply = null;
+  agenda = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -35,6 +37,7 @@ beforeEach(() => {
         );
       }
       if (u.endsWith('/meetings/m1/agenda') && method === 'POST') return ok({ id: `g${calls.length}`, meetingId: 'm1', ...body, position: 0, completed: false }, 201);
+      if (u.endsWith('/meetings/m1/agenda') && method === 'GET') return ok(agenda);
       return ok([]);
     }),
   );
@@ -102,5 +105,27 @@ describe('Meeting page: Draft agenda', () => {
     renderIt(false);
     await screen.findByText('No agenda yet.');
     expect(screen.queryByRole('button', { name: 'Draft agenda' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Meeting page: agenda rows', () => {
+  const long = 'Quarterly cross-department infrastructure reliability review and remediation planning';
+  beforeEach(() => {
+    agenda = [{ id: 'a1', meetingId: 'm1', title: long, ownerId: 'u1', expectedMinutes: 30, position: 0, completed: false }];
+  });
+
+  it('shows the whole topic: it wraps instead of being cut short beside the buttons', async () => {
+    renderIt();
+    const title = await screen.findByText(long);
+    expect(title.closest('.truncate')).toBeNull();
+    // The buttons are one group that can move under the topic on a narrow screen.
+    const up = screen.getByRole('button', { name: `Move "${long}" up` });
+    expect(up.parentElement).toContainElement(screen.getByRole('button', { name: `Edit "${long}"` }));
+  });
+
+  it('gives the “covered” tick box a finger-sized target around it', async () => {
+    renderIt();
+    const box = await screen.findByRole('checkbox', { name: `Covered: "${long}"` });
+    expect(box.closest('label')).not.toBeNull();
   });
 });
