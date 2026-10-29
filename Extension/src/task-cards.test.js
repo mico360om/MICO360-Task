@@ -43,10 +43,12 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
     );
   });
 
-  it('initials as the web’s avatars make them', () => {
+  it('initials as the web’s avatars make them: from letters only, “?” when there is none', () => {
     expect(personInitials('Omar  Ahmed Ali')).toBe('OA');
     expect(personInitials('bilal')).toBe('B');
-    expect(personInitials('  ')).toBe('');
+    expect(personInitials('Mohammed (OXY)')).toBe('MO');
+    expect(personInitials('Sara - Ahmed')).toBe('SA');
+    expect(personInitials('  ')).toBe('?');
   });
 });
 
@@ -94,6 +96,14 @@ const repo = resolve(__dirname, '../..');
 const load = (file) => (existsSync(resolve(repo, file)) ? import(pathToFileURL(resolve(repo, file)).href) : null);
 const webBoard = await load('Web Portal/frontend/src/lib/board.ts');
 const webDue = await load('Web Portal/frontend/src/lib/due-display.ts');
+const webInitials = await load('Web Portal/frontend/src/lib/initials.ts');
+
+describe.skipIf(!webInitials)('a card’s faces match the web’s avatars (lib/initials.ts, used by components/ui/Avatar.tsx)', () => {
+  it('the same initials for every name', () => {
+    const names = ['Omar Ahmed', ' omar  bin said ', 'Mohammed (OXY)', 'Yaqoob (OXY IT)', '"Sara" Ahmed', 'Sara - Ahmed', 'Crew 3 North', '(2) Bilal Khan', 'محمد علي', 'فاطمة (OXY)', 'Layla', '(OXY)', 'Omar 42', 'émile zola', '🚀 Launch', '', '   ', '123 - !'];
+    for (const n of names) expect(personInitials(n), JSON.stringify(n)).toBe(webInitials.personInitials(n));
+  });
+});
 
 describe.skipIf(!webBoard || !webDue)('src/task-cards.js matches the web (lib/board.ts, lib/due-display.ts)', () => {
   const COLUMNS = [

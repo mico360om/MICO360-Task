@@ -6,6 +6,7 @@
  * src/project-identity.test.js runs this copy and the web's over the same inputs. Pure (no DOM).
  */
 import { isUploadPath } from './file-kind.js';
+import { letterWords } from './initials.js';
 
 /** 24×24 outline paths for each icon (a copy of the web's). */
 export const PROJECT_ICON_PATHS = Object.freeze({
@@ -87,9 +88,13 @@ export function readableOn(hex) {
   return onDark > onWhite ? '#1f1a17' : '#ffffff';
 }
 
-/** Two letters for the tile: the first letters of the first two words (any script). */
+/**
+ * Two letters for the tile: the first letters of the first two words (any script), from letters
+ * only — "(OXY) Pipeline" is "OP". A name without a letter keeps its digits ("2026" → "20").
+ */
 export function projectInitials(name) {
-  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+  const letters = letterWords(name);
+  const words = letters.length ? letters : String(name ?? '').trim().split(/\s+/).map((w) => (w.match(/\p{N}/gu) ?? []).join('')).filter(Boolean);
   if (words.length === 0) return '?';
   const pick = words.length > 1 ? `${[...words[0]][0]}${[...words[1]][0]}` : [...words[0]].slice(0, 2).join('');
   return pick.toLocaleUpperCase();

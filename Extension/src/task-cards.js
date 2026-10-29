@@ -11,6 +11,7 @@ import { DEFAULT_TIME_ZONE } from './config.js';
 import { dueDayKey, isOverdue } from './due-date.js';
 import { isDone } from './summary.js';
 import { isRecurring } from './recurrence.js';
+import { personInitials } from './initials.js';
 
 const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 const P_RANK = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
@@ -22,10 +23,8 @@ export function formatDueDay(due, timeZone = DEFAULT_TIME_ZONE) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
 }
 
-/** Two letters for a person's avatar: the first letters of their first two names (the web's Avatar). */
-export function personInitials(name) {
-  return String(name ?? '').trim().split(/\s+/).map((part) => part[0] ?? '').slice(0, 2).join('').toUpperCase();
-}
+/** Two letters for a person's avatar, from letters only: "Mohammed (OXY)" is "MO" (the web's Avatar, lib/initials.ts). */
+export { personInitials };
 
 /**
  * The facts a card shows. `task.columnCategory` is its column's status (the board sets it).
