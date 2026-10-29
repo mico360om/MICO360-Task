@@ -227,7 +227,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                       }}
                       aria-label={`N/A: ${item.label}`}
                       aria-pressed={!answer?.reading && answer?.result === 'NA'}
-                      className={`min-h-11 rounded-lg border px-2.5 text-xs font-semibold sm:min-h-9 ${TOUCH_TALL} ${!answer?.reading && answer?.result === 'NA' ? 'border-ink-3 bg-ground text-ink' : 'border-line text-ink-2 hover:bg-ground'}`}
+                      className={`min-h-11 rounded-lg border px-2.5 text-xs font-semibold sm:min-h-9 ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${!answer?.reading && answer?.result === 'NA' ? 'border-ink-3 bg-ground text-ink' : 'border-line text-ink-2 hover:bg-ground'}`}
                     >
                       N/A
                     </button>

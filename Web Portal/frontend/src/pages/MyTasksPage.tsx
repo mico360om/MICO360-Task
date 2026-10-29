@@ -298,7 +298,7 @@ export function MyTasksPage() {
               <span aria-hidden>Sort</span>
               <div className="w-32"><SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={SORT_OPTIONS} /></div>
             </div>
-            <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5">
+            <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
               <ViewButton active={view === 'grid'} onClick={() => setView('grid')} label="Grid view">
                 <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
               </ViewButton>
@@ -424,7 +424,7 @@ function ViewButton({ active, onClick, label, children }: { active: boolean; onC
       onClick={onClick}
       aria-label={label}
       aria-pressed={active}
-      className={`grid h-8 w-8 place-items-center rounded-lg transition-colors [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-11 ${active ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+      className={`grid h-8 w-8 place-items-center rounded-lg transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 ${active ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
     >
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {children}

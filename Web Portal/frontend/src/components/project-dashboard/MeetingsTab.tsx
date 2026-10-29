@@ -126,13 +126,13 @@ export function MeetingsTab({
                   setFilter(f.v);
                   setAllMeetings(false);
                 }}
-                className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'}`}
+                className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${TOUCH_TALL} [@media(pointer:coarse)]:!min-w-11 ${filter === f.v ? 'bg-surface text-ink shadow-soft' : 'text-ink-2 hover:text-ink'}`}
               >
                 {f.label} <span className="tabular-nums text-ink-3">{counts[f.v]}</span>
               </button>
             ))}
           </div>
-          {onNew ? <Button size="sm" onClick={onNew}>+ New meeting</Button> : null}
+          {onNew ? <Button size="sm" onClick={onNew} className={TOUCH_TALL}>+ New meeting</Button> : null}
         </div>
         {shown.length === 0 ? (
           <EmptyNote>

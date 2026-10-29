@@ -166,7 +166,7 @@ export function OverviewTab(p: OverviewProps) {
               <ul className="flex flex-col gap-2.5">
                 {soon.slice(0, 6).map((d) => (
                   <li key={d.task.id}>
-                    <button type="button" onClick={() => p.onOpenTask(d.task.id)} title={d.task.title} className="group block w-full min-w-0 text-start">
+                    <button type="button" onClick={() => p.onOpenTask(d.task.id)} title={d.task.title} className={`group block w-full min-w-0 text-start ${TOUCH_TALL}`}>
                       <span dir="auto" className="block truncate text-sm font-medium text-ink group-hover:text-brand">{d.task.title}</span>
                       <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
                         <span className="font-mono text-[11px] text-ink-3">{d.task.key}</span>
@@ -246,7 +246,7 @@ export function OverviewTab(p: OverviewProps) {
               {p.meetings.stats.overdueActionItems ? <span className="font-semibold text-danger"> ({p.meetings.stats.overdueActionItems} late)</span> : null}
             </p>
           ) : null}
-          {p.onNewMeeting ? <Button size="sm" variant="secondary" className="mt-3 w-full" onClick={p.onNewMeeting}>+ New meeting</Button> : null}
+          {p.onNewMeeting ? <Button size="sm" variant="secondary" className={`mt-3 w-full ${TOUCH_TALL}`} onClick={p.onNewMeeting}>+ New meeting</Button> : null}
         </SectionCard>
 
         <SectionCard id="pd-status" title="Tasks by status">

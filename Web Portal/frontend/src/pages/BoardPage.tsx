@@ -473,16 +473,16 @@ export function BoardPage() {
       />
 
       {projectsQ.isLoading ? (
-        <div className="mb-4 flex h-9 items-center [@media(pointer:coarse)]:h-11" aria-hidden="true">
+        <div className="mb-4 flex h-9 items-center [@media(pointer:coarse)]:h-[2.875rem]" aria-hidden="true">
           <span className="skeleton block h-full w-64 rounded-xl" />
         </div>
       ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5">
+          <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
             <button
               onClick={() => setSelectedDate(shiftKey(boardDate, -1))}
               aria-label="Previous day"
-              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
             </button>
@@ -491,12 +491,12 @@ export function BoardPage() {
               aria-label="Board date"
               value={boardDate}
               onChange={(e) => setSelectedDate(e.target.value || null)}
-              className="border-0 bg-transparent px-1 text-sm text-ink outline-none [@media(pointer:coarse)]:h-10"
+              className="border-0 bg-transparent px-1 text-sm text-ink outline-none [@media(pointer:coarse)]:h-11"
             />
             <button
               onClick={() => setSelectedDate(shiftKey(boardDate, 1))}
               aria-label="Next day"
-              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
             </button>
@@ -615,12 +615,12 @@ export function BoardPage() {
   );
 }
 
-/** The board's place while it loads: columns of card-shaped placeholders, about a screen tall. */
+/** The board's place while it loads: columns of card-shaped placeholders, as tall as the board's lanes. */
 function BoardSkeleton() {
   return (
-    <div role="status" aria-label="Loading the board" className="flex gap-3 overflow-hidden pb-3">
+    <div role="status" aria-label="Loading the board" className="flex h-[calc(100dvh-12rem)] min-h-[20rem] gap-3 overflow-hidden pb-3">
       {[3, 2, 2, 1].map((cards, i) => (
-        <div key={i} className="flex h-[60vh] min-h-[20rem] min-w-[15rem] flex-1 basis-0 flex-col gap-2.5 rounded-2xl border border-line bg-surface/70 p-2.5" aria-hidden="true">
+        <div key={i} className="flex min-w-[15rem] flex-1 basis-0 flex-col gap-2.5 rounded-2xl border border-line bg-surface/70 p-2.5" aria-hidden="true">
           <span className="skeleton block h-5 w-28" />
           {Array.from({ length: cards }).map((_, j) => (
             <span key={j} className="skeleton block h-24 rounded-xl" />
