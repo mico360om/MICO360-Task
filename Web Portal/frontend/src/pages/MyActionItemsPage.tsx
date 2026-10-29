@@ -5,12 +5,19 @@ import { meetingsApi, ACTION_STATUS_LABELS, type ActionItem, type ActionItemStat
 import { apiClient } from '../api/client';
 import { ApiError } from '../lib/api-client';
 import { PageHeader } from '../components/ui/PageHeader';
-import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { fieldClass } from '../components/ui/Field';
-import { actionStatusTone, formatDueDate, isActionItemOverdue } from '../lib/meetingFormat';
+import { formatDueDate, isActionItemOverdue } from '../lib/meetingFormat';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { Icon } from '../components/meeting/kit';
+import { TOUCH_TALL } from '../lib/touch';
+
+/**
+ * A row: one column on a phone (the words, where it came from, the status picker under them); the
+ * picker beside them from 40em; and on a laptop, columns — item, meeting, due, status — so a short
+ * list fills its width with things to read instead of a gap between the words and the picker.
+ */
+const ROW = 'grid grid-cols-1 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_11rem] sm:items-center sm:gap-x-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)_8rem_11rem] lg:gap-x-6';
 
 const ACTION_STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 type Scope = 'open' | 'all';
@@ -57,7 +64,7 @@ export function MyActionItemsPage() {
         actions={
           <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
             {(['open', 'all'] as Scope[]).map((s) => (
-              <button key={s} onClick={() => setScope(s)} aria-pressed={scope === s} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}>
+              <button key={s} type="button" onClick={() => setScope(s)} aria-pressed={scope === s} className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${TOUCH_TALL} ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}>
                 {s === 'open' ? 'Open' : 'All'}
               </button>
             ))}
@@ -88,21 +95,37 @@ export function MyActionItemsPage() {
           </p>
         </div>
       ) : items.length === 0 ? (
-        <EmptyState title="Nothing on your plate" description={scope === 'open' ? 'You have no open action items. Nice.' : 'No action items are assigned to you.'} />
+        <EmptyState
+          title="Nothing on your plate"
+          description={`${scope === 'open' ? 'You have no open action items.' : 'No action items are assigned to you yet.'} An action item shows up here when it’s assigned to you in a meeting.`}
+          action={
+            <Link to="/meetings" className={`inline-flex items-center rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}>
+              Go to Meetings
+            </Link>
+          }
+        />
       ) : (
-        <ul className="grid gap-2">
-          {items.map((item) => (
-            <li key={item.id}>
+        <div className="card overflow-hidden">
+          {/* The column names, for the eye; each row's link and picker carry their own names. */}
+          <div aria-hidden="true" className={`${ROW} hidden border-b border-line py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-2 lg:grid`}>
+            <span>Action item</span>
+            <span>Meeting</span>
+            <span>Due</span>
+            <span>Status</span>
+          </div>
+          <ul className="divide-y divide-line">
+            {items.map((item) => (
               <ActionRow
+                key={item.id}
                 item={item}
                 overdue={isActionItemOverdue(item, timeZone)}
                 timeZone={timeZone}
                 meetingName={item.meetingId ? meetingTitle.get(item.meetingId) ?? null : null}
                 onStatus={(status) => statusMut.mutate({ id: item.id, status })}
               />
-            </li>
-          ))}
-        </ul>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -123,30 +146,31 @@ function ActionRow({
 }) {
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   return (
-    // The words ask for 16rem: on a phone the status picker drops under them instead of squeezing them.
-    <div className="card flex flex-wrap items-center gap-x-3 gap-y-2 p-4">
-      <div className="min-w-0 flex-[1_1_16rem]">
-        {/* bdi: an Arabic description reads right-to-left but stays on the row's side, above its status. */}
-        <p className={`text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{item.description}</bdi></p>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-          <Badge tone={actionStatusTone(item.status)}>{ACTION_STATUS_LABELS[item.status]}</Badge>
-          {item.dueDate ? <span className={overdue ? 'font-medium text-danger' : 'text-ink-3'}>due {formatDueDate(item.dueDate, timeZone)}{overdue ? ' · overdue' : ''}</span> : null}
-          {item.meetingId ? (
-            <Link to={`/meetings/${item.meetingId}`} title={meetingName ?? undefined} className="tap min-w-0 max-w-full gap-1 text-ink-3 hover:text-brand">
-              <span className="flex-none">{Icon.calendar}</span>
-              <bdi className="line-clamp-1 min-w-0">{meetingName ?? 'meeting'}</bdi>
-            </Link>
-          ) : null}
-        </div>
+    <li className={ROW}>
+      {/* bdi: an Arabic description reads right-to-left but stays on the row's side. */}
+      <p className={`min-w-0 text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{item.description}</bdi></p>
+      {/* Where it came from and when it's due: one line under the words; their own columns on a laptop. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:col-start-1 sm:row-start-2 lg:contents">
+        {item.meetingId ? (
+          <Link to={`/meetings/${item.meetingId}`} title={meetingName ?? undefined} className="tap inline-flex min-w-0 max-w-full items-center gap-1.5 text-ink-2 hover:text-brand lg:text-sm">
+            <span className="flex-none text-ink-3">{Icon.calendar}</span>
+            <bdi className="truncate">{meetingName ?? 'meeting'}</bdi>
+          </Link>
+        ) : (
+          <span className="text-ink-3 lg:text-sm">Not from a meeting</span>
+        )}
+        <span className={`whitespace-nowrap lg:text-sm ${overdue ? 'font-medium text-danger' : item.dueDate ? 'text-ink-2' : 'text-ink-3'}`}>
+          {item.dueDate ? `Due ${formatDueDate(item.dueDate, timeZone)}${overdue ? ' · overdue' : ''}` : 'No due date'}
+        </span>
       </div>
       <select
         aria-label={`Status for ${item.description}`}
         value={item.status}
         onChange={(e) => onStatus(e.target.value as ActionItemStatus)}
-        className={`${fieldClass(false)} !py-1.5 text-sm max-sm:flex-auto`}
+        className={`${fieldClass(false)} !py-1.5 text-sm sm:col-start-2 sm:row-span-2 sm:row-start-1 lg:col-start-auto lg:row-span-1 lg:row-start-auto`}
       >
         {ACTION_STATUSES.map((s) => <option key={s} value={s}>{ACTION_STATUS_LABELS[s]}</option>)}
       </select>
-    </div>
+    </li>
   );
 }

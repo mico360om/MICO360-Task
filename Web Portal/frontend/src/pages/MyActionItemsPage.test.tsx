@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MyActionItemsPage } from './MyActionItemsPage';
 import { MeetingsPage } from './MeetingsPage';
@@ -49,9 +49,10 @@ describe('MyActionItemsPage', () => {
           ] })
         : undefined;
     renderIt(<MyActionItemsPage />);
-    const todayRow = (await screen.findByText('Due today')).closest('.card')!;
+    // One list, a row per item.
+    const todayRow = (await screen.findByText('Due today')).closest('li')!;
     expect(todayRow).not.toHaveTextContent(/overdue/i);
-    expect(screen.getByText('Due last week').closest('.card')).toHaveTextContent(/overdue/i);
+    expect(screen.getByText('Due last week').closest('li')).toHaveTextContent(/overdue/i);
     expect(screen.getByText('1 action item overdue.')).toBeInTheDocument();
   });
 
@@ -71,15 +72,39 @@ describe('MyActionItemsPage', () => {
     expect(text.closest('[dir="auto"]')).toBeNull();
   });
 
-  it('on a phone lets the status picker drop under the item instead of squeezing it; a long meeting name shows in full on hover', async () => {
+  it('on a phone puts the status picker under the item instead of squeezing it; a long meeting name shows in full on hover', async () => {
     const long = 'Reliability review — Quarterly cross-department infrastructure reliability review and remediation planning';
     routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ meetingId: 'm1', description: 'Book the room' })] }) : u.endsWith('/meetings') ? json({ data: [{ id: 'm1', title: long }] }) : undefined);
     renderIt(<MyActionItemsPage />);
     const link = await screen.findByRole('link', { name: new RegExp(long) });
     expect(link).toHaveAttribute('title', long);
-    const words = screen.getByText('Book the room').closest('p')!.parentElement!;
-    expect(words.className).toMatch(/flex-\[1_1_16rem\]/);
-    expect(words.parentElement!.className).toMatch(/flex-wrap/);
+    // One column on a phone (words, then where it came from, then the status); side by side from 40em.
+    const row = screen.getByText('Book the room').closest('li')!;
+    expect(row.className).toMatch(/(^|\s)grid-cols-1(\s|$)/);
+    expect(row.className).toMatch(/sm:grid-cols-/);
+  });
+
+  it('lines the items up in columns on a wide screen — item, meeting, due, status — with the status said once', async () => {
+    routes = (u) => (u.includes('/me/action-items') ? json({ data: [item({ meetingId: 'm1', description: 'Order new switches' })] }) : u.endsWith('/meetings') ? json({ data: [{ id: 'm1', title: '1st OCT IT Project Meeting' }] }) : undefined);
+    renderIt(<MyActionItemsPage />);
+    const row = (await screen.findByText('Order new switches')).closest('li')!;
+    expect(row.className).toMatch(/lg:grid-cols-/);
+    // The status picker says it; no badge repeating "Open" beside the words.
+    expect(within(row).getAllByText(/^open$/i).filter((el) => el.tagName !== 'OPTION')).toHaveLength(0);
+    expect(within(row).getByRole('combobox', { name: /status for order new switches/i })).toHaveValue('OPEN');
+    expect(row).toHaveTextContent('No due date');
+    // The meeting's icon and name stay on one line (the link is a row of its own, with or without a touch screen).
+    const link = within(row).getByRole('link', { name: /1st OCT IT Project Meeting/ });
+    expect(link.className).toMatch(/(^|\s)inline-flex(\s|$)/);
+    // The column names, for the eye (each row's controls carry their own names).
+    expect(screen.getByText('Action item').closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  it('when there is nothing to do, says where action items come from and offers the way to Meetings', async () => {
+    renderIt(<MyActionItemsPage />);
+    expect(await screen.findByText('Nothing on your plate')).toBeInTheDocument();
+    expect(screen.getByText(/assigned to you in a meeting/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /go to meetings/i })).toHaveAttribute('href', '/meetings');
   });
 
   it('marks the meeting link with a drawn icon, not a text arrow', async () => {
@@ -98,7 +123,8 @@ describe('MeetingsPage', () => {
         ? json({ data: [{ id: 'm1', title: 'مراجعة المشروع', description: null, category: null, status: 'SCHEDULED', projectId: null, organizerId: 'u1', location: null, onlineLink: null, startAt: '2026-10-01T06:00:00.000Z', endAt: null, timeZone: null, recurrenceRule: null, recurrenceParentId: null, templateId: null, transcript: null, invitesSentAt: null, reminderSentAt: null, createdById: 'u1', createdAt: '', updatedAt: '' }] })
         : undefined;
     renderIt(<MeetingsPage />);
-    const title = await screen.findByText('مراجعة المشروع');
+    // The card's title (the meeting is over, so "Nothing coming up" on top names it too).
+    const title = (await screen.findAllByText('مراجعة المشروع')).find((el) => el.closest('[data-meeting-card]'))!;
     // <bdi> keeps the Arabic text's own direction while it stays aligned with the row's details.
     expect(title.tagName).toBe('BDI');
     expect(title.closest('[dir="auto"]')).toBeNull();
