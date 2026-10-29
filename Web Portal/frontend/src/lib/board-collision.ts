@@ -21,7 +21,16 @@ export const boardCollisionDetection: CollisionDetection = (args) => {
   const { collisionRect } = args;
   const point = args.pointerCoordinates ?? { x: collisionRect.left + collisionRect.width / 2, y: collisionRect.top + collisionRect.height / 2 };
 
-  const under = pointerWithin({ ...args, pointerCoordinates: point });
+  // A card scrolled out of its column's scroll area (the board fitted to the window) still has a
+  // rect, over the column's header or the page above: it is not under the pointer for real.
+  const inView = (id: unknown) => {
+    const node = args.droppableContainers.find((d) => d.id === id)?.node.current;
+    const area = node?.closest?.('[data-column-scroll]');
+    if (!area) return true;
+    const r = area.getBoundingClientRect();
+    return point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
+  };
+  const under = pointerWithin({ ...args, pointerCoordinates: point }).filter((c) => !isCard(c.id) || inView(c.id));
   if (under.length > 0) {
     const card = under.find((c) => isCard(c.id));
     return card ? [card] : under;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
@@ -12,11 +12,13 @@ import { ApiError } from '../lib/api-client';
 import { enqueueOffline } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
-import { ALL_PROJECTS, boardProjects, composeAllProjectsBoard, composeBoard, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
+import { ALL_PROJECTS, BOARD_FIT_QUERY, boardProjects, composeAllProjectsBoard, composeBoard, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
 import { STATUS_META, type TaskCategory } from '../lib/taskStatus';
 import { ProjectFilter } from '../components/board/ProjectFilter';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import { KanbanBoard } from '../components/KanbanBoard';
+import { useMediaQuery } from '../lib/useMediaQuery';
+import { useFrameOffset } from '../lib/useFrameOffset';
 import { ColumnManager } from '../components/ColumnManager';
 import { TaskFormDialog } from '../components/task-form/TaskFormDialog';
 import { useCurrentProject } from '../components/CurrentProject';
@@ -430,8 +432,19 @@ export function BoardPage() {
   const loading = projectsQ.isLoading || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
   const error = projectsQ.isError || (isAll ? allQ.isError : boardQ.isError);
 
+  // A laptop, or a tablet with room: the page is the window's height and each column scrolls by
+  // itself, its header always in view. A phone scrolls the page. So does the page while columns are
+  // being managed: that list sits above the board and can be long.
+  const fit = useMediaQuery(BOARD_FIT_QUERY) && !manageColumns;
+  const pageRef = useRef<HTMLDivElement>(null);
+  const pageTop = useFrameOffset(pageRef, fit);
+
   return (
-    <div>
+    <div
+      ref={pageRef}
+      className={fit ? 'page-fill flex flex-col' : undefined}
+      style={fit && pageTop !== null ? ({ '--page-top': `${pageTop}px` } as CSSProperties) : undefined}
+    >
       <PageHeader
         eyebrow="Workspace"
         title="Kanban Board"
@@ -553,13 +566,15 @@ export function BoardPage() {
       ) : null}
 
       {loading ? (
-        <BoardSkeleton />
+        <BoardSkeleton fit={fit} />
       ) : error ? (
         <LoadError what="the board" onRetry={() => { void projectsQ.refetch(); void (isAll ? allQ.refetch() : boardQ.refetch()); }} />
       ) : !projectId ? (
         <EmptyState title="No projects yet" description="Create a project to get started: its board shows here." />
       ) : (
+        <div className={fit ? 'min-h-0 flex-1' : undefined}>
         <KanbanBoard
+          fit={fit}
           columns={boardColumns}
           timeZone={timeZone}
           onMove={onMove}
@@ -572,6 +587,7 @@ export function BoardPage() {
             if (id) setOpenTaskId(id);
           }}
         />
+        </div>
       )}
 
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
@@ -616,9 +632,9 @@ export function BoardPage() {
 }
 
 /** The board's place while it loads: columns of card-shaped placeholders, as tall as the board's lanes. */
-function BoardSkeleton() {
+function BoardSkeleton({ fit }: { fit: boolean }) {
   return (
-    <div role="status" aria-label="Loading the board" className="flex h-[calc(100dvh-12rem)] min-h-[20rem] gap-3 overflow-hidden pb-3">
+    <div role="status" aria-label="Loading the board" className={`flex gap-3 overflow-hidden pb-3 ${fit ? 'min-h-0 flex-1' : 'h-[calc(100dvh-12rem)] min-h-[20rem]'}`}>
       {[3, 2, 2, 1].map((cards, i) => (
         <div key={i} className="flex min-w-[15rem] flex-1 basis-0 flex-col gap-2.5 rounded-2xl border border-line bg-surface/70 p-2.5" aria-hidden="true">
           <span className="skeleton block h-5 w-28" />

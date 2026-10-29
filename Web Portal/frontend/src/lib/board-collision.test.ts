@@ -104,3 +104,31 @@ describe('board keyboard moves: the left and right arrows go straight to the nex
   });
 });
 
+describe('columns that scroll on their own (the board fitted to the window)', () => {
+  /** Column A's cards sit in a scroll area 100–700px tall; T1 is scrolled up out of it (its rect lies over the header). */
+  function scrolled(pointer: { x: number; y: number }): Args {
+    const area = document.createElement('div');
+    area.setAttribute('data-column-scroll', '');
+    area.getBoundingClientRect = () => ({ ...rect(0, 100, 280, 600), x: 0, y: 100, toJSON: () => ({}) }) as DOMRect;
+    const nodes: Record<string, HTMLElement> = {};
+    for (const id of ['T1', 'T2']) {
+      const n = document.createElement('div');
+      area.appendChild(n);
+      nodes[id] = n;
+    }
+    const a = args('T3', rect(0, 0, 260, 70), pointer);
+    for (const c of a.droppableContainers) (c as unknown as { node: { current: HTMLElement | null } }).node.current = nodes[String(c.id)] ?? null;
+    // T1 has been scrolled up behind the column's header.
+    (a.droppableRects as Map<string, Rect>).set('T1', rect(10, 30, 260, 70));
+    for (const c of a.droppableContainers) if (c.id === 'T1') (c as unknown as { rect: { current: Rect } }).rect.current = rect(10, 30, 260, 70);
+    return a;
+  }
+
+  it('a card scrolled out of its column’s view is not a target: over the header, the column is', () => {
+    expect(over(scrolled({ x: 100, y: 60 }))).toBe('colA');
+  });
+
+  it('a card in view still is', () => {
+    expect(over(scrolled({ x: 100, y: 170 }))).toBe('T2');
+  });
+});

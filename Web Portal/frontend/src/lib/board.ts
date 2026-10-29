@@ -185,3 +185,11 @@ export function targetColumnFor(columns: ApiColumn[], status: TaskCategory): str
       .sort((a, b) => a.position - b.position)[0]?.id ?? null
   );
 }
+
+/**
+ * When the board fits the window (each column's cards scroll on their own, under a header that
+ * stays): a window at least 768px wide (a tablet in portrait with the menu as a rail, a laptop) and
+ * 640px tall. A phone, or a phone or small window held sideways, scrolls the page as before:
+ * columns a few cards tall would be harder to use than a long page.
+ */
+export const BOARD_FIT_QUERY = '(min-width: 48em) and (min-height: 40em)';

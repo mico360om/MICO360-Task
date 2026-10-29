@@ -22,9 +22,9 @@ describe('pageLayout (how wide a page is, and whether it is sized to the window)
   });
 
   it('knows the pages that size themselves to the window (their footer stays in view)', () => {
-    expect(WINDOW_FIT_PAGES).toEqual(['/chat', '/mico-ai', '/calendar']);
+    expect(WINDOW_FIT_PAGES).toEqual(['/chat', '/mico-ai', '/calendar', '/board']);
     expect(pageLayout('/chat').fitsWindow).toBe(true);
+    expect(pageLayout('/board').fitsWindow).toBe(true);
     expect(pageLayout('/dashboard').fitsWindow).toBe(false);
-    expect(pageLayout('/board').fitsWindow).toBe(false);
   });
 });

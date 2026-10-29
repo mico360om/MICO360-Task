@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BoardPage } from './BoardPage';
+import { BOARD_FIT_QUERY } from '../lib/board';
 import { useAuthStore } from '../stores/auth-store';
 import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
 import { userStorageKey } from '../lib/user-storage';
@@ -121,6 +122,46 @@ describe('BoardPage: layout', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).endsWith('/projects') ? json({ data: [] }) : base(url, init))));
     renderPage();
     expect(await screen.findByText('No projects yet')).toBeInTheDocument();
+  });
+});
+
+describe('BoardPage: the board fitted to the window (a laptop, or a tablet with room)', () => {
+  // jsdom has no matchMedia: the stand-in goes again, so the other tests see the page-scrolling board.
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+  /** A window that is wide and tall enough (BOARD_FIT_QUERY), or not. */
+  function windowFits(fits: boolean) {
+    const mm = vi.fn((q: string) => ({ matches: fits && q === BOARD_FIT_QUERY, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
+    vi.stubGlobal('matchMedia', mm);
+    Object.defineProperty(window, 'matchMedia', { value: mm, configurable: true, writable: true });
+  }
+
+  it('fits the window: each column’s cards scroll on their own, under a header that stays (name, count, add)', async () => {
+    windowFits(true);
+    renderPage();
+    const column = await screen.findByRole('region', { name: 'To Do' });
+    expect(screen.getByRole('region', { name: 'Board columns' })).toHaveAttribute('data-fit', 'true');
+    const cards = column.querySelector('[data-column-scroll]')!;
+    expect(cards).not.toBeNull();
+    expect(cards).toContainElement(within(column).getByText('Prepare report'));
+    expect(cards).not.toContainElement(within(column).getByRole('button', { name: 'Add a task to To Do' }));
+    expect(cards.className).toContain('overflow-y-auto');
+  });
+
+  it('a phone (or a short window) scrolls the page as before', async () => {
+    windowFits(false);
+    renderPage();
+    await screen.findByRole('region', { name: 'To Do' });
+    expect(screen.getByRole('region', { name: 'Board columns' })).toHaveAttribute('data-fit', 'false');
+  });
+
+  it('while columns are being managed (a long list above the board) the page scrolls instead', async () => {
+    windowFits(true);
+    renderPage();
+    await screen.findByRole('region', { name: 'To Do' });
+    await userEvent.click(screen.getByRole('button', { name: 'Manage columns' }));
+    expect(screen.getByRole('region', { name: 'Board columns' })).toHaveAttribute('data-fit', 'false');
   });
 });
 

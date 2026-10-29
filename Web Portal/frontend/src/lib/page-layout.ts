@@ -13,7 +13,7 @@ export const FULL_WIDTH_PAGES = ['/board', '/calendar', '/timeline', '/workload'
  * (`.chat-frame`, `.page-fill` in index.css). Every other page is at least a window tall, so the
  * footer waits below the fold instead of being shoved down as the page's content arrives.
  */
-export const WINDOW_FIT_PAGES = ['/chat', '/mico-ai', '/calendar'] as const;
+export const WINDOW_FIT_PAGES = ['/chat', '/mico-ai', '/calendar', '/board'] as const;
 
 const under = (pathname: string, base: string) => pathname === base || pathname.startsWith(`${base}/`);
 
