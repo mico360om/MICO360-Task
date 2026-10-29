@@ -22,6 +22,9 @@ Copy `Web Portal/backend/.env.example` to `Web Portal/backend/.env` and set real
 | `MAILJET_API_KEY`, `MAILJET_SECRET_KEY` | from Mailjet; **rotate the secret shared during planning** |
 | `MAIL_FROM` | a verified Mailjet sender |
 | `UPLOAD_DIR` | local disk path for attachments (or swap the storage adapter for S3) |
+| `BACKUP_DIR` | where the nightly backup copies go (blank = `backups` beside `UPLOAD_DIR`); see [BACKUPS.md](BACKUPS.md) |
+| `BACKUP_ENCRYPTION_KEY`, `BACKUP_NIGHTLY` | optional: encrypt the copies; `false` turns the nightly copy off |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | optional: also send the copies to Google Drive |
 | `UPLOAD_MAX_BYTES`, `UPLOAD_MAX_TOTAL_BYTES_PER_TASK`, `UPLOAD_ALLOWED_MIME` | upload limits |
 
 ## 2. Install & build

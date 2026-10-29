@@ -67,7 +67,8 @@ ADMIN_PASSWORD='<a strong password>' DB_USER='u116607139_tasks' DB_PASSWORD='<da
   `~/mico360-data/backups/` first.
 - Uploaded files are stored in `~/mico360-data/uploads` (outside the app folder) unless
   `UPLOAD_DIR` is set to another absolute path, so a redeploy into a new folder keeps them.
-  Include that folder in backups.
+  The app's own nightly backups (database + uploaded files) go to `~/mico360-data/backups` beside
+  it — see [BACKUPS.md](BACKUPS.md).
 - JWT secrets are auto-generated on first run and written to `.env`; copy them into
   hPanel Environment Variables so they stay stable across future deploys.
 
@@ -114,6 +115,8 @@ Environment variables**, and add each `KEY = VALUE` from that file. At minimum:
 | `UPLOAD_DIR` | an absolute folder outside the app, e.g. `/home/<user>/mico360-data/uploads` |
 | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` | the **rotated** Mailjet keys — without them sign-in codes, password-reset links and meeting invitations are disabled (the API answers 503 `EMAIL_NOT_CONFIGURED`) |
 | `MAILJET_WEBHOOK_TOKEN` | a random secret; also put it in Mailjet's event-webhook URL (see `docs/EMAIL.md`). In production the webhook refuses every event until it is set. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional: the Google sign-in that lets the nightly backups also go to the owner's Google Drive. Made once in Google Cloud — the steps are in [BACKUPS.md](BACKUPS.md). |
+| `BACKUP_ENCRYPTION_KEY` | optional: 16+ characters that encrypt every backup copy. **Keep it in two safe places off the server** — without it no encrypted copy can be restored ([BACKUPS.md](BACKUPS.md)). |
 
 On the Node.js site that deploys from GitHub, the web build is rebuilt by every deployment, so the
 phone app goes in `~/mico360-data/downloads/MICO360-Tasks.apk`, beside `~/mico360-data/uploads`:
@@ -196,7 +199,8 @@ the admin from Step 4.
 The server does some work on a timer, whether or not anyone has an app open:
 - the copies of recurring tasks set to "on each date";
 - due-date reminders and the daily digest;
-- the nightly carry-forward of open tasks.
+- the nightly carry-forward of open tasks;
+- the nightly backup copy at 02:00 ([BACKUPS.md](BACKUPS.md)).
 
 Hostinger starts the Node.js app on demand and may stop it when nobody has used the site for a
 while, which would pause those timers. A cron job that calls the site every 15 minutes keeps them

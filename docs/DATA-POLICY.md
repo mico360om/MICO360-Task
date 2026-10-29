@@ -12,10 +12,22 @@ SHA-256 respectively) and are single-use and time-limited. JWT refresh tokens ar
 
 ## Backups
 
-- Take **automated daily backups** of the MySQL database (managed-DB automated snapshots, or
-  `mysqldump` on a cron) with at least **30 days** retention and periodic restore tests.
-- Back up the attachment store (`UPLOAD_DIR` / the S3 bucket) on the same cadence.
-- Store backups **encrypted at rest** and restrict access to operators only.
+The app makes its own backups ([BACKUPS.md](BACKUPS.md)):
+
+- **What**: every night from 02:00 company time, one file holding the whole database (every table, read
+  as one consistent moment) and every uploaded file (`UPLOAD_DIR`), with checksums.
+- **Kept**: the last 7 nights, one copy a week for the 4 weeks before (about five weeks), and the 3
+  newest "Back up now" copies. Older copies are deleted automatically, on the server and in Google Drive.
+- **Where**: a private folder on the server (`BACKUP_DIR`, never served by the website), and — when an
+  administrator connects it — the owner's Google Drive, with the `drive.file` permission only (the app
+  sees only the files it makes there).
+- **Access**: only administrators can see, make or download copies; every download is in the audit log.
+  A copy holds everything, including password hashes, so downloaded copies must be kept private.
+- **Encryption**: optional, with `BACKUP_ENCRYPTION_KEY` (AES-256). The Google Drive connection and AI
+  provider keys inside a copy stay sealed with `SECRETS_ENCRYPTION_KEY` either way.
+- **Restore tests**: the restore tool checks every table and file against the copy after restoring; the
+  automated tests restore a copy into an empty database on every build. Try a restore into a spare
+  database now and then (BACKUPS.md, "Restoring a copy").
 
 ## Retention
 

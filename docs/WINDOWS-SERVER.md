@@ -78,6 +78,9 @@ Edit with the tray icon → **Edit server settings**, save, then **Restart the s
 | `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, `MAIL_FROM` | Email. Without keys, sign-in codes, password-reset emails and meeting invitations are off; password sign-in works. |
 | `COMPANY_TIMEZONE` | Company time zone for due dates and reports (default `Asia/Muscat`). |
 | `UPLOAD_DIR` | Optional other folder for uploaded files. |
+| `BACKUP_DIR` | Optional other folder for the nightly backup copies (default: `backups` in the data folder). |
+| `BACKUP_ENCRYPTION_KEY` | Optional: encrypts every backup copy. Keep it in two safe places off this computer — without it no copy can be restored. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Optional: send the backups to Google Drive too. Steps in [BACKUPS.md](BACKUPS.md). |
 
 `DATABASE_URL`, the `JWT_*` secrets and `SECRETS_ENCRYPTION_KEY` were generated for this server.
 Changing a JWT secret signs everyone out. Never change `SECRETS_ENCRYPTION_KEY`, because stored AI
@@ -86,8 +89,18 @@ provider keys can't be read afterwards. Keep this file private.
 ## Data, backups and moving to another computer
 
 The data folder holds everything: `mysql\` (the database), `uploads\` (attachments and pictures),
-`backups\`, `logs\` and `config\`. For a complete backup, use **Back up the database now** and copy
-the `uploads` folder. For a full copy of a stopped server, stop it and copy the whole data folder.
+`backups\`, `logs\` and `config\`.
+
+**Nightly backups**: every night from 02:00 (and whenever an administrator presses **Back up now** in
+System Settings → Backups) the server writes one file to `backups\` holding the whole database **and**
+the uploaded files. It keeps the last 7 nights, one a week for the 4 weeks before, and the 3 newest
+"Back up now" copies; administrators can download them from System Settings. If the computer is off at
+02:00, the copy is made when the server next runs that day. Copy `backups\` to another disk or a USB drive
+now and then (or connect Google Drive), so a broken disk doesn't take the copies with it. How to restore
+one: [BACKUPS.md](BACKUPS.md). Keep a copy of `config\server.env` too: it is not inside the backups.
+
+The tray's **Back up the database now** still writes a database-only `.sql` file to `backups\`. For a full
+copy of a stopped server, stop it and copy the whole data folder.
 
 To move to another computer, stop the server, copy the data folder, run Setup on the new computer
 and choose the copied folder as its data folder. Setup finds the existing database and keeps it.
