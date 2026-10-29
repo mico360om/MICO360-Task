@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import logo from '../assets/logo.png';
-import logoW from '../assets/logo-w.png';
+import { BrandLogo } from '../components/ui/BrandLogo';
 import { clientViewApi, type ClientInspection, type ClientInspectionSummary, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
 import { ClientInspectionBody, revisionLine } from '../components/inspections/ClientInspectionBody';
 import { ApiError } from '../lib/api-client';
@@ -79,8 +78,7 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           {/* The coloured wordmark on light; the white one in dark mode (as the staff app's sidebar and sign-in do). */}
-          <img src={logo} alt="MICO360 Tasks" width={409} height={192} className="h-9 w-auto object-contain dark:hidden" />
-          <img src={logoW} alt="MICO360 Tasks" width={409} height={192} className="hidden h-9 w-auto object-contain dark:block" />
+          <BrandLogo className="h-9" alt="MICO360 Tasks" />
           <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Shared project</span>
         </div>
       </header>
