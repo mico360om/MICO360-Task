@@ -34,6 +34,18 @@ describe('BarChart', () => {
     expect(inProgress).toBeGreaterThan(0);
   });
 
+  it('scales to a fixed maximum when given one: percentages fill the bar only at 100%', () => {
+    render(<BarChart data={[{ label: 'A', value: 8 }, { label: 'B', value: 9 }]} unit="%" max={100} />);
+    const [a, b] = [...document.querySelectorAll('[data-bar]')].map(barPct);
+    expect(a).toBe(8);
+    expect(b).toBe(9);
+  });
+
+  it('never draws a bar past its track, even when a value exceeds the maximum given', () => {
+    render(<BarChart data={[{ label: 'A', value: 120 }]} unit="%" max={100} />);
+    expect(barPct(document.querySelector('[data-bar]')!)).toBe(100);
+  });
+
   it('appends the unit to each value label', () => {
     render(<BarChart data={[{ label: 'MICO', value: 40 }]} unit="%" />);
     expect(screen.getByText('40%')).toBeInTheDocument();

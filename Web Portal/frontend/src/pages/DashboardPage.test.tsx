@@ -46,7 +46,7 @@ function renderPage() {
 describe('DashboardPage', () => {
   it('greets the user and shows live stat tiles from the API', async () => {
     renderPage();
-    expect(screen.getByText(/welcome back, admin/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /welcome back, admin/i })).toBeInTheDocument(); // the name sits in a <bdi>
     expect(screen.getByText('My tasks')).toBeInTheDocument();
     expect(screen.getByText('Projects')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('7')).toBeInTheDocument()); // all-tasks total (unique)
@@ -107,5 +107,40 @@ describe('DashboardPage', () => {
     expect(chart).not.toHaveTextContent(/IN_PROGRESS|BACKLOG/);
     const labels = [...chart.querySelectorAll('li')].map((li) => li.textContent?.split(':')[0]?.trim());
     expect(labels).toEqual(['Backlog', 'In Progress', 'Done']);
+  });
+
+  it('draws project completion against 100% — 43% is a 43% bar, not a full one', async () => {
+    renderPage();
+    const chart = await screen.findByRole('list', { name: /project completion/i });
+    await waitFor(() => expect(chart).toHaveTextContent('43%'));
+    expect((chart.querySelector('[data-bar]') as HTMLElement).style.width).toBe('43%');
+  });
+
+  it('keeps the person’s name apart from the greeting’s words (an Arabic name never reorders it)', () => {
+    renderPage();
+    const heading = screen.getByRole('heading', { level: 1, name: /welcome back, admin/i });
+    expect(heading.querySelector('bdi')).toHaveTextContent('admin');
+  });
+
+  it('lays out the stat tiles for how many there are: four for an administrator, two for anyone else', async () => {
+    const { unmount } = renderPage();
+    expect(screen.getByTestId('stat-tiles')).toHaveAttribute('data-count', '4');
+    unmount();
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    renderPage();
+    const tiles = screen.getByTestId('stat-tiles');
+    expect(tiles).toHaveAttribute('data-count', '2');
+    expect(tiles.className).not.toMatch(/lg:grid-cols-4/);
+  });
+
+  it('holds the place of the lists while they load (rows, not a line of text), so nothing jumps', async () => {
+    const ok = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) => (/\/(tasks|activity)/.test(String(args[0])) ? new Promise<Response>(() => {}) : ok(...args))));
+    renderPage();
+    const due = await screen.findByLabelText('Loading due tasks');
+    expect(due.querySelectorAll('[data-skeleton-row]').length).toBeGreaterThanOrEqual(5);
+    const activity = screen.getByLabelText('Loading recent activity');
+    expect(activity.querySelectorAll('[data-skeleton-row]').length).toBeGreaterThanOrEqual(5);
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 });
