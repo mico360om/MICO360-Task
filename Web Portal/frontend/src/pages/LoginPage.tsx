@@ -7,9 +7,9 @@ import { androidAppLink, checkHostedApk, type AndroidAppLink } from '../lib/andr
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
-import logo from '../assets/logo.png';
 import logoW from '../assets/logo-w.png';
 import { HeroField } from '../components/HeroField';
+import { BrandLogo } from '../components/ui/BrandLogo';
 
 const api = createApiClient({
   baseUrl: import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1',
@@ -186,11 +186,12 @@ export function LoginPage() {
       </aside>
 
       {/* ── Form card ───────────────────────────────────────────────────────── */}
-      <main className="flex min-h-screen items-center justify-center px-6 py-10 sm:px-10">
+      <main className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-10">
         <div className="w-full max-w-md">
-          <div className="rounded-[1.75rem] border border-line bg-surface p-8 shadow-lift sm:p-9">
-            <div className="mb-6 lg:hidden">
-              <img src={logo} alt="MICO360 Tasks" width={409} height={192} className="h-11 w-auto object-contain" />
+          <div className="rounded-[1.75rem] border border-line bg-surface p-6 shadow-lift sm:p-9">
+            {/* The logo in this theme's colours (the dark-lettered one vanished on the dark card). */}
+            <div className="mb-6 flex lg:hidden">
+              <BrandLogo className="h-11" alt="MICO360 Tasks" />
             </div>
 
             <h1 className="font-display text-[1.7rem] font-extrabold tracking-tight text-ink">Welcome back</h1>

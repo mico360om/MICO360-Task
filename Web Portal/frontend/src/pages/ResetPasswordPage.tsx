@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { AuthShell } from '../components/AuthShell';
+import { AuthShell, AUTH_SUBMIT_CLASS } from '../components/AuthShell';
 import { apiClient } from '../api/client';
 import { authApi } from '../api/auth';
 import { ApiError } from '../lib/api-client';
@@ -167,7 +167,7 @@ export function ResetPasswordPage() {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-2 disabled:opacity-60"
+          className={AUTH_SUBMIT_CLASS}
         >
           {loading ? (welcome ? 'Saving…' : 'Updating…') : welcome ? 'Set password' : 'Update password'}
         </button>
