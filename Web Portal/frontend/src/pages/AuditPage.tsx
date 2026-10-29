@@ -97,6 +97,8 @@ export function AuditPage() {
       return lastPage.reduce((oldest, r) => (r.createdAt < oldest ? r.createdAt : oldest), lastPage[0]!.createdAt);
     },
   });
+  // Every module the log holds (the filter offers them all); without it, the modules seen so far.
+  const modulesQ = useQuery({ queryKey: ['audit', 'modules'], queryFn: () => auditApi(apiClient).modules(), retry: false });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const directory = Array.isArray(dirQ.data) ? dirQ.data : [];
   const nameOf = (userId: string | null): string => {
@@ -142,11 +144,14 @@ export function AuditPage() {
       return next.size === known.length ? known : [...next].sort();
     });
   }, [allRows]);
+  const logModules = modulesQ.data;
   const moduleOptions = useMemo(() => {
     const mods = new Set(knownModules);
+    // The whole log's modules, also those only in entries not loaded yet.
+    if (Array.isArray(logModules)) for (const m of logModules) if (typeof m === 'string' && m) mods.add(m);
     if (filters.module) mods.add(filters.module);
     return [{ value: '', label: 'All modules' }, ...[...mods].sort().map((m) => ({ value: m, label: m }))];
-  }, [knownModules, filters.module]);
+  }, [knownModules, logModules, filters.module]);
   const userOptions = [
     { value: '', label: 'Anyone' },
     ...directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` })),

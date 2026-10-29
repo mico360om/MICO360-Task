@@ -49,4 +49,8 @@ export async function registerAuditRoutes(app: FastifyInstance, deps: AuditRoute
       }),
     };
   });
+
+  // Every module the log holds, A–Z: the page's module filter offers them all, not only those in
+  // the entries it has loaded so far.
+  app.get('/audit-logs/modules', { preHandler: guard.requireRoles('ADMIN') }, async () => ({ data: await auditService.modules() }));
 }

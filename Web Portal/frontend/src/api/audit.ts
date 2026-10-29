@@ -34,5 +34,7 @@ export function auditApi(client: ApiClient) {
       const s = qs.toString();
       return client.get<{ data: ApiAuditLog[] }>(`/audit-logs${s ? `?${s}` : ''}`).then((r) => r.data);
     },
+    /** Every module the whole log holds, A–Z (a page of entries holds only some of them). */
+    modules: () => client.get<{ data: string[] }>('/audit-logs/modules').then((r) => r.data),
   };
 }

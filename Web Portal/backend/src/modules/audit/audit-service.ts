@@ -32,7 +32,12 @@ export function createAuditService({ audit }: AuditServiceDeps) {
     return rows.map((r) => ({ ...r, oldValue: redactSecrets(r.oldValue), newValue: redactSecrets(r.newValue) }));
   }
 
-  return { record, list };
+  /** Every module the log holds, A–Z. */
+  async function modules(): Promise<string[]> {
+    return audit.modules();
+  }
+
+  return { record, list, modules };
 }
 
 export type AuditService = ReturnType<typeof createAuditService>;
