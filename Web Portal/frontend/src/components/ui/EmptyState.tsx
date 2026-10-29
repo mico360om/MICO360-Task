@@ -9,6 +9,11 @@ export interface EmptyStateProps {
   action?: ReactNode;
   /** Render inside a bordered card (default) or bare, for use inside an existing card. */
   bare?: boolean;
+  /**
+   * The title as a heading (h2/h3) when the empty state stands in for a section of the page (a
+   * screen reader then finds it in the page's outline). A plain line by default.
+   */
+  titleAs?: 'p' | 'h2' | 'h3';
 }
 
 const DefaultIcon = (
@@ -19,13 +24,13 @@ const DefaultIcon = (
 );
 
 /** A friendly, consistent empty state: icon, title, optional description and action. */
-export function EmptyState({ icon, title, description, action, bare = false }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action, bare = false, titleAs: Title = 'p' }: EmptyStateProps) {
   return (
     <div className={`grid place-items-center gap-2 p-10 text-center ${bare ? '' : 'card'}`}>
       <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand/10 text-brand">
         {icon ?? DefaultIcon}
       </div>
-      <p className="font-semibold text-ink">{title}</p>
+      <Title className="font-semibold text-ink">{title}</Title>
       {description ? <p className="max-w-sm text-sm text-ink-2">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>

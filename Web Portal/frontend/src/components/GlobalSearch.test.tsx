@@ -103,6 +103,22 @@ describe('GlobalSearch', () => {
     expect(state).toEqual({ ask: 'who has the most overdue tasks' });
   });
 
+  it('says when nothing matched, above the offer to ask MICO AI (the offer alone read like a result)', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [], meetings: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'zebra');
+    expect(await screen.findByText(/Nothing matches/)).toHaveTextContent('Nothing matches “zebra” in tasks, projects, people or meetings.');
+    expect(screen.getByRole('button', { name: /Ask MICO AI.*zebra/ })).toBeInTheDocument();
+  });
+
+  it('does not say “nothing matches” when something did', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't1', key: 'MICO-1', title: 'Zebra crossing', projectId: 'p1' }], projects: [], users: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'zebra');
+    expect(await screen.findByText('Zebra crossing')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing matches/)).not.toBeInTheDocument();
+  });
+
   it('offers an "open" command for a bare task key', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);

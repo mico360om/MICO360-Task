@@ -135,7 +135,9 @@ export function SettingsPage() {
     <div>
       <PageHeader eyebrow="Workspace" title="Settings" subtitle="Your profile and personal preferences." />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* items-start: each card is as tall as what it holds — the short Profile card no longer
+          stretches to the Notifications card's height with an empty half under its details. */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         {/* Profile */}
         <section className="card p-5">
           <h2 className="eyebrow mb-4">Profile</h2>

@@ -158,6 +158,53 @@ describe('DashboardPage', () => {
     expect(tiles.className).not.toMatch(/lg:grid-cols-4/);
   });
 
+  it('puts the stat tiles two to a row even on a phone (one per row left a phone screenful of two numbers)', () => {
+    renderPage();
+    expect(screen.getByTestId('stat-tiles').className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
+  });
+
+  it('on a company’s first day (no projects, no tasks) welcomes the administrator and points to the first steps instead of empty charts', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
+    renderPage();
+    expect(await screen.findByRole('heading', { level: 2, name: /set up your workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /^welcome, admin/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(screen.getByRole('link', { name: 'Add your team' })).toHaveAttribute('href', '/admin/users');
+    expect(screen.queryByText(/no data to chart yet/i)).not.toBeInTheDocument();
+    // The band's "Open board" / "View my tasks" lead to empty pages on day one: the steps replace them.
+    expect(screen.queryByRole('link', { name: 'Open board' })).not.toBeInTheDocument();
+  });
+
+  it('an employee on no project yet is told so, and may start one', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
+    renderPage();
+    expect(await screen.findByRole('heading', { level: 2, name: /not on a project yet/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create a project' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Add your team' })).not.toBeInTheDocument();
+  });
+
+  it('is not a first day while anything is still loading or failed to load', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).endsWith('/tasks') ? new Response(JSON.stringify({ error: { code: 'X', message: 'down' } }), { status: 500 }) : json({ data: [] }),
+    ));
+    renderPage();
+    expect(await screen.findByText(/couldn’t load due tasks/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /set up your workspace/i })).not.toBeInTheDocument();
+  });
+
+  it('says who was given a task in Recent activity (“assigned MICO-3 to Omar”, not “assigned to MICO-3”)', async () => {
+    const ok = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) =>
+      String(args[0]).endsWith('/activity')
+        ? json({ data: [{ id: 'a1', action: 'ASSIGNED', createdAt: new Date().toISOString(), meta: { assignee: 'Omar Ahmed' }, actor: { id: 'u1', name: 'Aisha Khan' }, task: { id: 't3', key: 'MICO-3', title: 'x' } }] })
+        : ok(...args),
+    ));
+    renderPage();
+    const line = (await screen.findByRole('button', { name: 'MICO-3' })).closest('p')!;
+    expect(line).toHaveTextContent('Aisha Khan assigned MICO-3 to Omar Ahmed');
+  });
+
   it('holds the place of the lists while they load (rows, not a line of text), so nothing jumps', async () => {
     const ok = fetch;
     vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) => (/\/(tasks|activity)/.test(String(args[0])) ? new Promise<Response>(() => {}) : ok(...args))));

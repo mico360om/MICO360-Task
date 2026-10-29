@@ -14,6 +14,13 @@ describe('EmptyState', () => {
     expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument();
   });
 
+  it('can title a section of the page as a heading (a plain line otherwise)', () => {
+    const { rerender } = render(<EmptyState title="Set up your workspace" titleAs="h2" />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Set up your workspace' })).toBeInTheDocument();
+    rerender(<EmptyState title="Set up your workspace" />);
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  });
+
   it('works without a description', () => {
     render(<EmptyState title="All caught up" />);
     expect(screen.getByText('All caught up')).toBeInTheDocument();

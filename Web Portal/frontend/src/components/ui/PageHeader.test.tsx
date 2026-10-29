@@ -38,6 +38,15 @@ describe('PageHeader', () => {
     expect(screen.getByText('Accounts, roles and access.').className).toMatch(/\[contain:inline-size\]/);
   });
 
+  it('is a button tall with or without actions, so the title sits at the same height on every page', () => {
+    const { container, rerender } = render(<PageHeader title="Notifications" />);
+    const row = () => container.querySelector('[data-page-header]')!;
+    expect(row().className).toMatch(/(^|\s)min-h-10(\s|$)/);
+    expect(row().className).toMatch(/\[@media\(pointer:coarse\)\]:min-h-11/);
+    rerender(<PageHeader title="My Tasks" actions={<button type="button">New task</button>} />);
+    expect(row().className).toMatch(/(^|\s)min-h-10(\s|$)/);
+  });
+
   it('works without a section or a subtitle', () => {
     render(<PageHeader title="Your profile" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Your profile' }).parentElement!.textContent).toBe('Your profile');

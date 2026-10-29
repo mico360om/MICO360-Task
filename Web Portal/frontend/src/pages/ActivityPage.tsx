@@ -9,6 +9,7 @@ import { LoadError } from '../components/ui/LoadError';
 import { Button } from '../components/ui/Button';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { relativeTime } from '../lib/relative-time';
+import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
 
 const ACTION_VERB: Record<string, string> = {
   CREATED: 'created',
@@ -109,6 +110,9 @@ export function ActivityPage() {
     return [...m.entries()];
   }, [rows]);
 
+  const nothingYet = q.isSuccess && (q.data ?? []).length === 0 && !filter;
+  const noProjectsYet = useNoProjectsYet();
+
   const chip = (active: boolean) =>
     `rounded-full px-3 py-1 text-xs font-medium transition-colors ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
 
@@ -117,11 +121,14 @@ export function ActivityPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader eyebrow="Workspace" title="Activity" subtitle="Who did what, across your tasks and projects." />
 
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <button key={f.value} type="button" aria-pressed={filter === f.value} onClick={() => setFilter(f.value)} className={chip(filter === f.value)}>{f.label}</button>
-        ))}
-      </div>
+      {/* Nothing to filter yet (the feed came back empty): no filters over an empty page. */}
+      {nothingYet ? null : (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {FILTERS.map((f) => (
+            <button key={f.value} type="button" aria-pressed={filter === f.value} onClick={() => setFilter(f.value)} className={chip(filter === f.value)}>{f.label}</button>
+          ))}
+        </div>
+      )}
 
       {q.isLoading ? (
         <div className="flex flex-col gap-2">
@@ -136,7 +143,17 @@ export function ActivityPage() {
           action={<Button variant="secondary" size="sm" onClick={() => setFilter('')}>Show all activity</Button>}
         />
       ) : rows.length === 0 ? (
-        <EmptyState title="No activity yet" description="Task creations, moves, completions and assignments will show up here." />
+        noProjectsYet ? (
+          // A company's first day: point to the first steps.
+          <EmptyState
+            icon={FirstStepsIcon}
+            title="No activity yet"
+            description="Who created, moved, finished or assigned which task will show up here. It all starts with a project."
+            action={<FirstStepsActions />}
+          />
+        ) : (
+          <EmptyState title="No activity yet" description="Task creations, moves, completions and assignments will show up here." />
+        )
       ) : (
         <div className="flex flex-col gap-5">
           {groups.map(([header, items]) => (

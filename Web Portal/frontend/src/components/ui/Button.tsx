@@ -38,6 +38,17 @@ const SIZES: Record<Size, string> = {
   lg: 'px-5 py-2.5 text-base',
 };
 
+const BASE =
+  'group relative inline-flex select-none items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-200 ease-emphasized disabled:pointer-events-none disabled:opacity-60 aria-disabled:pointer-events-none aria-disabled:opacity-60';
+
+/**
+ * The button look, for a link that takes you somewhere (a `<Link>` styled as a button: "Create a
+ * project" on an empty page goes to the Projects page). Same classes as `<Button>`.
+ */
+export function buttonClass(variant: Variant = 'primary', size: Size = 'md', className = ''): string {
+  return `${BASE} ${VARIANTS[variant]} ${SIZES[size]} ${className}`.trim();
+}
+
 export function Button({
   variant = 'primary',
   size = 'md',
@@ -73,7 +84,7 @@ export function Button({
         }
         onClick?.(event);
       }}
-      className={`group relative inline-flex select-none items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-200 ease-emphasized disabled:pointer-events-none disabled:opacity-60 aria-disabled:pointer-events-none aria-disabled:opacity-60 ${VARIANTS[variant]} ${SIZES[size]} ${className}`.trim()}
+      className={buttonClass(variant, size, className)}
     >
       {loading ? (
         <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">

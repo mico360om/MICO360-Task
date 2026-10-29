@@ -6,6 +6,7 @@ import { apiClient } from '../api/client';
 import { notificationsApi, NOTIFICATIONS_KEY } from '../api/notifications';
 import { useOpenNotification } from '../lib/notification-links';
 import { relativeTime } from '../lib/relative-time';
+import { FirstStepsActions, useNoProjectsYet } from '../components/FirstSteps';
 
 const BellIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -19,9 +20,12 @@ export function NotificationsPage() {
   const items = q.data ?? [];
   const { open, markAllRead } = useOpenNotification();
   const unread = items.some((n) => !n.readAt);
+  const noProjectsYet = useNoProjectsYet();
 
   return (
-    <div>
+    // A readable width on a wide screen, centred (as Activity and About): across 1,600px a
+    // notification's time sat a whole screen away from its words.
+    <div className="mx-auto max-w-4xl">
       <PageHeader
         eyebrow="Workspace"
         title="Notifications"
@@ -46,7 +50,17 @@ export function NotificationsPage() {
         ) : q.isError ? (
           <LoadError what="notifications" onRetry={() => void q.refetch()} />
         ) : items.length === 0 ? (
-          <EmptyState icon={BellIcon} title="You’re all caught up" description="Mentions, assignments and task updates will appear here." />
+          noProjectsYet ? (
+            // A company's first day: nothing can have happened yet, so point to the first steps.
+            <EmptyState
+              icon={BellIcon}
+              title="No notifications yet"
+              description="You’ll be told here when someone assigns you a task, mentions you or updates your work. It all starts with a project."
+              action={<FirstStepsActions />}
+            />
+          ) : (
+            <EmptyState icon={BellIcon} title="You’re all caught up" description="Mentions, assignments and task updates will appear here." />
+          )
         ) : (
           items.map((n) => (
             <button

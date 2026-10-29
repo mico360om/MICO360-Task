@@ -39,10 +39,13 @@ export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<Pag
  * description beside it where there is room, and its actions on the same row. The actions drop
  * below the title when there isn't room for both: the title asks for its whole width (it used to ask
  * for 16rem and be cut — "User & Profile Managem…" at 768px).
+ *
+ * The row is at least a button tall (40px; 44px on a touch screen), with or without actions: the
+ * title sits at the same height on every page instead of moving a few pixels from page to page.
  */
 export function PageHeader({ title, subtitle, eyebrow, actions }: PageHeaderProps) {
   return (
-    <div className="relative z-20 mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 animate-fade-in-up">
+    <div data-page-header className="relative z-20 mb-4 flex min-h-10 flex-wrap items-center justify-between gap-x-4 gap-y-2 animate-fade-in-up [@media(pointer:coarse)]:min-h-11">
       <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} className="flex-[1_1_auto]" />
       {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

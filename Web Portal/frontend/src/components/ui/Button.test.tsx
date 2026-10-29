@@ -1,7 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Button } from './Button';
+import { Button, buttonClass } from './Button';
+
+describe('buttonClass', () => {
+  it('gives a link the same look as the button of that kind and size', () => {
+    render(<Button variant="secondary" size="sm">Save</Button>);
+    expect(buttonClass('secondary', 'sm')).toBe(screen.getByRole('button').className);
+  });
+});
 
 describe('Button', () => {
   it('renders its label and fires onClick', async () => {
