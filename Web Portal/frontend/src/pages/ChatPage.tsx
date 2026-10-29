@@ -755,7 +755,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
           steps aside, and a hidden stand-in keeps the main heading for screen readers. */}
       {showThread ? <h1 className="sr-only lg:hidden">Chat</h1> : null}
       <div
-        className="chat-frame grid overflow-hidden border-line bg-surface [--chat-top:57px] sm:rounded-2xl sm:border sm:shadow-soft sm:[--chat-top:89px] lg:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)] lg:[--chat-top:97px]"
+        className="chat-frame grid overflow-hidden border-line bg-surface [--chat-top:56px] sm:rounded-2xl sm:border sm:shadow-soft sm:[--chat-top:88px] lg:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)] lg:[--chat-top:96px]"
         ref={frameRef}
         style={frameOffset !== null ? ({ '--chat-top': `${frameOffset}px` } as React.CSSProperties) : undefined}
       >
