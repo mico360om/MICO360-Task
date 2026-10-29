@@ -354,7 +354,10 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
   }
 
   function viewOf(d: Draft): DraftView {
-    const answers = merged(d);
+    // A finished inspection is the server's report: what still waits here can't change it (it is
+    // counted in `pending` until it is sent after a reopen, or thrown away), so its answers, counts
+    // and failed items are the server's — never this phone's changes laid over them.
+    const answers = d.snapshot.status === 'FINISHED' ? merged({ ...d, answers: {} }) : merged(d);
     const s = summarize(d.snapshot.structure, answers);
     return {
       inspectionId: d.inspectionId,
