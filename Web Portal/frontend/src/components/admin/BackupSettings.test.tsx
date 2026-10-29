@@ -101,6 +101,13 @@ describe('System Settings → Backups', () => {
     expect(screen.getByText('/home/u/mico360-data/backups')).toBeInTheDocument();
   });
 
+  it('a copy made with Back up now is shown as such', async () => {
+    current = overview({ copies: [COPY({ id: 'm1', kind: 'manual', trigger: 'MANUAL' })] });
+    renderIt();
+    const list = await screen.findByRole('list', { name: 'Kept copies' });
+    expect(within(list).getByText('Back up now')).toBeInTheDocument();
+  });
+
   it('no copies yet', async () => {
     current = overview({ copies: [], lastSuccess: null });
     renderIt();

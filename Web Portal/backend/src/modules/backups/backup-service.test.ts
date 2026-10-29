@@ -272,7 +272,7 @@ describe('Google Drive copy', () => {
       },
       async upload(f) {
         if (fail) throw fail;
-        this.uploads.push(f.name);
+        this.uploads.push(`${f.name}${f.manual ? ' (manual)' : ''}`);
         return { fileId: `drive-${f.name}` };
       },
       async applyRetention() {
@@ -332,6 +332,25 @@ describe('keeping 7 nightly + 4 weekly copies', () => {
     const files = readdirSync(dir);
     expect(files).toHaveLength(12);
     expect(files).toContain('mico360-20261001-020000.sql');
+  });
+
+  it('"Back up now" never pushes out the night’s copy; the 3 newest "Back up now" copies are kept on top', async () => {
+    const svc = service();
+    clock = muscat('2026-10-30', '02:05');
+    await svc.runNightlyIfDue();
+    for (const hhmm of ['10:00', '11:00', '12:00', '13:00']) {
+      clock = muscat('2026-10-30', hhmm);
+      await svc.start('admin1');
+      await svc.idle();
+    }
+    const kept = (await svc.overview()).copies;
+    expect(kept.map((c) => [c.kind, c.trigger])).toEqual([
+      ['manual', 'MANUAL'],
+      ['manual', 'MANUAL'],
+      ['manual', 'MANUAL'],
+      ['nightly', 'NIGHTLY'],
+    ]);
+    expect(readdirSync(dir).filter((f) => f.endsWith('.tar.gz'))).toHaveLength(4);
   });
 
   it('runs after every good copy; failed tries older than 30 days are forgotten', async () => {

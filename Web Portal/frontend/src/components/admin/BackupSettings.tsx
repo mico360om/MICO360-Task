@@ -15,6 +15,7 @@ export const BACKUPS_ANCHOR = 'backups';
 const POLL_MS = 3000;
 const COARSE = '[@media(pointer:coarse)]:!min-h-11';
 const FOLDER = '“MICO360 Tasks backups”';
+const KIND_LABEL: Record<BackupCopy['kind'], string> = { nightly: 'Nightly', weekly: 'Weekly', manual: 'Back up now' };
 
 type Note = { ok: boolean; text: string };
 
@@ -222,9 +223,8 @@ function CopyRow({ copy, timeZone, driveConnected, busy, onDownload }: { copy: B
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-ink">{when}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-2">
-          <Badge tone={copy.kind === 'nightly' ? 'info' : 'neutral'}>{copy.kind === 'nightly' ? 'Nightly' : 'Weekly'}</Badge>
+          <Badge tone={copy.kind === 'nightly' ? 'info' : copy.kind === 'manual' ? 'brand' : 'neutral'}>{KIND_LABEL[copy.kind]}</Badge>
           <span>{sizeText(copy.sizeBytes)}</span>
-          {copy.trigger === 'MANUAL' ? <span>· made with Back up now</span> : null}
         </div>
       </div>
       {copy.drive === 'UPLOADED' ? (

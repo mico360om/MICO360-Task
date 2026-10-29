@@ -5,7 +5,10 @@ export interface RetentionCopy {
   createdAt: Date;
 }
 
-export type CopyKind = 'nightly' | 'weekly';
+export type CopyKind = 'nightly' | 'weekly' | 'manual';
+
+/** How many "Back up now" copies are kept, besides the nightly and weekly ones. */
+export const MANUAL_KEEP = 3;
 
 export interface RetentionOptions {
   /** The company time zone: copies are grouped by its calendar dates. */
@@ -65,4 +68,19 @@ export function planRetention(copies: RetentionCopy[], opts: RetentionOptions): 
     } else remove.push(c.id);
   }
   return { keep, remove };
+}
+
+/**
+ * The whole rule: nightly copies keep 7 nightly + 4 weekly (planRetention); copies made with "Back up
+ * now" are kept on top — the 3 newest — so pressing it (say, after a mistake) never pushes out the
+ * night's copy.
+ */
+export function planBackupRetention(copies: (RetentionCopy & { manual: boolean })[], opts: RetentionOptions): { keep: Map<string, CopyKind>; remove: string[] } {
+  const plan = planRetention(copies.filter((c) => !c.manual), opts);
+  const manual = copies.filter((c) => c.manual).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  manual.forEach((c, i) => {
+    if (i < MANUAL_KEEP) plan.keep.set(c.id, 'manual');
+    else plan.remove.push(c.id);
+  });
+  return plan;
 }

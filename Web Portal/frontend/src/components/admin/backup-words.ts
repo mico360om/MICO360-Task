@@ -27,7 +27,7 @@ export function copyWhen(iso: string, timeZone: string): string {
 export function scheduleText(nightly: { enabled: boolean; hour: number; timeZone: string }): string {
   if (!nightly.enabled) return 'Nightly copies are turned off on this server. You can still make one with Back up now.';
   const at = `${String(nightly.hour).padStart(2, '0')}:00`;
-  return `Every night at ${at} (${nightly.timeZone} time) the server copies the whole database and every uploaded file. It keeps the last 7 nights, plus one copy a week for the 4 weeks before.`;
+  return `Every night at ${at} (${nightly.timeZone} time) the server copies the whole database and every uploaded file. It keeps the last 7 nights, one copy a week for the 4 weeks before, and the 3 newest copies made with Back up now.`;
 }
 
 /** What to say when Google sends the administrator back (?drive=…). */

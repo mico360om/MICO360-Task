@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planRetention, type RetentionCopy } from './retention';
+import { planRetention, planBackupRetention, MANUAL_KEEP, type RetentionCopy } from './retention';
 
 const TZ = 'Asia/Muscat';
 /** A copy made at hh:mm company time (Muscat is UTC+4) on a company date. */
@@ -78,5 +78,17 @@ describe('retention: 7 nightly + 4 weekly copies (company calendar)', () => {
     const next = planRetention(store, { timeZone: TZ, weekStart: 0 });
     expect(next.remove.map((id) => id.slice(0, 10))).toEqual(['2026-09-26']);
     expect(kept(next, 'weekly')).toEqual(['2026-10-24', '2026-10-17', '2026-10-10', '2026-10-03']);
+  });
+
+  it('"Back up now" copies never push out a nightly copy: the nightly ones keep 7 + 4, and the 3 newest "Back up now" ones are kept too', () => {
+    expect(MANUAL_KEEP).toBe(3);
+    const nightly = days('2026-09-01', '2026-10-30').map((d) => ({ ...copy(d), manual: false }));
+    // Pressed after a mistake on 30 October: that morning's nightly copy must stay.
+    const manual = ['2026-10-30@11:00', '2026-10-30@11:30', '2026-10-29@15:00', '2026-10-01@09:00'].map((id) => ({ id, createdAt: at(id.slice(0, 10), id.slice(11)), manual: true }));
+    const plan = planBackupRetention([...nightly, ...manual], { timeZone: TZ, weekStart: 0 });
+    expect(plan.keep.get('2026-10-30@02:00')).toBe('nightly');
+    expect([...plan.keep.entries()].filter(([, k]) => k === 'manual').map(([id]) => id).sort()).toEqual(['2026-10-29@15:00', '2026-10-30@11:00', '2026-10-30@11:30']);
+    expect(plan.remove).toContain('2026-10-01@09:00');
+    expect(plan.keep.size).toBe(14);
   });
 });

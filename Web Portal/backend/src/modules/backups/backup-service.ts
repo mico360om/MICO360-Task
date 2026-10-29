@@ -9,7 +9,7 @@ import { BACKUP_KEY_MIN_LENGTH } from './backup-crypto';
 import { BackupFailedError } from './backup-errors';
 import type { BackupRepository, BackupRunLock, BackupRunRecord, BackupTrigger } from './backup-repository';
 import { MAX_NIGHTLY_ATTEMPTS, NIGHTLY_HOUR, nightlyDue } from './nightly-schedule';
-import { planRetention, type CopyKind } from './retention';
+import { planBackupRetention, type CopyKind } from './retention';
 
 export interface DriveState {
   /** GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set on this server. */
@@ -24,8 +24,8 @@ export interface DriveState {
 /** The Google Drive side of the backups (google-drive.ts + the stored connection). */
 export interface BackupDrive {
   state(): Promise<DriveState>;
-  upload(file: { path: string; name: string; sizeBytes: number; createdAt: Date; sha256: string; md5: string }): Promise<{ fileId: string }>;
-  /** Keep Drive's own copies to the same 7 nightly + 4 weekly. */
+  upload(file: { path: string; name: string; sizeBytes: number; createdAt: Date; sha256: string; md5: string; manual: boolean }): Promise<{ fileId: string }>;
+  /** Keep Drive's own copies by the same rule (7 nightly + 4 weekly, and the 3 newest "Back up now"). */
   applyRetention(opts: { timeZone: string; weekStart: 0 | 1 | 6 }): Promise<void>;
   /** A Drive failure in plain words. */
   plainError(err: unknown): string;
@@ -103,6 +103,8 @@ export function formatBytes(n: number): string {
   return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10} ${units[i]}`;
 }
 
+const retentionCopy = (r: BackupRunRecord) => ({ id: r.id, createdAt: r.startedAt, manual: r.trigger === 'MANUAL' });
+
 const failedText = (trigger: BackupTrigger) => (trigger === 'NIGHTLY' ? 'Last night’s backup failed' : 'The last backup failed');
 
 export function createBackupService(deps: BackupServiceDeps) {
@@ -163,7 +165,7 @@ export function createBackupService(deps: BackupServiceDeps) {
   /** The copies that are kept (good, with their file still in the folder), with their kind. */
   async function keptCopies(): Promise<{ row: BackupRunRecord; kind: CopyKind }[]> {
     const rows = (await deps.repo.ok()).filter((r) => r.fileName && isBackupFileName(r.fileName) && existsSync(join(deps.backupDir, r.fileName)));
-    const plan = planRetention(rows.map((r) => ({ id: r.id, createdAt: r.startedAt })), { timeZone: tz, weekStart: await deps.weekStart() });
+    const plan = planBackupRetention(rows.map(retentionCopy), { timeZone: tz, weekStart: await deps.weekStart() });
     return rows.filter((r) => plan.keep.has(r.id)).map((row) => ({ row, kind: plan.keep.get(row.id)! }));
   }
 
@@ -172,7 +174,7 @@ export function createBackupService(deps: BackupServiceDeps) {
     const all = await deps.repo.ok();
     const present = all.filter((r) => r.fileName && isBackupFileName(r.fileName) && existsSync(join(deps.backupDir, r.fileName)));
     const weekStart = await deps.weekStart();
-    const plan = planRetention(present.map((r) => ({ id: r.id, createdAt: r.startedAt })), { timeZone: tz, weekStart });
+    const plan = planBackupRetention(present.map(retentionCopy), { timeZone: tz, weekStart });
     const gone: string[] = [];
     for (const id of plan.remove) {
       const row = present.find((r) => r.id === id)!;
@@ -204,7 +206,15 @@ export function createBackupService(deps: BackupServiceDeps) {
     const state = await deps.drive.state().catch(() => null);
     if (!state?.connected) return;
     try {
-      const { fileId } = await deps.drive.upload({ path: join(deps.backupDir, row.fileName!), name: row.fileName!, sizeBytes: result.sizeBytes, createdAt: row.startedAt, sha256: result.sha256, md5: result.md5 });
+      const { fileId } = await deps.drive.upload({
+        path: join(deps.backupDir, row.fileName!),
+        name: row.fileName!,
+        sizeBytes: result.sizeBytes,
+        createdAt: row.startedAt,
+        sha256: result.sha256,
+        md5: result.md5,
+        manual: row.trigger === 'MANUAL',
+      });
       await deps.repo.update(row.id, { driveStatus: 'UPLOADED', driveFileId: fileId, driveError: null });
     } catch (err) {
       const reason = deps.drive.plainError(err);

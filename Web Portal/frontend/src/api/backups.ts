@@ -1,6 +1,7 @@
 import type { ApiClient } from '../lib/api-client';
 
-export type BackupKind = 'nightly' | 'weekly';
+/** nightly / weekly: kept by the 7 + 4 rule; manual: one of the 3 newest made with Back up now. */
+export type BackupKind = 'nightly' | 'weekly' | 'manual';
 export type BackupTrigger = 'NIGHTLY' | 'MANUAL';
 
 export interface BackupCopy {

@@ -17,7 +17,7 @@ describe('System Settings → Backups: words', () => {
 
   it('the schedule line', () => {
     expect(scheduleText({ enabled: true, hour: 2, timeZone: 'Asia/Muscat' })).toBe(
-      'Every night at 02:00 (Asia/Muscat time) the server copies the whole database and every uploaded file. It keeps the last 7 nights, plus one copy a week for the 4 weeks before.',
+      'Every night at 02:00 (Asia/Muscat time) the server copies the whole database and every uploaded file. It keeps the last 7 nights, one copy a week for the 4 weeks before, and the 3 newest copies made with Back up now.',
     );
     expect(scheduleText({ enabled: false, hour: 2, timeZone: 'Asia/Muscat' })).toBe('Nightly copies are turned off on this server. You can still make one with Back up now.');
   });

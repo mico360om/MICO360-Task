@@ -52,7 +52,8 @@ function padding(size: number): number {
   return (BLOCK - (size % BLOCK)) % BLOCK;
 }
 
-function waitForDrain(out: Writable): Promise<void> {
+/** Resolves when a full output can take more (or rejects if it fails or closes); leaves no listeners behind. */
+export function waitForDrain(out: Writable): Promise<void> {
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       out.off('drain', onDrain);

@@ -4,7 +4,7 @@ import type { SecretBox } from '../settings/secret-box';
 import type { BackupDrive, DriveState } from './backup-service';
 import { DriveError, plainDriveError, type GoogleDrive } from './google-drive';
 import type { OneTimeTokens } from './one-time-tokens';
-import { planRetention } from './retention';
+import { planBackupRetention } from './retention';
 
 /** The Google Drive connection, kept in system_settings (never shown by the settings API). */
 export const DRIVE_SETTING_KEY = 'backups.googleDrive';
@@ -174,7 +174,7 @@ export function createBackupDrive(deps: BackupDriveDeps): BackupDrive & {
             folderId,
             sizeBytes: file.sizeBytes,
             md5: file.md5,
-            appProperties: { mico360Backup: '1', createdAt: file.createdAt.toISOString(), sha256: file.sha256 },
+            appProperties: { mico360Backup: '1', createdAt: file.createdAt.toISOString(), sha256: file.sha256, trigger: file.manual ? 'manual' : 'nightly' },
           })
         ).id;
       });
@@ -187,8 +187,10 @@ export function createBackupDrive(deps: BackupDriveDeps): BackupDrive & {
       await withAccess(conn, async (access) => {
         const folderId = await folderOf(conn, access);
         const ours = (await deps.google!.list(access, folderId)).filter((f) => f.appProperties.mico360Backup === '1');
-        const plan = planRetention(
-          ours.map((f) => ({ id: f.id, createdAt: new Date(f.appProperties.createdAt ?? f.createdTime) })).filter((c) => !Number.isNaN(c.createdAt.getTime())),
+        const plan = planBackupRetention(
+          ours
+            .map((f) => ({ id: f.id, createdAt: new Date(f.appProperties.createdAt ?? f.createdTime), manual: f.appProperties.trigger === 'manual' }))
+            .filter((c) => !Number.isNaN(c.createdAt.getTime())),
           { timeZone, weekStart },
         );
         for (const id of plan.remove) await deps.google!.remove(access, id);

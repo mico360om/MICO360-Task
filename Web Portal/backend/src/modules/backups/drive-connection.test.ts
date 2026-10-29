@@ -44,7 +44,7 @@ function archive(size = 600 * 1024) {
   const data = randomBytes(size);
   const path = join(dir, 'mico360-tasks-backup-2026-10-30-0200-aaaaaa.tar.gz');
   writeFileSync(path, data);
-  return { path, name: 'mico360-tasks-backup-2026-10-30-0200-aaaaaa.tar.gz', sizeBytes: size, createdAt: new Date('2026-10-29T22:00:00Z'), sha256: createHash('sha256').update(data).digest('hex'), md5: createHash('md5').update(data).digest('hex'), data };
+  return { path, name: 'mico360-tasks-backup-2026-10-30-0200-aaaaaa.tar.gz', sizeBytes: size, createdAt: new Date('2026-10-29T22:00:00Z'), manual: false, sha256: createHash('sha256').update(data).digest('hex'), md5: createHash('md5').update(data).digest('hex'), data };
 }
 
 beforeEach(async () => {
@@ -125,7 +125,9 @@ describe('sending copies to Drive', () => {
     expect(f.content.equals(a.data)).toBe(true);
     expect(f.name).toBe(a.name);
     expect(fake.files.get(f.parents[0]!)!.name).toBe(FOLDER_NAME);
-    expect(f.appProperties).toEqual({ mico360Backup: '1', createdAt: '2026-10-29T22:00:00.000Z', sha256: a.sha256 });
+    expect(f.appProperties).toEqual({ mico360Backup: '1', createdAt: '2026-10-29T22:00:00.000Z', sha256: a.sha256, trigger: 'nightly' });
+    const m = await drive.upload({ ...archive(), manual: true });
+    expect(fake.files.get(m.fileId)!.appProperties.trigger).toBe('manual');
   });
 
   it('makes the folder again when the owner deleted it in Drive', async () => {
@@ -164,6 +166,9 @@ describe('sending copies to Drive', () => {
       fake.addFile({ name: `copy-${day}.tar.gz`, parents: [folder.id], appProperties: { mico360Backup: '1', createdAt: new Date(`${day}T02:00:00+04:00`).toISOString() } });
     }
     fake.addFile({ name: 'owner-notes.pdf', parents: [folder.id] });
+    for (const [d, hhmm] of [['2026-10-30', '11:00'], ['2026-10-30', '12:00'], ['2026-10-29', '12:00'], ['2026-10-02', '12:00']]) {
+      fake.addFile({ name: `now-${d}-${hhmm}.tar.gz`, parents: [folder.id], appProperties: { mico360Backup: '1', trigger: 'manual', createdAt: new Date(`${d}T${hhmm}:00+04:00`).toISOString() } });
+    }
     await drive.applyRetention({ timeZone: 'Asia/Muscat', weekStart: 0 });
     const names = [...fake.files.values()].filter((f) => f.parents.includes(folder.id)).map((f) => f.name).sort();
     expect(names).toEqual([
@@ -171,6 +176,9 @@ describe('sending copies to Drive', () => {
       'copy-2026-10-10.tar.gz',
       'copy-2026-10-17.tar.gz',
       ...[24, 25, 26, 27, 28, 29, 30].map((d) => `copy-2026-10-${d}.tar.gz`),
+      'now-2026-10-29-12:00.tar.gz',
+      'now-2026-10-30-11:00.tar.gz',
+      'now-2026-10-30-12:00.tar.gz',
       'owner-notes.pdf',
     ]);
   });

@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
-import { createTarWriter, readTar } from './tar';
+import { createTarWriter, readTar, waitForDrain } from './tar';
+import { Writable } from 'node:stream';
 
 async function collect(src: Readable): Promise<Buffer> {
   const parts: Buffer[] = [];
@@ -127,5 +128,14 @@ describe('tar writer and reader', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+  it('waiting for a full output to drain leaves no listeners behind', async () => {
+    const slow = new Writable({ highWaterMark: 4, write: (_c, _e, done) => setImmediate(done) });
+    for (let i = 0; i < 50; i++) {
+      if (!slow.write(Buffer.alloc(16))) await waitForDrain(slow);
+    }
+    expect(slow.listenerCount('error')).toBe(0);
+    expect(slow.listenerCount('drain')).toBe(0);
+    expect(slow.listenerCount('close')).toBe(0);
   });
 });

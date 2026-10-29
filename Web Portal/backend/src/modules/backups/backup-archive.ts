@@ -10,7 +10,7 @@ import { BackupDamagedError, BackupKeyError, decryptStream, encryptStream, isEnc
 import { RestoreError } from './backup-errors';
 import { dumpRows, fkSafeOrder, listForeignKeys, listTables, type ColumnInfo } from './db-dump';
 import type { SqlRunner } from './sql-runner';
-import { createTarWriter, isSafeEntryName, readTar, TarError, type TarEntry } from './tar';
+import { createTarWriter, isSafeEntryName, readTar, TarError, waitForDrain, type TarEntry } from './tar';
 
 export const BACKUP_FORMAT = 'mico360-tasks-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -176,7 +176,7 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
             hash.update(line);
             bytes += Buffer.byteLength(line);
             rows += 1;
-            if (!ws.write(line)) await new Promise<void>((resolve, reject) => ws.once('drain', resolve).once('error', reject));
+            if (!ws.write(line)) await waitForDrain(ws);
           }
         } finally {
           ws.end();
