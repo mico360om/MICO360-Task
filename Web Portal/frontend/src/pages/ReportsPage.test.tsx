@@ -211,4 +211,12 @@ describe('ReportsPage layout', () => {
     expect(grid.className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
     expect(grid.className).toMatch(/lg:grid-cols-4/);
   });
+
+  it('on a phone sets the two filters side by side under their label instead of a ragged wrap', async () => {
+    renderPage();
+    const bar = (await screen.findByRole('button', { name: /filter by project/i })).closest('.card')!;
+    expect(bar).toContainElement(screen.getByRole('button', { name: /filter by team member/i }));
+    expect(bar.className).toMatch(/(^|\s)grid-cols-2(\s|$)/);
+    expect(bar.className).toMatch(/sm:flex/);
+  });
 });

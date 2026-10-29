@@ -270,15 +270,16 @@ export function ReportsPage() {
       ) : (
         <div className="flex flex-col gap-5">
           {/* Filters */}
-          <div className="card flex flex-wrap items-center gap-2 p-2.5">
-            <span className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
-            <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} /></div>
-            <div className="w-44 max-w-full"><SearchableSelect ariaLabel="Filter by team member" value={teamFilter} onChange={setTeamFilter} options={teamOptions} /></div>
+          {/* On a phone the two filters sit side by side under their label; one wrapping line from sm up. */}
+          <div className="card grid grid-cols-2 items-center gap-2 p-2.5 sm:flex sm:flex-wrap">
+            <span className="col-span-2 px-1 text-xs font-semibold uppercase tracking-wide text-ink-2">Filter</span>
+            <div className="min-w-0 sm:w-44"><SearchableSelect ariaLabel="Filter by project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} /></div>
+            <div className="min-w-0 sm:w-44"><SearchableSelect ariaLabel="Filter by team member" value={teamFilter} onChange={setTeamFilter} options={teamOptions} /></div>
             {filtersActive ? (
-              <button onClick={() => { setProjectFilter(''); setTeamFilter(''); }} className="rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
+              <button type="button" onClick={() => { setProjectFilter(''); setTeamFilter(''); }} className="justify-self-start rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink">Clear</button>
             ) : null}
             {filtersActive ? (
-              <span dir="auto" className="ml-auto text-xs text-ink-3">
+              <span dir="auto" className="text-xs text-ink-3 max-sm:col-span-2 sm:ml-auto">
                 Showing {projectFilter ? projectLabel(projectFilter) : 'all projects'}
                 {teamFilter ? ` · ${teamLabel(teamFilter)}’s tasks` : ''} — charts, tiles and exports
               </span>
