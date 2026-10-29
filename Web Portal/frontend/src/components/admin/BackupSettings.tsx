@@ -168,8 +168,8 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
             {!data.drive.configured ? (
               <p className="text-sm text-ink-2">Google Drive isn’t set up on this server yet.</p>
             ) : !data.drive.connected ? (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="min-w-0 flex-1 text-sm text-ink-2">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="min-w-0 text-sm text-ink-2 sm:flex-1">
                   Send each new copy to your own Google Drive too, into a folder called {FOLDER}. The app can only see the files it puts there.
                 </p>
                 <Button size="sm" variant="secondary" loading={connect.isPending} onClick={() => connect.mutate()} className={COARSE}>
@@ -177,7 +177,7 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-ink">Connected as {data.drive.email ?? 'your Google account'}</p>
                   <p className="text-xs text-ink-2">
@@ -221,28 +221,28 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
 function CopyRow({ copy, timeZone, driveConnected, busy, onDownload }: { copy: BackupCopy; timeZone: string; driveConnected: boolean; busy: boolean; onDownload: () => void }) {
   const when = copyWhen(copy.createdAt, timeZone);
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+    <li className="flex items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-ink">{when}</div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-2">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-2">
           <Badge tone={copy.kind === 'nightly' ? 'info' : copy.kind === 'manual' ? 'brand' : 'neutral'}>{KIND_LABEL[copy.kind]}</Badge>
           <span>{sizeText(copy.sizeBytes)}</span>
+          {copy.drive === 'UPLOADED' ? (
+            <span className="flex items-center gap-1 font-medium text-success">
+              <span aria-hidden="true">✓</span>
+              <span>Sent to Google Drive</span>
+            </span>
+          ) : copy.drive === 'FAILED' ? (
+            <span className="flex items-center gap-1 font-medium text-danger" title={copy.driveError ?? undefined}>
+              <span aria-hidden="true">✗</span>
+              <span>Not sent to Google Drive</span>
+            </span>
+          ) : driveConnected ? (
+            <span className="text-ink-3">Not in Google Drive</span>
+          ) : null}
         </div>
       </div>
-      {copy.drive === 'UPLOADED' ? (
-        <span className="flex items-center gap-1 text-xs font-medium text-success">
-          <span aria-hidden="true">✓</span>
-          <span>Sent to Google Drive</span>
-        </span>
-      ) : copy.drive === 'FAILED' ? (
-        <span className="flex items-center gap-1 text-xs font-medium text-danger" title={copy.driveError ?? undefined}>
-          <span aria-hidden="true">✗</span>
-          <span>Not sent to Google Drive</span>
-        </span>
-      ) : driveConnected ? (
-        <span className="text-xs text-ink-3">Not in Google Drive</span>
-      ) : null}
-      <Button size="sm" variant="secondary" loading={busy} onClick={onDownload} aria-label={`Download the copy of ${when}`} className={COARSE}>
+      <Button size="sm" variant="secondary" loading={busy} onClick={onDownload} aria-label={`Download the copy of ${when}`} className={`flex-none ${COARSE}`}>
         Download
       </Button>
     </li>
