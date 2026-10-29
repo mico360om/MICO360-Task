@@ -14,6 +14,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Task approvals: tick "Needs approval" on a task (or switch on "New tasks in this project need
+  approval" for a project) and it must be approved by whoever runs the project before it counts as
+  done. When someone else finishes it, it waits in Review with a "Waiting for approval" badge.
+- The project's manager (or an administrator) can Approve it — it is done then — or Send it back
+  with a reason, which goes to the people on it as a comment. A manager finishing their own task is
+  done at once.
+- Managers see what waits for them in My Tasks ("To approve"), on the Dashboard, on the Management
+  page and in the morning email, and get a notice each time a task starts waiting.
+
 ## [1.18.1] - 2026-10-29
 
 ### Improvements
