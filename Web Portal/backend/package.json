@@ -23,6 +23,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "bootstrap": "tsx src/scripts/bootstrap.ts",
+    "backup:create": "node dist/src/scripts/backup-create.js",
+    "backup:restore": "node dist/src/scripts/backup-restore.js",
     "test:e2e": "node e2e/lifecycle.e2e.mjs"
   },
   "dependencies": {

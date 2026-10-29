@@ -105,6 +105,7 @@ import { createInspectionScheduleService } from './modules/inspections/inspectio
 import { createPrismaInspectionScheduleSource } from './modules/inspections/prisma-inspection-schedule-source';
 import { readProjectPicture } from './lib/pdf-image';
 import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
+import { createBackupsFromPrisma } from './modules/backups/backup-wiring';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -1239,6 +1240,47 @@ async function main(): Promise<void> {
     logger,
   });
 
+  // ── Nightly backups (docs/BACKUPS.md) ──────────────────────────────────────
+  // The whole database and the uploaded files, every night from 02:00 company time, into BACKUP_DIR
+  // (and the owner's Google Drive when connected); 7 nightly + 4 weekly copies are kept. Checked every
+  // 10 minutes on one lease-locked instance; a server that was off at 02:00 catches up the same day.
+  // The first check waits two minutes, so a backup never competes with the server starting up.
+  const backups = createBackupsFromPrisma(prisma, {
+    env,
+    cwd: process.cwd(),
+    appVersion: release.build.version,
+    timeZone: companyTz,
+    weekStart: () => settingsService.companyWeekStart(),
+    isActiveAdmin: async (userId) => {
+      const state = await userStateLookup(userId);
+      return Boolean(state?.active && state.roles.includes('ADMIN'));
+    },
+    // Failures go to every active administrator by email (when email is set up); success is quiet.
+    alertAdmins: async ({ title, message }) => {
+      if (!emailService.isConfigured()) return;
+      const { users, adminIds } = await sweepAudience();
+      for (const u of users) {
+        if (!adminIds.includes(u.id) || !u.email) continue;
+        await emailService
+          .sendAlert(u.email, { title, message, tone: 'danger', actionLabel: 'Open System Settings', actionLink: `${env.APP_URL.replace(/\/+$/, '')}/admin/settings#backups` })
+          .catch((err) => logger.warn('backup alert email failed', { err, to: u.email }));
+      }
+    },
+    logger,
+  });
+  logger.info('Backups', { folder: backups.backupDir, nightly: env.BACKUP_NIGHTLY, encrypted: Boolean(env.BACKUP_ENCRYPTION_KEY), googleDrive: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) });
+  const runNightlyBackup = () =>
+    runExclusive(jobLock, 'nightly-backup', 9 * 60 * 1000, () => new Date(), async () => {
+      await backups.service.runNightlyIfDue();
+    }).catch((err) => {
+      logger.error('nightly backup sweep failed', { err });
+      return false;
+    });
+  const firstBackupCheck = setTimeout(() => void runNightlyBackup(), 2 * 60 * 1000);
+  firstBackupCheck.unref?.();
+  const backupTimer = setInterval(() => void runNightlyBackup(), 10 * 60 * 1000);
+  backupTimer.unref?.();
+
   // Client view: a client follows one project on a read-only page — a private link that opens only
   // with a code emailed to them; nothing in it is a staff account or session.
   const readStoredProjectImage = async (url: string) =>
@@ -1480,6 +1522,7 @@ async function main(): Promise<void> {
       timeZone: companyTz,
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
     },
+    backups: backups.routes,
   });
 
   // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).
