@@ -28,21 +28,20 @@ export function taskPhase(t: ApiTask, today: string, timeZone = 'UTC'): TaskPhas
 export function taskStats(tasks: ApiTask[], today: string, timeZone = 'UTC') {
   const count = { completed: 0, overdue: 0, ongoing: 0, pending: 0 };
   const byPriority: Record<Priority, number> = { URGENT: 0, HIGH: 0, NORMAL: 0, LOW: 0 };
-  let progress = 0;
   for (const t of tasks) {
     const phase = taskPhase(t, today, timeZone);
     count[phase] += 1;
-    progress += phase === 'completed' ? 100 : Math.max(0, Math.min(100, t.progress ?? 0));
     if (phase !== 'completed') byPriority[t.priority] += 1;
   }
   const total = tasks.length;
   return {
     total,
     ...count,
-    /** Share of tasks finished. */
+    /**
+     * Share of tasks finished: the project's one completion figure (the Completion tile, Work done,
+     * the client page, Management and Reports all show it). Not the tasks' average progress.
+     */
     pct: total ? Math.round((count.completed / total) * 100) : 0,
-    /** The tasks' average progress (finished ones count as 100%). */
-    avgProgress: total ? Math.round(progress / total) : 0,
     /** Open tasks by priority. */
     byPriority,
   };

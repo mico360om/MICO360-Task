@@ -104,9 +104,10 @@ export function OverviewTab(p: OverviewProps) {
             <div>
               <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
                 <span className="whitespace-nowrap font-semibold text-ink">Work done</span>
-                <span className="tabular-nums text-ink-2">{p.statsReady ? `${stats.completed} of ${stats.total} tasks · ${stats.avgProgress}% overall` : '…'}</span>
+                {/* The project's one completion figure (the Completion tile, the client page, Management): tasks finished. */}
+                <span className="tabular-nums text-ink-2">{p.statsReady ? `${stats.completed} of ${stats.total} tasks · ${stats.pct}% done` : '…'}</span>
               </div>
-              <ProgressBar value={p.statsReady ? stats.avgProgress : 0} label="Work done" tone="success" />
+              <ProgressBar value={p.statsReady ? stats.pct : 0} label="Work done" tone="success" />
             </div>
             <div>
               <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
