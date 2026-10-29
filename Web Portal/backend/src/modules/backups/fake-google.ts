@@ -98,7 +98,7 @@ function matches(file: FakeDriveFile, q: string): boolean {
   return true;
 }
 
-export async function startFakeGoogle(opts: { email?: string; clientId?: string; clientSecret?: string } = {}): Promise<FakeGoogle> {
+export async function startFakeGoogle(opts: { email?: string; clientId?: string; clientSecret?: string; port?: number } = {}): Promise<FakeGoogle> {
   const clientId = opts.clientId ?? 'fake-client-id.apps.googleusercontent.com';
   const clientSecret = opts.clientSecret ?? 'fake-client-secret';
   const email = opts.email ?? 'owner@gmail.com';
@@ -270,7 +270,7 @@ export async function startFakeGoogle(opts: { email?: string; clientId?: string;
       }
     })();
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   return {

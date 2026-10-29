@@ -56,6 +56,7 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
   const [driveNote, setDriveNote] = useState<Note | null>(null);
   const [askDisconnect, setAskDisconnect] = useState(false);
   const scrolled = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const q = useQuery({
     queryKey: ['backups'],
@@ -69,11 +70,12 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
     if (result) setDriveNote(result);
   }, []);
 
-  // Coming back from Google: bring the section into view once it is there.
+  // Coming back from Google (or a #backups link): bring the section into view, the keyboard on its heading.
   useEffect(() => {
     if (!data || scrolled.current || window.location.hash !== `#${BACKUPS_ANCHOR}`) return;
     scrolled.current = true;
     document.getElementById(BACKUPS_ANCHOR)?.scrollIntoView?.({ block: 'start' });
+    headingRef.current?.focus({ preventScroll: true });
   }, [data]);
 
   // "Back up now" finished: say so (a failure shows as the warning). Only an overview read after the
@@ -118,7 +120,7 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
 
   return (
     <section id={BACKUPS_ANCHOR} className="card p-5 lg:col-span-2" aria-labelledby="backups-heading">
-      <h2 id="backups-heading" className="eyebrow mb-1">Backups</h2>
+      <h2 ref={headingRef} tabIndex={-1} id="backups-heading" className="eyebrow mb-1 outline-none">Backups</h2>
       {q.isLoading ? (
         <p className="text-sm text-ink-2">Loading…</p>
       ) : !data ? (

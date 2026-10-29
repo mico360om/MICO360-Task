@@ -185,6 +185,8 @@ describe('System Settings → Backups', () => {
     expect(await screen.findByText('Google Drive is connected. Each new copy will also go there.')).toBeInTheDocument();
     expect(window.location.search).toBe('');
     expect(window.location.hash).toBe('#backups');
+    // Landing on #backups puts the keyboard on the section's heading.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Backups' })));
   });
 
   it('when the overview can’t be read: a plain error with Retry', async () => {
