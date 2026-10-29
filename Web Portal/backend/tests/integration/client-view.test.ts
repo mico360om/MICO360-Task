@@ -84,6 +84,12 @@ describe('client view in the database', () => {
     expect(JSON.stringify(items)).not.toContain('Waiting on Ahmed');
   });
 
+  it('a marked task waiting for approval is read as such (the client page shows it in progress), and isn’t done', async () => {
+    await task(a.id, a.todo, 'Marked and waiting', { clientVisible: true, needsApproval: true, approvalRequestedAt: new Date() });
+    expect((await source.items(a.id)).find((i) => i.title === 'Marked and waiting')).toMatchObject({ completedAt: null, awaitingApproval: true });
+    expect(await source.counts(a.id)).toEqual({ total: 1, done: 0 });
+  });
+
   it('counts every live task of the project for % done (marked or not)', async () => {
     await task(a.id, a.done, 'Done one');
     await task(a.id, a.todo, 'Completed elsewhere', { completedAt: new Date() });

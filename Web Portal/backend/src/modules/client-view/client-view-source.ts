@@ -120,7 +120,8 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
         dueDate: t.dueDate,
         completedAt: t.completedAt,
         columnCategory: t.column?.category ?? null,
-        awaitingApproval: t.approvalRequestedAt !== null,
+        // Only said when it waits (clients are shown it as in progress, never why).
+        ...(t.approvalRequestedAt ? { awaitingApproval: true } : {}),
       }));
     },
     async minutes(projectId) {
