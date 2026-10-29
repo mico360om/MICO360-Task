@@ -173,8 +173,9 @@ export function SystemSettingsPage() {
           </div>
         </section>
 
-        {/* Current settings — known, safe values only (never raw JSON). */}
-        <section className="card p-5">
+        {/* Current settings — known, safe values only (never raw JSON). As tall as its content: often
+            one line, which looked empty stretched to the carry-forward card beside it. */}
+        <section className="card self-start p-5">
           <h2 className="eyebrow mb-3">Current settings</h2>
           {q.isLoading ? (
             <p className="text-ink-2">Loading…</p>
