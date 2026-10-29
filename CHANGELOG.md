@@ -14,6 +14,56 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- A brand-new company sees first steps, not a page of zeros: the Dashboard says Welcome and shows
+  "Set up your workspace" (Create a project, Add your team); My Tasks, Notifications and Activity
+  offer the same steps when they are empty; an employee on no project is told so and may start one.
+- Projects: with no project yet, one invitation that says what a project is for; beside one or
+  two projects, a "Start another project" tile fills the row.
+- New task with no project explains that every task belongs to a project and offers Create a
+  project, instead of a form that could not be sent.
+- Board: says when a day has no tasks; an empty column shows "No tasks · Add a task" under its
+  header; with no project it offers New project.
+- Project page: the completion bar shows its track; Overview cards no longer stretch to each
+  other's height; Next meeting names the last meeting when none is planned; empty Tasks and
+  Meetings tabs say what to do next.
+- Inspections tab: one invitation to make an inspection form instead of four empty boxes; the task
+  panel offers "Start an inspection" only when the company has a form.
+- Meetings: bigger cards (one a row on a phone, two on a tablet or laptop, three on a wide screen)
+  with their details and footers lined up; a summary strip (Next 7 days, Open action items,
+  Minutes to finish, Held this month) that shows just those meetings when pressed; and "Nothing
+  coming up", which names the last meeting and offers Schedule a meeting.
+- My Action Items: one list with columns (item, meeting, due date, status), and an empty state that
+  points to Meetings.
+- A finished meeting with no agenda or notes speaks of them in the past ("No notes were taken").
+- Chat, Reports, Management, Timeline, Audit Logs and the New project form say plainly when there
+  is nothing yet and offer a next step, instead of flat charts, "Select a conversation" or an empty
+  template box; Reports shows "—" for the on-time rate until something with a due date is done.
+- Search says "Nothing matches …" when it finds nothing, before the Ask MICO AI line.
+- Page titles sit at the same height on every page; stat tiles and bar-chart labels read whole on
+  phones and tablets; the Settings Profile card keeps its own height; Notifications keep a readable
+  width on wide screens.
+- Dashboard: Recent activity says who was given a task ("Aisha Khan assigned MICO-3 to Omar Ahmed").
+- User Management shows each person's full name with their @username under it.
+- Share with client: the panel lists exactly what the client page shows (tasks and milestones,
+  approved minutes, inspection reports with the inspector's notes and the signers' names) and what
+  it never shows.
+- Minutes PDF: dates read day-month-year and times in 24 hours ("1 Oct 2026, 13:15"); an open action
+  item past its due date says "Overdue", and the Open action items tile counts them.
+- Weekly management email: after the projects it names, it says how many more need attention
+  ("and 2 more on the Management page").
+- Phones and tablets: the file box says "Tap to add files or photos"; the Workload table can be
+  scrolled from the keyboard.
+
+### Bug fixes
+- Initials are made from letters only: "Mohammed (OXY)" shows MO and "(OXY) Pipeline" shows OP (they
+  showed "M(" and "(P"), on the website, in PDFs and emails. The Android app and the Chrome
+  extension follow in their next update.
+- The project page showed two completion figures (9% on the tile, 41% under Work done); Work done
+  now shows the same share of tasks finished ("1 of 11 tasks · 9% done").
+- Email-code sign-in: reloading the page keeps you on the code step, and asking for another code
+  within a minute now says so and how long to wait (it said a code was sent when none was).
+
 ## [1.18.1] - 2026-10-29
 
 ### Improvements
