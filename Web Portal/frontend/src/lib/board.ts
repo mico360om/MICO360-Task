@@ -109,6 +109,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           milestone: !!t.isMilestone,
           clientVisible: !!t.clientVisible,
           inspection: !!t.inspectionFormId,
+          awaitingApproval: !!t.approvalRequestedAt,
           // A finished task (DONE column, or completed) is never shown as overdue.
           done: col.category === 'DONE' || !!t.completedAt,
         })),
@@ -169,6 +170,7 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
           milestone: !!t.isMilestone,
           clientVisible: !!t.clientVisible,
           inspection: !!t.inspectionFormId,
+          awaitingApproval: !!t.approvalRequestedAt,
           done: status === 'DONE' || !!t.completedAt,
           project: { name: p.name, code: p.code, color: p.color, icon: p.icon ?? null, imageUrl: p.imageUrl },
         };

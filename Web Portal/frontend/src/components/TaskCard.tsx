@@ -6,6 +6,7 @@ import { isOverdue } from '../lib/due-date';
 import { formatDueDay } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { InspectionChip } from './inspections/inspection-ui';
+import { ApprovalChip } from './approvals/ApprovalChip';
 
 export interface TaskCardTask {
   key: string;
@@ -27,6 +28,8 @@ export interface TaskCardTask {
   clientVisible?: boolean;
   /** Carries an inspection form (a check): opening it starts the checklist. */
   inspection?: boolean;
+  /** Finished, waiting for a project manager's approval (not done yet). */
+  awaitingApproval?: boolean;
   /** True when the task is finished (DONE column or completed) — a finished task is never overdue. */
   done?: boolean;
   /** Its project, on a board showing several projects (the All projects board). */
@@ -156,8 +159,9 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
 
       {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and
           the flags, it overlapped them in a narrow column and broke the key in two). */}
-      {task.inspection || hasDue || (c && (c.checklistTotal > 0 || c.comments > 0 || c.attachments > 0)) ? (
+      {task.awaitingApproval || task.inspection || hasDue || (c && (c.checklistTotal > 0 || c.comments > 0 || c.attachments > 0)) ? (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          {task.awaitingApproval ? <ApprovalChip /> : null}
           {task.inspection ? <InspectionChip /> : null}
           {hasDue ? (
             <span

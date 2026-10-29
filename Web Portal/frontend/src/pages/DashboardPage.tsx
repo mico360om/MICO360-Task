@@ -22,6 +22,7 @@ import { useCompanyTimeZone } from '../lib/company-clock';
 import { LoadError } from '../components/ui/LoadError';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { Icon } from '../components/meeting/kit';
+import { ApprovalsCard } from '../components/approvals/ApprovalsCard';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -239,6 +240,8 @@ export function DashboardPage() {
 
         {/* Right rail */}
         <div className="flex flex-col gap-4">
+          {/* For the people who can approve tasks (they run a project, or are an admin). */}
+          <ApprovalsCard onOpenTask={openTask} />
           <Reveal delay={1}>
             <section className="card p-5">
               <div className="mb-3 flex items-center justify-between">

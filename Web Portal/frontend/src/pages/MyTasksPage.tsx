@@ -23,12 +23,15 @@ import { dueDayKey, shiftDayKey, todayKey as companyTodayKey } from '../lib/due-
 import { formatDueDay, isTaskDone } from '../lib/due-display';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { invalidateTaskQueries } from '../lib/task-cache';
+import { approvalNotice } from '../lib/approvals';
 import { MoveTaskDialog, useMoveTargets } from '../components/MoveTaskDialog';
 import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
 import { InspectionChip } from '../components/inspections/inspection-ui';
+import { ApprovalChip } from '../components/approvals/ApprovalChip';
+import { ToApproveSection } from '../components/approvals/ToApproveSection';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
 import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
@@ -212,6 +215,7 @@ export function MyTasksPage() {
 
   // Bulk actions reuse the single-task endpoints (each already object-level authorized).
   const colCache = useRef(new Map<string, Promise<ApiColumn[]>>());
+  const waitingAfterBulk = useRef(0);
   const getColumns = (projectId: string) => {
     let p = colCache.current.get(projectId);
     if (!p) { p = columnsApi(apiClient).list(projectId); colCache.current.set(projectId, p); }
@@ -219,7 +223,12 @@ export function MyTasksPage() {
   };
   const bulkDeps: BulkDeps = {
     update: (id, patch) => tasksApi(apiClient).update(id, patch),
-    move: (id, columnId) => tasksApi(apiClient).move(id, columnId),
+    move: async (id, columnId) => {
+      const moved = await tasksApi(apiClient).move(id, columnId);
+      // Needs approval: it waits for a project manager instead of completing.
+      if (approvalNotice(columnId, moved)) waitingAfterBulk.current += 1;
+      return moved;
+    },
     assign: (id, userId) => assigneesApi(apiClient).assign(id, userId),
     doneColumnFor: async (t) => {
       const cols = await getColumns(t.projectId);
@@ -232,12 +241,15 @@ export function MyTasksPage() {
     if (refs.length === 0) return;
     setBulkBusy(true);
     setToast(null);
+    waitingAfterBulk.current = 0;
     try {
       const res = await runBulk(refs, action, bulkDeps);
       colCache.current.clear();
       await invalidateTaskQueries(qc);
       setSelected(new Set());
-      setToast(res.failed === 0 ? `${label} ${res.succeeded} task${res.succeeded === 1 ? '' : 's'}.` : `${label} ${res.succeeded}, ${res.failed} couldn’t be updated.`);
+      const waiting = waitingAfterBulk.current;
+      const waits = waiting ? ` ${waiting} need${waiting === 1 ? 's' : ''} approval and ${waiting === 1 ? 'is' : 'are'} waiting for a project manager.` : '';
+      setToast((res.failed === 0 ? `${label} ${res.succeeded} task${res.succeeded === 1 ? '' : 's'}.` : `${label} ${res.succeeded}, ${res.failed} couldn’t be updated.`) + waits);
     } catch {
       setToast('Bulk action failed. Please try again.');
     } finally {
@@ -297,6 +309,9 @@ export function MyTasksPage() {
         subtitle="Everything assigned to you, across every project."
         actions={<NewTaskButton onCreated={() => tasksQ.refetch()} />}
       />
+
+      {/* Tasks waiting for my approval (people who run a project, and admins). */}
+      <ToApproveSection onOpen={setOpenTaskId} />
 
       {/* Saved filter presets */}
       {counts.total > 0 ? <SavedViewsBar current={currentFilters} onApply={applyView} /> : null}
@@ -544,6 +559,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
       <div className="flex items-center gap-2">
         <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
         <StatusPill category={e.cat} />
+        {t.approvalRequestedAt ? <ApprovalChip /> : null}
         {t.inspectionFormId ? <InspectionChip /> : null}
       </div>
       <button
@@ -596,6 +612,11 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         >
           {t.title}
         </button>
+        {t.approvalRequestedAt ? (
+          <span className="hidden flex-none sm:inline-flex">
+            <ApprovalChip />
+          </span>
+        ) : null}
         {t.inspectionFormId ? (
           <span className="hidden flex-none sm:inline-flex">
             <InspectionChip />
@@ -605,6 +626,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <span className="font-mono text-[11px] text-ink-3">{t.key}</span>
           <StatusPill category={e.cat} />
+          {t.approvalRequestedAt ? <ApprovalChip /> : null}
           {t.inspectionFormId ? <InspectionChip /> : null}
           <PriorityBadge priority={t.priority} />
           <DueLabel e={e} className="text-xs tabular-nums" />

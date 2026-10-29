@@ -28,6 +28,8 @@ export const TASK_QUERY_ROOTS = [
   'workload',
   // A project's Inspections tab lists its due checks and schedules (tasks that carry a form).
   'project-inspections',
+  // The To approve list and the Dashboard's approvals card (tasks waiting for approval).
+  'approvals',
 ] as const;
 
 /** Views under another root that count tasks: the Projects page's card figures (open, overdue, next due…) and the Timeline's. */

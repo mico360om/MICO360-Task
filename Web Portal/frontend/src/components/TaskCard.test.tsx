@@ -139,4 +139,12 @@ describe('TaskCard on a board of several projects', () => {
     render(<TaskCard task={task} />);
     expect(screen.queryByText('Inspection')).not.toBeInTheDocument();
   });
+
+  it('marks a task waiting for approval, in words', () => {
+    const { unmount } = render(<TaskCard task={{ ...task, awaitingApproval: true }} />);
+    expect(screen.getByTestId('approval-chip')).toHaveTextContent('Waiting for approval');
+    unmount();
+    render(<TaskCard task={task} />);
+    expect(screen.queryByTestId('approval-chip')).not.toBeInTheDocument();
+  });
 });

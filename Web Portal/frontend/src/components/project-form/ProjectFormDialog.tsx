@@ -46,6 +46,7 @@ interface Draft {
   icon: string | null;
   carryForward: boolean;
   defaultDueToday: boolean;
+  newTasksNeedApproval: boolean;
 }
 
 /** A project's draft; a new one is owned by the person creating it unless they pick someone else. */
@@ -63,6 +64,7 @@ const draftOf = (p?: ApiProject | null, newOwner = ''): Draft => ({
   // What every project does unless it is told otherwise (also a project saved before these existed).
   carryForward: p?.carryForward ?? true,
   defaultDueToday: p?.defaultDueToday ?? false,
+  newTasksNeedApproval: p?.newTasksNeedApproval ?? false,
 });
 
 /** Off for the whole company? Read as the server reads it (an old stored "false" is off too). */
@@ -85,6 +87,7 @@ function changes(before: Draft, after: Draft): Partial<NewProjectInput> {
   if (after.icon !== before.icon) patch.icon = after.icon;
   if (after.carryForward !== before.carryForward) patch.carryForward = after.carryForward;
   if (after.defaultDueToday !== before.defaultDueToday) patch.defaultDueToday = after.defaultDueToday;
+  if (after.newTasksNeedApproval !== before.newTasksNeedApproval) patch.newTasksNeedApproval = after.newTasksNeedApproval;
   return patch;
 }
 
@@ -156,7 +159,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   useEffect(() => {
     if (banner) bannerRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [banner]);
-  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId() };
+  const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId(), approvalHelp: useId() };
 
   const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
@@ -289,6 +292,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
             // Only what differs from how every project starts (the server fills in the rest).
             ...(draft.carryForward ? {} : { carryForward: false }),
             ...(draft.defaultDueToday ? { defaultDueToday: true } : {}),
+            ...(draft.newTasksNeedApproval ? { newTasksNeedApproval: true } : {}),
           };
           // From a template: the project, its board, its tasks and its team in one request.
           created = template
@@ -608,6 +612,18 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                     <p id={ids.dueHelp} className="text-xs text-ink-2">A task added without a due date gets today’s date. Dates people choose are kept.</p>
                   </div>
                   <Toggle on={draft.defaultDueToday} onChange={() => set({ defaultDueToday: !draft.defaultDueToday })} label="New tasks are due today" describedBy={ids.dueHelp} />
+                </div>
+                <div className="flex items-start justify-between gap-4 border-t border-line py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-ink">New tasks in this project need approval</div>
+                    <p id={ids.approvalHelp} className="text-xs text-ink-2">Ticks “Needs approval” on new tasks: a project manager must approve each one before it counts as done. It can be changed on any task.</p>
+                  </div>
+                  <Toggle
+                    on={draft.newTasksNeedApproval}
+                    onChange={() => set({ newTasksNeedApproval: !draft.newTasksNeedApproval })}
+                    label="New tasks in this project need approval"
+                    describedBy={ids.approvalHelp}
+                  />
                 </div>
               </fieldset>
             </div>

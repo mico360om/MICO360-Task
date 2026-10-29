@@ -149,6 +149,31 @@ describe('New task form', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('a new task can need approval (ticked here, sent with it)', async () => {
+    renderDialog();
+    await ready();
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Client datasheet');
+    const box = screen.getByRole('checkbox', { name: /needs approval/i });
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ title: 'Client datasheet', needsApproval: true });
+  });
+
+  it('a project whose new tasks need approval starts the box ticked; unticked, the task says so', async () => {
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, newTasksNeedApproval: true } : p)) }) : undefined);
+    renderDialog();
+    await ready();
+    const box = await screen.findByRole('checkbox', { name: /needs approval/i });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Quick note');
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ needsApproval: false });
+  });
+
   it('marks a new task as a milestone of its project', async () => {
     renderDialog();
     await ready();
@@ -511,6 +536,26 @@ describe('Edit task form', () => {
     expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/tasks/t1/assignees'))!.body).toEqual({ userIds: ['u7'] });
     expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/tasks/t1/assignees/u9'))).toBe(true);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('ticks or unticks "Needs approval" (only what changed is sent)', async () => {
+    const { onSaved } = renderDialog({ task: TASK });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    const box = screen.getByRole('checkbox', { name: /needs approval/i });
+    expect(box).not.toBeChecked();
+    expect(box).toHaveAccessibleDescription('A project manager must approve it before it counts as done.');
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ needsApproval: true, expectedVersion: 7 });
+  });
+
+  it('a task waiting for approval: only a project manager can untick it here', async () => {
+    const waiting = { ...TASK, needsApproval: true, approvalRequestedAt: '2026-10-30T08:00:00Z', approval: { canApprove: false, requestedBy: null, approvedBy: null, approverName: null } };
+    renderDialog({ task: waiting });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    expect(screen.getByRole('checkbox', { name: /needs approval/i })).toBeDisabled();
+    expect(screen.getByText('Only a project manager can turn this off while it waits.')).toBeInTheDocument();
   });
 
   it('turns a task into a milestone, and back', async () => {

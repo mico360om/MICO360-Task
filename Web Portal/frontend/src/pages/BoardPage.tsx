@@ -12,6 +12,7 @@ import { useOpenTask } from '../lib/useOpenTask';
 import { ApiError } from '../lib/api-client';
 import { enqueueOffline } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
+import { approvalNotice } from '../lib/approvals';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { ALL_PROJECTS, BOARD_FIT_QUERY, boardProjects, composeAllProjectsBoard, composeBoard, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
 import { STATUS_META, type TaskCategory } from '../lib/taskStatus';
@@ -205,8 +206,15 @@ export function BoardPage() {
   const moveMut = useMutation({
     // Move to the column, then re-sequence it so the card stays where it was dropped.
     mutationFn: async ({ id, toColumnId, orderedIds }: MoveVars) => {
-      await tasksApi(apiClient).move(id, toColumnId);
-      if (orderedIds.length > 1) await tasksApi(apiClient).reorder(toColumnId, orderedIds);
+      const moved = await tasksApi(apiClient).move(id, toColumnId);
+      // It went to wait for approval instead: no reorder of the column it never reached.
+      if (orderedIds.length > 1 && moved.columnId === toColumnId) await tasksApi(apiClient).reorder(toColumnId, orderedIds);
+      return moved;
+    },
+    // A task that needs approval, finished by someone who can't approve, waits (it snaps back to where it waits).
+    onSuccess: (moved, vars) => {
+      const waits = approvalNotice(vars.toColumnId, moved);
+      if (waits) setNotice(waits);
     },
     // Optimistically move the card so it lands instantly (at the drop position) instead of snapping
     // back to its origin column until the refetch returns; roll back and surface an error if it fails.
@@ -269,6 +277,10 @@ export function BoardPage() {
   // A card dropped on a status moves into its own project's first column of that kind.
   const statusMoveMut = useMutation({
     mutationFn: ({ id, toColumnId }: { id: string; toColumnId: string; taskKey: string; status: TaskCategory }) => tasksApi(apiClient).move(id, toColumnId),
+    onSuccess: (moved, vars) => {
+      const waits = approvalNotice(vars.toColumnId, moved);
+      if (waits) setNotice(waits);
+    },
     onMutate: async ({ taskKey, toColumnId, status }) => {
       setMoveError(false);
       const key = allKey;
