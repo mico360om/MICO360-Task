@@ -21,7 +21,9 @@ export function PageTitle({ title, subtitle, eyebrow, className = '' }: Omit<Pag
         </>
       ) : null}
       <h1 className="min-w-0 truncate font-display text-xl font-extrabold tracking-tightish text-ink sm:text-2xl">{title}</h1>
-      {subtitle ? <p className="ms-1 hidden min-w-0 truncate text-sm text-ink-3 xl:block">{subtitle}</p> : null}
+      {/* Gives way first when the line is short (a far larger shrink weight than the title's): the
+          title stays whole and the description is cut, not the other way round ("Re…"). */}
+      {subtitle ? <p className="ms-1 hidden min-w-0 truncate text-sm text-ink-3 [flex-shrink:1000] xl:block">{subtitle}</p> : null}
     </div>
   );
 }

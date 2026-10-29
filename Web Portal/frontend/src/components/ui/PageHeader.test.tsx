@@ -18,6 +18,15 @@ describe('PageHeader', () => {
     expect(screen.getByRole('button', { name: '+ New meeting' })).toBeInTheDocument();
   });
 
+  it('when the line is short of room, the description gives way before the title (it squeezed “Reports” to “Re…”)', () => {
+    render(<PageHeader eyebrow="Admin" title="Reports" subtitle="Task delivery, project progress and team workload." actions={<button type="button">Export</button>} />);
+    const heading = screen.getByRole('heading', { level: 1, name: 'Reports' });
+    const description = screen.getByText(/Task delivery/);
+    // flex-shrink weights: the description shrinks (almost entirely) first, the title only after.
+    expect(description.className).toMatch(/\[flex-shrink:1000\]/);
+    expect(heading.className).not.toMatch(/flex-shrink:1000/);
+  });
+
   it('works without a section or a subtitle', () => {
     render(<PageHeader title="Your profile" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Your profile' }).parentElement!.textContent).toBe('Your profile');
