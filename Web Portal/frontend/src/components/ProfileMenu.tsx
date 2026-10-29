@@ -46,7 +46,7 @@ export function ProfileMenu() {
       <span className={`${size} grid place-items-center rounded-full bg-brand-gradient text-xs font-bold text-white`}>{initials}</span>
     );
 
-  const itemClass = 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink transition-colors hover:bg-ground';
+  const itemClass = 'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:min-h-11';
 
   return (
     <div className="relative" ref={ref}>
@@ -56,7 +56,7 @@ export function ProfileMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className="flex items-center gap-2 rounded-full py-0.5 pl-0.5 pr-1 transition-colors hover:bg-ground sm:pr-2"
+        className="flex items-center justify-center gap-2 rounded-full py-0.5 pl-0.5 pr-1 transition-colors hover:bg-ground sm:pr-2 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
       >
         {avatar('h-8 w-8')}
         <span dir="auto" className="hidden text-sm font-medium text-ink xl:inline">{user?.username}</span>
@@ -118,7 +118,7 @@ export function ProfileMenu() {
               type="button"
               role="menuitem"
               onClick={() => signOut()}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger-soft"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger-soft [@media(pointer:coarse)]:min-h-11"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />

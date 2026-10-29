@@ -40,11 +40,12 @@ function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolea
         tabIndex={-1}
         className="absolute left-0 top-0 flex h-full w-64 max-w-[85vw] flex-col border-r border-line bg-surface shadow-lift outline-none animate-slide-in-right"
       >
+        {/* Centred on the logo row (56px, like the top bar). */}
         <button
           type="button"
           onClick={onClose}
           aria-label="Close menu"
-          className="absolute right-2 top-3.5 z-10 grid h-9 w-9 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink"
+          className="absolute end-2 top-2.5 z-10 grid h-9 w-9 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:top-1.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
         >
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
@@ -125,11 +126,14 @@ export function AppShell() {
       {drawerOpen ? <MobileMenu isAdmin={isAdmin()} canLead={canLead} chatUnread={chatUnread} onClose={() => setDrawerOpen(false)} /> : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="keyboard-unstick glass sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 sm:px-6">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+        {/* 56px tall, like the sidebar's logo row beside it: their bottom lines meet as one. On a
+            touch screen its buttons are 44px (a finger's size); on a phone the gaps are a little
+            tighter so the search box keeps room for a word at 320px. */}
+        <header data-app-header className="keyboard-unstick glass sticky top-0 z-30 flex h-14 flex-none items-center justify-between gap-2 border-b border-line px-3 sm:gap-3 sm:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => setDrawerOpen(true)}
-              className="relative grid h-9 w-9 flex-none place-items-center rounded-lg border border-line text-ink transition-colors hover:bg-ground md:hidden"
+              className="relative grid h-9 w-9 flex-none place-items-center rounded-lg border border-line text-ink transition-colors hover:bg-ground md:hidden [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
               aria-label={menuButtonLabel(chatUnread)}
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -143,10 +147,10 @@ export function AppShell() {
             </span>
             <GlobalSearch />
           </div>
-          <div className="flex flex-none items-center gap-2">
+          <div className="flex flex-none items-center gap-1.5 sm:gap-2">
             <SyncStatus />
             {/* The header's N is the fallback: a page with its own "New …" takes the key. */}
-            <NewTaskButton size="sm" compact shortcutPriority={0} />
+            <NewTaskButton size="sm" compact shortcutPriority={0} className="[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11" />
             <span className="hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
             <NotificationsBell />
             <ProfileMenu />

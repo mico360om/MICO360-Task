@@ -1,9 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { chatBadgeText, chatNavLabel } from '../lib/chat-badge';
-import logo from '../assets/logo.png';
-import logoW from '../assets/logo-w.png';
 import { RUNNING_BUILD } from '../lib/release';
+import { BrandLogo } from './ui/BrandLogo';
 
 interface NavItem {
   label: string;
@@ -189,7 +188,7 @@ function NavIcon({ children }: { children: ReactNode }) {
 // One crisp signal for the active route: a filled brand pill. No extra bar/shadow stack.
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   [
-    'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
+    'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 [@media(pointer:coarse)]:min-h-11',
     isActive ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink',
   ].join(' ');
 
@@ -280,11 +279,10 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
 
   return (
     <>
-      <div className="flex h-16 items-center border-b border-line px-5">
-        {/* One per theme. `loading="lazy"`: the hidden one is never downloaded. The size attributes
-            reserve the space, so nothing shifts when the image arrives. */}
-        <img src={logo} alt="MICO360" width={409} height={192} loading="lazy" decoding="async" className="h-9 w-auto max-w-full object-contain dark:hidden" />
-        <img src={logoW} alt="MICO360" width={409} height={192} loading="lazy" decoding="async" className="hidden h-9 w-auto max-w-full object-contain dark:block" />
+      {/* As tall as the top bar (h-14), so their bottom lines meet as one. The logo: one per theme,
+          lazy — the hidden one is never downloaded. */}
+      <div className="flex h-14 flex-none items-center border-b border-line px-5">
+        <BrandLogo lazy className="h-9" />
       </div>
 
       <div ref={list} className="scroll-shadows flex-1 overflow-y-auto px-3 py-3">

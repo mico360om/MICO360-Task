@@ -22,7 +22,28 @@ function setup(ui: React.ReactElement) {
 }
 afterEach(() => vi.restoreAllMocks());
 
+/** Pretend the window is (or isn't) at least `minWidth` wide — what a CSS breakpoint would see. */
+function windowWidth(px: number) {
+  vi.stubGlobal('matchMedia', (query: string) => {
+    const min = /min-width:\s*([\d.]+)(em|px)/.exec(query);
+    const need = min ? Number(min[1]) * (min[2] === 'em' ? 16 : 1) : 0;
+    return { matches: px >= need, media: query, addEventListener: () => {}, removeEventListener: () => {} } as unknown as MediaQueryList;
+  });
+}
+
 describe('GlobalSearch', () => {
+  it('words its hint for the room it has: the whole hint on a wide screen, just “Search…” on a phone', () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: [] }))));
+    windowWidth(1280);
+    const { unmount } = setup(<GlobalSearch />);
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveAttribute('placeholder', 'Search or type a command…');
+    unmount();
+    windowWidth(375);
+    setup(<GlobalSearch />);
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveAttribute('placeholder', 'Search…');
+    vi.unstubAllGlobals();
+  });
+
   it('queries the search endpoint (debounced) and shows results', async () => {
     const fetchMock = vi.fn((_url: string, _init?: RequestInit) =>
       Promise.resolve(json({ data: { tasks: [{ id: 't1', key: 'MICO-1', title: 'Prepare report', projectId: 'p1' }], projects: [{ id: 'p1', code: 'MICO', name: 'MICO Ops' }], users: [] } })),
