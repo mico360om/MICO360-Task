@@ -10,6 +10,28 @@ const opts = [
 ];
 
 describe('SearchableSelect', () => {
+  it('is finger-sized on a touch screen (44px; the md trigger was 38px)', () => {
+    render(<SearchableSelect options={opts} value="p2" onChange={() => {}} ariaLabel="Project" />);
+    expect(screen.getByRole('button', { name: /project/i }).className).toContain('[@media(pointer:coarse)]:!min-h-11');
+  });
+
+  it('shows the whole label on hover when the trigger cuts it short, and only then', () => {
+    let cut = true;
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', { configurable: true, get() { return cut ? 300 : 100; } });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 100; } });
+    try {
+      const { rerender } = render(<SearchableSelect options={opts} value="p3" onChange={() => {}} ariaLabel="Project" />);
+      expect(screen.getByText('Rig Inspection Portal')).toHaveAttribute('title', 'Rig Inspection Portal');
+      cut = false;
+      rerender(<SearchableSelect options={opts} value="p1" onChange={() => {}} ariaLabel="Project" />);
+      expect(screen.getByText('Mobile App')).not.toHaveAttribute('title');
+    } finally {
+      // Back to jsdom's own (inherited from Element.prototype).
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollWidth;
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+    }
+  });
+
   it('shows the selected option label on the trigger', () => {
     render(<SearchableSelect options={opts} value="p2" onChange={() => {}} ariaLabel="Project" />);
     expect(screen.getByRole('button', { name: /project/i })).toHaveTextContent('Finance Automation');

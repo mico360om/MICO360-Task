@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from './ui/Button';
 import { NewTaskModal } from './NewTaskModal';
 import { useShortcut } from './shortcuts/ShortcutProvider';
+import { TOUCH_TALL } from '../lib/touch';
 
 export interface NewTaskButtonProps {
   onCreated?: () => void;
@@ -19,7 +20,8 @@ export function NewTaskButton({ onCreated, size = 'md', compact = false, classNa
   useShortcut('new', () => setOpen(true), { priority: shortcutPriority });
   return (
     <>
-      <Button size={size} onClick={() => setOpen(true)} className={className} aria-haspopup="dialog" aria-label={compact ? 'New Task' : undefined} title="New task" shortcut="new">
+      {/* 44px tall on a touch screen, wherever it is (a page's header gave it 36px). */}
+      <Button size={size} onClick={() => setOpen(true)} className={`${TOUCH_TALL} ${className}`.trim()} aria-haspopup="dialog" aria-label={compact ? 'New Task' : undefined} title="New task" shortcut="new">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>

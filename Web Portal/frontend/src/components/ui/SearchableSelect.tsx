@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { TOUCH_TALL } from '../../lib/touch';
 
 interface PanelRect {
   left: number;
@@ -65,6 +66,9 @@ export function SearchableSelect({
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
+  // The trigger's words, and whether the trigger cuts them short (then they are its tooltip).
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [labelCut, setLabelCut] = useState(false);
 
   // Anchor the (portaled) panel to the trigger, flipping upward when there's no room below.
   const position = () => {
@@ -95,6 +99,17 @@ export function SearchableSelect({
   }, [open]);
 
   const selected = options.find((o) => o.value === value);
+  const shownLabel = selected ? selected.label : placeholder;
+  useLayoutEffect(() => {
+    const el = labelRef.current;
+    if (!el) return;
+    const measure = () => setLabelCut(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [shownLabel]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
@@ -166,11 +181,13 @@ export function SearchableSelect({
         aria-describedby={describedBy}
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
-        className={`flex w-full items-center justify-between gap-2 border bg-surface text-left text-sm text-ink ${size === 'lg' ? '!min-h-[44px] rounded-xl px-3.5 py-2' : 'rounded-lg px-3 py-2'} outline-none transition-colors focus:ring-2 disabled:opacity-50 ${invalid ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-line focus:border-brand focus:ring-brand/20'}`}
+        className={`flex w-full items-center justify-between gap-2 border bg-surface text-left text-sm text-ink ${size === 'lg' ? '!min-h-[44px] rounded-xl px-3.5 py-2' : `rounded-lg px-3 py-2 ${TOUCH_TALL}`} outline-none transition-colors focus:ring-2 disabled:opacity-50 ${invalid ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-line focus:border-brand focus:ring-brand/20'}`}
       >
         <span className="flex min-w-0 items-center gap-2">
           {selected?.icon ? <span aria-hidden="true" className="flex flex-none">{selected.icon}</span> : null}
-          <span dir="auto" className={`truncate text-start ${selected ? 'text-ink' : 'text-ink-2'}`}>{selected ? selected.label : placeholder}</span>
+          <span ref={labelRef} dir="auto" title={labelCut ? shownLabel : undefined} className={`truncate text-start ${selected ? 'text-ink' : 'text-ink-2'}`}>
+            {shownLabel}
+          </span>
         </span>
         <span aria-hidden className="shrink-0 text-ink-2">▾</span>
       </button>

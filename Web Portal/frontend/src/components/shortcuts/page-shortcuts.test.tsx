@@ -86,4 +86,11 @@ describe('Add new', () => {
     press({ key: 'n', code: 'KeyN' });
     expect(screen.getByRole('dialog', { name: /new task/i })).toBeTruthy();
   });
+
+  it('the New task button is finger-sized on a touch screen wherever it sits (44px; a page header gave it 36px)', () => {
+    wrap(<NewTaskButton className="extra" />);
+    const button = screen.getByRole('button', { name: /new task/i });
+    expect(button.className).toContain('[@media(pointer:coarse)]:!min-h-11');
+    expect(button).toHaveClass('extra');
+  });
 });
