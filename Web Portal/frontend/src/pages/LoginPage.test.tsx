@@ -243,6 +243,7 @@ describe('LoginPage', () => {
         'You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in 42 s.',
       );
       expect(screen.getByRole('status')).not.toHaveTextContent(/emailed it/);
+      expect(screen.getByRole('status').textContent).toContain('42\u00a0s.'); // the number and its unit never split across lines
       expect(screen.getByRole('button', { name: /resend code/i })).toHaveTextContent(/Resend code in 0:4[12]/);
       await userEvent.type(screen.getByLabelText(/one-time code/i), '482913');
       await userEvent.click(screen.getByRole('button', { name: /verify & sign in/i }));

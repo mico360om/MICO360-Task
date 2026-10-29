@@ -29,7 +29,7 @@ interface CodeRequestResponse {
 // Said alike for every address, so it never tells whether an account exists.
 const CODE_SENT = 'If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.';
 const tooSoon = (seconds: number) =>
-  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds} s.`;
+  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds}\u00a0s.`; // no line break between the number and its unit
 
 export function LoginPage() {
   const setSession = useAuthStore((s) => s.setSession);
