@@ -68,7 +68,8 @@ function renderPage() {
   );
 }
 
-const rowOf = async (title: string) => (await screen.findByRole('link', { name: title })).closest('[data-meeting-card]') as HTMLElement;
+// The card's own link (with nothing coming up, the panel on top links to the last meeting too).
+const rowOf = async (title: string) => (await screen.findAllByRole('link', { name: title })).map((l) => l.closest('[data-meeting-card]')).find(Boolean) as HTMLElement;
 
 describe('MeetingsPage', () => {
   it('shows each meeting as a card: day, time, project, organizer, people, minutes, decisions and open action items', async () => {
@@ -207,7 +208,8 @@ describe('MeetingsPage', () => {
   it('shows past meetings twelve at a time with "Show more"', async () => {
     meetings = Array.from({ length: 15 }, (_, i) => meeting({ id: `p${i}`, title: `Old meeting ${i + 1}`, status: 'COMPLETED', startAt: at(-1 - i, '09:00'), endAt: null }));
     renderPage();
-    await screen.findByRole('link', { name: 'Old meeting 1' });
+    // Old meeting 1 is also the last meeting named in "Nothing coming up" on top.
+    await rowOf('Old meeting 1');
     expect(screen.getByRole('link', { name: 'Old meeting 12' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Old meeting 13' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /show 3 more/i }));
@@ -239,5 +241,141 @@ describe('MeetingsPage', () => {
     expect(calls.some((c) => c.url.endsWith('/cancel'))).toBe(false);
     await userEvent.click(within(dialog).getByRole('button', { name: /^cancel meeting$/i }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/meetings/budget/cancel'))).toBe(true));
+  });
+});
+
+describe('MeetingsPage — the numbers on top, and "Nothing coming up"', () => {
+  // Wed 14 Oct 2026, 12:00 in Muscat.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T08:00:00.000Z') });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const iso = () => meeting({ id: 'iso', title: 'ISO audit', status: 'COMPLETED', startAt: '2026-10-13T05:00:00.000Z', endAt: '2026-10-13T13:00:00.000Z', minutes: 'DRAFT', openActionItemCount: 0, attendees: ['Mohammed (OXY)'], attendeeCount: 1 });
+  const itMeeting = () => meeting({ id: 'it', title: 'IT project meeting', status: 'COMPLETED', startAt: '2026-10-06T09:00:00.000Z', endAt: null, minutes: 'FINAL', openActionItemCount: 2 });
+  const september = () => meeting({ id: 'sep', title: 'September review', status: 'COMPLETED', startAt: '2026-09-20T06:00:00.000Z', endAt: null, minutes: 'NOTES', openActionItemCount: 1 });
+  const siteVisit = () => meeting({ id: 'soon', title: 'Site visit', startAt: '2026-10-16T06:00:00.000Z', endAt: '2026-10-16T07:00:00.000Z' });
+  const strip = () => screen.findByRole('group', { name: /meetings at a glance/i });
+  const tile = (s: HTMLElement, name: RegExp) => within(s).getByRole('button', { name });
+
+  it('sums the list up in four numbers, from the meetings it already has', async () => {
+    meetings = [siteVisit(), iso(), itMeeting(), september()];
+    renderPage();
+    const s = await strip();
+    await waitFor(() => expect(tile(s, /next 7 days/i)).toHaveTextContent('1'));
+    expect(tile(s, /open action items/i)).toHaveTextContent('3');
+    expect(tile(s, /open action items/i)).toHaveTextContent('in 2 meetings');
+    expect(tile(s, /minutes to finish/i)).toHaveTextContent('2'); // ISO (drafted) and September (notes); IT's are final
+    expect(tile(s, /held this month/i)).toHaveTextContent('2'); // ISO and IT; September was last month
+    // Only the meetings list is asked for: the numbers cost no extra request.
+    expect(calls.filter((c) => /action-items|summary|stats/.test(c.url))).toEqual([]);
+  });
+
+  it('shows just the meetings behind a number, named as a chip, and everything again on a second press', async () => {
+    meetings = [siteVisit(), iso(), itMeeting(), september()];
+    renderPage();
+    const s = await strip();
+    await userEvent.click(tile(s, /minutes to finish/i));
+    expect(tile(s, /minutes to finish/i)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('link', { name: 'ISO audit' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'September review' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'IT project meeting' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Site visit' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: /filters in use/i })).getByText('Minutes to finish')).toBeInTheDocument();
+    expect(screen.getByText('2 meetings match')).toBeInTheDocument();
+    // The Filters button counts only what its own panel sets.
+    expect(screen.getByRole('button', { name: /^filters/i })).toHaveTextContent(/^Filters$/);
+    // The numbers stay put while the list is narrowed.
+    expect(tile(s, /held this month/i)).toHaveTextContent('2');
+
+    // Another number swaps the view; the chip's ✕ clears it.
+    await userEvent.click(tile(s, /open action items/i));
+    expect(tile(s, /minutes to finish/i)).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('link', { name: 'IT project meeting' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'September review' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'ISO audit' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /remove with open action items/i }));
+    expect(screen.getByRole('link', { name: 'ISO audit' })).toBeInTheDocument();
+
+    await userEvent.click(tile(s, /next 7 days/i));
+    expect(screen.getByRole('link', { name: 'Site visit' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'ISO audit' })).not.toBeInTheDocument();
+    await userEvent.click(tile(s, /next 7 days/i));
+    expect(tile(s, /next 7 days/i)).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('link', { name: 'ISO audit' })).toBeInTheDocument();
+  });
+
+  it('reads 0 plainly, and a 0 is not something to press', async () => {
+    meetings = [iso(), itMeeting()];
+    renderPage();
+    const s = await strip();
+    await within(s).findByText('Held this month');
+    const week = within(s).getByText('Next 7 days').closest('[data-summary-tile]') as HTMLElement;
+    expect(week).toHaveTextContent('0');
+    expect(week.tagName).not.toBe('BUTTON');
+    expect(within(s).queryByRole('button', { name: /next 7 days/i })).not.toBeInTheDocument();
+  });
+
+  it('says "Nothing coming up" where Up next would be — the last meeting, and Schedule a meeting', async () => {
+    meetings = [iso(), itMeeting()];
+    renderPage();
+    const panel = await screen.findByRole('region', { name: /nothing coming up/i });
+    expect(screen.queryByRole('region', { name: /up next/i })).not.toBeInTheDocument();
+    expect(panel).toHaveTextContent('Last meeting: ISO audit, yesterday');
+    expect(within(panel).getByRole('link', { name: 'ISO audit' })).toHaveAttribute('href', '/meetings/iso');
+    // It sits above the list, under the numbers.
+    const past = screen.getByRole('heading', { name: /^past/i });
+    expect(panel.compareDocumentPosition(past) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect((await strip()).compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(within(panel).getByRole('button', { name: /schedule a meeting/i }));
+    expect(screen.getByRole('dialog', { name: 'New meeting' })).toBeInTheDocument();
+  });
+
+  it('leaves the panel out when something is coming up, while you search or filter, and when there are no meetings at all', async () => {
+    meetings = [siteVisit(), iso()];
+    const first = renderPage();
+    expect(await screen.findByRole('region', { name: /up next/i })).toHaveTextContent('Site visit');
+    expect(screen.queryByRole('region', { name: /nothing coming up/i })).not.toBeInTheDocument();
+    first.unmount();
+
+    meetings = [iso()];
+    const second = renderPage();
+    await screen.findByRole('region', { name: /nothing coming up/i });
+    await userEvent.type(screen.getByRole('searchbox', { name: /search meetings/i }), 'iso');
+    expect(screen.queryByRole('region', { name: /nothing coming up/i })).not.toBeInTheDocument();
+    second.unmount();
+
+    meetings = [];
+    renderPage();
+    expect(await screen.findByText(/no meetings yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /nothing coming up/i })).not.toBeInTheDocument();
+    // Four zeros over an empty page say nothing: the numbers wait for the first meeting.
+    expect(screen.queryByRole('group', { name: /meetings at a glance/i })).not.toBeInTheDocument();
+  });
+
+  it('when nothing has been held yet either, says so instead of naming a last meeting', async () => {
+    meetings = [meeting({ id: 'draft', title: 'Hiring plan', status: 'DRAFT', startAt: '2026-10-20T06:00:00.000Z', endAt: null })];
+    renderPage();
+    const panel = await screen.findByRole('region', { name: /nothing coming up/i });
+    expect(panel).toHaveTextContent('No meeting has been held yet');
+    expect(panel).not.toHaveTextContent('Last meeting');
+  });
+
+  it('lines every card up the same way: details on top, then a footer row with the people first and the status chips in their own column', async () => {
+    meetings = [iso(), itMeeting()];
+    renderPage();
+    for (const title of ['ISO audit', 'IT project meeting']) {
+      const card = await rowOf(title);
+      // The card takes two rows of the grid and shares them with its neighbours (CSS subgrid), so
+      // each row's footers start at the same height however much a title or the chips wrap.
+      expect(card.className).toMatch(/(^|\s)row-span-2(\s|$)/);
+      expect(card.className).toMatch(/(^|\s)grid-rows-subgrid(\s|$)/);
+      const footer = card.querySelector('[data-card-footer]') as HTMLElement;
+      expect(footer).not.toBeNull();
+      expect(footer.firstElementChild).toHaveTextContent(/person|people|No attendees/);
+      expect(within(footer).getByText('Completed').closest('[data-card-chips]')).not.toBeNull();
+    }
   });
 });

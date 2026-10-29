@@ -19,11 +19,11 @@ const LEAF: Record<LeafTone, string> = {
 };
 
 /** The meeting's day as a calendar leaf: weekday, day number, month (filled in on today). */
-export function DateLeaf({ iso, timeZone, tone }: { iso: string; timeZone: string; tone: LeafTone }) {
+export function DateLeaf({ iso, timeZone, tone, className = '' }: { iso: string; timeZone: string; tone: LeafTone; className?: string }) {
   const d = new Date(iso);
   const part = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone }).format(d);
   return (
-    <div aria-hidden="true" className={`flex w-14 flex-none flex-col items-center rounded-xl border py-1.5 ${LEAF[tone]}`}>
+    <div aria-hidden="true" className={`flex w-14 flex-none flex-col items-center rounded-xl border py-1.5 ${LEAF[tone]} ${className}`}>
       <span className="text-[10px] font-bold uppercase tracking-wide">{part({ weekday: 'short' })}</span>
       <b className="font-display text-xl font-bold leading-none text-ink">{part({ day: 'numeric' })}</b>
       <span className="text-[10px] font-semibold uppercase">{part({ month: 'short' })}</span>
@@ -32,13 +32,13 @@ export function DateLeaf({ iso, timeZone, tone }: { iso: string; timeZone: strin
 }
 
 /** Who's coming: the first three faces, "+N" for the rest, and how many in words. */
-export function People({ names = [], count }: { names?: string[]; count?: number }) {
+export function People({ names = [], count, className = '' }: { names?: string[]; count?: number; className?: string }) {
   const total = count ?? names.length;
-  if (!total) return <span className="text-xs text-ink-3">No attendees yet</span>;
+  if (!total) return <span className={`text-xs leading-6 text-ink-3 ${className}`}>No attendees yet</span>;
   const shown = names.slice(0, 3);
   const more = total - shown.length;
   return (
-    <span className="relative z-10 flex min-w-0 items-center gap-2 text-xs text-ink-2" title={names.length ? `${names.join(', ')}${total > names.length ? ' …' : ''}` : undefined}>
+    <span className={`relative z-10 flex min-w-0 items-center gap-2 text-xs text-ink-2 ${className}`} title={names.length ? `${names.join(', ')}${total > names.length ? ' …' : ''}` : undefined}>
       {shown.length ? (
         <span className="flex flex-none -space-x-1.5 rtl:space-x-reverse">
           {/* Each face on a solid backing: the initials' tint is see-through, and an overlapped face's
