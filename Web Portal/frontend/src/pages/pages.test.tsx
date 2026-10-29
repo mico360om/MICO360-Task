@@ -27,6 +27,31 @@ describe('NotificationsPage', () => {
     renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText('You were assigned a task')).toBeInTheDocument());
   });
+
+  it('says a read one more quietly than an unread one (as the bell does)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [
+      { id: 'n1', type: 'TASK_ASSIGNED', title: 'Unread one', body: null, readAt: null, createdAt: '' },
+      { id: 'n2', type: 'TASK_ASSIGNED', title: 'Read one', body: null, readAt: '2026-10-01T00:00:00.000Z', createdAt: '' },
+    ] })));
+    renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByText('Unread one')).toHaveClass('font-medium', 'text-ink');
+    expect(screen.getByText('Read one')).toHaveClass('text-ink-2');
+    expect(screen.getByText('Read one')).not.toHaveClass('font-medium');
+  });
+
+  it('holds the list’s place with rows while it loads, and says so (no bare “Loading…”)', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(screen.getByRole('status', { name: 'Loading notifications' }).querySelectorAll('[data-skeleton-row]').length).toBeGreaterThanOrEqual(6);
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  });
+
+  it('a failed load is the shared “Couldn’t load … Retry” message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'X', message: 'down' } }), { status: 500 })));
+    renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load notifications. Retry');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
 });
 
 describe('ReportsPage', () => {

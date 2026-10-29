@@ -9,8 +9,8 @@ import { RUNNING_BUILD, formatLastUpdated, isStaleBundle } from '../lib/release'
 import { androidAppLink, checkHostedApk } from '../lib/android-app-link';
 import { EXTENSION_INSTALL_HINT, HOSTED_EXTENSION_PATH } from '../lib/app-downloads';
 
-/** The footer's links: 28px tall for a mouse, 32px on a touch screen (WCAG 2.2 asks for 24px). */
-const FOOTER_LINK = 'inline-flex min-h-[28px] items-center gap-1 font-medium text-brand hover:underline [@media(pointer:coarse)]:min-h-[2rem]';
+/** The footer's links: 28px tall for a mouse, 44px on a touch screen (a finger's size). */
+const FOOTER_LINK = 'inline-flex min-h-[28px] items-center gap-1 font-medium text-brand hover:underline [@media(pointer:coarse)]:min-h-11';
 
 /** How often an open page checks for a new deployment. */
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -78,41 +78,46 @@ export function AppFooter() {
           <span className="whitespace-nowrap">
             Version: <span className="font-semibold text-ink">v{version}</span>
           </span>
-          <span aria-hidden="true" className="text-ink-3">{' | '}</span>
-          <span className="whitespace-nowrap">
+          {/* On a phone the two go on two lines: no "|" left hanging at the end of the first. */}
+          <span aria-hidden="true" className="text-ink-3 max-sm:hidden">{' | '}</span>
+          <span className="whitespace-nowrap max-sm:block">
             Last Updated: {versionQ.data ? formatLastUpdated(versionQ.data.deployedAt, timeZone) : versionQ.isError ? 'not available' : '…'}
           </span>
         </p>
-        {showAndroid || showExtension ? (
-          <nav aria-label="Get the apps" className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>Get the apps:</span>
-            {showAndroid ? (
-              <a
-                href={android.href}
-                {...(android.hosted ? { download: '' } : { target: '_blank', rel: 'noopener noreferrer' })}
-                title={android.hosted ? 'The MICO360 Tasks app for Android phones (an .apk file to install)' : 'The MICO360 Tasks app for Android phones'}
-                className={FOOTER_LINK}
-              >
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M7 9.5h10v7.5a1 1 0 0 1-1 1h-1v2.5a1.25 1.25 0 0 1-2.5 0V18h-1v2.5a1.25 1.25 0 0 1-2.5 0V18H8a1 1 0 0 1-1-1zM4.75 9.5A1.25 1.25 0 0 1 6 10.75v4.5a1.25 1.25 0 0 1-2.5 0v-4.5A1.25 1.25 0 0 1 4.75 9.5zm14.5 0a1.25 1.25 0 0 1 1.25 1.25v4.5a1.25 1.25 0 0 1-2.5 0v-4.5a1.25 1.25 0 0 1 1.25-1.25zM15.5 4.2l1-1.5a.3.3 0 0 0-.5-.33l-1.06 1.58A6.3 6.3 0 0 0 12 3.4a6.3 6.3 0 0 0-2.94.55L8 2.37a.3.3 0 1 0-.5.33l1 1.5A5 5 0 0 0 7 8.5h10a5 5 0 0 0-1.5-4.3zM10 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm4 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z" /></svg>
-                Android app
-              </a>
-            ) : null}
-            {showExtension ? (
-              <a
-                href={HOSTED_EXTENSION_PATH}
-                download=""
-                title={EXTENSION_INSTALL_HINT}
-                className={FOOTER_LINK}
-              >
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /><path d="M12 8.5h8.2M8.97 13.75 4.85 6.6M15.03 13.75l-4.1 7.12" /></svg>
-                Chrome extension
-              </a>
-            ) : null}
-          </nav>
-        ) : null}
-        <Link to="/about" className={FOOTER_LINK}>
-          About and version history
-        </Link>
+        {/* The links stay together: when the line is too short they move down as one group
+            ("About and version history" used to drop alone to the start of a new line). */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {showAndroid || showExtension ? (
+            <nav aria-label="Get the apps" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>Get the apps:</span>
+              {showAndroid ? (
+                <a
+                  href={android.href}
+                  {...(android.hosted ? { download: '' } : { target: '_blank', rel: 'noopener noreferrer' })}
+                  title={android.hosted ? 'The MICO360 Tasks app for Android phones (an .apk file to install)' : 'The MICO360 Tasks app for Android phones'}
+                  className={FOOTER_LINK}
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M7 9.5h10v7.5a1 1 0 0 1-1 1h-1v2.5a1.25 1.25 0 0 1-2.5 0V18h-1v2.5a1.25 1.25 0 0 1-2.5 0V18H8a1 1 0 0 1-1-1zM4.75 9.5A1.25 1.25 0 0 1 6 10.75v4.5a1.25 1.25 0 0 1-2.5 0v-4.5A1.25 1.25 0 0 1 4.75 9.5zm14.5 0a1.25 1.25 0 0 1 1.25 1.25v4.5a1.25 1.25 0 0 1-2.5 0v-4.5a1.25 1.25 0 0 1 1.25-1.25zM15.5 4.2l1-1.5a.3.3 0 0 0-.5-.33l-1.06 1.58A6.3 6.3 0 0 0 12 3.4a6.3 6.3 0 0 0-2.94.55L8 2.37a.3.3 0 1 0-.5.33l1 1.5A5 5 0 0 0 7 8.5h10a5 5 0 0 0-1.5-4.3zM10 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm4 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z" /></svg>
+                  Android app
+                </a>
+              ) : null}
+              {showExtension ? (
+                <a
+                  href={HOSTED_EXTENSION_PATH}
+                  download=""
+                  title={EXTENSION_INSTALL_HINT}
+                  className={FOOTER_LINK}
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.5" /><path d="M12 8.5h8.2M8.97 13.75 4.85 6.6M15.03 13.75l-4.1 7.12" /></svg>
+                  Chrome extension
+                </a>
+              ) : null}
+            </nav>
+          ) : null}
+          <Link to="/about" className={FOOTER_LINK}>
+            About and version history
+          </Link>
+        </div>
       </footer>
       {stale ? (
         <div role="status" className="fixed inset-x-0 bottom-3 z-[55] flex justify-center px-3">

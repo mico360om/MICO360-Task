@@ -129,6 +129,16 @@ describe('ProfilePage — photo', () => {
   });
 });
 
+describe('the profile picture without a photo', () => {
+  it('shows the first letters of the first two names, like every other avatar (Aisha Khan → AK, not AI)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/users/directory') ? json({ data: [{ id: 'u1', username: 'ada', firstName: 'Aisha', lastName: 'Khan' }] }) : json({ data: [] }))));
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Aisha Khan' })).toBeInTheDocument();
+    expect(screen.getByText('AK')).toBeInTheDocument();
+    expect(screen.queryByText('AI')).not.toBeInTheDocument();
+  });
+});
+
 describe('signing out with inspection changes still on this device', () => {
   it('asks first, and only "Log out anyway" signs out and removes them', async () => {
     localStorage.setItem('mico360.inspection.u1.i1', JSON.stringify({ v: 1, ownerId: 'u1', inspectionId: 'i1', projectId: 'p1', title: 'Rig daily check', snapshot: { id: 'i1', projectId: 'p1', title: 'Rig daily check', status: 'IN_PROGRESS', structure: { sections: [], clientSignature: 'NONE', supervisorSignature: 'NONE' }, answers: [], revision: 0 }, answers: { v: { itemId: 'v', result: 'PASS', reading: null, note: null, editedAt: '2026-10-27T08:00:00.000Z' } }, finish: null, followUps: {}, problem: null, savedAt: '', sentAt: null }));

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
+import { LoadError } from '../components/ui/LoadError';
 import { apiClient } from '../api/client';
 import { notificationsApi, NOTIFICATIONS_KEY } from '../api/notifications';
 import { useOpenNotification } from '../lib/notification-links';
@@ -27,7 +28,7 @@ export function NotificationsPage() {
         subtitle="Mentions, assignments and updates across your work."
         actions={
           unread ? (
-            <button onClick={() => markAllRead()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand">
+            <button onClick={() => markAllRead()} className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-brand hover:border-brand [@media(pointer:coarse)]:min-h-11">
               Mark all read
             </button>
           ) : undefined
@@ -35,14 +36,14 @@ export function NotificationsPage() {
       />
       <div className="flex flex-col gap-2">
         {q.isLoading ? (
-          <p className="text-ink-2">Loading…</p>
+          // Rows where the notifications will be, so the page doesn't jump when they arrive.
+          <div role="status" aria-label="Loading notifications" className="flex flex-col gap-2">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} data-skeleton-row className="skeleton h-16 rounded-lg" />
+            ))}
+          </div>
         ) : q.isError ? (
-          <p role="alert" className="text-danger">
-            Couldn’t load notifications.{' '}
-            <button onClick={() => void q.refetch()} className="font-semibold underline">
-              Retry
-            </button>
-          </p>
+          <LoadError what="notifications" onRetry={() => void q.refetch()} />
         ) : items.length === 0 ? (
           <EmptyState icon={BellIcon} title="You’re all caught up" description="Mentions, assignments and task updates will appear here." />
         ) : (
@@ -53,7 +54,8 @@ export function NotificationsPage() {
               className={`rounded-lg border border-line bg-surface p-3 text-start transition-colors hover:border-brand/40 hover:bg-brand/5 ${n.readAt ? '' : 'border-l-4 border-l-brand'}`}
             >
               <div className="flex items-baseline justify-between gap-3">
-                <div dir="auto" className="min-w-0 text-sm font-medium text-ink">{n.title}</div>
+                {/* Read: a quieter title (as in the bell's list); unread keeps the brand edge. */}
+                <div dir="auto" className={`min-w-0 text-sm ${n.readAt ? 'text-ink-2' : 'font-medium text-ink'}`}>{n.title}</div>
                 {relativeTime(n.createdAt) ? <time dateTime={n.createdAt} className="flex-none text-xs text-ink-3">{relativeTime(n.createdAt)}</time> : null}
               </div>
               {n.body ? <div dir="auto" className="mt-0.5 whitespace-pre-line text-xs text-ink-2">{n.body}</div> : null}
