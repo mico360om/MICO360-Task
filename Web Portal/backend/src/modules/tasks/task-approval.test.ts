@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { approvalOnEntry, isAwaitingApproval } from './task-approval';
+import { approvalOnEntry, firstOpenColumn, isAwaitingApproval, pickColumn } from './task-approval';
 
 const AT = new Date('2026-10-30T08:00:00Z');
 const REVIEW = { id: 'review', category: 'REVIEW' };
@@ -86,5 +86,24 @@ describe('approvalOnEntry: what entering a column does to a task that needs appr
     expect(isAwaitingApproval({ approvalRequestedAt: '2026-10-30T08:00:00Z' })).toBe(true);
     expect(isAwaitingApproval({ approvalRequestedAt: null })).toBe(false);
     expect(isAwaitingApproval({})).toBe(false);
+  });
+});
+
+describe('picking a project’s column', () => {
+  const cols = [
+    { id: 'done', category: 'DONE', position: 3, enabled: true },
+    { id: 'todo', category: 'TODO', position: 0, enabled: true },
+    { id: 'rev-off', category: 'REVIEW', position: 1, enabled: false },
+    { id: 'doing', category: 'IN_PROGRESS', position: 2, enabled: true },
+  ];
+  it('the first of the categories, in order of preference, switched-on columns only', () => {
+    expect(pickColumn(cols, ['IN_PROGRESS', 'TODO'])?.id).toBe('doing');
+    expect(pickColumn(cols, ['BACKLOG', 'TODO'])?.id).toBe('todo');
+    expect(pickColumn(cols, ['REVIEW'])).toBeNull();
+    expect(pickColumn([{ id: 'only', category: 'REVIEW', position: 0, enabled: false }], ['REVIEW'])?.id).toBe('only');
+  });
+  it('the first open column is the first not-Done one in board order', () => {
+    expect(firstOpenColumn(cols)?.id).toBe('todo');
+    expect(firstOpenColumn([{ id: 'd', category: 'DONE', position: 0, enabled: true }])).toBeNull();
   });
 });

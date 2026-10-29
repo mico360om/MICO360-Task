@@ -100,3 +100,33 @@ export function approvalOnEntry(
   if (waiting && target.columnId !== task.columnId) return go({ ...patch, ...CLEAR_REQUEST }, 'WITHDRAWN');
   return go(patch);
 }
+
+/** A board column as picking one needs it. */
+export interface PickableColumn {
+  id: string;
+  category: string;
+  position: number;
+  enabled: boolean;
+}
+
+/** Switched-on columns in board order (columns switched off count only when a project has no other). */
+function pool<C extends PickableColumn>(columns: C[]): C[] {
+  const ordered = [...columns].sort((a, b) => a.position - b.position);
+  const shown = ordered.filter((c) => c.enabled);
+  return shown.length > 0 ? shown : ordered;
+}
+
+/** The project's first column of the first of `categories` it has (in that order of preference), or null. */
+export function pickColumn<C extends PickableColumn>(columns: C[], categories: string[]): C | null {
+  const cols = pool(columns);
+  for (const category of categories) {
+    const found = cols.find((c) => c.category === category);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** The project's first column that isn't a Done column (board order), or null. */
+export function firstOpenColumn<C extends PickableColumn>(columns: C[]): C | null {
+  return pool(columns).find((c) => c.category !== 'DONE') ?? null;
+}
