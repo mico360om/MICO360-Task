@@ -65,6 +65,7 @@ describe('the task panel’s approval section', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Send back' }));
     expect(onSendBack).not.toHaveBeenCalled();
     expect(screen.getByText('Write a reason first.')).toBeInTheDocument();
+    expect(box).toHaveFocus(); // back in the box, to type the reason
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Send back' }));

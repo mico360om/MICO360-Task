@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
@@ -27,9 +27,12 @@ export function SendBackDialog({ taskKey, taskTitle, busy = false, error, onSend
   const [reason, setReason] = useState('');
   const [tried, setTried] = useState(false);
   const id = useId();
+  const box = useRef<HTMLTextAreaElement>(null);
   const blank = reason.trim().length === 0;
   const send = () => {
     setTried(true);
+    // Nothing written yet: back to the box (it says why), so the reason can be typed at once.
+    if (blank) box.current?.focus();
     if (blank || busy) return;
     onSend(reason.trim());
   };
@@ -54,6 +57,7 @@ export function SendBackDialog({ taskKey, taskTitle, busy = false, error, onSend
             Why are you sending it back?
           </label>
           <textarea
+            ref={box}
             id={`${id}-reason`}
             dir="auto"
             rows={4}
