@@ -297,7 +297,7 @@ export function InspectionPage() {
             {d.task ? (
               <>
                 <span aria-hidden="true">·</span>
-                <Link to={`?task=${encodeURIComponent(d.task.id)}`} className={`tap text-brand hover:underline ${TOUCH_TALL}`}>
+                <Link to={`?task=${encodeURIComponent(d.task.id)}`} className={`tap gap-1 text-brand hover:underline ${TOUCH_TALL}`}>
                   For <span className="font-mono">{d.task.key}</span>
                 </Link>
               </>
