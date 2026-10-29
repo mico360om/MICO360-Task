@@ -3,6 +3,8 @@ import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../li
 import type { StyledRun } from '../../lib/pdf-text';
 import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
 import { isolate, textDirection } from '../../lib/pdf-text';
+import { zonedDayKey } from '../../lib/due-date';
+import { formatDateTime, formatDay, wallClock } from '../../lib/export-format';
 import { isValidTimeZone } from './meeting-validation';
 import type { FinalMinutesContent } from './final-minutes';
 
@@ -169,26 +171,31 @@ export function resolveMinutesTimeZone(meetingTimeZone?: string | null, companyT
   return DEFAULT_COMPANY_TIMEZONE;
 }
 
+// Dates day-month-year and times on the 24-hour clock, as the task and Management PDFs and the daily
+// emails write them (lib/export-format): "5 Oct 2026", "1 Oct 2026, 13:15".
+
+/** "5 Oct 2026": the day of an instant in the given zone (a calendar day is read in 'UTC'). */
 export function fmtDay(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone }).format(d);
+  return formatDay(zonedDayKey(d, timeZone));
 }
 
+/** "Thursday 1 October 2026" in the given zone. */
 export function fmtDate(iso: string, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat('en-GB', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone,
-  }).format(d);
+  }).format(d).replace(',', '');
 }
 
-/** "10:00 AM – 11:30 AM (GMT+4)" in the given zone. */
+/** "10:00 – 11:30 (GMT+4)" in the given zone. */
 export function fmtTimeRange(startIso: string, endIso: string | null, tz: string): string {
   const start = new Date(startIso);
   if (Number.isNaN(start.getTime())) return '—';
-  const time = (d: Date) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(d);
+  const time = (d: Date) => wallClock(d, tz).slice(11);
   const zone = new Intl.DateTimeFormat('en-US', { hour: 'numeric', timeZone: tz, timeZoneName: 'short' }).formatToParts(start).find((p) => p.type === 'timeZoneName')?.value ?? tz;
   if (!endIso) return `${time(start)} (${zone})`;
   const end = new Date(endIso);
@@ -196,10 +203,11 @@ export function fmtTimeRange(startIso: string, endIso: string | null, tz: string
   return `${time(start)} – ${time(end)} (${zone})`;
 }
 
+/** "1 Oct 2026, 13:15" in the given zone. */
 export function fmtTimestamp(iso: string, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone }).format(d);
+  return formatDateTime(d, timeZone);
 }
 
 /**
@@ -287,6 +295,13 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const covered = data.agenda.filter((a) => a.completed).length;
   const isOpen = (i: MinutesActionItem) => i.open ?? !/^(completed|cancelled)$/i.test(i.statusLabel);
   const openItems = items.filter(isOpen).length;
+  // Late: still open and its due day is before the day the PDF is made (in the minutes' zone) — said
+  // in words beside the date, so it never rests on colour alone. An item due today is not late yet.
+  const madeOn = new Date(data.generatedAt);
+  const today = Number.isNaN(madeOn.getTime()) ? null : zonedDayKey(madeOn, tz);
+  const isLate = (i: MinutesActionItem) => isOpen(i) && !!i.dueDate && !!today && i.dueDate < today;
+  const lateItems = items.filter(isLate).length;
+  const dueText = (i: MinutesActionItem) => `${fmtDay(i.dueDate, 'UTC')}${isLate(i) ? ' · Overdue' : ''}`;
 
   // At a glance
   doc.spacer(8);
@@ -294,7 +309,12 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     { label: 'Attendees present', value: `${present}/${data.attendees.length}`, tone: 'brand' },
     { label: 'Agenda items covered', value: `${covered}/${data.agenda.length}`, tone: 'success' },
     { label: 'Decisions made', value: String(final ? final.content.decisions.length || decisions.length : decisions.length), tone: 'muted' },
-    { label: 'Open action items', value: String(openItems), tone: openItems > 0 ? 'warning' : 'success' },
+    {
+      label: 'Open action items',
+      value: String(openItems),
+      ...(lateItems ? { note: `${lateItems} overdue` } : {}),
+      tone: lateItems ? 'danger' : openItems > 0 ? 'warning' : 'success',
+    },
   ]);
 
   // Attribution line under a note, aligned with the note (right for an Arabic note).
@@ -431,7 +451,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     agenda();
     if (items.length > 0) {
       doc.heading('Action Items', { keepWith: 40 });
-      actionItemsTable(doc, items);
+      actionItemsTable(doc, items, dueText);
     }
     doc.heading('Notes taken during the meeting', { keepWith: 30 });
     if (data.notes.length === 0) {
@@ -470,7 +490,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
 
   if (items.length > 0 || actionNotes.length > 0) {
     doc.heading('Action Items', { keepWith: 40 });
-    if (items.length > 0) actionItemsTable(doc, items);
+    if (items.length > 0) actionItemsTable(doc, items, dueText);
     if (actionNotes.length > 0) {
       if (items.length > 0) doc.text('Also noted during the meeting', { bold: true, size: 9.5, color: INK, gap: 2 });
       for (const n of actionNotes) {
@@ -503,22 +523,22 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     doc.heading('Next Steps', { keepWith: 30 });
     for (const i of next) {
       const who = i.ownerName ? isolate(i.ownerName) : 'unassigned';
-      doc.bullet(`${i.description} — ${who}${i.dueDate ? `, by ${fmtDay(i.dueDate, 'UTC')}` : ''}`, { direction: textDirection(i.description) });
+      doc.bullet(`${i.description} — ${who}${i.dueDate ? `, by ${dueText(i)}` : ''}`, { direction: textDirection(i.description) });
     }
   }
 
   return doc.build();
 }
 
-/** The meeting's tracked action items: what, who, when it is due, how urgent, where it stands, its task. */
-function actionItemsTable(doc: PdfDocument, items: MinutesActionItem[]): void {
+/** The meeting's tracked action items: what, who, when it is due (and whether that has passed), how urgent, where it stands, its task. */
+function actionItemsTable(doc: PdfDocument, items: MinutesActionItem[], dueText: (i: MinutesActionItem) => string): void {
   const withTask = items.some((i) => i.taskKey);
   doc.table(
     [{ header: 'Action' }, { header: 'Owner' }, { header: 'Due' }, { header: 'Priority' }, { header: 'Status' }, ...(withTask ? [{ header: 'Task' }] : [])],
     items.map((i) => [
       i.description,
       i.ownerName || 'Unassigned',
-      i.dueDate ? fmtDay(i.dueDate, 'UTC') : '—',
+      i.dueDate ? dueText(i) : '—',
       i.priorityLabel,
       i.statusLabel,
       ...(withTask ? [i.taskKey ?? '—'] : []),

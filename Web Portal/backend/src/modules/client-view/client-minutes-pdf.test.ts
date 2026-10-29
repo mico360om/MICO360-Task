@@ -40,8 +40,8 @@ describe('the client copy of the minutes PDF', () => {
     for (const part of ['Summary', 'Agreed the inspection plan for the three rigs.', 'Discussion', 'Scope', 'Three rigs, two weeks each.', 'Decisions', 'Start on 1 October', 'Risks & Open Issues', 'Weather in November', 'Next Steps', 'Site survey by 10 October']) {
       expect(text).toContain(part);
     }
-    expect(text).toMatch(/FINAL · Approved on Oct 6/);
-    expect(text).toContain('Monday, October 5, 2026');
+    expect(text).toMatch(/FINAL · Approved on 6 Oct 2026/);
+    expect(text).toContain('Monday 5 October 2026');
   });
 
   it('names nobody and leaves out the meeting record (attendance, agenda, notes, action items)', () => {
