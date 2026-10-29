@@ -73,6 +73,14 @@ function MiniStat({ label, value, tone = 'brand' }: { label: string; value: stri
   );
 }
 
+/** Every value of every line is 0 (or missing): a flat chart says nothing, and its scale would be made up. */
+const flat = (series: { values: (number | null)[] }[]) => series.every((s) => s.values.every((v) => !v));
+
+/** In a chart's place, the same height, when there is nothing to draw: what that means, in words. */
+function QuietChart({ children }: { children: string }) {
+  return <p className="grid h-[220px] place-items-center rounded-xl border border-dashed border-line px-4 text-center text-sm text-ink-2">{children}</p>;
+}
+
 function PctBar({ pct }: { pct: number }) {
   return (
     <div className="flex items-center gap-2">
@@ -184,6 +192,8 @@ export function ReportsPage() {
   );
   const completionPct = totals.total ? Math.round((totals.completed / totals.total) * 100) : 0;
   const completion = completionQ.data;
+  /** Done tasks that had a due date: the on-time rate means something only once there is one. */
+  const rated = !!completion && completion.onTime + completion.late > 0;
   const statusBars = Object.entries(statusQ.data ?? {})
     .map(([cat, n]) => ({ label: CATEGORY[cat]?.label ?? cat, value: n, color: CATEGORY[cat]?.color }))
     .sort((a, b) => b.value - a.value);
@@ -291,7 +301,8 @@ export function ReportsPage() {
             <StatTile label="Total tasks" value={totals.total} tone="brand" hint={`${rows.length} project${rows.length === 1 ? '' : 's'}`} />
             <StatTile label="Completed" value={totals.completed} tone="success" hint={`${completionPct}% completion`} />
             <StatTile label="Overdue" value={totals.overdue} tone="danger" hint={totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : '—'} />
-            <StatTile label="On-time rate" value={completion ? `${completion.onTimeRate}%` : '—'} tone="info" hint={completion ? `${completion.onTime} on time · ${completion.late} late` : undefined} />
+            {/* A rate needs something to rate: "—" until a task with a due date is done, not a 0% that reads as a failure. */}
+            <StatTile label="On-time rate" value={rated ? `${completion.onTimeRate}%` : '—'} tone="info" hint={rated ? `${completion.onTime} on time · ${completion.late} late` : completion ? 'Nothing delivered yet' : undefined} />
           </div>
 
           {/* Status breakdown + completion timeliness */}
@@ -314,11 +325,15 @@ export function ReportsPage() {
                     <div><div className="font-display text-3xl font-bold text-ink-2">{completion.unclassified}</div><div className="text-xs text-ink-2">No due date</div></div>
                   </div>
                   <div className="h-3 overflow-hidden rounded-full bg-ground">
-                    <div className="h-full bg-success" style={{ width: `${completion.onTimeRate}%` }} />
+                    <div className="h-full bg-success" style={{ width: `${rated ? completion.onTimeRate : 0}%` }} />
                   </div>
-                  <p className="text-sm text-ink-2">
-                    <span className="font-semibold text-ink">{completion.onTimeRate}%</span> of completed tasks with a due date were delivered on time.
-                  </p>
+                  {rated ? (
+                    <p className="text-sm text-ink-2">
+                      <span className="font-semibold text-ink">{completion.onTimeRate}%</span> of completed tasks with a due date were delivered on time.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-ink-2">No completed tasks with a due date yet.</p>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-ink-2">No completion data yet.</p>
@@ -384,17 +399,17 @@ export function ReportsPage() {
                   <div>
                     <h3 className="mb-1 text-sm font-semibold text-ink">Completion over time</h3>
                     <p className="mb-2 text-xs text-ink-3">Cumulative tasks created vs completed — are we keeping up?</p>
-                    <LineChart ariaLabel="Completion over time" labels={trendLabels} series={completionSeries} />
+                    {flat(completionSeries) ? <QuietChart>Nothing was created or completed in these days.</QuietChart> : <LineChart ariaLabel="Completion over time" labels={trendLabels} series={completionSeries} />}
                   </div>
                   <div>
                     <h3 className="mb-1 text-sm font-semibold text-ink">Overdue trend</h3>
                     <p className="mb-2 text-xs text-ink-3">Open tasks past their due date, each day.</p>
-                    <LineChart ariaLabel="Overdue trend" labels={trendLabels} series={overdueSeries} />
+                    {flat(overdueSeries) ? <QuietChart>No task was overdue in these days.</QuietChart> : <LineChart ariaLabel="Overdue trend" labels={trendLabels} series={overdueSeries} />}
                   </div>
                   <div>
                     <h3 className="mb-1 text-sm font-semibold text-ink">Burndown</h3>
                     <p className="mb-2 text-xs text-ink-3">Remaining open work vs an ideal linear burn.</p>
-                    <LineChart ariaLabel="Burndown" labels={trendLabels} series={burndownSeries} />
+                    {flat(burndownSeries) ? <QuietChart>No open work in these days.</QuietChart> : <LineChart ariaLabel="Burndown" labels={trendLabels} series={burndownSeries} />}
                   </div>
                   <div>
                     <h3 className="mb-1 text-sm font-semibold text-ink">Velocity</h3>
@@ -410,7 +425,7 @@ export function ReportsPage() {
           <section className="card overflow-x-auto" tabIndex={0} aria-label="Project progress">
             <h2 className="eyebrow p-4 pb-0">Project progress</h2>
             {rows.length === 0 ? (
-              <p className="p-4 text-sm text-ink-2">No projects yet.</p>
+              <p className="p-4 text-sm text-ink-2">No projects yet. Each project’s progress shows here once it has tasks.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>

@@ -220,3 +220,46 @@ describe('ReportsPage layout', () => {
     expect(bar.className).toMatch(/sm:flex/);
   });
 });
+
+describe('ReportsPage with little or no data', () => {
+  const quiet = (completion: Record<string, number>, points: unknown[]) =>
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: new Date().toISOString() } });
+      if (u.includes('/reports/status')) return json({ data: {} });
+      if (u.includes('/reports/workload')) return json({ data: [] });
+      if (u.includes('/reports/completion')) return json({ data: completion });
+      if (u.includes('/reports/timeseries')) return json({ data: { from: '', to: '', points, velocity: [], velocityPerWeek: 0 } });
+      return json({ data: [] });
+    }));
+  const day = (date: string, over: Record<string, number> = {}) => ({ date, created: 0, completed: 0, overdue: 0, remaining: 0, ideal: 0, ...over });
+
+  it('reads "—" for the on-time rate until a task with a due date is done, instead of a discouraging 0%', async () => {
+    quiet({ total: 0, completed: 0, onTime: 0, late: 0, unclassified: 0, onTimeRate: 0 }, []);
+    renderPage();
+    expect(await screen.findByText('No completed tasks with a due date yet.')).toBeInTheDocument();
+    expect(screen.queryByText(/of completed tasks with a due date were delivered on time/)).not.toBeInTheDocument();
+    const tile = screen.getByText('On-time rate').closest('.card')!;
+    expect(tile).toHaveTextContent('—');
+    expect(tile).not.toHaveTextContent('0%');
+  });
+
+  it('says what an empty period means instead of drawing a flat chart with a made-up scale', async () => {
+    quiet({ total: 0, completed: 0, onTime: 0, late: 0, unclassified: 0, onTimeRate: 0 }, [day('2026-10-01'), day('2026-10-02')]);
+    renderPage();
+    expect(await screen.findByText('Nothing was created or completed in these days.')).toBeInTheDocument();
+    expect(screen.getByText('No task was overdue in these days.')).toBeInTheDocument();
+    expect(screen.getByText('No open work in these days.')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Completion over time' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Burndown' })).not.toBeInTheDocument();
+  });
+
+  it('still draws a chart when anything happened', async () => {
+    quiet({ total: 2, completed: 1, onTime: 1, late: 0, unclassified: 0, onTimeRate: 100 }, [day('2026-10-01', { created: 2, remaining: 2, ideal: 2 }), day('2026-10-02', { completed: 1, remaining: 1 })]);
+    renderPage();
+    expect(await screen.findByRole('img', { name: 'Completion over time' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Burndown' })).toBeInTheDocument();
+    // Nothing overdue on any day: that chart says so.
+    expect(screen.getByText('No task was overdue in these days.')).toBeInTheDocument();
+  });
+});
