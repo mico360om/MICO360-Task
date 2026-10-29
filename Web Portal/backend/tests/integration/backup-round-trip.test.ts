@@ -217,6 +217,18 @@ describe('Backup → restore round trip (integration)', () => {
     await prisma.user.deleteMany({ where: { email: lateEmail } });
   }, 120_000);
 
+  it('leaves the app’s database connection as it found it (its time zone setting)', async () => {
+    const one = new PrismaClient({ datasources: { db: { url: `${SOURCE_URL}${SOURCE_URL.includes('?') ? '&' : '?'}connection_limit=1` } } });
+    try {
+      await one.$executeRawUnsafe("SET time_zone = '+04:00'");
+      await writeBackupArchive({ sql: prismaSqlRunner(one), uploadDir: uploads, outFile: join(work, 'tz.tar.gz'), workDir: join(work, 'w-tz'), appVersion: 't', trigger: 'manual' });
+      const [row] = await one.$queryRawUnsafe<{ tz: string }[]>('SELECT @@session.time_zone AS tz');
+      expect(row!.tz).toBe('+04:00');
+    } finally {
+      await one.$disconnect();
+    }
+  }, 120_000);
+
   it('restores into an empty database: every table identical (CHECKSUM TABLE), files byte for byte', async () => {
     const opts = restoreOpts(plainCopy);
     const report = await restoreBackup(opts);

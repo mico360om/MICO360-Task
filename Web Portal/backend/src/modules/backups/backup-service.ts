@@ -293,7 +293,11 @@ export function createBackupService(deps: BackupServiceDeps) {
     /** "Back up now": starts a copy in the background and returns its row (RUNNING). */
     async start(by: string): Promise<BackupRunRecord> {
       const row = await begin('MANUAL', by);
-      current = work(row).then(() => undefined);
+      // In the background: nothing it throws may go unhandled (that would stop the server).
+      current = work(row).then(
+        () => undefined,
+        (err: unknown) => deps.logger?.error('backup could not be finished', { err }),
+      );
       return row;
     },
 

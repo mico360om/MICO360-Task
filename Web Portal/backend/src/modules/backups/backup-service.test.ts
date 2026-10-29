@@ -179,6 +179,17 @@ describe('Back up now', () => {
     expect((await svc.overview()).warning).toBe('The last backup failed: The server’s disk is full.');
   });
 
+  it('even when the result can’t be written down (the database is gone), a background copy never crashes the server', async () => {
+    archiveFails = new Error('boom');
+    const broken = { ...repo, update: async () => { throw new Error('database gone'); } };
+    const errors: string[] = [];
+    const svc = service({ repo: broken, logger: { info() {}, warn() {}, error: (msg: string) => errors.push(msg) } });
+    await svc.start('admin1');
+    await expect(svc.idle()).resolves.toBeUndefined();
+    expect(errors).toContain('backup could not be finished');
+    expect(lock.held).toBe(false);
+  });
+
   it('checks the free space first: a short disk is refused before anything is written', async () => {
     const svc = service({ freeSpace: async () => 10 * 1024 * 1024, neededSpace: async () => 300 * 1024 * 1024 });
     await svc.start('admin1');

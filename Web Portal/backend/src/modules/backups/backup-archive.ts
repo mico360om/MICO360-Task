@@ -156,35 +156,41 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
   await mkdir(opts.workDir, { recursive: true });
   try {
     const db = await opts.sql.transaction(async (tx) => {
+      // Datetimes are read in UTC; the connection's own setting is put back afterwards (it is the app's).
+      const zone = (await tx.query<{ tz: string }>('SELECT @@session.time_zone AS tz'))[0]?.tz ?? 'SYSTEM';
       await tx.execute("SET time_zone = '+00:00'");
-      // The first read starts the snapshot: every table below is read as the database is now.
-      const migrations = await readMigrations(tx);
-      const server = (await tx.query<{ v: string }>('SELECT VERSION() AS v'))[0]?.v ?? '';
-      const tables = await listTables(tx);
-      const order = fkSafeOrder(tables.map((t) => t.name), await listForeignKeys(tx));
-      const out: (ManifestTable & { file: string })[] = [];
-      for (const [i, name] of order.entries()) {
-        const table = tables.find((t) => t.name === name)!;
-        const file = join(opts.workDir, `${String(i).padStart(3, '0')}.jsonl`);
-        const ws = createWriteStream(file);
-        const hash = createHash('sha256');
-        let rows = 0;
-        let bytes = 0;
-        try {
-          for await (const row of dumpRows(tx, table, 500, opts.pauseMs ?? 0)) {
-            const line = rowLine(row);
-            hash.update(line);
-            bytes += Buffer.byteLength(line);
-            rows += 1;
-            if (!ws.write(line)) await waitForDrain(ws);
+      try {
+        // The first read starts the snapshot: every table below is read as the database is now.
+        const migrations = await readMigrations(tx);
+        const server = (await tx.query<{ v: string }>('SELECT VERSION() AS v'))[0]?.v ?? '';
+        const tables = await listTables(tx);
+        const order = fkSafeOrder(tables.map((t) => t.name), await listForeignKeys(tx));
+        const out: (ManifestTable & { file: string })[] = [];
+        for (const [i, name] of order.entries()) {
+          const table = tables.find((t) => t.name === name)!;
+          const file = join(opts.workDir, `${String(i).padStart(3, '0')}.jsonl`);
+          const ws = createWriteStream(file);
+          const hash = createHash('sha256');
+          let rows = 0;
+          let bytes = 0;
+          try {
+            for await (const row of dumpRows(tx, table, 500, opts.pauseMs ?? 0)) {
+              const line = rowLine(row);
+              hash.update(line);
+              bytes += Buffer.byteLength(line);
+              rows += 1;
+              if (!ws.write(line)) await waitForDrain(ws);
+            }
+          } finally {
+            ws.end();
+            await finished(ws);
           }
-        } finally {
-          ws.end();
-          await finished(ws);
+          out.push({ ...table, rows, sha256: hash.digest('hex'), bytes, file });
         }
-        out.push({ ...table, rows, sha256: hash.digest('hex'), bytes, file });
+        return { migrations, server, tables: out };
+      } finally {
+        await tx.execute('SET time_zone = ?', zone);
       }
-      return { migrations, server, tables: out };
     });
 
     const skipped: string[] = [];
