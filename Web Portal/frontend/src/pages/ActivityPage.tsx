@@ -4,6 +4,9 @@ import { apiClient } from '../api/client';
 import { activityApi, type ApiActivity } from '../api/activity';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Avatar } from '../components/ui/Avatar';
+import { EmptyState } from '../components/ui/EmptyState';
+import { LoadError } from '../components/ui/LoadError';
+import { Button } from '../components/ui/Button';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
 import { relativeTime } from '../lib/relative-time';
 
@@ -115,7 +118,7 @@ export function ActivityPage() {
 
       <div className="mb-4 flex flex-wrap gap-1.5">
         {FILTERS.map((f) => (
-          <button key={f.value} onClick={() => setFilter(f.value)} className={chip(filter === f.value)}>{f.label}</button>
+          <button key={f.value} type="button" aria-pressed={filter === f.value} onClick={() => setFilter(f.value)} className={chip(filter === f.value)}>{f.label}</button>
         ))}
       </div>
 
@@ -124,20 +127,15 @@ export function ActivityPage() {
           {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-14 rounded-lg" />)}
         </div>
       ) : q.isError ? (
-        <p role="alert" className="text-danger">
-          Couldn’t load activity. <button className="font-semibold underline" onClick={() => q.refetch()}>Retry</button>
-        </p>
+        <LoadError what="activity" onRetry={() => void q.refetch()} />
       ) : rows.length === 0 && filter ? (
         // The feed has entries, just none of this kind: say that, not "no activity yet".
-        <div className="card grid place-items-center gap-2 p-10 text-center">
-          <p className="font-semibold text-ink">No {(FILTERS.find((f) => f.value === filter)?.label ?? 'matching').toLowerCase()} activity</p>
-          <button onClick={() => setFilter('')} className="text-sm font-semibold text-brand hover:underline">Show all activity</button>
-        </div>
+        <EmptyState
+          title={`No ${(FILTERS.find((f) => f.value === filter)?.label ?? 'matching').toLowerCase()} activity`}
+          action={<Button variant="secondary" size="sm" onClick={() => setFilter('')}>Show all activity</Button>}
+        />
       ) : rows.length === 0 ? (
-        <div className="card grid place-items-center gap-1 p-10 text-center">
-          <p className="font-semibold text-ink">No activity yet</p>
-          <p className="text-sm text-ink-2">Task creations, moves, completions and assignments will show up here.</p>
-        </div>
+        <EmptyState title="No activity yet" description="Task creations, moves, completions and assignments will show up here." />
       ) : (
         <div className="flex flex-col gap-5">
           {groups.map(([header, items]) => (
@@ -154,7 +152,7 @@ export function ActivityPage() {
                       <Avatar name={a.actor?.name ?? '?'} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm leading-snug text-ink">
-                          <span dir="auto" className="font-semibold">{a.actor?.name ?? 'Someone'}</span>{' '}
+                          <bdi className="font-semibold">{a.actor?.name ?? 'Someone'}</bdi>{' '}
                           <span className={ACTION_TONE[a.action] ?? 'text-ink-2'}>{ACTION_VERB[a.action] ?? a.action.toLowerCase().replace(/_/g, ' ')}</span>{' '}
                           {a.task ? (
                             <button onClick={() => setOpenTaskId(a.task!.id)} className="font-mono text-xs font-semibold text-brand hover:underline">{a.task.key}</button>
@@ -169,10 +167,11 @@ export function ActivityPage() {
                             </>
                           ) : null}
                         </p>
-                        <p dir="auto" title={[titleOf(a), detailOf(a), a.project?.name].filter(Boolean).join(' · ')} className="line-clamp-2 text-start text-xs text-ink-2 sm:line-clamp-1">
-                          {titleOf(a)}
+                        {/* bdi: an Arabic task title reads right-to-left inside the line without flipping the whole line. */}
+                        <p title={[titleOf(a), detailOf(a), a.project?.name].filter(Boolean).join(' · ')} className="line-clamp-2 text-xs text-ink-2 sm:line-clamp-1">
+                          {titleOf(a) ? <bdi>{titleOf(a)}</bdi> : null}
                           {detailOf(a) ? <span className="text-ink-3">{titleOf(a) ? ' · ' : ''}{detailOf(a)}</span> : null}
-                          {a.project ? <span className="text-ink-3">{titleOf(a) || detailOf(a) ? ' · ' : ''}{a.project.name}</span> : null}
+                          {a.project ? <span className="text-ink-3">{titleOf(a) || detailOf(a) ? ' · ' : ''}<bdi>{a.project.name}</bdi></span> : null}
                         </p>
                       </div>
                       <time className="flex-none text-xs text-ink-3" title={new Date(a.createdAt).toLocaleString()} dateTime={a.createdAt}>

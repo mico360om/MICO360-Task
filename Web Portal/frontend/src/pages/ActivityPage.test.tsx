@@ -119,4 +119,21 @@ describe('ActivityPage', () => {
     expect(via).toHaveLength(1);
     expect(via[0]!.closest('li')).toHaveTextContent('Omar Ahmed');
   });
+
+  it('keeps an Arabic task title in its own direction without flipping the whole line to the other side', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{ ...activity[0], task: { id: 't9', key: 'MICO-9', title: 'فحص الرافعة الأسبوعي' } }] })));
+    renderPage();
+    const title = await screen.findByText('فحص الرافعة الأسبوعي');
+    expect(title.tagName).toBe('BDI');
+    expect(title.closest('[dir="auto"]')).toBeNull();
+  });
+
+  it('says which filter is on, not by colour alone', async () => {
+    renderPage();
+    await screen.findByText('Omar Ahmed');
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(screen.getByRole('button', { name: 'Moved' }));
+    expect(screen.getByRole('button', { name: 'Moved' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'false');
+  });
 });
