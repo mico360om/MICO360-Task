@@ -88,6 +88,26 @@ export function createOtpService(deps: OtpServiceDeps) {
   // the database count (which can't see a code that hasn't been stored yet).
   const issuing = new Set<string>();
 
+  // When each address (as typed, without case or spaces) had its requests taken within the last
+  // minute, oldest first. A request over the per-minute limit is told so, with the wait: that
+  // depends only on what was asked for that address, never on whether an account has it, so the
+  // answer is the same — and equally fast — for every address. (Another name of the same account
+  // asked within the minute still gets the plain answer; the account's own limit holds silently.)
+  const asked = new Map<string, number[]>();
+  function waitBeforeAsking(identifier: string, at: number): number | null {
+    // The map is in order of each address's latest request: forget those a minute old or more.
+    for (const [key, times] of asked) {
+      if (at - times[times.length - 1]! < MINUTE) break;
+      asked.delete(key);
+    }
+    const key = identifier.trim().toLowerCase();
+    const recent = (asked.get(key) ?? []).filter((t) => at - t < MINUTE);
+    if (recent.length >= limits.perMinute) return Math.max(1, Math.ceil((recent[0]! + MINUTE - at) / 1000));
+    asked.delete(key);
+    asked.set(key, [...recent, at]);
+    return null;
+  }
+
   async function issue(user: OtpUser): Promise<void> {
     if (issuing.has(user.id)) {
       deps.logger?.warn('login code request throttled', { userId: user.id });
@@ -120,10 +140,14 @@ export function createOtpService(deps: OtpServiceDeps) {
   /**
    * Generate + email a one-time login code (T2.10). Never reveals whether the account exists:
    * the answer is the same, and equally fast, for every identifier; per-account throttling and
-   * delivery failures are only logged. If email isn't configured at all, every request gets 503.
+   * delivery failures are only logged. The same address asked for again within the minute is
+   * told so (`sent: false` with the seconds to wait) — known or not. If email isn't configured at
+   * all, every request gets 503.
    */
-  async function requestLoginOtp(identifier: string): Promise<{ sent: true }> {
+  async function requestLoginOtp(identifier: string): Promise<{ sent: true } | { sent: false; retryAfterSeconds: number }> {
     if (deps.mailer.isConfigured && !deps.mailer.isConfigured()) throw new EmailUnavailableError();
+    const wait = waitBeforeAsking(identifier, now().getTime());
+    if (wait !== null) return { sent: false, retryAfterSeconds: wait };
     const user = await deps.users.findActiveByIdentifier(identifier);
     if (user) runInBackground(() => issue(user));
     return { sent: true };
