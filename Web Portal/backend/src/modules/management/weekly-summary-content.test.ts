@@ -71,7 +71,7 @@ describe('weeklySummaryEmail', () => {
   });
 
   it('after the three worst projects, says how many more need attention, with a link to the Management page', () => {
-    const w = (id: string, rag: 'RED' | 'AMBER') => ({ id, code: id.toUpperCase(), name: `Project ${id}`, rag, reasons: [{ code: 'LATE_TASKS', level: rag, text: '2 late tasks' }] });
+    const w = (id: string, rag: 'RED' | 'AMBER'): WeeklyDigest['worst'][number] => ({ id, code: id.toUpperCase(), name: `Project ${id}`, rag, reasons: [{ code: 'LATE_TASKS', level: rag, text: '2 late tasks' }] });
     const busy = weeklySummaryEmail({
       name: 'Aisha',
       // 1 red and 4 amber; the digest names the worst three (in its own order).
