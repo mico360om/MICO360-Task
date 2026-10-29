@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TOUCH_TALL } from '../../lib/touch';
+import { useTruncated } from '../../lib/useTruncated';
 
 interface PanelRect {
   left: number;
@@ -66,9 +67,6 @@ export function SearchableSelect({
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
-  // The trigger's words, and whether the trigger cuts them short (then they are its tooltip).
-  const labelRef = useRef<HTMLSpanElement>(null);
-  const [labelCut, setLabelCut] = useState(false);
 
   // Anchor the (portaled) panel to the trigger, flipping upward when there's no room below.
   const position = () => {
@@ -100,16 +98,8 @@ export function SearchableSelect({
 
   const selected = options.find((o) => o.value === value);
   const shownLabel = selected ? selected.label : placeholder;
-  useLayoutEffect(() => {
-    const el = labelRef.current;
-    if (!el) return;
-    const measure = () => setLabelCut(el.scrollWidth > el.clientWidth + 1);
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const watch = new ResizeObserver(measure);
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, [shownLabel]);
+  // The trigger's words, and whether the trigger cuts them short (then they are its tooltip).
+  const [labelRef, labelCut] = useTruncated<HTMLSpanElement>(shownLabel);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;

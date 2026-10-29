@@ -57,4 +57,20 @@ describe('Breadcrumbs', () => {
     expect(current.getAttribute('aria-current')).toBe('page');
     expect(within(nav).getAllByRole('listitem')).toHaveLength(2);
   });
+
+  it('gives the current page’s crumb its whole name on hover when it is cut short', () => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', { configurable: true, get() { return 400; } });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return 120; } });
+    try {
+      render(
+        <MemoryRouter>
+          <Breadcrumbs items={[{ label: 'Meetings', to: '/meetings' }, { label: 'Reliability review — a very long meeting title' }]} />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('Reliability review — a very long meeting title')).toHaveAttribute('title', 'Reliability review — a very long meeting title');
+    } finally {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollWidth;
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+    }
+  });
 });

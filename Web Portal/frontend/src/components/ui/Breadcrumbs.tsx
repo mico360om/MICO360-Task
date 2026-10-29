@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { useTruncated } from '../../lib/useTruncated';
 
 export interface Crumb {
   label: ReactNode;
@@ -24,10 +25,10 @@ export function Breadcrumbs({ items, children, className = '' }: { items: Crumb[
                   <Link to={c.to} className="tap rounded hover:text-brand hover:underline">
                     {c.label}
                   </Link>
+                ) : last ? (
+                  <CurrentCrumb label={c.label} />
                 ) : (
-                  <span aria-current={last ? 'page' : undefined} className={last ? 'truncate text-ink-2' : ''}>
-                    {c.label}
-                  </span>
+                  <span>{c.label}</span>
                 )}
                 {!last ? (
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none rtl:rotate-180">
@@ -41,5 +42,15 @@ export function Breadcrumbs({ items, children, className = '' }: { items: Crumb[
       </nav>
       {children}
     </div>
+  );
+}
+
+/** This page's crumb: cut short with an ellipsis when long, and then its whole name on hover. */
+function CurrentCrumb({ label }: { label: ReactNode }) {
+  const [ref, cut] = useTruncated<HTMLSpanElement>(label);
+  return (
+    <span ref={ref} aria-current="page" title={cut && typeof label === 'string' ? label : undefined} className="truncate text-ink-2">
+      {label}
+    </span>
   );
 }
