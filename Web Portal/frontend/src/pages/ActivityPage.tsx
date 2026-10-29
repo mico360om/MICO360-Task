@@ -18,6 +18,11 @@ const ACTION_VERB: Record<string, string> = {
   ASSIGNED: 'assigned',
   PROJECT_CHANGED: 'moved',
   PROJECT_MOVED_OUT: 'moved',
+  // Task approvals.
+  APPROVAL_REQUESTED: 'asked for approval on',
+  APPROVED: 'approved',
+  SENT_BACK: 'sent back',
+  APPROVAL_WITHDRAWN: 'withdrew the approval request on',
 };
 const ACTION_TONE: Record<string, string> = {
   CREATED: 'text-info',
@@ -27,6 +32,10 @@ const ACTION_TONE: Record<string, string> = {
   ASSIGNED: 'text-brand',
   PROJECT_CHANGED: 'text-ink-2',
   PROJECT_MOVED_OUT: 'text-ink-2',
+  APPROVAL_REQUESTED: 'text-brand',
+  APPROVED: 'text-success',
+  SENT_BACK: 'text-warning',
+  APPROVAL_WITHDRAWN: 'text-ink-2',
 };
 const ACTION_DOT: Record<string, string> = {
   CREATED: 'bg-info',
@@ -34,6 +43,9 @@ const ACTION_DOT: Record<string, string> = {
   COMPLETED: 'bg-success',
   REOPENED: 'bg-warning',
   ASSIGNED: 'bg-brand',
+  APPROVAL_REQUESTED: 'bg-brand',
+  APPROVED: 'bg-success',
+  SENT_BACK: 'bg-warning',
 };
 const FILTERS = [
   { value: '', label: 'All' },
@@ -68,6 +80,10 @@ function detailOf(a: ApiActivity): string {
       return to ? `marked complete in ${to}` : 'marked complete';
     case 'REOPENED':
       return to ? `re-opened in ${to}` : 're-opened';
+    case 'APPROVED':
+      return to ? `done in ${to}` : '';
+    case 'SENT_BACK':
+      return str(m.reason) ? `“${str(m.reason)}”` : '';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
     case 'PROJECT_CHANGED': {

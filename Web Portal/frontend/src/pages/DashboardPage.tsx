@@ -58,10 +58,12 @@ function StatIcon({ children }: { children: ReactNode }) {
 
 const ACTION_LABEL: Record<string, string> = {
   CREATED: 'created', MOVED: 'moved', COMPLETED: 'completed', REOPENED: 'reopened', ASSIGNED: 'assigned to',
+  // Task approvals.
+  APPROVAL_REQUESTED: 'asked for approval on', APPROVED: 'approved', SENT_BACK: 'sent back', APPROVAL_WITHDRAWN: 'withdrew the approval request on',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? (a || '').toLowerCase().replace(/_/g, ' ');
 const actionTone = (a: string): string =>
-  a === 'COMPLETED' ? 'text-success' : a === 'MOVED' ? 'text-info' : a === 'CREATED' ? 'text-brand' : a === 'REOPENED' ? 'text-warning' : 'text-ink-2';
+  a === 'COMPLETED' || a === 'APPROVED' ? 'text-success' : a === 'SENT_BACK' ? 'text-warning' : a === 'MOVED' ? 'text-info' : a === 'CREATED' ? 'text-brand' : a === 'REOPENED' ? 'text-warning' : 'text-ink-2';
 
 function timeAgo(iso: string): string {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);

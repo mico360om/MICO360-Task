@@ -28,6 +28,8 @@ export interface ApiProject {
   carryForward?: boolean;
   /** A task added without a due date gets today's date. Missing (older server) = off. */
   defaultDueToday?: boolean;
+  /** "New tasks in this project need approval": the New task form starts ticked. Missing (older server) = off. */
+  newTasksNeedApproval?: boolean;
   /**
    * You may change it — its details, picture, status, owner and team: you are an admin, or its
    * owner, its named manager or a manager on its team (the server decides). Missing from an older server.
@@ -91,6 +93,8 @@ export interface NewProjectInput {
   carryForward?: boolean;
   /** Left out: off for a new project (unchanged on an update). */
   defaultDueToday?: boolean;
+  /** Left out: off for a new project (unchanged on an update). */
+  newTasksNeedApproval?: boolean;
   /** New projects only: people put on its team at once (the creator and the owner join it anyway). */
   memberIds?: string[];
 }
