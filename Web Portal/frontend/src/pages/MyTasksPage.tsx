@@ -33,6 +33,7 @@ import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
 import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
 import { TOUCH_TALL } from '../lib/touch';
+import { useMediaQuery } from '../lib/useMediaQuery';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -92,6 +93,9 @@ export function MyTasksPage() {
   const [due, setDue] = useState('');
   const [sort, setSort] = useState<Sort>('due');
   const [view, setView] = useState<View>(() => (readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View) || 'grid');
+  // A phone (below the sm width): the filters wait behind one button.
+  const phone = useMediaQuery('(max-width: 39.9375em)');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => { writeUserValue(userId, 'mytasks.view', view); }, [view, userId]);
 
   // Bulk selection + async bulk-action plumbing.
@@ -259,6 +263,32 @@ export function MyTasksPage() {
     ? [...moveColumnsQ.data].filter((c) => c.enabled).sort((a, b) => a.position - b.position).map((c) => ({ value: c.id, label: c.name }))
     : undefined;
 
+  // The toolbar's parts: laid out in a row (tablet and up), or behind "Filters" on a phone.
+  const activeFilters = [project, status, priority, assignee, due].filter(Boolean).length;
+  const filterBoxes = (box: string) => (
+    <>
+      <div className={box}><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
+      <div className={box}><SearchableSelect ariaLabel="Filter by status" value={status} onChange={setStatus} options={statusOptions} /></div>
+      <div className={box}><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
+      <div className={box}><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
+      <div className={box}><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
+    </>
+  );
+  const clearButton = filtersActive ? (
+    <button onClick={clearFilters} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>Clear</button>
+  ) : null;
+  const sortSelect = <SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={SORT_OPTIONS} />;
+  const viewSwitch = (
+    <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
+      <ViewButton active={view === 'grid'} onClick={() => setView('grid')} label="Grid view">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </ViewButton>
+      <ViewButton active={view === 'list'} onClick={() => setView('list')} label="List view">
+        <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+      </ViewButton>
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
@@ -281,33 +311,49 @@ export function MyTasksPage() {
         </div>
       ) : null}
 
-      {/* Toolbar: filters + sort + view toggle */}
+      {/* Toolbar: filters + sort + view toggle. On a phone the filters and the sort wait behind one
+          "Filters" button (with how many are in use), as on the Calendar: five boxes took a screenful. */}
       {counts.total > 0 ? (
-        <div className="card mb-4 flex flex-wrap items-center gap-2 p-2.5">
-          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
-          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by status" value={status} onChange={setStatus} options={statusOptions} /></div>
-          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
-          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
-          <div className="min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]"><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
-          {filtersActive ? (
-            <button onClick={clearFilters} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>Clear</button>
-          ) : null}
-
-          <div className="ml-auto flex items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-ink-2">
-              <span aria-hidden>Sort</span>
-              <div className="w-32"><SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={SORT_OPTIONS} /></div>
+        phone ? (
+          <div className="card mb-4 p-2.5">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((o) => !o)}
+                aria-expanded={filtersOpen}
+                aria-controls="my-tasks-filters"
+                className={`inline-flex h-9 items-center gap-1.5 rounded-xl border bg-surface px-3 text-sm font-semibold transition-colors hover:border-brand [@media(pointer:coarse)]:h-11 ${filtersOpen || activeFilters ? 'border-brand/60 text-brand' : 'border-line text-ink'}`}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z" /></svg>
+                Filters{activeFilters ? ` (${activeFilters})` : ''}
+              </button>
+              {clearButton}
+              <div className="ms-auto">{viewSwitch}</div>
             </div>
-            <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
-              <ViewButton active={view === 'grid'} onClick={() => setView('grid')} label="Grid view">
-                <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
-              </ViewButton>
-              <ViewButton active={view === 'list'} onClick={() => setView('list')} label="List view">
-                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-              </ViewButton>
+            {filtersOpen ? (
+              <div id="my-tasks-filters" className="mt-2.5 grid grid-cols-2 gap-2 border-t border-line pt-2.5">
+                {filterBoxes('min-w-0')}
+                <div className="flex min-w-0 items-center gap-1.5 text-xs text-ink-2">
+                  <span aria-hidden>Sort</span>
+                  <div className="min-w-0 flex-1">{sortSelect}</div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="card mb-4 flex flex-wrap items-center gap-2 p-2.5">
+            {filterBoxes('min-w-0 flex-[1_1_9rem] sm:max-w-[13rem]')}
+            {clearButton}
+
+            <div className="ml-auto flex items-center gap-2">
+              <div className="flex items-center gap-1.5 text-xs text-ink-2">
+                <span aria-hidden>Sort</span>
+                <div className="w-32">{sortSelect}</div>
+              </div>
+              {viewSwitch}
             </div>
           </div>
-        </div>
+        )
       ) : null}
 
       {/* Results */}

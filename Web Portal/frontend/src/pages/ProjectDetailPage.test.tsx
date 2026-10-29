@@ -439,6 +439,13 @@ describe('ProjectDetailPage', () => {
     expect(screen.queryByLabelText('Loading project')).toBeNull();
   });
 
+  it('keeps the title wide enough that no word breaks: the buttons go under it first', async () => {
+    renderPage();
+    const h1 = await screen.findByRole('heading', { level: 1, name: 'MICO Platform' });
+    // The title's group asks for 20rem (avatar and title) before the buttons may sit beside it.
+    expect(h1.closest('.basis-80')).not.toBeNull();
+  });
+
   it('shows placeholders, not zero counters, while the project and its tasks are loading', async () => {
     const base = fetch;
     const never = new Promise<Response>(() => {});

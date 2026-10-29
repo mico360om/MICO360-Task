@@ -4,6 +4,7 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   MouseSensor,
   TouchSensor,
   useSensor,
@@ -30,6 +31,8 @@ export interface KanbanBoardProps {
   onAddTask?: (columnId: string) => void;
   /** Each card's "⋯" menu, by task key (e.g. "Move to another project…"). */
   cardMenu?: (taskKey: string) => CardMenuItem[] | null;
+  /** The board fills the height it is given and each column scrolls by itself (see BOARD_FIT_QUERY in lib/board). */
+  fit?: boolean;
 }
 
 /**
@@ -44,7 +47,7 @@ const KEYBOARD_CODES = { start: ['Space'], cancel: ['Escape'], end: ['Space'] };
  * in a body-level portal so it stays visible over the columns' `overflow-hidden` edges and the
  * board's horizontal scroll. The container persists the change via the API (broadcast over realtime).
  */
-export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone, onAddTask, cardMenu }: KanbanBoardProps) {
+export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone, onAddTask, cardMenu, fit = false }: KanbanBoardProps) {
   // Mouse drags after a small move; touch needs a short press so a swipe still scrolls the board;
   // keyboard users pick cards up with Space and move them with the arrow keys.
   const sensors = useSensors(
@@ -102,10 +105,20 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveKey(null)}
+      // Columns scroll while a card is dragged (dnd-kit scrolls them near an edge): drop targets are
+      // measured all along, not once when the drag starts.
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
     >
-      {/* The columns reach the bottom of the window (lanes to drop into, and the page doesn't jump when
-          the board replaces its placeholder); a longer column makes the page scroll as before. */}
-      <div className="kanban-scroll flex min-h-[calc(100dvh-12rem)] gap-3 overflow-x-auto pb-3" tabIndex={0} role="region" aria-label="Board columns">
+      {/* Fitted: the board is as tall as the room it is given and each column scrolls by itself.
+          Otherwise the columns reach the bottom of the window (lanes to drop into, and the page doesn't
+          jump when the board replaces its placeholder); a longer column makes the page scroll. */}
+      <div
+        className={`kanban-scroll flex gap-3 overflow-x-auto pb-3 ${fit ? 'h-full min-h-0' : 'min-h-[calc(100dvh-12rem)]'}`}
+        tabIndex={0}
+        role="region"
+        aria-label="Board columns"
+        data-fit={fit ? 'true' : 'false'}
+      >
         {columns.map((column) => (
           <KanbanColumn
             key={column.id}
@@ -115,6 +128,7 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
             timeZone={timeZone}
             cardMenu={cardMenu}
             dragging={activeKey !== null}
+            fit={fit}
           />
         ))}
       </div>

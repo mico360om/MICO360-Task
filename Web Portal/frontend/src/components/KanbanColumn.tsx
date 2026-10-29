@@ -22,6 +22,8 @@ export interface KanbanColumnProps {
   cardMenu?: (taskKey: string) => CardMenuItem[] | null;
   /** A card is being dragged: the menus step aside (they don't travel with the cards). */
   dragging?: boolean;
+  /** The board fits the window: the cards scroll inside the column, under its header. */
+  fit?: boolean;
 }
 
 const PLUS = <path d="M12 5v14M5 12h14" />;
@@ -41,7 +43,7 @@ function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => voi
   );
 }
 
-export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false }: KanbanColumnProps) {
+export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false, fit = false }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -74,15 +76,16 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
     <section
       ref={setNodeRef}
       aria-label={column.name}
-      className={`flex min-w-[15rem] flex-1 basis-0 flex-col gap-2 overflow-hidden rounded-2xl border bg-surface/70 p-2.5 transition-all duration-200 ${
+      className={`flex min-w-[15rem] flex-1 basis-0 flex-col gap-2 overflow-hidden rounded-2xl border bg-surface/70 p-2.5 transition-all duration-200 ${fit ? 'min-h-0' : ''} ${
         isOver ? 'border-brand/40 bg-brand/5 shadow-card ring-2 ring-brand/30' : 'border-line'
       }`}
     >
       <span className="-mx-2.5 -mt-2.5 h-1" style={{ background: column.color }} aria-hidden="true" />
-      <header className="flex items-center justify-between px-1 py-0.5">
+      {/* A long name wraps onto a second line, and past that gives its full name on hover. */}
+      <header className="flex flex-none items-center justify-between gap-1 px-1 py-0.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2.5 w-2.5 flex-none rounded-full ring-2 ring-surface" style={{ background: column.color }} />
-          <span dir="auto" className="truncate text-sm font-bold text-ink">{column.name}</span>
+          <span dir="auto" title={column.name} className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink">{column.name}</span>
           <span className="min-w-[1.25rem] flex-none rounded-full bg-ground px-1.5 text-center text-xs font-semibold tabular-nums text-ink-2">{column.tasks.length}</span>
         </div>
         <div className="flex flex-none items-center gap-0.5">
@@ -96,7 +99,12 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
           </button>
         </div>
       </header>
-      <div className="flex min-h-[80px] flex-col gap-2.5">
+      {/* Fitted to the window, the cards scroll here (the header above stays); the padding keeps a
+          card's ring and lift inside the scroll area's edges. data-column-scroll: see board-collision. */}
+      <div
+        className={fit ? '-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-1 pt-0.5' : 'flex min-h-[80px] flex-col gap-2.5'}
+        {...(fit ? { 'data-column-scroll': '' } : {})}
+      >
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
           {column.tasks.map((task) => {
             const items = cardMenu?.(task.key) ?? null;
