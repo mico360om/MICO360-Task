@@ -321,6 +321,16 @@
       align-items: center;
       min-height: 2rem;
     }
+    /* A tick box's finger-sized target (opt-in): put the box in a <label> (or span) with this class.
+       On a touch screen the wrapper is at least 44px each way around the 24px box; with a mouse it
+       changes nothing. For a box with its words beside it, the whole label is the target. */
+    .check-hit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
   }
   /* Keyboard focus only — never on mouse click. A solid 2px ring in the brand colour (theme-aware),
      set off from the control so it stays visible on any background, light or dark. */

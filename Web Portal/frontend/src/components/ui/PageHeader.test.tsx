@@ -29,6 +29,15 @@ describe('PageHeader', () => {
     expect(line.lastElementChild).toBe(description);
   });
 
+  it('keeps the title whole beside its actions: the actions move under it when both don’t fit (“User & Profile Managem…” at 768px)', () => {
+    render(<PageHeader eyebrow="Admin" title="User & Profile Management" subtitle="Accounts, roles and access." actions={<button type="button">New user</button>} />);
+    const line = screen.getByRole('heading', { level: 1 }).parentElement!;
+    // The title line asks for its own full width (flex-basis auto) before sharing the row…
+    expect(line.className).toMatch(/flex-\[1_1_auto\]/);
+    // …and the description adds nothing to that width (it only fills what is left).
+    expect(screen.getByText('Accounts, roles and access.').className).toMatch(/\[contain:inline-size\]/);
+  });
+
   it('works without a section or a subtitle', () => {
     render(<PageHeader title="Your profile" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Your profile' }).parentElement!.textContent).toBe('Your profile');

@@ -189,7 +189,7 @@ export function LoginForm({
   }
 
   const keepSignedInBox = (
-    <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-ink-2">
+    <label className="check-hit flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-ink-2 [@media(pointer:coarse)]:justify-start">
       <input
         type="checkbox"
         checked={keepSignedIn}
