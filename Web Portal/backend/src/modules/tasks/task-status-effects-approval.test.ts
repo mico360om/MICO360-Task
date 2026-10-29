@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createStatusChangeEffects, type StatusEffectsDeps } from './task-status-effects';
+import { createStatusChangeEffects } from './task-status-effects';
 import type { TaskRecord } from './task-repository';
 
 const NOW = new Date('2026-10-30T06:00:00Z');
@@ -14,7 +14,7 @@ const task = (over: Partial<TaskRecord> = {}): TaskRecord => ({
   version: 3, createdAt: NOW, updatedAt: NOW, needsApproval: true, ...over,
 });
 
-function world(over: Partial<StatusEffectsDeps> = {}) {
+function world() {
   const deps = {
     column: vi.fn(async (id: string) => COLUMNS[id] ?? null),
     nextCopy: vi.fn(async () => ({ id: 'copy1' })),
@@ -24,10 +24,9 @@ function world(over: Partial<StatusEffectsDeps> = {}) {
     approvers: vi.fn(async () => ['omar', 'zara']),
     approvalAudience: vi.fn(async () => ['sara', 'bilal']),
     sentBackComment: vi.fn(async () => undefined),
-    notify: vi.fn(async () => undefined),
+    notify: vi.fn(async (_n: { userId: string; title: string }) => undefined),
     record: vi.fn(async () => undefined),
     onError: vi.fn(),
-    ...over,
   };
   return { deps, statusChanged: createStatusChangeEffects(deps) };
 }
@@ -84,7 +83,7 @@ describe('What an approval step does', () => {
     const w = world();
     const reason = 'x'.repeat(300);
     await w.statusChanged(task({ columnId: 'doing' }), 'review', 'omar', { approval: 'SENT_BACK', reason, requestedById: 'sara' });
-    const title = (w.deps.notify.mock.calls[0]![0] as { title: string }).title;
+    const title = w.deps.notify.mock.calls[0]![0].title;
     expect(title.length).toBeLessThanOrEqual(140);
     expect(title.endsWith('…')).toBe(true);
     expect(w.deps.sentBackComment).toHaveBeenCalledWith(expect.anything(), 'omar', reason);
