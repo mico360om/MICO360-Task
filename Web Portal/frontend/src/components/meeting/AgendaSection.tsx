@@ -141,7 +141,10 @@ export function AgendaSection({
     <Section id="agenda" title="Agenda" count={items.length || undefined} aside={total}>
       <SectionError message={opError} onDismiss={() => setOpError(null)} />
       {agendaQ.isLoading ? (
-        <div className="skeleton h-16 w-full" />
+        // About three topics' height, so the page below doesn't jump as far when they arrive.
+        <div aria-hidden="true" className="flex flex-col gap-2">
+          {[0, 1, 2].map((i) => <div key={i} className="skeleton h-12 w-full" />)}
+        </div>
       ) : agendaQ.isError ? (
         <LoadError what="the agenda" onRetry={() => void agendaQ.refetch()} />
       ) : items.length === 0 ? (

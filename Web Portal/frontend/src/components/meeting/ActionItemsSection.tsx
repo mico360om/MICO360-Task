@@ -98,7 +98,10 @@ export function ActionItemsSection({
     <Section id="actions" title="Action items" count={items.length ? `${openCount} open of ${items.length}` : undefined}>
       <SectionError message={opError} onDismiss={() => setOpError(null)} />
       {itemsQ.isLoading ? (
-        <div className="skeleton h-16 w-full" />
+        // About two items' height (words, then their owner, date, priority and status).
+        <div aria-hidden="true" className="flex flex-col gap-3">
+          {[0, 1].map((i) => <div key={i} className="skeleton h-24 w-full" />)}
+        </div>
       ) : itemsQ.isError ? (
         <LoadError what="the action items" onRetry={() => void itemsQ.refetch()} />
       ) : items.length === 0 ? (
