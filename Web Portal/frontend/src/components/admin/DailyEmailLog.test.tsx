@@ -112,6 +112,15 @@ const withPeople = (people: unknown[], extra: Record<string, unknown> = {}) => {
   overview = { ...overview, people, ...extra };
 };
 
+describe('System Settings → Daily task emails: layout', () => {
+  it('sets the people two to a row on a wide screen (xl), one to a row below', async () => {
+    renderIt();
+    const list = await screen.findByRole('list', { name: 'Everyone and their daily emails' });
+    expect(list.className).toMatch(/(^|\s)grid(\s|$)/);
+    expect(list.className).toMatch(/xl:grid-cols-2/);
+  });
+});
+
 describe('System Settings → Daily task emails: today’s summary', () => {
   it('the day’s numbers, when the server last checked and the next send — each person’s own today', async () => {
     renderIt();
