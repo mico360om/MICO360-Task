@@ -327,7 +327,7 @@ export function InspectionPage() {
             </Button>
           ) : null}
           {p.canDelete ? (
-            <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')} className={`text-danger hover:text-danger ${TOUCH_TALL}`}>
+            <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')} className={`!text-danger hover:!text-danger ${TOUCH_TALL}`}>
               Delete
             </Button>
           ) : null}

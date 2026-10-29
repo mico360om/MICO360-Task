@@ -11,7 +11,7 @@ export interface DrawerChecklistItem {
 }
 
 const iconButton =
-  'grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground sm:h-7 sm:w-7';
+  'grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground sm:h-7 sm:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 
 /** One item's text, editable in place (Enter or leaving the box saves, Escape drops the edit). */
 function ItemText({ item, onRename }: { item: DrawerChecklistItem; onRename?: (text: string) => Promise<void> | void }) {
@@ -252,7 +252,7 @@ export function ChecklistSection({
             onClick={() => void suggest()}
             disabled={suggesting}
             title="Let AI break this task into steps — you review them before any are added"
-            className="ms-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/30 bg-brand/5 px-2.5 text-xs font-semibold text-brand transition-colors hover:border-brand disabled:opacity-60 sm:h-8"
+            className="ms-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-brand/30 bg-brand/5 px-2.5 text-xs font-semibold text-brand transition-colors hover:border-brand disabled:opacity-60 sm:h-8 [@media(pointer:coarse)]:h-11"
           >
             {suggesting ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand/30 border-t-brand" aria-hidden /> : <Sparkle />}
             {suggesting ? 'Thinking…' : 'Suggest steps'}
@@ -407,7 +407,7 @@ export function ChecklistSection({
               void addAll(lines);
             }}
             placeholder="Add an item…"
-            className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9"
+            className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9 [@media(pointer:coarse)]:h-11"
           />
           <button
             type="submit"

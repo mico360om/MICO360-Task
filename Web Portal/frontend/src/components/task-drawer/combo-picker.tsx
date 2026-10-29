@@ -166,7 +166,7 @@ export function ComboPicker({
             if (pick) onPick(pick.id);
           }
         }}
-        className="h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60 sm:h-9"
+        className="h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60 sm:h-9 [@media(pointer:coarse)]:h-11"
       />
       {open && !listed ? (
         <p role="status" className={`${alwaysOpen || inline ? 'mt-1' : 'absolute inset-x-0 top-full z-30 mt-1 shadow-lift'} rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-3`}>
@@ -192,7 +192,7 @@ export function ComboPicker({
                 onPick(o.id);
               }}
               onMouseEnter={() => setActive(i)}
-              className={`flex min-h-[40px] cursor-pointer items-center gap-2 px-3 py-1.5 text-sm ${i === current ? 'bg-brand/10' : 'hover:bg-ground'}`}
+              className={`flex min-h-[40px] cursor-pointer items-center gap-2 px-3 py-1.5 text-sm [@media(pointer:coarse)]:min-h-11 ${i === current ? 'bg-brand/10' : 'hover:bg-ground'}`}
             >
               {o.lead}
               <span dir="auto" className="min-w-0 flex-1 truncate text-start text-ink">

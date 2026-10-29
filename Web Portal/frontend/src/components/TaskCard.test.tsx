@@ -115,6 +115,18 @@ describe('TaskCard on a board of several projects', () => {
     expect(line.querySelector('[data-project-avatar="icon"]')).not.toBeNull();
   });
 
+  it('names its project in full on hover (the line is cut short in a narrow column)', () => {
+    render(<TaskCard task={{ ...task, project: { name: 'Offshore Inspection Data Platform Modernisation', code: 'OI', color: null, icon: null, imageUrl: null } }} />);
+    expect(screen.getByText('Offshore Inspection Data Platform Modernisation')).toHaveAttribute('title', 'Offshore Inspection Data Platform Modernisation');
+  });
+
+  it('keeps the key on one line: a check’s Inspection chip sits with the due date, not between the key and the priority', () => {
+    render(<TaskCard task={{ ...task, key: 'MICO-13', inspection: true, recurring: true }} />);
+    const key = screen.getByText('MICO-13');
+    expect(key).toHaveClass('whitespace-nowrap');
+    expect(key.parentElement).not.toContainElement(screen.getByText('Inspection'));
+  });
+
   it('shows no project line on a single project’s board', () => {
     render(<TaskCard task={task} />);
     expect(screen.queryByTestId('card-project')).not.toBeInTheDocument();

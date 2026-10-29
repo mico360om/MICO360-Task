@@ -95,17 +95,17 @@ function CommentItem({
               {confirming ? (
                 <>
                   <span className="text-ink-2">Delete?</span>
-                  <button type="button" onClick={() => { setConfirming(false); onDelete?.(c.id); }} className="h-8 rounded px-2 font-semibold text-danger hover:bg-danger-soft sm:h-7">
+                  <button type="button" onClick={() => { setConfirming(false); onDelete?.(c.id); }} className="h-8 rounded px-2 font-semibold text-danger hover:bg-danger-soft sm:h-7 [@media(pointer:coarse)]:h-11">
                     Yes, delete
                   </button>
-                  <button type="button" onClick={() => setConfirming(false)} className="h-8 rounded px-2 text-ink-2 hover:bg-ground sm:h-7">
+                  <button type="button" onClick={() => setConfirming(false)} className="h-8 rounded px-2 text-ink-2 hover:bg-ground sm:h-7 [@media(pointer:coarse)]:h-11">
                     Keep
                   </button>
                 </>
               ) : (
                 <>
                   {canEdit ? (
-                    <button type="button" onClick={() => { setProblem(null); setDraft(c.body); }} aria-label="Edit your comment" className="h-8 rounded px-2 text-ink-2 hover:bg-ground hover:text-ink sm:h-7">
+                    <button type="button" onClick={() => { setProblem(null); setDraft(c.body); }} aria-label="Edit your comment" className="h-8 rounded px-2 text-ink-2 hover:bg-ground hover:text-ink sm:h-7 [@media(pointer:coarse)]:h-11">
                       Edit
                     </button>
                   ) : null}
@@ -114,7 +114,7 @@ function CommentItem({
                       type="button"
                       onClick={() => setConfirming(true)}
                       aria-label={c.canEdit ? 'Delete your comment' : `Delete comment by ${author}`}
-                      className="h-8 rounded px-2 text-ink-2 hover:bg-ground hover:text-danger sm:h-7"
+                      className="h-8 rounded px-2 text-ink-2 hover:bg-ground hover:text-danger sm:h-7 [@media(pointer:coarse)]:h-11"
                     >
                       Delete
                     </button>
@@ -140,10 +140,10 @@ function CommentItem({
               </p>
             ) : null}
             <div className="flex items-center gap-2 text-xs">
-              <button type="button" onClick={() => void save()} disabled={!draft.trim() || saving} aria-label="Save comment" className="h-8 rounded-lg bg-brand px-3 font-semibold text-white disabled:opacity-50">
+              <button type="button" onClick={() => void save()} disabled={!draft.trim() || saving} aria-label="Save comment" className="h-8 rounded-lg bg-brand px-3 font-semibold text-white disabled:opacity-50 [@media(pointer:coarse)]:h-11">
                 {saving ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" onClick={() => { setDraft(null); setProblem(null); }} className="h-8 rounded-lg px-2.5 text-ink-2 hover:bg-ground">
+              <button type="button" onClick={() => { setDraft(null); setProblem(null); }} className="h-8 rounded-lg px-2.5 text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
                 Cancel
               </button>
             </div>
@@ -241,7 +241,7 @@ export function CommentsSection({
             <button
               type="submit"
               disabled={draft.trim() === '' || posting}
-              className="ms-auto inline-flex h-10 items-center gap-1.5 rounded-lg bg-brand px-4 text-xs font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-50 sm:h-8"
+              className="ms-auto inline-flex h-10 items-center gap-1.5 rounded-lg bg-brand px-4 text-xs font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-50 sm:h-8 [@media(pointer:coarse)]:h-11"
             >
               {posting ? 'Posting…' : 'Comment'}
             </button>

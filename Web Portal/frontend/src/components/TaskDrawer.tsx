@@ -310,7 +310,7 @@ export function TaskDrawer({
                 aria-label="Edit task"
                 title={editHint ? editHint.title('Edit every detail of the task') : 'Edit every detail of the task'}
                 aria-keyshortcuts={editHint?.aria}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
@@ -335,7 +335,7 @@ export function TaskDrawer({
               onClick={onClose}
               aria-label="Close"
               title="Close (Esc)"
-              className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink"
+              className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <path d="M18 6 6 18M6 6l12 12" />
@@ -439,15 +439,15 @@ export function TaskDrawer({
           {confirmingDelete ? (
             <div role="group" aria-label="Confirm delete" className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-ink">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
-              <button type="button" onClick={() => onDelete()} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8">
+              <button type="button" onClick={() => onDelete()} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8 [@media(pointer:coarse)]:h-11">
                 {inSeries ? 'This occurrence' : 'Delete'}
               </button>
               {inSeries ? (
-                <button type="button" onClick={() => onDelete('series')} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8">
+                <button type="button" onClick={() => onDelete('series')} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8 [@media(pointer:coarse)]:h-11">
                   Entire series
                 </button>
               ) : null}
-              <button ref={keepRef} type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8">
+              <button ref={keepRef} type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8 [@media(pointer:coarse)]:h-11">
                 Cancel
               </button>
             </div>
@@ -457,7 +457,7 @@ export function TaskDrawer({
               onClick={() => setConfirmingDelete(true)}
               title={deleteHint?.title('Delete task')}
               aria-keyshortcuts={deleteHint?.aria}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-8"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-8 [@media(pointer:coarse)]:h-11"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" />

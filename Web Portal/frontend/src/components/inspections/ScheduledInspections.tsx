@@ -229,7 +229,7 @@ function ScheduleRow({ s, timeZone, canChange, onEdit, onStop }: { s: Inspection
             <Button size="sm" variant="secondary" onClick={onEdit} aria-label={`Edit ${s.title}`} className={coarse}>
               Edit
             </Button>
-            <Button size="sm" variant="ghost" onClick={onStop} aria-label={`Stop ${s.title}`} className={`text-danger hover:text-danger ${coarse}`}>
+            <Button size="sm" variant="ghost" onClick={onStop} aria-label={`Stop ${s.title}`} className={`!text-danger hover:!text-danger ${coarse}`}>
               Stop
             </Button>
           </div>

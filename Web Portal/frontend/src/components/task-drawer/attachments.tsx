@@ -103,10 +103,10 @@ function FilePreview({ a, href, mode, loadOffice, onClose }: { a: DrawerAttachme
           <div className="flex flex-none items-center gap-2 border-b border-line px-4 py-2.5">
             <span dir="auto" className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={a.filename}>{a.filename}</span>
             <span className="text-xs text-ink-3">{formatSize(a.sizeBytes)}</span>
-            <a href={href} download={a.filename} className="inline-flex h-9 items-center rounded-lg border border-line px-3 text-sm font-medium text-ink hover:border-brand hover:text-brand">
+            <a href={href} download={a.filename} className="inline-flex h-9 items-center rounded-lg border border-line px-3 text-sm font-medium text-ink hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11">
               Download
             </a>
-            <button type="button" onClick={onClose} aria-label="Close preview" className="grid h-9 w-9 place-items-center rounded-lg text-ink-2 hover:bg-ground">
+            <button type="button" onClick={onClose} aria-label="Close preview" className="grid h-9 w-9 place-items-center rounded-lg text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
@@ -246,7 +246,7 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
             onClick={() => setPreviewing(true)}
             aria-label={`Preview ${a.filename}`}
             title="Preview"
-            className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-brand sm:h-7 sm:w-7"
+            className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-ground hover:text-brand sm:h-7 sm:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
           >
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -260,7 +260,7 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
             onClick={() => setConfirming(true)}
             aria-label={`Delete ${a.filename}`}
             title="Delete"
-            className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-7 sm:w-7"
+            className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-7 sm:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
           >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" />
@@ -282,11 +282,11 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
                 setProblem(failureMessage(err, 'Couldn’t delete the file.'));
               }
             }}
-            className="h-8 rounded-md px-2 font-semibold text-danger hover:bg-danger-soft"
+            className="h-8 rounded-md px-2 font-semibold text-danger hover:bg-danger-soft [@media(pointer:coarse)]:h-11"
           >
             Yes, delete
           </button>
-          <button type="button" onClick={() => setConfirming(false)} className="h-8 rounded-md px-2 text-ink-2 hover:bg-ground">
+          <button type="button" onClick={() => setConfirming(false)} className="h-8 rounded-md px-2 text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
             Keep
           </button>
         </div>

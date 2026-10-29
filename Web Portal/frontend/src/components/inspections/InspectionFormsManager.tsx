@@ -205,7 +205,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-danger hover:text-danger [@media(pointer:coarse)]:!min-h-11"
+                    className="!text-danger hover:!text-danger [@media(pointer:coarse)]:!min-h-11"
                     aria-label={`Delete ${f.title}`}
                     onClick={() => {
                       setNotice(null);

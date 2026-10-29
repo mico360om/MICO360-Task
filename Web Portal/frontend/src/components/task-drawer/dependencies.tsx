@@ -47,7 +47,7 @@ function TaskLine({ t, onRemove }: { t: DrawerTaskRef; onRemove?: () => void }) 
           onClick={onRemove}
           aria-label={`Remove blocker ${t.key}`}
           title="Remove"
-          className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-7 sm:w-7"
+          className="grid h-9 w-9 flex-none place-items-center rounded-lg text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-7 sm:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
         >
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />

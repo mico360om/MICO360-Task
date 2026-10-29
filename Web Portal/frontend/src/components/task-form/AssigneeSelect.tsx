@@ -74,7 +74,7 @@ export function AssigneeSelect({
                 disabled={disabled}
                 aria-label={`Remove ${p.name}`}
                 title={`Remove ${p.name}`}
-                className="grid h-6 w-6 flex-none place-items-center rounded-full text-ink-2 transition-colors hover:bg-danger-soft hover:text-danger"
+                className="grid h-6 w-6 flex-none place-items-center rounded-full text-ink-2 transition-colors hover:bg-danger-soft hover:text-danger [@media(pointer:coarse)]:-my-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
               >
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
               </button>
