@@ -33,8 +33,8 @@ import {
 } from '../lib/workload';
 
 const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
-const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand';
-const BOX = 'flex h-9 min-w-0 items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20';
+const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
+const BOX = 'flex h-9 min-w-0 [@media(pointer:coarse)]:h-11 items-center gap-1.5 rounded-xl border border-line bg-surface ps-3 text-sm transition-colors focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20';
 const SELECT = 'h-full min-w-[4.25rem] cursor-pointer rounded-xl bg-transparent pe-2 text-sm font-semibold text-ink outline-none';
 
 /** A number's look: quiet, green below the limit, amber at it, red with "!" over it. */
@@ -46,7 +46,7 @@ const TONE: Record<Exclude<CellTone, 'off' | 'none'>, string> = {
   offdue: 'hatch-off text-ink ring-[1.5px] ring-inset ring-warning',
 };
 const BAR: Record<'ok' | 'busy' | 'over', string> = { ok: 'bg-success', busy: 'bg-warning', over: 'bg-danger' };
-const CELL = 'relative inline-grid h-9 w-11 place-items-center rounded-lg text-sm font-bold tabular-nums';
+const CELL = 'relative inline-grid h-9 w-11 [@media(pointer:coarse)]:h-11 place-items-center rounded-lg text-sm font-bold tabular-nums';
 
 function reasonOf(err: unknown): string {
   if (err instanceof ApiError && err.message && !/^Request failed/.test(err.message)) return err.message.replace(/\.$/, '');
@@ -192,7 +192,7 @@ export function WorkloadPage() {
           <button type="button" onClick={() => goToWeek(shiftDayKey(week, -7))} aria-label="Previous week" title="Previous week" className={iconButton}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" className="rtl:rotate-180"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
-          <button type="button" onClick={() => goToWeek(thisWeek)} title="Back to this week" className="h-9 whitespace-nowrap rounded-xl border border-line bg-surface px-3 text-sm font-bold text-ink transition-colors hover:border-brand hover:text-brand">
+          <button type="button" onClick={() => goToWeek(thisWeek)} title="Back to this week" className="h-9 [@media(pointer:coarse)]:h-11 whitespace-nowrap rounded-xl border border-line bg-surface px-3 text-sm font-bold text-ink transition-colors hover:border-brand hover:text-brand">
             {weekLabel(week, today)}
           </button>
           <button type="button" onClick={() => goToWeek(shiftDayKey(week, 7))} aria-label="Next week" title="Next week" className={iconButton}>
@@ -228,7 +228,7 @@ export function WorkloadPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Find a person…"
-            className="h-9 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
+            className="h-9 [@media(pointer:coarse)]:h-11 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
           />
         </div>
         {data ? (
@@ -242,7 +242,7 @@ export function WorkloadPage() {
               </select>
             </div>
           ) : (
-            <div className="ms-auto flex h-9 items-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 text-sm text-ink-2" title="Set by an administrator">
+            <div className="ms-auto flex h-9 [@media(pointer:coarse)]:h-11 items-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 text-sm text-ink-2" title="Set by an administrator">
               <span>Daily limit</span> <b className="text-ink">{data.limit}</b>
             </div>
           )
@@ -274,7 +274,7 @@ export function WorkloadPage() {
                 <caption className="sr-only">Open tasks due each day, per person — {weekLabel(week, today)}</caption>
                 <thead>
                   <tr className="bg-surface-2 text-[11.5px] font-bold uppercase tracking-wide text-ink-2">
-                    <th scope="col" className="sticky start-0 z-[2] w-44 border-b border-e border-line bg-surface-2 px-3 py-2.5 text-start font-bold sm:w-72 sm:border-e-0 sm:px-4">Person · this week</th>
+                    <th scope="col" className="sticky start-0 z-[2] w-36 border-b border-e border-line bg-surface-2 px-3 py-2.5 text-start font-bold sm:w-72 sm:border-e-0 sm:px-4">Person · this week</th>
                     <th scope="col" className="border-b border-line px-1 py-2.5 text-center font-bold">Overdue</th>
                     {days.map((d) => (
                       <th key={d.date} scope="col" className={`border-b border-line px-1 py-2.5 text-center font-bold ${d.date === today ? 'bg-brand/[0.05] text-brand' : ''}`}>
@@ -289,11 +289,13 @@ export function WorkloadPage() {
                     return (
                       <tr key={p.id}>
                         <th scope="row" className="sticky start-0 z-[1] border-b border-e border-line-2 border-e-line bg-surface px-3 py-2.5 text-start font-normal sm:border-e-0 sm:px-4">
+                          {/* On a phone the person column stays narrow (no picture, the name and its note in
+                              ~7.5rem), so more days show beside it. */}
                           <span className="flex items-center gap-2.5">
-                            <Avatar name={p.name} src={p.avatarUrl} size="md" />
-                            <span className="min-w-0">
-                              <span data-person-name className="block truncate font-bold text-ink">{p.name}</span>
-                              <span aria-hidden="true" className="mt-1 block h-1.5 w-36 max-w-full overflow-hidden rounded-full bg-ground">
+                            <span className="hidden flex-none sm:block"><Avatar name={p.name} src={p.avatarUrl} size="md" /></span>
+                            <span className="min-w-0 max-sm:w-[7.5rem]">
+                              <span data-person-name title={p.name} className="block truncate font-bold text-ink">{p.name}</span>
+                              <span aria-hidden="true" className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-ground sm:w-36">
                                 <span className={`block h-full rounded-full ${BAR[bar.tone]}`} style={{ width: `${bar.pct}%` }} />
                               </span>
                               <span className="mt-0.5 block text-[11px] text-ink-2">

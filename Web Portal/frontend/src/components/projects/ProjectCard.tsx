@@ -25,7 +25,7 @@ export interface ProjectCardProps {
 const FACES = 4;
 
 const MORE_BUTTON =
-  'grid h-8 w-8 place-items-center rounded-lg border border-line bg-surface text-ink-2 transition-colors hover:border-brand/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40';
+  'grid h-8 w-8 place-items-center rounded-lg border border-line bg-surface text-ink-2 transition-colors hover:border-brand/40 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 
 function Figure({ label, children, late }: { label: string; children: ReactNode; late?: boolean }) {
   return (

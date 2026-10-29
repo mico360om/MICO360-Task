@@ -107,7 +107,7 @@ export function LegendButton({ timeNote }: { timeNote: string }) {
         aria-expanded={open}
         aria-controls="calendar-legend"
         title={timeNote}
-        className={`inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border bg-surface px-2.5 text-sm font-semibold transition-colors hover:border-brand hover:text-brand ${open ? 'border-brand text-brand' : 'border-line text-ink-2'}`}
+        className={`inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border bg-surface px-2.5 text-sm font-semibold transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 ${open ? 'border-brand text-brand' : 'border-line text-ink-2'}`}
       >
         <Svg size={16}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5h.01" /></Svg>
         <span className="max-xl:sr-only">Legend</span>

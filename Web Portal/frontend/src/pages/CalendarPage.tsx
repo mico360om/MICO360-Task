@@ -270,7 +270,7 @@ export function CalendarPage() {
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-ink">{dayLabel(day, { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
           {canCreate ? (
-            <button type="button" onClick={() => setCreateOn(day)} aria-label={`Add a task on ${dayLabel(day)}`} className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-brand">
+            <button type="button" onClick={() => setCreateOn(day)} aria-label={`Add a task on ${dayLabel(day)}`} className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-brand [@media(pointer:coarse)]:!min-h-11">
               + Add
             </button>
           ) : null}
