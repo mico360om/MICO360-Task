@@ -321,6 +321,16 @@
       align-items: center;
       min-height: 2rem;
     }
+    /* A tick box's finger-sized target (opt-in): put the box in a <label> (or span) with this class.
+       On a touch screen the wrapper is at least 44px each way around the 24px box; with a mouse it
+       changes nothing. For a box with its words beside it, the whole label is the target. */
+    .check-hit {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
   }
   /* Keyboard focus only — never on mouse click. A solid 2px ring in the brand colour (theme-aware),
      set off from the control so it stays visible on any background, light or dark. */
@@ -366,7 +376,7 @@
   /* The chat fills the window under the top bar (--chat-top), above any part a phone's keyboard
      covers (--visible-height, see :root), leaving room for the page footer (--app-footer-space). */
   .chat-frame {
-    height: calc(var(--visible-height) - var(--chat-top, 57px) - var(--app-footer-space, 0px));
+    height: calc(var(--visible-height) - var(--chat-top, 56px) - var(--app-footer-space, 0px));
     min-height: 22rem;
   }
   /* MICO AI on a phone: the conversation reaches the bottom of the screen, with the box at the
@@ -375,19 +385,19 @@
      (data-keyboard, see lib/keyboard-aware.ts) on any screen: the box sits right above the keys. */
   @media (max-width: 39.9375em) {
     .chat-frame.chat-frame-keyboard {
-      height: calc(var(--visible-height) - var(--chat-top, 57px));
+      height: calc(var(--visible-height) - var(--chat-top, 56px));
       min-height: 18rem;
     }
   }
   html[data-keyboard] .chat-frame.chat-frame-keyboard {
-    height: calc(var(--visible-height) - var(--chat-top, 57px));
+    height: calc(var(--visible-height) - var(--chat-top, 56px));
     min-height: 12rem;
   }
 
   /* A page sized to the window the same way (the calendar on a wide screen): under the top bar and
      the page's padding (--page-top, measured), above the footer. A short window scrolls instead. */
   .page-fill {
-    height: calc(var(--visible-height) - var(--page-top, 97px) - var(--app-footer-space, 0px));
+    height: calc(var(--visible-height) - var(--page-top, 96px) - var(--app-footer-space, 0px));
     min-height: 32rem;
   }
 

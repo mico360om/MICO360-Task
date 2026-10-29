@@ -91,7 +91,7 @@ export function SyncStatus() {
               ? 'Syncing…'
               : `Last synced ${rel(lastSync, nowMs)} — click to sync now`
         }
-        className="inline-flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink-2 transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:bg-ground"
+        className="inline-flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink-2 transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
       >
         <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
         {pending > 0 ? (
@@ -110,7 +110,7 @@ export function SyncStatus() {
           onClick={() => setReviewOpen((o) => !o)}
           aria-expanded={reviewOpen}
           aria-label={`${failed.length} not synced`}
-          className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-danger-soft px-2 py-1.5 text-xs font-semibold text-danger"
+          className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-danger-soft px-2 py-1.5 text-xs font-semibold text-danger [@media(pointer:coarse)]:!min-h-11"
         >
           <span className="sm:hidden" aria-hidden="true">! {failed.length}</span>
           <span className="hidden sm:inline">{failed.length} not synced</span>

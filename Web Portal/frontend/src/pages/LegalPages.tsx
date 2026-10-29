@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Logo } from '../components/ui/Logo';
+import { BrandLogo } from '../components/ui/BrandLogo';
 
 /**
  * Public privacy notice and terms of use, linked from the sign-in page and the phone app (the
@@ -13,10 +13,12 @@ const CONTACT = 'info@mico360.com';
 
 function LegalLayout({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <main className="min-h-screen bg-ground px-5 py-10 sm:px-8">
-      <article className="mx-auto max-w-3xl rounded-2xl border border-line bg-surface p-6 shadow-soft sm:p-10">
+    <main className="min-h-screen bg-ground px-3 py-6 sm:px-8 sm:py-10">
+      <article className="mx-auto max-w-3xl rounded-2xl border border-line bg-surface p-5 shadow-soft sm:p-10">
         <div className="mb-8 flex items-center justify-between gap-4">
-          <Logo size={40} />
+          <span className="flex">
+            <BrandLogo className="h-10" />
+          </span>
           <Link to="/login" className="tap text-sm font-semibold text-brand hover:underline">
             Back to sign in
           </Link>

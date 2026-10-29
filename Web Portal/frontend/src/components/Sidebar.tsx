@@ -1,9 +1,11 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useLocation } from 'react-router-dom';
 import { chatBadgeText, chatNavLabel } from '../lib/chat-badge';
-import logo from '../assets/logo.png';
-import logoW from '../assets/logo-w.png';
 import { RUNNING_BUILD } from '../lib/release';
+import { BrandLogo } from './ui/BrandLogo';
+import { Logo } from './ui/Logo';
+import { useMediaQuery } from '../lib/useMediaQuery';
 
 interface NavItem {
   label: string;
@@ -187,14 +189,22 @@ function NavIcon({ children }: { children: ReactNode }) {
 }
 
 // One crisp signal for the active route: a filled brand pill. No extra bar/shadow stack.
-const linkClass = ({ isActive }: { isActive: boolean }) =>
-  [
-    'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
-    isActive ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink',
-  ].join(' ');
+// `rail`: on a tablet (768–1023px) the menu is a 64px rail — the icon centred, its words kept for
+// screen readers (sr-only) and shown beside it as a tooltip (RailTooltip).
+const linkClass =
+  (rail: boolean) =>
+  ({ isActive }: { isActive: boolean }) =>
+    [
+      'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 [@media(pointer:coarse)]:min-h-11',
+      rail ? 'md:max-lg:justify-center md:max-lg:gap-0 md:max-lg:px-0' : '',
+      isActive ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink',
+    ].join(' ');
 
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <div className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-3">{children}</div>;
+/** A link's words: beside the icon, or (on the rail) for screen readers only. */
+const labelClass = (rail: boolean) => (rail ? 'truncate md:max-lg:sr-only' : 'truncate');
+
+function SectionLabel({ children, rail }: { children: ReactNode; rail: boolean }) {
+  return <div className={`px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-ink-3 ${rail ? 'md:max-lg:sr-only' : ''}`}>{children}</div>;
 }
 
 /**
@@ -218,28 +228,30 @@ function ChatBadge({ count, active }: { count: number; active: boolean }) {
   );
 }
 
-function NavGroup({ label, items, onNavigate, chatUnread = 0 }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number }) {
+function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = false }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; rail: boolean; first?: boolean }) {
   return (
     <>
-      <SectionLabel>{label}</SectionLabel>
+      {/* On the rail the group names give way to a thin line between the groups. */}
+      {rail && !first ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line md:max-lg:block" /> : null}
+      <SectionLabel rail={rail}>{label}</SectionLabel>
       <div className="flex flex-col gap-0.5">
         {items.map((item) =>
           item.to === '/chat' ? (
-            <NavLink key={item.to} to={item.to} className={linkClass} onClick={onNavigate} aria-label={chatNavLabel(chatUnread)}>
+            <NavLink key={item.to} to={item.to} className={linkClass(rail)} onClick={onNavigate} aria-label={chatNavLabel(chatUnread)} data-rail-label={item.label}>
               {({ isActive }) => (
                 <>
                   <span className="relative flex shrink-0">
                     <NavIcon>{item.icon}</NavIcon>
                     <ChatBadge count={chatUnread} active={isActive} />
                   </span>
-                  <span className="truncate">{item.label}</span>
+                  <span className={labelClass(rail)}>{item.label}</span>
                 </>
               )}
             </NavLink>
           ) : (
-            <NavLink key={item.to} to={item.to} className={linkClass} onClick={onNavigate}>
+            <NavLink key={item.to} to={item.to} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label}>
               <NavIcon>{item.icon}</NavIcon>
-              <span className="truncate">{item.label}</span>
+              <span className={labelClass(rail)}>{item.label}</span>
             </NavLink>
           ),
         )}
@@ -248,19 +260,103 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0 }: { label: string;
   );
 }
 
+/** The window width at which the menu is the slim rail (the `md:max-lg:` classes). */
+const RAIL_WIDTHS = '(min-width: 48em) and (max-width: 63.99em)';
+
+/**
+ * The name of the rail link under the pointer or the keyboard focus, beside its icon. One floating
+ * label for the whole rail, in <body> (the rail's list scrolls, which would cut off a label inside
+ * it). It repeats the link's own name, so it is hidden from screen readers. Escape puts it away;
+ * the pointer can move onto it without losing it.
+ */
+function RailTooltip({ root }: { root: RefObject<HTMLElement> }) {
+  const onRail = useMediaQuery(RAIL_WIDTHS);
+  const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const nav = root.current;
+    setTip(null);
+    if (!nav || !onRail) return;
+    const linkOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>('[data-rail-label]') : null);
+    const onTip = (target: EventTarget | null) => target instanceof Node && Boolean(tipRef.current?.contains(target));
+    const show = (link: HTMLElement | null) => {
+      if (!link || !nav.contains(link)) return;
+      const box = link.getBoundingClientRect();
+      setTip({ label: link.dataset.railLabel ?? '', top: box.top + box.height / 2, left: box.right });
+    };
+    const over = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') show(linkOf(e.target));
+    };
+    const out = (e: PointerEvent) => {
+      if (!linkOf(e.relatedTarget) && !onTip(e.relatedTarget)) setTip(null);
+    };
+    const focus = (e: FocusEvent) => show(linkOf(e.target));
+    const blur = (e: FocusEvent) => {
+      if (!linkOf(e.relatedTarget)) setTip(null);
+    };
+    const hide = () => setTip(null);
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTip(null);
+    };
+    nav.addEventListener('pointerover', over);
+    nav.addEventListener('pointerout', out);
+    nav.addEventListener('focusin', focus);
+    nav.addEventListener('focusout', blur);
+    nav.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+    document.addEventListener('keydown', key);
+    return () => {
+      nav.removeEventListener('pointerover', over);
+      nav.removeEventListener('pointerout', out);
+      nav.removeEventListener('focusin', focus);
+      nav.removeEventListener('focusout', blur);
+      nav.removeEventListener('scroll', hide, true);
+      window.removeEventListener('resize', hide);
+      document.removeEventListener('keydown', key);
+    };
+  }, [root, onRail]);
+  if (!tip) return null;
+  return createPortal(
+    <div
+      ref={tipRef}
+      data-rail-tooltip
+      aria-hidden="true"
+      onPointerLeave={(e) => {
+        if (!(e.relatedTarget instanceof Element && e.relatedTarget.closest('[data-rail-label]'))) setTip(null);
+      }}
+      className="fixed z-[60] flex -translate-y-1/2 items-center ps-3"
+      style={{ top: tip.top, left: tip.left }}
+    >
+      <span className="whitespace-nowrap rounded-md bg-ink px-2 py-1 text-xs font-medium text-surface shadow-lift">{tip.label}</span>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * The menu beside the page: from 1024px the full 240px menu; on a tablet (768–1023px) a 64px rail
+ * of icons, each with its name for screen readers and as a tooltip; on a phone it folds away behind
+ * the ☰ button (MobileMenu in AppShell).
+ */
 export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarProps) {
+  const nav = useRef<HTMLElement>(null);
   return (
     <nav
+      ref={nav}
       aria-label="Main"
-      className="sticky top-0 hidden h-screen w-60 flex-none flex-col border-r border-line bg-surface/95 md:flex supports-[height:100dvh]:h-dvh"
+      className="sticky top-0 hidden h-screen w-16 flex-none flex-col border-r border-line bg-surface/95 md:flex lg:w-60 supports-[height:100dvh]:h-dvh"
     >
-      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} />
+      <SidebarBody isAdmin={isAdmin} chatUnread={chatUnread} canLead={canLead} rail />
+      <RailTooltip root={nav} />
     </nav>
   );
 }
 
-/** The sidebar's inner content — reused by the desktop rail and the mobile drawer. */
-export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = false }: SidebarProps & { onNavigate?: () => void }) {
+/**
+ * The sidebar's inner content — reused by the desktop menu and the phone's menu. `rail`: may become
+ * the tablet rail (the desktop menu only; the phone's menu never does).
+ */
+export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = false, rail = false }: SidebarProps & { onNavigate?: () => void; rail?: boolean }) {
   const { pathname } = useLocation();
   const list = useRef<HTMLDivElement>(null);
   // On a short window the list scrolls: never leave the link of the current page below the fold.
@@ -280,26 +376,38 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
 
   return (
     <>
-      <div className="flex h-16 items-center border-b border-line px-5">
-        {/* One per theme. `loading="lazy"`: the hidden one is never downloaded. The size attributes
-            reserve the space, so nothing shifts when the image arrives. */}
-        <img src={logo} alt="MICO360" width={409} height={192} loading="lazy" decoding="async" className="h-9 w-auto max-w-full object-contain dark:hidden" />
-        <img src={logoW} alt="MICO360" width={409} height={192} loading="lazy" decoding="async" className="hidden h-9 w-auto max-w-full object-contain dark:block" />
+      {/* As tall as the top bar (h-14), so their bottom lines meet as one. The logo: one per theme,
+          lazy — the hidden one is never downloaded. */}
+      <div className={`flex h-14 flex-none items-center border-b border-line px-5 ${rail ? 'md:max-lg:justify-center md:max-lg:px-0' : ''}`}>
+        <span data-rail-wordmark className={`flex ${rail ? 'md:max-lg:hidden' : ''}`}>
+          <BrandLogo lazy className="h-9" />
+        </span>
+        {/* The rail is too narrow for the wordmark: the app's tile mark instead. */}
+        {rail ? (
+          <span data-rail-mark className="hidden md:max-lg:block">
+            <Logo size={34} title="MICO360 Tasks" />
+          </span>
+        ) : null}
       </div>
 
-      <div ref={list} className="scroll-shadows flex-1 overflow-y-auto px-3 py-3">
-        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} />
-        <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} />
-        {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} /> : null}
+      {/* The rail hides its scrollbar (it would take a sixth of 64px); the edge shadows still say
+          there is more, and the current page's link is scrolled into view (above). */}
+      <div ref={list} className={`scroll-shadows flex-1 overflow-y-auto px-3 py-3 ${rail ? 'md:max-lg:px-2.5 md:max-lg:[scrollbar-width:none] md:max-lg:[&::-webkit-scrollbar]:hidden' : ''}`}>
+        <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
+        <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
+        {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} /> : null}
       </div>
 
-      <div className="border-t border-line px-3 py-2">
-        <NavLink to="/settings" className={linkClass} onClick={onNavigate}>
+      <div className={`border-t border-line px-3 py-2 ${rail ? 'md:max-lg:px-2.5' : ''}`}>
+        <NavLink to="/settings" className={linkClass(rail)} onClick={onNavigate} data-rail-label="Settings">
           <NavIcon>{I.settings}</NavIcon>
-          <span className="truncate">Settings</span>
+          <span className={labelClass(rail)}>Settings</span>
         </NavLink>
-        <div className="px-3 pt-2 text-[11px] text-ink-3">
-          <span className="gradient-text font-semibold">MICO360</span> · v{RUNNING_BUILD.version}
+        <div className={`px-3 pt-2 text-[11px] text-ink-3 ${rail ? 'md:max-lg:px-0 md:max-lg:text-center' : ''}`}>
+          <span data-rail-version-brand className={rail ? 'md:max-lg:hidden' : ''}>
+            <span className="gradient-text font-semibold">MICO360</span> ·{' '}
+          </span>
+          v{RUNNING_BUILD.version}
         </div>
       </div>
     </>

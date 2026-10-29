@@ -35,6 +35,12 @@ const CATEGORY_COLOR: Record<string, string> = {
 const completionColor = (pct: number): string =>
   pct >= 67 ? 'rgb(var(--c-success))' : pct >= 34 ? 'rgb(var(--c-warning))' : 'rgb(var(--c-danger))';
 
+/** The welcome band's two links: a white focus ring (the brand-red one vanished on the band), finger-sized on touch. */
+const BAND_LINK =
+  'inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5 focus-visible:outline-white [@media(pointer:coarse)]:min-h-11';
+/** A stat tile's link fills its grid cell, so the tiles in a row are one height even when a hint wraps. */
+const TILE_LINK = 'block h-full';
+
 const icon = {
   tasks: <path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />,
   folder: <path d="M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
@@ -136,29 +142,30 @@ export function DashboardPage() {
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-white/70">{today}</div>
             <h1 className="font-display text-2xl font-extrabold tracking-tightish sm:text-[1.75rem]">
-              Welcome back, {user?.username ?? 'there'}.
+              Welcome back, <bdi>{user?.username ?? 'there'}</bdi>.
             </h1>
             <p className="mt-0.5 hidden text-sm text-white/80 sm:block">
               Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link to="/board" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#8B1E1E] shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift">
+            <Link to="/board" className={`${BAND_LINK} bg-white text-[#8B1E1E] shadow-soft hover:shadow-lift`}>
               Open board
             </Link>
-            <Link to="/my-tasks" className="rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition-all hover:-translate-y-0.5 hover:bg-white/20">
+            <Link to="/my-tasks" className={`${BAND_LINK} border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20`}>
               View my tasks
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Stat tiles — each links to the relevant page */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Reveal delay={1}><Link to="/my-tasks" className="block"><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
-        <Reveal delay={2}><Link to="/projects" className="block"><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
-        {isAdmin ? <Reveal delay={3}><Link to="/reports" className="block"><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
-        {isAdmin ? <Reveal delay={4}><Link to="/reports" className="block"><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data && totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : undefined} /></Link></Reveal> : null}
+      {/* Stat tiles — each links to the relevant page. Four in a row for an administrator; the two
+          everyone else sees share the row (in a four-column grid they left half of it empty). */}
+      <div data-testid="stat-tiles" data-count={isAdmin ? 4 : 2} className={`grid gap-3 sm:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : ''}`}>
+        <Reveal delay={1} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
+        <Reveal delay={2} className="h-full"><Link to="/projects" className={TILE_LINK}><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
+        {isAdmin ? <Reveal delay={3} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
+        {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data && totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : undefined} /></Link></Reveal> : null}
       </div>
 
       {/* Main content: charts / open tasks (left) + due soon & activity (right rail) */}
@@ -197,7 +204,7 @@ export function DashboardPage() {
                   ) : perfQ.isError ? (
                     <LoadError what="project completion" onRetry={() => void perfQ.refetch()} />
                   ) : (
-                    <BarChart data={perfData} unit="%" ariaLabel="Project completion" />
+                    <BarChart data={perfData} unit="%" max={100} ariaLabel="Project completion" />
                   )}
                 </section>
               </Reveal>
@@ -210,7 +217,7 @@ export function DashboardPage() {
                   <Link to="/my-tasks" className="tap text-xs font-semibold text-brand hover:underline">View all</Link>
                 </div>
                 {myTasksQ.isLoading ? (
-                  <div className="skeleton h-24 rounded-lg" aria-label="Loading your tasks" />
+                  <RowsSkeleton label="Loading your tasks" rows={6} />
                 ) : myTasksQ.isError ? (
                   <LoadError what="your tasks" onRetry={() => void myTasksQ.refetch()} className="py-4 text-center" />
                 ) : openTasks.length === 0 ? (
@@ -236,7 +243,7 @@ export function DashboardPage() {
                 <Link to="/calendar" className="tap text-xs font-semibold text-brand hover:underline">Calendar</Link>
               </div>
               {allTasksQ.isLoading ? (
-                <div className="skeleton h-24 rounded-lg" aria-label="Loading due tasks" />
+                <RowsSkeleton label="Loading due tasks" rows={6} stacked />
               ) : allTasksQ.isError ? (
                 // An outage must never read as "all clear".
                 <LoadError what="due tasks" onRetry={() => void allTasksQ.refetch()} className="py-4 text-center" />
@@ -260,8 +267,10 @@ export function DashboardPage() {
               </div>
               {activityQ.isError ? (
                 <LoadError what="recent activity" onRetry={() => void activityQ.refetch()} className="py-4 text-center" />
+              ) : activityQ.isLoading ? (
+                <RowsSkeleton label="Loading recent activity" rows={6} activity />
               ) : recent.length === 0 ? (
-                <p className="py-4 text-center text-sm text-ink-2">{activityQ.isLoading ? 'Loading…' : 'No activity yet.'}</p>
+                <p className="py-4 text-center text-sm text-ink-2">No activity yet.</p>
               ) : (
                 <ul className="flex flex-col gap-3">
                   {recent.map((a) => (
@@ -279,24 +288,44 @@ export function DashboardPage() {
   );
 }
 
-/** One task. `stacked`: in a narrow column the title takes the first line and the key + due date the second. */
+/**
+ * One task. On a phone, and with `stacked` in the narrow right-hand column, the title takes the first
+ * line and the key + due date (or priority) the second — on one line a phone left the title a dozen
+ * letters between the key and the badge.
+ */
 function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; onOpen: () => void; showDue?: boolean; timeZone: string; stacked?: boolean }) {
   const due = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone) : null;
   return (
     <li>
       <button
         onClick={onOpen}
-        className={`flex w-full items-center gap-x-2 gap-y-1 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-ground ${stacked ? 'lg:flex-wrap lg:justify-between 2xl:flex-nowrap' : ''}`}
+        className={`flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-ground sm:flex-nowrap ${stacked ? 'lg:flex-wrap 2xl:flex-nowrap' : ''}`}
       >
         <span className="rounded-md bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
-        <span dir="auto" title={task.title} className={`min-w-0 flex-1 truncate text-start text-ink ${stacked ? 'lg:order-first lg:flex-none lg:basis-full 2xl:order-none 2xl:flex-1 2xl:basis-0' : ''}`}>{task.title}</span>
+        <span dir="auto" title={task.title} className={`order-first min-w-0 flex-1 basis-full truncate text-start text-ink sm:order-none sm:basis-0 ${stacked ? 'lg:order-first lg:basis-full 2xl:order-none 2xl:basis-0' : ''}`}>{task.title}</span>
         {due ? (
-          <span className={`whitespace-nowrap text-xs font-medium ${due.overdue ? 'text-danger' : 'text-ink-2'}`}>{due.label}</span>
+          <span className={`ms-auto whitespace-nowrap text-xs font-medium ${due.overdue ? 'text-danger' : 'text-ink-2'}`}>{due.label}</span>
         ) : (
-          <PriorityBadge priority={task.priority} />
+          <span className="ms-auto flex flex-none"><PriorityBadge priority={task.priority} /></span>
         )}
       </button>
     </li>
+  );
+}
+
+/**
+ * A list's place while it loads: rows as tall as the real ones, so the cards below don't jump when
+ * it arrives. `stacked` = task rows that take two lines in the narrow column (see TaskRow; they take
+ * two on a phone anyway); `activity` = the avatar rows of Recent activity.
+ */
+function RowsSkeleton({ label, rows, stacked = false, activity = false }: { label: string; rows: number; stacked?: boolean; activity?: boolean }) {
+  const row = activity ? 'h-10' : `h-14 sm:h-9 ${stacked ? 'lg:h-14 2xl:h-9' : ''}`;
+  return (
+    <div role="status" aria-label={label} className={`flex flex-col ${activity ? 'gap-3' : 'gap-1 px-2 py-1'}`}>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} data-skeleton-row className={`skeleton ${row}`} />
+      ))}
+    </div>
   );
 }
 

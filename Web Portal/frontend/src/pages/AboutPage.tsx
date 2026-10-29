@@ -116,7 +116,12 @@ export function AboutPage() {
       {releasesQ.isError ? (
         <LoadError what="the version history" onRetry={() => void releasesQ.refetch()} />
       ) : releasesQ.isLoading ? (
-        <div className="skeleton h-24 w-full" aria-busy="true" />
+        // Release cards' worth of room (the history is long): the footer no longer jumps away.
+        <div role="status" aria-label="Loading the version history" className="flex flex-col gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton h-64 w-full rounded-2xl" />
+          ))}
+        </div>
       ) : releases.length === 0 ? (
         <p className="text-sm text-ink-2">No release notes yet.</p>
       ) : (

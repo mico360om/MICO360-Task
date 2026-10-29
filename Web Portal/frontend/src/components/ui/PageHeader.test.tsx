@@ -18,6 +18,26 @@ describe('PageHeader', () => {
     expect(screen.getByRole('button', { name: '+ New meeting' })).toBeInTheDocument();
   });
 
+  it('when the line is short of room, the description gives way before the title (it squeezed “Reports” to “Re…”)', () => {
+    render(<PageHeader eyebrow="Admin" title="Reports" subtitle="Task delivery, project progress and team workload." actions={<button type="button">Export</button>} />);
+    const heading = screen.getByRole('heading', { level: 1, name: 'Reports' });
+    const description = screen.getByText(/Task delivery/);
+    // A grid: the title's column is sized to the title (auto) before the description's 0–1fr column
+    // gets what is left, so the description is cut first.
+    const line = heading.parentElement!;
+    expect(line.className).toMatch(/grid-cols-\[auto_auto_auto_minmax\(0,1fr\)\]/);
+    expect(line.lastElementChild).toBe(description);
+  });
+
+  it('keeps the title whole beside its actions: the actions move under it when both don’t fit (“User & Profile Managem…” at 768px)', () => {
+    render(<PageHeader eyebrow="Admin" title="User & Profile Management" subtitle="Accounts, roles and access." actions={<button type="button">New user</button>} />);
+    const line = screen.getByRole('heading', { level: 1 }).parentElement!;
+    // The title line asks for its own full width (flex-basis auto) before sharing the row…
+    expect(line.className).toMatch(/flex-\[1_1_auto\]/);
+    // …and the description adds nothing to that width (it only fills what is left).
+    expect(screen.getByText('Accounts, roles and access.').className).toMatch(/\[contain:inline-size\]/);
+  });
+
   it('works without a section or a subtitle', () => {
     render(<PageHeader title="Your profile" />);
     expect(screen.getByRole('heading', { level: 1, name: 'Your profile' }).parentElement!.textContent).toBe('Your profile');

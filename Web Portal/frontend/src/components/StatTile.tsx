@@ -80,10 +80,10 @@ export function StatTile({ label, value, hint, icon, tone = 'brand', onClick, ac
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} aria-label={actionLabel} className="card card-hover group relative block w-full overflow-hidden p-4 text-start transition-colors hover:border-brand/30">
+      <button type="button" onClick={onClick} aria-label={actionLabel} className="card card-hover group relative block h-full w-full overflow-hidden p-4 text-start transition-colors hover:border-brand/30">
         {body}
       </button>
     );
   }
-  return <div className="card card-hover group relative overflow-hidden p-4">{body}</div>;
+  return <div className="card card-hover group relative h-full overflow-hidden p-4">{body}</div>;
 }

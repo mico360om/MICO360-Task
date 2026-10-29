@@ -53,7 +53,7 @@ export function NotificationsBell() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Notifications${count > 0 ? `, ${count} unread` : ''}`}
-        className="relative grid h-9 w-9 place-items-center rounded-lg border border-line text-ink-2 transition-colors hover:bg-ground hover:text-ink"
+        className="relative grid h-9 w-9 place-items-center rounded-lg border border-line text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
       >
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M18 8.5a6 6 0 1 0-12 0c0 6.5-2.5 7.5-2.5 7.5h17S18 15 18 8.5" />
@@ -70,7 +70,7 @@ export function NotificationsBell() {
         <div className="fixed inset-x-2 top-14 z-40 overflow-hidden rounded-xl border border-line bg-surface shadow-lift sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <span className="text-sm font-semibold text-ink">Notifications</span>
-            <button onClick={() => markAllRead()} className="text-xs font-medium text-brand hover:underline">
+            <button onClick={() => markAllRead()} className="tap -my-1 rounded px-1 text-xs font-medium text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">
               Mark all read
             </button>
           </div>
@@ -92,7 +92,7 @@ export function NotificationsBell() {
                       openNotification(n);
                       if (notificationTarget(n)) setOpen(false);
                     }}
-                    className="w-full text-start"
+                    className="w-full text-start [@media(pointer:coarse)]:!min-h-11"
                   >
                     {/* Read = a quieter tone and weight. (Fading the row with opacity dropped it below 4.5:1.) */}
                     <p dir="auto" className={`text-sm ${n.readAt ? 'text-ink-2' : 'font-medium text-ink'}`}>

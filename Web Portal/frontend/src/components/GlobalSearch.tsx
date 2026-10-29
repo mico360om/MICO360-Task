@@ -14,6 +14,7 @@ import { invalidateTaskQueries } from '../lib/task-cache';
 import { useAuthStore } from '../stores/auth-store';
 import { useShortcut, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { ariaKeyshortcuts, shortcutLabel } from '../lib/shortcuts';
+import { useMediaQuery } from '../lib/useMediaQuery';
 
 interface PaletteItem {
   id: string;
@@ -51,6 +52,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The whole hint fits only the full-width box (a wide screen); a narrower box was cutting it to
+  // "Sea" / "Search or ty" on a phone and "Search or type a comm" on a tablet.
+  const roomy = useMediaQuery('(min-width: 80em)', true);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(term), debounceMs);
@@ -225,7 +229,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   let idx = -1; // running index across groups for keyboard highlight
 
   return (
-    <div className="relative w-full min-w-[6.5rem] max-w-full sm:w-72">
+    <div className="relative w-full min-w-[5.5rem] max-w-full sm:w-72">
       <div className="relative">
         <svg viewBox="0 0 24 24" width="15" height="15" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
         <input
@@ -235,13 +239,13 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
           aria-label="Search"
           aria-keyshortcuts={ariaKeyshortcuts('search', platform)}
           dir="auto"
-          placeholder="Search or type a command…"
+          placeholder={roomy ? 'Search or type a command…' : 'Search…'}
           value={term}
           onChange={(e) => { setTerm(e.target.value); setStatus(null); }}
           onFocus={() => { cancelClose(); setOpen(true); }}
           onBlur={() => { cancelClose(); closeTimer.current = setTimeout(() => setOpen(false), 160); }}
           onKeyDown={onKeyDown}
-          className="w-full rounded-lg border border-line bg-ground py-1.5 pl-8 pr-9 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20"
+          className="w-full rounded-lg border border-line bg-ground py-1.5 pl-8 pr-3 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 sm:pr-14 [@media(pointer:coarse)]:!min-h-11"
         />
         <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3 sm:block">{shortcutLabel('search', platform)}</kbd>
       </div>
@@ -277,7 +281,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                         // appears under a pointer at rest — Enter then opened that row, not the first.
                         onMouseMove={() => { if (i !== active) setActive(i); }}
                         onClick={() => void it.run()}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'}`}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors [@media(pointer:coarse)]:!min-h-11 ${i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'}`}
                       >
                         {it.icon}
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}

@@ -108,7 +108,15 @@ export function ProfilePage() {
   const me = Array.isArray(dirQ.data) ? dirQ.data.find((d) => d.id === user?.id) : undefined;
   const fullName = me ? `${me.firstName} ${me.lastName}`.trim() || me.username : (user?.username ?? '—');
   const isAdmin = (user?.roles ?? []).includes('ADMIN');
-  const initials = (fullName || user?.username || '?').slice(0, 2).toUpperCase();
+  // The first letters of the first two words ("Aisha Khan" → "AK"), like every other avatar.
+  const initials =
+    (fullName || user?.username || '?')
+      .trim()
+      .split(/\s+/)
+      .map((w) => [...w][0] ?? '')
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?';
 
   const avatarRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -158,7 +166,8 @@ export function ProfilePage() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Identity card */}
-        <section className="card flex flex-col items-center gap-3 p-6 text-center">
+        {/* As tall as what it holds (it stretched to the right column's height: a tall empty card). */}
+        <section className="card flex flex-col items-center gap-3 p-6 text-center lg:self-start">
           <div className="relative">
             {user?.avatarUrl ? (
               <img src={assetUrl(user.avatarUrl)} alt={fullName} className="h-28 w-28 rounded-full border border-line object-cover shadow-soft" />
@@ -171,7 +180,7 @@ export function ProfilePage() {
               disabled={busy}
               aria-label="Change photo"
               title="Change photo"
-              className="absolute bottom-0 right-0 grid h-9 w-9 place-items-center rounded-full border border-line bg-surface text-ink shadow-soft transition-colors hover:border-brand hover:text-brand disabled:opacity-50"
+              className="absolute bottom-0 right-0 grid h-9 w-9 place-items-center rounded-full border border-line bg-surface text-ink shadow-soft transition-colors hover:border-brand hover:text-brand disabled:opacity-50 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             >
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
