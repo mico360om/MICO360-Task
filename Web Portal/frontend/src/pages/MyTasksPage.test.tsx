@@ -122,6 +122,22 @@ describe('MyTasksPage', () => {
     }
   });
 
+  it('list view says each task’s status in words, not only with a coloured dot', async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('button', { name: 'Prepare report' });
+    fireEvent.click(screen.getByRole('button', { name: /list view/i }));
+    const row = (await screen.findByRole('button', { name: 'Prepare report' })).closest('[data-task-key]')!;
+    // The dot is named for a screen reader; the phone line and wide screens show the word.
+    expect(within(row as HTMLElement).getByRole('img', { name: 'To Do' })).toBeInTheDocument();
+    expect(row.querySelector('[data-phone-meta]')).toHaveTextContent('To Do');
+  });
+
   it('list view keeps the priority and due date on a phone, under the title', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

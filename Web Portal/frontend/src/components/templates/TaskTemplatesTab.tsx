@@ -48,7 +48,8 @@ export function TaskTemplatesTab() {
             ? 'A task template fills in a new task’s title, description, checklist and priority. Create one here, or save a task as a template from its panel.'
             : 'A task template fills in a new task’s title, description, checklist and priority. Anyone who runs a project can save one of its tasks as a template from the task’s panel.'}
         </p>
-        {isAdmin ? (
+        {/* An empty list offers the same button in its message: one call to action, not two. */}
+        {isAdmin && !(listQ.isSuccess && templates.length === 0) ? (
           <Button onClick={() => setEditing('new')} className="!min-h-[44px]">
             {TemplateGlyph.plus}
             New task template

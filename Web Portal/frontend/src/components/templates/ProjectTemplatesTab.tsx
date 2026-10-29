@@ -48,7 +48,8 @@ export function ProjectTemplatesTab() {
             ? 'A template sets a new project’s board, its standard tasks and the roles that do them. Create one here, or save a project as a template from the project’s page.'
             : 'A template sets a new project’s board, its standard tasks and the roles that do them. Anyone who runs a project can save it as a template from the project’s page.'}
         </p>
-        {isAdmin ? (
+        {/* An empty list offers the same button in its message: one call to action, not two. */}
+        {isAdmin && !(listQ.isSuccess && templates.length === 0) ? (
           <Button onClick={() => setEditing('new')} className="!min-h-[44px]">
             {TemplateGlyph.plus}
             New project template

@@ -40,7 +40,7 @@ export function SavedViewsBar({ current, onApply }: SavedViewsBarProps) {
         const active = v.id === activeId;
         return (
           <span key={v.id} className={`inline-flex items-center rounded-full border text-xs font-medium transition-colors ${active ? 'border-brand/40 bg-brand/10 text-brand' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'}`}>
-            <button onClick={() => onApply(v.filters)} className="py-1 pl-2.5 pr-1.5">
+            <button onClick={() => onApply(v.filters)} className="py-1 pl-2.5 pr-1.5 [@media(pointer:coarse)]:!min-h-11">
               {v.builtIn ? <span aria-hidden className="mr-1">★</span> : null}
               {v.name}
             </button>
@@ -48,7 +48,7 @@ export function SavedViewsBar({ current, onApply }: SavedViewsBarProps) {
               <button
                 onClick={() => setCustom(deleteView(v.id))}
                 aria-label={`Delete view ${v.name}`}
-                className="pr-2 text-ink-3 transition-colors hover:text-danger"
+                className="pr-2 text-ink-3 transition-colors hover:text-danger [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:px-2.5"
               >
                 ×
               </button>
@@ -67,15 +67,15 @@ export function SavedViewsBar({ current, onApply }: SavedViewsBarProps) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name this view…"
-            className="w-32 rounded-full bg-transparent px-1.5 py-0.5 text-xs text-ink outline-none"
+            className="w-32 rounded-full bg-transparent px-1.5 py-0.5 text-xs text-ink outline-none [@media(pointer:coarse)]:!min-h-11"
           />
-          <button type="submit" disabled={name.trim() === ''} className="rounded-full bg-brand px-2 py-0.5 text-xs font-semibold text-white disabled:opacity-50">Save</button>
-          <button type="button" onClick={() => { setSaving(false); setName(''); }} aria-label="Cancel" className="px-1 text-ink-3 hover:text-ink">×</button>
+          <button type="submit" disabled={name.trim() === ''} className="rounded-full bg-brand px-2 py-0.5 text-xs font-semibold text-white disabled:opacity-50 [@media(pointer:coarse)]:!min-h-9 [@media(pointer:coarse)]:px-3">Save</button>
+          <button type="button" onClick={() => { setSaving(false); setName(''); }} aria-label="Cancel" className="px-1 text-ink-3 hover:text-ink [@media(pointer:coarse)]:!min-h-9 [@media(pointer:coarse)]:!min-w-9">×</button>
         </form>
       ) : canSave ? (
         <button
           onClick={() => setSaving(true)}
-          className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2.5 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand hover:text-brand"
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2.5 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:!min-h-11"
         >
           <span aria-hidden>＋</span> Save view
         </button>

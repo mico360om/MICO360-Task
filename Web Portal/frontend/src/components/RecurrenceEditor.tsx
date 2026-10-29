@@ -37,7 +37,7 @@ const UNIT: Record<RecurrenceRule['freq'], string> = {
   YEARLY: 'year(s)',
 };
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const control = 'h-10 rounded-lg border border-line bg-surface px-2.5 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9';
+const control = 'h-10 rounded-lg border border-line bg-surface px-2.5 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9 [@media(pointer:coarse)]:h-11';
 
 export const REPEAT_FREQUENCIES = FREQS;
 export const REPEAT_LABEL = FREQ_LABEL;
@@ -163,17 +163,19 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
       </label>}
 
       {rule && !endsOnly ? (
-        <label className="flex items-center gap-2">
-          <span className="text-ink-2">Repeat every</span>
+        // In a narrow column (the task panel) the words stay whole and the box keeps room for its
+        // number and arrows: the unit moves under it instead of the label breaking in two.
+        <label className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="whitespace-nowrap text-ink-2">Repeat every</span>
           <input
             type="number"
             min={1}
             aria-label="Repeat every"
             value={rule.interval}
             onChange={(e) => setInterval(Number(e.target.value))}
-            className={`w-16 ${control}`}
+            className={`w-[4.5rem] flex-none ${control}`}
           />
-          <span className="text-ink-2">{UNIT[rule.freq]}</span>
+          <span className="whitespace-nowrap text-ink-2">{UNIT[rule.freq]}</span>
         </label>
       ) : null}
 
@@ -188,7 +190,7 @@ export function RecurrenceEditor({ value, onChange, dueDate, compact = false, hi
                 aria-label={name}
                 aria-pressed={on}
                 onClick={() => toggleWeekday(day)}
-                className={`h-9 min-w-[2.75rem] rounded-lg border px-2 text-xs font-semibold transition-colors ${on ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink-2 hover:border-ink-3'}`}
+                className={`h-9 min-w-[2.75rem] rounded-lg border px-2 text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 ${on ? 'border-brand bg-brand/10 text-brand' : 'border-line text-ink-2 hover:border-ink-3'}`}
               >
                 {name}
               </button>

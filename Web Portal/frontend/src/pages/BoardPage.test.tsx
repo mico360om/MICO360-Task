@@ -98,6 +98,32 @@ async function fillNewTask() {
   await userEvent.click(within(dialog).getByRole('button', { name: 'Create task' }));
 }
 
+describe('BoardPage: layout', () => {
+  it('keeps the page title whole: the project’s name is in the picker (with its full name on hover), not squeezed beside the title', async () => {
+    renderPage();
+    await screen.findByRole('region', { name: 'To Do' });
+    const h1 = screen.getByRole('heading', { level: 1, name: 'Kanban Board' });
+    // No subtitle beside the title (PageTitle shrinks the title along with a long subtitle).
+    expect(h1.parentElement!.querySelector('p')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Select project' }).closest('[title]')).toHaveAttribute('title', 'MICO360 Platform');
+  });
+
+  it('holds the board’s place while it loads (no text that jumps when the columns arrive)', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).includes('/tasks') ? new Promise<Response>(() => {}) : base(url, init))));
+    renderPage();
+    expect(await screen.findByRole('status', { name: 'Loading the board' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  it('says plainly when there is no project yet', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (String(url).endsWith('/projects') ? json({ data: [] }) : base(url, init))));
+    renderPage();
+    expect(await screen.findByText('No projects yet')).toBeInTheDocument();
+  });
+});
+
 describe('BoardPage', () => {
   it('loads columns and tasks from the API and renders the board', async () => {
     renderPage();

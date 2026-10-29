@@ -30,6 +30,8 @@ import { LoadError } from '../components/ui/LoadError';
 import { projectOption } from '../components/project-option';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { MoveTaskDialog, useMoveTargets, type MoveTaskRef } from '../components/MoveTaskDialog';
+import { EmptyState } from '../components/ui/EmptyState';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import type { CardMenuItem } from '../components/board/CardMenu';
 import { moveAvailability, movedText } from '../lib/task-move';
 
@@ -433,16 +435,16 @@ export function BoardPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Kanban Board"
-        subtitle={
-          isAll ? 'All projects — drag a card to change its status in its own project.'
-          : project ? <span dir="auto">{project.name}</span>
-          : 'Drag tasks across columns to update their status.'
-        }
+        // The chosen project is in the picker. A subtitle here would squeeze the title (a long project
+        // name cut it to "Kanban …"); the All projects hint sits in the date row instead.
+        subtitle={projectsQ.isSuccess && !projectId ? 'Drag tasks across columns to update their status.' : undefined}
         actions={
-          projectId ? (
+          projectsQ.isLoading ? (
+            <span className="skeleton block h-10 w-72 max-w-full" aria-hidden="true" />
+          ) : projectId ? (
             <>
               {projects.length > 1 ? (
-                <div className="w-52">
+                <div className="w-52 xl:w-64" title={isAll ? ALL_OPTION.label : project?.name}>
                   <SearchableSelect
                     ariaLabel="Select project"
                     value={projectId}
@@ -457,12 +459,12 @@ export function BoardPage() {
                 <button
                   onClick={() => setManageColumns((v) => !v)}
                   aria-expanded={manageColumns}
-                  className="rounded-lg border border-line px-3 py-1.5 text-sm text-ink transition-all hover:-translate-y-0.5 hover:border-brand/30 hover:bg-ground"
+                  className={`rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}
                 >
                   {manageColumns ? 'Done' : 'Manage columns'}
                 </button>
               ) : null}
-              <Button onClick={() => openAddTask()} disabled={boardColumns.length === 0} title="New task" shortcut="new">
+              <Button onClick={() => openAddTask()} disabled={boardColumns.length === 0} title="New task" shortcut="new" className={TOUCH_TALL}>
                 + New task
               </Button>
             </>
@@ -470,13 +472,17 @@ export function BoardPage() {
         }
       />
 
-      {projectId ? (
+      {projectsQ.isLoading ? (
+        <div className="mb-4 flex h-9 items-center [@media(pointer:coarse)]:h-11" aria-hidden="true">
+          <span className="skeleton block h-full w-64 rounded-xl" />
+        </div>
+      ) : projectId ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5">
             <button
               onClick={() => setSelectedDate(shiftKey(boardDate, -1))}
               aria-label="Previous day"
-              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
             </button>
@@ -485,12 +491,12 @@ export function BoardPage() {
               aria-label="Board date"
               value={boardDate}
               onChange={(e) => setSelectedDate(e.target.value || null)}
-              className="border-0 bg-transparent px-1 text-sm text-ink outline-none"
+              className="border-0 bg-transparent px-1 text-sm text-ink outline-none [@media(pointer:coarse)]:h-10"
             />
             <button
               onClick={() => setSelectedDate(shiftKey(boardDate, 1))}
               aria-label="Next day"
-              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
             </button>
@@ -502,11 +508,12 @@ export function BoardPage() {
           {boardDate !== todayKey ? (
             <button
               onClick={() => setSelectedDate(null)}
-              className="rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-ink transition-colors hover:border-brand/30 hover:bg-ground"
+              className={`rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-ink transition-colors hover:border-brand/30 hover:bg-ground ${TOUCH_TALL}`}
             >
               Jump to today
             </button>
           ) : null}
+          {isAll ? <p className="ms-auto hidden text-sm text-ink-2 lg:block">All projects — drag a card to change its status in its own project.</p> : null}
         </div>
       ) : null}
 
@@ -541,16 +548,16 @@ export function BoardPage() {
       {notice ? (
         <p role="status" className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
           <span>{notice}</span>
-          <button onClick={() => setNotice(null)} className="text-xs font-semibold underline">Dismiss</button>
+          <button onClick={() => setNotice(null)} className={`flex-none text-xs font-semibold underline ${TOUCH_TALL}`}>Dismiss</button>
         </p>
       ) : null}
 
       {loading ? (
-        <p className="text-ink-2">Loading…</p>
+        <BoardSkeleton />
       ) : error ? (
         <LoadError what="the board" onRetry={() => { void projectsQ.refetch(); void (isAll ? allQ.refetch() : boardQ.refetch()); }} />
       ) : !projectId ? (
-        <p className="text-ink-2">No projects yet — create one to get started.</p>
+        <EmptyState title="No projects yet" description="Create a project to get started: its board shows here." />
       ) : (
         <KanbanBoard
           columns={boardColumns}
@@ -587,7 +594,7 @@ export function BoardPage() {
         <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
           <p role="status" className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-lift">
             <span>{movedToast}</span>
-            <button type="button" onClick={() => setMovedToast(null)} aria-label="Dismiss" className="text-ink-2 hover:text-ink">
+            <button type="button" onClick={() => setMovedToast(null)} aria-label="Dismiss" className={`text-ink-2 hover:text-ink ${TOUCH_SQUARE}`}>
               ✕
             </button>
           </p>
@@ -604,6 +611,22 @@ export function BoardPage() {
           onQueued={() => setNotice('You’re offline — the task was saved and will sync when you reconnect.')}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** The board's place while it loads: columns of card-shaped placeholders, about a screen tall. */
+function BoardSkeleton() {
+  return (
+    <div role="status" aria-label="Loading the board" className="flex gap-3 overflow-hidden pb-3">
+      {[3, 2, 2, 1].map((cards, i) => (
+        <div key={i} className="flex h-[60vh] min-h-[20rem] min-w-[15rem] flex-1 basis-0 flex-col gap-2.5 rounded-2xl border border-line bg-surface/70 p-2.5" aria-hidden="true">
+          <span className="skeleton block h-5 w-28" />
+          {Array.from({ length: cards }).map((_, j) => (
+            <span key={j} className="skeleton block h-24 rounded-xl" />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

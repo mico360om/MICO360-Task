@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FieldError, FieldLabel, fieldClass } from '../ui/Field';
+import { TemplateGlyph } from '../templates/TemplateCard';
 import {
   addItem,
   addSection,
@@ -131,7 +132,9 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
         setNotice(null);
         setEditing({ form: null });
       }}
+      className="!min-h-[44px]"
     >
+      {TemplateGlyph.plus}
       New form
     </Button>
   );
@@ -175,7 +178,8 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
         <ul className="divide-y divide-line rounded-2xl border border-line bg-surface">
           {forms.map((f) => (
             <li key={f.id} aria-label={f.title} className="flex flex-wrap items-start gap-3 px-4 py-3 sm:flex-nowrap">
-              <div className="min-w-0 flex-1">
+              {/* On a phone Edit and Delete go under the text rather than squeezing it into a column. */}
+              <div className="min-w-0 flex-[1_1_16rem]">
                 <p dir="auto" className="break-words font-semibold text-ink">{f.title}</p>
                 {f.description ? <p dir="auto" className="mt-0.5 line-clamp-2 text-sm text-ink-2">{f.description}</p> : null}
                 <p className="mt-1 text-xs text-ink-2">
@@ -189,6 +193,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
                   <Button
                     size="sm"
                     variant="secondary"
+                    className="[@media(pointer:coarse)]:!min-h-11"
                     aria-label={`Edit ${f.title}`}
                     onClick={() => {
                       setNotice(null);
@@ -200,6 +205,7 @@ export function InspectionFormsManager({ className = '' }: { className?: string 
                   <Button
                     size="sm"
                     variant="ghost"
+                    className="text-danger hover:text-danger [@media(pointer:coarse)]:!min-h-11"
                     aria-label={`Delete ${f.title}`}
                     onClick={() => {
                       setNotice(null);
