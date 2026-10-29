@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { projectsApi } from '../api/projects';
@@ -74,6 +74,7 @@ export function BoardPage() {
   const userId = useAuthStore((s) => s.user?.id);
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
   const openTask = useOpenTask();
+  const navigate = useNavigate();
   const [manageColumns, setManageColumns] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskColumn, setNewTaskColumn] = useState('');
@@ -431,6 +432,8 @@ export function BoardPage() {
 
   const loading = projectsQ.isLoading || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
   const error = projectsQ.isError || (isAll ? allQ.isError : boardQ.isError);
+  // A day with nothing on it says so once, above the columns (each column only says "No tasks").
+  const emptyDay = !loading && !error && Boolean(projectId) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
 
   // A laptop, or a tablet with room: the page is the window's height and each column scrolls by
   // itself, its header always in view. A phone scrolls the page. So does the page while columns are
@@ -570,8 +573,19 @@ export function BoardPage() {
       ) : error ? (
         <LoadError what="the board" onRetry={() => { void projectsQ.refetch(); void (isAll ? allQ.refetch() : boardQ.refetch()); }} />
       ) : !projectId ? (
-        <EmptyState title="No projects yet" description="Create a project to get started: its board shows here." />
+        <EmptyState
+          title="No projects yet"
+          description="Create a project to get started: its board shows here."
+          action={<Button onClick={() => navigate('/projects?new=1')} className={TOUCH_TALL}>+ New project</Button>}
+        />
       ) : (
+        <div className={fit ? 'flex min-h-0 flex-1 flex-col' : undefined}>
+        {emptyDay ? (
+          <p role="status" className="mb-3 flex flex-none items-start gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-ink-3"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>
+            <span>{emptyDayText(boardDate, todayKey)}</span>
+          </p>
+        ) : null}
         <div className={fit ? 'min-h-0 flex-1' : undefined}>
         <KanbanBoard
           fit={fit}
@@ -587,6 +601,7 @@ export function BoardPage() {
             if (id) openTask(id);
           }}
         />
+        </div>
         </div>
       )}
 
@@ -628,6 +643,13 @@ export function BoardPage() {
       ) : null}
     </div>
   );
+}
+
+/** What a board day with no tasks on it says: why it may be empty, and what to do. */
+export function emptyDayText(day: string, today: string): string {
+  if (day === today) return 'Nothing on today’s board yet. Add a task with “New task” or a column’s +.';
+  if (day > today) return 'Nothing planned for this day yet. A task added here waits on this day’s board.';
+  return 'Nothing was on the board this day. Tasks still open move on to the next day by themselves.';
 }
 
 /** The board's place while it loads: columns of card-shaped placeholders, as tall as the board's lanes. */
