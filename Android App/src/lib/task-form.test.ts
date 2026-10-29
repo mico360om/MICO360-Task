@@ -335,7 +335,10 @@ describe.skipIf(!existsSync(webForm))('the same words as the website’s New tas
       'The repeat can’t end before the due date.',
       'Choose where the task goes: its project and column.',
       'Create a project first.',
-      'Create a project first, then you can add tasks to it.',
+      // No project yet: the website's note (1.18.2), and its Column picker before a project is chosen.
+      'Create a project first<',
+      'Every task belongs to a project, with its board and people. Make the first project, then you can add tasks to it.',
+      '\'Choose a project first\'',
       'Nobody picked — the task will be unassigned.',
       'the project owner.',
       'so ${names.length === 1 ? \'they were\' : \'they were\'} taken off this task.',
@@ -357,7 +360,24 @@ describe.skipIf(!existsSync(webForm))('the same words as the website’s New tas
     ]) {
       expect(web, words).toContain(words);
     }
-    for (const words of [NEW_TASK_TEXT.offlineWithFiles, NEW_TASK_TEXT.noProjects, NEW_TASK_TEXT.milestoneHint, NEW_TASK_TEXT.noDueForRepeat]) expect(web).toContain(words);
+    for (const words of [
+      NEW_TASK_TEXT.offlineWithFiles,
+      NEW_TASK_TEXT.noProjectsTitle,
+      NEW_TASK_TEXT.noProjects,
+      NEW_TASK_TEXT.noProjectChosen,
+      NEW_TASK_TEXT.milestoneHint,
+      NEW_TASK_TEXT.noDueForRepeat,
+    ]) {
+      expect(web, words).toContain(words);
+    }
+    // Web-only in 1.18.2 — the app gets these when its parity work resumes (the app was paused; the
+    // website shipped alone). Each needs a new screen state, so the app keeps its own for now:
+    // - with no project, the website hides the form's fields and puts a "Create a project" link
+    //   (to /projects?new=1) in place of Create task; the app shows the same note above its form,
+    //   with Create task turned off.
+    // - on a touch screen the website's file box (task-form/FilesField.tsx) says "Tap to add files or
+    //   photos" and "Up to 10 MB each · pictures are made smaller to save space"; the app has its
+    //   own Choose files / Choose pictures buttons and NEW_TASK_TEXT.filesHint.
   });
 });
 

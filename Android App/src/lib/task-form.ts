@@ -24,7 +24,11 @@ export const DESCRIPTION_MAX = 20_000;
 
 /** The form's words that aren't worked out (the website's, checked by the test). */
 export const NEW_TASK_TEXT = {
-  noProjects: 'Create a project first, then you can add tasks to it.',
+  /** No project to add a task to yet: the note's heading and its words. */
+  noProjectsTitle: 'Create a project first',
+  noProjects: 'Every task belongs to a project, with its board and people. Make the first project, then you can add tasks to it.',
+  /** The Column picker before a project is chosen (once the projects are in). */
+  noProjectChosen: 'Choose a project first',
   milestoneHint: 'A key date or deliverable of the project — listed on its dashboard.',
   noDueForRepeat: 'Set a due date to see the next dates.',
   offlineWithFiles: 'You’re offline, and files can’t be attached offline. Try again when you’re connected, or remove the files to save the task now.',

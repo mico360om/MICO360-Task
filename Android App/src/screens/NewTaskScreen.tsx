@@ -487,6 +487,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         {banner ? <ErrorNote message={banner} /> : null}
         {noProjects ? (
           <View style={s.note}>
+            <Text style={s.noteTitle} accessibilityRole="header">{NEW_TASK_TEXT.noProjectsTitle}</Text>
             <Text style={s.noteText}>{NEW_TASK_TEXT.noProjects}</Text>
           </View>
         ) : null}
@@ -525,7 +526,17 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         <View style={s.group} accessibilityRole="radiogroup" accessibilityLabel="Column">
           <FieldLabel>Column</FieldLabel>
           {columns.length === 0 ? (
-            <Text style={s.hint}>{columnsQ.isLoading || !draft.projectId ? 'Loading…' : columnsQ.isError ? 'Couldn’t load this project’s columns.' : 'This project has no columns'}</Text>
+            <Text style={s.hint}>
+              {!draft.projectId
+                ? projectsQ.isLoading
+                  ? 'Loading…'
+                  : NEW_TASK_TEXT.noProjectChosen
+                : columnsQ.isLoading
+                  ? 'Loading…'
+                  : columnsQ.isError
+                    ? 'Couldn’t load this project’s columns.'
+                    : 'This project has no columns'}
+            </Text>
           ) : (
             <View style={s.chips}>
               {columns.map((col) => {
@@ -708,6 +719,7 @@ const makeStyles = (c: Palette) =>
     hint: { fontSize: fontSize.xs, color: c.ink2 },
     problem: { fontSize: fontSize.xs, fontWeight: '700', color: c.danger },
     note: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
+    noteTitle: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
     noteText: { fontSize: fontSize.sm, color: c.ink2 },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
     grow: { flex: 1 },
