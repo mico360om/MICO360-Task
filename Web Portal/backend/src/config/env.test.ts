@@ -72,4 +72,18 @@ describe('loadEnv', () => {
       } as NodeJS.ProcessEnv),
     ).not.toThrow();
   });
+  it('backups: on by default, kept beside the uploads, not encrypted, Google Drive off until set up', () => {
+    const env = loadEnv({ ...base, NODE_ENV: 'development' } as NodeJS.ProcessEnv);
+    expect(env).toMatchObject({ BACKUP_DIR: '', BACKUP_ENCRYPTION_KEY: '', BACKUP_NIGHTLY: true, GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', GOOGLE_REDIRECT_URI: '' });
+    expect(loadEnv({ ...base, BACKUP_NIGHTLY: 'false' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(false);
+    expect(loadEnv({ ...base, BACKUP_NIGHTLY: 'no' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(false);
+    expect(loadEnv({ ...base, BACKUP_NIGHTLY: 'TRUE' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(true);
+  });
+
+  it('the stand-in Google address for tests is ignored in production', () => {
+    const strong = (c: string) => c.repeat(40);
+    const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: strong('a'), JWT_REFRESH_SECRET: strong('b'), BACKUP_GOOGLE_TEST_BASE_URL: 'http://127.0.0.1:9999' };
+    expect(loadEnv(prod as NodeJS.ProcessEnv).BACKUP_GOOGLE_TEST_BASE_URL).toBe('');
+    expect(loadEnv({ ...base, BACKUP_GOOGLE_TEST_BASE_URL: 'http://127.0.0.1:9999' } as NodeJS.ProcessEnv).BACKUP_GOOGLE_TEST_BASE_URL).toBe('http://127.0.0.1:9999');
+  });
 });
