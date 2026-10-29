@@ -19,6 +19,8 @@ const WORD = { RED: 'Red', AMBER: 'Amber', GREEN: 'Green' } as const;
 export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week: string; appUrl: string }, opts: TemplateOptions = {}): EmailContent {
   const d = p.digest;
   const app = base(p.appUrl);
+  // The red and amber projects the email doesn't name (it names the worst few): counted, never dropped silently.
+  const more = Math.max(0, d.red + d.amber - d.worst.length);
   const chips: EmailChip[] = [
     ...(d.red ? [{ text: `${d.red} red`, tone: 'danger' as const }] : []),
     ...(d.amber ? [{ text: `${d.amber} amber`, tone: 'warning' as const }] : []),
@@ -30,6 +32,7 @@ export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week
     ...(d.worst.length
       ? d.worst.map((w): Block => ({ kind: 'callout', tone: w.rag === 'RED' ? 'danger' : 'warning', text: `${WORD[w.rag]}: ${w.name} (${w.code}): ${w.reasons.map((r) => r.text).join('; ')}` }))
       : [{ kind: 'callout' as const, tone: 'success' as const, text: 'Every project is on track.' }]),
+    ...(more ? [{ kind: 'links' as const, items: [{ label: `and ${more} more on the Management page`, href: `${app}/management` }] }] : []),
     {
       kind: 'details',
       rows: [
