@@ -422,6 +422,8 @@ describe('TimelinePage', () => {
     expect(mark).toHaveAttribute('title', 'Waiting for approval');
     // The others carry no such mark.
     expect(within(tasks).getByRole('button', { name: /MOB-13 Beta build/ }).querySelector('[data-icon="waiting"]')).toBeNull();
+    // The legend explains the hourglass.
+    expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Waiting for approval')).toBeInTheDocument();
   });
 
   it('opens and closes every project’s tasks at once', async () => {

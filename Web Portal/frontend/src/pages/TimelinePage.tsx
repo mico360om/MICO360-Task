@@ -41,6 +41,7 @@ import {
   type TimelineState,
 } from '../lib/timeline';
 import { TOUCH_TALL } from '../lib/touch';
+import { WaitingIcon } from '../components/approvals/ApprovalChip';
 
 const iconButton = 'grid h-9 w-9 flex-none place-items-center rounded-xl border border-line bg-surface text-ink-2 transition-colors hover:border-brand hover:text-brand [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
 const SELECT_BOX =
@@ -140,6 +141,7 @@ function Legend({ labels }: { labels: string[] }) {
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rotate-45 bg-surface ring-2 ring-ink" />Milestone (filled once reached)</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2 w-2 rounded-[2px] bg-meeting" />Meeting</li>
       <li className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="inline-block h-2.5 w-5 rounded-sm border-[1.5px] border-dashed border-ink-2/70" />Dates from its tasks</li>
+      <li className="inline-flex items-center gap-1.5"><span className="text-warning"><WaitingIcon size={12} /></span>Waiting for approval</li>
       <li className="ms-auto">Busy weeks:</li>
       {labels.map((l, i) => (
         <li key={l} className="inline-flex items-center gap-1.5">

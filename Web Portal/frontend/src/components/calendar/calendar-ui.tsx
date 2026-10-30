@@ -235,7 +235,7 @@ export function TaskChip({
       </span>
       {/* Waiting for approval: an hourglass, as on the board (its words are in the chip's name, and on hover). */}
       {waits(item) ? (
-        <span data-mark="waiting" className="mt-px flex-none text-warning" title="Waiting for approval">
+        <span data-mark="waiting" className="mt-px flex-none [&_svg]:!text-warning" title="Waiting for approval">
           <WaitingIcon size={13} />
         </span>
       ) : null}
