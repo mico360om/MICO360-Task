@@ -1,6 +1,7 @@
 import { it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { appPath, appSource as src, appSources, hasWeb, readWeb } from '../testing/web-source';
+import { DECISION_WORDS } from '../lib/approvals';
 
 /** The names a file exports (`export { A, B as C }`, `export function|const|class X`). */
 function exportsOf(rel: string): string[] {
@@ -65,8 +66,10 @@ it('ProjectAvatar and IdentityPicker draw project icons, no emoji', () => {
 });
 
 it('ApprovalChip says the website’s words with the hourglass', () => {
-  expect(src('components/ui/ApprovalChip.tsx')).toMatch(/misc\.waiting[^]*Waiting for approval/);
-  expect(src('components/ui/ApprovalChip.tsx')).toMatch(/accessibilityLabel="Waiting for approval"/);
+  // The words are the website's DECISION_WORDS (lib/approvals, drift-tested) since the lanes merged (Task 14).
+  expect(src('components/ui/ApprovalChip.tsx')).toMatch(/misc\.waiting[^]*\{DECISION_WORDS\.waiting\}/);
+  expect(src('components/ui/ApprovalChip.tsx')).toMatch(/accessibilityLabel=\{DECISION_WORDS\.waiting\}/);
+  expect(DECISION_WORDS.waiting).toBe('Waiting for approval');
   if (hasWeb('frontend/src/components/approvals/ApprovalChip.tsx')) expect(readWeb('frontend/src/components/approvals/ApprovalChip.tsx')).toContain('Waiting for approval');
 });
 

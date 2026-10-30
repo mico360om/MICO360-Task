@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { getStateFromPath } from '@react-navigation/core';
 import manifest from '../../app.json';
 import { LINKING_PREFIXES, linkingConfig, normalizeLinkPath, withoutLinkTitles } from '../navigation/linking';
-import { WEBSITE_ONLY_PAGES } from './website';
+import { WEBSITE_LINK_PATHS } from './website';
 
 /**
  * Android App Links (6b): which of the website's addresses a phone with the app opens in the app.
@@ -58,7 +58,8 @@ describe('the website addresses the app opens (App Links)', () => {
   });
 
   it('never claims what the website keeps: its admin pages, the app download, sign-in, the legal pages, the site itself', () => {
-    for (const page of WEBSITE_ONLY_PAGES) expect(claimed(page.path), page.path).toBe(false);
+    // Every page the app sends to the website (its admin pages and the planning, templates and AI pages).
+    for (const path of WEBSITE_LINK_PATHS) expect(claimed(path), path).toBe(false);
     for (const path of ['/', '/login', '/forgot', '/privacy', '/terms', '/downloads/MICO360-Tasks.apk', '/api/v1/health', '/uploads/a.png', '/admin', '/admin/', '/projectsx']) {
       expect(claimed(path), path).toBe(false);
     }

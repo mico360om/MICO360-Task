@@ -9,6 +9,7 @@ import { useDrawerStore } from '../lib/drawer-store';
 import { drawerSectionsFor, activeDrawerKey, type DrawerItem } from '../navigation/drawer-menu';
 import { useServices, useSession } from '../core/providers';
 import { useChatBadge } from '../core/chat';
+import { useManagementAccess } from '../core/management-queries';
 import { chatTabBadge } from '../lib/chat';
 import { openWebsitePage } from '../adapters/website';
 import { websiteLinkLabel } from '../lib/website';
@@ -35,7 +36,9 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
   const s = makeStyles(c);
   // Worked out on every render from the session on screen: a shared phone shows the new person's menu.
   const roles = useSession()?.user.roles ?? [];
-  const sections = drawerSectionsFor(roles, roles.includes('ADMIN'));
+  // Management for administrators and people who run a project — as the server says, per person, "no" until it answers.
+  const { allowed: canLead } = useManagementAccess();
+  const sections = drawerSectionsFor(roles, canLead);
   const chatBadge = chatTabBadge(useChatBadge());
   const { baseUrl } = useServices();
 

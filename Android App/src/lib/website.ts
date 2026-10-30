@@ -10,20 +10,7 @@
  */
 import { isAllowedUrl, sitePageUrl } from './server-address';
 
-export interface WebsitePage {
-  key: 'ai' | 'settings' | 'audit';
-  /** The website's name for it (its Admin menu). */
-  label: string;
-  /** Its address on the website. */
-  path: string;
-  icon: string;
-}
-
-export const WEBSITE_ONLY_PAGES: readonly WebsitePage[] = [
-  { key: 'ai', label: 'AI Management', path: '/admin/ai', icon: '🤖' },
-  { key: 'settings', label: 'System Settings', path: '/admin/settings', icon: '🎛' },
-  { key: 'audit', label: 'Audit Logs', path: '/admin/audit', icon: '📜' },
-];
+// The menu's rows for these pages (names and drawn icons) are in navigation/drawer-menu.
 
 /** Every website page the app opens in the browser: Search and the menu offer these, and nothing else. */
 export const WEBSITE_LINK_PATHS = ['/admin/ai', '/admin/settings', '/admin/audit', '/timeline', '/workload', '/management', '/templates', '/mico-ai'] as const;
