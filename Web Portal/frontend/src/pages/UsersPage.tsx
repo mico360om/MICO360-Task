@@ -28,6 +28,7 @@ import {
 import { useAuthStore } from '../stores/auth-store';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { useNewFromAddress } from '../lib/useNewFromAddress';
+import { useMediaQuery } from '../lib/useMediaQuery';
 
 const STATUS_TONE: Record<UserStatus, string> = {
   ACTIVE: 'bg-success-soft text-success',
@@ -84,6 +85,10 @@ const EnvelopeIcon = () => (
 
 /** A tick box's finger-sized target on a touch screen: its label, 44px, in the cell's padding (the box stays 16px). */
 const TICK_TARGET = 'grid cursor-pointer place-items-center [@media(pointer:coarse)]:-m-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11';
+/** Below 768px (the md width, in em as the layout's widths are): one card per person instead of the table. */
+const PHONE_QUERY = '(max-width: 47.9375em)';
+/** On a card, each control is finger-sized on a touch screen (in the table they sit in a tight row). */
+const CARD_TOUCH = '[@media(pointer:coarse)]:min-h-11';
 
 export function UsersPage() {
   const qc = useQueryClient();
@@ -96,6 +101,7 @@ export function UsersPage() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const q = useQuery({ queryKey: ['users'], queryFn: () => usersApi(apiClient).list() });
+  const phone = useMediaQuery(PHONE_QUERY);
   const users = Array.isArray(q.data) ? q.data : [];
   const lockedCount = users.filter((u) => u.locked).length;
   const timeZone = useCompanyTimeZone();
@@ -190,6 +196,122 @@ export function UsersPage() {
     onError: (err, u) => setNotice({ text: reason(err, `Couldn’t unlock ${u.username}.`), error: true }),
   });
 
+  // One person's parts, shared by the table's row and (below 768px) their card.
+  const tickBox = (u: ApiUser) => (
+    <label className={TICK_TARGET}>
+      <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)} aria-label={`Select ${u.username}`} className="h-4 w-4 accent-brand" />
+    </label>
+  );
+  /** The person's name, and under it the username they sign in with. */
+  const who = (u: ApiUser) =>
+    fullName(u) !== u.username ? (
+      <>
+        <bdi className="block whitespace-nowrap">{fullName(u)}</bdi>
+        <span className="block text-xs font-normal text-ink-3"><span>@</span><span data-username>{u.username}</span></span>
+      </>
+    ) : (
+      <span data-username>{u.username}</span>
+    );
+  const statusBadges = (u: ApiUser) => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[u.status]}`}>{u.status}</span>
+      {u.locked ? (
+        <span className="inline-flex items-center gap-1 rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning" title="Locked after too many failed sign-in attempts">
+          <LockIcon />
+          Locked
+        </span>
+      ) : null}
+    </div>
+  );
+  const lastSignIn = (u: ApiUser) => (
+    <>
+      <span className={u.lastLoginAt ? 'text-ink' : 'italic'}>{signInText(u.lastLoginAt, timeZone)}</span>
+      {u.welcomeSentAt ? <span className="block text-xs text-ink-2">{welcomeSentText(u.welcomeSentAt, timeZone)}</span> : null}
+    </>
+  );
+  /** Welcome email, Unlock, Edit, Status and Delete. `card`: on a phone's card (words, finger-sized). */
+  const actionsFor = (u: ApiUser, card = false) => {
+    const isSelf = u.id === meId;
+    const welcomeBlocked = welcomeBlockedReason(u, meId);
+    const touch = card ? ` ${CARD_TOUCH}` : '';
+    return (
+      <>
+        <button
+          onClick={() => { welcomeOneMut.reset(); setConfirmingOne(u); }}
+          disabled={!emailEnabled || !!welcomeBlocked}
+          aria-label={`Send welcome email to ${u.username}`}
+          aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
+          title={welcomeBlocked ?? undefined}
+          className={`inline-flex items-center whitespace-nowrap rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink disabled:opacity-50${touch}`}
+        >
+          {card ? <span>Send welcome email</span> : (
+            <>
+              <EnvelopeIcon />
+              <span className="hidden sm:inline">Send welcome email</span>
+            </>
+          )}
+        </button>
+        {u.locked ? (
+          <button
+            onClick={() => unlockMut.mutate(u)}
+            disabled={unlockMut.isPending}
+            aria-label={`Unlock ${u.username}`}
+            className={`rounded-lg border border-warning/40 px-2 py-1 text-xs font-semibold text-warning transition-colors hover:bg-warning-soft disabled:opacity-50${touch}`}
+          >
+            Unlock
+          </button>
+        ) : null}
+        <button
+          onClick={() => setEditing(u)}
+          aria-label={`Edit ${u.username}`}
+          className={`rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink${touch}`}
+        >
+          Edit
+        </button>
+        <select
+          aria-label={`Status for ${u.username}`}
+          value={u.status}
+          disabled={isSelf || statusMut.isPending}
+          title={isSelf ? 'You can’t change your own status' : undefined}
+          onChange={(e) => statusMut.mutate({ id: u.id, status: e.target.value as UserStatus })}
+          className={`rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-50${touch}`}
+        >
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+          <option value="SUSPENDED">Suspended</option>
+        </select>
+        {confirmId === u.id ? (
+          <span className="flex flex-wrap items-center gap-1">
+            <button
+              onClick={() => deleteMut.mutate(u.id)}
+              disabled={deleteMut.isPending}
+              aria-label={`Confirm deleting ${u.username}`}
+              className={`rounded-lg bg-danger px-2 py-1 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50${touch}`}
+            >
+              {deleteMut.isPending ? 'Deleting…' : 'Confirm'}
+            </button>
+            <button onClick={() => { setConfirmId(null); deleteMut.reset(); }} aria-label={`No, keep ${u.username}`} className={`rounded-lg px-2 py-1 text-xs text-ink-2 hover:bg-ground${touch}`}>
+              No
+            </button>
+            {deleteMut.isError ? (
+              <span role="alert" className="text-xs font-medium text-danger">{reason(deleteMut.error, 'Couldn’t delete. Try again.')}</span>
+            ) : null}
+          </span>
+        ) : (
+          <button
+            onClick={() => { deleteMut.reset(); setConfirmId(u.id); }}
+            disabled={isSelf}
+            aria-label={`Delete ${u.username}`}
+            title={isSelf ? 'You can’t delete your own account' : 'Delete user'}
+            className={`rounded-lg border border-line px-2 py-1 text-xs text-danger transition-colors hover:bg-danger-soft disabled:opacity-40${touch}`}
+          >
+            Delete
+          </button>
+        )}
+      </>
+    );
+  };
+
   return (
     <div>
       <PageHeader
@@ -272,9 +394,10 @@ export function UsersPage() {
         ) : null}
       </div>
 
-      {/* Below xl (a phone, a tablet, a small laptop) the table is wider than the page: the names stay put while the rest scrolls. */}
-      <p className="mb-2 text-xs text-ink-2 xl:hidden">Swipe the table sideways to see status, last sign-in and actions.</p>
-      <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Users">
+      {/* From 768px to xl (a tablet, a small laptop) the table is wider than the page: the names stay put
+          while the rest scrolls. Below 768px (a phone) each person is a card instead. */}
+      {phone ? null : <p className="mb-2 text-xs text-ink-2 xl:hidden">Swipe the table sideways to see status, last sign-in and actions.</p>}
+      <div className={phone ? '' : 'card overflow-x-auto'} tabIndex={phone ? undefined : 0} role={phone ? undefined : 'region'} aria-label={phone ? undefined : 'Users'}>
         {q.isLoading ? (
           <p className="p-4 text-ink-2">Loading…</p>
         ) : q.isError ? (
@@ -284,6 +407,40 @@ export function UsersPage() {
           </p>
         ) : show === 'never' && shown.length === 0 ? (
           <p className="p-4 text-ink-2">Everyone has signed in at least once.</p>
+        ) : phone ? (
+          <>
+            {emailEnabled ? (
+              <label className={`mb-2 inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-ink-2 ${CARD_TOUCH}`}>
+                <input type="checkbox" checked={allShownSelected} onChange={toggleShown} aria-label="Select everyone shown" className="h-4 w-4 accent-brand" />
+                Select everyone shown
+              </label>
+            ) : null}
+            <ul aria-label="Users" className="flex flex-col gap-2">
+              {shown.map((u) => (
+                <li key={u.id} className="min-w-0 rounded-xl border border-line bg-surface p-3 shadow-soft">
+                  <div className="flex items-start gap-3">
+                    {emailEnabled ? <div className="pt-0.5 [@media(pointer:coarse)]:pt-2.5">{tickBox(u)}</div> : null}
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-ink [overflow-wrap:anywhere] [&_bdi]:whitespace-normal">{who(u)}</div>
+                      <p className="mt-0.5 truncate text-sm text-ink-2" title={u.email}>{u.email}</p>
+                    </div>
+                    <div className="flex-none">{statusBadges(u)}</div>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-ink-3">Roles</dt>
+                      <dd className="text-ink-2 [overflow-wrap:anywhere]">{u.roles.join(', ') || '—'}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-ink-3">Last sign-in</dt>
+                      <dd className="text-ink-2">{lastSignIn(u)}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">{actionsFor(u, true)}</div>
+                </li>
+              ))}
+            </ul>
+          </>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -304,121 +461,23 @@ export function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((u) => {
-                const isSelf = u.id === meId;
-                const welcomeBlocked = welcomeBlockedReason(u, meId);
-                return (
-                  <tr key={u.id} className="border-b border-line last:border-0">
-                    {emailEnabled ? (
-                      <td className="p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0">
-                        <label className={TICK_TARGET}>
-                          <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)} aria-label={`Select ${u.username}`} className="h-4 w-4 accent-brand" />
-                        </label>
-                      </td>
-                    ) : null}
-                    <td className={`p-3 font-medium text-ink max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>
-                      {/* The person's name, and under it the username they sign in with. */}
-                      {fullName(u) !== u.username ? (
-                        <>
-                          <bdi className="block whitespace-nowrap">{fullName(u)}</bdi>
-                          <span className="block text-xs font-normal text-ink-3"><span>@</span><span data-username>{u.username}</span></span>
-                        </>
-                      ) : (
-                        <span data-username>{u.username}</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-ink-2">{u.email}</td>
-                    <td className="p-3 text-ink-2">{u.roles.join(', ') || '—'}</td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[u.status]}`}>{u.status}</span>
-                        {u.locked ? (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning" title="Locked after too many failed sign-in attempts">
-                            <LockIcon />
-                            Locked
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap p-3 text-ink-2">
-                      <span className={u.lastLoginAt ? 'text-ink' : 'italic'}>{signInText(u.lastLoginAt, timeZone)}</span>
-                      {u.welcomeSentAt ? <span className="block text-xs text-ink-2">{welcomeSentText(u.welcomeSentAt, timeZone)}</span> : null}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => { welcomeOneMut.reset(); setConfirmingOne(u); }}
-                          disabled={!emailEnabled || !!welcomeBlocked}
-                          aria-label={`Send welcome email to ${u.username}`}
-                          aria-describedby={!emailEnabled ? NOT_SET_UP_ID : undefined}
-                          title={welcomeBlocked ?? undefined}
-                          className="inline-flex items-center whitespace-nowrap rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink disabled:opacity-50"
-                        >
-                          <EnvelopeIcon />
-                          <span className="hidden sm:inline">Send welcome email</span>
-                        </button>
-                        {u.locked ? (
-                          <button
-                            onClick={() => unlockMut.mutate(u)}
-                            disabled={unlockMut.isPending}
-                            aria-label={`Unlock ${u.username}`}
-                            className="rounded-lg border border-warning/40 px-2 py-1 text-xs font-semibold text-warning transition-colors hover:bg-warning-soft disabled:opacity-50"
-                          >
-                            Unlock
-                          </button>
-                        ) : null}
-                        <button
-                          onClick={() => setEditing(u)}
-                          aria-label={`Edit ${u.username}`}
-                          className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-brand/30 hover:bg-ground hover:text-ink"
-                        >
-                          Edit
-                        </button>
-                        <select
-                          aria-label={`Status for ${u.username}`}
-                          value={u.status}
-                          disabled={isSelf || statusMut.isPending}
-                          title={isSelf ? 'You can’t change your own status' : undefined}
-                          onChange={(e) => statusMut.mutate({ id: u.id, status: e.target.value as UserStatus })}
-                          className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-50"
-                        >
-                          <option value="ACTIVE">Active</option>
-                          <option value="INACTIVE">Inactive</option>
-                          <option value="SUSPENDED">Suspended</option>
-                        </select>
-                        {confirmId === u.id ? (
-                          <span className="flex items-center gap-1">
-                            <button
-                              onClick={() => deleteMut.mutate(u.id)}
-                              disabled={deleteMut.isPending}
-                              aria-label={`Confirm deleting ${u.username}`}
-                              className="rounded-lg bg-danger px-2 py-1 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-50"
-                            >
-                              {deleteMut.isPending ? 'Deleting…' : 'Confirm'}
-                            </button>
-                            <button onClick={() => { setConfirmId(null); deleteMut.reset(); }} aria-label={`No, keep ${u.username}`} className="rounded-lg px-2 py-1 text-xs text-ink-2 hover:bg-ground">
-                              No
-                            </button>
-                            {deleteMut.isError ? (
-                              <span role="alert" className="text-xs font-medium text-danger">{reason(deleteMut.error, 'Couldn’t delete. Try again.')}</span>
-                            ) : null}
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => { deleteMut.reset(); setConfirmId(u.id); }}
-                            disabled={isSelf}
-                            aria-label={`Delete ${u.username}`}
-                            title={isSelf ? 'You can’t delete your own account' : 'Delete user'}
-                            className="rounded-lg border border-line px-2 py-1 text-xs text-danger transition-colors hover:bg-danger-soft disabled:opacity-40"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {shown.map((u) => (
+                <tr key={u.id} className="border-b border-line last:border-0">
+                  {emailEnabled ? (
+                    <td className="p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0">{tickBox(u)}</td>
+                  ) : null}
+                  <td className={`p-3 font-medium text-ink max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>
+                    {who(u)}
+                  </td>
+                  <td className="p-3 text-ink-2">{u.email}</td>
+                  <td className="p-3 text-ink-2">{u.roles.join(', ') || '—'}</td>
+                  <td className="p-3">{statusBadges(u)}</td>
+                  <td className="whitespace-nowrap p-3 text-ink-2">{lastSignIn(u)}</td>
+                  <td className="p-3">
+                    <div className="flex items-center justify-end gap-2">{actionsFor(u)}</div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
