@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useParseMeeting } from '../../core/meeting-ai';
 import { Button, TextField } from '../ui';
+import { Icon } from '../Icon';
 import { CheckRow, ChipChoice, SheetMessage } from '../meeting/sheet-kit';
 import { chosenPatch, isChosen, meetingAiFailure, type DescribedPatch, type DescribeSuggestion } from '../../lib/meeting-ai';
 import { companyTodayKey } from '../../lib/due-date';
@@ -71,9 +72,12 @@ export function DescribeMeeting({
 
   return (
     <View style={[styles.card, { borderColor: c.brand, backgroundColor: c.brandWash }]}>
-      <Text style={[styles.title, { color: c.brandText }]} accessibilityRole="header">
-        ✨ Describe the meeting
-      </Text>
+      <View style={styles.titleRow}>
+        <Icon name="nav.ai" size={16} color={c.brandText} />
+        <Text style={[styles.title, { color: c.brandText }]} accessibilityRole="header">
+          Describe the meeting
+        </Text>
+      </View>
       <Text style={[styles.hint, { color: c.ink2 }]}>
         The assistant suggests the title, time, length, repeat, project and place{withPeopleAndAgenda ? ', people and agenda' : ''} — you choose what to use.
       </Text>
@@ -138,12 +142,13 @@ export function DescribeMeeting({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
+  card: { borderWidth: 1, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
   title: { fontSize: fontSize.md, ...font('800') },
   hint: { fontSize: fontSize.xs },
   heading: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8 },
   multiline: { minHeight: 72, paddingTop: spacing.sm, textAlignVertical: 'top' },
-  found: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  found: { borderWidth: 1, borderRadius: radius.input, padding: spacing.md, gap: spacing.xs },
   replaces: { fontSize: fontSize.xs, marginLeft: 30, marginTop: -6 },
   row: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   flex: { flex: 1 },

@@ -20,4 +20,5 @@
 <!-- dates-and-fixes lines above this line -->
 
 ## New look — meetings, chat, account
+- In the Android app, Meetings use the new look.
 <!-- meetings-chat-account lines above this line -->

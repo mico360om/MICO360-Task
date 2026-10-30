@@ -20,7 +20,9 @@ import { SyncStatus } from '../components/SyncStatus';
 import { isMeetingChange, isWaitingRow, withWaitingChanges } from '../lib/meeting-waiting';
 import type { QueuedMutation } from '../lib/sync-queue';
 import { useColors } from '../core/theme';
-import { Loader, ErrorNote, Button } from '../components/ui';
+import { SkeletonList, ErrorNote, Button } from '../components/ui';
+import { Icon } from '../components/Icon';
+import type { IconName } from '../lib/icons';
 import {
   AboutCard,
   ActionRow,
@@ -307,17 +309,17 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   const menu = meeting ? meetingMenu(meeting, canEdit) : [];
   const primaryBusy = lifecycle.setStatus.isPending || lifecycle.duplicate.isPending || (primary === 'export-minutes' && downloading);
 
-  const titleAction = (section: Section): { label: string; a11y: string; onPress: () => void } | null => {
+  const titleAction = (section: Section): { label: string; a11y: string; onPress: () => void; icon: IconName } | null => {
     if (!meeting) return null;
     switch (section) {
       case 'agenda':
-        return canEdit ? { label: '＋ Add', a11y: 'Add an agenda item', onPress: () => setSheet({ kind: 'agenda', item: null }) } : null;
+        return canEdit ? { label: 'Add', icon: 'ui.plus', a11y: 'Add an agenda item', onPress: () => setSheet({ kind: 'agenda', item: null }) } : null;
       case 'people':
-        return canEdit ? { label: '＋ Add', a11y: 'Add people', onPress: () => setSheet({ kind: 'addPerson' }) } : null;
+        return canEdit ? { label: 'Add', icon: 'ui.plus', a11y: 'Add people', onPress: () => setSheet({ kind: 'addPerson' }) } : null;
       case 'notes':
-        return { label: '＋ Note', a11y: 'Add a note', onPress: () => setSheet({ kind: 'note', note: null }) };
+        return { label: 'Note', icon: 'ui.plus', a11y: 'Add a note', onPress: () => setSheet({ kind: 'note', note: null }) };
       case 'actions':
-        return { label: '＋ Add', a11y: 'Add an action item', onPress: () => setSheet({ kind: 'action', item: null }) };
+        return { label: 'Add', icon: 'ui.plus', a11y: 'Add an action item', onPress: () => setSheet({ kind: 'action', item: null }) };
       default:
         return null;
     }
@@ -361,7 +363,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             aside={aside}
             action={titleAction(item.section)}
             // Draft agenda (AI): proposed items, reviewed before anything is added.
-            secondary={item.section === 'agenda' && canEdit ? { label: '✨ Draft', a11y: 'Draft agenda with AI', onPress: () => setSheet({ kind: 'agendaDraft' }) } : null}
+            secondary={item.section === 'agenda' && canEdit ? { label: 'Draft', icon: 'nav.ai', a11y: 'Draft agenda with AI', onPress: () => setSheet({ kind: 'agendaDraft' }) } : null}
           />
         );
       }
@@ -465,9 +467,9 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   // Deleted, or no longer yours to see: say so, even when a list's copy of it is still here.
   const problem = meetingQ.isError ? meetingLoadProblem(meetingQ.error) : null;
   if (!meeting || (problem && !problem.canRetry)) {
-    if (closing.current) return <Loader />;
-    if (!meeting && meetingQ.isLoading) return <Loader />;
-    if (!problem) return <Loader />;
+    if (closing.current) return <SkeletonList rows={4} />;
+    if (!meeting && meetingQ.isLoading) return <SkeletonList rows={4} />;
+    if (!problem) return <SkeletonList rows={4} />;
     return (
       <View style={styles.problem}>
         <ErrorNote message={problem.message} onRetry={problem.canRetry ? () => void meetingQ.refetch() : undefined} retrying={meetingQ.isFetching} />
@@ -488,9 +490,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
           style={[styles.notice, notice.error ? styles.noticeError : styles.noticeOk]}
         >
           <Text style={[styles.noticeText, notice.error ? styles.noticeTextError : styles.noticeTextOk]}>{notice.text}</Text>
-          <Text style={styles.dismiss} importantForAccessibility="no">
-            ✕
-          </Text>
+          <Icon name="ui.close" size={16} color={c.ink2} />
         </Pressable>
       ) : null}
       {/* This meeting's changes still on this phone, and any the server refused (Retry / Discard). */}
@@ -580,14 +580,13 @@ const makeStyles = (c: Palette) =>
     problem: { flex: 1, backgroundColor: c.ground, padding: spacing.lg, gap: spacing.md },
     headerStack: { gap: spacing.sm },
     stale: { fontSize: fontSize.sm, color: c.ink2, marginBottom: spacing.sm },
-    notice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, minHeight: 44 },
+    notice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderRadius: radius.input, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, minHeight: 44 },
     noticeOk: { backgroundColor: c.successSoft },
     noticeError: { backgroundColor: c.dangerSoft },
     noticeText: { flex: 1, fontSize: fontSize.sm, ...font('600') },
     noticeTextOk: { color: c.successText },
     noticeTextError: { color: c.dangerText },
-    dismiss: { fontSize: fontSize.sm, color: c.ink3 },
-    undo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, borderRadius: radius.md, paddingLeft: spacing.md, marginBottom: spacing.sm },
+    undo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, borderRadius: radius.input, paddingLeft: spacing.md, marginBottom: spacing.sm },
     undoText: { fontSize: fontSize.sm, color: c.ink2 },
     undoButton: { minHeight: 44 },
   });

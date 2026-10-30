@@ -4,8 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { useDirectory, useMeetings, useMyActionItems, useProjects, type MeetingScope } from '../core/queries';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, TextField, Button, PageHeader } from '../components/ui';
-import { Chip } from '../components/task-detail/kit';
+import { SkeletonList, EmptyState, ErrorNote, TextField, Button, PageHeader, Chip } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { MeetingCard } from '../components/meeting/MeetingCard';
 import { UpNextCard } from '../components/meeting/UpNextCard';
 import { MeetingFiltersSheet } from '../components/meeting/MeetingFiltersSheet';
@@ -115,7 +115,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const header = (
     <View style={styles.header}>
       <PageHeader title="Meetings" />
-      <Button title="＋ New meeting" accessibilityLabel="Schedule a new meeting" onPress={() => navigation.navigate('MeetingForm')} />
+      <Button title="New meeting" icon="ui.plus" accessibilityLabel="Schedule a new meeting" onPress={() => navigation.navigate('MeetingForm')} />
       <TextField
         value={filters.q}
         onChangeText={(q) => change({ q })}
@@ -136,7 +136,8 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
             accessibilityLabel={filterCount ? `Filters, ${filterCount} in use` : 'Filters'}
             style={({ pressed }) => [styles.filterButton, (filterCount > 0 || sort !== 'date') && styles.filterButtonOn, pressed && styles.pressed]}
           >
-            <Text style={[styles.filterText, (filterCount > 0 || sort !== 'date') && styles.filterTextOn]}>⚙ Filters{filterCount ? ` (${filterCount})` : ''}</Text>
+            <Icon name="nav.settings" size={16} color={filterCount > 0 || sort !== 'date' ? c.brandText : c.ink2} />
+            <Text style={[styles.filterText, (filterCount > 0 || sort !== 'date') && styles.filterTextOn]}>Filters{filterCount ? ` (${filterCount})` : ''}</Text>
           </Pressable>
           {drafts > 0 ? (
             <Chip
@@ -160,7 +161,8 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
               hitSlop={6}
               style={({ pressed }) => [styles.usedChip, pressed && styles.pressed]}
             >
-              <Text style={styles.usedChipText}>{ch.label} ✕</Text>
+              <Text style={styles.usedChipText}>{ch.label}</Text>
+              <Icon name="ui.close" size={12} color={c.ink2} />
             </Pressable>
           ))}
           {meetingsQ.data ? (
@@ -182,31 +184,35 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
         accessibilityLabel={`My action items${openItems.length ? `, ${openItems.length} open${overdueItems ? `, ${overdueItems} overdue` : ''}` : ''}`}
         style={({ pressed }) => [styles.itemsLink, pressed && styles.pressed]}
       >
-        <Text style={styles.itemsIcon} importantForAccessibility="no">☑</Text>
+        <Icon name="nav.actionItems" size={18} color={c.brandText} />
         <Text style={styles.itemsText}>My action items</Text>
         {openItems.length ? (
           <Text style={[styles.itemsCount, overdueItems > 0 && styles.overdue]}>
             {openItems.length} open{overdueItems ? ` · ${overdueItems} overdue` : ''}
           </Text>
         ) : null}
-        <Text style={styles.chevron} importantForAccessibility="no">›</Text>
+        <Icon name="ui.chevron" size={18} color={c.ink3} rotate={270} />
       </Pressable>
     </View>
   );
 
   const empty = meetingsQ.isLoading ? (
-    <Loader />
+    <SkeletonList rows={4} />
   ) : meetingsQ.isError && !meetingsQ.data ? (
     <ErrorNote message="Couldn’t load meetings. Check your connection and try again." onRetry={() => void meetingsQ.refetch()} retrying={meetingsQ.isFetching} />
   ) : filtered ? (
-    <View>
-      <EmptyState title="No meetings match these filters" subtitle="Try another search or date, or clear the filters to see everything." />
-      <Button title="Clear filters" variant="secondary" onPress={clearFilters} />
-    </View>
+    <EmptyState
+      icon="ui.search"
+      title="No meetings match these filters"
+      subtitle="Try another search or date, or clear the filters to see everything."
+      action={{ title: 'Clear filters', onPress: clearFilters }}
+    />
   ) : (
     <EmptyState
+      icon="nav.meetings"
       title={scope === 'mine' ? 'You haven’t organized any meetings yet' : 'No meetings yet'}
       subtitle="Schedule one with “New meeting” — the ones you can see show up here."
+      action={{ title: 'New meeting', onPress: () => navigation.navigate('MeetingForm') }}
     />
   );
 
@@ -247,6 +253,9 @@ const makeStyles = (c: Palette) =>
     scope: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center' },
     filterButton: {
       minHeight: 40,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: c.line,
@@ -259,7 +268,7 @@ const makeStyles = (c: Palette) =>
     filterTextOn: { color: c.brandText },
     pressed: { opacity: 0.7 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-    usedChip: { borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash, borderRadius: radius.pill, paddingHorizontal: spacing.md, minHeight: 32, justifyContent: 'center' },
+    usedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash, borderRadius: radius.pill, paddingHorizontal: spacing.md, minHeight: 32, justifyContent: 'center' },
     usedChipText: { fontSize: fontSize.xs, ...font('600'), color: c.ink },
     summary: { fontSize: fontSize.sm, color: c.ink2 },
     clearAll: { minHeight: 32, justifyContent: 'center', paddingHorizontal: spacing.xs },
@@ -271,14 +280,12 @@ const makeStyles = (c: Palette) =>
       minHeight: 48,
       paddingHorizontal: spacing.md,
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       borderWidth: 1,
       borderColor: c.line,
     },
-    itemsIcon: { fontSize: fontSize.md, color: c.brandText },
     itemsText: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
     itemsCount: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     overdue: { color: c.dangerText },
-    chevron: { fontSize: fontSize.xl, color: c.ink3 },
     groupTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, letterSpacing: 0.8, marginTop: spacing.sm },
   });

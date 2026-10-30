@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFinalMinutes, useMeeting } from '../core/queries';
 import { useFinalMinutesMutations } from '../core/meeting-mutations';
 import { useColors } from '../core/theme';
-import { Button, ErrorNote, Loader, NoticeNote, TextField } from '../components/ui';
+import { Button, ErrorNote, NoticeNote, SkeletonList, TextField } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { KeyboardAwareScrollView, KeyboardGroup } from '../components/KeyboardAware';
 import { FieldLabel } from '../components/meeting/sheet-kit';
 import { draftFailure, draftNotice, isEmptyContent, minutesSaveFailure, toContent, toEditing, type MinutesEditing } from '../lib/meeting-minutes';
@@ -124,7 +125,7 @@ export function FinalMinutesScreen({ route, navigation }: AppScreenProps<'FinalM
 
   if (!fm) {
     if (fmQ.isError) return <ErrorNote message="Couldn’t load the final minutes." onRetry={() => void fmQ.refetch()} retrying={fmQ.isFetching} />;
-    return <Loader />;
+    return <SkeletonList rows={4} />;
   }
 
   const messages = (
@@ -203,14 +204,15 @@ export function FinalMinutesScreen({ route, navigation }: AppScreenProps<'FinalM
                 hitSlop={6}
                 style={s.remove}
               >
-                <Text style={s.removeText}>✕</Text>
+                <Icon name="ui.close" size={18} color={c.ink2} />
               </Pressable>
             </View>
             <TextField accessibilityLabel={`What was discussed under topic ${i + 1}`} value={d.text} onChangeText={(text) => setTopic(i, { text })} multiline style={s.multiline} />
           </KeyboardGroup>
         ))}
-        <Pressable onPress={() => edit({ discussion: [...editing.discussion, { topic: '', text: '' }] })} accessibilityRole="button" style={s.link}>
-          <Text style={s.linkText}>＋ Add a topic</Text>
+        <Pressable onPress={() => edit({ discussion: [...editing.discussion, { topic: '', text: '' }] })} accessibilityRole="button" style={[s.link, s.linkRow]}>
+          <Icon name="ui.plus" size={16} color={c.brandText} />
+          <Text style={s.linkText}>Add a topic</Text>
         </Pressable>
 
         {list('decisions', 'Decisions', 'e.g. Go-live moves to 1 November.')}
@@ -248,14 +250,14 @@ const makeStyles = (c: Palette) =>
     hint: { fontSize: fontSize.sm, color: c.ink2, flexShrink: 1 },
     grow: { flex: 1 },
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },
-    topic: { borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: c.surface },
+    topic: { borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: c.surface },
     topicHead: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
     remove: { minWidth: 44, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-    removeText: { fontSize: fontSize.lg, color: c.ink3 },
     link: { minHeight: 44, justifyContent: 'center' },
+    linkRow: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
     linkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     redraft: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg },
-    problem: { backgroundColor: c.dangerSoft, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.sm },
+    problem: { backgroundColor: c.dangerSoft, borderRadius: radius.input, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.sm },
     problemText: { color: c.dangerText, fontSize: fontSize.sm, ...font('600') },
     inlineButton: { alignSelf: 'flex-start', minHeight: 40 },
     drafting: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },

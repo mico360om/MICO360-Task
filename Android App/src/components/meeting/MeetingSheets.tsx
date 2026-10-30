@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useColors } from '../../core/theme';
+import { Icon } from '../Icon';
 import { useInvitePreview, useMinutesPreview, useSendInvites, useSendMinutes } from '../../core/meeting-mutations';
 import { useFinalMinutes } from '../../core/queries';
 import { contentVersion } from '../../lib/pending-keys';
@@ -80,7 +81,7 @@ function SendResults({ report, what }: { report: SendReport; what: string }) {
       <SheetMessage text={summary.text} tone={summary.failed ? 'error' : 'success'} />
       {(report.recipients ?? []).map((r) => (
         <View key={r.email} style={styles.person} accessible accessibilityLabel={`${r.name}, ${r.email}, ${r.ok ? 'delivered' : r.error ?? 'not delivered'}`}>
-          <Text style={{ color: r.ok ? c.success : c.danger, ...font('800') }}>{r.ok ? '✓' : '✕'}</Text>
+          <Icon name={r.ok ? 'misc.check' : 'ui.close'} size={16} color={r.ok ? c.successText : c.dangerText} />
           <View style={styles.flex}>
             <Text style={[styles.name, { color: c.ink }]}>{r.name}</Text>
             <Text style={[styles.small, { color: c.ink3 }]}>{r.email}</Text>
@@ -324,7 +325,7 @@ const styles = StyleSheet.create({
   dim: { opacity: 0.5 },
   name: { fontSize: fontSize.md, ...font('600'), textAlign: 'auto' },
   small: { fontSize: fontSize.xs },
-  tag: { fontSize: fontSize.xs, borderRadius: radius.sm, paddingHorizontal: spacing.xs, overflow: 'hidden' },
+  tag: { fontSize: fontSize.xs, borderRadius: radius.badge, paddingHorizontal: spacing.xs, overflow: 'hidden' },
   section: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8, marginTop: spacing.sm, opacity: 0.7 },
-  preview: { borderWidth: 1, borderRadius: radius.md, padding: spacing.sm },
+  preview: { borderWidth: 1, borderRadius: radius.input, padding: spacing.sm },
 });

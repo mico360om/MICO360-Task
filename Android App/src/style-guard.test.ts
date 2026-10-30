@@ -66,28 +66,6 @@ const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task2
     'screens/UserFormScreen.tsx',
     'screens/UsersScreen.tsx',
   ],
-  // Task 19 — meetings (lane B)
-  task19: [
-    'components/MeetingRow.tsx',
-    'components/meeting-form/AgendaDraftReview.tsx',
-    'components/meeting-form/AgendaField.tsx',
-    'components/meeting-form/DescribeMeeting.tsx',
-    'components/meeting-form/FreeTimes.tsx',
-    'components/meeting-form/PeopleField.tsx',
-    'components/meeting-form/WriteDescription.tsx',
-    'components/meeting/MeetingCard.tsx',
-    'components/meeting/MeetingDetailParts.tsx',
-    'components/meeting/MeetingFiltersSheet.tsx',
-    'components/meeting/MeetingSheets.tsx',
-    'components/meeting/PartSheets.tsx',
-    'components/meeting/UpNextCard.tsx',
-    'components/meeting/sheet-kit.tsx',
-    'screens/FinalMinutesScreen.tsx',
-    'screens/MeetingDetailScreen.tsx',
-    'screens/MeetingFormScreen.tsx',
-    'screens/MeetingsScreen.tsx',
-    'screens/MyActionItemsScreen.tsx',
-  ],
   // Task 20 — chat, notifications, account, sign-in and the rest (lane B)
   task20: [
     'adapters/push.ts',

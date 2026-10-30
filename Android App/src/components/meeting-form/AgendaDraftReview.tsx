@@ -58,7 +58,7 @@ export function AgendaDraftReview({
 }
 
 const styles = StyleSheet.create({
-  box: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
+  box: { borderWidth: 1, borderRadius: radius.input, padding: spacing.md, gap: spacing.xs },
   heading: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8 },
   note: { fontSize: fontSize.sm },
   row: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

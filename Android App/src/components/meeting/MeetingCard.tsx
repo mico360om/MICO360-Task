@@ -2,6 +2,7 @@ import React, { memo, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Badge } from '../ui';
+import { Icon } from '../Icon';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { zonedDayKey } from '../../lib/due-date';
 import { isRepeating, meetingPlace } from '../../lib/meetings';
@@ -17,7 +18,8 @@ export function DateLeaf({ iso, timeZone, tone }: { iso: string; timeZone: strin
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const part = dateLeafParts(iso, timeZone);
-  const fg = tone === 'today' ? c.onBrand : tone === 'upcoming' ? c.brand : c.ink3;
+  // Today: the brand fill with white words; upcoming in the brand text tone; past (and cancelled) in ink3.
+  const fg = tone === 'today' ? c.onBrand : tone === 'upcoming' ? c.brandText : c.ink3;
   return (
     <View importantForAccessibility="no-hide-descendants" style={[s.leaf, tone === 'today' ? s.leafToday : tone === 'upcoming' ? s.leafUpcoming : s.leafMuted]}>
       <Text style={[s.leafSmall, { color: fg }]}>{part.weekday}</Text>
@@ -76,10 +78,20 @@ export const MeetingCard = memo(function MeetingCard({
             {when.time}
             {place ? ` · ${place}` : ''}
           </Text>
-          <Text style={s.sub} numberOfLines={1}>
-            {project ?? 'Standalone'}
-            {organizer ? ` · 👤 ${organizer}` : ''}
-          </Text>
+          <View style={s.subRow}>
+            <Text style={s.sub} numberOfLines={1}>
+              {project ?? 'Standalone'}
+              {organizer ? ' ·' : ''}
+            </Text>
+            {organizer ? (
+              <>
+                <Icon name="kit.user" size={12} color={c.ink3} />
+                <Text style={[s.sub, s.flexText]} numberOfLines={1}>
+                  {organizer}
+                </Text>
+              </>
+            ) : null}
+          </View>
         </View>
       </View>
       <View style={s.foot}>
@@ -89,7 +101,7 @@ export const MeetingCard = memo(function MeetingCard({
           {minutes ? <Badge label={minutes.label} tone={minutes.tone} /> : null}
           {decisions ? <Text style={s.count}>{decisions} {decisions === 1 ? 'decision' : 'decisions'}</Text> : null}
           {open ? <Badge label={`${open} open`} tone="warning" /> : null}
-          {isRepeating(m) ? <Text style={s.count}>🔁</Text> : null}
+          {isRepeating(m) ? <Icon name="kit.repeat" size={14} color={c.ink2} /> : null}
         </View>
       </View>
     </Pressable>
@@ -98,7 +110,7 @@ export const MeetingCard = memo(function MeetingCard({
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },
+    card: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },
     cardLive: { borderColor: c.brand },
     cardCancelled: { opacity: 0.8 },
     pressed: { opacity: 0.7 },
@@ -108,7 +120,9 @@ const makeStyles = (c: Palette) =>
     title: { fontSize: fontSize.md, ...font('700'), color: c.ink, textAlign: 'auto' },
     struck: { textDecorationLine: 'line-through', color: c.ink3 },
     when: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
-    sub: { fontSize: fontSize.xs, color: c.ink3, marginTop: 2 },
+    subRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2, minWidth: 0 },
+    sub: { fontSize: fontSize.xs, color: c.ink3, flexShrink: 1 },
+    flexText: { flex: 1 },
     foot: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -123,7 +137,7 @@ const makeStyles = (c: Palette) =>
     people: { fontSize: fontSize.xs, color: c.ink2 },
     badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, flexShrink: 1, justifyContent: 'flex-end' },
     count: { fontSize: fontSize.xs, color: c.ink2 },
-    leaf: { width: 52, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, paddingVertical: spacing.xs },
+    leaf: { width: 52, alignItems: 'center', borderRadius: radius.input, borderWidth: 1, paddingVertical: spacing.xs },
     leafToday: { backgroundColor: c.brand, borderColor: c.brand },
     leafUpcoming: { backgroundColor: c.brandWash, borderColor: c.brandWash },
     leafMuted: { backgroundColor: c.ground, borderColor: c.line },

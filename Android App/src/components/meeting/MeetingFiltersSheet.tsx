@@ -2,8 +2,7 @@ import React, { useMemo } from 'react';
 import { Modal, View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '../../core/theme';
-import { Button } from '../ui';
-import { Chip } from '../task-detail/kit';
+import { Button, Chip } from '../ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { MEETING_STATUS_LABELS } from '../../lib/meeting-detail';
 import { DATE_RANGES, SORTS, STATUS_CHOICES, type MeetingFilters, type MeetingSort } from '../../lib/meeting-list';
@@ -86,8 +85,8 @@ export function MeetingFiltersSheet({
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
-    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, maxHeight: '85%' },
+    backdrop: { flex: 1, backgroundColor: c.scrim },
+    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, padding: spacing.lg, gap: spacing.sm, maxHeight: '85%' },
     title: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     scroll: { flexGrow: 0 },
     group: { gap: spacing.xs },

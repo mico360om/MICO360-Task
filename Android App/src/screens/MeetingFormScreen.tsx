@@ -7,7 +7,8 @@ import { refresh } from '../lib/refresh';
 import { useSaveMeeting } from '../core/meeting-mutations';
 import { useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
-import { Button, ErrorNote, Loader, TextField } from '../components/ui';
+import { Button, ErrorNote, SkeletonList, TextField } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { RecurrenceEditor } from '../components/RecurrenceEditor';
 import { CardChoice, ChipChoice, FieldLabel, InlinePicker, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
@@ -96,7 +97,7 @@ export function MeetingFormScreen({ route, navigation }: AppScreenProps<'Meeting
         </View>
       );
     }
-    return <Loader />;
+    return <SkeletonList rows={5} />;
   }
   return <MeetingForm meeting={editing ? meetingQ.data ?? null : null} projectId={route.params?.projectId ?? null} navigation={navigation} />;
 }
@@ -342,9 +343,12 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
         ) : null}
         {locked ? (
           <View style={s.lockNote}>
-            <Text style={s.lockText} accessibilityLiveRegion="polite">
-              🔒 {LOCKED_FORM_NOTE}
-            </Text>
+            <View style={s.iconLine}>
+              <Icon name="kit.lock" size={16} color={c.ink2} />
+              <Text style={[s.lockText, s.flexText]} accessibilityLiveRegion="polite">
+                {LOCKED_FORM_NOTE}
+              </Text>
+            </View>
             <Button title={START_OVER.label} variant="ghost" onPress={startOver} disabled={save.isPending} accessibilityLabel="Start over: unlock the form. The meeting may already be scheduled — check Meetings first." />
           </View>
         ) : null}
@@ -419,7 +423,12 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
         <View style={s.group}>
           <FieldLabel>Repeat</FieldLabel>
           {seriesId ? <Text style={s.hint}>This meeting is part of a repeating series.</Text> : null}
-          {draft.rule ? <Text style={s.summary}>🔁 {summary}</Text> : null}
+          {draft.rule ? (
+            <View style={s.iconLine}>
+              <Icon name="kit.repeat" size={14} color={c.ink2} />
+              <Text style={[s.summary, s.flexText]}>{summary}</Text>
+            </View>
+          ) : null}
           <RecurrenceEditor kind="meeting" disabled={locked} value={draft.rule} onChange={(rule) => set({ rule })} dueDate={startKey || null} />
           {untilProblem ? (
             <Text style={s.problem} accessibilityRole="alert">
@@ -523,13 +532,15 @@ const makeStyles = (c: Palette) =>
     grow: { flex: 1 },
     wide: { flex: 2 },
     time: { width: 110 },
-    group: { gap: spacing.sm, marginBottom: spacing.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md },
+    group: { gap: spacing.sm, marginBottom: spacing.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: spacing.md },
     hint: { fontSize: fontSize.xs, color: c.ink2, marginBottom: spacing.sm },
     summary: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     note: { fontSize: fontSize.xs, ...font('600'), color: c.ink },
     problem: { fontSize: fontSize.xs, ...font('700'), color: c.dangerText },
-    lockNote: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
+    lockNote: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
     lockText: { fontSize: fontSize.sm, color: c.ink2 },
+    iconLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    flexText: { flexShrink: 1 },
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
   });

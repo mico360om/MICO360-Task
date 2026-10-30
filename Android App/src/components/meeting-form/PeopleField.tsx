@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button, TextField } from '../ui';
+import { Icon } from '../Icon';
 import { InlinePicker, SheetMessage } from '../meeting/sheet-kit';
 import { addGuest, addTeamMember, invitableOptions, personKey, PEOPLE_FULL, PEOPLE_MAX, type MeetingPerson } from '../../lib/meeting-ai';
 import { spacing, radius, fontSize } from '../../lib/theme';
@@ -71,7 +72,7 @@ export function PeopleField({
             hitSlop={6}
             style={styles.remove}
           >
-            <Text style={[styles.removeText, { color: c.ink3 }]}>✕</Text>
+            <Icon name="ui.close" size={18} color={c.ink2} />
           </Pressable>
         </View>
       ))}
@@ -106,14 +107,13 @@ export function PeopleField({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
+  card: { borderWidth: 1, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
   title: { fontSize: fontSize.sm, ...font('800') },
   hint: { fontSize: fontSize.xs },
-  person: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingLeft: spacing.md, minHeight: 48 },
+  person: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.input, paddingLeft: spacing.md, minHeight: 48 },
   flex: { flex: 1, paddingVertical: spacing.xs },
   name: { fontSize: fontSize.md, ...font('600'), textAlign: 'auto' },
   role: { minHeight: 36, justifyContent: 'center', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm },
   roleText: { fontSize: fontSize.xs, ...font('700') },
   remove: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  removeText: { fontSize: fontSize.md, ...font('700') },
 });
