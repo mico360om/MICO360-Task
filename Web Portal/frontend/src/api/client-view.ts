@@ -19,6 +19,8 @@ export interface ClientViewItem {
   status: string;
   /** 'YYYY-MM-DD'. */
   dueDate: string | null;
+  /** Past its due day and not done (never one waiting for approval); an older server sends none. */
+  late?: boolean;
 }
 
 export interface ClientViewMinutes {
@@ -49,7 +51,10 @@ export interface ClientView {
   minutes: ClientViewMinutes[];
   /** Finished inspection reports someone who runs the project marked "Show to client" (an older server sends none). */
   inspections?: ClientInspectionSummary[];
+  /** When the server read this (the page's "Updated …"). */
   generatedAt: string;
+  /** The company time zone, which "Updated …" is written in (an older server sends none). */
+  timeZone?: string;
 }
 
 async function errorOf(res: Response): Promise<ApiError> {

@@ -13,8 +13,8 @@ const VIEW: ClientView = {
   timeline: { startDate: '2026-10-01', targetDate: '2026-11-20', today: '2026-10-26', elapsedPercent: 50 },
   milestones: [{ title: 'مسح الموقع', status: 'Done', dueDate: '2026-10-10' }],
   tasks: [
-    { title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02' },
-    { title: 'Report draft', status: 'Not started', dueDate: null },
+    { title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02', late: false },
+    { title: 'Report draft', status: 'Not started', dueDate: null, late: false },
   ],
   minutes: [
     {
@@ -30,6 +30,7 @@ const VIEW: ClientView = {
     { id: 'i2', title: 'Deck check', date: '2026-10-20', place: null, counts: { total: 1, passed: 1, failed: 0, na: 0 }, result: 'Passed', revisionNumber: 1, reopenedOn: null },
   ],
   generatedAt: '2026-10-26T08:00:00.000Z',
+  timeZone: 'Asia/Muscat',
 };
 
 const REPORT: ClientInspection = {
@@ -290,7 +291,45 @@ describe('the client page', () => {
   it('gives the footer link a finger-sized target', async () => {
     show(fakeApi());
     await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });
-    expect(screen.getByRole('link', { name: 'Privacy policy' }).className).toMatch(/(^|\s)tap(\s|$)/);
+    expect(screen.getByRole('link', { name: 'Privacy notice' }).className).toMatch(/(^|\s)tap(\s|$)/);
+  });
+
+  it('links to the privacy notice written for clients, on every step (owner, 30 Oct)', async () => {
+    show(fakeApi());
+    await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });
+    expect(screen.getByRole('link', { name: 'Privacy notice' })).toHaveAttribute('href', '/privacy/client');
+    cleanup();
+    show(signInNeededApi());
+    await screen.findByLabelText('Email address');
+    expect(screen.getByRole('link', { name: 'Privacy notice' })).toHaveAttribute('href', '/privacy/client');
+  });
+
+  it('says when the page was read: "Updated 26 Oct 2026, 12:00", in the company time zone and the 24-hour clock (owner, 30 Oct)', async () => {
+    show(fakeApi());
+    await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });
+    const updated = screen.getByText((_, el) => el?.tagName === 'P' && /^Updated /.test(el.textContent ?? ''));
+    expect(updated).toHaveTextContent('Updated 26 Oct 2026, 12:00');
+    expect(updated.querySelector('time')).toHaveAttribute('dateTime', '2026-10-26T08:00:00.000Z');
+  });
+
+  it('marks a late task and a late milestone "Late" in words (not by colour alone); a waiting task is just in progress (owner, 30 Oct)', async () => {
+    show(
+      fakeApi({
+        view: vi.fn(async () => ({
+          ...VIEW,
+          milestones: [{ title: 'Handover', status: 'Not started', dueDate: '2026-10-20', late: true }],
+          tasks: [
+            { title: 'Pressure test', status: 'In progress', dueDate: '2026-10-22', late: true },
+            { title: 'Handed in', status: 'In progress', dueDate: '2026-10-21', late: false },
+          ],
+        })),
+      }),
+    );
+    const tasks = await screen.findByRole('region', { name: 'Tasks' });
+    const row = (name: string, within_: HTMLElement) => within(within_).getByText(name).closest('li')!;
+    expect(row('Pressure test', tasks)).toHaveTextContent('Late');
+    expect(row('Handed in', tasks)).not.toHaveTextContent('Late');
+    expect(row('Handover', screen.getByRole('region', { name: 'Milestones' }))).toHaveTextContent('Late');
   });
 
   it('opens and closes a meeting’s minutes with its heading button', async () => {

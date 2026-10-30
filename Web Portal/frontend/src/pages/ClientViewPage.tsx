@@ -10,6 +10,7 @@ import { ProjectAvatar } from '../components/ProjectAvatar';
 import { Button } from '../components/ui/Button';
 import { fieldClass } from '../components/ui/Field';
 import { askedTooSoon, codeStepMemory, linkTag, NEW_CODE_SENT, RESEND_AFTER_MS, waitFromAnswer, type CodeStepMemory } from '../lib/login-code-step';
+import { dateTimeText } from '../lib/day-words';
 
 /**
  * The client page: someone outside the company follows one shared project, read-only, with no
@@ -135,7 +136,8 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
       <footer className="border-t border-line bg-surface">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-ink-2 sm:px-6">
           <span>Shared with you through MICO360 Tasks. Read-only.</span>
-          <Link to="/privacy" className="tap font-semibold text-brand underline-offset-2 hover:underline">Privacy policy</Link>
+          {/* The notice written for clients (the staff's privacy policy is about staff accounts). */}
+          <Link to="/privacy/client" className="tap font-semibold text-brand underline-offset-2 hover:underline">Privacy notice</Link>
         </div>
       </footer>
     </div>
@@ -381,6 +383,10 @@ function Project({ view, api, onSignedOut }: { view: ClientView; api: ClientView
           <div className="mt-2">
             <Status label={project.statusLabel} />
           </div>
+          {/* When the server read what this page shows: day before month, 24-hour clock, company time. */}
+          <p className="mt-2 text-xs text-ink-2">
+            Updated <time dateTime={view.generatedAt}>{dateTimeText(view.generatedAt, view.timeZone)}</time>
+          </p>
         </div>
       </div>
 
@@ -500,6 +506,8 @@ function Items({ items, empty, milestone = false }: { items: ClientViewItem[]; e
             <p className="break-words text-sm font-medium text-ink"><bdi>{t.title}</bdi></p>
             <p className="text-xs text-ink-2">{t.dueDate ? `Due ${dayText(t.dueDate)}` : 'No due date'}</p>
           </div>
+          {/* Past its due day and not done, as the staff see it — in words, not by colour alone. */}
+          {t.late ? <span className="inline-flex flex-none items-center rounded-md bg-danger-soft px-2 py-0.5 text-xs font-semibold text-danger">Late</span> : null}
           <Status label={t.status} />
         </li>
       ))}
