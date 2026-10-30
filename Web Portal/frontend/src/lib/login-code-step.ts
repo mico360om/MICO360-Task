@@ -90,7 +90,7 @@ export function waitFromAnswer(answer: CodeAnswer | null | undefined): number | 
 
 /** Said when the same address asked again too soon — true whether or not it has an account. */
 export const askedTooSoon = (seconds: number) =>
-  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds} s.`; // no line break between the number and its unit
+  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds}\u00a0s.`; // no line break between the number and its unit
 
 /** Said when another code went: the one before it no longer works. */
 export const NEW_CODE_SENT = 'We’ve sent a new code. Use the newest one — the earlier code no longer works.';
