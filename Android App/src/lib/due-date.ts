@@ -9,6 +9,7 @@
  * today, and completed tasks are never overdue.
  */
 import { dateFormat } from './intl-cache';
+import { dayText, type DayTextOptions } from './day-words';
 
 /** The default company time zone, until the server and your settings say otherwise. */
 export const COMPANY_TIMEZONE = 'Asia/Muscat';
@@ -119,11 +120,12 @@ export function isOverdue(
 }
 
 /**
- * A due date formatted for display, without shifting it across a day boundary (e.g. "Sep 30").
- * `locale` undefined → the device locale.
+ * A due date as its calendar day in words, never shifted across a day boundary, the website's way
+ * (due-display formatDueDay): "30 Sep 2026"; with { weekday: 'short', year: false } "Wed 30 Sep".
+ * The same whatever language the phone is set to. Null without a due day.
  */
-export function formatDueDay(due: DateInput, locale?: string, timeZone: string = appTimeZone()): string | null {
+export function formatDueDay(due: DateInput, timeZone: string = appTimeZone(), opts: DayTextOptions = {}): string | null {
   const key = dueDayKey(due, timeZone);
   if (!key) return null;
-  return dateFormat(locale, { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(`${key}T12:00:00Z`));
+  return dayText(key, opts) || null;
 }

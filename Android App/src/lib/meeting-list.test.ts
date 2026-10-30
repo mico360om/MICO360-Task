@@ -190,14 +190,14 @@ describe('meetingCardLabel (what TalkBack reads for a card)', () => {
       recurrenceParentId: 'r1',
       status: 'COMPLETED',
     });
-    expect(meetingCardLabel(card, ctx, 'en-US')).toBe(
-      'Budget review, Mon, Oct 12, 10:00 – 11:00, Room B, Falcon CRM, organized by Aisha Khan, 3 people, Completed, Final minutes, 1 decision, 2 open action items, repeats',
+    expect(meetingCardLabel(card, ctx)).toBe(
+      'Budget review, Mon 12 Oct, 10:00 – 11:00, Room B, Falcon CRM, organized by Aisha Khan, 3 people, Completed, Final minutes, 1 decision, 2 open action items, repeats',
     );
   });
 
   it('says a meeting is under way, standalone, and has nobody yet', () => {
     const live = m({ id: 'l1', title: 'Stand-up', startAt: '2026-10-10T04:30:00.000Z', endAt: '2026-10-10T05:30:00.000Z', organizerId: 'u9', attendeeCount: 0 });
-    expect(meetingCardLabel(live, ctx, 'en-US')).toBe('Stand-up, Sat, Oct 10, 08:30 – 09:30, Standalone, No attendees yet, Under way');
+    expect(meetingCardLabel(live, ctx)).toBe('Stand-up, Sat 10 Oct, 08:30 – 09:30, Standalone, No attendees yet, Under way');
   });
 });
 

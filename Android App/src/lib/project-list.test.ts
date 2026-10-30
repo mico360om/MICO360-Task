@@ -22,14 +22,14 @@ describe('a project’s card', () => {
   });
 
   it('writes its dates as start → target', () => {
-    expect(projectDates('2026-10-01T00:00:00.000Z', '2026-12-15T00:00:00.000Z', 'en-US')).toBe('Oct 1 → Dec 15');
-    expect(projectDates(null, '2026-12-15', 'en-US')).toBe('— → Dec 15');
-    expect(projectDates(null, null, 'en-US')).toBeNull();
+    expect(projectDates('2026-10-01T00:00:00.000Z', '2026-12-15T00:00:00.000Z')).toBe('1 Oct 2026 → 15 Dec 2026');
+    expect(projectDates(null, '2026-12-15', 'Asia/Muscat')).toBe('— → 15 Dec 2026');
+    expect(projectDates(null, null)).toBeNull();
   });
 
   it('reads everything the card shows to TalkBack', () => {
     const meta = projectCardMeta({ total: 12, completed: 5, inProgress: 2, todo: 5, overdue: 3, completionPct: 42, byCategory: {} }, 'Omar Said');
-    expect(projectCardLabel(project(), meta, 'Oct 1 → Dec 15')).toBe('Rig Inspection, RIG, project number PDO-14, On hold, PDO, 42% done, 12 tasks, 3 overdue, Oct 1 → Dec 15, owner Omar Said');
+    expect(projectCardLabel(project(), meta, '1 Oct 2026 → 15 Dec 2026')).toBe('Rig Inspection, RIG, project number PDO-14, On hold, PDO, 42% done, 12 tasks, 3 overdue, 1 Oct 2026 → 15 Dec 2026, owner Omar Said');
     expect(projectCardLabel(project({ number: null, clientName: null, status: 'ACTIVE' }), null, null)).toBe('Rig Inspection, RIG, Active, Internal');
   });
 

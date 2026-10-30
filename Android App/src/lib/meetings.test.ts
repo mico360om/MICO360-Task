@@ -39,7 +39,7 @@ describe('meetingRowLabel (a meeting in the calendar or on a project: it opens t
   });
 
   it('reads the day, time, title, place, and whether it repeats or was cancelled', () => {
-    expect(meetingRowLabel(m(), { showDate: 'Tue, Oct 20', timeZone: 'Asia/Muscat' })).toBe('Meeting, Tue, Oct 20, 10:00 – 11:00, Weekly review, Room 2');
+    expect(meetingRowLabel(m(), { showDate: 'Tue 20 Oct', timeZone: 'Asia/Muscat' })).toBe('Meeting, Tue 20 Oct, 10:00 – 11:00, Weekly review, Room 2');
     expect(meetingRowLabel(m({ status: 'CANCELLED', recurrenceParentId: 'r1', location: null }), { timeZone: 'Asia/Muscat' })).toBe('Meeting, 10:00 – 11:00, Weekly review, repeats, cancelled');
   });
 

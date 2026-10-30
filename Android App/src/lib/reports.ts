@@ -1,5 +1,6 @@
 import { CATEGORY_LABEL } from './task-status';
 import { cumulative } from './chart';
+import { dayText } from './day-words';
 /**
  * Reports on the phone (admins): the exports offered (the same as the web portal and the extension),
  * their paths and file names, and the summary numbers on the Reports screen. Pure TypeScript.
@@ -190,12 +191,9 @@ export function statusBars(status: Record<string, number>): { category: string; 
 
 // ── A range of your own (5c) ────────────────────────────────────────────────
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "2026-09-25" → "25 Sep" (the calendar day as written, no time zone shift). */
+/** "2026-09-25" → "25 Sep" (the calendar day as written, no time zone shift; the website's day words). */
 export function reportDay(key: string): string {
-  const [, m, d] = key.split('-');
-  return `${Number(d)} ${MONTHS[Number(m) - 1] ?? m}`;
+  return dayText(key, { year: false }) || key;
 }
 
 /** A complete date (YYYY-MM-DD) with a plausible year — the website's date-box rule. */

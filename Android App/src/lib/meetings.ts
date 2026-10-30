@@ -4,7 +4,7 @@
  */
 import type { ApiMeeting } from './types';
 import { appTimeZone, zonedDayKey } from './due-date';
-import { dateFormat } from './intl-cache';
+import { clockText } from './day-words';
 
 type Timed = Pick<ApiMeeting, 'startAt' | 'endAt'>;
 
@@ -17,7 +17,7 @@ export function meetingDayKey(m: Pick<ApiMeeting, 'startAt'>, timeZone: string =
 export function clockTime(iso: string, timeZone: string = appTimeZone()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return dateFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone }).format(d);
+  return clockText(d, timeZone);
 }
 
 /** '10:00 – 11:00' (or just '10:00' without an end), in company time. */

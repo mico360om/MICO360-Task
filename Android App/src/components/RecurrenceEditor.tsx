@@ -205,7 +205,7 @@ export function RecurrenceEditor({
             </>
           )}
 
-          {preview.length > 0 ? <Text style={styles.preview}>Next: {preview.map((d) => formatDueDay(d) ?? d).join(' · ')}</Text> : null}
+          {preview.length > 0 ? <Text style={styles.preview}>Next: {preview.map((d) => formatDueDay(d, 'UTC', { weekday: 'short', year: false }) ?? d).join(' · ')}</Text> : null}
 
           {meeting ? null : (
             <Pressable onPress={() => set(togglePaused(rule))} disabled={disabled} accessibilityRole="button" style={[styles.chip, styles.pause]}>

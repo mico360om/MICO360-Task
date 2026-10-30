@@ -39,11 +39,11 @@ describe('a board card shows what the website’s card shows (4b)', () => {
 
   it('says Overdue only once the due day is past in company time, and never for finished work', () => {
     const late = cardView(boardCard(task('1', { dueDate: '2026-10-20' }), col('c1')), { now: NOW, timeZone: TZ });
-    expect(late).toMatchObject({ overdue: true, dueText: 'Overdue · Oct 20, 2026' });
+    expect(late).toMatchObject({ overdue: true, dueText: 'Overdue · 20 Oct 2026' });
     const today = cardView(boardCard(task('2', { dueDate: '2026-10-21' }), col('c1')), { now: NOW, timeZone: TZ });
-    expect(today).toMatchObject({ overdue: false, dueText: 'Oct 21, 2026' });
+    expect(today).toMatchObject({ overdue: false, dueText: '21 Oct 2026' });
     const finished = cardView(boardCard(task('3', { dueDate: '2026-10-01', columnId: 'd' }), col('d', { category: 'DONE' })), { now: NOW, timeZone: TZ });
-    expect(finished).toMatchObject({ overdue: false, dueText: 'Oct 1, 2026' });
+    expect(finished).toMatchObject({ overdue: false, dueText: '1 Oct 2026' });
     expect(cardView(boardCard(task('4'), col('c1')), { now: NOW, timeZone: TZ })).toMatchObject({ hasDue: false, dueText: null });
   });
 
@@ -77,7 +77,7 @@ describe('a board card shows what the website’s card shows (4b)', () => {
       }),
       col('b', { category: 'BLOCKED', name: 'Waiting' }),
     );
-    expect(cardView(card, { now: NOW, timeZone: TZ }).label).toBe('MICO-1, Fix pump. High priority. Blocked. Milestone. Overdue, due Oct 20, 2026. 40% done. Ann Lee. 1 comment. 2 files.');
+    expect(cardView(card, { now: NOW, timeZone: TZ }).label).toBe('MICO-1, Fix pump. High priority. Blocked. Milestone. Overdue, due 20 Oct 2026. 40% done. Ann Lee. 1 comment. 2 files.');
   });
 });
 

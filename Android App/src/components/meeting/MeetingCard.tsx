@@ -4,10 +4,9 @@ import { useColors } from '../../core/theme';
 import { Badge } from '../ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { zonedDayKey } from '../../lib/due-date';
-import { dateFormat } from '../../lib/intl-cache';
 import { isRepeating, meetingPlace } from '../../lib/meetings';
 import { meetingStatusLabel, meetingStatusTone, meetingWhen, minutesBadge } from '../../lib/meeting-detail';
-import { isUnderWay, meetingCardLabel, peopleText, type ListContext } from '../../lib/meeting-list';
+import { dateLeafParts, isUnderWay, meetingCardLabel, peopleText, type ListContext } from '../../lib/meeting-list';
 import type { ApiMeeting } from '../../lib/types';
 
 type LeafTone = 'today' | 'upcoming' | 'muted';
@@ -16,14 +15,13 @@ type LeafTone = 'today' | 'upcoming' | 'muted';
 export function DateLeaf({ iso, timeZone, tone }: { iso: string; timeZone: string; tone: LeafTone }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
-  const d = new Date(iso);
-  const part = (o: Intl.DateTimeFormatOptions) => (Number.isNaN(d.getTime()) ? '' : dateFormat('en-GB', { ...o, timeZone }).format(d));
+  const part = dateLeafParts(iso, timeZone);
   const fg = tone === 'today' ? c.onBrand : tone === 'upcoming' ? c.brand : c.ink3;
   return (
     <View importantForAccessibility="no-hide-descendants" style={[s.leaf, tone === 'today' ? s.leafToday : tone === 'upcoming' ? s.leafUpcoming : s.leafMuted]}>
-      <Text style={[s.leafSmall, { color: fg }]}>{part({ weekday: 'short' }).toUpperCase()}</Text>
-      <Text style={[s.leafDay, { color: tone === 'today' ? c.onBrand : c.ink }]}>{part({ day: 'numeric' })}</Text>
-      <Text style={[s.leafSmall, { color: fg }]}>{part({ month: 'short' }).toUpperCase()}</Text>
+      <Text style={[s.leafSmall, { color: fg }]}>{part.weekday}</Text>
+      <Text style={[s.leafDay, { color: tone === 'today' ? c.onBrand : c.ink }]}>{part.day}</Text>
+      <Text style={[s.leafSmall, { color: fg }]}>{part.month}</Text>
     </View>
   );
 }
@@ -63,7 +61,7 @@ export const MeetingCard = memo(function MeetingCard({
     <Pressable
       onPress={() => onPress(m)}
       accessibilityRole="button"
-      accessibilityLabel={meetingCardLabel(m, ctx, undefined, statusShown)}
+      accessibilityLabel={meetingCardLabel(m, ctx, statusShown)}
       accessibilityHint="Opens the meeting"
       style={({ pressed }) => [s.card, live && s.cardLive, cancelled && s.cardCancelled, pressed && s.pressed]}
     >

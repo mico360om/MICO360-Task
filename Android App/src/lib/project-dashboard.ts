@@ -9,6 +9,7 @@
 import type { ApiColumn, ApiTask, Priority } from './types';
 import type { Tone } from './tone';
 import { appTimeZone, dueDayKey, isTaskDone } from './due-date';
+import { dayText as dayWords } from './day-words';
 
 const DAY_MS = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / DAY_MS);
@@ -174,12 +175,9 @@ export function projectTimeline(startDate: string | null | undefined, targetDate
   return { start, end, elapsedPct: Math.max(0, Math.min(100, Math.round((gone / span) * 100))), daysLeft, state };
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** '2026-11-03' → '3 Nov 2026' (a calendar day, never shifted by a time zone). */
+/** '2026-11-03' → '3 Nov 2026' (a calendar day, never shifted by a time zone; the website's day words), '—' for none. */
 export function dayText(key: string | null | undefined): string {
-  if (!key || !/^\d{4}-\d{2}-\d{2}/.test(key)) return '—';
-  return `${Number(key.slice(8, 10))} ${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
+  return (key && dayWords(key)) || '—';
 }
 
 /** "today", "tomorrow", "in 3 days", "yesterday", "4 days ago". */

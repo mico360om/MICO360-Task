@@ -73,7 +73,7 @@ const rows = enrichMyTasks(tasks, projects, { timeZone: TZ, now: NOW });
 describe('My Tasks (4d): the website’s filters, chips and sort', () => {
   it('works out each task’s status, done, overdue, due today and day, in company time; a finished task is never overdue', () => {
     const by = Object.fromEntries(rows.map((r) => [r.task.id, r]));
-    expect(by['1']).toMatchObject({ cat: 'TODO', done: false, overdue: true, dueToday: false, dueKey: '2026-10-20', dueLabel: 'Oct 20' });
+    expect(by['1']).toMatchObject({ cat: 'TODO', done: false, overdue: true, dueToday: false, dueKey: '2026-10-20', dueLabel: '20 Oct' });
     expect(by['2']).toMatchObject({ cat: 'IN_PROGRESS', overdue: false, dueToday: true });
     expect(by['6']).toMatchObject({ done: true, overdue: false });
     expect(by['1']!.project?.name).toBe('Alpha Tower');
@@ -146,10 +146,10 @@ describe('My Tasks (4d): the website’s filters, chips and sort', () => {
     expect(showingText(3, 10, true)).toBe('Showing 3 of 10 tasks');
     expect(showingText(1, 1, false)).toBe('Showing 1 task');
     const r1 = rows.find((r) => r.task.id === '1')!;
-    expect(dueLabel(r1)).toBe('Overdue · Oct 20');
+    expect(dueLabel(r1)).toBe('Overdue · 20 Oct');
     expect(dueLabel(rows.find((r) => r.task.id === '2')!)).toBe('Due today');
     expect(dueLabel(rows.find((r) => r.task.id === '4')!)).toBe('No due date');
-    expect(myTaskLabel(r1)).toBe('MICO-1, Task 1. Alpha Tower. To Do. Urgent priority. Overdue · Oct 20. 0% done. Ann Lee.');
+    expect(myTaskLabel(r1)).toBe('MICO-1, Task 1. Alpha Tower. To Do. Urgent priority. Overdue · 20 Oct. 0% done. Ann Lee.');
   });
 
   it('a selection covers only what is shown; Select all selects (or clears) the shown ones', () => {

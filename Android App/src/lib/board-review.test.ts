@@ -56,10 +56,10 @@ describe('board review fixes (4b review #8–#13)', () => {
     expect(src('components/meeting/sheet-kit.tsx')).toMatch(/scroll = true/);
   });
 
-  it('#12 a card’s due day uses a formatter made once, not one per card', () => {
+  it('#12 a card’s due day makes no formatter per card (the website’s day words, no Intl)', () => {
     const board = src('lib/board.ts');
-    expect(board).not.toMatch(/new Intl\.DateTimeFormat/);
-    expect(board).toMatch(/dateFormat\('en-US', \{ month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' \}\)/);
+    expect(board).not.toMatch(/new Intl\.DateTimeFormat|dateFormat\(/);
+    expect(board).toMatch(/return formatDueDay\(due, timeZone\);/);
   });
 
   it('#13 an empty board says what is really the matter; Manage columns offline says it needs a connection', () => {

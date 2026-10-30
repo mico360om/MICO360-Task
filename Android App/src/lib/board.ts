@@ -1,5 +1,4 @@
-import { appTimeZone, dueDayKey, isOverdue } from './due-date';
-import { dateFormat } from './intl-cache';
+import { appTimeZone, formatDueDay, isOverdue } from './due-date';
 import { displayName, type ApiColumn, type ApiTask, type Priority } from './types';
 
 export interface BoardColumn {
@@ -83,12 +82,9 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
 /** A face without a photo: the first letters of the first two words, from letters only, as the website's Avatar (lib/initials). */
 export { personInitials } from './initials';
 
-/** A due day as the website's card writes it: "Oct 20, 2026" (its own calendar day, company time). */
+/** A due day as the website's card writes it: "20 Oct 2026" (its own calendar day, company time). */
 export function cardDueText(due: string | null, timeZone: string = appTimeZone()): string | null {
-  const key = dueDayKey(due, timeZone);
-  if (!key) return null;
-  // Made once (lib/intl-cache), not once per card drawn (4b review #12).
-  return dateFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+  return formatDueDay(due, timeZone);
 }
 
 export interface CardBadge {
@@ -101,7 +97,7 @@ export interface CardBadge {
 export interface CardView {
   overdue: boolean;
   hasDue: boolean;
-  /** "Oct 20, 2026", "Overdue · Oct 20, 2026", or null with no due date. */
+  /** "20 Oct 2026", "Overdue · 20 Oct 2026", or null with no due date. */
   dueText: string | null;
   /** Up to three people's faces, then "+N". */
   shown: { id: string; name: string }[];

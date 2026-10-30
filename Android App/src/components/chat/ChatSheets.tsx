@@ -5,7 +5,7 @@ import { useChatSearch, CHAT_SEARCH_MIN } from '../../core/queries';
 import { TextField } from '../ui';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
 import { dayLabel, highlightParts, searchSnippet } from '../../lib/chat-model';
-import { dmCandidates, prefsMenu, type MemberRow } from '../../lib/chat-ui';
+import { dmCandidates, messageClock, prefsMenu, type MemberRow } from '../../lib/chat-ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiChatMessage, ApiDirectoryUser, ConversationPrefs } from '../../lib/types';
 
@@ -18,10 +18,6 @@ import type { ApiChatMessage, ApiDirectoryUser, ConversationPrefs } from '../../
 function useStyles() {
   const c = useColors();
   return { c, s: useMemo(() => makeStyles(c), [c]) };
-}
-
-function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 /** "New direct message": active teammates, found by name or username; picking one opens the conversation. */
@@ -187,7 +183,7 @@ export function MembersSheet({
 function ResultRow({ m, q, where, nameOf, onPick }: { m: ApiChatMessage; q: string; where?: string; nameOf: (id: string) => string; onPick: (m: ApiChatMessage) => void }) {
   const { c, s } = useStyles();
   const snippet = searchSnippet(m.body, q);
-  const when = `${dayLabel(m.createdAt)} ${clockTime(m.createdAt)}`;
+  const when = `${dayLabel(m.createdAt)} ${messageClock(m.createdAt)}`;
   return (
     <Pressable
       style={({ pressed }) => [s.result, pressed && { opacity: 0.7 }]}

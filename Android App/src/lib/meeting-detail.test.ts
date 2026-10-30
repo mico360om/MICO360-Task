@@ -175,9 +175,9 @@ describe('action items', () => {
   });
 
   it('says when it is due', () => {
-    expect(actionDueText(item({ dueDate: '2026-10-09T00:00:00.000Z' }), NOW, 'en-US', 'Asia/Muscat')).toBe('Due Oct 9 — overdue');
-    expect(actionDueText(item({ dueDate: '2026-10-12T00:00:00.000Z' }), NOW, 'en-US', 'Asia/Muscat')).toBe('Due Oct 12');
-    expect(actionDueText(item(), NOW, 'en-US', 'Asia/Muscat')).toBe('No due date');
+    expect(actionDueText(item({ dueDate: '2026-10-09T00:00:00.000Z' }), NOW, 'Asia/Muscat')).toBe('Due 9 Oct 2026 — overdue');
+    expect(actionDueText(item({ dueDate: '2026-10-12T00:00:00.000Z' }), NOW, 'Asia/Muscat')).toBe('Due 12 Oct 2026');
+    expect(actionDueText(item(), NOW, 'Asia/Muscat')).toBe('No due date');
   });
 });
 
@@ -200,16 +200,16 @@ describe('minutes', () => {
   });
 
   it('names who approved them, and when', () => {
-    const line = approvedLine(fm({ status: 'FINAL', approvedBy: { id: 'u1', name: 'Aisha Khan' }, approvedAt: '2026-10-10T06:30:00.000Z' }), 'en-GB', 'Asia/Muscat');
+    const line = approvedLine(fm({ status: 'FINAL', approvedBy: { id: 'u1', name: 'Aisha Khan' }, approvedAt: '2026-10-10T06:30:00.000Z' }), 'Asia/Muscat');
     expect(line).toBe('Approved by Aisha Khan on 10 Oct 2026, 10:30.');
-    expect(approvedLine(fm({ status: 'FINAL' }), 'en-GB', 'Asia/Muscat')).toBe('Approved by someone.');
+    expect(approvedLine(fm({ status: 'FINAL' }), 'Asia/Muscat')).toBe('Approved by someone.');
   });
 });
 
 describe('the header', () => {
   it('gives the day and the times in the zone given', () => {
-    expect(meetingWhen({ startAt: '2026-10-20T06:00:00.000Z', endAt: '2026-10-20T07:30:00.000Z' }, 'Asia/Muscat', 'en-US')).toEqual({ day: 'Tue, Oct 20', time: '10:00 – 11:30' });
-    expect(meetingWhen({ startAt: '2026-10-20T06:00:00.000Z', endAt: null }, 'Asia/Muscat', 'en-US')).toEqual({ day: 'Tue, Oct 20', time: '10:00' });
+    expect(meetingWhen({ startAt: '2026-10-20T06:00:00.000Z', endAt: '2026-10-20T07:30:00.000Z' }, 'Asia/Muscat')).toEqual({ day: 'Tue 20 Oct', time: '10:00 – 11:30' });
+    expect(meetingWhen({ startAt: '2026-10-20T06:00:00.000Z', endAt: null }, 'Asia/Muscat')).toEqual({ day: 'Tue 20 Oct', time: '10:00' });
   });
 
   it('labels every status as the website does', () => {

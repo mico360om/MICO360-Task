@@ -75,11 +75,11 @@ describe('carry-forward history (4d), as the website’s “Carried forward” c
       { from: '2026-10-09', to: '2026-10-10', at: '2026-10-10T00:05:00Z' },
     ]);
     expect(view).toEqual({
-      text: 'Carried forward 2× · since Oct 8, 2026',
-      label: 'Carried forward 2 times, since Oct 8, 2026',
-      lines: ['Oct 8, 2026 → Oct 9, 2026', 'Oct 9, 2026 → Oct 10, 2026'],
+      text: 'Carried forward 2× · since 8 Oct 2026',
+      label: 'Carried forward 2 times, since 8 Oct 2026',
+      lines: ['8 Oct 2026 → 9 Oct 2026', '9 Oct 2026 → 10 Oct 2026'],
     });
-    expect(carryForward([{ from: '2026-10-08', to: '2026-10-09', at: '' }])?.label).toBe('Carried forward once, since Oct 8, 2026');
+    expect(carryForward([{ from: '2026-10-08', to: '2026-10-09', at: '' }])?.label).toBe('Carried forward once, since 8 Oct 2026');
   });
 
   it('nothing when it never was (or what the server sent isn’t a history)', () => {

@@ -7,7 +7,7 @@ import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../meeting/s
 import { serverFileHref } from '../../lib/attachments';
 import { messageActions, reactionLabel, type MessageActionSet } from '../../lib/chat-actions';
 import { formatSize } from '../../lib/chat-model';
-import { linkParts } from '../../lib/chat-ui';
+import { linkParts, messageClock } from '../../lib/chat-ui';
 import { EMOJI_GROUPS, QUICK_REACTIONS, searchEmoji } from '../../lib/emoji';
 import type { ThreadMessage } from '../../lib/chat-timeline';
 import type { MentionPerson } from '../../lib/mentions';
@@ -27,11 +27,7 @@ export function useChatStyles() {
   return { c, s: useMemo(() => makeStyles(c), [c]) };
 }
 
-export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-/** A day's line ("Today", "Yesterday", "Mon, Oct 12"). */
+/** A day's line ("Today", "Yesterday", "Mon 12 Oct"). */
 export function DayLine({ label }: { label: string }) {
   const { s } = useChatStyles();
   return (
@@ -131,7 +127,7 @@ export const MessageBubble = memo(function MessageBubble({
   const receipt = receiptLabel ? { label: receiptLabel, ticks: receiptTicks ?? '' } : undefined;
   const deleted = !!m.deletedAt;
   const text = deleted ? '' : m.body;
-  const time = clockTime(m.createdAt);
+  const time = messageClock(m.createdAt);
   const files = deleted ? [] : m.attachments ?? [];
   const upload = m.upload;
   const outbox = m.outbox;

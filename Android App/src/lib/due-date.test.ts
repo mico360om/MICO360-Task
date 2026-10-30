@@ -48,7 +48,9 @@ describe('mobile due-date rules (XP-03)', () => {
   });
 
   it('formats the due day without shifting it', () => {
-    expect(formatDueDay('2026-09-30T00:00:00.000Z', 'en-US')).toBe('Sep 30');
+    expect(formatDueDay('2026-09-30T00:00:00.000Z')).toBe('30 Sep 2026');
+    expect(formatDueDay('2026-09-30', 'UTC', { weekday: 'short', year: false })).toBe('Wed 30 Sep');
+    expect(formatDueDay('2026-09-30T20:30:00.000Z', 'Asia/Muscat')).toBe('1 Oct 2026');
     expect(formatDueDay(null)).toBeNull();
   });
 });

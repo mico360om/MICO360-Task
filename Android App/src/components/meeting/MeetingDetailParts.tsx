@@ -617,7 +617,7 @@ export function MinutesRow({ minutes, timeZone, place, actions }: { minutes: Api
       <View style={s.gapSm}>
         <View style={s.badges}>
           <Badge label="Final" tone="success" />
-          <Text style={s.small}>{approvedLine(minutes, undefined, timeZone)}</Text>
+          <Text style={s.small}>{approvedLine(minutes, timeZone)}</Text>
         </View>
         {content.summary ? <Text style={s.body}>{content.summary}</Text> : null}
         {content.discussion.length ? (

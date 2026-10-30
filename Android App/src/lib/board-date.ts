@@ -1,3 +1,5 @@
+import { dayText } from './day-words';
+
 /**
  * Per-date board helpers (mobile) — mirror the web + backend so all platforms agree on
  * "which day" a task belongs to. A date key is 'YYYY-MM-DD', anchored to the company time zone.
@@ -15,10 +17,9 @@ export function shiftKey(key: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Human label for a date key, e.g. "Wed, Sep 9". */
+/** Human label for a date key, day before month as the website's top bar writes it: "Wed 9 Sep 2026". */
 export function formatKeyLabel(key: string): string {
-  const d = new Date(`${key}T12:00:00.000Z`);
-  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(d);
+  return dayText(key, { weekday: 'short' });
 }
 
 /** "Today" | "Yesterday" | "Tomorrow" | '' for a key relative to today's key. */

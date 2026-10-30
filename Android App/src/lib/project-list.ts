@@ -58,10 +58,10 @@ export function projectCardMeta(progress: ApiProjectProgress | ProjectFigures | 
   return { total: progress.total, overdue: progress.overdue, completedPct: progress.completionPct, hasProgress: progress.total > 0, ownerName };
 }
 
-/** "Oct 1 → Dec 15" (either may be "—"), or null when the project has neither date. */
-export function projectDates(start: string | null | undefined, target: string | null | undefined, locale?: string): string | null {
-  const a = formatDueDay(start ?? null, locale);
-  const b = formatDueDay(target ?? null, locale);
+/** "1 Oct 2026 → 15 Dec 2026" (either may be "—"), or null when the project has neither date. */
+export function projectDates(start: string | null | undefined, target: string | null | undefined, timeZone?: string): string | null {
+  const a = formatDueDay(start ?? null, timeZone);
+  const b = formatDueDay(target ?? null, timeZone);
   if (!a && !b) return null;
   return `${a ?? '—'} → ${b ?? '—'}`;
 }

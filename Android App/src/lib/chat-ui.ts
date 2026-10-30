@@ -7,7 +7,7 @@
 import { ApiError, isNetworkError } from './api-client';
 import { uploadErrorMessage, uploadMimeType } from './attachments';
 import { lastActiveLabel, NO_PREFS, validateAttachment, type ReceiptStatus } from './chat-model';
-import { dateFormat } from './intl-cache';
+import { clockText, instantDayText, weekdayText } from './day-words';
 import type { ApiConversationSummary, ApiDirectoryUser, ConversationPrefs } from './types';
 
 const fullName = (u: Pick<ApiDirectoryUser, 'firstName' | 'lastName' | 'username'>) => `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username;
@@ -113,16 +113,25 @@ export function prefsFailure(e: unknown): string {
   return 'Couldn’t change that setting.';
 }
 
-/** When a conversation's last message came (the website's list): the time today, "Yesterday", the weekday this week, else the date. */
+/**
+ * When a conversation's last message came (the website's ChatSidebar `when`): "09:05" today,
+ * "Yesterday", the weekday this week ("Fri"), else the day ("30 Oct") — in the phone's own zone, as
+ * the website uses the browser's, and in the website's words whatever the phone's language.
+ */
 export function listTime(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  if (d.toDateString() === now.toDateString()) return dateFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(d);
+  if (d.toDateString() === now.toDateString()) return clockText(d);
   const y = new Date(now);
   y.setDate(now.getDate() - 1);
   if (d.toDateString() === y.toDateString()) return 'Yesterday';
-  if (now.getTime() - d.getTime() < 6 * 864e5) return dateFormat(undefined, { weekday: 'short' }).format(d);
-  return dateFormat(undefined, { month: 'short', day: 'numeric' }).format(d);
+  if (now.getTime() - d.getTime() < 6 * 864e5) return weekdayText(d);
+  return instantDayText(d, undefined, { year: false });
+}
+
+/** A message's time, "09:05" (24-hour, the phone's zone — as the website's message uses the browser's). */
+export function messageClock(iso: string): string {
+  return clockText(iso);
 }
 
 /** Trailing punctuation that belongs to the sentence, not to a web address in it. */

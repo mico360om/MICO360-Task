@@ -13,7 +13,7 @@ describe('mobile board-date helpers', () => {
   });
 
   it('labels and gives a relative hint', () => {
-    expect(formatKeyLabel('2026-09-09')).toBe('Wed, Sep 9');
+    expect(formatKeyLabel('2026-09-09')).toBe('Wed 9 Sep 2026');
     expect(relativeKeyHint('2026-09-09', '2026-09-09')).toBe('Today');
     expect(relativeKeyHint('2026-09-08', '2026-09-09')).toBe('Yesterday');
     expect(relativeKeyHint('2026-09-10', '2026-09-09')).toBe('Tomorrow');

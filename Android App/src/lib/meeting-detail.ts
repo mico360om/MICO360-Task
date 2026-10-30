@@ -6,7 +6,7 @@
 import { ApiError, isNetworkError } from './api-client';
 import { appTimeZone, companyTodayKey, dueDayKey, formatDueDay } from './due-date';
 import { clockTime } from './meetings';
-import { dateFormat } from './intl-cache';
+import { dateTimeText, instantDayText } from './day-words';
 import type { Tone } from './tone';
 import type {
   ActionItemStatus,
@@ -201,9 +201,9 @@ export function isActionItemOverdue(item: Pick<ApiActionItem, 'dueDate' | 'statu
   return day !== null && day < companyTodayKey(now, timeZone);
 }
 
-/** "Due Oct 5", "Due Oct 5 — overdue" or "No due date". */
-export function actionDueText(item: Pick<ApiActionItem, 'dueDate' | 'status'>, now: Date = new Date(), locale?: string, timeZone: string = appTimeZone()): string {
-  const day = formatDueDay(item.dueDate, locale, timeZone);
+/** "Due 5 Oct 2026", "Due 5 Oct 2026 — overdue" or "No due date". */
+export function actionDueText(item: Pick<ApiActionItem, 'dueDate' | 'status'>, now: Date = new Date(), timeZone: string = appTimeZone()): string {
+  const day = formatDueDay(item.dueDate, timeZone);
   if (!day) return 'No due date';
   return isActionItemOverdue(item, now, timeZone) ? `Due ${day} — overdue` : `Due ${day}`;
 }
@@ -218,21 +218,20 @@ export function finalMinutesNote(fm: Pick<ApiFinalMinutes, 'status' | 'content'>
 }
 
 /** "Approved by Aisha Khan on 10 Oct 2026, 10:30." */
-export function approvedLine(fm: Pick<ApiFinalMinutes, 'approvedBy' | 'approvedAt'>, locale?: string, timeZone: string = appTimeZone()): string {
+export function approvedLine(fm: Pick<ApiFinalMinutes, 'approvedBy' | 'approvedAt'>, timeZone: string = appTimeZone()): string {
   const who = fm.approvedBy?.name ?? 'someone';
   const at = fm.approvedAt ? new Date(fm.approvedAt) : null;
   if (!at || Number.isNaN(at.getTime())) return `Approved by ${who}.`;
-  const day = dateFormat(locale, { timeZone, day: 'numeric', month: 'short', year: 'numeric' }).format(at);
-  return `Approved by ${who} on ${day}, ${clockTime(fm.approvedAt!, timeZone)}.`;
+  return `Approved by ${who} on ${dateTimeText(at, timeZone)}.`;
 }
 
 // ── The header and notes ────────────────────────────────────────────────────
 
-/** The meeting's day ("Tue, Oct 20") and times ("10:00 – 11:30"), in the zone given. */
-export function meetingWhen(m: Pick<ApiMeeting, 'startAt' | 'endAt'>, timeZone: string = appTimeZone(), locale?: string): { day: string; time: string } {
+/** The meeting's day ("Tue 20 Oct", as the website's) and times ("10:00 – 11:30"), in the zone given. */
+export function meetingWhen(m: Pick<ApiMeeting, 'startAt' | 'endAt'>, timeZone: string = appTimeZone()): { day: string; time: string } {
   const start = new Date(m.startAt);
   if (Number.isNaN(start.getTime())) return { day: '', time: '' };
-  const day = dateFormat(locale, { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(start);
+  const day = instantDayText(start, timeZone, { weekday: 'short', year: false });
   const time = m.endAt ? `${clockTime(m.startAt, timeZone)} – ${clockTime(m.endAt, timeZone)}` : clockTime(m.startAt, timeZone);
   return { day, time };
 }
