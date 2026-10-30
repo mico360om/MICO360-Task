@@ -139,6 +139,27 @@ describe('buildProjectOverview', () => {
   });
 });
 
+describe('buildProjectOverview — tasks waiting for approval (owner, 30 Oct; ruling 45)', () => {
+  it('a waiting task past its due day is open but not overdue; sent back, it is overdue again', () => {
+    const rows: ProjectOverviewRows = {
+      ...empty,
+      totals: [{ projectId: 'p1', total: 5, lastTaskUpdate: null }],
+      openByDue: [
+        { projectId: 'p1', dueDate: new Date('2026-10-20T00:00:00Z'), count: 3 }, // past due: 2 of them wait
+        { projectId: 'p1', dueDate: new Date('2026-10-25T00:00:00Z'), count: 1 }, // upcoming, waiting
+      ],
+      waitingByDue: [
+        { projectId: 'p1', dueDate: new Date('2026-10-20T00:00:00Z'), count: 2 },
+        { projectId: 'p1', dueDate: new Date('2026-10-25T00:00:00Z'), count: 1 },
+      ],
+    };
+    const [p] = buildProjectOverview([project('p1')], rows, opts);
+    expect(p!.stats).toMatchObject({ total: 5, open: 4, done: 1, overdue: 1, nextDue: '2026-10-25' });
+    const [back] = buildProjectOverview([project('p1')], { ...rows, waitingByDue: [] }, opts);
+    expect(back!.stats.overdue).toBe(3);
+  });
+});
+
 describe('buildProjectOverview — who may change each project', () => {
   it('marks the projects the viewer may change (as the server decided), and no others', () => {
     const list = buildProjectOverview([project('p1'), project('p2')], empty, { ...opts, manageable: new Set(['p2']) });

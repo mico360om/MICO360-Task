@@ -20,13 +20,14 @@ function fakeClient() {
 }
 
 describe('createPrismaProjectOverviewSource', () => {
-  it('asks the same four grouped questions however many projects there are (no query per project)', async () => {
+  it('asks the same five grouped questions however many projects there are (no query per project)', async () => {
     const few = fakeClient();
     await createPrismaProjectOverviewSource(few.client).load(['p1'], ['u1']);
     const many = fakeClient();
     await createPrismaProjectOverviewSource(many.client).load(Array.from({ length: 50 }, (_, i) => `p${i}`), ['u1', 'u2']);
     for (const f of [few, many]) {
-      expect(f.groupBy).toHaveBeenCalledTimes(2);
+      // Totals, open tasks by due day, and those of them waiting for approval.
+      expect(f.groupBy).toHaveBeenCalledTimes(3);
       expect(f.memberFindMany).toHaveBeenCalledTimes(1);
       expect(f.userFindMany).toHaveBeenCalledTimes(1);
     }
@@ -62,7 +63,7 @@ describe('createPrismaProjectOverviewSource', () => {
   it('asks nothing at all for an empty list', async () => {
     const f = fakeClient();
     const rows = await createPrismaProjectOverviewSource(f.client).load([], []);
-    expect(rows).toEqual({ totals: [], openByDue: [], members: [], owners: [] });
+    expect(rows).toEqual({ totals: [], openByDue: [], waitingByDue: [], members: [], owners: [] });
     expect(f.groupBy).not.toHaveBeenCalled();
     expect(f.memberFindMany).not.toHaveBeenCalled();
   });

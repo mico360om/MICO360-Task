@@ -145,6 +145,20 @@ describe('loadWorkload: days', () => {
     expect(rows.overdue).toEqual([{ userId: 'omar', count: 2 }]);
   });
 
+  it('a task waiting for approval is not overdue while it waits — in the counted part and the band alike (owner, 30 Oct)', async () => {
+    const store = fakeWorkloadStore({
+      ...COMPANY,
+      tasks: [
+        { id: 'a', projectId: 'rig', due: '2026-10-20', assignees: ['omar'], waiting: true },
+        { id: 'b', projectId: 'rig', due: new Date('2026-10-27T19:00:00Z'), assignees: ['omar'], waiting: true }, // 23:00 yesterday (the band)
+        { id: 'c', projectId: 'rig', due: '2026-10-27', assignees: ['omar'] }, // late, not waiting
+      ],
+    });
+    const scope = await scopeFor(store, 'admin', ['ADMIN'], null);
+    const { rows } = await loadWorkload(store, { scope, viewerId: 'admin', projectId: null, week: WEEK, today: TODAY, timeZone: TZ });
+    expect(rows.overdue).toEqual([{ userId: 'omar', count: 1 }]);
+  });
+
   it('for a past week, weighs that week and the three weeks from today — never everything in between', async () => {
     const store = fakeWorkloadStore(COMPANY);
     const scope = await scopeFor(store, 'admin', ['ADMIN'], null);

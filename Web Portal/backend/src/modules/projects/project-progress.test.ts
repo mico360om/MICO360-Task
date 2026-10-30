@@ -42,6 +42,20 @@ describe('computeProjectProgress', () => {
     expect(p.overdue).toBe(1);
   });
 
+  it('does not count a task waiting for approval as overdue while it waits (owner, 30 Oct; ruling 45)', () => {
+    const past = new Date('2026-09-01T00:00:00Z');
+    const p = computeProjectProgress(
+      [
+        { columnCategory: 'REVIEW', dueDate: past, approvalRequestedAt: new Date('2026-09-02T08:00:00Z') },
+        { columnCategory: 'IN_PROGRESS', dueDate: past, approvalRequestedAt: null },
+      ],
+      new Date('2026-10-01T08:00:00Z'),
+      'Asia/Muscat',
+    );
+    expect(p.overdue).toBe(1);
+    expect(p.completed).toBe(0);
+  });
+
   it('does not count a task due today as overdue, even after 04:00 Muscat (UTC midnight)', () => {
     const due = new Date('2026-09-30T00:00:00.000Z');
     const tenAmMuscat = new Date('2026-09-30T06:00:00.000Z');

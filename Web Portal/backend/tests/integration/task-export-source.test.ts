@@ -68,6 +68,13 @@ describe('Task export source (integration)', () => {
     });
   });
 
+  it('a task past its due day is overdue — but not while it waits for approval (owner, 30 Oct; ruling 45)', async () => {
+    await prisma.task.update({ where: { id: taskId }, data: { dueDate: new Date('2026-01-05T00:00:00.000Z') } });
+    expect((await source.load(taskId))!.overdue).toBe(true);
+    await prisma.task.update({ where: { id: taskId }, data: { needsApproval: true, approvalRequestedAt: new Date('2026-01-04T08:00:00Z') } });
+    expect((await source.load(taskId))!.overdue).toBe(false);
+  });
+
   it('leaves out a meeting that was deleted', async () => {
     await prisma.meeting.update({ where: { id: meetingId }, data: { deletedAt: new Date() } });
     expect((await source.load(taskId))!.meeting).toBeNull();

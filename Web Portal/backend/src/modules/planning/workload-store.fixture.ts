@@ -6,7 +6,7 @@ export interface FakeCompany {
   users: { id: string; name: string; active?: boolean }[];
   projects: { id: string; name?: string; status?: string; ownerId?: string | null; managerId?: string | null }[];
   members: { projectId: string; userId: string; role?: 'MEMBER' | 'MANAGER' }[];
-  tasks: { id: string; projectId: string; due: string | Date; assignees: string[]; open?: boolean; priority?: Priority; key?: string; version?: number }[];
+  tasks: { id: string; projectId: string; due: string | Date; assignees: string[]; open?: boolean; priority?: Priority; key?: string; version?: number; waiting?: boolean }[];
 }
 
 const LIVE = (s?: string) => s !== 'COMPLETED' && s !== 'ARCHIVED';
@@ -50,7 +50,7 @@ export function fakeWorkloadStore(c: FakeCompany): WorkloadStore & { calls: { na
       log('overdueCounts', { projectIds, userIds, before });
       const counts = new Map<string, number>();
       for (const t of open) {
-        if (!projectIds.includes(t.projectId) || dueOf(t.due) >= before) continue;
+        if (!projectIds.includes(t.projectId) || dueOf(t.due) >= before || t.waiting) continue;
         for (const a of t.assignees) if (userIds.includes(a)) counts.set(a, (counts.get(a) ?? 0) + 1);
       }
       return [...counts].map(([userId, count]) => ({ userId, count }));
@@ -59,7 +59,7 @@ export function fakeWorkloadStore(c: FakeCompany): WorkloadStore & { calls: { na
       log('openDue', { projectIds, userIds, windows });
       return open
         .filter((t) => (projectIds ? projectIds.includes(t.projectId) : live(t.projectId)) && windows.some((w) => dueOf(t.due) >= w.from && dueOf(t.due) < w.to))
-        .flatMap((t) => t.assignees.filter((a) => userIds.includes(a) && active(a)).map((userId) => ({ userId, dueDate: dueOf(t.due) })));
+        .flatMap((t) => t.assignees.filter((a) => userIds.includes(a) && active(a)).map((userId) => ({ userId, dueDate: dueOf(t.due), waiting: !!t.waiting })));
     },
   };
 }

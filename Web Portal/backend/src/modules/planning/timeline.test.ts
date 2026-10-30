@@ -95,6 +95,23 @@ describe('projectHealth', () => {
   });
 });
 
+describe('buildTimeline — tasks and milestones waiting for approval (owner, 30 Oct; ruling 45)', () => {
+  it('a waiting task past its due day is not counted overdue (still open); a waiting milestone says it waits', () => {
+    const rows: TimelineRows = {
+      ...empty,
+      totals: [{ projectId: 'mob', total: 4 }],
+      openByDue: [{ projectId: 'mob', dueDate: day('2026-10-20'), count: 3 }],
+      waitingByDue: [{ projectId: 'mob', dueDate: day('2026-10-20'), count: 2 }],
+      milestones: [{ id: 'ms', key: 'MOB-9', title: 'Handover', projectId: 'mob', dueDate: day('2026-10-20'), done: false, waiting: true }],
+    };
+    const [mob] = buildTimeline([project('mob', { startDate: day('2026-10-01'), targetDate: day('2026-12-10') })], rows, opts).projects;
+    expect(mob!.tasks).toEqual({ total: 4, done: 1, open: 3, overdue: 1 });
+    expect(mob!.milestones).toEqual([{ id: 'ms', key: 'MOB-9', title: 'Handover', date: '2026-10-20', done: false, waiting: true }]);
+    const [back] = buildTimeline([project('mob')], { ...rows, waitingByDue: undefined }, opts).projects;
+    expect(back!.tasks.overdue).toBe(3);
+  });
+});
+
 describe('buildTimeline', () => {
   it('gives each project its bar: start (else the day it was created, company time), target, progress and status', () => {
     const rows: TimelineRows = {
@@ -365,6 +382,13 @@ describe('buildTimelineTasks (a project’s task lane)', () => {
     const data = buildTimelineTasks('mob', lane({ overdue: [t], openInRange: [t], inRangeDays: days([t]), overdueDays: days([t]), open: 1 }), q);
     expect(data.tasks.map((x) => x.id)).toEqual(['late']);
     expect(data.matched).toBe(1);
+  });
+
+  it('a waiting task past its due day stays in the lane, first, but is not overdue (owner, 30 Oct; ruling 45)', () => {
+    const late = r('lw', '2026-10-20', { waiting: true });
+    const back = r('lb', '2026-10-21');
+    const data = buildTimelineTasks('mob', lane({ overdue: [late, back], overdueDays: days([late, back]), open: 2 }), q);
+    expect(data.tasks.map((t) => [t.id, t.overdue, t.waiting])).toEqual([['lw', false, true], ['lb', true, false]]);
   });
 
   it('says which tasks wait for approval (finished, not yet approved) — the lane marks them (owner, 30 Oct)', () => {

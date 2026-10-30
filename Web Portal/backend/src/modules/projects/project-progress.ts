@@ -1,5 +1,4 @@
-import { isOverdue } from '../../lib/due-date';
-import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
+import { defaultCompanyTimeZone, isTaskDone, isTaskLate } from '../tasks/task-status';
 
 /** The minimal task shape needed to compute a project's progress. */
 export interface ProgressTask {
@@ -7,6 +6,8 @@ export interface ProgressTask {
   completedAt?: Date | null;
   dueDate?: Date | null;
   progress?: number;
+  /** Waiting for approval since then (task approvals): not overdue while it waits. */
+  approvalRequestedAt?: Date | null;
 }
 
 export interface ProjectProgress {
@@ -24,7 +25,7 @@ export interface ProjectProgress {
 /**
  * Compute a project's progress from its tasks. "Done" is the shared rule (a DONE column or a
  * completion time), and a task is overdue only once its due day is before today in the company
- * time zone — a task due today is not overdue yet.
+ * time zone — a task due today is not overdue yet — and never while it waits for approval.
  */
 export function computeProjectProgress(
   tasks: ProgressTask[],
@@ -47,7 +48,7 @@ export function computeProjectProgress(
     }
     if (category === 'IN_PROGRESS') inProgress += 1;
     else if (category === 'TODO' || category === 'BACKLOG') todo += 1;
-    if (isOverdue(t.dueDate, timeZone, now)) overdue += 1;
+    if (isTaskLate({ ...t, columnCategory: category }, timeZone, now)) overdue += 1;
   }
 
   const total = tasks.length;

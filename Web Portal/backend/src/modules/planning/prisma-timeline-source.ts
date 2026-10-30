@@ -10,14 +10,15 @@ export const toPerson = (u: { id: string; firstName: string; lastName: string; u
 
 /** The shared "not done" rule: not in a Done column and no completion time. */
 const NOT_DONE = { completedAt: null, column: { category: { not: 'DONE' as const } } };
-const milestoneFields = { id: true, key: true, title: true, projectId: true, dueDate: true, completedAt: true, column: { select: { category: true } } } as const;
-const toMilestone = (m: { id: string; key: string; title: string; projectId: string; dueDate: Date | null; completedAt: Date | null; column: { category: string } }): TimelineMilestoneRow => ({
+const milestoneFields = { id: true, key: true, title: true, projectId: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } } } as const;
+const toMilestone = (m: { id: string; key: string; title: string; projectId: string; dueDate: Date | null; completedAt: Date | null; approvalRequestedAt: Date | null; column: { category: string } }): TimelineMilestoneRow => ({
   id: m.id,
   key: m.key,
   title: m.title,
   projectId: m.projectId,
   dueDate: m.dueDate,
   done: m.completedAt !== null || m.column.category === 'DONE',
+  waiting: m.approvalRequestedAt !== null,
 });
 
 /**
@@ -31,15 +32,17 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
   return {
     async load(projectIds, ownerIds, w): Promise<TimelineRows> {
       if (projectIds.length === 0) {
-        return { totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
+        return { totals: [], openByDue: [], waitingByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] };
       }
       const inProjects = { deletedAt: null, projectId: { in: projectIds } };
       const milestone = { ...inProjects, isMilestone: true };
       const meeting = { projectId: { in: projectIds }, deletedAt: null, status: { not: 'CANCELLED' as const } };
-      const [totals, openByDue, shown, firstDue, soon, counts, meetings, thisWeek, owners] = await Promise.all([
+      const [totals, openByDue, waitingByDue, shown, firstDue, soon, counts, meetings, thisWeek, owners] = await Promise.all([
         // Every live task, with the dates a project without its own takes from them (done tasks too).
         prisma.task.groupBy({ by: ['projectId'], where: inProjects, _count: { _all: true }, _min: { startDate: true, dueDate: true }, _max: { dueDate: true } }),
         prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...inProjects, ...NOT_DONE }, _count: { _all: true } }),
+        // The open ones waiting for approval: never overdue while they wait (owner, 30 Oct).
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...inProjects, ...NOT_DONE, approvalRequestedAt: { not: null } }, _count: { _all: true } }),
         prisma.task.findMany({ where: { ...milestone, dueDate: { gte: w.shownFrom, lt: w.shownTo } }, select: milestoneFields, orderBy: [{ dueDate: 'asc' }, { title: 'asc' }] }),
         prisma.task.groupBy({ by: ['projectId'], where: { ...milestone, ...NOT_DONE, dueDate: { not: null } }, _min: { dueDate: true } }),
         prisma.task.findMany({ where: { ...milestone, ...NOT_DONE, dueDate: { gte: w.soonFrom, lt: w.soonTo } }, select: { projectId: true, dueDate: true } }),
@@ -68,6 +71,7 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         totals: totals.map((t) => ({ projectId: t.projectId, total: t._count._all })),
         taskDates: totals.map((t) => ({ projectId: t.projectId, minStart: t._min.startDate ?? null, minDue: t._min.dueDate ?? null, maxDue: t._max.dueDate ?? null })),
         openByDue: openByDue.map((g) => ({ projectId: g.projectId, dueDate: g.dueDate, count: g._count._all })),
+        waitingByDue: waitingByDue.map((g) => ({ projectId: g.projectId, dueDate: g.dueDate, count: g._count._all })),
         milestones: shown.map(toMilestone),
         nextMilestones: [...nextDated, ...nextUndated].map(toMilestone),
         soonMilestones: soon,

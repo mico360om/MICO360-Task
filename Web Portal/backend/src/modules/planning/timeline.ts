@@ -21,6 +21,8 @@ export interface TimelineMilestoneRow {
   projectId: string;
   dueDate: Date | null;
   done: boolean;
+  /** Waiting for approval (task approvals): never overdue while it waits; left out by older sources = no. */
+  waiting?: boolean;
 }
 
 /** The moments a timeline reads between (each from inclusive, to exclusive). */
@@ -39,6 +41,8 @@ export interface TimelineRows {
   totals: { projectId: string; total: number }[];
   /** Open (not done) tasks per project and due date (null: no due date), counted. */
   openByDue: { projectId: string; dueDate: Date | null; count: number }[];
+  /** Of those, the ones waiting for approval: open, but never overdue while they wait. */
+  waitingByDue?: { projectId: string; dueDate: Date | null; count: number }[];
   /** Per project, its live tasks' (done or not) earliest start date, earliest and latest due date. */
   taskDates: { projectId: string; minStart: Date | null; minDue: Date | null; maxDue: Date | null }[];
   /** Milestones (tasks marked as milestones) due in the shown weeks, done or not: the markers. */
@@ -165,6 +169,8 @@ export interface TimelineMilestone {
   date: string | null;
   /** Reached: its task is done. */
   done: boolean;
+  /** Finished but waiting for approval: not overdue while it waits (owner, 30 Oct). */
+  waiting: boolean;
 }
 
 export interface TimelineMeeting {
@@ -304,8 +310,14 @@ export function buildTimeline(
     if (due !== null && due >= range.from && due <= range.to) s.weeks[Math.floor(daysBetween(range.from, due) / 7)]! += g.count;
     open.set(g.projectId, s);
   }
+  // A task waiting for approval is handed in: open, but not overdue while it waits (owner, 30 Oct).
+  for (const g of rows.waitingByDue ?? []) {
+    const s = open.get(g.projectId);
+    const due = dueDayKey(g.dueDate, timeZone);
+    if (s && due !== null && due < today) s.overdue = Math.max(0, s.overdue - g.count);
+  }
 
-  const toMilestone = (m: TimelineMilestoneRow): TimelineMilestone => ({ id: m.id, key: m.key, title: m.title, date: dueDayKey(m.dueDate, timeZone), done: m.done });
+  const toMilestone = (m: TimelineMilestoneRow): TimelineMilestone => ({ id: m.id, key: m.key, title: m.title, date: dueDayKey(m.dueDate, timeZone), done: m.done, waiting: !m.done && Boolean(m.waiting) });
   const next = new Map<string, TimelineMilestone>();
   for (const m of rows.nextMilestones.map((x) => ({ projectId: x.projectId, m: toMilestone(x) }))) {
     const best = next.get(m.projectId);
@@ -429,7 +441,8 @@ export function buildTimelineTasks(
       start: d.start,
       due: d.due,
       done: t.done,
-      overdue: !t.done && d.due < today,
+      // Waiting for approval: handed in, never overdue while it waits (it keeps its place in the lane).
+      overdue: !t.done && !t.waiting && d.due < today,
       priority: t.priority,
       isMilestone: t.isMilestone,
       assignees: t.assignees,
@@ -437,8 +450,10 @@ export function buildTimelineTasks(
     };
   };
   const tasksOf = (list: TimelineTaskRow[], keep: (t: TimelineTask) => boolean) => list.map(toTask).filter((t): t is TimelineTask => t !== null && keep(t));
-  const overdue = tasksOf(rows.overdue, (t) => t.overdue).sort((a, b) => a.due.localeCompare(b.due) || byKey(a, b));
-  const open = tasksOf(rows.openInRange, (t) => !t.done && !t.overdue && inRange(t)).sort(
+  // Open work past its due day first (overdue, or waiting for approval), the earliest due first.
+  const pastDue = (t: TimelineTask) => !t.done && t.due < today;
+  const overdue = tasksOf(rows.overdue, pastDue).sort((a, b) => a.due.localeCompare(b.due) || byKey(a, b));
+  const open = tasksOf(rows.openInRange, (t) => !t.done && !pastDue(t) && inRange(t)).sort(
     (a, b) => (a.start ?? a.due).localeCompare(b.start ?? b.due) || a.due.localeCompare(b.due) || byKey(a, b),
   );
   const done = tasksOf(rows.doneInRange, (t) => t.done && inRange(t)).sort((a, b) => b.due.localeCompare(a.due) || byKey(a, b));

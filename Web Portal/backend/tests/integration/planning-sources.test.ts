@@ -143,7 +143,7 @@ describe('Timeline source (integration)', () => {
   });
 
   it('answers nothing for no projects', async () => {
-    expect(await timeline.load([], [], WIN)).toEqual({ totals: [], openByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] });
+    expect(await timeline.load([], [], WIN)).toEqual({ totals: [], openByDue: [], waitingByDue: [], taskDates: [], milestones: [], nextMilestones: [], soonMilestones: [], milestoneCounts: [], meetings: [], meetingsThisWeek: [], owners: [] });
   });
 
   it('reads each project’s earliest start and due dates and latest due date from all its live tasks, done or not', async () => {
@@ -199,6 +199,16 @@ describe('Timeline source (integration)', () => {
     expect(lane.matched).toBe(72);
   });
 
+  it('counts the open tasks waiting for approval by due day, and marks a waiting milestone (owner, 30 Oct; ruling 45)', async () => {
+    await prisma.task.updateMany({ where: { id: { in: [ids.t3!, ids.m2!] } }, data: { needsApproval: true, approvalRequestedAt: new Date('2026-10-23T08:00:00Z') } });
+    const rows = await timeline.load([ids.one!, ids.two!], [], WIN);
+    expect(rows.waitingByDue!.map((g) => [g.projectId, g.dueDate?.toISOString(), g.count]).sort()).toEqual(
+      [[ids.one, '2026-10-01T00:00:00.000Z', 1], [ids.one, '2026-11-06T00:00:00.000Z', 1]].sort(),
+    );
+    expect(rows.milestones.find((m) => m.id === ids.m2)).toMatchObject({ title: 'Beta build', waiting: true });
+    expect(rows.milestones.find((m) => m.id === ids.m1)).toMatchObject({ waiting: false });
+  });
+
   it('says which tasks of the lane wait for approval (owner, 30 Oct)', async () => {
     await prisma.task.update({ where: { id: ids.t1! }, data: { needsApproval: true, approvalRequestedAt: new Date('2026-10-23T08:00:00Z') } });
     const rows = await timeline.projectTasks(ids.one!, { from: day('2026-10-18'), to: day('2026-11-10'), overdueBefore: day('2026-10-25'), upcomingFrom: day('2026-10-23') });
@@ -235,6 +245,13 @@ describe('Workload store (integration)', () => {
 
   it('counts overdue work per person in grouped queries', async () => {
     expect(await workload.overdueCounts({ projectIds: [ids.one!, ids.two!], userIds: [ids.cy!, ids.bo!], before: day('2026-10-24') })).toEqual([{ userId: ids.cy, count: 1 }]);
+  });
+
+  it('a task waiting for approval is not overdue work; the open-due rows say which ones wait (owner, 30 Oct)', async () => {
+    await prisma.task.update({ where: { id: ids.t3! }, data: { needsApproval: true, approvalRequestedAt: new Date('2026-10-23T08:00:00Z') } });
+    expect(await workload.overdueCounts({ projectIds: [ids.one!, ids.two!], userIds: [ids.cy!, ids.bo!], before: day('2026-10-24') })).toEqual([]);
+    const due = await workload.openDue({ projectIds: [ids.one!], userIds: [ids.cy!], windows: [{ from: day('2026-09-30'), to: day('2026-10-02') }] });
+    expect(due).toEqual([{ userId: ids.cy, dueDate: day('2026-10-01'), waiting: true }]);
   });
 
   it('weighs each person’s whole load in every live project — not completed or archived ones', async () => {

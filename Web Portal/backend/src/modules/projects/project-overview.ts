@@ -27,6 +27,8 @@ export interface OpenTasksByDue {
 export interface ProjectOverviewRows {
   totals: ProjectTaskTotals[];
   openByDue: OpenTasksByDue[];
+  /** Of those, the ones waiting for approval (task approvals): open, but never overdue while they wait. */
+  waitingByDue?: OpenTasksByDue[];
   members: { projectId: string; person: OverviewPerson }[];
   owners: OverviewPerson[];
 }
@@ -41,7 +43,7 @@ export interface ProjectFigures {
   total: number;
   done: number;
   open: number;
-  /** Open tasks whose due day is before today in the company time zone. */
+  /** Open tasks whose due day is before today in the company time zone, less those waiting for approval. */
   overdue: number;
   /** The nearest due day ('YYYY-MM-DD') of an open task, today or later; null when there is none. */
   nextDue: string | null;
@@ -93,6 +95,12 @@ export function buildProjectOverview(
     if (day !== null && day < today) s.overdue += g.count;
     else if (day !== null && (s.nextDue === null || day < s.nextDue)) s.nextDue = day;
     open.set(g.projectId, s);
+  }
+  // A task waiting for approval is handed in: open, but not overdue while it waits (owner, 30 Oct).
+  for (const g of rows.waitingByDue ?? []) {
+    const s = open.get(g.projectId);
+    const day = dueDayKey(g.dueDate, timeZone);
+    if (s && day !== null && day < today) s.overdue = Math.max(0, s.overdue - g.count);
   }
 
   return projects.map((p) => {

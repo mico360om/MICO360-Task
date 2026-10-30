@@ -533,7 +533,8 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         watchers: t.watchers.map((w) => personName(w.user)),
         tags: t.tags.map((x) => x.tag.name),
         repeat: rule ? recurrenceSummary(rule) : t.recurrenceParentId ? 'Part of a repeating series' : null,
-        overdue: !done && isOverdue(t.dueDate, timeZone, now()),
+        // Never while it waits for approval (owner, 30 Oct).
+        overdue: !done && !t.approvalRequestedAt && isOverdue(t.dueDate, timeZone, now()),
         isMilestone: t.isMilestone,
         meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
         checklist: t.checklist,

@@ -17,10 +17,13 @@ export interface WorkloadStore {
   activeUsers(ids: string[] | null): Promise<WorkloadPerson[]>;
   /** Open tasks of these projects due in [from, to) that any of these people are on. */
   openTasks(q: { projectIds: string[]; assigneeIds: string[]; from: Date; to: Date }): Promise<WorkloadTaskRow[]>;
-  /** Per person, their open tasks of these projects due before `before`, counted. */
+  /** Per person, their open tasks of these projects due before `before` and not waiting for approval, counted. */
   overdueCounts(q: { projectIds: string[]; userIds: string[]; before: Date }): Promise<{ userId: string; count: number }[]>;
-  /** One row per active person and open task due in any window, in these projects (null: every live project). */
-  openDue(q: { projectIds: string[] | null; userIds: string[]; windows: { from: Date; to: Date }[] }): Promise<{ userId: string; dueDate: Date | null }[]>;
+  /**
+   * One row per active person and open task due in any window, in these projects (null: every live
+   * project); `waiting`: the task waits for approval (left out by older stores = no).
+   */
+  openDue(q: { projectIds: string[] | null; userIds: string[]; windows: { from: Date; to: Date }[] }): Promise<{ userId: string; dueDate: Date | null; waiting?: boolean }[]>;
 }
 
 const utcDay = (key: string) => new Date(`${key}T00:00:00.000Z`);
@@ -70,8 +73,9 @@ export async function loadWorkload(
   ]);
   const tasks: WorkloadTaskRow[] = [...main, ...own.map((t) => ({ ...t, rowsFor: ownRow }))];
 
-  // Overdue: due before today's company day. Counted in the database up to the earlier of today's
-  // UTC and company-time midnight; the few due in between are read and judged one by one.
+  // Overdue: due before today's company day, and not waiting for approval (owner, 30 Oct). Counted in
+  // the database up to the earlier of today's UTC and company-time midnight; the few due in between
+  // are read and judged one by one.
   const [a, b] = [utcDay(today), zonedStartOfDay(today, timeZone)];
   const [before, bandTo] = a < b ? [a, b] : [b, a];
   const overdueOf = async (ids: string[], userIds: string[]) => {
@@ -80,7 +84,7 @@ export async function loadWorkload(
       store.overdueCounts({ projectIds: ids, userIds, before }),
       bandTo > before ? store.openDue({ projectIds: ids, userIds, windows: [{ from: before, to: bandTo }] }) : Promise.resolve([]),
     ]);
-    return [...counts, ...band.filter((r) => (dueDayKey(r.dueDate, timeZone) ?? today) < today).map((r) => ({ userId: r.userId, count: 1 }))];
+    return [...counts, ...band.filter((r) => !r.waiting && (dueDayKey(r.dueDate, timeZone) ?? today) < today).map((r) => ({ userId: r.userId, count: 1 }))];
   };
   const overdue = new Map<string, number>();
   for (const r of [...(await overdueOf(mainProjects, assignees)), ...(await overdueOf(ownExtra, ownRow))]) overdue.set(r.userId, (overdue.get(r.userId) ?? 0) + r.count);

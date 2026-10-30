@@ -83,6 +83,15 @@ describe('Projects overview figures (integration)', () => {
     expect(two).toBe(byCode.OVTWO!.id);
   });
 
+  it('a task waiting for approval is open but not overdue (owner, 30 Oct; ruling 45)', async () => {
+    const [first] = await prisma.task.findMany({ where: { project: { code: 'OVONE' }, dueDate: new Date('2026-10-01T00:00:00Z'), completedAt: null, deletedAt: null, column: { category: 'IN_PROGRESS' } }, orderBy: { key: 'asc' } });
+    await prisma.task.update({ where: { id: first!.id }, data: { needsApproval: true, approvalRequestedAt: new Date('2026-10-05T08:00:00Z') } });
+    const list = (await projects.list()).filter((p) => CODES.includes(p.code));
+    const rows = await source.load(list.map((p) => p.id), [ada]);
+    const [p] = buildProjectOverview(list.filter((x) => x.code === 'OVONE'), rows, { timeZone: 'Asia/Muscat', now: new Date('2026-10-23T10:00:00Z'), viewerId: bo });
+    expect(p!.stats).toMatchObject({ total: 6, done: 2, open: 4, overdue: 1 });
+  });
+
   it('dates a project’s last update by its latest task change', async () => {
     const later = new Date(Date.now() + 60_000);
     await prisma.task.updateMany({ where: { key: 'OV-3' }, data: { updatedAt: later } });

@@ -16,16 +16,15 @@ const toPerson = (u: { id: string; firstName: string; lastName: string; username
 export function createPrismaProjectOverviewSource(prisma: PrismaClient): ProjectOverviewSource {
   return {
     async load(projectIds, ownerIds): Promise<ProjectOverviewRows> {
-      if (projectIds.length === 0) return { totals: [], openByDue: [], members: [], owners: [] };
+      if (projectIds.length === 0) return { totals: [], openByDue: [], waitingByDue: [], members: [], owners: [] };
       const inProjects = { deletedAt: null, projectId: { in: projectIds } };
-      const [totals, openByDue, members, owners] = await Promise.all([
+      // Open = the shared "not done" rule: not in a Done column and no completion time.
+      const open = { ...inProjects, completedAt: null, column: { category: { not: 'DONE' as const } } };
+      const [totals, openByDue, waitingByDue, members, owners] = await Promise.all([
         prisma.task.groupBy({ by: ['projectId'], where: inProjects, _count: { _all: true }, _max: { updatedAt: true } }),
-        // Open = the shared "not done" rule: not in a Done column and no completion time.
-        prisma.task.groupBy({
-          by: ['projectId', 'dueDate'],
-          where: { ...inProjects, completedAt: null, column: { category: { not: 'DONE' } } },
-          _count: { _all: true },
-        }),
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: open, _count: { _all: true } }),
+        // The open ones waiting for approval: never overdue while they wait.
+        prisma.task.groupBy({ by: ['projectId', 'dueDate'], where: { ...open, approvalRequestedAt: { not: null } }, _count: { _all: true } }),
         prisma.projectMember.findMany({
           // Faces of people still active (not deleted, deactivated or suspended).
           where: { projectId: { in: projectIds }, user: { deletedAt: null, status: 'ACTIVE' } },
@@ -37,6 +36,7 @@ export function createPrismaProjectOverviewSource(prisma: PrismaClient): Project
       return {
         totals: totals.map((t) => ({ projectId: t.projectId, total: t._count._all, lastTaskUpdate: t._max.updatedAt ?? null })),
         openByDue: openByDue.map((g) => ({ projectId: g.projectId, dueDate: g.dueDate, count: g._count._all })),
+        waitingByDue: waitingByDue.map((g) => ({ projectId: g.projectId, dueDate: g.dueDate, count: g._count._all })),
         members: members.map((m) => ({ projectId: m.projectId, person: toPerson(m.user) })),
         owners: owners.map(toPerson),
       };

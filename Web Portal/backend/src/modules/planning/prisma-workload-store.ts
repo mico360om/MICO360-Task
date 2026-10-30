@@ -58,7 +58,8 @@ export function createPrismaWorkloadStore(prisma: PrismaClient): WorkloadStore {
       if (projectIds.length === 0 || userIds.length === 0) return [];
       const groups = await prisma.taskAssignee.groupBy({
         by: ['userId'],
-        where: { userId: { in: userIds }, task: { is: { ...OPEN, projectId: { in: projectIds }, dueDate: { lt: before } } } },
+        // A task waiting for approval is handed in: never overdue while it waits (owner, 30 Oct).
+        where: { userId: { in: userIds }, task: { is: { ...OPEN, approvalRequestedAt: null, projectId: { in: projectIds }, dueDate: { lt: before } } } },
         _count: { _all: true },
       });
       return groups.map((g) => ({ userId: g.userId, count: g._count._all }));
@@ -78,9 +79,9 @@ export function createPrismaWorkloadStore(prisma: PrismaClient): WorkloadStore {
             },
           },
         },
-        select: { userId: true, task: { select: { dueDate: true } } },
+        select: { userId: true, task: { select: { dueDate: true, approvalRequestedAt: true } } },
       });
-      return rows.map((r) => ({ userId: r.userId, dueDate: r.task.dueDate }));
+      return rows.map((r) => ({ userId: r.userId, dueDate: r.task.dueDate, waiting: r.task.approvalRequestedAt !== null }));
     },
   };
 }
