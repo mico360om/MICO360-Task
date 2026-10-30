@@ -91,6 +91,14 @@ it('the avatar shows only this server’s pictures and its initials otherwise', 
   expect(s).toMatch(/onError=\{\(\) => setBroken\(true\)\}/);
 });
 
+// Final review L5: a tile is one stop for TalkBack, read once — the label on the tappable card, or on
+// the row when the tile is not tappable, never on both.
+it('a stat tile is read once', () => {
+  const s = src('components/ui/StatTile.tsx');
+  expect(s).toMatch(/<Card onPress=\{onPress\} accessibilityLabel=\{onPress \? name : undefined\}/);
+  expect(s).toMatch(/accessible=\{!onPress\} accessibilityLabel=\{onPress \? undefined : name\}/);
+});
+
 it('the progress bar tells TalkBack how far along it is', () => {
   const s = src('components/ui/ProgressBar.tsx');
   expect(s).toMatch(/accessibilityRole="progressbar"/);

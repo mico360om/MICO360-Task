@@ -30,7 +30,7 @@ export function StatTile({
   const t = toneStyle(c, tone);
   const name = `${label}: ${value}${hint ? `, ${hint}` : ''}`;
   return (
-    <Card onPress={onPress} accessibilityLabel={name} accessibilityHint={onPress ? actionLabel : undefined}>
+    <Card onPress={onPress} accessibilityLabel={onPress ? name : undefined} accessibilityHint={onPress ? actionLabel : undefined}>
       <View style={styles.row} accessible={!onPress} accessibilityLabel={onPress ? undefined : name}>
         <View style={styles.text}>
           <Text style={[typeStyle('eyebrow'), { color: c.ink2 }]} numberOfLines={2}>
