@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.18.2] - 2026-10-30
+
 ### Improvements
 - A brand-new company sees first steps, not a page of zeros: the Dashboard says Welcome and shows
   "Set up your workspace" (Create a project, Add your team); My Tasks, Notifications and Activity
