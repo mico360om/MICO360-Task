@@ -160,6 +160,31 @@ export function MeetingDetailPage() {
     { k: 'Created by', v: userName(directory, meeting.createdById) ? <bdi>{userName(directory, meeting.createdById)}</bdi> : '—' },
   ].filter(Boolean) as { k: string; v: React.ReactNode }[];
 
+  const finished = meeting.status === 'COMPLETED';
+  // Each part keyed, so ending the meeting moves them (their state kept) instead of remaking them.
+  const agenda = (
+    <AgendaSection
+      key="agenda"
+      meetingId={id}
+      startAt={meeting.startAt}
+      endAt={meeting.endAt}
+      directory={directory}
+      canEdit={canEdit}
+      ended={finished}
+      pollMs={pollMs}
+      // Draft agenda: the meeting's details, and its organizer and invited team members as leads.
+      draftFrom={{
+        title: meeting.title,
+        description: meeting.description,
+        projectId: meeting.projectId,
+        peopleIds: [...new Set([meeting.organizerId, ...(Array.isArray(attendeesQ.data) ? attendeesQ.data : []).flatMap((a) => (a.userId ? [a.userId] : []))])],
+      }}
+    />
+  );
+  const notes = <NotesSection key="notes" meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
+  const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />;
+  const finalMom = <FinalMinutesSection key="final" meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />;
+
   return (
     <div>
       <MeetingHeader
@@ -186,25 +211,10 @@ export function MeetingDetailPage() {
           a side column left the agenda, notes and action items only about 400px. */}
       <div className="grid gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
-          <AgendaSection
-            meetingId={id}
-            startAt={meeting.startAt}
-            endAt={meeting.endAt}
-            directory={directory}
-            canEdit={canEdit}
-            ended={meeting.status === 'COMPLETED'}
-            pollMs={pollMs}
-            // Draft agenda: the meeting's details, and its organizer and invited team members as leads.
-            draftFrom={{
-              title: meeting.title,
-              description: meeting.description,
-              projectId: meeting.projectId,
-              peopleIds: [...new Set([meeting.organizerId, ...(Array.isArray(attendeesQ.data) ? attendeesQ.data : []).flatMap((a) => (a.userId ? [a.userId] : []))])],
-            }}
-          />
-          <NotesSection meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={meeting.status === 'COMPLETED'} />
-          <ActionItemsSection meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />
-          <FinalMinutesSection meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />
+          {/* Planned or under way: the agenda and the live notes lead. Once finished, what came of it
+              leads — the Final MOM and the action items, above the agenda and notes they came from. The
+              page's own order (not CSS order), so the keyboard and a screen reader follow it too. */}
+          {finished ? [finalMom, actions, agenda, notes] : [agenda, notes, actions, finalMom]}
         </div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
