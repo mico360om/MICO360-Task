@@ -160,6 +160,7 @@ const MISC_DATA = {
   info: { source: 'components/ProfileMenu.tsx', strokeWidth: 1.8, shapes: [c(12, 12, 9), p('M12 11v5M12 7.5v.01')] },
   signOut: { source: 'components/ProfileMenu.tsx', strokeWidth: 1.8, shapes: [p('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9')] },
   inbox: { source: 'components/ui/EmptyState.tsx', strokeWidth: 1.8, shapes: [p('M22 12h-6l-2 3h-4l-2-3H2'), p('M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z')] },
+  inspection: { source: 'components/inspections/inspection-ui.tsx', strokeWidth: 2.2, shapes: [r(5, 4, 14, 17, 2), p('M9 4V3h6v1M9 12l2 2 4-4')] },
 } satisfies Record<string, IconDef & { source: string }>;
 export type MiscKey = keyof typeof MISC_DATA;
 export const MISC_ICONS: Record<MiscKey, IconDef & { source: string }> = MISC_DATA;
