@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HttpError } from '../../lib/http-errors';
-import { createManagementService, type ManagementFilters } from './management-service';
+import { createManagementService, shortDay, type ManagementFilters } from './management-service';
 import { fakeManagementSource, fakeWorkloadFor, type FakeManagementData } from './management-source.fixture';
 
 const TZ = 'Asia/Muscat';
@@ -94,6 +94,13 @@ const status = async (p: Promise<unknown>) => {
     return e instanceof HttpError ? e.status : 500;
   }
 };
+
+describe('shortDay', () => {
+  it('writes "Wed 30 Sep" (three-letter months, never "Sept")', () => {
+    expect(shortDay('2026-09-30')).toBe('Wed 30 Sep');
+    expect(shortDay('2026-10-28')).toBe('Wed 28 Oct');
+  });
+});
 
 describe('who may see the Management page', () => {
   it('administrators see every project; project runners theirs; anyone else nothing', async () => {

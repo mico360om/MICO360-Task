@@ -155,6 +155,12 @@ describe('trendWeeks / periodOf: company weeks in the company time zone, the cur
     expect(first!.label).toBe('4 Oct');
   });
 
+  it('labels a September week "20 Sep" (three-letter months, never "Sept")', () => {
+    const [first] = trendWeeks({ now: new Date('2026-10-01T08:00:00.000Z'), timeZone: TZ, weekStart: 0, weeks: 2 });
+    expect(first!.start).toBe('2026-09-20');
+    expect(first!.label).toBe('20 Sep');
+  });
+
   it('knows today’s week from the company day, not the UTC day', () => {
     // Saturday 24 October 21:00 UTC is Sunday 25 October 01:00 in Muscat: a new Sunday week.
     const weeks = trendWeeks({ now: new Date('2026-10-24T21:00:00.000Z'), timeZone: TZ, weekStart: 0, weeks: 4 });

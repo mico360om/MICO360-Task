@@ -41,6 +41,12 @@ describe('weeklySummaryEmail', () => {
     expect(none.text).not.toContain('#to-approve');
   });
 
+  it('writes last week’s days with three-letter months, never "Sept"', () => {
+    const sep = weeklySummaryEmail({ name: 'Sara Ahmed', digest: { ...DIGEST, lastWeek: { start: '2026-09-27', end: '2026-10-03' } }, week: '2026-10-04', appUrl: 'https://task.mico360.com/' });
+    expect(sep.text).toContain('Checks done late last week (27 Sep – 3 Oct)');
+    expect(sep.text).not.toContain('Sept');
+  });
+
   it('says in its subject how many projects are red and amber, and the late work', () => {
     expect(mail.subject).toBe('Weekly summary: 1 red, 1 amber · 5 late tasks');
   });

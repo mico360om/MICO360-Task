@@ -6,11 +6,19 @@
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** 'YYYY-MM-DD' → '30 Sep 2026' (a calendar day, never shifted by a time zone). */
-export function formatDay(key: string | null | undefined): string {
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * 'YYYY-MM-DD' → '30 Sep 2026' (a calendar day, never shifted by a time zone): the day before the
+ * month and three-letter months (never "Sept", as en-GB's Intl writes September). With
+ * `{ weekday: true, year: false }` → 'Wed 30 Sep'; with `{ year: false }` → '30 Sep'.
+ */
+export function formatDay(key: string | null | undefined, { weekday = false, year = true }: { weekday?: boolean; year?: boolean } = {}): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(key ?? '');
   if (!m) return '';
-  return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const day = weekday ? `${WEEKDAYS[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ` : '';
+  return `${day}${d} ${MONTHS[mo - 1]}${year ? ` ${m[1]}` : ''}`;
 }
 
 /** The wall-clock time of an instant in a time zone, 'YYYY-MM-DD HH:mm' (for Excel). */

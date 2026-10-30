@@ -7,6 +7,7 @@
  * the current week is the last one (partial). "Today" is the company day.
  */
 import { shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
+import { formatDay } from '../../lib/export-format';
 import { daysBetween, weekOf, type WeekStart } from '../planning/timeline';
 
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
@@ -135,7 +136,8 @@ export interface WeekContext {
   weeks: number;
 }
 
-const labelOf = (key: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+/** "4 Oct" for a week's first day ("27 Sep", never "Sept"). */
+const labelOf = (key: string) => formatDay(key, { year: false });
 
 /** The last `weeks` company weeks, oldest first, ending with the week today is in. */
 export function trendWeeks({ now, timeZone, weekStart, weeks }: WeekContext): TrendWeek[] {

@@ -1,6 +1,7 @@
 import { renderEmail, type Block, type EmailChip, type EmailProjectCard, type EmailTaskItem } from '../email/email-layout';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { completedOnTime, daysUntilDue, dueDayKey, zonedDayKey } from '../../lib/due-date';
+import { formatDay } from '../../lib/export-format';
 
 /** A task's project, as the daily emails head its section. */
 export interface DailyProject {
@@ -62,10 +63,8 @@ function pictureUrl(imageUrl: string | null, assetUrl: string | undefined): stri
   return imageUrl.startsWith('/') && assetUrl ? `${base(assetUrl)}${imageUrl}` : null;
 }
 
-/** "Mon 19 Oct" for a 'YYYY-MM-DD' day. */
-function dayLabel(key: string): string {
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`)).replace(',', '');
-}
+/** "Mon 19 Oct" for a 'YYYY-MM-DD' day ("Wed 30 Sep", never "Sept"). */
+const dayLabel = (key: string): string => formatDay(key, { weekday: true, year: false });
 /** "Wednesday 21 October" for a 'YYYY-MM-DD' day (the header's note). */
 function dayLongLabel(key: string): string {
   return new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`)).replace(',', '');

@@ -65,6 +65,21 @@ describe('pendingEmail: tasks waiting for the person to approve them', () => {
   });
 });
 
+describe('day labels: three-letter months, never "Sept"', () => {
+  it('writes a September due day, a September target and a September completion as "Sep"', () => {
+    const SEP = { ...RIG, targetDate: day('2027-09-30') };
+    const now = new Date('2026-09-20T02:00:00Z');
+    const pending = pendingEmail({ name: 'Ada', tasks: [task('RIG-1', { project: SEP, dueDate: day('2026-09-30') })], timeZone: TZ, now, appUrl: APP });
+    expect(pending.text).toContain('Due Wed 30 Sep');
+    expect(pending.text).toContain('Target Thu 30 Sep');
+    expect(pending.text).not.toContain('Sept');
+    const done = completedEmail({ name: 'Ada', tasks: [task('RIG-2', { project: SEP, dueDate: day('2026-09-18'), completedAt: new Date('2026-09-19T05:10:00Z') })], day: '2026-09-19', timeZone: TZ, appUrl: APP });
+    expect(done.text).toContain('Completed Sat 19 Sep, 09:10');
+    expect(done.text).toContain('Due Fri 18 Sep');
+    expect(done.text).not.toContain('Sept');
+  });
+});
+
 describe('pendingEmail (tasks assigned and not done)', () => {
   const tasks = [
     task('RIG-1', { dueDate: day('2026-10-25'), priority: 'LOW' }),

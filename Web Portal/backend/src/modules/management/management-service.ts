@@ -8,6 +8,7 @@
  * Every read below is asked only about those projects.
  */
 import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { formatDay } from '../../lib/export-format';
 import { daysUntilDue, dueDayKey, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { weekOf, type WeekStart } from '../planning/timeline';
 import { buildWorkload, type WorkloadScope } from '../planning/workload';
@@ -268,9 +269,8 @@ const unique = <T>(xs: (T | null | undefined)[]) => [...new Set(xs.filter((x): x
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 const weekdayOf = (key: string) => new Date(`${key}T12:00:00.000Z`).getUTCDay();
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-/** "Wed 28 Oct" for a 'YYYY-MM-DD' day. */
-export const shortDay = (key: string) =>
-  new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`)).replace(',', '');
+/** "Wed 28 Oct" for a 'YYYY-MM-DD' day ("Wed 30 Sep", never "Sept"). */
+export const shortDay = (key: string) => formatDay(key, { weekday: true, year: false });
 const optionOf = (p: MgmtProject): OptionProject => ({ id: p.id, code: p.code, name: p.name, status: p.status, color: p.color, icon: p.icon, imageUrl: p.imageUrl });
 const emptyCounts = (): CheckCounts => ({ due: 0, done: 0, doneLate: 0, noReport: 0, missing: 0 });
 

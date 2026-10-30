@@ -1,14 +1,15 @@
 import { renderEmail, type Block, type EmailChip } from '../email/email-layout';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import type { WeeklyDigest } from './management-service';
+import { formatDay } from '../../lib/export-format';
 
 const base = (appUrl: string) => appUrl.replace(/\/+$/, '');
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** "Sunday 25 October" for a 'YYYY-MM-DD' day. */
 const longDay = (key: string) =>
   new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`)).replace(',', '');
-/** "18 Oct" for a 'YYYY-MM-DD' day. */
-const shortDate = (key: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`));
+/** "18 Oct" for a 'YYYY-MM-DD' day ("27 Sep", never "Sept"). */
+const shortDate = (key: string) => formatDay(key, { year: false });
 const WORD = { RED: 'Red', AMBER: 'Amber', GREEN: 'Green' } as const;
 
 /**
