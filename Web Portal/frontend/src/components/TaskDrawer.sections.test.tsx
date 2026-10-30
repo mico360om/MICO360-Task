@@ -665,6 +665,50 @@ describe('TaskDrawer reading order', () => {
     }
   });
 
+  // The approvals branch's "Approval" section (the Needs approval tick) sits after Client view; on a
+  // phone it moves with Client view and the files to after the checklist and comments. While the task
+  // waits for approval, it comes first, above the description, on every width.
+  const approvalSection = (
+    <section>
+      <h3>Approval</h3>
+    </section>
+  );
+  const withApproval = (waiting: boolean) => (
+    <TaskDrawer
+      task={{ ...task, clientVisible: false, approvalRequestedAt: waiting ? new Date().toISOString() : null }}
+      checklist={[]}
+      comments={[]}
+      dependencies={{ blockedBy: [], blocks: [] }}
+      onSetClientVisible={vi.fn()}
+      approval={approvalSection}
+      onClose={vi.fn()}
+    />
+  );
+
+  it('on a phone, "Approval" follows Client view after the checklist and comments; first while the task waits', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('max-width: 47.9375em'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      const { unmount } = render(withApproval(false));
+      headingsInOrder(['Details', 'Checklist', 'Comments', 'Client view', 'Approval', 'Attachments']);
+      unmount();
+      render(withApproval(true));
+      expect(screen.getAllByRole('heading', { level: 3, name: 'Approval' })).toHaveLength(1);
+      headingsInOrder(['Approval', 'Description', 'Checklist', 'Comments', 'Client view', 'Attachments']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('from 768px up, "Approval" sits in the details column after Client view', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: !query.includes('max-width'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      render(withApproval(false));
+      headingsInOrder(['Details', 'Client view', 'Approval', 'Attachments', 'Checklist', 'Comments']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('reads (and tabs) in the order a tablet shows it: description, details, checklist, comments, activity', () => {
     render(
       <TaskDrawer

@@ -411,8 +411,8 @@ export function TaskDrawer({
           </section>
           {/* The details sit right after the description in reading (and Tab) order — beside the
               work on a wide screen (spanning every row; the last row soaks up any extra height),
-              under the description on a tablet or phone. On a phone (below 768px) Client view, files
-              and blockers wait until after the checklist and comments: they are placed there in the
+              under the description on a tablet or phone. On a phone (below 768px) Client view, "Needs
+              approval", files and blockers wait until after the checklist and comments: they are placed there in the
               page itself (not moved by CSS), so Tab and a screen reader follow what is seen. */}
           <div className="flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-span-5 lg:row-start-1">
             <PropertiesPanel
