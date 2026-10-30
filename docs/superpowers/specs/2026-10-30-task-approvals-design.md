@@ -32,8 +32,11 @@ it counts as finished. Today anyone who moves a task to a Done column finishes i
    - **the Management page**: approvals waiting per project (and a total), clickable to the list.
 
 ## Rules (lead's calls — the builder follows these; flag any that turn out impossible)
-- **Who can tick "Needs approval"**: anyone who can edit the task. Who can change the project setting:
-  whoever can manage the project.
+- **Who can tick "Needs approval"**: anyone who can edit the task. **Who can untick it** (owner, 30 Oct):
+  only the people who run the project (`canManageProject`) and administrators — waiting or not; the
+  server refuses anyone else (403), and in a project with the setting below their new tasks keep the
+  tick even if they send it off. For them the web shows the tick on but locked, with the reason. Who
+  can change the project setting: whoever can manage the project.
 - **Waiting state**: model it so the board shows it naturally. Preferred: when a task that needs
   approval is moved to a DONE-category column (board drag, status picker, quick "complete", MICO AI
   action, the Chrome extension, the Android app, inspection finish — EVERY path that completes a task
@@ -47,8 +50,8 @@ it counts as finished. Today anyone who moves a task to a Done column finishes i
   (no self-approval round trip). Record this in the activity as "completed (approved)".
 - **Activity/history**: "asked for approval", "approved", "sent back: <reason>" entries in the task's
   activity, and the audit log for approve/send back.
-- **Unticking "Needs approval" while waiting**: allowed for approvers only; the task then completes
-  normally (log it). Re-opening an approved task clears the approval (it must be approved again when
+- **Unticking "Needs approval" while waiting**: allowed for approvers only (as at any other time); the
+  task then completes normally (log it). Re-opening an approved task clears the approval (it must be approved again when
   finished again).
 - **Repeating tasks**: the next copy keeps "Needs approval"; the next copy is created when the task is
   APPROVED (i.e. when it actually becomes done), not when it starts waiting.
@@ -60,7 +63,8 @@ it counts as finished. Today anyone who moves a task to a Done column finishes i
   version/conflict handling like other task updates (expectedVersion where the task API uses it).
 - **Android app 1.11 / Chrome extension**: no UI changes now; they must keep working — a completion
   from them simply lands in "Waiting for approval" (their next fetch shows the task in its new column).
-  Note any client that would show something misleading.
+  Note any client that would show something misleading. (30 Oct follow-up: the extension's My Tasks
+  "Mark done" and board now say "waiting for approval" and show the task where the server put it.)
 
 ## UI (keep the brand and design system; reuse components/ui/*; 44px touch targets on coarse pointers)
 - Task form + task panel: a "Needs approval" tick with a one-line hint ("A project manager must
