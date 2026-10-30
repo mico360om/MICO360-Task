@@ -54,6 +54,16 @@ For scale: a test company with 129,000 rows and 150 MB of files made a **152 MB 
 - Older copies are deleted automatically: on the server **and** in Google Drive.
 
 Room needed: about 14 copies, each roughly the size of the uploaded files plus the compressed database.
+System Settings → Backups shows how many copies are kept on the server and how much room they take in
+all.
+
+Before each copy the server checks the free disk space (it needs about the uploads plus the database,
+and a fifth more). **On shared hosting such as Hostinger, that check may see the whole disk of the
+shared machine rather than your plan's own limit**, so it can pass while the plan is nearly full; the
+copy then fails with "The server's disk is full." and the administrators are told. Look at the plan's
+use now and then in hPanel: the website's **Dashboard** shows *Disk usage* (and *Inodes*, the number of
+files) against the plan's limit; **Files → File Manager** shows what `mico360-data/backups` takes. If it
+gets close, upgrade the plan or remove old uploads — not the newest backup copies.
 
 ## Where they are kept
 

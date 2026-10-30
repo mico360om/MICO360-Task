@@ -463,6 +463,8 @@ describe('keeping 7 nightly + 4 weekly copies', () => {
     expect(view.copies.map((c) => c.kind)).toEqual([...Array(7).fill('nightly'), ...Array(4).fill('weekly')]);
     expect(view.lastSuccess).toEqual({ at: muscat('2026-10-30', '02:01').toISOString(), sizeBytes: 10 });
     expect(view.warning).toBeNull();
+    // What the kept copies take on the server's disk, all together.
+    expect(view.keptBytes).toBe(110);
   });
 
   it('a copy that isn’t in this server’s folder (a restored database on a new server) is not "the last backup"', async () => {

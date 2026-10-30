@@ -28,6 +28,8 @@ export interface BackupOverview {
   /** "Last night's backup failed: …" and the like. */
   warning: string | null;
   copies: BackupCopy[];
+  /** What the kept copies take on the server's disk, all together. */
+  keptBytes: number;
   /** `stored`: a connection is kept (also one this server can't use, being without the Google settings). */
   drive: { configured: boolean; connected: boolean; stored: boolean; email: string | null; connectedAt: string | null; problem: string | null; warning: string | null };
 }

@@ -157,6 +157,11 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
               ))}
             </ul>
           ) : null}
+          {data.copies.length ? (
+            <p className="mt-3 text-xs font-medium text-ink-2">
+              {`${data.copies.length} ${data.copies.length === 1 ? 'copy' : 'copies'} kept on the server · ${sizeText(data.keptBytes ?? 0)} in all`}
+            </p>
+          ) : null}
           <p className="mt-3 text-xs text-ink-3">
             Kept on the server in <span className="break-all font-mono">{data.folder}</span>, a private folder the website never shows.{' '}
             {data.encrypted ? 'Copies are encrypted with the backup key: keep that key safe somewhere off the server, because no copy opens without it.' : 'Copies are not encrypted.'}

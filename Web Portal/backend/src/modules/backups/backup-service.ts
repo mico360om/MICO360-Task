@@ -93,6 +93,8 @@ export interface BackupOverview {
   lastSuccess: { at: string; sizeBytes: number } | null;
   warning: string | null;
   copies: BackupCopyView[];
+  /** What the kept copies take on the server's disk, all together. */
+  keptBytes: number;
   drive: DriveState & { warning: string | null };
 }
 
@@ -461,6 +463,7 @@ export function createBackupService(deps: BackupServiceDeps) {
           drive: row.driveStatus,
           driveError: row.driveError,
         })),
+        keptBytes: kept.reduce((n, { row }) => n + (row.sizeBytes ?? 0), 0),
         drive: { ...drive, warning: driveWarning },
       };
     },

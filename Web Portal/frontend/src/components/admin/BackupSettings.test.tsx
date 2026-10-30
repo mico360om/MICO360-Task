@@ -33,6 +33,7 @@ function overview(over: Partial<BackupOverview> = {}): BackupOverview {
     lastSuccess: { at: '2026-10-29T22:01:00.000Z', sizeBytes: 24 * 1024 * 1024 },
     warning: null,
     copies: [COPY({}), COPY({ id: 'c2', createdAt: '2026-10-16T22:01:00.000Z', kind: 'weekly', sizeBytes: 20 * 1024 * 1024 })],
+    keptBytes: 44 * 1024 * 1024,
     drive: { configured: true, connected: false, stored: false, email: null, connectedAt: null, problem: null, warning: null },
     ...over,
   };
@@ -99,13 +100,16 @@ describe('System Settings → Backups', () => {
     expect(screen.getByRole('button', { name: 'Download the copy of 30 Oct 2026, 02:01' })).toBeInTheDocument();
     expect(screen.getByText(/Copies are not encrypted/)).toBeInTheDocument();
     expect(screen.getByText('/home/u/mico360-data/backups')).toBeInTheDocument();
+    // How much room the kept copies take on the server, all together.
+    expect(screen.getByText('2 copies kept on the server · 44 MB in all')).toBeInTheDocument();
   });
 
   it('a copy made with Back up now is shown as such', async () => {
-    current = overview({ copies: [COPY({ id: 'm1', kind: 'manual', trigger: 'MANUAL' })] });
+    current = overview({ copies: [COPY({ id: 'm1', kind: 'manual', trigger: 'MANUAL' })], keptBytes: 24 * 1024 * 1024 });
     renderIt();
     const list = await screen.findByRole('list', { name: 'Kept copies' });
     expect(within(list).getByText('Back up now')).toBeInTheDocument();
+    expect(screen.getByText('1 copy kept on the server · 24 MB in all')).toBeInTheDocument();
   });
 
   it('no copies yet', async () => {
