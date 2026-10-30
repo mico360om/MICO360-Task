@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Modal, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, Modal, StyleSheet, RefreshControl, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useServices } from '../core/providers';
 import { useReportOptions, useReportSummary, useReportTrend } from '../core/queries';
@@ -19,6 +19,7 @@ import {
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { statTileColumns } from '../lib/stat-grid';
 
 type Option = { value: string; label: string };
 type Range = { from: string; to: string };
@@ -265,19 +266,23 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
   const sum = summarize(data.projects, { projectId: projectId || undefined });
   const completion = data.completion;
   const bars = statusBars(data.status).map((b) => ({ label: b.label, value: b.value, color: categoryColorOf(c, b.category) }));
+  // Two tiles a row only while every label fits (a large font gets one a row).
+  const { width, fontScale } = useWindowDimensions();
+  const cols = statTileColumns(['Total tasks', 'Completed', 'Overdue', 'On-time rate'], width, fontScale);
+  const tile = cols === 2 ? s.tile : s.tileFull;
   return (
     <>
       <View style={s.tiles}>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile value={sum.total} label="Total tasks" hint={`${sum.projects} project${sum.projects === 1 ? '' : 's'}`} icon="nav.tasks" tone="brand" />
         </View>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile value={sum.completed} label="Completed" hint={`${sum.completionPct}% completion`} icon="kit.checkCircle" tone="success" />
         </View>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile value={sum.overdue} label="Overdue" hint={sum.total ? `${sum.overduePct}% of tasks` : '—'} icon="ui.alert" tone="danger" />
         </View>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile
             value={completion ? `${completion.onTimeRate}%` : '—'}
             label="On-time rate"
@@ -514,6 +519,7 @@ function makeStyles(c: Palette) {
     problem: { fontSize: fontSize.sm, ...font('600'), color: c.dangerText },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexBasis: '47%', flexGrow: 1 },
+    tileFull: { flexBasis: '100%' },
     onTime: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
     big: { minWidth: 72 },
     bigValue: { fontSize: fontSize.xxl, ...font('700', 'display') },

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMyTasks } from '../core/queries';
 import { useSession } from '../core/providers';
@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { statTileColumns } from '../lib/stat-grid';
 
 export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const c = useColors();
@@ -23,6 +24,10 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   // The all-projects totals are for administrators.
   const admin = !!session?.user.roles.includes('ADMIN');
   const qc = useQueryClient();
+  // Two tiles a row only while every label fits (a large font gets one a row).
+  const { width, fontScale } = useWindowDimensions();
+  const cols = statTileColumns(['Overdue', 'Due today', 'Upcoming', 'Completed'], width, fontScale);
+  const tile = cols === 2 ? styles.tile : styles.tileFull;
 
   if (isLoading) return <SkeletonList rows={6} />;
 
@@ -54,16 +59,16 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
         ) : null}
 
         <View style={styles.tiles}>
-          <View style={styles.tile}>
+          <View style={tile}>
             <StatTile label="Overdue" value={summary.overdue.length} icon="ui.alert" tone="danger" />
           </View>
-          <View style={styles.tile}>
+          <View style={tile}>
             <StatTile label="Due today" value={summary.dueToday.length} icon="kit.calendar" tone="warning" />
           </View>
-          <View style={styles.tile}>
+          <View style={tile}>
             <StatTile label="Upcoming" value={summary.upcoming.length} icon="kit.clock" tone="info" />
           </View>
-          <View style={styles.tile}>
+          <View style={tile}>
             <StatTile label="Completed" value={summary.completed} icon="kit.checkCircle" tone="success" />
           </View>
         </View>
@@ -124,5 +129,6 @@ const makeStyles = (c: Palette) =>
     sub: { fontSize: fontSize.md, color: c.ink2, marginBottom: spacing.sm },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexGrow: 1, flexBasis: '47%' },
+    tileFull: { flexBasis: '100%' },
     section: { gap: spacing.sm },
   });
