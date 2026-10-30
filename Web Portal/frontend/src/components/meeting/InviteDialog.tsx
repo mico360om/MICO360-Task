@@ -93,7 +93,7 @@ export function InviteDialog({ meeting, onClose }: { meeting: Meeting; onClose: 
   return (
     <ModalPortal>
       <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={send.isPending ? undefined : onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={send.isPending ? undefined : onClose} aria-hidden="true" />
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="invite-title" className="card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
           <div className="border-b border-line px-5 py-4">
             <h2 id="invite-title" className="font-display text-lg font-semibold text-ink">Send invitations</h2>

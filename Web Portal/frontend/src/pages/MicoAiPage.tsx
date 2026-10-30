@@ -65,7 +65,7 @@ function ChatsDrawer({ onClose, children }: { onClose: () => void; children: Rea
     // ending where a phone's on-screen keyboard begins, so Search chats stays in view while typing.
     <ModalPortal>
       <div className="above-keyboard fixed inset-x-0 z-50 lg:hidden">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div ref={ref} role="dialog" aria-modal="true" aria-label="Chats" tabIndex={-1} className="absolute inset-y-0 start-0 flex w-80 max-w-[88vw] flex-col bg-ground shadow-lift outline-none animate-slide-in-right">
           <button type="button" onClick={onClose} aria-label="Close chats" className="absolute end-2 top-3 z-10 grid h-9 w-9 place-items-center rounded-lg text-ink-2 hover:bg-surface hover:text-ink">
             <CloseIcon size={18} />

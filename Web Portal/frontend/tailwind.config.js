@@ -33,6 +33,9 @@ export default {
         info: { DEFAULT: 'rgb(var(--c-info) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
         // Meetings on the Timeline page.
         meeting: 'rgb(var(--c-meeting) / <alpha-value>)',
+        // What a dialog, sheet or panel lays over the page behind it: the same dark wash in light and
+        // dark mode (a tint of ink would be a light-grey wash in dark mode, where ink is near-white).
+        scrim: 'rgb(0 0 0 / 0.5)',
         // Kanban / status categories
         cat: {
           backlog: 'rgb(var(--c-cat-backlog) / <alpha-value>)',

@@ -133,7 +133,7 @@ export function ItemsSheet({
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-40 flex justify-end bg-ink/40 animate-fade-in" onClick={onClose}>
+      <div className="above-keyboard fixed inset-0 z-40 flex justify-end bg-scrim animate-fade-in" onClick={onClose}>
         <div
           ref={dialogRef}
           role="dialog"

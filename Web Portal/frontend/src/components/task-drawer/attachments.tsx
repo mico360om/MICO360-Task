@@ -98,7 +98,7 @@ function FilePreview({ a, href, mode, loadOffice, onClose }: { a: DrawerAttachme
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-[60] grid place-items-center p-2 sm:p-6">
-        <div className="absolute inset-0 bg-ink/50" onClick={onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim" onClick={onClose} aria-hidden="true" />
         <div ref={ref} role="dialog" aria-modal="true" aria-label={`Preview of ${a.filename}`} tabIndex={-1} className="card relative flex h-[min(90dvh,56rem)] w-full max-w-4xl flex-col overflow-hidden outline-none">
           <div className="flex flex-none items-center gap-2 border-b border-line px-4 py-2.5">
             <span dir="auto" className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={a.filename}>{a.filename}</span>

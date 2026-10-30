@@ -13,7 +13,7 @@ function Shell({ label, onClose, children, wide = false }: { label: string; onCl
   return (
     <ModalPortal>
       <div className="above-keyboard fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={ref}
           role="dialog"

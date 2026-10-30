@@ -309,7 +309,7 @@ function FormEditorDialog({ form, onClose, onSaved }: { form: InspectionForm | n
   return (
     <ModalPortal>
       <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-2 sm:p-4">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={requestClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
