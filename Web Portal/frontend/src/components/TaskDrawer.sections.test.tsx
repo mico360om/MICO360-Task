@@ -627,7 +627,45 @@ describe('TaskDrawer dependencies', () => {
 });
 
 describe('TaskDrawer reading order', () => {
-  it('reads (and tabs) in the order a phone shows it: description, details, checklist, comments, activity', () => {
+  const headingsInOrder = (names: string[]) => {
+    const order = names.map((name) => screen.getByRole('heading', { level: 3, name: new RegExp(`^${name}`) }));
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING, `${names[i - 1]} before ${names[i]}`).toBeTruthy();
+    }
+  };
+  const drawer = () => (
+    <TaskDrawer
+      task={{ ...task, clientVisible: false }}
+      checklist={[]}
+      comments={[]}
+      activity={[{ id: 'a1', action: 'CREATED', actorName: 'Ada', createdAt: new Date().toISOString() }]}
+      dependencies={{ blockedBy: [], blocks: [] }}
+      onSetClientVisible={vi.fn()}
+      onClose={vi.fn()}
+    />
+  );
+
+  it('on a phone (below 768px), the checklist and comments come before Client view, attachments and dependencies — on screen and for Tab alike', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('max-width: 47.9375em'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      render(drawer());
+      headingsInOrder(['Description', 'Details', 'Checklist', 'Comments', 'Client view', 'Attachments', 'Dependencies', 'Activity']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('from 768px up, as before: the details, Client view, attachments and dependencies, then the checklist and comments', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: !query.includes('max-width'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      render(drawer());
+      headingsInOrder(['Description', 'Details', 'Client view', 'Attachments', 'Dependencies', 'Checklist', 'Comments', 'Activity']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reads (and tabs) in the order a tablet shows it: description, details, checklist, comments, activity', () => {
     render(
       <TaskDrawer
         task={task}
