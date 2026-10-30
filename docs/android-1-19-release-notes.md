@@ -9,6 +9,7 @@
 - In the Android app, the side menu offers Management to the people who run a project.
 - In the Android app, the Dashboard, My Tasks, the boards and the calendar use the new look, with the waiting-for-approval mark and loading placeholders.
 - In the Android app, the task screen and the task form use the new look.
+- In the Android app, Projects, project pages, User Management and Reports use the new look, with progress bars in each project's colour.
 <!-- new-look lines above this line -->
 
 ## Dates and fixes

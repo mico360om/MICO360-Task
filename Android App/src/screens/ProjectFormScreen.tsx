@@ -8,7 +8,8 @@ import { useCodeCheck, useSaveProject } from '../core/project-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
-import { Button, ErrorNote, Loader, TextField } from '../components/ui';
+import { Button, ErrorNote, SkeletonList, TextField } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { ChipChoice, InlinePicker } from '../components/meeting/sheet-kit';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { IdentityPicker } from '../components/project/IdentityPicker';
@@ -58,7 +59,7 @@ export function ProjectFormScreen({ route, navigation }: AppScreenProps<'Project
   const projectId = route.params?.projectId;
   const user = useSession()?.user ?? null;
   const projectQ = useProject(projectId ?? '');
-  if (projectId && projectQ.isLoading) return <Loader />;
+  if (projectId && projectQ.isLoading) return <SkeletonList rows={5} />;
   if (projectId && !projectQ.data) {
     return <Blocked text="Couldn’t load this project. Check your connection and try again." onRetry={() => void projectQ.refetch()} />;
   }
@@ -281,7 +282,10 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
         {banner ? <ErrorNote message={banner} /> : null}
         {locked ? (
           <View style={s.lock} accessibilityLiveRegion="polite">
-            <Text style={s.lockText}>🔒 {PROJECT_FORM_TEXT.locked}</Text>
+            <View style={s.lockRow}>
+              <Icon name="kit.lock" size={14} color={c.ink2} />
+              <Text style={[s.lockText, s.shrink]}>{PROJECT_FORM_TEXT.locked}</Text>
+            </View>
             <Button title={PROJECT_START_OVER.label} variant="ghost" onPress={startOver} disabled={saving} accessibilityLabel="Start over: unlock the form. The project may already be created — check the Projects list first." />
           </View>
         ) : null}
@@ -414,7 +418,9 @@ const makeStyles = (c: Palette) =>
     clientChip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     clientText: { fontSize: fontSize.sm, color: c.ink },
     description: { minHeight: 110, paddingTop: spacing.sm },
-    lock: { gap: spacing.xs, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, backgroundColor: c.surface },
+    lockRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    shrink: { flexShrink: 1 },
+    lock: { gap: spacing.xs, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.md, backgroundColor: c.surface },
     lockText: { fontSize: fontSize.sm, color: c.ink2 },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
     cancel: { flex: 1 },

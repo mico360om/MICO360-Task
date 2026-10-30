@@ -11,22 +11,6 @@ import { appSources } from './testing/web-source';
  * more fails the last test — so the list only shrinks. R3 and R4 hold everywhere already.
  */
 const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task20', readonly string[]>> = {
-  // Task 18 — projects, people, reports
-  task18: [
-    'components/charts.tsx',
-    'components/project/AiSummaryCard.tsx',
-    'components/project/IdentityPicker.tsx',
-    'components/project/MeetingsTab.tsx',
-    'components/project/OverviewTab.tsx',
-    'components/project/TasksTab.tsx',
-    'components/project/parts.tsx',
-    'screens/ProjectDetailScreen.tsx',
-    'screens/ProjectFormScreen.tsx',
-    'screens/ProjectsScreen.tsx',
-    'screens/ReportsScreen.tsx',
-    'screens/UserFormScreen.tsx',
-    'screens/UsersScreen.tsx',
-  ],
   // Task 19 — meetings (lane B)
   task19: [
     'components/MeetingRow.tsx',

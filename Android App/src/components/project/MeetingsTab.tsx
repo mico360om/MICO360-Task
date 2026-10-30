@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { MeetingRow } from '../MeetingRow';
-import { Button, ErrorNote, Loader } from '../ui';
+import { Button, ErrorNote, SkeletonList } from '../ui';
+import { Icon } from '../Icon';
 import { EmptyNote, SectionCard } from './parts';
 import { formatDueDay } from '../../lib/due-date';
 import { dayText } from '../../lib/day-words';
@@ -47,7 +48,7 @@ export function MeetingsTab({
       {failed && !overview ? (
         <ErrorNote message="The project’s meetings aren’t available right now." onRetry={onRetry} retrying={retrying} />
       ) : loading || !overview ? (
-        <Loader />
+        <SkeletonList rows={3} />
       ) : (
         <ProjectMeetings overview={overview} s={s} onOpen={onOpen} />
       )}
@@ -75,6 +76,7 @@ function MeetingLine({ onPress, s, children, label }: { onPress?: () => void; s:
 }
 
 function ProjectMeetings({ overview, s, onOpen }: { overview: ApiProjectMeetingsOverview; s: Styles; onOpen: (meetingId: string, title?: string | null) => void }) {
+  const c = useColors();
   const next = overview.meetings
     .filter((m) => m.phase === 'upcoming' || m.phase === 'ongoing')
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))
@@ -113,7 +115,9 @@ function ProjectMeetings({ overview, s, onOpen }: { overview: ApiProjectMeetings
             const nextId = sr.nextMeetingId;
             return (
               <MeetingLine key={sr.id} s={s} onPress={nextId ? () => onOpen(nextId, sr.title) : undefined} label={`${sr.title}, ${when}`}>
-                <Text style={s.flag} importantForAccessibility="no">🔁</Text>
+                <View style={s.flag} importantForAccessibility="no-hide-descendants">
+                  <Icon name="kit.repeat" size={16} color={c.ink2} />
+                </View>
                 <View style={s.lineText}>
                   <Text style={s.lineTitle} numberOfLines={2}>{sr.title}</Text>
                   <Text style={s.lineSub}>{when}</Text>
@@ -134,7 +138,9 @@ function ProjectMeetings({ overview, s, onOpen }: { overview: ApiProjectMeetings
             const meetingId = a.meetingId;
             return (
               <MeetingLine key={a.id} s={s} onPress={meetingId ? () => onOpen(meetingId, a.meetingTitle) : undefined} label={`${a.description}, ${sub}`}>
-                <Text style={s.flag} importantForAccessibility="no">☐</Text>
+                <View style={s.flag} importantForAccessibility="no-hide-descendants">
+                  <View style={s.openBox} />
+                </View>
                 <View style={s.lineText}>
                   <Text style={s.lineTitle} numberOfLines={3}>{a.description}</Text>
                   <Text style={[s.lineSub, a.overdue && s.overdue]}>{sub}</Text>
@@ -153,7 +159,9 @@ function ProjectMeetings({ overview, s, onOpen }: { overview: ApiProjectMeetings
           </Text>
           {decisions.map((d) => (
             <MeetingLine key={d.id} s={s} onPress={() => onOpen(d.meetingId, d.meetingTitle)} label={[d.text, d.meetingTitle].filter(Boolean).join(', ')}>
-              <Text style={s.flag} importantForAccessibility="no">✔</Text>
+              <View style={s.flag} importantForAccessibility="no-hide-descendants">
+                <Icon name="misc.check" size={16} color={c.successText} />
+              </View>
               <View style={s.lineText}>
                 <Text style={s.lineTitle}>{d.text}</Text>
                 {d.meetingTitle ? <Text style={s.lineSub}>{d.meetingTitle}</Text> : null}
@@ -181,7 +189,8 @@ const makeStyles = (c: Palette) =>
     subhead: { fontSize: fontSize.sm, ...font('800'), color: c.ink2, marginTop: spacing.sm },
     line: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: c.line, minHeight: 48 },
     pressed: { opacity: 0.7 },
-    flag: { fontSize: fontSize.md, width: 22, textAlign: 'center', color: c.ink2 },
+    flag: { width: 22, alignItems: 'center', paddingTop: 2 },
+    openBox: { width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: c.ink2 },
     lineText: { flex: 1 },
     lineTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     lineSub: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },

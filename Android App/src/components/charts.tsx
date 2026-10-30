@@ -250,7 +250,7 @@ const makeStyles = (c: Palette) =>
     legendText: { fontSize: fontSize.xs, color: c.ink2 },
     numbersButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
     numbersButtonText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
-    table: { gap: 2, backgroundColor: c.ground, borderRadius: radius.md, padding: spacing.sm },
+    table: { gap: 2, backgroundColor: c.ground, borderRadius: radius.input, padding: spacing.sm },
     tableRow: { fontSize: fontSize.xs, color: c.ink },
     tableDay: { ...font('700') },
   });

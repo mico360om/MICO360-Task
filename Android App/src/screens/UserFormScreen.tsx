@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useAdminUser, useAfterUserChange, useUserActions } from '../core/admin-queries';
-import { Button, Card, ErrorNote, Loader, Muted, NoticeNote, SectionTitle, TextField } from '../components/ui';
+import { Button, Card, ErrorNote, SkeletonList, Muted, NoticeNote, SectionTitle, TextField } from '../components/ui';
 import { KeyboardAwareScrollView, KeyboardGroup } from '../components/KeyboardAware';
 import { CheckRow, ChipChoice } from '../components/meeting/sheet-kit';
 import { newIdempotencyKey } from '../lib/idempotency';
@@ -52,7 +52,7 @@ export function UserFormScreen({ navigation, route }: AppScreenProps<'UserForm'>
   const userId = route.params?.userId;
   const { user, query } = useAdminUser(userId);
   if (!userId) return <NewUserForm navigation={navigation} />;
-  if (query.isLoading) return <Loader />;
+  if (query.isLoading) return <SkeletonList rows={5} />;
   if (!user) {
     const text = query.isError ? usersLoadProblem(query.error) : 'This account isn’t there any more.';
     return <Missing text={text} onRetry={query.isError ? () => void query.refetch() : undefined} />;

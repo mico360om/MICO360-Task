@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { TextField } from '../ui';
+import { PriorityBadge, TextField } from '../ui';
 import { FilterChips } from './parts';
-import { priorityColor } from '../TaskRow';
+import { Icon } from '../Icon';
 import { formatDueDay } from '../../lib/due-date';
 import { TASK_FILTERS, shownProgress, taskPeople, taskPhase, tasksTabRowLabel, type TaskFilter, type TaskGroup } from '../../lib/project-dashboard';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
@@ -81,9 +81,9 @@ export const TasksTabRow = React.memo(function TasksTabRow({ task, group, today,
       <View style={s.top}>
         <Text style={s.key}>{task.key}</Text>
         {task.isMilestone ? (
-          <Text style={s.flag} importantForAccessibility="no">
-            🏁
-          </Text>
+          <View style={s.flag} importantForAccessibility="no-hide-descendants">
+            <Icon name="misc.milestone" size={14} color={c.brandText} />
+          </View>
         ) : null}
         <Text style={[s.title, phase === 'completed' && s.doneTitle]} numberOfLines={2}>
           {task.title}
@@ -94,9 +94,7 @@ export const TasksTabRow = React.memo(function TasksTabRow({ task, group, today,
           <View style={[s.smallDot, { backgroundColor: statusColor }]} />
           <Text style={s.metaText}>{group.name}</Text>
         </View>
-        <View style={[s.priority, { borderColor: priorityColor(c, task.priority) }]}>
-          <Text style={[s.metaText, { color: priorityColor(c, task.priority) }]}>{task.priority.charAt(0) + task.priority.slice(1).toLowerCase()}</Text>
-        </View>
+        <PriorityBadge priority={task.priority} />
         <View style={s.progress}>
           <View style={s.track}>
             <View style={[s.fill, { width: `${progress}%`, backgroundColor: phase === 'completed' ? c.success : c.brand }]} />
@@ -123,16 +121,15 @@ const makeStyles = (c: Palette) =>
     headingText: { fontSize: fontSize.md, ...font('800'), color: c.ink, flexShrink: 1 },
     count: { backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.sm },
     countText: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
-    row: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs, marginBottom: spacing.sm, minHeight: 56 },
+    row: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.button, padding: spacing.md, gap: spacing.xs, marginBottom: spacing.sm, minHeight: 56 },
     top: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
     key: { fontSize: fontSize.xs, ...font('700'), color: c.ink3, marginTop: 3 },
-    flag: { fontSize: fontSize.sm, marginTop: 1 },
+    flag: { marginTop: 2 },
     title: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
     doneTitle: { color: c.ink2 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: spacing.sm, rowGap: 4 },
-    status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 },
+    status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: 6, paddingVertical: 2 },
     smallDot: { width: 8, height: 8, borderRadius: 4 },
-    priority: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 6 },
     progress: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     track: { width: 48, height: 6, borderRadius: 3, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: 6, borderRadius: 3 },

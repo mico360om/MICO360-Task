@@ -6,10 +6,11 @@ import { useDirectory, useProjects } from '../core/queries';
 import { useProjectCardFigures, useProjectStatus } from '../core/project-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, Badge, Button, PageHeader } from '../components/ui';
+import { SkeletonList, EmptyState, ErrorNote, Badge, Button, Card, PageHeader, ProgressBar } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
+import { Icon } from '../components/Icon';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
-import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
+import { DEFAULT_PROJECT_COLOR, HEX_COLOR, PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
 import { boardProjects } from '../lib/all-board';
 import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectFiguresFor, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
 import { ownerName } from '../lib/project-dashboard';
@@ -51,7 +52,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   const board = useCallback((p: ApiProject) => navigation.navigate('Board', { projectId: p.id, projectName: p.name }), [navigation]);
   const edit = useCallback((p: ApiProject) => navigation.navigate('ProjectForm', { projectId: p.id }), [navigation]);
 
-  if (isLoading) return <Loader />;
+  if (isLoading) return <SkeletonList rows={4} avatar />;
   const empty = emptyProjects(canCreate);
 
   return (
@@ -85,7 +86,8 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
                 accessibilityHint="Every project’s tasks for the day, under six statuses"
                 style={({ pressed }) => [s.allBoard, pressed && s.pressed]}
               >
-                <Text style={s.allBoardText}>▦ Board: all projects</Text>
+                <Icon name="nav.board" size={18} color={c.brandText} />
+                <Text style={s.allBoardText}>Board: all projects</Text>
               </Pressable>
             ) : null}
             {isError && !projects ? <ErrorNote message="Couldn’t load your projects." onRetry={() => void refetch()} retrying={isRefetching} /> : null}
@@ -133,9 +135,12 @@ const ProjectCard = React.memo(function ProjectCard({
   s: Styles;
 }) {
   const dates = projectDates(p.startDate, p.targetDate);
+  const c = useColors();
+  // The project's own colour (the website's maroon when it has none).
+  const color = p.color && HEX_COLOR.test(p.color) ? p.color : DEFAULT_PROJECT_COLOR;
   return (
-    <View style={s.card}>
-      <View style={[s.strip, { backgroundColor: p.color || '#8B1E1E' }]} />
+    <Card padded={false} style={s.card}>
+      <View style={[s.strip, { backgroundColor: color }]} />
       <Pressable
         onPress={() => onOpen(p)}
         accessibilityRole="button"
@@ -151,7 +156,7 @@ const ProjectCard = React.memo(function ProjectCard({
           <Badge label={projectStatusLabel(p.status)} tone={projectStatusTone(p.status)} />
         </View>
         <View style={s.identity}>
-          <ProjectAvatar project={p} size="lg" />
+          <ProjectAvatar project={p} size="md" />
           <View style={s.flex}>
             <Text style={s.name} numberOfLines={2}>
               {p.name}
@@ -164,16 +169,31 @@ const ProjectCard = React.memo(function ProjectCard({
         {meta?.hasProgress ? (
           <View style={s.progressRow}>
             <View style={s.track}>
-              <View style={[s.fill, { width: `${Math.min(100, meta.completedPct)}%` }]} />
+              <ProgressBar value={meta.completedPct} color={color} label={`${p.name}: ${meta.completedPct}% done`} />
             </View>
             <Text style={s.pct}>{meta.completedPct}%</Text>
           </View>
         ) : null}
         {meta || dates ? (
           <View style={s.stats}>
-            {meta ? <Text style={s.stat}>☑ {meta.total} tasks</Text> : null}
-            {meta ? <Text style={[s.stat, meta.overdue > 0 && s.overdue]}>⚠ {meta.overdue} overdue</Text> : null}
-            {dates ? <Text style={s.stat}>📅 {dates}</Text> : null}
+            {meta ? (
+              <View style={s.statItem}>
+                <Icon name="nav.tasks" size={14} color={c.ink2} />
+                <Text style={s.stat}>{meta.total} tasks</Text>
+              </View>
+            ) : null}
+            {meta ? (
+              <View style={s.statItem}>
+                <Icon name="ui.alert" size={14} color={meta.overdue > 0 ? c.dangerText : c.ink2} />
+                <Text style={[s.stat, meta.overdue > 0 && s.overdue]}>{meta.overdue} overdue</Text>
+              </View>
+            ) : null}
+            {dates ? (
+              <View style={s.statItem}>
+                <Icon name="kit.calendar" size={14} color={c.ink2} />
+                <Text style={s.stat}>{dates}</Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
         {meta?.ownerName ? <Text style={s.owner}>Owner · {meta.ownerName}</Text> : null}
@@ -183,7 +203,7 @@ const ProjectCard = React.memo(function ProjectCard({
         {canManage ? <FooterButton label={`Status: ${projectStatusLabel(p.status)}`} a11y={`Status for ${p.name}: ${projectStatusLabel(p.status)}. Change it`} onPress={() => onStatus(p)} s={s} /> : null}
         {canManage ? <FooterButton label="Edit" a11y={`Edit ${p.name}`} onPress={() => onEdit(p)} s={s} /> : null}
       </View>
-    </View>
+    </Card>
   );
 });
 
@@ -208,7 +228,7 @@ function StatusSheet({ project, onClose }: { project: ApiProject | null; onClose
       {PROJECT_STATUSES.map((st) => (
         <ActionRowButton
           key={st}
-          label={`${projectStatusLabel(st)}${project?.status === st ? ' ✓' : ''}`}
+          label={`${projectStatusLabel(st)}${project?.status === st ? ' (current)' : ''}`}
           hint={st === 'ARCHIVED' ? 'Archives the project' : undefined}
           busy={change.isPending && change.variables?.status === st}
           disabled={!project || project.status === st || change.isPending}
@@ -239,25 +259,25 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, gap: spacing.md },
     head: { gap: spacing.sm },
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
-    allBoard: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    allBoard: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     allBoardText: { fontSize: fontSize.md, ...font('700'), color: c.brandText },
     flex: { flex: 1 },
     pressed: { opacity: 0.7 },
-    card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },
+    card: { overflow: 'hidden' },
     strip: { height: 4 },
     main: { padding: spacing.lg, gap: spacing.sm },
     topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
     codes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, flexShrink: 1 },
-    code: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, letterSpacing: 0.5 },
+    code: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 2, letterSpacing: 0.5 },
     identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     name: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     client: { fontSize: fontSize.sm, color: c.ink2 },
     internal: { fontSize: fontSize.sm, color: c.ink3 },
     progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: c.ground, overflow: 'hidden' },
-    fill: { height: 6, borderRadius: 3, backgroundColor: c.brand },
+    track: { flex: 1 },
     pct: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
     stats: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md, rowGap: 4, borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.sm },
+    statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     stat: { fontSize: fontSize.sm, color: c.ink2 },
     overdue: { color: c.dangerText, ...font('700') },
     owner: { fontSize: fontSize.sm, color: c.ink2 },

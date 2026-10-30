@@ -4,7 +4,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useServices } from '../core/providers';
 import { useReportOptions, useReportSummary, useReportTrend } from '../core/queries';
 import { useColors } from '../core/theme';
-import { Card, SectionTitle, Loader, ErrorNote, NoticeNote, Muted, TextField } from '../components/ui';
+import { Card, Chip, SectionTitle, SkeletonList, ErrorNote, NoticeNote, Muted, StatTile, TextField } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { BarChart, LineChart, type Line } from '../components/charts';
 import { usePullRefresh } from '../components/meeting/live';
@@ -113,7 +114,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
               <SectionTitle>Export</SectionTitle>
               <View style={s.chips} accessibilityRole="radiogroup" accessibilityLabel="Report to export">
                 {EXPORT_REPORTS.map((r) => (
-                  <Chip key={r.kind} label={r.label} on={kind === r.kind} onPress={() => { setKind(r.kind); setMsg(null); }} s={s} />
+                  <Chip key={r.kind} label={r.label} selected={kind === r.kind} onPress={() => { setKind(r.kind); setMsg(null); }} />
                 ))}
               </View>
               <View style={s.formats}>
@@ -130,7 +131,8 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
                       onPress={() => void runExport(format)}
                       style={({ pressed }) => [s.fmt, off && s.fmtOff, pressed && s.pressed]}
                     >
-                      <Text style={[s.fmtText, off && s.fmtTextOff]}>{busy === format ? 'Exporting…' : `⬇ ${label}`}</Text>
+                      {busy === format ? null : <Icon name="ui.download" size={16} color={off ? c.ink3 : c.brandText} />}
+                      <Text style={[s.fmtText, off && s.fmtTextOff]}>{busy === format ? 'Exporting…' : label}</Text>
                     </Pressable>
                   );
                 })}
@@ -166,7 +168,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
             </Card>
 
             {summaryQ.isLoading ? (
-              <Loader />
+              <SkeletonList rows={4} />
             ) : summaryQ.isError && !data ? (
               <ErrorNote
                 message={isNetworkError(summaryQ.error) ? 'Reports need a connection — you appear to be offline.' : 'Couldn’t load reports.'}
@@ -185,16 +187,15 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
                 </Muted>
                 <View style={s.chips} accessibilityRole="radiogroup" accessibilityLabel="Dates of the trend">
                   {PERIOD_PRESETS.map((n) => (
-                    <Chip key={n} label={`Last ${n} days`} on={preset === n} onPress={() => choosePreset(n)} s={s} />
+                    <Chip key={n} label={`Last ${n} days`} selected={preset === n} onPress={() => choosePreset(n)} />
                   ))}
                   <Chip
                     label="Choose dates"
-                    on={ownDates || preset === null}
+                    selected={ownDates || preset === null}
                     onPress={() => {
                       setOwnDates(true);
                       setBoxes(range);
                     }}
-                    s={s}
                   />
                 </View>
                 {ownDates ? (
@@ -267,16 +268,24 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
   return (
     <>
       <View style={s.tiles}>
-        <Tile value={sum.total} label="Total tasks" hint={`${sum.projects} project${sum.projects === 1 ? '' : 's'}`} tone={c.brand} s={s} />
-        <Tile value={sum.completed} label="Completed" hint={`${sum.completionPct}% completion`} tone={c.success} s={s} />
-        <Tile value={sum.overdue} label="Overdue" hint={sum.total ? `${sum.overduePct}% of tasks` : '—'} tone={c.danger} s={s} />
-        <Tile
-          value={completion ? `${completion.onTimeRate}%` : '—'}
-          label="On-time rate"
-          hint={completion ? `${completion.onTime} on time · ${completion.late} late` : 'No completion data yet.'}
-          tone={c.info}
-          s={s}
-        />
+        <View style={s.tile}>
+          <StatTile value={sum.total} label="Total tasks" hint={`${sum.projects} project${sum.projects === 1 ? '' : 's'}`} icon="nav.tasks" tone="brand" />
+        </View>
+        <View style={s.tile}>
+          <StatTile value={sum.completed} label="Completed" hint={`${sum.completionPct}% completion`} icon="kit.checkCircle" tone="success" />
+        </View>
+        <View style={s.tile}>
+          <StatTile value={sum.overdue} label="Overdue" hint={sum.total ? `${sum.overduePct}% of tasks` : '—'} icon="ui.alert" tone="danger" />
+        </View>
+        <View style={s.tile}>
+          <StatTile
+            value={completion ? `${completion.onTimeRate}%` : '—'}
+            label="On-time rate"
+            hint={completion ? `${completion.onTime} on time · ${completion.late} late` : 'No completion data yet.'}
+            icon="kit.clock"
+            tone="info"
+          />
+        </View>
       </View>
 
       <Card style={s.card}>
@@ -289,8 +298,8 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
         {completion ? (
           <>
             <View style={s.onTime}>
-              <Big value={completion.onTime} label="On time" tone={c.success} s={s} />
-              <Big value={completion.late} label="Late" tone={c.danger} s={s} />
+              <Big value={completion.onTime} label="On time" tone={c.successText} s={s} />
+              <Big value={completion.late} label="Late" tone={c.dangerText} s={s} />
               <Big value={completion.unclassified} label="No due date" tone={c.ink2} s={s} />
             </View>
             <View style={s.onTimeTrack} importantForAccessibility="no-hide-descendants">
@@ -324,16 +333,16 @@ function Trend({ q, c, s }: { q: ReturnType<typeof useReportTrend>; c: Palette; 
       />
     );
   }
-  if (q.isLoading || !q.data) return <Loader />;
+  if (q.isLoading || !q.data) return <SkeletonList rows={3} />;
   const series: TimeSeries = q.data;
   const t = trendStats(series);
   return (
     <>
       <View style={s.minis}>
-        <Mini value={t.completed} label="Completed in range" tone={c.success} s={s} />
-        <Mini value={t.created} label="New tasks in range" tone={c.info} s={s} />
-        <Mini value={`${t.velocityPerWeek}/wk`} label="Velocity" tone={c.brand} s={s} />
-        <Mini value={t.overdueNow} label="Overdue now" tone={c.danger} s={s} />
+        <Mini value={t.completed} label="Completed in range" tone={c.successText} s={s} />
+        <Mini value={t.created} label="New tasks in range" tone={c.infoText} s={s} />
+        <Mini value={`${t.velocityPerWeek}/wk`} label="Velocity" tone={c.brandText} s={s} />
+        <Mini value={t.overdueNow} label="Overdue now" tone={c.dangerText} s={s} />
       </View>
       {TREND_CHARTS.map((chart) => (
         <View key={chart.key} style={s.chart}>
@@ -415,20 +424,8 @@ function Tables({ data, projectId, userId, memberLabel, c, s }: { data: SummaryD
   );
 }
 
-function Chip({ label, on, onPress, s }: { label: string; on: boolean; onPress: () => void; s: Styles }) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected: on, checked: on }}
-      onPress={onPress}
-      style={({ pressed }) => [s.chip, on && s.chipOn, pressed && s.pressed]}
-    >
-      <Text style={[s.chipText, on && s.chipTextOn]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function Field({ label, value, onPress, s }: { label: string; value: string; onPress: () => void; s: Styles }) {
+  const c = useColors();
   return (
     <View style={s.fieldWrap}>
       <Text style={s.fieldLabel}>{label}</Text>
@@ -439,18 +436,8 @@ function Field({ label, value, onPress, s }: { label: string; value: string; onP
         style={({ pressed }) => [s.field, pressed && s.pressed]}
       >
         <Text style={s.fieldValue} numberOfLines={1}>{value}</Text>
-        <Text style={s.fieldCaret}>▾</Text>
+        <Icon name="ui.chevron" size={16} color={c.ink3} />
       </Pressable>
-    </View>
-  );
-}
-
-function Tile({ value, label, hint, tone, s }: { value: string | number; label: string; hint: string; tone: string; s: Styles }) {
-  return (
-    <View style={s.tile} accessible accessibilityLabel={`${label}: ${value}. ${hint}`}>
-      <Text style={[s.tileValue, { color: tone }]}>{value}</Text>
-      <Text style={s.tileLabel}>{label}</Text>
-      <Text style={s.tileHint}>{hint}</Text>
     </View>
   );
 }
@@ -477,6 +464,7 @@ function OptionSheet({
   visible, title, options, selected, onPick, onClose, s,
 }: { visible: boolean; title: string; options: Option[]; selected: string; onPick: (v: string) => void; onClose: () => void; s: Styles }) {
   const insets = useSafeAreaInsets();
+  const c = useColors();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.backdrop} accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} />
@@ -492,7 +480,7 @@ function OptionSheet({
               style={({ pressed }) => [s.option, pressed && s.pressed]}
             >
               <Text style={[s.optionText, o.value === selected && s.optionOn]}>{o.label}</Text>
-              {o.value === selected ? <Text style={s.optionOn}>✓</Text> : null}
+              {o.value === selected ? <Icon name="misc.check" size={18} color={c.brandText} /> : null}
             </Pressable>
           ))}
         </ScrollView>
@@ -509,31 +497,23 @@ function makeStyles(c: Palette) {
     card: { gap: spacing.sm },
     pressed: { opacity: 0.7 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    chip: { borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 40, justifyContent: 'center', backgroundColor: c.surface },
-    chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
-    chipTextOn: { color: c.brandText },
     formats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
-    fmt: { flexGrow: 1, flexBasis: 90, minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: c.brand, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, paddingHorizontal: spacing.sm },
+    fmt: { flexGrow: 1, flexBasis: 90, minHeight: 48, borderRadius: radius.button, borderWidth: 1, borderColor: c.brand, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, paddingHorizontal: spacing.sm },
     fmtOff: { borderColor: c.line },
     fmtText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     fmtTextOff: { color: c.ink3 },
     hint: { fontSize: fontSize.xs },
     fieldWrap: { gap: spacing.xs },
     fieldLabel: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: spacing.xs },
-    field: { minHeight: 48, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface },
+    field: { minHeight: 48, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface },
     fieldValue: { flex: 1, fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
-    fieldCaret: { color: c.ink3, fontSize: fontSize.md },
     clear: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
     clearText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     dates: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     dateBox: { flexGrow: 1, flexBasis: 140 },
     problem: { fontSize: fontSize.sm, ...font('600'), color: c.dangerText },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    tile: { flexBasis: '47%', flexGrow: 1, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md },
-    tileValue: { fontSize: fontSize.xxl, ...font('800') },
-    tileLabel: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
-    tileHint: { fontSize: fontSize.xs, color: c.ink2, marginTop: 4 },
+    tile: { flexBasis: '47%', flexGrow: 1 },
     onTime: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
     big: { minWidth: 72 },
     bigValue: { fontSize: fontSize.xxl, ...font('800') },
@@ -541,7 +521,7 @@ function makeStyles(c: Palette) {
     onTimeFill: { height: '100%', backgroundColor: c.success },
     onTimeText: { fontSize: fontSize.sm, color: c.ink2 },
     minis: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    mini: { flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, backgroundColor: c.ground },
+    mini: { flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.sm, backgroundColor: c.ground },
     miniValue: { fontSize: fontSize.lg, ...font('800') },
     miniLabel: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     chart: { gap: 2, marginTop: spacing.md },
@@ -558,8 +538,8 @@ function makeStyles(c: Palette) {
     wlRow: { paddingVertical: spacing.sm, gap: 2 },
     wlFirst: { marginTop: spacing.sm },
     wlNums: { fontSize: fontSize.xs, color: c.ink2 },
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
-    sheet: { maxHeight: '70%', backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: spacing.md },
+    backdrop: { flex: 1, backgroundColor: c.scrim },
+    sheet: { maxHeight: '70%', backgroundColor: c.surface, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, paddingTop: spacing.md },
     sheetTitle: { fontSize: fontSize.lg, ...font('700'), color: c.ink, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
     option: { minHeight: 48, paddingHorizontal: spacing.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
     optionText: { flex: 1, fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },

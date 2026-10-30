@@ -2,12 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Alert, AccessibilityInfo } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useTeamChanges } from '../../core/project-queries';
-import { Badge, Button, ErrorNote } from '../ui';
+import { Avatar, Badge, Button, ErrorNote } from '../ui';
 import { InlinePicker, SheetMessage } from '../meeting/sheet-kit';
 import { EmptyNote, SectionCard } from './parts';
 import { addableUsers, memberLabel, memberProblem, membersInOrder, removeQuestion, roleAction } from '../../lib/project-team';
 import { displayName, type ApiDirectoryUser, type ApiMember } from '../../lib/types';
-import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { spacing, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
 
 /**
@@ -101,11 +101,7 @@ export function TeamTab({
         return (
           <View key={m.id} style={s.member}>
             <View style={s.who} accessible accessibilityLabel={memberLabel(m, myId)}>
-              <View style={s.avatar}>
-                <Text style={s.avatarText} allowFontScaling={false}>
-                  {displayName(m).slice(0, 2).toUpperCase()}
-                </Text>
-              </View>
+              <Avatar name={displayName(m)} size="md" />
               <View style={s.text}>
                 <Text style={s.name}>
                   {displayName(m)}
@@ -142,8 +138,6 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     member: { borderTopWidth: 1, borderTopColor: c.line, paddingVertical: spacing.sm, gap: spacing.sm },
     who: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    avatar: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center' },
-    avatarText: { color: c.onBrand, ...font('700'), fontSize: 12 },
     text: { flex: 1 },
     name: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     you: { ...font('400'), color: c.ink2 },

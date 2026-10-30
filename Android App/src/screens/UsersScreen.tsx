@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useAfterUserChange, useUserActions, useUsers } from '../core/admin-queries';
-import { Badge, ErrorNote, Loader, NoticeNote, TextField } from '../components/ui';
+import { Avatar, Badge, ErrorNote, NoticeNote, SkeletonList, TextField } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { FilterChips } from '../components/project/parts';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
 import { ApiError } from '../lib/api-client';
@@ -100,7 +101,7 @@ export function UsersScreen({ navigation, route }: AppScreenProps<'Users'>) {
     }
   }
 
-  if (usersQ.isLoading) return <Loader />;
+  if (usersQ.isLoading) return <SkeletonList rows={5} avatar />;
 
   if (usersQ.isError && !usersQ.data) {
     return (
@@ -127,7 +128,7 @@ export function UsersScreen({ navigation, route }: AppScreenProps<'Users'>) {
               <View style={s.noticeRow}>
                 <View style={s.flex}>{notice.error ? <ErrorNote message={notice.text} /> : <NoticeNote message={notice.text} />}</View>
                 <Pressable onPress={() => setNotice(null)} accessibilityRole="button" accessibilityLabel="Dismiss" hitSlop={8} style={s.dismiss}>
-                  <Text style={s.dismissText}>✕</Text>
+                  <Icon name="ui.close" size={18} color={c.ink2} />
                 </Pressable>
               </View>
             ) : null}
@@ -214,7 +215,8 @@ const UserCard = React.memo(function UserCard({
     <View style={s.card}>
       <View accessible accessibilityLabel={userCardLabel(u, isSelf)} style={s.info}>
         <View style={s.topRow}>
-          <Text style={s.name} numberOfLines={2}>
+          <Avatar name={name} src={u.avatarUrl} size="md" />
+          <Text style={[s.name, s.flex]} numberOfLines={2}>
             {name}
             {isSelf ? <Text style={s.you}> (you)</Text> : null}
           </Text>
@@ -228,7 +230,7 @@ const UserCard = React.memo(function UserCard({
         </Text>
         <View style={s.tags}>
           <Text style={s.roles}>{rolesText(u.roles)}</Text>
-          {u.locked ? <Badge label="🔒 Locked" tone="warning" /> : null}
+          {u.locked ? <Badge label="Locked" tone="warning" dot /> : null}
         </View>
       </View>
       <View style={s.footer}>
@@ -296,7 +298,7 @@ function StatusSheet({ user, isSelf, onClose }: { user: ApiAdminUser | null; isS
       {USER_STATUSES.map((st) => (
         <ActionRowButton
           key={st}
-          label={`${statusLabel(st)}${user?.status === st ? ' ✓' : ''}`}
+          label={`${statusLabel(st)}${user?.status === st ? ' (current)' : ''}`}
           hint={st === 'ACTIVE' ? 'Can sign in' : 'Signed out everywhere, and can’t sign in'}
           busy={busy === st}
           disabled={!user || isSelf || user.status === st || !!busy}
@@ -358,19 +360,18 @@ const makeStyles = (c: Palette) =>
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
     noticeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
     dismiss: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-    dismissText: { fontSize: fontSize.md, color: c.ink2, ...font('700') },
-    locked: { fontSize: fontSize.sm, color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.md, padding: spacing.md },
+    locked: { fontSize: fontSize.sm, color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.input, padding: spacing.md },
     count: { fontSize: fontSize.sm, color: c.ink2 },
-    card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.md },
+    card: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.md },
     info: { gap: 2 },
-    topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
+    topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
     name: { flexShrink: 1, fontSize: fontSize.md, ...font('700'), color: c.ink },
     you: { ...font('400'), color: c.ink2 },
     meta: { fontSize: fontSize.sm, color: c.ink2 },
     tags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
     roles: { fontSize: fontSize.sm, color: c.ink, ...font('600') },
     footer: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    button: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
+    button: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.button, borderWidth: 1, borderColor: c.line },
     buttonWarning: { borderColor: c.warning },
     buttonText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     buttonWarningText: { color: c.warningText },

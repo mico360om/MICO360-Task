@@ -7,7 +7,7 @@ import { useBoardRealtime } from '../core/useBoardRealtime';
 import { useSession } from '../core/providers';
 import { useOpenProjectChat } from '../core/chat';
 import { useColors } from '../core/theme';
-import { Badge, Button, ErrorNote, Loader } from '../components/ui';
+import { Badge, Button, ErrorNote, SkeletonList } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { InlinePicker, SheetMessage } from '../components/meeting/sheet-kit';
 import { ProgressBar, StatTiles, Tabs, EmptyNote } from '../components/project/parts';
@@ -130,7 +130,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
     void meetingsQ.refetch();
   };
 
-  if (projectQ.isLoading) return <Loader />;
+  if (projectQ.isLoading) return <SkeletonList rows={5} />;
   if (!project) {
     const missing = projectQ.error instanceof ApiError && projectQ.error.status === 404;
     return (
@@ -167,7 +167,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
       <View style={s.actions}>
         {/* New task in this project (4a; the website's header New task starts in the project open). */}
         <Button title="New task" onPress={() => navigation.navigate('NewTask', { projectId })} style={s.action} />
-        {canManage ? <Button title="✏️ Edit project" accessibilityLabel="Edit project" variant="secondary" onPress={() => navigation.navigate('ProjectForm', { projectId })} style={s.action} /> : null}
+        {canManage ? <Button title="Edit project" icon="ui.edit" accessibilityLabel="Edit project" variant="secondary" onPress={() => navigation.navigate('ProjectForm', { projectId })} style={s.action} /> : null}
       </View>
       <SheetMessage text={ownerProblem} />
 
@@ -216,7 +216,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
       {tab === 'tasks' ? (
         <View style={s.tasksHead}>
           {tasksQ.isLoading || columnsQ.isLoading ? (
-            <Loader />
+            <SkeletonList rows={3} />
           ) : tasksQ.isError && !tasksQ.data ? (
             <ErrorNote message="The project’s tasks aren’t available right now." onRetry={() => void tasksQ.refetch()} retrying={tasksQ.isRefetching} />
           ) : tasks.length === 0 ? (
@@ -279,7 +279,7 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
     missing: { padding: spacing.lg },
     head: { gap: spacing.md, marginBottom: spacing.sm },
-    identity: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
+    identity: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
     identityText: { flex: 1, gap: spacing.xs },
     name: { fontSize: fontSize.xl, ...font('800'), color: c.ink },
     badgeRow: { flexDirection: 'row' },

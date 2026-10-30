@@ -80,7 +80,7 @@ export function IdentityPicker({
                   accessibilityState={{ selected: on, checked: on, disabled: !!disabled }}
                   style={({ pressed }) => [s.swatchHit, pressed && s.pressed]}
                 >
-                  <View style={[s.swatch, { backgroundColor: hex }, on && { borderColor: c.ink, borderWidth: 3 }]}>{on ? <Text style={{ color: readableOn(hex), ...font('800') }}>✓</Text> : null}</View>
+                  <View style={[s.swatch, { backgroundColor: hex }, on && { borderColor: c.ink, borderWidth: 3 }]}>{on ? <Icon name="misc.check" size={16} color={readableOn(hex)} /> : null}</View>
                 </Pressable>
               );
             })}
@@ -145,9 +145,9 @@ export function IdentityPicker({
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     pressed: { opacity: 0.7 },
-    panel: { borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, backgroundColor: c.ground, padding: spacing.md, gap: spacing.md },
-    segs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignSelf: 'flex-start', backgroundColor: c.line, borderRadius: radius.md, padding: 4 },
-    seg: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.sm },
+    panel: { borderWidth: 1, borderColor: c.line, borderRadius: radius.card, backgroundColor: c.ground, padding: spacing.md, gap: spacing.md },
+    segs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignSelf: 'flex-start', backgroundColor: c.line, borderRadius: radius.input, padding: 4 },
+    seg: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.badge },
     segOn: { backgroundColor: c.surface },
     segText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
     segTextOn: { color: c.ink, ...font('800') },
@@ -156,8 +156,8 @@ const makeStyles = (c: Palette) =>
     legend: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
     swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
     swatchHit: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-    swatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)' },
+    swatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.line },
     icons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-    iconCell: { width: 48, height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
+    iconCell: { width: 48, height: 48, borderRadius: radius.input, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
     initials: { ...font('700'), fontSize: 17 },
   });

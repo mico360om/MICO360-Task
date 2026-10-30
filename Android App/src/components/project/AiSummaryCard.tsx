@@ -48,7 +48,7 @@ export function AiSummaryCard({ projectId, ready, request }: { projectId: string
 
   return (
     <SectionCard
-      title="✨ AI status summary"
+      title="AI status summary"
       action={
         <Button
           title={button.title}
@@ -82,6 +82,6 @@ export function AiSummaryCard({ projectId, ready, request }: { projectId: string
 
 const styles = StyleSheet.create({
   button: { minHeight: 44, paddingHorizontal: spacing.md },
-  box: { fontSize: fontSize.sm, ...font('600'), borderRadius: radius.md, padding: spacing.md },
+  box: { fontSize: fontSize.sm, ...font('600'), borderRadius: radius.input, padding: spacing.md },
   summary: { fontSize: fontSize.md, lineHeight: 22 },
 });

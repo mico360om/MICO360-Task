@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Badge, Button } from '../ui';
+import { Icon } from '../Icon';
 import { MeetingRow } from '../MeetingRow';
 import { AiSummaryCard } from './AiSummaryCard';
 import { EmptyNote, LinkButton, ProgressBar, SectionCard } from './parts';
@@ -145,9 +146,9 @@ export function OverviewTab(p: OverviewProps) {
                 accessibilityLabel={`Milestone ${m.task.title}, ${note}`}
                 style={({ pressed }) => [s.line, pressed && s.pressed]}
               >
-                <Text style={[s.flag, { color: toneColor(c, MILESTONE_TONE[m.state]) }]} importantForAccessibility="no">
-                  🏁
-                </Text>
+                <View style={s.flag} importantForAccessibility="no-hide-descendants">
+                  <Icon name="misc.milestone" size={16} color={toneColor(c, MILESTONE_TONE[m.state])} />
+                </View>
                 <View style={s.lineText}>
                   <Text style={[s.lineTitle, m.state === 'done' && s.done]} numberOfLines={2}>
                     {m.task.title}
@@ -277,7 +278,8 @@ export function OverviewTab(p: OverviewProps) {
 }
 
 function toneColor(c: Palette, tone: Tone): string {
-  return tone === 'success' ? c.success : tone === 'danger' ? c.danger : tone === 'brand' ? c.brand : c.ink3;
+  // A sign's colour is its text tone (4.5:1), as words in that tone.
+  return tone === 'success' ? c.successText : tone === 'danger' ? c.dangerText : tone === 'brand' ? c.brandText : tone === 'warning' ? c.warningText : c.ink3;
 }
 
 function Detail({ label, text, children, s }: { label: string; text?: string; children?: React.ReactNode; s: ReturnType<typeof makeStyles> }) {
@@ -313,7 +315,7 @@ const makeStyles = (c: Palette) =>
     action: { flexGrow: 1, flexBasis: '45%' },
     error: { color: c.dangerText, fontSize: fontSize.sm },
     line: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: c.line, minHeight: 48 },
-    flag: { fontSize: fontSize.md, width: 22, textAlign: 'center' },
+    flag: { width: 22, alignItems: 'center', paddingTop: 2 },
     lineText: { flex: 1 },
     lineTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     lineSub: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },

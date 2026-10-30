@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useColors } from '../core/theme';
 import { useAdminTotals } from '../core/project-queries';
-import { ErrorNote, SectionTitle } from './ui';
+import { ErrorNote, SectionTitle, StatTile } from './ui';
 import { adminTotals, completionBars } from '../lib/project-list';
 import { statusBars } from '../lib/reports';
 import { toneStyle } from '../lib/tone';
@@ -30,18 +30,17 @@ export function AdminTotals({ onOpenReports }: { onOpenReports: () => void }) {
       {q.isError && !q.data ? <ErrorNote message="Couldn’t load the totals for all projects." onRetry={() => void q.refetch()} retrying={q.isRefetching} /> : null}
       <View style={s.tiles}>
         {tiles.map((t) => (
-          <Pressable
-            key={t.key}
-            onPress={onOpenReports}
-            accessibilityRole="button"
-            accessibilityLabel={`${t.label}: ${ready ? t.value : 'loading'}${ready && t.hint ? `, ${t.hint}` : ''}`}
-            accessibilityHint="Opens Reports"
-            style={({ pressed }) => [s.tile, pressed && s.pressed]}
-          >
-            <Text style={[s.tileValue, { color: toneStyle(c, t.tone).fg }]}>{ready ? t.value : '—'}</Text>
-            <Text style={s.tileLabel}>{t.label}</Text>
-            {ready && t.hint ? <Text style={s.tileHint}>{t.hint}</Text> : null}
-          </Pressable>
+          <View key={t.key} style={s.tile}>
+            <StatTile
+              label={t.label}
+              value={ready ? t.value : '—'}
+              hint={ready ? t.hint : undefined}
+              icon={t.key === 'overdue' ? 'ui.alert' : 'nav.tasks'}
+              tone={t.tone === 'neutral' ? 'brand' : t.tone}
+              onPress={onOpenReports}
+              actionLabel="Opens Reports"
+            />
+          </View>
         ))}
       </View>
 
@@ -91,12 +90,8 @@ export function AdminTotals({ onOpenReports }: { onOpenReports: () => void }) {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     wrap: { gap: spacing.sm },
-    pressed: { opacity: 0.7 },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    tile: { flexGrow: 1, flexBasis: '47%', backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
-    tileValue: { fontSize: fontSize.xxl, ...font('800') },
-    tileLabel: { fontSize: fontSize.sm, color: c.ink2, marginTop: 2 },
-    tileHint: { fontSize: fontSize.xs, color: c.ink3 },
+    tile: { flexGrow: 1, flexBasis: '47%' },
     card: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.sm },
     cardTitle: { fontSize: fontSize.sm, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
     muted: { fontSize: fontSize.sm, color: c.ink2 },
