@@ -5,6 +5,7 @@ import { todayKey, shiftDayKey, isDayKey, formatDayKey, relativeDayHint } from '
 import { isRecurring } from '../../src/recurrence.js';
 import { isTempId, tempId } from '../../src/pending-overlay.js';
 import { cardFacts, cardLabel } from '../../src/task-cards.js';
+import { approvalNotice, isWaitingForApproval } from '../../src/approvals.js';
 import { hasFiles } from '../../src/file-drop-guard.js';
 import { menuButton } from '../menu.js';
 import { openNewTaskDialog } from '../new-task-dialog.js';
@@ -23,7 +24,7 @@ const ICON = {
 const NEW_TASK_SAVED = 'Saved on this device — the task will be created when the connection is back.';
 
 /** What the board keeps from a move's reply: the task's new version and the status the server set. */
-const MOVE_REPLY_FIELDS = ['version', 'columnId', 'columnCategory', 'completedAt', 'progress', 'columnHidden'];
+const MOVE_REPLY_FIELDS = ['version', 'columnId', 'columnCategory', 'completedAt', 'progress', 'columnHidden', 'approvalRequestedAt'];
 
 /**
  * Kanban board for one project and ONE board day (EXT-03) — like the web and mobile boards, each day
@@ -352,10 +353,17 @@ export function BoardScreen(ctx) {
       // The column's status travels with a move kept on this device, so other screens show it moved too.
       const r = await ctx.write('task.move', { id, columnId: targetCol.id, position, columnCategory: targetCol.category });
       if (r.queued) { note = SAVED_ON_DEVICE; render(); }
-      else if (completesRepeat) await load();
+      // (A repeating task that waits for approval has no next copy yet: nothing more to read.)
+      else if (completesRepeat && !isWaitingForApproval(r.data)) await load();
       else if (r.data && r.data.id === id) {
         // H1: the move made a new version of the task.
         for (const f of MOVE_REPLY_FIELDS) if (r.data[f] !== undefined) task[f] = r.data[f];
+        // The server put it somewhere else — a task that needs approval, finished by someone who
+        // can't approve it, waits in its project's Review column (or where it was): drawn there now.
+        if (task.columnId !== targetCol.id) {
+          note = approvalNotice(targetCol.id, task) || '';
+          render();
+        }
       }
     } catch (e) {
       Object.assign(task, before);

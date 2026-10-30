@@ -5,6 +5,7 @@ import { taskRow, PRIORITY_LABEL, writeErrorMessage, SAVED_ON_DEVICE } from '../
 import { SORT_OPTIONS, sortTasks, projectFilterOptions, doneColumnOf } from '../../src/task-cards.js';
 import { isRecurring } from '../../src/recurrence.js';
 import { isTempId } from '../../src/pending-overlay.js';
+import { isWaitingForApproval } from '../../src/approvals.js';
 
 /**
  * My Tasks — every task assigned to me, with a keyword search, priority chips, a project filter
@@ -12,7 +13,9 @@ import { isTempId } from '../../src/pending-overlay.js';
  * Upcoming / No due date / Completed sections (mirrors the web + Android apps). "Mark done" on an
  * open task moves it to its project's Done column (src/task-cards.js doneColumnOf — the server
  * completes a task moved there), sent now or kept on this device like a move on the board. Reads
- * work offline via the read-through cache.
+ * work offline via the read-through cache. A task that needs approval, finished by someone who can't
+ * approve it, waits instead (the server says so in its answer): it shows "Waiting for approval" in
+ * place of "Mark done" (src/approvals.js).
  *
  * `root.refresh()` reads the list again in place (coming back to the tab, and every minute in the
  * side panel — Stage 7): the search, filters and focus stay. `view: 'today'` is the side panel's
@@ -247,6 +250,11 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
   function row(t) {
     const line = taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone });
     if (isDone(t)) return line;
+    // Waiting for approval: marking it done again would change nothing, so it says so instead.
+    if (isWaitingForApproval(t)) {
+      return el('div', { class: 'task-row-wrap' }, line,
+        el('span', { class: 'waiting-approval', title: 'A project manager must approve it before it counts as done.' }, 'Waiting for approval'));
+    }
     const busy = marking.has(t.id);
     return el('div', { class: 'task-row-wrap' }, line,
       el('button', {
@@ -307,14 +315,16 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
     try {
       const r = await ctx.write('task.move', { id: t.id, columnId, columnCategory: 'DONE' });
       marking.delete(t.id);
-      focusWant = { id: t.id, part: 'row' }; // done: it has no "Mark done" any more, so its row
+      focusWant = { id: t.id, part: 'row' }; // done (or waiting): it has no "Mark done" any more, so its row
       if (r.queued) note = SAVED_ON_DEVICE;
       else {
         note = '';
         if (r.data && r.data.id === t.id) Object.assign(t, r.data);
       }
-      live.textContent = `“${t.title}” is done.`;
-      if (!r.queued && repeats) owed = true; // its next copy: read once no task is being marked done
+      // It needs approval and the server put it to wait (it isn't done until a project manager approves).
+      const waits = !r.queued && isWaitingForApproval(t);
+      live.textContent = waits ? `“${t.title}” is waiting for approval.` : `“${t.title}” is done.`;
+      if (!r.queued && repeats && !waits) owed = true; // its next copy: read once no task is being marked done
       renderResults();
     } catch (e) {
       marking.delete(t.id);
