@@ -52,8 +52,20 @@ function padding(size: number): number {
   return (BLOCK - (size % BLOCK)) % BLOCK;
 }
 
-/** Resolves when a full output can take more (or rejects if it fails or closes); leaves no listeners behind. */
+/** Why `out` can't take more (it failed, was destroyed or closed, or was ended), or null. */
+function unwritable(out: Writable): Error | null {
+  if (out.errored) return out.errored;
+  if (out.destroyed || out.closed || out.writableEnded) return new Error('The backup output closed before the copy was finished.');
+  return null;
+}
+
+/**
+ * Resolves when a full output can take more; rejects if it fails or closes — at once when that has
+ * already happened (its 'error' and 'close' events are gone by then). Leaves no listeners behind.
+ */
 export function waitForDrain(out: Writable): Promise<void> {
+  const dead = unwritable(out);
+  if (dead) return Promise.reject(dead);
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       out.off('drain', onDrain);
@@ -90,66 +102,96 @@ export interface TarWriter {
   finish(): Promise<void>;
 }
 
+/** The header block(s) of one entry: a PAX record first when the name or size needs one. */
+function entryHeader(name: string, size: number, mtime: Date): Buffer {
+  if (!isSafeEntryName(name)) throw new Error(`Unsafe name in the backup: ${name}`);
+  const ascii = /^[\x20-\x7e]*$/.test(name);
+  const pax: Buffer[] = [];
+  if (!ascii || Buffer.byteLength(name) > 100) pax.push(paxRecord('path', name));
+  if (size > MAX_OCTAL_SIZE) pax.push(paxRecord('size', String(size)));
+  const blocks: Buffer[] = [];
+  if (pax.length) {
+    const body = Buffer.concat(pax);
+    blocks.push(header('PaxHeader', body.length, 'x', mtime), body, Buffer.alloc(padding(body.length)));
+  }
+  // The plain name field gets an ASCII stand-in when the real name is in the PAX record.
+  const fallback = ascii ? name.slice(0, 100) : name.replace(/[^\x20-\x7e]/g, '_').slice(0, 100);
+  blocks.push(header(fallback, size, '0', mtime));
+  return Buffer.concat(blocks);
+}
+
+/** The two zero blocks that end an archive. */
+export const TAR_END = Buffer.concat([ZERO, ZERO]);
+
+/** One whole entry (header, data, padding) from a buffer. */
+export function tarBufferEntry(name: string, data: Buffer, mtime: Date = new Date()): Buffer {
+  return Buffer.concat([entryHeader(name, data.length, mtime), data, Buffer.alloc(padding(data.length))]);
+}
+
+/**
+ * One entry streamed from `src`, as the pieces to write: `size` bytes, a source that ends early is
+ * filled with zeros (`written` says how much it gave) and one that is longer is cut at `size`.
+ * Returns the sha256 of the bytes the entry holds. `src` is closed however it ends — also when the
+ * archive is stopped part-way (the output failed), which ends this generator at the piece it is on.
+ */
+export async function* tarStreamEntry(name: string, size: number, src: Readable, mtime: Date = new Date()): AsyncGenerator<Buffer, { sha256: string; written: number }> {
+  const hash = createHash('sha256');
+  let written = 0;
+  try {
+    yield entryHeader(name, size, mtime);
+    for await (const chunk of src) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      const take = buf.subarray(0, Math.min(buf.length, size - written));
+      if (take.length) {
+        hash.update(take);
+        written += take.length;
+        yield take;
+      }
+      if (written >= size) break;
+    }
+  } finally {
+    src.destroy();
+  }
+  let missing = size - written;
+  while (missing > 0) {
+    const fill = Buffer.alloc(Math.min(missing, 64 * 1024));
+    hash.update(fill);
+    missing -= fill.length;
+    yield fill;
+  }
+  if (padding(size)) yield Buffer.alloc(padding(size));
+  return { sha256: hash.digest('hex'), written };
+}
+
+/** A tar writer onto a stream; every write fails at once when the stream already failed or closed. */
 export function createTarWriter(out: Writable): TarWriter {
   async function write(buf: Buffer): Promise<void> {
+    const dead = unwritable(out);
+    if (dead) throw dead;
     if (!out.write(buf)) await waitForDrain(out);
-  }
-
-  async function writeHeader(name: string, size: number, mtime: Date): Promise<void> {
-    if (!isSafeEntryName(name)) throw new Error(`Unsafe name in the backup: ${name}`);
-    const ascii = /^[\x20-\x7e]*$/.test(name);
-    const pax: Buffer[] = [];
-    if (!ascii || Buffer.byteLength(name) > 100) pax.push(paxRecord('path', name));
-    if (size > MAX_OCTAL_SIZE) pax.push(paxRecord('size', String(size)));
-    if (pax.length) {
-      const body = Buffer.concat(pax);
-      await write(header('PaxHeader', body.length, 'x', mtime));
-      await write(body);
-      if (padding(body.length)) await write(Buffer.alloc(padding(body.length)));
-    }
-    // The plain name field gets an ASCII stand-in when the real name is in the PAX record.
-    const fallback = ascii ? name.slice(0, 100) : name.replace(/[^\x20-\x7e]/g, '_').slice(0, 100);
-    await write(header(fallback, size, '0', mtime));
   }
 
   return {
     async addBuffer(name, data, mtime = new Date()) {
-      await writeHeader(name, data.length, mtime);
-      if (data.length) await write(data);
-      if (padding(data.length)) await write(Buffer.alloc(padding(data.length)));
+      await write(tarBufferEntry(name, data, mtime));
     },
 
     async addStream(name, size, src, mtime = new Date()) {
-      await writeHeader(name, size, mtime);
-      const hash = createHash('sha256');
-      let written = 0;
+      const pieces = tarStreamEntry(name, size, src, mtime);
       try {
-        for await (const chunk of src) {
-          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-          const take = buf.subarray(0, Math.min(buf.length, size - written));
-          if (take.length) {
-            hash.update(take);
-            await write(take);
-            written += take.length;
-          }
-          if (written >= size) break;
+        for (;;) {
+          const next = await pieces.next();
+          if (next.done) return next.value;
+          await write(next.value);
         }
-      } finally {
+      } catch (err) {
         src.destroy();
+        throw err;
       }
-      let missing = size - written;
-      while (missing > 0) {
-        const fill = Buffer.alloc(Math.min(missing, 64 * 1024));
-        hash.update(fill);
-        await write(fill);
-        missing -= fill.length;
-      }
-      if (padding(size)) await write(Buffer.alloc(padding(size)));
-      return { sha256: hash.digest('hex'), written };
     },
 
     async finish() {
-      await write(Buffer.concat([ZERO, ZERO]));
+      await write(TAR_END);
     },
   };
 }

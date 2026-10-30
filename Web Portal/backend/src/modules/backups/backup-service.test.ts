@@ -1,11 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { Writable } from 'node:stream';
 import { createBackupService, type BackupDrive, type BackupServiceDeps } from './backup-service';
 import type { BackupRepository, BackupRunLock, BackupRunRecord } from './backup-repository';
-import type { ArchiveResult } from './backup-archive';
+import { writeBackupArchive, type ArchiveResult } from './backup-archive';
+import { fakeSqlRunner, fillingDisk } from './backup-fakes';
 import { ConflictError } from '../../lib/http-errors';
+
+/** Fails the test instead of waiting forever when `p` never settles. */
+function within<T>(ms: number, p: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout;
+  return Promise.race([p, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`still running after ${ms} ms: it hangs`)), ms)))]).finally(() => clearTimeout(timer));
+}
 
 // ── in-memory fakes ──────────────────────────────────────────────────────────
 function memoryRepo(): BackupRepository & { rows: BackupRunRecord[] } {
@@ -224,6 +233,66 @@ describe('Back up now', () => {
     const left = readdirSync(dir).sort();
     expect(left).toContain('mico360-20261029-020000.sql');
     expect(left.some((f) => f.endsWith('.partial') || f.startsWith('.work-'))).toBe(false);
+  });
+
+  it('a copy still running after the time limit is stopped: FAILED with the reason, the lock is free, the next copy works', async () => {
+    let hung: AbortSignal | undefined;
+    const svc = service({
+      maxRunMs: 50,
+      writeArchive: async (o) => {
+        if (archiveCalls++ === 0) {
+          hung = o.signal;
+          mkdirSync(o.workDir, { recursive: true });
+          writeFileSync(`${o.outFile}.partial`, 'half');
+          return new Promise<ArchiveResult>(() => undefined); // never ends, and doesn't listen to the signal
+        }
+        writeFileSync(o.outFile, 'archive bytes');
+        return { sizeBytes: 13, sha256: 'a'.repeat(64), md5: 'b'.repeat(32), tables: 64, rows: 1000, files: 5, fileBytes: 999, latestMigration: 'm', encrypted: false };
+      },
+    });
+    await svc.start('admin1');
+    await within(5000, svc.idle());
+    expect(repo.rows[0]).toMatchObject({ status: 'FAILED', error: 'The backup was stopped: it was still running after 1 minute.' });
+    expect(hung?.aborted).toBe(true);
+    expect(lock.held).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
+    await svc.start('admin1');
+    await within(5000, svc.idle());
+    expect(repo.rows[1]).toMatchObject({ status: 'OK' });
+  });
+});
+
+describe('a disk that fills up while the copy is written (the real archive writer)', () => {
+  let uploads: string;
+  beforeEach(() => {
+    uploads = mkdtempSync(join(tmpdir(), 'mico-bk-svc-up-'));
+    writeFileSync(join(uploads, 'photo.bin'), randomBytes(1024 * 1024));
+  });
+  afterEach(() => rmSync(uploads, { recursive: true, force: true }));
+
+  it.each([
+    ['at the first byte', 0, 0],
+    ['at the first byte, failing a moment later', 0, 5],
+    ['part-way through', 200 * 1024, 0],
+    ['part-way through, failing a moment later', 200 * 1024, 5],
+  ])('%s: the run ends FAILED ("disk is full"), no .partial is left, and the next copy can be made', async (_when, limit, delayMs) => {
+    let disk: ((path: string) => Writable) | null = fillingDisk(limit, { delayMs });
+    const sql = fakeSqlRunner([{ name: 'notes', columns: [{ name: 'id', type: 'varchar' }, { name: 'body', type: 'text' }], primaryKey: ['id'], rows: [['n1', 'hello']] }]);
+    const svc = service({
+      writeArchive: (o) => writeBackupArchive({ ...o, sql, uploadDir: uploads, appVersion: 't', openWrite: (path) => (disk && path.endsWith('.partial') ? disk(path) : createWriteStream(path)) }),
+    });
+    await svc.start('admin1');
+    await within(5000, svc.idle());
+    expect(repo.rows[0]).toMatchObject({ status: 'FAILED', error: 'The server’s disk is full.', fileName: null });
+    expect(readdirSync(dir)).toEqual([]);
+    expect(lock.held).toBe(false);
+    expect((await svc.overview()).running).toBeNull();
+
+    disk = null;
+    await svc.start('admin1');
+    await within(5000, svc.idle());
+    expect(repo.rows[1]).toMatchObject({ status: 'OK' });
+    expect(readdirSync(dir)).toEqual([repo.rows[1]!.fileName]);
   });
 });
 

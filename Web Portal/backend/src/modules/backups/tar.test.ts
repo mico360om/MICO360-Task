@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
-import { createTarWriter, readTar, waitForDrain } from './tar';
+import { createTarWriter, readTar, TAR_END, tarBufferEntry, tarStreamEntry, waitForDrain } from './tar';
 import { Writable } from 'node:stream';
 
 async function collect(src: Readable): Promise<Buffer> {
@@ -137,5 +137,38 @@ describe('tar writer and reader', () => {
     expect(slow.listenerCount('error')).toBe(0);
     expect(slow.listenerCount('drain')).toBe(0);
     expect(slow.listenerCount('close')).toBe(0);
+  });
+
+  it('an output that already failed (a full disk ended the pipeline): writes and waits fail at once, never hang', async () => {
+    const hang = (ms: number) => new Promise((_, reject) => setTimeout(() => reject(new Error('it hangs')), ms).unref());
+    const out = new PassThrough();
+    out.on('error', () => undefined);
+    out.destroy(Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }));
+    await new Promise((r) => setImmediate(r)); // its 'error' and 'close' events are over
+    await expect(Promise.race([waitForDrain(out), hang(1000)])).rejects.toMatchObject({ code: 'ENOSPC' });
+    const tar = createTarWriter(out);
+    await expect(Promise.race([tar.addBuffer('manifest.json', Buffer.alloc(10)), hang(1000)])).rejects.toMatchObject({ code: 'ENOSPC' });
+    const src = Readable.from([Buffer.alloc(100)]);
+    await expect(Promise.race([tar.addStream('files/a.bin', 100, src), hang(1000)])).rejects.toMatchObject({ code: 'ENOSPC' });
+    expect(src.destroyed).toBe(true);
+    const closedOnly = new PassThrough();
+    closedOnly.destroy();
+    await new Promise((r) => setImmediate(r));
+    await expect(Promise.race([waitForDrain(closedOnly), hang(1000)])).rejects.toThrow(/closed before the copy was finished/);
+  });
+
+  it('tarStreamEntry / tarBufferEntry make the same archive as the writer', async () => {
+    const data = randomBytes(70 * 1024);
+    const pieces: Buffer[] = [Buffer.from(tarBufferEntry('manifest.json', Buffer.from('{}')))];
+    const it = tarStreamEntry('files/مرفق.bin', data.length, Readable.from([data]));
+    let next = await it.next();
+    while (!next.done) {
+      pieces.push(next.value);
+      next = await it.next();
+    }
+    expect(next.value).toEqual({ sha256: sha(data), written: data.length });
+    pieces.push(TAR_END);
+    const viaWriter = await pack([{ name: 'manifest.json', data: Buffer.from('{}') }, { name: 'files/مرفق.bin', data, stream: true }]);
+    expect(sha(Buffer.concat(pieces))).toBe(sha(viaWriter));
   });
 });

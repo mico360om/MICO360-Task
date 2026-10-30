@@ -34,8 +34,13 @@ export interface BackupDrive {
 export interface BackupServiceDeps {
   repo: BackupRepository;
   lock: BackupRunLock;
-  /** Makes one copy (writeBackupArchive with this server's database, uploads and key). */
-  writeArchive: (o: { outFile: string; workDir: string; trigger: 'nightly' | 'manual' }) => Promise<ArchiveResult>;
+  /**
+   * Makes one copy (writeBackupArchive with this server's database, uploads and key). `signal` says
+   * the copy ran out of time: stop and leave nothing behind.
+   */
+  writeArchive: (o: { outFile: string; workDir: string; trigger: 'nightly' | 'manual'; signal?: AbortSignal }) => Promise<ArchiveResult>;
+  /** The longest a copy may take (3 hours); after it the copy is stopped and marked failed. */
+  maxRunMs?: number;
   backupDir: string;
   /** Why the folder can't be used (it is served by the website), or null. */
   dirProblem?: string | null;
@@ -89,7 +94,18 @@ const NO_COPY_WARNING_MS = 36 * 60 * 60 * 1000;
 const FORGET_FAILED_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 const FORGET_MISSING_AFTER_MS = 60 * 24 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 60 * 1000;
+/** A copy still being made after this long is stopped (a hung disk or database must not hold the lock forever). */
+const MAX_RUN_MS = 3 * 60 * 60 * 1000;
 const STOPPED = 'It stopped before it finished (the server may have restarted).';
+
+function durationText(ms: number): string {
+  if (ms >= 60 * 60 * 1000) {
+    const h = Math.round(ms / (60 * 60 * 1000));
+    return `${h} hour${h === 1 ? '' : 's'}`;
+  }
+  const m = Math.max(1, Math.round(ms / (60 * 1000)));
+  return `${m} minute${m === 1 ? '' : 's'}`;
+}
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -112,6 +128,7 @@ export function createBackupService(deps: BackupServiceDeps) {
   const tz = deps.timeZone;
   const key = deps.encryptionKey ?? '';
   const nightlyEnabled = deps.nightlyEnabled ?? true;
+  const maxRunMs = deps.maxRunMs ?? MAX_RUN_MS;
   let current: Promise<void> | null = null;
 
   const dayFormat = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' });
@@ -228,17 +245,37 @@ export function createBackupService(deps: BackupServiceDeps) {
 
   /** Makes one copy from start to end (the caller already holds the lock and made the row). */
   async function work(row: BackupRunRecord): Promise<BackupRunRecord> {
-    const beat = setInterval(() => void deps.lock.renew(now()).catch(() => undefined), HEARTBEAT_MS);
+    const fileName = backupFileName(row.startedAt, tz, row.id, Boolean(key));
+    // The lock is renewed while the copy is made, but never past the time limit: a copy that hangs
+    // (a stuck disk or database) is stopped then, marked failed, and the next one can be made.
+    const startedMs = Date.now();
+    const beat = setInterval(() => {
+      if (Date.now() - startedMs < maxRunMs) void deps.lock.renew(now()).catch(() => undefined);
+    }, HEARTBEAT_MS);
     beat.unref?.();
+    const stop = new AbortController();
+    let deadline: NodeJS.Timeout | undefined;
+    const outOfTime = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => {
+        const err = new BackupFailedError(`The backup was stopped: it was still running after ${durationText(maxRunMs)}.`);
+        stop.abort(err);
+        reject(err);
+      }, maxRunMs);
+      deadline.unref?.();
+    });
+    outOfTime.catch(() => undefined);
     try {
-      await checkReady();
-      await clearLeftovers();
-      const fileName = backupFileName(row.startedAt, tz, row.id, Boolean(key));
-      const result = await deps.writeArchive({
-        outFile: join(deps.backupDir, fileName),
-        workDir: join(deps.backupDir, `.work-${row.id}`),
-        trigger: row.trigger === 'NIGHTLY' ? 'nightly' : 'manual',
-      });
+      const make = async () => {
+        await checkReady();
+        await clearLeftovers();
+        return deps.writeArchive({
+          outFile: join(deps.backupDir, fileName),
+          workDir: join(deps.backupDir, `.work-${row.id}`),
+          trigger: row.trigger === 'NIGHTLY' ? 'nightly' : 'manual',
+          signal: stop.signal,
+        });
+      };
+      const result = await Promise.race([make(), outOfTime]);
       const done = await deps.repo.update(row.id, {
         status: 'OK',
         finishedAt: now(),
@@ -271,8 +308,10 @@ export function createBackupService(deps: BackupServiceDeps) {
       return failed;
     } finally {
       clearInterval(beat);
+      clearTimeout(deadline);
       // Nothing half-made is left behind, whatever happened.
       await rm(join(deps.backupDir, `.work-${row.id}`), { recursive: true, force: true }).catch(() => undefined);
+      await rm(join(deps.backupDir, `${fileName}.partial`), { force: true }).catch(() => undefined);
       await deps.lock.release().catch(() => undefined);
     }
   }

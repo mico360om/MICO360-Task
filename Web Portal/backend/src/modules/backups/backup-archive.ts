@@ -2,15 +2,15 @@ import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PassThrough, Readable, Transform, type TransformCallback } from 'node:stream';
-import { finished, pipeline } from 'node:stream/promises';
+import { PassThrough, Readable, Transform, type TransformCallback, type Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { pipeline as pipelineCb } from 'node:stream';
 import { createGunzip, createGzip } from 'node:zlib';
 import { BackupDamagedError, BackupKeyError, decryptStream, encryptStream, isEncryptedHeader } from './backup-crypto';
 import { RestoreError } from './backup-errors';
 import { dumpRows, fkSafeOrder, listForeignKeys, listTables, type ColumnInfo } from './db-dump';
 import type { SqlRunner } from './sql-runner';
-import { createTarWriter, isSafeEntryName, readTar, TarError, waitForDrain, type TarEntry } from './tar';
+import { isSafeEntryName, readTar, TAR_END, tarBufferEntry, TarError, tarStreamEntry, type TarEntry } from './tar';
 
 export const BACKUP_FORMAT = 'mico360-tasks-backup';
 export const BACKUP_FORMAT_VERSION = 1;
@@ -77,6 +77,10 @@ export interface WriteArchiveOptions {
   /** Folders under uploadDir to leave out. */
   excludeDirs?: string[];
   now?: () => Date;
+  /** Opens a file for writing (tests stand in a disk that fills up). */
+  openWrite?: (path: string) => Writable;
+  /** Stops the copy part-way (the service's time limit); nothing is left behind. */
+  signal?: AbortSignal;
 }
 
 // JSON text may hold U+2028 / U+2029 as they are, but JavaScript line readers take them for line
@@ -125,6 +129,33 @@ class Digest extends Transform {
   }
   result() {
     return { sha256: this.sha.digest('hex'), md5: this.md5.digest('hex'), bytes: this.bytes };
+  }
+}
+
+/** Resolves once a stream is closed (a failed file's handle is let go before it is deleted). */
+function closed(stream: Writable): Promise<void> {
+  return new Promise((resolve) => {
+    if (stream.closed) return resolve();
+    const timer = setTimeout(resolve, 5000);
+    timer.unref?.();
+    stream.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Streams `steps` into `dest` with pipeline(): a failure anywhere (the disk is full, the source can't
+ * be read, `signal` stops it) ends every step and rejects — nothing waits for a stream that is gone.
+ */
+async function pipeInto(steps: (Readable | Transform)[], dest: Writable, signal?: AbortSignal): Promise<void> {
+  try {
+    await pipeline([...steps, dest], signal ? { signal } : {});
+  } catch (err) {
+    dest.destroy();
+    await closed(dest);
+    throw signal?.aborted ? signal.reason : err;
   }
 }
 
@@ -183,9 +214,12 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
   const now = opts.now ?? (() => new Date());
   const createdAt = now();
   const partial = `${opts.outFile}.partial`;
+  const openWrite = opts.openWrite ?? ((path: string) => createWriteStream(path));
+  const { signal } = opts;
   await rm(opts.workDir, { recursive: true, force: true });
   await mkdir(opts.workDir, { recursive: true });
   try {
+    signal?.throwIfAborted();
     const db = await opts.sql.transaction(async (tx) => {
       // Datetimes are read in UTC; the connection's own setting is put back afterwards (it is the app's).
       const zone = (await tx.query<{ tz: string }>('SELECT @@session.time_zone AS tz'))[0]?.tz ?? 'SYSTEM';
@@ -198,24 +232,32 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
         const order = fkSafeOrder(tables.map((t) => t.name), await listForeignKeys(tx));
         const out: (ManifestTable & { file: string })[] = [];
         for (const [i, name] of order.entries()) {
+          signal?.throwIfAborted();
           const table = tables.find((t) => t.name === name)!;
           const file = join(opts.workDir, `${String(i).padStart(3, '0')}.jsonl`);
-          const ws = createWriteStream(file);
           const hash = createHash('sha256');
           let rows = 0;
           let bytes = 0;
-          try {
-            for await (const row of dumpRows(tx, table, 500, opts.pauseMs ?? 0)) {
+          // The rows in pieces of about 64 KB; a failed write stops the reading (pipeline), never the server.
+          async function* lines(): AsyncGenerator<Buffer> {
+            let piece: string[] = [];
+            let length = 0;
+            for await (const row of dumpRows(tx, table!, 500, opts.pauseMs ?? 0)) {
               const line = rowLine(row);
               hash.update(line);
               bytes += Buffer.byteLength(line);
               rows += 1;
-              if (!ws.write(line)) await waitForDrain(ws);
+              piece.push(line);
+              length += line.length;
+              if (length >= 64 * 1024) {
+                yield Buffer.from(piece.join(''), 'utf8');
+                piece = [];
+                length = 0;
+              }
             }
-          } finally {
-            ws.end();
-            await finished(ws);
+            if (piece.length) yield Buffer.from(piece.join(''), 'utf8');
           }
+          await pipeInto([Readable.from(lines(), { objectMode: false })], openWrite(file), signal);
           out.push({ ...table, rows, sha256: hash.digest('hex'), bytes, file });
         }
         return { migrations, server, tables: out };
@@ -239,18 +281,15 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
       notIncluded: ['The Android app file (downloads folder): it is in every release package.'],
     };
 
-    const tarOut = new PassThrough({ highWaterMark: 1024 * 1024 });
-    const digest = new Digest();
-    const written = pipeline([tarOut, createGzip({ level: 6 }), ...(opts.encryptionKey ? [encryptStream(opts.encryptionKey)] : []), digest, createWriteStream(partial)]);
-    written.catch(() => undefined); // awaited below; a failure also stops the writes
-    const tar = createTarWriter(tarOut);
+    // The file count and size are known only once each file is opened; the manifest has the plan.
+    const plannedBytes = await Promise.all(files.map(async (f) => (await stat(f.abs).catch(() => null))?.size ?? 0));
+    manifest.files = { count: files.length, bytes: plannedBytes.reduce((a, b) => a + b, 0), skipped };
     const index: FileIndexEntry[] = [];
-    try {
-      // The file count and size are known only once each file is opened; the manifest has the plan.
-      const plannedBytes = await Promise.all(files.map(async (f) => (await stat(f.abs).catch(() => null))?.size ?? 0));
-      manifest.files = { count: files.length, bytes: plannedBytes.reduce((a, b) => a + b, 0), skipped };
-      await tar.addBuffer('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2)), createdAt);
-      for (const t of db.tables) await tar.addStream(`database/${t.name}.jsonl`, t.bytes, createReadStream(t.file), createdAt);
+    // The archive, piece by piece. It is pulled by the pipeline below, so when the output fails (a
+    // full disk) the pipeline ends this generator where it is, and the copy fails at once.
+    async function* archive(): AsyncGenerator<Buffer> {
+      yield tarBufferEntry('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2)), createdAt);
+      for (const t of db.tables) yield* tarStreamEntry(`database/${t.name}.jsonl`, t.bytes, createReadStream(t.file), createdAt);
       for (const f of files) {
         let handle;
         try {
@@ -262,21 +301,19 @@ export async function writeBackupArchive(opts: WriteArchiveOptions): Promise<Arc
         try {
           const info = await handle.stat();
           const src = info.size > 0 ? handle.createReadStream({ start: 0, end: info.size - 1, autoClose: false }) : Readable.from([]);
-          const res = await tar.addStream(`files/${f.rel}`, info.size, src, info.mtime);
+          const res = yield* tarStreamEntry(`files/${f.rel}`, info.size, src, info.mtime);
           index.push({ path: f.rel, size: info.size, sha256: res.sha256, ...(res.written !== info.size ? { changed: true } : {}) });
         } finally {
           await handle.close();
         }
       }
-      await tar.addBuffer('files-index.json', Buffer.from(JSON.stringify(index)), createdAt);
-      await tar.finish();
-      tarOut.end();
-    } catch (err) {
-      tarOut.destroy(err as Error);
-      await written.catch(() => undefined);
-      throw err;
+      yield tarBufferEntry('files-index.json', Buffer.from(JSON.stringify(index)), createdAt);
+      yield TAR_END;
     }
-    await written;
+    const digest = new Digest();
+    const steps = [Readable.from(archive(), { objectMode: false }), createGzip({ level: 6 }), ...(opts.encryptionKey ? [encryptStream(opts.encryptionKey)] : []), digest];
+    await pipeInto(steps, openWrite(partial), signal);
+    signal?.throwIfAborted();
     await rename(partial, opts.outFile);
     const sums = digest.result();
     return {
