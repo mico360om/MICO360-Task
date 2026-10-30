@@ -198,6 +198,14 @@ describe('Timeline source (integration)', () => {
     expect(lane.tasks.slice(0, 3).map((t) => t.id)).toEqual([ids.t3, long, ids.t1]);
     expect(lane.matched).toBe(72);
   });
+
+  it('says which tasks of the lane wait for approval (owner, 30 Oct)', async () => {
+    await prisma.task.update({ where: { id: ids.t1! }, data: { needsApproval: true, approvalRequestedAt: new Date('2026-10-23T08:00:00Z') } });
+    const rows = await timeline.projectTasks(ids.one!, { from: day('2026-10-18'), to: day('2026-11-10'), overdueBefore: day('2026-10-25'), upcomingFrom: day('2026-10-23') });
+    const open = new Map(rows.openInRange.map((t) => [t.id, t]));
+    expect(open.get(ids.t1!)!.waiting).toBe(true);
+    expect(open.get(ids.t2!)!.waiting).toBe(false);
+  });
 });
 
 describe('Workload store (integration)', () => {

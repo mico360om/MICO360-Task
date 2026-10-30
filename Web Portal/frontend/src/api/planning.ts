@@ -81,6 +81,8 @@ export interface TimelineTask {
   priority: Priority;
   isMilestone: boolean;
   assignees: { id: string; name: string }[];
+  /** Finished but waiting for approval (task approvals). Missing from an older server = no. */
+  waiting?: boolean;
 }
 
 export interface TimelineTasksData {

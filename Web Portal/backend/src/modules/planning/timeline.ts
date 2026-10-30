@@ -78,6 +78,8 @@ export interface TimelineTaskRow {
   priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   isMilestone: boolean;
   assignees: { id: string; name: string }[];
+  /** Finished but waiting for approval (task approvals); left out by older sources = no. */
+  waiting?: boolean;
 }
 
 /**
@@ -129,6 +131,8 @@ export interface TimelineTask {
   priority: TimelineTaskRow['priority'];
   isMilestone: boolean;
   assignees: { id: string; name: string }[];
+  /** Finished but waiting for approval: the lane marks it (owner, 30 Oct). */
+  waiting: boolean;
 }
 
 export interface TimelineTasksData {
@@ -429,6 +433,7 @@ export function buildTimelineTasks(
       priority: t.priority,
       isMilestone: t.isMilestone,
       assignees: t.assignees,
+      waiting: !t.done && Boolean(t.waiting),
     };
   };
   const tasksOf = (list: TimelineTaskRow[], keep: (t: TimelineTask) => boolean) => list.map(toTask).filter((t): t is TimelineTask => t !== null && keep(t));

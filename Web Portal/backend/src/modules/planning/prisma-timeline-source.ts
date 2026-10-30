@@ -89,10 +89,11 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         priority: true,
         isMilestone: true,
         completedAt: true,
+        approvalRequestedAt: true,
         column: { select: { category: true } },
         assignees: { select: { user: { select: personFields } } },
       } as const;
-      type Row = { id: string; key: string; title: string; startDate: Date | null; dueDate: Date | null; priority: TimelineTaskRow['priority']; isMilestone: boolean; completedAt: Date | null; column: { category: string }; assignees: { user: Parameters<typeof toPerson>[0] }[] };
+      type Row = { id: string; key: string; title: string; startDate: Date | null; dueDate: Date | null; priority: TimelineTaskRow['priority']; isMilestone: boolean; completedAt: Date | null; approvalRequestedAt: Date | null; column: { category: string }; assignees: { user: Parameters<typeof toPerson>[0] }[] };
       const toRow = (t: Row): TimelineTaskRow => ({
         id: t.id,
         key: t.key,
@@ -103,6 +104,7 @@ export function createPrismaTimelineSource(prisma: PrismaClient): TimelineSource
         priority: t.priority,
         isMilestone: t.isMilestone,
         assignees: t.assignees.map((a) => ({ id: a.user.id, name: toPerson(a.user).name })),
+        waiting: t.approvalRequestedAt !== null,
       });
       // Due from `from` on, and due (or started) before `to`: in or reaching into the shown weeks.
       const reaches: Prisma.TaskWhereInput = { OR: [{ dueDate: { lt: to } }, { startDate: { lt: to } }] };

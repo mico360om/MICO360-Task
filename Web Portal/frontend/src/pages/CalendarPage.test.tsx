@@ -207,6 +207,24 @@ describe('CalendarPage — how tasks look', () => {
     expect(screen.getByRole('button', { name: 'Legend' })).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('marks a task waiting for approval with an hourglass, its name says so, and the legend explains it (owner, 30 Oct)', async () => {
+    tasks = [
+      task({ id: 't7', title: 'Pressure test report', columnCategory: 'REVIEW', needsApproval: true, approvalRequestedAt: '2026-10-13T08:00:00.000Z', dueDate: '2026-10-14T00:00:00.000Z' }),
+      task({ id: 't8', title: 'Plain task', dueDate: '2026-10-14T00:00:00.000Z' }),
+    ];
+    renderPage();
+    const waiting = await chip(/Pressure test report/);
+    expect(waiting).toHaveAccessibleName(/waiting for approval/);
+    const mark = waiting.querySelector('[data-mark="waiting"]');
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute('title', 'Waiting for approval');
+    const plain = await chip(/Plain task/);
+    expect(plain).not.toHaveAccessibleName(/waiting for approval/);
+    expect(plain.querySelector('[data-mark="waiting"]')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Legend' }));
+    expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Waiting for approval')).toBeInTheDocument();
+  });
+
   it('never shows a completed task as overdue', async () => {
     tasks = [task({ id: 't9', title: 'Shipped report', columnCategory: 'DONE', dueDate: '2026-10-02T00:00:00.000Z' })];
     renderPage();
