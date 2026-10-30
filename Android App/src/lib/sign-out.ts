@@ -10,9 +10,9 @@ export function signOutQuestion(unsynced: number): { title: string; message: str
   };
 }
 
-/** The zones after a sign-out: the person's own is forgotten, the company's stays (6a review). */
+/** The zones after a sign-out: the person's own is forgotten, the company's zone and week start stay (6a review). */
 export function zonesAfterSignOut(zones: DateZones): DateZones {
-  return { company: zones.company, own: null };
+  return { company: zones.company, own: null, companyWeekStart: zones.companyWeekStart };
 }
 
 /**

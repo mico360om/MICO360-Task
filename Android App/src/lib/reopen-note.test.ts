@@ -12,8 +12,8 @@ describe('before a new time zone is saved (6a review)', () => {
   });
 
   it('knows when a save changes the zones the screens use', () => {
-    expect(zonesDiffer({ company: 'Asia/Muscat', own: null }, { company: 'Asia/Muscat', own: 'Europe/London' })).toBe(true);
-    expect(zonesDiffer({ company: 'Asia/Muscat', own: 'Europe/London' }, { company: 'Asia/Muscat', own: 'Europe/London' })).toBe(false);
+    expect(zonesDiffer({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 }, { company: 'Asia/Muscat', own: 'Europe/London', companyWeekStart: 0 })).toBe(true);
+    expect(zonesDiffer({ company: 'Asia/Muscat', own: 'Europe/London', companyWeekStart: 0 }, { company: 'Asia/Muscat', own: 'Europe/London', companyWeekStart: 0 })).toBe(false);
   });
 });
 

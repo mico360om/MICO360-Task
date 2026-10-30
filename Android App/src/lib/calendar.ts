@@ -5,6 +5,7 @@
  * 'YYYY-MM-DD' keys worked out in UTC, so the phone's own time zone never shifts them, and they are
  * named without Intl (Hermes' date formatting differs between phones) in the website's English.
  */
+import { dateZones } from './due-date';
 
 export interface DayCell {
   /** 'YYYY-MM-DD'. */
@@ -24,10 +25,16 @@ const WEEKDAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'F
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** Your week start (Settings → Calendar on the website): Monday or Saturday when chosen, else Sunday. */
-export function weekStartOf(prefs: { weekStart?: number | null } | null | undefined): WeekStart {
-  const w = prefs?.weekStart;
-  return w === 1 || w === 6 ? w : 0;
+const isWeekStart = (w: unknown): w is WeekStart => w === 0 || w === 1 || w === 6;
+
+/**
+ * The week start, as on the website (useDatePrefs): your own choice (Settings → Calendar) when you
+ * made one, else the company's (System Settings, sent in GET /config; Sunday until the server says).
+ */
+export function weekStartOf(prefs: { weekStart?: number | null } | null | undefined, companyWeekStart: WeekStart = dateZones().companyWeekStart): WeekStart {
+  const own = prefs?.weekStart;
+  if (isWeekStart(own)) return own;
+  return isWeekStart(companyWeekStart) ? companyWeekStart : 0;
 }
 
 /** The seven weekday names in the order the week starts. */

@@ -1,5 +1,5 @@
 import type { FetchStatus, QueryClient } from '@tanstack/react-query';
-import type { DateZones } from './due-date';
+import { dateZones, type DateZones } from './due-date';
 import { TIME_ZONES } from './time-zones';
 
 /** Where your date settings are kept in the app (the calendar's week start reads them). */
@@ -61,12 +61,19 @@ export function unknownZoneNote(saved: string | null | undefined, company: strin
  * The zones after loading the server's settings and yours (null = that load failed: offline, a
  * Wi-Fi sign-in page). A failed load keeps what the phone had; a missing or unknown company zone
  * is Asia/Muscat, and an unknown own zone counts as none (the company's is used; Settings says so).
- * A zone is used in whichever spelling this phone knows.
+ * A zone is used in whichever spelling this phone knows. The company's week start comes with the
+ * server's settings too (Sunday when it says none, or something other than Sunday, Monday or Saturday).
  */
 export function nextDateZones(prev: DateZones, loaded: { config: ServerConfig | null; prefs: DatePreferences | null }, valid: (tz: unknown) => boolean = isValidTimeZone): DateZones {
   const company = loaded.config ? (usableZone(loaded.config.timeZone, valid) ?? FALLBACK_TIME_ZONE) : prev.company;
   const own = loaded.prefs ? usableZone(loaded.prefs.timeZone, valid) : prev.own;
-  return { company, own };
+  const companyWeekStart = loaded.config ? weekStartValue(loaded.config.weekStart) : prev.companyWeekStart;
+  return { company, own, companyWeekStart };
+}
+
+/** 0, 1 or 6 as it came; anything else is Sunday (0). */
+function weekStartValue(w: unknown): 0 | 1 | 6 {
+  return w === 1 || w === 6 ? w : 0;
 }
 
 export interface DateSettingsLoad {
@@ -115,14 +122,17 @@ export function parseDateZones(raw: string | null): DateZones | null {
     return null;
   }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
-  const { company, own } = v as { company?: unknown; own?: unknown };
+  const { company, own, companyWeekStart } = v as { company?: unknown; own?: unknown; companyWeekStart?: unknown };
   if (!isValidTimeZone(company)) return null;
-  return { company, own: isValidTimeZone(own) ? own : null };
+  // Zones kept by older builds have no week start: Sunday until the server says.
+  return { company, own: isValidTimeZone(own) ? own : null, companyWeekStart: weekStartValue(companyWeekStart) };
 }
 
 /** The server's public settings (GET /config) the app uses. */
 export interface ServerConfig {
   timeZone?: string;
+  /** The company's week start (System Settings): 0 = Sunday, 1 = Monday, 6 = Saturday; absent from older servers. */
+  weekStart?: number;
   emailEnabled?: boolean;
   /** Where the Android app can be downloaded (the site's /downloads page by default). */
   androidAppUrl?: string | null;
@@ -133,7 +143,7 @@ export interface ServerConfig {
 /** Your own date settings (GET /users/me/preferences), shared with the website. */
 export interface DatePreferences {
   timeZone: string | null;
-  /** 0 = Sunday, 1 = Monday, 6 = Saturday; null = the default (Sunday). The calendar's first column. */
+  /** 0 = Sunday, 1 = Monday, 6 = Saturday; null = no choice of your own (the company's week start). The calendar's first column. */
   weekStart: 0 | 1 | 6 | null;
 }
 
@@ -153,11 +163,12 @@ export function withDatePatch(prev: DatePreferences | null | undefined, patch: P
 
 /**
  * What was saved, for TalkBack (a new time zone opens the screens again, so the change is said).
- * With nothing loaded before the save, both settings are said (6a review).
+ * With nothing loaded before the save, both settings are said (6a review). "No choice" is the
+ * company's week start.
  */
-export function datePrefsSavedText(before: DatePreferences | null | undefined, saved: DatePreferences): string {
+export function datePrefsSavedText(before: DatePreferences | null | undefined, saved: DatePreferences, companyWeekStart: 0 | 1 | 6 = dateZones().companyWeekStart): string {
   const parts = ['Saved.'];
-  const week = (p: DatePreferences | null | undefined) => (p?.weekStart === 1 || p?.weekStart === 6 ? p.weekStart : 0);
+  const week = (p: DatePreferences | null | undefined) => (p?.weekStart === 0 || p?.weekStart === 1 || p?.weekStart === 6 ? p.weekStart : weekStartValue(companyWeekStart));
   if (!before || week(before) !== week(saved)) parts.push(`Weeks start on ${WEEK_START_OPTIONS.find((o) => o.value === week(saved))!.label}.`);
   if (!before || (before.timeZone ?? null) !== (saved.timeZone ?? null)) {
     parts.push(saved.timeZone ? `The calendar uses ${saved.timeZone}.` : 'The calendar uses the company time zone.');

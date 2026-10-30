@@ -2,19 +2,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, createZoneList, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, unknownZoneNote, usableZone, webZoneName, withDatePatch } from './date-settings';
 
-const prev = { company: 'Asia/Dubai', own: 'Europe/London' };
+const prev = { company: 'Asia/Dubai', own: 'Europe/London', companyWeekStart: 0 as const };
 
 describe('nextDateZones — the company’s zone and your own, as the website has them', () => {
   it('takes both from the server', () => {
     expect(nextDateZones(prev, { config: { timeZone: 'Asia/Riyadh' }, prefs: { timeZone: 'Asia/Karachi', weekStart: null } })).toEqual({
       company: 'Asia/Riyadh',
       own: 'Asia/Karachi',
+      companyWeekStart: 0,
     });
   });
   it('a load that failed (offline, a Wi-Fi sign-in page) keeps what the phone had', () => {
     expect(nextDateZones(prev, { config: null, prefs: null })).toEqual(prev);
-    expect(nextDateZones(prev, { config: null, prefs: { timeZone: null, weekStart: null } })).toEqual({ company: 'Asia/Dubai', own: null });
-    expect(nextDateZones(prev, { config: { timeZone: 'Asia/Riyadh' }, prefs: null })).toEqual({ company: 'Asia/Riyadh', own: 'Europe/London' });
+    expect(nextDateZones(prev, { config: null, prefs: { timeZone: null, weekStart: null } })).toEqual({ company: 'Asia/Dubai', own: null, companyWeekStart: 0 });
+    expect(nextDateZones(prev, { config: { timeZone: 'Asia/Riyadh' }, prefs: null })).toEqual({ company: 'Asia/Riyadh', own: 'Europe/London', companyWeekStart: 0 });
   });
   it('a server zone that is missing or unknown falls back to Asia/Muscat', () => {
     expect(nextDateZones(prev, { config: {}, prefs: null }).company).toBe('Asia/Muscat');
@@ -26,10 +27,29 @@ describe('nextDateZones — the company’s zone and your own, as the website ha
   });
 });
 
+describe('the company’s week start (GET /config weekStart)', () => {
+  it('the company week start comes from /config and survives a failed load', () => {
+    const prev = { company: 'Asia/Muscat', own: null, companyWeekStart: 0 as const };
+    expect(nextDateZones(prev, { config: { timeZone: 'Asia/Dubai', weekStart: 1 }, prefs: null }).companyWeekStart).toBe(1);
+    expect(nextDateZones({ ...prev, companyWeekStart: 6 }, { config: null, prefs: null }).companyWeekStart).toBe(6);
+    expect(nextDateZones(prev, { config: { weekStart: 4 }, prefs: null }).companyWeekStart).toBe(0);
+    expect(parseDateZones('{"company":"Asia/Muscat","own":null}')).toEqual({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 });
+  });
+  it('is kept for the next start', () => {
+    expect(parseDateZones('{"company":"Asia/Muscat","own":null,"companyWeekStart":6}')).toEqual({ company: 'Asia/Muscat', own: null, companyWeekStart: 6 });
+    expect(parseDateZones('{"company":"Asia/Muscat","own":null,"companyWeekStart":"6"}')?.companyWeekStart).toBe(0);
+  });
+  it('a saved setting of “no choice” is said as the company’s week start', () => {
+    expect(datePrefsSavedText(undefined, { timeZone: null, weekStart: null }, 1)).toBe('Saved. Weeks start on Monday. The calendar uses the company time zone.');
+    expect(datePrefsSavedText({ timeZone: null, weekStart: null }, { timeZone: null, weekStart: 6 }, 6)).toBe('Saved.');
+    expect(datePrefsSavedText({ timeZone: null, weekStart: 1 }, { timeZone: null, weekStart: null }, 6)).toBe('Saved. Weeks start on Saturday.');
+  });
+});
+
 describe('parseDateZones — the zones the phone kept from last time', () => {
   it('reads what was saved', () => {
     expect(parseDateZones(JSON.stringify(prev))).toEqual(prev);
-    expect(parseDateZones(JSON.stringify({ company: 'Asia/Dubai', own: null }))).toEqual({ company: 'Asia/Dubai', own: null });
+    expect(parseDateZones(JSON.stringify({ company: 'Asia/Dubai', own: null }))).toEqual({ company: 'Asia/Dubai', own: null, companyWeekStart: 0 });
   });
   it('nothing, junk or an unknown company zone: nothing', () => {
     expect(parseDateZones(null)).toBeNull();
@@ -38,7 +58,7 @@ describe('parseDateZones — the zones the phone kept from last time', () => {
     expect(parseDateZones(JSON.stringify(['Asia/Dubai']))).toBeNull();
   });
   it('an unknown own zone is dropped', () => {
-    expect(parseDateZones(JSON.stringify({ company: 'Asia/Dubai', own: 'Mars/Olympus' }))).toEqual({ company: 'Asia/Dubai', own: null });
+    expect(parseDateZones(JSON.stringify({ company: 'Asia/Dubai', own: 'Mars/Olympus' }))).toEqual({ company: 'Asia/Dubai', own: null, companyWeekStart: 0 });
   });
 });
 
@@ -148,11 +168,11 @@ describe('what TalkBack hears after a date setting is saved', () => {
 describe('loadDateSettings (5a review: the calendar knows the week start on its first open)', () => {
   const makeQc = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const deps = (over: Partial<Parameters<typeof loadDateSettings>[0]> = {}) => {
-    let zones = { company: 'Asia/Muscat', own: null as string | null };
+    let zones = { company: 'Asia/Muscat', own: null as string | null, companyWeekStart: 0 as 0 | 1 | 6 };
     const kept: unknown[] = [];
     const d = {
       qc: makeQc(),
-      config: async () => ({ timeZone: 'Asia/Dubai' }),
+      config: async () => ({ timeZone: 'Asia/Dubai', weekStart: 6 }),
       readPrefs: vi.fn(async () => ({ timeZone: 'Europe/London', weekStart: 1 as const })),
       keepZones: async (z: unknown) => {
         kept.push(z);
@@ -169,11 +189,11 @@ describe('loadDateSettings (5a review: the calendar knows the week start on its 
     expect(d.qc.getQueryData(DATE_PREFERENCES_KEY)).toEqual({ timeZone: 'Europe/London', weekStart: 1 });
   });
 
-  it('sets and keeps both zones, as before', async () => {
+  it('sets and keeps both zones and the company’s week start', async () => {
     const { d, kept, zones } = deps();
     await loadDateSettings(d);
-    expect(zones()).toEqual({ company: 'Asia/Dubai', own: 'Europe/London' });
-    expect(kept).toEqual([{ company: 'Asia/Dubai', own: 'Europe/London' }]);
+    expect(zones()).toEqual({ company: 'Asia/Dubai', own: 'Europe/London', companyWeekStart: 6 });
+    expect(kept).toEqual([{ company: 'Asia/Dubai', own: 'Europe/London', companyWeekStart: 6 }]);
   });
 
   it('asks again each time (back in the app), even when the settings it has are fresh — they may have changed on the website', async () => {
@@ -186,11 +206,11 @@ describe('loadDateSettings (5a review: the calendar knows the week start on its 
   it('a load that failed keeps what the phone had; one that ended after the screen went changes nothing', async () => {
     const failed = deps({ config: async () => Promise.reject(new Error('offline')), readPrefs: vi.fn(async () => Promise.reject(new Error('offline'))) });
     await loadDateSettings(failed.d);
-    expect(failed.zones()).toEqual({ company: 'Asia/Muscat', own: null });
+    expect(failed.zones()).toEqual({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 });
     expect(failed.kept).toEqual([]);
     const gone = deps({ isActive: () => false });
     await loadDateSettings(gone.d);
-    expect(gone.zones()).toEqual({ company: 'Asia/Muscat', own: null });
+    expect(gone.zones()).toEqual({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 });
   });
 });
 
@@ -206,7 +226,7 @@ describe('weekStartKnown — the calendar asks for its days once it knows how it
 describe('loadDateSettings keeps your settings for the whole session', () => {
   it('they aren’t dropped after a few minutes with the calendar closed (it would open on a loader again)', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    let zones = { company: 'Asia/Muscat', own: null as string | null };
+    let zones = { company: 'Asia/Muscat', own: null as string | null, companyWeekStart: 0 as 0 | 1 | 6 };
     await loadDateSettings({
       qc,
       config: async () => ({ timeZone: 'Asia/Muscat' }),

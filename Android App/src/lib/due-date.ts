@@ -14,13 +14,17 @@ import { dayText, type DayTextOptions } from './day-words';
 /** The default company time zone, until the server and your settings say otherwise. */
 export const COMPANY_TIMEZONE = 'Asia/Muscat';
 
-/** The company's time zone (the server's /config) and your own (the website's settings, or none). */
+/**
+ * The company's time zone and week start (the server's /config) and your own zone (the website's
+ * settings, or none). The week start is 0 = Sunday, 1 = Monday, 6 = Saturday.
+ */
 export interface DateZones {
   company: string;
   own: string | null;
+  companyWeekStart: 0 | 1 | 6;
 }
 
-let zones: DateZones = { company: COMPANY_TIMEZONE, own: null };
+let zones: DateZones = { company: COMPANY_TIMEZONE, own: null, companyWeekStart: 0 };
 const timeZoneListeners = new Set<() => void>();
 
 /**
@@ -37,15 +41,16 @@ export function calendarTimeZone(): string {
   return zones.own ?? zones.company;
 }
 
-/** Both zones; the same object until one changes (a useSyncExternalStore snapshot). */
+/** The zones and the company's week start; the same object until one changes (a useSyncExternalStore snapshot). */
 export function dateZones(): DateZones {
   return zones;
 }
 
-/** Set both zones; subscribers (the navigator) re-render when either changed. */
+/** Set the zones and the company's week start; subscribers (the navigator) hear when any of the three changed. */
 export function setDateZones(next: DateZones): void {
-  if (next.company === zones.company && next.own === zones.own) return;
-  zones = { company: next.company, own: next.own };
+  const companyWeekStart = next.companyWeekStart === 1 || next.companyWeekStart === 6 ? next.companyWeekStart : 0;
+  if (next.company === zones.company && next.own === zones.own && companyWeekStart === zones.companyWeekStart) return;
+  zones = { company: next.company, own: next.own, companyWeekStart };
   for (const listener of timeZoneListeners) listener();
 }
 
