@@ -136,7 +136,11 @@ describe('backup routes', () => {
     expect(res.headers['content-type']).toBe('application/gzip');
     expect(res.headers['content-length']).toBe('17');
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(audited).toEqual([expect.objectContaining({ userId: 'admin1', module: 'backups', action: 'backup.download', entityId: 'run1', newValue: { fileName: 'mico360-tasks-backup-2026-10-30-0200-abcdef.tar.gz', sizeBytes: 17 } })]);
+    // Asking for the link is recorded (who, which copy), and so is the download itself.
+    expect(audited).toEqual([
+      expect.objectContaining({ userId: 'admin1', module: 'backups', action: 'backup.download-link', entityId: 'run1', newValue: { fileName: 'mico360-tasks-backup-2026-10-30-0200-abcdef.tar.gz' } }),
+      expect.objectContaining({ userId: 'admin1', module: 'backups', action: 'backup.download', entityId: 'run1', newValue: { fileName: 'mico360-tasks-backup-2026-10-30-0200-abcdef.tar.gz', sizeBytes: 17 } }),
+    ]);
     // Once only.
     const again = await app.inject({ method: 'GET', url });
     expect(again.statusCode).toBe(410);
@@ -154,7 +158,8 @@ describe('backup routes', () => {
     admins.delete('admin1');
     expect((await app.inject({ method: 'GET', url: demoted })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: '/api/v1/backups/download?token=forged.token' })).statusCode).toBe(410);
-    expect(audited).toEqual([]);
+    // The two links asked for are recorded; no download happened.
+    expect(audited.map((a) => a.action)).toEqual(['backup.download-link', 'backup.download-link']);
     await app.close();
   });
 

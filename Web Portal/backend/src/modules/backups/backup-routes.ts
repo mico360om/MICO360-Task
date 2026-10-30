@@ -51,8 +51,10 @@ export async function registerBackupRoutes(app: FastifyInstance, deps: BackupRou
 
   app.post('/backups/:id/download-link', admin, async (req) => {
     const { id } = idParam.parse(req.params);
-    if (!(await deps.service.fileFor(id))) throw new NotFoundError('That copy is no longer kept.');
+    const file = await deps.service.fileFor(id);
+    if (!file) throw new NotFoundError('That copy is no longer kept.');
     const token = deps.downloads.issue({ id, userId: req.user!.id }, LINK_TTL_MS);
+    await record({ userId: req.user!.id, ip: req.ip ?? null, action: 'backup.download-link', entityId: id, newValue: { fileName: file.fileName } });
     return { data: { url: `/api/v1/backups/download?${new URLSearchParams({ token })}` } };
   });
 
