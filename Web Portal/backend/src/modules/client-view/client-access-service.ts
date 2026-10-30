@@ -153,7 +153,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
     }
   }
 
-  async function invite(share: ClientShareRecord, project: ClientProjectSource, token: string, actorId: string, failed: string): Promise<Date> {
+  async function invite(share: ClientShareRecord, project: ClientProjectSource, token: string, actorId: string, failed: string, replacesEarlier = false): Promise<Date> {
     const sharedByName = (await deps.userName(actorId).catch(() => null)) || `The ${resolveBrand().companyName} team`;
     let result: 'sent' | 'suppressed';
     try {
@@ -166,6 +166,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         projectColor: project.color,
         link: `${appUrl}/client/${token}`,
         email: share.email,
+        ...(replacesEarlier ? { replacesEarlier: true } : {}),
       });
     } catch (err) {
       deps.logger?.warn('client view: an invitation could not be sent', { err, shareId: share.id });
@@ -281,7 +282,7 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       if (!(await store.replaceLink(share.id, share.linkHash, hash))) throw new ConflictError('This client changed meanwhile. Please try again.', 'CLIENT_CHANGED');
       let sentAt: Date;
       try {
-        sentAt = await invite(share, project, token, input.actorId, 'The email couldn’t be sent. The earlier link still works; please try again.');
+        sentAt = await invite(share, project, token, input.actorId, 'The email couldn’t be sent. The earlier link still works; please try again.', true);
       } catch (err) {
         await store.replaceLink(share.id, hash, share.linkHash);
         throw err;

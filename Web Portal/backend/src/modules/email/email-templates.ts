@@ -407,6 +407,11 @@ export interface ClientInvitationParams {
   link: string;
   /** The address the project is shared with. */
   email: string;
+  /**
+   * A Resend: this link replaces the one sent before, which no longer works, and every device signed
+   * in with it was signed out (client-access-service `resend`).
+   */
+  replacesEarlier?: boolean;
 }
 
 /** "{who} shared the project {name} with you": the private link, and why a code will be asked for. */
@@ -418,6 +423,7 @@ export function clientInvitationEmail(params: ClientInvitationParams, opts?: Tem
       kind: 'text',
       text: `Hi ${params.clientName}, ${params.sharedByName} shared the project “${params.projectName}” with you on ${product}. You can follow its progress, milestones and approved meeting minutes on a private page. You don’t need an account.`,
     },
+    ...(params.replacesEarlier ? [{ kind: 'callout' as const, text: 'This new link replaces the one we sent before. The earlier link no longer works.', tone: 'info' as const }] : []),
     {
       kind: 'project',
       project: { name: params.projectName, color: params.projectColor ?? null, imageUrl: params.projectImageUrl ?? null, details: params.projectDetails ?? [], chips: [], href: params.link },
@@ -426,7 +432,9 @@ export function clientInvitationEmail(params: ClientInvitationParams, opts?: Tem
     { kind: 'button', label: 'View the project', href: params.link },
     {
       kind: 'text',
-      text: `To keep the page private, we’ll email a one-time code to ${params.email} when you open it on a new device. That device then stays signed in for 30 days. Forwarding this email doesn’t give anyone else access.`,
+      text: params.replacesEarlier
+        ? `To keep the page private, we’ll email a one-time code to ${params.email} when you open it. Devices signed in with the earlier link have been signed out, so each needs a new code once; it then stays signed in for 30 days. Forwarding this email doesn’t give anyone else access.`
+        : `To keep the page private, we’ll email a one-time code to ${params.email} when you open it on a new device. That device then stays signed in for 30 days. Forwarding this email doesn’t give anyone else access.`,
     },
     linkFallback(params.link),
     { kind: 'callout', text: 'Didn’t expect this email? You can ignore it.', tone: 'info' },

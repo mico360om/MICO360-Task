@@ -420,6 +420,8 @@ describe('the page itself', () => {
     const share = (await store.listForProject('p1'))[0]!;
     await svc.resend({ projectId: 'p1', shareId: share.id, actorId: 'u-omar', ip: '10.0.0.1' });
     const newLink = lastLink();
+    // The email says it replaces the earlier link (the first one didn't).
+    expect(invitations.map((i) => i.params.replacesEarlier ?? false)).toEqual([false, true]);
     expect(newLink).not.toBe(oldLink);
     await expect(svc.view(oldLink, sessionOf(token))).rejects.toBeInstanceOf(ClientLinkEndedError);
     await expect(svc.verifyCode(oldLink, 'fatma@client.example', oldCode, {})).rejects.toBeInstanceOf(ClientLinkEndedError);

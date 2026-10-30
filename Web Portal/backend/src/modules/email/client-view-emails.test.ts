@@ -44,6 +44,18 @@ describe('the client invitation email', () => {
     expect(e.text).toMatch(/forward/i);
   });
 
+  it('a Resend says the new link replaces the earlier one, which no longer works, and that every device needs a new code (owner, 30 Oct)', () => {
+    const e = invite({ replacesEarlier: true });
+    for (const v of [e.text, e.html]) {
+      expect(v).toContain('This new link replaces the one we sent before. The earlier link no longer works.');
+      expect(v).toContain('Devices signed in with the earlier link have been signed out');
+    }
+    expect(e.text).toContain(LINK);
+    // The first invitation says nothing of an earlier link.
+    expect(invite().text).not.toContain('replaces');
+    expect(invite().text).not.toContain('earlier link');
+  });
+
   it('says why it was sent (shared with them), not that they have an account', () => {
     const e = invite();
     expect(e.text).not.toMatch(/you have a .* account/i);
