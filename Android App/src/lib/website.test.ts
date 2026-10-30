@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { WEBSITE_ONLY_PAGES, websiteLinkLabel, websiteOpenFailed, websitePageUrl } from './website';
+import { WEBSITE_LINK_PATHS, WEBSITE_ONLY_PAGES, websiteLinkLabel, websiteOpenFailed, websitePageUrl } from './website';
+
+it('the website pages Search and the menu offer open on the connected server', () => {
+  expect([...WEBSITE_LINK_PATHS]).toEqual(['/admin/ai', '/admin/settings', '/admin/audit', '/timeline', '/workload', '/management', '/templates', '/mico-ai']);
+  for (const p of WEBSITE_LINK_PATHS) expect(websitePageUrl('https://task.mico360.com/api/v1', p), p).toBe(`https://task.mico360.com${p}`);
+  expect(websitePageUrl('https://task.mico360.com/api/v1', '/admin/users')).toBeNull();
+  expect(websitePageUrl('https://task.mico360.com/api/v1', '/timeline?x=1')).toBeNull();
+});
 
 describe('Open on the website (6b): the admin pages the app doesn’t have', () => {
   it('lists AI Management, System Settings and Audit Logs, as the website’s Admin menu', () => {
