@@ -16,6 +16,7 @@ export function StatTile({
   tone = 'brand',
   onPress,
   actionLabel,
+  selected,
 }: {
   label: string;
   value: string | number;
@@ -25,12 +26,20 @@ export function StatTile({
   onPress?: () => void;
   /** What tapping the tile does, e.g. "Open your overdue tasks". */
   actionLabel?: string;
+  /** A tile that filters a list: on (a brand border; TalkBack hears "selected"). */
+  selected?: boolean;
 }) {
   const c = useColors();
   const t = toneStyle(c, tone);
   const name = `${label}: ${value}${hint ? `, ${hint}` : ''}`;
   return (
-    <Card onPress={onPress} accessibilityLabel={name} accessibilityHint={onPress ? actionLabel : undefined}>
+    <Card
+      onPress={onPress}
+      accessibilityLabel={name}
+      accessibilityHint={onPress ? actionLabel : undefined}
+      accessibilityState={{ selected: !!selected }}
+      style={selected ? { borderColor: c.brand, borderWidth: 2, padding: 15 } : undefined}
+    >
       <View style={styles.row} accessible={!onPress} accessibilityLabel={onPress ? undefined : name}>
         <View style={styles.text}>
           <Text style={[typeStyle('eyebrow'), { color: c.ink2 }]} numberOfLines={2}>

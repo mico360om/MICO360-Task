@@ -28,4 +28,5 @@
 <!-- meetings-chat-account lines above this line -->
 
 ## Planning and AI
+- In the Android app, Timeline shows every open project's health, progress, next milestone and target, with Late and At risk filters and each project's tasks — as on the website's phone layout.
 <!-- planning-and-ai lines above this line -->
