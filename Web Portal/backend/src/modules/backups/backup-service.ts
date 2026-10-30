@@ -59,6 +59,11 @@ export interface BackupServiceDeps {
   neededSpace?: () => Promise<number>;
   /** Emails the active administrators (best effort; not called when email isn't set up). */
   alertAdmins?: (alert: { title: string; message: string }) => Promise<void>;
+  /**
+   * Which good copy the "no new copy since …" email was sent about (kept in system_settings), so it
+   * goes out once — and again only after a newer good copy, when copies stop again.
+   */
+  noCopyAlertMark?: { read(): Promise<string | null>; write(copyId: string | null): Promise<void> };
   drive?: BackupDrive;
   now?: () => Date;
   logger?: { info(msg: string, ctx?: Record<string, unknown>): void; warn(msg: string, ctx?: Record<string, unknown>): void; error(msg: string, ctx?: Record<string, unknown>): void };
@@ -133,14 +138,56 @@ export function createBackupService(deps: BackupServiceDeps) {
 
   const dayFormat = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' });
 
-  /** Tries left RUNNING by a server that stopped part-way are marked as failed. */
+  /**
+   * Tries left RUNNING by a server that stopped part-way (a restart, a deployment, out of memory) are
+   * marked as failed — and when that was the night's last try, the administrators are told, as for
+   * any other failed night. Only the server that marks the row sends it (updateIfRunning), so once.
+   */
   async function reconcile(): Promise<void> {
     const running = await deps.repo.running();
     if (!running.length || (await deps.lock.isHeld(now()))) return;
     for (const r of running) {
       if (now().getTime() - r.startedAt.getTime() < STALE_AFTER_MS) continue;
-      await deps.repo.updateIfRunning(r.id, { status: 'FAILED', error: STOPPED, finishedAt: now() });
+      const marked = await deps.repo.updateIfRunning(r.id, { status: 'FAILED', error: STOPPED, finishedAt: now() });
+      if (marked && r.trigger === 'NIGHTLY') await afterNightlyFailure(r.localDate, STOPPED);
     }
+  }
+
+  /** A nightly try failed: when it was the night's last, every administrator gets an email. */
+  async function afterNightlyFailure(localDate: string, reason: string): Promise<void> {
+    const tries = (await deps.repo.nightlyOn(localDate)).filter((r) => r.status === 'FAILED').length;
+    if (tries < MAX_NIGHTLY_ATTEMPTS) return;
+    await alert(
+      failedText('NIGHTLY'),
+      `Last night’s backup failed: ${reason} It was tried ${MAX_NIGHTLY_ATTEMPTS} times. Open System Settings → Backups and press "Back up now" once the problem is fixed.`,
+    );
+  }
+
+  /**
+   * The warning System Settings shows: the last try failed, or no new copy for a day and a half
+   * (`staleSince` is then the copy the warning is about).
+   */
+  function warningFor(recent: BackupRunRecord[], lastOk: BackupRunRecord | undefined, at: Date): { text: string | null; staleSince: BackupRunRecord | null } {
+    const latest = recent.find((r) => r.status !== 'RUNNING');
+    if (latest?.status === 'FAILED') return { text: `${failedText(latest.trigger)}: ${latest.error ?? 'no reason was given.'}`, staleSince: null };
+    if (lastOk && nightlyEnabled && at.getTime() - (lastOk.finishedAt ?? lastOk.startedAt).getTime() > NO_COPY_WARNING_MS) {
+      return { text: `No new copy has been made since ${dayFormat.format(lastOk.startedAt)}. Is the server running at night?`, staleSince: lastOk };
+    }
+    return { text: null, staleSince: null };
+  }
+
+  /** The "no new copy" warning, emailed once when it first appears (again only after a newer good copy). */
+  async function emailIfNoNewCopy(): Promise<void> {
+    if (!deps.noCopyAlertMark || !nightlyEnabled) return;
+    const [recent, kept] = await Promise.all([deps.repo.recent(20), keptCopies()]);
+    const { staleSince } = warningFor(recent, kept[0]?.row, now());
+    if (!staleSince || (await deps.noCopyAlertMark.read()) === staleSince.id) return;
+    const since = dayFormat.format(staleSince.startedAt);
+    await alert(
+      `No new backup copy since ${since}`,
+      `No new backup copy has been made since ${since}. Is the server running at night? Open System Settings → Backups to check, and press "Back up now" to make one.`,
+    );
+    await deps.noCopyAlertMark.write(staleSince.id);
   }
 
   async function clearLeftovers(): Promise<void> {
@@ -296,15 +343,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       const reason = plainReason(err);
       deps.logger?.error('backup failed', { err, reason, trigger: row.trigger });
       const failed = await deps.repo.update(row.id, { status: 'FAILED', finishedAt: now(), error: reason });
-      if (row.trigger === 'NIGHTLY') {
-        const tries = (await deps.repo.nightlyOn(row.localDate)).filter((r) => r.status === 'FAILED').length;
-        if (tries >= MAX_NIGHTLY_ATTEMPTS) {
-          await alert(
-            failedText('NIGHTLY'),
-            `Last night’s backup failed: ${reason} It was tried ${MAX_NIGHTLY_ATTEMPTS} times. Open System Settings → Backups and press "Back up now" once the problem is fixed.`,
-          );
-        }
-      }
+      if (row.trigger === 'NIGHTLY') await afterNightlyFailure(row.localDate, reason);
       return failed;
     } finally {
       clearInterval(beat);
@@ -345,20 +384,26 @@ export function createBackupService(deps: BackupServiceDeps) {
       return work(await begin(trigger, by));
     },
 
-    /** The nightly sweep: makes tonight's copy when it is due. True when it made (or tried) one. */
+    /**
+     * The nightly sweep: makes tonight's copy when it is due (true when it made or tried one), then
+     * emails the administrators once if there has been no new copy for a day and a half.
+     */
     async runNightlyIfDue(): Promise<boolean> {
       if (!nightlyEnabled) return false;
       await reconcile();
       const at = now();
       const today = await deps.repo.nightlyOn(zonedDayKey(at, tz));
-      if (!nightlyDue({ now: at, timeZone: tz, today, running: await deps.lock.isHeld(at) })) return false;
-      try {
-        await work(await begin('NIGHTLY', null));
-      } catch (err) {
-        if (err instanceof ConflictError) return false; // another server started it a moment ago
-        throw err;
+      let tried = false;
+      if (nightlyDue({ now: at, timeZone: tz, today, running: await deps.lock.isHeld(at) })) {
+        try {
+          await work(await begin('NIGHTLY', null));
+          tried = true;
+        } catch (err) {
+          if (!(err instanceof ConflictError)) throw err; // a ConflictError: another server started it a moment ago
+        }
       }
-      return true;
+      await emailIfNoNewCopy().catch((err) => deps.logger?.warn('the "no new backup copy" email could not be sent', { err }));
+      return tried;
     },
 
     /** Resolves once the copy started by `start` is finished. */
@@ -388,15 +433,9 @@ export function createBackupService(deps: BackupServiceDeps) {
         deps.lock.isHeld(at),
       ]);
       const running = recent.find((r) => r.status === 'RUNNING');
-      const finished = recent.filter((r) => r.status !== 'RUNNING');
       // The last backup is the newest copy kept here (a restored database lists copies of another server).
       const lastOk = kept[0]?.row;
-      const latest = finished[0];
-      let warning: string | null = null;
-      if (latest?.status === 'FAILED') warning = `${failedText(latest.trigger)}: ${latest.error ?? 'no reason was given.'}`;
-      else if (lastOk && nightlyEnabled && at.getTime() - (lastOk.finishedAt ?? lastOk.startedAt).getTime() > NO_COPY_WARNING_MS) {
-        warning = `No new copy has been made since ${dayFormat.format(lastOk.startedAt)}. Is the server running at night?`;
-      }
+      const warning = warningFor(recent, lastOk, at).text;
       const newestKept = kept[0]?.row;
       const driveWarning =
         drive.problem ?? (drive.connected && newestKept?.driveStatus === 'FAILED' ? `The last copy wasn’t sent to Google Drive: ${newestKept.driveError ?? 'no reason was given.'}` : null);

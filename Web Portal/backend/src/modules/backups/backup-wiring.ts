@@ -58,6 +58,8 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
   const webRoot = env.WEB_ROOT ? resolve(cwd, env.WEB_ROOT) : null;
   const appDir = appFolder(cwd);
   const sql = prismaSqlRunner(prisma);
+  // Which copy the "no new copy since …" email was about (never shown by the settings API).
+  const noCopyMark = prismaSettingKeyValue(prisma, 'backups.noCopyAlert');
 
   const google =
     env.GOOGLE_CLIENT_ID.trim() && env.GOOGLE_CLIENT_SECRET.trim()
@@ -91,6 +93,13 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
     freeSpace: diskFree,
     neededSpace: () => estimateBackupBytes(sql, uploadDir),
     alertAdmins: opts.alertAdmins,
+    noCopyAlertMark: {
+      read: async () => {
+        const v = await noCopyMark.read();
+        return typeof v === 'string' ? v : null;
+      },
+      write: (copyId) => (copyId ? noCopyMark.write(copyId) : noCopyMark.erase()),
+    },
     drive,
     logger: opts.logger,
   });

@@ -123,6 +123,8 @@ const goodArchive = async (o: { outFile: string; workDir: string }): Promise<Arc
   return { sizeBytes: 13, sha256: 'a'.repeat(64), md5: 'b'.repeat(32), tables: 64, rows: 1000, files: 5, fileBytes: 999, latestMigration: 'm', encrypted: false };
 };
 
+let noCopyMark: string | null;
+
 function service(extra: Partial<BackupServiceDeps> = {}) {
   return createBackupService({
     repo,
@@ -134,6 +136,12 @@ function service(extra: Partial<BackupServiceDeps> = {}) {
     now: () => clock,
     alertAdmins: async (a) => {
       alerts.push(a);
+    },
+    noCopyAlertMark: {
+      read: async () => noCopyMark,
+      write: async (v) => {
+        noCopyMark = v;
+      },
     },
     ...extra,
   });
@@ -148,6 +156,7 @@ beforeEach(() => {
   archiveCalls = 0;
   archiveFails = null;
   gate = null;
+  noCopyMark = null;
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -509,5 +518,95 @@ describe('the overview for System Settings', () => {
     await repo.update(row.id, { status: 'OK', fileName, sizeBytes: 1, finishedAt: muscat('2026-10-27', '02:01') });
     clock = muscat('2026-10-30', '09:00');
     expect((await service().overview()).warning).toBe('No new copy has been made since 27 Oct 2026. Is the server running at night?');
+  });
+});
+
+describe('telling the administrators when copies stop', () => {
+  /** A nightly try that a server left RUNNING when it was stopped (a restart, a deploy, out of memory). */
+  const leftRunning = (day: string, hhmm: string) => repo.create({ trigger: 'NIGHTLY', localDate: day, startedAt: muscat(day, hhmm), requestedById: null });
+  const failedTry = async (day: string, hhmm: string) => {
+    const r = await leftRunning(day, hhmm);
+    await repo.update(r.id, { status: 'FAILED', error: 'boom', finishedAt: muscat(day, hhmm) });
+  };
+  const STOPPED = 'It stopped before it finished (the server may have restarted).';
+
+  it('the night’s last try cut short by a stopped server: marked failed and every administrator is emailed, once', async () => {
+    await failedTry('2026-10-30', '02:00');
+    await failedTry('2026-10-30', '03:01');
+    await leftRunning('2026-10-30', '04:02');
+    clock = muscat('2026-10-30', '04:30');
+    const svc = service();
+    expect(await svc.runNightlyIfDue()).toBe(false);
+    expect(repo.rows[2]).toMatchObject({ status: 'FAILED', error: STOPPED });
+    expect(alerts).toEqual([{ title: 'Last night’s backup failed', message: expect.stringContaining(`Last night’s backup failed: ${STOPPED} It was tried 3 times.`) }]);
+    await svc.runNightlyIfDue();
+    await svc.overview();
+    expect(alerts).toHaveLength(1);
+  });
+
+  it('found by the System Settings page instead of the nightly check: the same email', async () => {
+    await failedTry('2026-10-30', '02:00');
+    await failedTry('2026-10-30', '03:01');
+    await leftRunning('2026-10-30', '04:02');
+    clock = muscat('2026-10-30', '04:30');
+    await service().overview();
+    expect(alerts.map((a) => a.title)).toEqual(['Last night’s backup failed']);
+  });
+
+  it('an earlier try cut short is retried, not emailed about', async () => {
+    await leftRunning('2026-10-30', '02:00');
+    clock = muscat('2026-10-30', '02:30');
+    await service().overview();
+    expect(repo.rows[0]).toMatchObject({ status: 'FAILED', error: STOPPED });
+    expect(alerts).toEqual([]);
+  });
+
+  it('a "Back up now" cut short is shown, not emailed', async () => {
+    await repo.create({ trigger: 'MANUAL', localDate: '2026-10-30', startedAt: muscat('2026-10-30', '10:00'), requestedById: 'admin1' });
+    clock = muscat('2026-10-30', '10:30');
+    await service().overview();
+    expect(alerts).toEqual([]);
+  });
+
+  async function goodCopy(day: string) {
+    const row = await repo.create({ trigger: 'NIGHTLY', localDate: day, startedAt: muscat(day, '02:00'), requestedById: null });
+    const fileName = `mico360-tasks-backup-${day}-0200-${row.id.slice(-6)}.tar.gz`;
+    writeFileSync(join(dir, fileName), 'x');
+    await repo.update(row.id, { status: 'OK', fileName, sizeBytes: 1, finishedAt: muscat(day, '02:01') });
+  }
+
+  it('no new copy for a day and a half: the administrators are emailed once, and again only after a good copy', async () => {
+    await goodCopy('2026-10-27');
+    // 01:00: tonight's copy isn't due yet, and the last one is from three nights ago.
+    clock = muscat('2026-10-30', '01:00');
+    const svc = service();
+    await svc.runNightlyIfDue();
+    expect(alerts).toEqual([
+      {
+        title: 'No new backup copy since 27 Oct 2026',
+        message: 'No new backup copy has been made since 27 Oct 2026. Is the server running at night? Open System Settings → Backups to check, and press "Back up now" to make one.',
+      },
+    ]);
+    clock = muscat('2026-10-30', '01:10');
+    await svc.runNightlyIfDue();
+    expect(alerts).toHaveLength(1);
+
+    // A good copy resets it; when copies stop again, the email comes again.
+    clock = muscat('2026-10-30', '02:05');
+    await svc.runNightlyIfDue();
+    expect(repo.rows.filter((r) => r.status === 'OK')).toHaveLength(2);
+    expect(alerts).toHaveLength(1);
+    clock = muscat('2026-11-01', '01:00');
+    await svc.runNightlyIfDue();
+    expect(alerts.map((a) => a.title)).toEqual(['No new backup copy since 27 Oct 2026', 'No new backup copy since 30 Oct 2026']);
+  });
+
+  it('no email about it while the nightly copy is off, or before a day and a half', async () => {
+    await goodCopy('2026-10-29');
+    clock = muscat('2026-10-30', '01:00');
+    await service().runNightlyIfDue();
+    clock = muscat('2026-11-02', '01:00');
+    await service({ nightlyEnabled: false }).runNightlyIfDue();
+    expect(alerts).toEqual([]);
   });
 });

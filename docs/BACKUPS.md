@@ -30,8 +30,13 @@ Not in a copy:
   `NODE_ENV=production` — and off on development, QA and test servers (their copies would land in the
   repository). `BACKUP_NIGHTLY=true` / `false` says otherwise.
 - If a nightly copy fails, it is tried again an hour later, three tries a night. When the third fails, every
-  administrator gets an email (if email is set up) and System Settings shows the reason. A copy that
+  administrator gets an email (if email is set up) and System Settings shows the reason — also when the
+  server was stopped part-way through a copy (a restart, a deployment, too little memory). A copy that
   works is quiet.
+- If no new copy has been made for a day and a half (the server isn't running at night, say), System
+  Settings says so and the administrators get **one** email about it; the next good copy resets it.
+- A copy still running after 3 hours is stopped and counts as a failed try, so a stuck disk can't block
+  the next ones.
 - An administrator can make one at any time: **System Settings → Backups → Back up now**. It takes a few
   minutes on a busy server; the page says when it is ready.
 - On Hostinger the app can be paused when nobody uses it. The cron job in
