@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useDraftAgenda } from '../../core/meeting-ai';
-import { Button, TextField } from '../ui';
+import { Button, IconButton, TextField } from '../ui';
 import { InlinePicker, SheetMessage } from '../meeting/sheet-kit';
 import { AgendaDraftReview } from './AgendaDraftReview';
 import { addAgendaTopic, addDraftedItems, agendaMinutesInput, agendaTotal, meetingAiFailure, moveAgendaDraft, type AgendaDraft } from '../../lib/meeting-ai';
@@ -83,9 +83,9 @@ export function AgendaField({
                   editable={!disabled}
                 />
               </View>
-              <Small label="↑" a11y={`Move item ${n} up`} onPress={() => onChange(moveAgendaDraft(agenda, index, -1))} disabled={disabled || index === 0} />
-              <Small label="↓" a11y={`Move item ${n} down`} onPress={() => onChange(moveAgendaDraft(agenda, index, 1))} disabled={disabled || index === agenda.length - 1} />
-              <Small label="✕" a11y={`Remove item ${n}`} onPress={() => onChange(agenda.filter((i) => i.key !== item.key))} disabled={disabled} />
+              <IconButton icon="kit.up" variant="outlined" label={`Move item ${n} up`} onPress={() => onChange(moveAgendaDraft(agenda, index, -1))} disabled={disabled || index === 0} />
+              <IconButton icon="kit.down" variant="outlined" label={`Move item ${n} down`} onPress={() => onChange(moveAgendaDraft(agenda, index, 1))} disabled={disabled || index === agenda.length - 1} />
+              <IconButton icon="ui.close" variant="outlined" label={`Remove item ${n}`} onPress={() => onChange(agenda.filter((i) => i.key !== item.key))} disabled={disabled} />
             </View>
           </View>
         );
@@ -106,7 +106,7 @@ export function AgendaField({
       <Button title="Add item" variant="secondary" onPress={add} disabled={disabled} />
       <SheetMessage text={problem} />
       <View style={styles.draftRow}>
-        <Button title={draft.isPending ? 'Drafting…' : '✨ Draft agenda'} variant="ghost" onPress={askDraft} loading={draft.isPending} disabled={disabled || !draftRequest.ok} />
+        <Button title={draft.isPending ? 'Drafting…' : 'Draft agenda'} icon="nav.ai" variant="ghost" onPress={askDraft} loading={draft.isPending} disabled={disabled || !draftRequest.ok} />
         {!draftRequest.ok ? <Text style={[styles.small, { color: c.ink2 }]}>{draftRequest.hint}</Text> : null}
       </View>
       <SheetMessage text={draftError} />
@@ -125,24 +125,12 @@ export function AgendaField({
   );
 }
 
-function Small({ label, a11y, onPress, disabled }: { label: string; a11y: string; onPress: () => void; disabled?: boolean }) {
-  const c = useColors();
-  return (
-    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={a11y} accessibilityState={{ disabled: !!disabled }} style={[styles.small44, { borderColor: c.line }, disabled && styles.dim]}>
-      <Text style={[styles.smallText, { color: c.ink2 }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
+  card: { borderWidth: 1, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
   title: { fontSize: fontSize.sm, ...font('800') },
-  item: { borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs },
+  item: { borderWidth: 1, borderRadius: radius.input, padding: spacing.sm, gap: spacing.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   minutes: { width: 90 },
   small: { fontSize: fontSize.xs },
-  small44: { width: 44, height: 44, borderWidth: 1, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  smallText: { fontSize: fontSize.md, ...font('700') },
-  dim: { opacity: 0.4 },
   draftRow: { gap: spacing.xs },
 });

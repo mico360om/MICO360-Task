@@ -4,8 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { useMeetings, useMyActionItems } from '../core/queries';
 import { useColors } from '../core/theme';
-import { Badge, Loader, EmptyState, ErrorNote } from '../components/ui';
-import { Chip } from '../components/task-detail/kit';
+import { Badge, SkeletonList, EmptyState, ErrorNote, Chip } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { actionDueText, actionStatusLabel, actionStatusTone, isActionItemOverdue } from '../lib/meeting-detail';
 import type { ApiActionItem } from '../lib/types';
@@ -58,7 +58,14 @@ export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItem
             <View style={styles.meta}>
               <Badge label={actionStatusLabel(item.status)} tone={actionStatusTone(item.status)} />
               <Text style={[styles.sub, late && styles.overdue]}>{due}</Text>
-              {meetingTitle ? <Text style={styles.sub} numberOfLines={1}>↗ {meetingTitle}</Text> : null}
+              {meetingTitle ? (
+                <View style={styles.from}>
+                  <Icon name="nav.meetings" size={12} color={c.ink3} />
+                  <Text style={styles.sub} numberOfLines={1}>
+                    {meetingTitle}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </Pressable>
           {taskId ? (
@@ -68,13 +75,17 @@ export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItem
               accessibilityLabel={`Open the linked task${item.taskKey ? `, ${item.taskKey}` : ''}`}
               style={({ pressed }) => [styles.taskChip, pressed && styles.pressed]}
             >
-              <Text style={styles.taskChipText}>✓ {item.taskKey ?? 'Task'} ›</Text>
+              <View style={styles.from}>
+                <Icon name="misc.check" size={12} color={c.successText} />
+                <Text style={styles.taskChipText}>{item.taskKey ?? 'Task'}</Text>
+                <Icon name="ui.chevron" size={12} color={c.successText} rotate={270} />
+              </View>
             </Pressable>
           ) : null}
         </View>
       );
     },
-    [styles, now, titles, navigation],
+    [styles, c, now, titles, navigation],
   );
 
   const header = (
@@ -94,11 +105,11 @@ export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItem
   );
 
   const empty = itemsQ.isLoading ? (
-    <Loader />
+    <SkeletonList rows={4} />
   ) : itemsQ.isError && !itemsQ.data ? (
     <ErrorNote message="Couldn’t load your action items." onRetry={() => void itemsQ.refetch()} retrying={itemsQ.isFetching} />
   ) : (
-    <EmptyState title="Nothing on your plate" subtitle={scope === 'open' ? 'You have no open action items. Nice.' : 'No action items are assigned to you.'} />
+    <EmptyState icon="nav.actionItems" title="Nothing on your plate" subtitle={scope === 'open' ? 'You have no open action items. Nice.' : 'No action items are assigned to you.'} />
   );
 
   return (
@@ -124,9 +135,9 @@ const makeStyles = (c: Palette) =>
     header: { gap: spacing.sm, marginBottom: spacing.xs },
     intro: { fontSize: fontSize.sm, color: c.ink2 },
     scope: { flexDirection: 'row', gap: spacing.sm },
-    overdueNote: { fontSize: fontSize.sm, ...font('700'), color: c.dangerText, backgroundColor: c.dangerSoft, borderRadius: radius.md, padding: spacing.sm },
+    overdueNote: { fontSize: fontSize.sm, ...font('700'), color: c.dangerText, backgroundColor: c.dangerSoft, borderRadius: radius.input, padding: spacing.sm },
     hint: { fontSize: fontSize.xs, color: c.ink3 },
-    card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm },
+    card: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm },
     main: { gap: spacing.xs },
     pressed: { opacity: 0.7 },
     // Arabic descriptions read right to left (Android picks the direction from the text).
@@ -134,6 +145,7 @@ const makeStyles = (c: Palette) =>
     done: { textDecorationLine: 'line-through', color: c.ink3 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
     sub: { fontSize: fontSize.xs, color: c.ink3, flexShrink: 1 },
+    from: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
     overdue: { color: c.dangerText, ...font('700') },
     taskChip: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', backgroundColor: c.successSoft, borderRadius: radius.pill, paddingHorizontal: spacing.md },
     taskChipText: { fontSize: fontSize.xs, ...font('700'), color: c.successText },

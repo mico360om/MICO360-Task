@@ -10,11 +10,48 @@ import { useDebouncedValue } from '../core/useDebounced';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { SEARCH_DEBOUNCE_MS, exactTask, routeOf, searchEnabled, searchItems, searchStatus, type SearchItem } from '../lib/search';
 import { openWebsitePage } from '../adapters/website';
+import { Icon } from '../components/Icon';
+import type { IconName } from '../lib/icons';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
 
 const RESULT_GROUPS = new Set(['Tasks', 'Projects', 'People', 'Meetings']);
+
+/** Each page Search offers, by its drawn icon (the website's sidebar icons). */
+const PAGE_ICON: Record<string, IconName> = {
+  dashboard: 'nav.dashboard',
+  'my-tasks': 'nav.tasks',
+  board: 'nav.board',
+  projects: 'nav.projects',
+  calendar: 'nav.calendar',
+  chat: 'nav.chat',
+  activity: 'nav.activity',
+  notifications: 'nav.notifications',
+  reports: 'nav.reports',
+  settings: 'nav.settings',
+  profile: 'kit.user',
+  about: 'misc.info',
+  'admin-users': 'nav.users',
+  timeline: 'nav.timeline',
+  workload: 'nav.workload',
+  management: 'nav.management',
+  templates: 'nav.templates',
+  'mico-ai': 'nav.ai',
+  'admin-ai': 'nav.aiManagement',
+  'admin-settings': 'nav.sliders',
+  'admin-audit': 'nav.audit',
+};
+
+/** The icon a row leads with: its group's (a task, a project, a person, a meeting), or the page's own. */
+function rowIcon(item: SearchItem): IconName {
+  if (item.group === 'Tasks' || item.target.kind === 'openKey') return 'kit.task';
+  if (item.group === 'Projects') return 'nav.projects';
+  if (item.group === 'People') return 'kit.user';
+  if (item.group === 'Meetings') return 'nav.meetings';
+  const page = item.id.startsWith('nav-') ? PAGE_ICON[item.id.slice(4)] : undefined;
+  return page ?? (item.target.kind === 'website' ? 'kit.globe' : 'nav.dashboard');
+}
 
 /**
  * Search (6b), as the website's search box: tasks, projects, people and meetings you may see, the
@@ -132,7 +169,7 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
             hitSlop={8}
             style={s.clear}
           >
-            <Text style={s.clearText}>✕</Text>
+            <Icon name="ui.close" size={18} color={c.ink2} />
           </Pressable>
         ) : null}
       </View>
@@ -164,6 +201,7 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
               accessibilityState={{ busy: opening, disabled: waiting && !opening }}
               style={({ pressed }) => [s.row, pressed && s.pressed]}
             >
+              <Icon name={rowIcon(item)} size={18} color={c.ink2} />
               {item.hint && item.target.kind !== 'website' ? <Text style={s.hint}>{item.hint}</Text> : null}
               <View style={s.flex}>
                 <Text style={s.primary} numberOfLines={2}>
@@ -175,7 +213,7 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
                   </Text>
                 ) : null}
               </View>
-              {opening ? <ActivityIndicator color={c.brandText} /> : item.target.kind === 'website' ? <Text style={s.out}>↗</Text> : null}
+              {opening ? <ActivityIndicator color={c.brandText} /> : item.target.kind === 'website' ? <Icon name="kit.globe" size={16} color={c.brandText} /> : null}
             </Pressable>
           );
         }}
@@ -188,17 +226,15 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
     flex: { flex: 1 },
-    box: { flexDirection: 'row', alignItems: 'center', margin: spacing.lg, marginBottom: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.surface },
+    box: { flexDirection: 'row', alignItems: 'center', margin: spacing.lg, marginBottom: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, backgroundColor: c.surface },
     input: { flex: 1, minHeight: 48, paddingHorizontal: spacing.md, fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     clear: { minHeight: 48, minWidth: 48, alignItems: 'center', justifyContent: 'center' },
-    clearText: { fontSize: fontSize.md, color: c.ink2, ...font('700') },
     status: { marginHorizontal: spacing.lg, marginBottom: spacing.sm, fontSize: fontSize.sm, color: c.ink2 },
     list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
     group: { fontSize: fontSize.xs, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink3, marginTop: spacing.md, marginBottom: spacing.xs },
-    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: c.surface, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, marginBottom: spacing.xs },
+    row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: c.surface, borderRadius: radius.input, borderWidth: 1, borderColor: c.line, marginBottom: spacing.xs },
     pressed: { opacity: 0.7 },
     hint: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, fontFamily: 'monospace' },
     primary: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     secondary: { fontSize: fontSize.xs, color: c.ink3, textAlign: 'auto' },
-    out: { fontSize: fontSize.md, color: c.brandText, ...font('700') },
   });

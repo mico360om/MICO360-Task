@@ -6,7 +6,8 @@ import { useSession } from '../core/providers';
 import { useOpenProjectChat } from '../core/chat';
 import { useConversationPrefs, usePresence, useStartDirect } from '../core/chat-features';
 import { useColors } from '../core/theme';
-import { Loader, ErrorNote, IconButton, PageHeader } from '../components/ui';
+import { SkeletonList, ErrorNote, IconButton, PageHeader } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { ChatSearchResults, NewMessageSheet, PrefsSheet } from '../components/chat/ChatSheets';
 import { inboxSections, previewOf, type InboxRow } from '../lib/chat-model';
 import { listTime } from '../lib/chat-ui';
@@ -89,7 +90,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
       if (ok) setMenuFor(null);
     });
 
-  if (projectsQ.isLoading && !projectsQ.data) return <Loader />;
+  if (projectsQ.isLoading && !projectsQ.data) return <SkeletonList avatar />;
   const refreshing = projectsQ.isRefetching || inboxQ.isRefetching;
   const searching = query.trim().length > 0;
   const nothingFound = searching && !messageSearch && sections.favorites.length + sections.channels.length + sections.directs.length + sections.archived.length === 0;
@@ -126,7 +127,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
           accessibilityState={{ expanded: isOpen }}
           accessibilityLabel={`${SECTION_TITLE[key]}, ${rows.length}${unread ? `, ${unread} unread` : ''}`}
         >
-          <Text style={styles.chevron}>{isOpen ? '▾' : '▸'}</Text>
+          <Icon name="ui.chevron" size={14} color={c.ink2} rotate={isOpen ? 0 : 270} />
           <Text style={styles.sectionTitle}>{SECTION_TITLE[key].toUpperCase()}</Text>
           {unread ? (
             <View style={styles.badge}>
@@ -187,17 +188,19 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
 
         {messageSearch ? (
           <View>
-            <Pressable style={styles.back} onPress={() => setMessageSearch(false)} accessibilityRole="button">
-              <Text style={styles.backText}>‹ Back to conversations</Text>
+            <Pressable style={[styles.back, styles.iconLine]} onPress={() => setMessageSearch(false)} accessibilityRole="button">
+              <Icon name="ui.back" size={16} color={c.brandText} />
+              <Text style={styles.backText}>Back to conversations</Text>
             </Pressable>
             <ChatSearchResults q={query} titleOf={titleOf} nameOf={fullName} onPick={openResult} />
           </View>
         ) : (
           <>
             {searching && query.trim().length >= CHAT_SEARCH_MIN ? (
-              <Pressable style={styles.searchMessages} onPress={() => setMessageSearch(true)} accessibilityRole="button">
-                <Text style={styles.searchMessagesText} numberOfLines={1}>
-                  🔍 Search messages for “{query.trim()}”
+              <Pressable style={[styles.searchMessages, styles.iconLine]} onPress={() => setMessageSearch(true)} accessibilityRole="button">
+                <Icon name="ui.search" size={16} color={c.brandText} />
+                <Text style={[styles.searchMessagesText, styles.shrink]} numberOfLines={1}>
+                  Search messages for “{query.trim()}”
                 </Text>
               </Pressable>
             ) : null}
@@ -302,7 +305,7 @@ const ConversationRow = memo(function ConversationRow({
     >
       {r.kind === 'PROJECT' ? (
         <View style={[styles.tile, { backgroundColor: c.brand }]}>
-          <Text style={styles.tileText}>#</Text>
+          <Icon name="ui.hash" size={16} color={c.onBrand} />
         </View>
       ) : (
         <View style={[styles.tile, styles.round, { backgroundColor: c.brandWash }]}>
@@ -312,8 +315,8 @@ const ConversationRow = memo(function ConversationRow({
       )}
       <View style={styles.grow}>
         <View style={styles.line}>
+          {r.prefs.favorite ? <Icon name="ui.starFilled" size={14} color={c.warningText} label="Favorite" /> : null}
           <Text style={[styles.rowTitle, r.unread ? styles.bold : null]} numberOfLines={1}>
-            {r.prefs.favorite ? '★ ' : ''}
             {r.title}
           </Text>
           {r.lastMessage ? <Text style={[styles.time, r.unread ? { color: c.brandText, ...font('700') } : null]}>{listTime(r.lastMessage.createdAt)}</Text> : null}
@@ -323,7 +326,12 @@ const ConversationRow = memo(function ConversationRow({
             {preview || (r.kind === 'PROJECT' && !r.conversationId ? 'Project channel' : 'No messages yet')}
           </Text>
           {/* Muted: said, and its count in grey — it isn't in the Chat tab's number (as on the website). */}
-          {r.prefs.muted ? <Text style={styles.muted}>🔕 Muted</Text> : null}
+          {r.prefs.muted ? (
+            <View style={styles.iconLine}>
+              <Icon name="ui.bellOff" size={12} color={c.ink2} />
+              <Text style={styles.muted}>Muted</Text>
+            </View>
+          ) : null}
           {r.unread ? (
             <View style={[styles.badge, r.prefs.muted && styles.badgeMuted]}>
               <Text style={[styles.badgeText, r.prefs.muted && styles.badgeTextMuted]}>{r.unread > 99 ? '99+' : r.unread}</Text>
@@ -343,19 +351,20 @@ const makeStyles = (c: Palette) =>
       minHeight: 44,
       borderWidth: 1,
       borderColor: c.line,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       paddingHorizontal: spacing.md,
       backgroundColor: c.surface,
       color: c.ink,
       fontSize: fontSize.md,
     },
-    searchMessages: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: c.brandWash },
+    searchMessages: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.input, backgroundColor: c.brandWash },
     searchMessagesText: { color: c.brandText, ...font('600'), fontSize: fontSize.sm },
     back: { minHeight: 44, justifyContent: 'center' },
+    iconLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    shrink: { flexShrink: 1 },
     backText: { color: c.brandText, ...font('700'), fontSize: fontSize.sm },
     section: { gap: spacing.xs, marginTop: spacing.sm },
     sectionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 36 },
-    chevron: { color: c.ink2, fontSize: fontSize.sm, width: 14 },
     sectionTitle: { flex: 1, fontSize: fontSize.xs, ...font('700'), color: c.ink2, letterSpacing: 0.6 },
     sectionCount: { fontSize: fontSize.xs, color: c.ink3, ...font('600') },
     row: {
@@ -363,13 +372,13 @@ const makeStyles = (c: Palette) =>
       alignItems: 'center',
       gap: spacing.sm,
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       borderWidth: 1,
       borderColor: c.line,
       padding: spacing.md,
       minHeight: 56,
     },
-    tile: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
+    tile: { width: 36, height: 36, borderRadius: radius.badge, alignItems: 'center', justifyContent: 'center' },
     round: { borderRadius: 18 },
     tileText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm },
     dot: { position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, borderWidth: 2 },

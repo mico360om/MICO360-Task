@@ -194,6 +194,6 @@ const makeStyles = (c: Palette) =>
     section: { gap: spacing.sm },
     intro: { marginBottom: spacing.md },
     hint: { marginTop: -spacing.sm, marginBottom: spacing.md, fontSize: fontSize.xs, color: c.ink2 },
-    done: { backgroundColor: c.successSoft, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
+    done: { backgroundColor: c.successSoft, borderRadius: radius.input, padding: spacing.md, marginBottom: spacing.md },
     doneText: { color: c.successText, fontSize: fontSize.sm, ...font('600') },
   });

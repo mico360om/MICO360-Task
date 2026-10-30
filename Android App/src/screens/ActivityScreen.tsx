@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { useActivityFeed } from '../core/activity-queries';
 import { useColors } from '../core/theme';
-import { Button, EmptyState, ErrorNote, Loader } from '../components/ui';
+import { Button, EmptyState, ErrorNote, SkeletonList } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { Chip } from '../components/task-detail/kit';
 import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import {
@@ -85,7 +86,10 @@ export function ActivityScreen({ navigation }: AppScreenProps<'Activity'>) {
                 hitSlop={{ top: 4, bottom: 4 }}
                 style={({ pressed }) => [s.project, pressed && s.pressed]}
               >
-                <Text style={s.projectText}>{project.name} ›</Text>
+                <View style={s.projectLine}>
+                  <Text style={s.projectText}>{project.name}</Text>
+                  <Icon name="ui.chevron" size={12} color={c.ink2} rotate={270} />
+                </View>
               </Pressable>
             ) : null}
           </View>
@@ -95,7 +99,7 @@ export function ActivityScreen({ navigation }: AppScreenProps<'Activity'>) {
     [c, s, now, navigation],
   );
 
-  if (q.isLoading) return <Loader />;
+  if (q.isLoading) return <SkeletonList avatar />;
 
   const empty = activityEmpty(filter);
   const header = (
@@ -118,7 +122,7 @@ export function ActivityScreen({ navigation }: AppScreenProps<'Activity'>) {
       />
     ) : (
       <View style={s.empty}>
-        <EmptyState title={empty.title} subtitle={empty.subtitle} />
+        <EmptyState icon="nav.activity" title={empty.title} subtitle={empty.subtitle} />
         {empty.showAll ? <Button title="Show all activity" variant="ghost" onPress={() => setFilter('')} /> : null}
       </View>
     );
@@ -156,7 +160,7 @@ const makeStyles = (c: Palette) =>
     row: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
     // The website's timeline dot, coloured by what happened (the words say it too).
     dot: { width: 10, height: 10, borderRadius: 5, marginTop: spacing.lg },
-    card: { flex: 1, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs },
+    card: { flex: 1, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.sm, gap: spacing.xs },
     main: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', minHeight: 44 },
     pressed: { opacity: 0.7 },
     avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: c.brandWash, alignItems: 'center', justifyContent: 'center' },
@@ -171,5 +175,6 @@ const makeStyles = (c: Palette) =>
     time: { fontSize: fontSize.xs, color: c.ink2 },
     project: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, backgroundColor: c.ground, marginLeft: 40 },
     projectText: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
+    projectLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     empty: { gap: spacing.sm, alignItems: 'center' },
   });

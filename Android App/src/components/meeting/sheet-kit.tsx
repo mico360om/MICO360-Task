@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '../../core/theme';
 import { KeyboardAwareScrollView } from '../KeyboardAware';
 import { Button, TextField } from '../ui';
+import { Icon } from '../Icon';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { PICKER_LIMIT, moreRowsText, pickerRows } from '../../lib/picker-rows';
 import { font } from '../../lib/typography';
@@ -85,13 +86,12 @@ export function SheetButtons({
   disabled?: boolean;
   danger?: boolean;
 }) {
-  const c = useColors();
   const s = useSheetStyles();
   return (
     <>
       <Button title={cancel} variant="ghost" onPress={onCancel} disabled={busy} style={s.footerButton} />
       {confirm && onConfirm ? (
-        <Button title={confirm} onPress={onConfirm} loading={busy} disabled={disabled} style={danger ? { ...s.footerButton, backgroundColor: c.danger } : s.footerButton} />
+        <Button title={confirm} variant={danger ? 'danger' : 'primary'} onPress={onConfirm} loading={busy} disabled={disabled} style={s.footerButton} />
       ) : null}
     </>
   );
@@ -164,6 +164,7 @@ export function ChipChoice<T extends string>({
 
 /** A checkbox with its words ("Mark as a key point"). */
 export function CheckRow({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  const c = useColors();
   const s = useSheetStyles();
   return (
     <Pressable
@@ -174,7 +175,7 @@ export function CheckRow({ label, checked, onChange, disabled }: { label: string
       accessibilityState={{ checked, disabled: !!disabled }}
       style={({ pressed }) => [s.checkRow, pressed && s.pressed]}
     >
-      <View style={[s.checkbox, checked && s.checkboxOn]}>{checked ? <Text style={s.checkTick}>✓</Text> : null}</View>
+      <View style={[s.checkbox, checked && s.checkboxOn]}>{checked ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
       <Text style={s.checkText}>{label}</Text>
     </Pressable>
   );
@@ -250,6 +251,7 @@ export function InlinePicker({
   /** The most rows shown at once (null: all of them, e.g. the time zones); the rest are found by typing. */
   limit?: number | null;
 }) {
+  const c = useColors();
   const s = useSheetStyles();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -271,9 +273,7 @@ export function InlinePicker({
         <Text style={[s.pickerValue, !chosen && s.placeholder]} numberOfLines={1}>
           {chosen?.label ?? placeholder}
         </Text>
-        <Text style={s.chevron} importantForAccessibility="no">
-          {open ? '▴' : '▾'}
-        </Text>
+        <Icon name="ui.chevron" size={18} color={c.ink3} rotate={open ? 180 : 0} />
       </Pressable>
       {open ? (
         <View style={s.pickerList}>
@@ -296,7 +296,7 @@ export function InlinePicker({
                 <Text style={[s.optionText, o.value === value && s.chipTextOn]}>{o.label}</Text>
                 {o.hint ? <Text style={s.cardHint}>{o.hint}</Text> : null}
               </View>
-              {o.value === value ? <Text style={s.chipTextOn}>✓</Text> : null}
+              {o.value === value ? <Icon name="misc.check" size={16} color={c.brandText} /> : null}
             </Pressable>
           ))}
           {more ? (
@@ -333,8 +333,8 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     fill: { flex: 1 },
     flex: { flex: 1 },
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, maxHeight: '90%' },
+    backdrop: { flex: 1, backgroundColor: c.scrim },
+    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, padding: spacing.lg, gap: spacing.sm, maxHeight: '90%' },
     // The fields shrink (and scroll) when the keyboard leaves less room, so the buttons stay in view.
     body: { flexGrow: 0, flexShrink: 1 },
     bodyContent: { gap: spacing.sm, paddingBottom: spacing.xs },
@@ -342,7 +342,7 @@ const makeStyles = (c: Palette) =>
     subtitle: { fontSize: fontSize.sm, color: c.ink2, textAlign: 'auto' },
     footer: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.xs },
     footerButton: { flex: 1 },
-    message: { fontSize: fontSize.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, overflow: 'hidden' },
+    message: { fontSize: fontSize.sm, borderRadius: radius.input, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, overflow: 'hidden' },
     messageError: { color: c.dangerText, backgroundColor: c.dangerSoft, ...font('600') },
     messageSuccess: { color: c.successText, backgroundColor: c.successSoft, ...font('600') },
     messageInfo: { color: c.ink2, backgroundColor: c.ground },
@@ -358,22 +358,20 @@ const makeStyles = (c: Palette) =>
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
     checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     checkboxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    checkTick: { color: c.onBrand, fontSize: fontSize.sm, ...font('800') },
     checkText: { fontSize: fontSize.md, color: c.ink, flexShrink: 1 },
-    card: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, minHeight: 48 },
+    card: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.md, minHeight: 48 },
     cardOn: { borderColor: c.brand, backgroundColor: c.brandWash },
     cardTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     cardHint: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
     radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
     radioOn: { borderColor: c.brand },
     radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: c.brand },
-    pickerRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    pickerRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     pickerValue: { flex: 1, fontSize: fontSize.md, color: c.ink },
     placeholder: { color: c.ink3 },
-    chevron: { fontSize: fontSize.md, color: c.ink3 },
-    pickerList: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, gap: 2 },
+    pickerList: { borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.sm, gap: 2 },
     search: { marginBottom: 0 },
-    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm },
+    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.badge },
     optionText: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
     danger: { color: c.dangerText },
   });

@@ -1,4 +1,5 @@
 import { Linking, Platform } from 'react-native';
+import { lightColors } from '../lib/theme';
 import * as Notifications from 'expo-notifications';
 import { notificationsAbout, pushPresentation, viewingConversation } from '../lib/chat-viewing';
 
@@ -26,7 +27,8 @@ export function configureNotifications(): void {
       void Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
         name: 'MICO360 Tasks',
         importance: Notifications.AndroidImportance.HIGH,
-        lightColor: '#8B1E1E',
+        // The notification light is the brand colour (a colour string the channel needs).
+        lightColor: lightColors.brand,
       }).catch(() => {});
     }
   } catch {

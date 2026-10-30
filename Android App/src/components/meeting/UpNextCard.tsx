@@ -48,7 +48,7 @@ export function UpNextCard({ meeting: m, ctx, onOpen, onJoin }: { meeting: ApiMe
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    card: { backgroundColor: c.brandWash, borderRadius: radius.lg, borderWidth: 1, borderColor: c.brandWash, padding: spacing.md, gap: 2 },
+    card: { backgroundColor: c.brandWash, borderRadius: radius.card, borderWidth: 1, borderColor: c.brandWash, padding: spacing.md, gap: 2 },
     live: { borderColor: c.brand },
     eyebrow: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 0.8 },
     when: { color: c.ink, ...font('700'), letterSpacing: 0 },

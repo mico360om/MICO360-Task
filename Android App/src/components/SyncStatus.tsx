@@ -106,7 +106,7 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.brandWash,
       borderWidth: 1,
       borderColor: c.brand,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       padding: spacing.md,
       gap: spacing.xs,
     },

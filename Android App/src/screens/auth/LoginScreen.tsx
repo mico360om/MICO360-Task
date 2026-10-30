@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Linking } from 'react-native';
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useServer } from '../../core/providers';
 import { useColors } from '../../core/theme';
-import { Button, TextField, ErrorNote, NoticeNote } from '../../components/ui';
+import { BrandLogo, Button, TextField, ErrorNote, NoticeNote } from '../../components/ui';
 import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
 import { authErrorMessage, biometricSignInProblem, isAccountLocked } from '../../lib/auth-errors';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
@@ -25,7 +25,6 @@ import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
 import { forgetPreviousUser } from '../../lib/user-switch';
 import { asyncStore } from '../../adapters/async-storage';
 import type { AuthScreenProps } from '../../navigation/types';
-import logo from '../../../assets/logo.png';
 import { font } from '../../lib/typography';
 
 type Mode = 'password' | 'otp';
@@ -276,7 +275,10 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
         <KeyboardAwareScrollView contentContainerStyle={styles.scroll}>
           <View style={styles.brand}>
-            <Image source={logo} style={styles.logo} resizeMode="contain" accessibilityRole="image" accessibilityLabel="MICO360" />
+            {/* The website's logo for the theme: dark letters on light, white letters on dark. */}
+            <View style={styles.logo}>
+              <BrandLogo height={56} />
+            </View>
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Sign in to MICO360 Tasks</Text>
           </View>
@@ -465,13 +467,13 @@ const makeStyles = (c: Palette) =>
     flex: { flex: 1 },
     scroll: { padding: spacing.xl, justifyContent: 'center', flexGrow: 1 },
     brand: { alignItems: 'center', marginBottom: spacing.xl },
-    logo: { width: 120, height: 120, marginBottom: spacing.md },
+    logo: { marginBottom: spacing.md },
     title: { fontSize: fontSize.xxl, ...font('800'), color: c.ink },
     subtitle: { fontSize: fontSize.md, color: c.ink2, marginTop: spacing.xs },
     bioWrap: { marginBottom: spacing.lg, gap: spacing.sm },
     bioOr: { textAlign: 'center', color: c.ink3, fontSize: fontSize.xs },
-    tabs: { flexDirection: 'row', backgroundColor: c.line, borderRadius: radius.md, padding: 3, marginBottom: spacing.lg },
-    tab: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.sm },
+    tabs: { flexDirection: 'row', backgroundColor: c.line, borderRadius: radius.input, padding: 3, marginBottom: spacing.lg },
+    tab: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.badge },
     tabActive: { backgroundColor: c.surface },
     tabText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
     tabTextActive: { color: c.brandText },
@@ -487,7 +489,7 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.dangerSoft,
       borderWidth: 1,
       borderColor: c.danger,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       padding: spacing.lg,
       marginBottom: spacing.lg,
       gap: spacing.sm,

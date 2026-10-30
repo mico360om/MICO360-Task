@@ -5,6 +5,7 @@ import { useColors } from '../core/theme';
 import { isRepeating, meetingPlace, meetingRowLabel, meetingTime } from '../lib/meetings';
 import type { ApiMeeting } from '../lib/types';
 import { font } from '../lib/typography';
+import { Icon } from './Icon';
 
 type RowMeeting = Pick<ApiMeeting, 'id' | 'title' | 'status' | 'startAt' | 'endAt' | 'location' | 'onlineLink' | 'recurrenceRule' | 'recurrenceParentId'>;
 
@@ -27,7 +28,7 @@ export function MeetingRow({ meeting, showDate, timeZone, onPress }: { meeting: 
       style={({ pressed }) => [s.row, cancelled && s.cancelledRow, pressed && s.pressed]}
     >
       <View style={s.when}>
-        <Text style={s.icon} importantForAccessibility="no">📅</Text>
+        <Icon name="kit.calendar" size={20} color={c.meeting} />
       </View>
       <View style={s.body}>
         <Text style={[s.title, cancelled && s.struck]} numberOfLines={2}>
@@ -39,11 +40,17 @@ export function MeetingRow({ meeting, showDate, timeZone, onPress }: { meeting: 
             {meetingTime(meeting, timeZone)}
           </Text>
           {place ? <Text style={s.sub}>· {place}</Text> : null}
-          {isRepeating(meeting) ? <Text style={s.repeat}>· 🔁 Repeats</Text> : null}
+          {isRepeating(meeting) ? (
+            <View style={s.repeatRow}>
+              <Text style={s.repeat}>·</Text>
+              <Icon name="kit.repeat" size={12} color={c.ink2} />
+              <Text style={s.repeat}>Repeats</Text>
+            </View>
+          ) : null}
           {cancelled ? <Text style={s.cancelled}>· Cancelled</Text> : null}
         </View>
       </View>
-      <Text style={s.chevron} importantForAccessibility="no">›</Text>
+      <Icon name="ui.chevron" size={18} color={c.ink3} rotate={270} />
     </Pressable>
   );
 }
@@ -57,14 +64,13 @@ const makeStyles = (c: Palette) =>
       gap: spacing.md,
       minHeight: 56,
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       borderWidth: 1,
       borderColor: c.line,
     },
     cancelledRow: { opacity: 0.75 },
     pressed: { opacity: 0.7 },
     when: { width: 28, alignItems: 'center' },
-    icon: { fontSize: fontSize.lg },
     body: { flex: 1 },
     // An Arabic title reads right to left on its own line (Android picks the direction from the text).
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
@@ -72,7 +78,7 @@ const makeStyles = (c: Palette) =>
     meta: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
     time: { fontSize: fontSize.xs, color: c.brandText, ...font('700') },
     sub: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4 },
-    repeat: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4, ...font('600') },
+    repeatRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 4 },
+    repeat: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     cancelled: { fontSize: fontSize.xs, color: c.dangerText, marginLeft: 4, ...font('700') },
-    chevron: { fontSize: fontSize.xl, color: c.ink3 },
   });

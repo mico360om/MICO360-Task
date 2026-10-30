@@ -25,7 +25,8 @@ import { useMyQueuedChanges, useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useChatOutbox, useOnline, useReadWhileOpen } from '../core/chat';
 import { useChatDraft, useChatMessageActions, useChatUploads, useConversationPrefs, usePresence, useStartDirect } from '../core/chat-features';
-import { Loader, ErrorNote, NoticeNote } from '../components/ui';
+import { SkeletonList, ErrorNote, IconButton, NoticeNote } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { MentionSuggestions, useMentionInput } from '../components/Mentions';
 import { ActionRowButton } from '../components/meeting/sheet-kit';
 import { MembersSheet, PrefsSheet, ThreadSearchSheet } from '../components/chat/ChatSheets';
@@ -164,9 +165,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
       headerRight: refusal
         ? undefined
         : () => (
-            <Pressable onPress={() => setMenuOpen(true)} accessibilityRole="button" accessibilityLabel="Conversation options: search, members, mute, favorite, archive" hitSlop={8} style={styles.headerBtn}>
-              <Text style={styles.headerBtnText}>⋯</Text>
-            </Pressable>
+            <IconButton icon="ui.more" onPress={() => setMenuOpen(true)} label="Conversation options: search, members, mute, favorite, archive" />
           ),
     });
   }, [navigation, title, subtitle, refusal, styles]);
@@ -438,6 +437,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
           nameOf={nameOf}
           receiptLabel={receipt?.label}
           receiptTicks={receipt?.ticks}
+          receiptSeenBy={receipt?.seenBy}
           highlighted={highlight === m.id}
           baseUrl={baseUrl}
           handlers={handlers}
@@ -489,7 +489,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
       if (ok) setMenuOpen(false);
     });
 
-  if (messagesQ.isLoading) return <Loader />;
+  if (messagesQ.isLoading) return <SkeletonList avatar />;
 
   // Can't be opened at all: what the website says, and no message box (3a review).
   if (refusal) {
@@ -559,7 +559,9 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
           <View style={[styles.flex, styles.emptyWrap]}>
             {loadFailed ? null : (
               <>
-                <Text style={styles.emptyWave}>👋</Text>
+                <View style={styles.emptyBubble}>
+                  <Icon name="nav.chat" size={24} color={c.brandText} />
+                </View>
                 <Text style={styles.emptyTitle}>No messages yet</Text>
                 <Text style={styles.empty}>Say hello to get the conversation started.</Text>
               </>
@@ -595,11 +597,12 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
                 accessibilityLabel={`${newMessagesLabel(unseen)}. Show the newest messages.`}
                 accessibilityLiveRegion="polite"
               >
-                <Text style={styles.pillText}>↓ {newMessagesLabel(unseen)}</Text>
+                <Icon name="ui.arrowDown" size={14} color={c.onBrand} />
+                <Text style={styles.pillText}>{newMessagesLabel(unseen)}</Text>
               </Pressable>
             ) : far ? (
               <Pressable style={styles.jump} onPress={toNewest} accessibilityRole="button" accessibilityLabel="Jump to latest" hitSlop={8}>
-                <Text style={styles.jumpText}>↓</Text>
+                <Icon name="ui.arrowDown" size={20} color={c.ink2} />
               </Pressable>
             ) : null}
           </View>
@@ -627,7 +630,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
               </Text>
             </View>
             <Pressable style={styles.replyClose} onPress={() => setReply(null)} accessibilityRole="button" accessibilityLabel="Cancel reply" hitSlop={6}>
-              <Text style={styles.replyCloseText}>✕</Text>
+              <Icon name="ui.close" size={18} color={c.ink2} />
             </Pressable>
           </View>
         ) : null}
@@ -639,7 +642,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
             accessibilityLabel="Attach pictures or files"
             accessibilityHint={online ? 'Up to 10 MB each.' : 'You’re offline — files can be sent when you’re connected.'}
           >
-            <Text style={styles.attachText}>📎</Text>
+            <Icon name="ui.paperclip" size={22} color={c.ink2} />
           </Pressable>
           <View style={styles.inputWrap}>
             <TextInput
@@ -769,10 +772,8 @@ const makeStyles = (c: Palette) =>
     headerTitle: { maxWidth: 240 },
     headerName: { color: c.onBrand, fontSize: fontSize.md, ...font('700') },
     headerSub: { color: c.onBrand, fontSize: fontSize.xs, opacity: 0.85 },
-    headerBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: spacing.xs },
-    headerBtnText: { color: c.onBrand, fontSize: fontSize.xl, ...font('700') },
     emptyWrap: { alignItems: 'center', justifyContent: 'center', gap: spacing.xs, padding: spacing.xl },
-    emptyWave: { fontSize: 36 },
+    emptyBubble: { width: 48, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: c.brandWash, marginBottom: 4 },
     emptyTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink },
     empty: { textAlign: 'center', color: c.ink2, fontSize: fontSize.sm },
     older: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
@@ -783,7 +784,7 @@ const makeStyles = (c: Palette) =>
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: c.line,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       paddingHorizontal: spacing.md,
       backgroundColor: c.surface,
     },
@@ -797,6 +798,9 @@ const makeStyles = (c: Palette) =>
       bottom: spacing.md,
       alignSelf: 'center',
       minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
       justifyContent: 'center',
       backgroundColor: c.brand,
       borderRadius: radius.pill,
@@ -816,7 +820,6 @@ const makeStyles = (c: Palette) =>
       borderWidth: 1,
       borderColor: c.line,
     },
-    jumpText: { color: c.ink2, fontSize: fontSize.lg, ...font('700') },
     errWrap: { paddingHorizontal: spacing.md },
     mentionWrap: { flexGrow: 0, flexShrink: 1, maxHeight: 200, paddingHorizontal: spacing.md },
     mentionInner: { paddingBottom: spacing.xs },
@@ -830,13 +833,12 @@ const makeStyles = (c: Palette) =>
       paddingVertical: spacing.xs,
       borderLeftWidth: 3,
       borderLeftColor: c.brand,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       backgroundColor: c.surface,
     },
     replyWho: { fontSize: fontSize.xs, ...font('700'), color: c.ink },
     replyText: { fontSize: fontSize.xs, color: c.ink2 },
     replyClose: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    replyCloseText: { color: c.ink2, fontSize: fontSize.md, ...font('700') },
     composer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -846,15 +848,14 @@ const makeStyles = (c: Palette) =>
       borderTopColor: c.line,
       backgroundColor: c.surface,
     },
-    attachBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
-    attachText: { fontSize: fontSize.lg },
+    attachBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.input },
     inputWrap: { flex: 1 },
     input: {
       maxHeight: 120,
       minHeight: 44,
       borderWidth: 1,
       borderColor: c.line,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
       color: c.ink,
@@ -862,7 +863,7 @@ const makeStyles = (c: Palette) =>
     },
     counter: { fontSize: fontSize.xs, color: c.ink3, marginTop: 2 },
     counterMax: { color: c.dangerText, ...font('700') },
-    sendBtn: { backgroundColor: c.brand, borderRadius: radius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
+    sendBtn: { backgroundColor: c.brand, borderRadius: radius.input, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
     sendBtnDisabled: { opacity: 0.5 },
     sendText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm },
   });

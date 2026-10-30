@@ -7,11 +7,12 @@ import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../meeting/s
 import { serverFileHref } from '../../lib/attachments';
 import { messageActions, reactionLabel, type MessageActionSet } from '../../lib/chat-actions';
 import { formatSize } from '../../lib/chat-model';
-import { linkParts, messageClock } from '../../lib/chat-ui';
+import { linkParts, messageClock, type ReceiptTicks } from '../../lib/chat-ui';
+import { Icon } from '../Icon';
 import { EMOJI_GROUPS, QUICK_REACTIONS, searchEmoji } from '../../lib/emoji';
 import type { ThreadMessage } from '../../lib/chat-timeline';
 import type { MentionPerson } from '../../lib/mentions';
-import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { darkColors, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiChatAttachment, ReactionGroup } from '../../lib/types';
 import { font } from '../../lib/typography';
 
@@ -104,6 +105,7 @@ export const MessageBubble = memo(function MessageBubble({
   nameOf,
   receiptLabel,
   receiptTicks,
+  receiptSeenBy,
   highlighted,
   baseUrl,
   handlers,
@@ -116,16 +118,18 @@ export const MessageBubble = memo(function MessageBubble({
   myId: string;
   isAdmin: boolean;
   nameOf: (userId: string) => string;
-  /** Where my message stands, for TalkBack ("Delivered") and as ticks. */
+  /** Where my message stands, for TalkBack ("Delivered") and as drawn ticks (with how many have seen it). */
   receiptLabel?: string;
-  receiptTicks?: string;
+  receiptTicks?: ReceiptTicks | null;
+  receiptSeenBy?: number;
   highlighted: boolean;
   baseUrl: string;
   handlers: BubbleHandlers;
 }) {
   const { c, s } = useChatStyles();
   const actions = messageActions(m, { myId, isAdmin });
-  const receipt = receiptLabel ? { label: receiptLabel, ticks: receiptTicks ?? '' } : undefined;
+  const receipt = receiptLabel ? { label: receiptLabel, ticks: receiptTicks ?? null, seenBy: receiptSeenBy } : undefined;
+  const seen = !!receipt && (receipt.label.startsWith('Read') || receipt.label.startsWith('Seen'));
   const deleted = !!m.deletedAt;
   const text = deleted ? '' : m.body;
   const time = messageClock(m.createdAt);
@@ -204,7 +208,7 @@ export const MessageBubble = memo(function MessageBubble({
           {quote ? (
             <Pressable
               onPress={() => handlers.onJump(quote.id)}
-              style={[s.quote, { borderLeftColor: mine ? c.onBrand : c.brand, backgroundColor: mine ? 'rgba(0,0,0,0.15)' : c.ground }]}
+              style={[s.quote, { borderLeftColor: mine ? c.onBrand : c.brand, backgroundColor: mine ? c.brandInk : c.ground }]}
               accessibilityRole="button"
               accessibilityLabel={`Reply to ${nameOf(quote.userId)}: ${quoteText} — show that message`}
             >
@@ -229,7 +233,12 @@ export const MessageBubble = memo(function MessageBubble({
             <View style={s.meta}>
               {m.editedAt ? <Text style={[s.metaText, { color: quiet }]}>Edited ·</Text> : null}
               <Text style={[s.metaText, { color: quiet }]}>{time}</Text>
-              {receipt?.ticks ? <Text style={[s.metaText, { color: receipt.label.startsWith('Read') || receipt.label.startsWith('Seen') ? (mine ? '#BDE3FF' : c.info) : quiet }]}>{receipt.ticks}</Text> : null}
+              {receipt?.ticks ? (
+                <>
+                  <Icon name={receipt.ticks} size={14} color={seen && !mine ? c.infoText : quiet} />
+                  {receipt.seenBy ? <Text style={[s.metaText, { color: quiet }]}>{receipt.seenBy}</Text> : null}
+                </>
+              ) : null}
             </View>
           </Pressable>
         </View>
@@ -254,7 +263,7 @@ export const MessageBubble = memo(function MessageBubble({
                 accessibilityRole="button"
                 accessibilityLabel={href ? `Open file ${f.fileName}, ${formatSize(f.sizeBytes)}` : `${f.fileName} — this file can’t be opened here`}
               >
-                <Text style={s.fileIcon}>📄</Text>
+                <Icon name="ui.file" size={20} color={c.ink2} />
                 <View style={s.grow}>
                   <Text style={s.fileName} numberOfLines={1}>
                     {f.fileName}
@@ -268,7 +277,7 @@ export const MessageBubble = memo(function MessageBubble({
       ) : null}
       {upload ? (
         <View style={[s.file, s.alignEnd, { borderColor: c.line, backgroundColor: c.surface }]}>
-          <Text style={s.fileIcon}>{upload.type.startsWith('image/') ? '🖼️' : '📄'}</Text>
+          <Icon name="ui.file" size={20} color={c.ink2} />
           <View style={s.grow}>
             <Text style={s.fileName} numberOfLines={1}>
               {upload.name}
@@ -296,7 +305,12 @@ export const MessageBubble = memo(function MessageBubble({
           onAccessibilityAction={anyAction ? onA11y : undefined}
         >
           <Text style={[s.metaText, { color: c.ink2 }]}>{time}</Text>
-          {receipt?.ticks ? <Text style={[s.metaText, { color: receipt.label.startsWith('Read') || receipt.label.startsWith('Seen') ? c.info : c.ink2 }]}>{receipt.ticks}</Text> : null}
+          {receipt?.ticks ? (
+            <>
+              <Icon name={receipt.ticks} size={14} color={seen ? c.infoText : c.ink2} />
+              {receipt.seenBy ? <Text style={[s.metaText, { color: c.ink2 }]}>{receipt.seenBy}</Text> : null}
+            </>
+          ) : null}
         </Pressable>
       ) : null}
 
@@ -422,7 +436,7 @@ export function MessageActionsSheet({
   onAction: (action: 'reply' | 'copy' | 'edit' | 'delete') => void;
   onClose: () => void;
 }) {
-  const { s } = useChatStyles();
+  const { c, s } = useChatStyles();
   const [more, setMore] = useState(false);
   const close = () => {
     setMore(false);
@@ -443,7 +457,7 @@ export function MessageActionsSheet({
               </Pressable>
             ))}
             <Pressable style={[s.emojiBtn, s.moreBtn]} onPress={() => setMore((m) => !m)} accessibilityRole="button" accessibilityLabel="More emoji" accessibilityState={{ expanded: more }}>
-              <Text style={s.moreText}>＋</Text>
+              <Icon name="ui.plus" size={20} color={c.ink2} />
             </Pressable>
           </View>
           {more ? <EmojiGrid onPick={pick} /> : null}
@@ -522,7 +536,7 @@ export function EditMessageSheet({
 
 /** A picture from the conversation, full size, with a way to open (or save) it. */
 export function ImageViewer({ attachment, baseUrl, onClose }: { attachment: ApiChatAttachment | null; baseUrl: string; onClose: () => void }) {
-  const { s } = useChatStyles();
+  const { c, s } = useChatStyles();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   if (!attachment) return null;
@@ -540,11 +554,11 @@ export function ImageViewer({ attachment, baseUrl, onClose }: { attachment: ApiC
             <Text style={s.viewerBtnText}>Open</Text>
           </Pressable>
           <Pressable style={s.viewerBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
-            <Text style={s.viewerBtnText}>✕</Text>
+            <Icon name="ui.close" size={20} color={c.onBrand} />
           </Pressable>
         </View>
         <View style={s.viewerBody}>
-          {loading ? <ActivityIndicator color="#fff" style={s.viewerSpinner} /> : null}
+          {loading ? <ActivityIndicator color={c.onBrand} style={s.viewerSpinner} /> : null}
           <Image source={{ uri: url }} style={s.viewerImage} resizeMode="contain" onLoadEnd={() => setLoading(false)} accessibilityLabel={attachment.fileName} accessibilityIgnoresInvertColors />
         </View>
       </View>
@@ -559,16 +573,16 @@ const makeStyles = (c: Palette) =>
     unreadWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.xs },
     unreadRule: { flex: 1, height: 1 },
     unreadText: { fontSize: fontSize.xs, ...font('700') },
-    msg: { gap: 2, borderRadius: radius.md, paddingHorizontal: 2 },
+    msg: { gap: 2, borderRadius: radius.input, paddingHorizontal: 2 },
     groupStart: { marginTop: spacing.sm },
     mine: { alignItems: 'flex-end' },
     theirs: { alignItems: 'flex-start' },
     author: { fontSize: fontSize.xs, ...font('700'), color: c.ink, paddingHorizontal: spacing.xs },
-    bubble: { maxWidth: '85%', borderWidth: 1, borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, gap: 4 },
+    bubble: { maxWidth: '85%', borderWidth: 1, borderRadius: radius.card, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, gap: 4 },
     pending: { opacity: 0.75 },
     tombstone: { borderStyle: 'dashed', backgroundColor: 'transparent' },
     tombstoneText: { fontSize: fontSize.sm, fontStyle: 'italic', color: c.ink2 },
-    quote: { borderLeftWidth: 3, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, minHeight: 44, justifyContent: 'center' },
+    quote: { borderLeftWidth: 3, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 4, minHeight: 44, justifyContent: 'center' },
     quoteWho: { fontSize: fontSize.xs, ...font('700') },
     quoteText: { fontSize: fontSize.xs },
     italic: { fontStyle: 'italic' },
@@ -579,9 +593,8 @@ const makeStyles = (c: Palette) =>
     files: { gap: spacing.xs, maxWidth: '85%' },
     alignEnd: { alignSelf: 'flex-end' },
     textEnd: { textAlign: 'right' },
-    picture: { width: 220, height: 160, borderRadius: radius.md, borderWidth: 1 },
-    file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 48, maxWidth: 280 },
-    fileIcon: { fontSize: fontSize.lg },
+    picture: { width: 220, height: 160, borderRadius: radius.input, borderWidth: 1 },
+    file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.input, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 48, maxWidth: 280 },
     grow: { flex: 1 },
     fileName: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
     fileSize: { fontSize: 11, color: c.ink2 },
@@ -592,24 +605,24 @@ const makeStyles = (c: Palette) =>
     chipCount: { fontSize: fontSize.xs, ...font('700') },
     state: { fontSize: fontSize.xs, color: c.ink2 },
     outboxActions: { flexDirection: 'row', gap: spacing.sm },
-    smallBtn: { minHeight: 44, minWidth: 64, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    smallBtn: { minHeight: 44, minWidth: 64, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     smallBtnText: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
     quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' },
     emojiBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
     emojiText: { fontSize: 24 },
     moreBtn: { borderWidth: 1, borderColor: c.line },
-    moreText: { fontSize: fontSize.lg, color: c.ink2, ...font('700') },
     grid: { gap: spacing.xs },
     gridRow: { flexDirection: 'row', flexWrap: 'wrap' },
     groupTitle: { fontSize: 11, ...font('700'), color: c.ink2, marginTop: spacing.xs },
-    emojiSearch: { borderWidth: 1, borderRadius: radius.md, minHeight: 44, paddingHorizontal: spacing.md, fontSize: fontSize.md },
+    emojiSearch: { borderWidth: 1, borderRadius: radius.input, minHeight: 44, paddingHorizontal: spacing.md, fontSize: fontSize.md },
     hint: { fontSize: fontSize.xs, color: c.ink2 },
-    editBox: { borderWidth: 1, borderRadius: radius.md, minHeight: 96, maxHeight: 220, padding: spacing.md, fontSize: fontSize.md, textAlignVertical: 'top' },
-    viewer: { flex: 1, backgroundColor: '#000' },
+    editBox: { borderWidth: 1, borderRadius: radius.input, minHeight: 96, maxHeight: 220, padding: spacing.md, fontSize: fontSize.md, textAlignVertical: 'top' },
+    // A photo is shown on the dark palette's ground in either theme, with white words.
+    viewer: { flex: 1, backgroundColor: darkColors.ground },
     viewerBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
-    viewerName: { flex: 1, color: '#fff', fontSize: fontSize.sm, ...font('600') },
-    viewerBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: spacing.md },
-    viewerBtnText: { color: '#fff', ...font('700'), fontSize: fontSize.sm },
+    viewerName: { flex: 1, color: c.onBrand, fontSize: fontSize.sm, ...font('600') },
+    viewerBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.input, backgroundColor: darkColors.surface2, paddingHorizontal: spacing.md },
+    viewerBtnText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm },
     viewerBody: { flex: 1, justifyContent: 'center' },
     viewerSpinner: { position: 'absolute', alignSelf: 'center' },
     viewerImage: { width: '100%', height: '100%' },

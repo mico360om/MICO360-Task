@@ -90,17 +90,17 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
+  card: { borderWidth: 1, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
   title: { fontSize: fontSize.sm, ...font('800') },
   ask: { minHeight: 40 },
   small: { fontSize: fontSize.xs, lineHeight: 17 },
   bold: { ...font('700') },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
+  chip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderRadius: radius.input, paddingHorizontal: spacing.md },
   chipText: { fontSize: fontSize.sm, ...font('700') },
   pressed: { opacity: 0.7 },
-  clash: { borderRadius: radius.md, padding: spacing.sm, gap: 2 },
+  clash: { borderRadius: radius.input, padding: spacing.sm, gap: 2 },
   clashTitle: { fontSize: fontSize.xs, ...font('800') },
   day: { gap: 2 },
 });

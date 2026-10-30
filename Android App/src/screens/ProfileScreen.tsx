@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, Alert, AccessibilityInfo, Linking } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, Alert, AccessibilityInfo, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { pickedFiles } from '../adapters/picked-files';
@@ -7,7 +7,7 @@ import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useDirectory } from '../core/queries';
 import { useAvatar } from '../core/account-queries';
-import { Card, SectionTitle, Muted, Badge, Button, ErrorNote } from '../components/ui';
+import { Avatar, Card, SectionTitle, Muted, Badge, Button, ErrorNote } from '../components/ui';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { ChangePasswordCard } from '../components/account/ChangePasswordCard';
 import { SignOutButton } from '../components/account/SignOutButton';
@@ -19,7 +19,6 @@ import {
   avatarPart,
   avatarProblem,
   fullNameOf,
-  initialsOf,
   myDataFileName,
   myDataProblem,
   photoOf,
@@ -46,8 +45,6 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
   const fullName = fullNameOf(me, user?.username);
   const role = accountRoleLabel(user?.roles);
   const photo = avatarHref(baseUrl, photoOf(me, user));
-  const [photoBroken, setPhotoBroken] = useState(false);
-  useEffect(() => setPhotoBroken(false), [photo]);
 
   const { upload, remove } = useAvatar();
   const photoBusy = upload.isPending || remove.isPending;
@@ -116,20 +113,8 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
       <KeyboardAwareScrollView contentContainerStyle={s.scroll}>
         {/* Identity: photo, name, username, role */}
         <View style={s.header}>
-          {photo && !photoBroken ? (
-            <Image
-              source={{ uri: photo }}
-              style={s.photo}
-              onError={() => setPhotoBroken(true)}
-              accessible
-              accessibilityLabel="Your profile photo"
-              accessibilityIgnoresInvertColors
-            />
-          ) : (
-            <View style={s.initialsBox} accessible accessibilityLabel="No profile photo">
-              <Text style={s.initials}>{initialsOf(fullName === '—' ? '' : fullName)}</Text>
-            </View>
-          )}
+          {/* The shared Avatar: the photo from this server, else the initials (a photo that fails shows them). */}
+          <Avatar name={fullName === '—' ? '' : fullName} src={photoOf(me, user)} size="lg" />
           <Text style={s.name} accessibilityRole="header">
             {fullName}
           </Text>
@@ -227,6 +212,6 @@ const makeStyles = (c: Palette) =>
     rowDivided: { borderTopWidth: 1, borderTopColor: c.line },
     rowLabel: { fontSize: fontSize.sm, color: c.ink2 },
     rowValue: { flexShrink: 1, fontSize: fontSize.sm, ...font('600'), color: c.ink, textAlign: 'right' },
-    link: { alignSelf: 'flex-start', marginVertical: spacing.md, borderRadius: radius.sm },
+    link: { alignSelf: 'flex-start', marginVertical: spacing.md, borderRadius: radius.badge },
     linkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
   });

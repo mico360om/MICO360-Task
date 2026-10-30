@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { useColors } from '../../core/theme';
 import { useChatSearch, CHAT_SEARCH_MIN } from '../../core/queries';
 import { TextField } from '../ui';
+import { Icon } from '../Icon';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
 import { dayLabel, highlightParts, searchSnippet } from '../../lib/chat-model';
 import { dmCandidates, messageClock, prefsMenu, type MemberRow } from '../../lib/chat-ui';
@@ -170,7 +171,7 @@ export function MembersSheet({
               accessibilityState={{ disabled: opening !== null }}
               hitSlop={4}
             >
-              <Text style={[s.iconText, { color: c.brandText }]}>✉</Text>
+              <Icon name="kit.mail" size={20} color={c.brandText} />
             </Pressable>
           )}
         </View>
@@ -309,8 +310,7 @@ const makeStyles = (c: Palette) =>
     hint: { fontSize: fontSize.xs, color: c.ink2 },
     right: { marginLeft: 'auto' },
     empty: { fontSize: fontSize.sm, color: c.ink2, paddingVertical: spacing.sm },
-    iconBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
-    iconText: { fontSize: fontSize.lg, ...font('700') },
+    iconBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.input },
     result: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: c.line, gap: 2, minHeight: 48 },
     resultHead: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
     where: { fontSize: fontSize.xs, ...font('700'), color: c.ink, maxWidth: '45%' },

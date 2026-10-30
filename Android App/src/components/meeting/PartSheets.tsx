@@ -428,7 +428,7 @@ export function NoteTaskSheet({
   return (
     <Sheet
       visible
-      title="⭐ Create task from note"
+      title="Create task from note"
       subtitle={`${noteTypeLabel(note.type)}: ${noteEditStart(note).text.slice(0, 160)}`}
       onClose={onClose}
       footer={

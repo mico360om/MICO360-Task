@@ -10,52 +10,7 @@ import { appSources } from './testing/web-source';
  * block per sweep task; each sweep deletes its block, and a listed file that breaks nothing any
  * more fails the last test — so the list only shrinks. R3 and R4 hold everywhere already.
  */
-const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task20', readonly string[]>> = {
-  // Task 19 — meetings (lane B)
-  task19: [
-    'components/MeetingRow.tsx',
-    'components/meeting-form/AgendaDraftReview.tsx',
-    'components/meeting-form/AgendaField.tsx',
-    'components/meeting-form/DescribeMeeting.tsx',
-    'components/meeting-form/FreeTimes.tsx',
-    'components/meeting-form/PeopleField.tsx',
-    'components/meeting-form/WriteDescription.tsx',
-    'components/meeting/MeetingCard.tsx',
-    'components/meeting/MeetingDetailParts.tsx',
-    'components/meeting/MeetingFiltersSheet.tsx',
-    'components/meeting/MeetingSheets.tsx',
-    'components/meeting/PartSheets.tsx',
-    'components/meeting/UpNextCard.tsx',
-    'components/meeting/sheet-kit.tsx',
-    'screens/FinalMinutesScreen.tsx',
-    'screens/MeetingDetailScreen.tsx',
-    'screens/MeetingFormScreen.tsx',
-    'screens/MeetingsScreen.tsx',
-    'screens/MyActionItemsScreen.tsx',
-  ],
-  // Task 20 — chat, notifications, account, sign-in and the rest (lane B)
-  task20: [
-    'adapters/push.ts',
-    'components/ErrorBoundary.tsx',
-    'components/LockGate.tsx',
-    'components/SyncStatus.tsx',
-    'components/UpdateBanner.tsx',
-    'components/account/ChangePasswordCard.tsx',
-    'components/account/DailyEmailSettings.tsx',
-    'components/chat/ChatSheets.tsx',
-    'components/chat/MessageParts.tsx',
-    'lib/chat-ui.ts',
-    'screens/AboutScreen.tsx',
-    'screens/ActivityScreen.tsx',
-    'screens/ChatScreen.tsx',
-    'screens/ChatThreadScreen.tsx',
-    'screens/NotificationsScreen.tsx',
-    'screens/ProfileScreen.tsx',
-    'screens/SearchScreen.tsx',
-    'screens/SettingsScreen.tsx',
-    'screens/auth/LoginScreen.tsx',
-  ],
-};
+const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task20', readonly string[]>> = {};
 
 /** UI glyphs: emoji and the arrows, ticks, stars, boxes and pluses that stood in for icons. */
 const GLYPH = /[\p{Extended_Pictographic}\u{FE0F}‹›↑↓↻⊘⋯★☆☐☰✓✕✎■-◿＋]/gu;

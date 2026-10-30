@@ -40,7 +40,7 @@ export function WriteDescription({
   const mine = !!current.trim();
   return (
     <View style={styles.wrap}>
-      <Button title={write.isPending ? 'Writing…' : '✨ Write description'} variant="ghost" onPress={ask} loading={write.isPending} disabled={disabled || !request} style={styles.start} />
+      <Button title={write.isPending ? 'Writing…' : 'Write description'} icon="nav.ai" variant="ghost" onPress={ask} loading={write.isPending} disabled={disabled || !request} style={styles.start} />
       <SheetMessage text={problem} />
       {offer ? (
         <View style={[styles.offer, { borderColor: c.brand, backgroundColor: c.brandWash }]} accessibilityLabel="Suggested description">
@@ -67,7 +67,7 @@ export function WriteDescription({
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs, marginBottom: spacing.sm },
   start: { alignSelf: 'flex-start' },
-  offer: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
+  offer: { borderWidth: 1, borderRadius: radius.input, padding: spacing.md, gap: spacing.xs },
   text: { fontSize: fontSize.sm, lineHeight: 20, textAlign: 'auto' },
   small: { fontSize: fontSize.xs },
   row: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

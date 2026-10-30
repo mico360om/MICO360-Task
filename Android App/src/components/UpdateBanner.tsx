@@ -75,9 +75,10 @@ export function UpdateBanner() {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     wrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm, backgroundColor: c.brand },
-    text: { flex: 1, color: '#fff', fontSize: fontSize.sm, ...font('600') },
-    button: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: '#fff' },
+    text: { flex: 1, color: c.onBrand, fontSize: fontSize.sm, ...font('600') },
+    // The surface (white in light mode), so the brand words on it stay readable in dark mode too.
+    button: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.input, backgroundColor: c.surface },
     buttonText: { color: c.brandText, ...font('800'), fontSize: fontSize.sm },
     later: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.xs },
-    laterText: { color: '#fff', ...font('700'), fontSize: fontSize.sm, textDecorationLine: 'underline' },
+    laterText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm, textDecorationLine: 'underline' },
   });

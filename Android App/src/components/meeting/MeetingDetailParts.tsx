@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { useColors } from '../../core/theme';
-import { Badge, Button } from '../ui';
-import { Chip } from '../task-detail/kit';
+import { Badge, Button, Chip } from '../ui';
 import { NoteBody } from './NoteBody';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { toneStyle } from '../../lib/tone';
@@ -35,6 +34,8 @@ import type { ApiActionItem, ApiAgendaItem, ApiFinalMinutes, ApiMeeting, ApiMeet
 import type { ApiProject } from '../../lib/types';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
+import type { IconName } from '../../lib/icons';
 
 type NameOf = (userId: string) => string | null;
 
@@ -68,6 +69,7 @@ export function MeetingHeaderCard({
   /** The meeting's other actions. */
   onMore?: (() => void) | null;
 }) {
+  const c = useColors();
   const s = useDetailStyles();
   // As on the website: the meeting's own zone, else the company's.
   const zone = m.timeZone || timeZone;
@@ -77,11 +79,11 @@ export function MeetingHeaderCard({
   const organizer = nameOf(m.organizerId);
   const repeat = m.series ? recurrenceSummary(m.series.rule) : m.recurrenceRule ? recurrenceSummary(m.recurrenceRule) : isRepeating(m) ? 'Part of a repeating series' : null;
   const invites = m.invitesSentAt ? `Invitations sent ${meetingWhen({ startAt: m.invitesSentAt, endAt: null }, timeZone).day}` : !cancelled && m.status !== 'COMPLETED' ? 'Invitations not sent yet' : null;
-  const fact = (icon: string, text: string, label?: string) => (
-    <Text style={s.fact} accessibilityLabel={label ?? text}>
-      <Text importantForAccessibility="no">{icon} </Text>
-      {text}
-    </Text>
+  const fact = (icon: IconName, text: string, label?: string) => (
+    <View style={s.factRow} accessible accessibilityLabel={label ?? text}>
+      <Icon name={icon} size={16} color={c.ink2} />
+      <Text style={[s.fact, s.factText]}>{text}</Text>
+    </View>
   );
   return (
     <View style={s.card}>
@@ -101,14 +103,14 @@ export function MeetingHeaderCard({
             <Text style={[s.fact, { flexShrink: 1 }]}>{project.name}</Text>
           </View>
         ) : (
-          fact('🗂', projectName ?? (m.projectId ? 'Project' : 'Standalone meeting'))
+          fact('nav.projects', projectName ?? (m.projectId ? 'Project' : 'Standalone meeting'))
         )}
-        {fact('📅', when.day)}
-        {fact('🕒', when.time, `${when.time}, ${zone} time`)}
-        {fact('🌐', zone, `Time zone: ${zone}`)}
-        {repeat ? fact('🔁', repeat) : null}
-        {m.location?.trim() ? fact('📍', m.location.trim()) : null}
-        {fact('👤', `Organizer: ${organizer ?? '—'}`)}
+        {fact('kit.calendar', when.day)}
+        {fact('kit.clock', when.time, `${when.time}, ${zone} time`)}
+        {fact('kit.globe', zone, `Time zone: ${zone}`)}
+        {repeat ? fact('kit.repeat', repeat) : null}
+        {m.location?.trim() ? fact('kit.pin', m.location.trim()) : null}
+        {fact('kit.user', `Organizer: ${organizer ?? '—'}`)}
       </View>
       {join ? <Button title="Join online" accessibilityLabel={`Join ${m.title} online`} onPress={() => onJoin(join)} style={s.join} /> : null}
       {primary || onMore ? (
@@ -200,14 +202,16 @@ export function SectionTitleRow({
   title: string;
   count?: string;
   aside?: string | null;
-  /** "＋ Add" for whoever may add to this part. */
-  action?: { label: string; a11y: string; onPress: () => void } | null;
-  /** Another action beside it ("✨ Draft" for the agenda). */
-  secondary?: { label: string; a11y: string; onPress: () => void } | null;
+  /** "Add" (with the plus) for whoever may add to this part. */
+  action?: { label: string; a11y: string; onPress: () => void; icon?: IconName } | null;
+  /** Another action beside it ("Draft" with the AI sparkle, for the agenda). */
+  secondary?: { label: string; a11y: string; onPress: () => void; icon?: IconName } | null;
 }) {
+  const c = useColors();
   const s = useDetailStyles();
-  const button = (a: { label: string; a11y: string; onPress: () => void }) => (
-    <Pressable onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.a11y} hitSlop={6} style={({ pressed }) => [s.addButton, pressed && s.pressed]}>
+  const button = (a: { label: string; a11y: string; onPress: () => void; icon?: IconName }) => (
+    <Pressable onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.a11y} hitSlop={6} style={({ pressed }) => [s.addButton, s.iconRow, pressed && s.pressed]}>
+      {a.icon ? <Icon name={a.icon} size={14} color={c.brandText} /> : null}
       <Text style={s.addText}>{a.label}</Text>
     </Pressable>
   );
@@ -232,11 +236,12 @@ export function SectionTitleRow({
 
 /** A tick box: covered or not (an agenda item). */
 function Tick({ checked, label, onPress }: { checked: boolean; label: string; onPress?: () => void }) {
+  const c = useColors();
   const s = useDetailStyles();
   if (!onPress) return null;
   return (
     <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked }} hitSlop={8} style={s.tickTarget}>
-      <View style={[s.tick, checked && s.tickOn]}>{checked ? <Text style={s.tickMark}>✓</Text> : null}</View>
+      <View style={[s.tick, checked && s.tickOn]}>{checked ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
     </Pressable>
   );
 }
@@ -264,8 +269,14 @@ export function StateRow({ kind, text, onRetry, place }: { kind: 'loading' | 'fa
 
 /** "Waiting to sync": a change made on this phone that the server doesn't have yet. */
 function WaitingNote() {
+  const c = useColors();
   const s = useDetailStyles();
-  return <Text style={s.waiting}>⏳ Waiting to sync</Text>;
+  return (
+    <View style={s.iconRow}>
+      <Icon name="kit.clock" size={12} color={c.brandText} />
+      <Text style={s.waiting}>Waiting to sync</Text>
+    </View>
+  );
 }
 
 export function AgendaRow({
@@ -445,8 +456,9 @@ export function NoteRow({
   const s = useDetailStyles();
   const tone = toneStyle(c, noteTypeTone(note.type));
   const a = actions ?? {};
-  const small = (label: string, a11y: string, onPress: () => void, extra?: object) => (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} hitSlop={4} style={({ pressed }) => [s.noteAction, pressed && s.pressed]} {...extra}>
+  const small = (icon: IconName, label: string, a11y: string, onPress: () => void, extra?: object) => (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} hitSlop={4} style={({ pressed }) => [s.noteAction, s.iconRow, pressed && s.pressed]} {...extra}>
+      <Icon name={icon} size={14} color={c.ink2} />
       <Text style={s.noteActionText}>{label}</Text>
     </Pressable>
   );
@@ -455,7 +467,12 @@ export function NoteRow({
       <View style={[s.note, { borderLeftColor: tone.fg }, note.highlighted && s.noteKey]}>
         <View style={s.badges}>
           <Text style={[s.noteType, { color: tone.fg }]}>{noteTypeLabel(note.type).toUpperCase()}</Text>
-          {note.highlighted ? <Text style={s.keyPoint}>★ Key point</Text> : null}
+          {note.highlighted ? (
+            <View style={s.iconRow}>
+              <Icon name="ui.starFilled" size={12} color={c.warningText} />
+              <Text style={s.keyPoint}>Key point</Text>
+            </View>
+          ) : null}
           <Text style={s.small}>{noteMeta(note, nameOf, timeZone)}</Text>
         </View>
         <NoteBody note={note} />
@@ -467,17 +484,21 @@ export function NoteRow({
             accessibilityLabel={`Open the task made from this note${taskKey ? `, ${taskKey}` : ''}`}
             style={({ pressed }) => [s.taskChip, pressed && s.pressed]}
           >
-            <Text style={s.taskChipText}>✓ {taskKey ?? 'Task'} ›</Text>
+            <View style={s.iconRow}>
+              <Icon name="misc.check" size={12} color={c.successText} />
+              <Text style={s.taskChipText}>{taskKey ?? 'Task'}</Text>
+              <Icon name="ui.chevron" size={12} color={c.successText} rotate={270} />
+            </View>
           </Pressable>
         ) : null}
         {a.onTask || a.onStar || a.onEdit || a.onDelete ? (
           <View style={s.noteActions}>
-            {a.onTask && !note.taskId ? small(note.type === 'ACTION' ? '✓ Make it a task' : '✓ Task', 'Create task from note', a.onTask) : null}
+            {a.onTask && !note.taskId ? small('misc.check', note.type === 'ACTION' ? 'Make it a task' : 'Task', 'Create task from note', a.onTask) : null}
             {a.onStar
-              ? small(note.highlighted ? '★ Key point' : '☆ Key point', note.highlighted ? 'Unmark key point' : 'Mark as key point', a.onStar, { accessibilityState: { checked: note.highlighted } })
+              ? small(note.highlighted ? 'ui.starFilled' : 'ui.star', 'Key point', note.highlighted ? 'Unmark key point' : 'Mark as key point', a.onStar, { accessibilityState: { checked: note.highlighted } })
               : null}
-            {a.onEdit ? small('✎ Edit', 'Edit note', a.onEdit) : null}
-            {a.onDelete ? small('🗑 Delete', 'Delete note', a.onDelete) : null}
+            {a.onEdit ? small('ui.edit', 'Edit', 'Edit note', a.onEdit) : null}
+            {a.onDelete ? small('ui.trash', 'Delete', 'Delete note', a.onDelete) : null}
           </View>
         ) : null}
       </View>
@@ -504,6 +525,7 @@ export function ActionRow({
   /** Added or changed on this phone and still waiting to sync. */
   waiting?: boolean;
 }) {
+  const c = useColors();
   const s = useDetailStyles();
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   const overdue = isActionItemOverdue(item, now);
@@ -541,7 +563,11 @@ export function ActionRow({
             accessibilityLabel={`Open the linked task${item.taskKey ? `, ${item.taskKey}` : ''}`}
             style={({ pressed }) => [s.taskChip, pressed && s.pressed]}
           >
-            <Text style={s.taskChipText}>✓ {item.taskKey ?? 'Task'} ›</Text>
+            <View style={s.iconRow}>
+              <Icon name="misc.check" size={12} color={c.successText} />
+              <Text style={s.taskChipText}>{item.taskKey ?? 'Task'}</Text>
+              <Icon name="ui.chevron" size={12} color={c.successText} rotate={270} />
+            </View>
           </Pressable>
         ) : null}
       </View>
@@ -650,10 +676,10 @@ export function MinutesRow({ minutes, timeZone, place, actions }: { minutes: Api
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
+    card: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
     row: { backgroundColor: c.surface, borderLeftWidth: 1, borderRightWidth: 1, borderColor: c.line, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-    rowFirst: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: spacing.md },
-    rowLast: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, paddingBottom: spacing.md, marginBottom: spacing.md },
+    rowFirst: { borderTopWidth: 1, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, paddingTop: spacing.md },
+    rowLast: { borderBottomWidth: 1, borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card, paddingBottom: spacing.md, marginBottom: spacing.md },
     titleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
     sectionTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink2, letterSpacing: 0.8 },
     count: { color: c.ink3, ...font('700') },
@@ -663,6 +689,9 @@ const makeStyles = (c: Palette) =>
     struck: { textDecorationLine: 'line-through', color: c.ink3 },
     facts: { gap: 4 },
     fact: { fontSize: fontSize.sm, color: c.ink2 },
+    factRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    factText: { flexShrink: 1 },
+    iconRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     join: { marginTop: spacing.xs },
     small: { fontSize: fontSize.xs, color: c.ink3 },
     muted: { fontSize: fontSize.sm, color: c.ink2 },
@@ -681,7 +710,7 @@ const makeStyles = (c: Palette) =>
     link: { minHeight: 40, justifyContent: 'center' },
     linkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     note: { borderLeftWidth: 3, paddingLeft: spacing.sm, gap: spacing.xs },
-    noteKey: { backgroundColor: c.warningSoft, borderRadius: radius.sm, paddingVertical: spacing.xs },
+    noteKey: { backgroundColor: c.warningSoft, borderRadius: radius.badge, paddingVertical: spacing.xs },
     noteType: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.5 },
     keyPoint: { fontSize: fontSize.xs, ...font('700'), color: c.warningText },
     taskChip: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', backgroundColor: c.successSoft, borderRadius: radius.pill, paddingHorizontal: spacing.md },
@@ -698,8 +727,7 @@ const makeStyles = (c: Palette) =>
     tickTarget: { minWidth: 40, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     tick: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     tickOn: { borderColor: c.success, backgroundColor: c.success },
-    tickMark: { color: c.onBrand, fontSize: fontSize.sm, ...font('800') },
     noteActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 2 },
-    noteAction: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface },
+    noteAction: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.input, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface },
     noteActionText: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
   });
