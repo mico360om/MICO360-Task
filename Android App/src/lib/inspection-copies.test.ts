@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { apiRoutes, appSource as src, hasWeb, loadWebTs, normalise, readWeb } from '../testing/web-source';
-import { effectiveResult, limitsText, parseReading, type ReadingItem } from './inspection-rules';
+import { PRESSURE } from '../testing/inspection-fixtures';
+import { effectiveResult, limitsText, parseReading } from './inspection-rules';
 
 /**
  * The server's inspection rules and the website's inspection types and calls, copied into the app
  * (Stage 4 Task 1): a reading is decided on the phone exactly as the server decides it.
  */
-const PRESSURE: ReadingItem = { id: 'p', kind: 'READING', label: 'Pressure', help: null, unit: 'psi', min: 0, max: 150 };
-
 /** The website's types part of api/inspections.ts: from `export interface Person {` to `const seg = encodeURIComponent;`. */
 function typesPart(text: string): string {
   const t = normalise(text);
