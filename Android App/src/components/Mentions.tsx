@@ -13,6 +13,7 @@ import {
 import { useColors } from '../core/theme';
 import { applyMention, mentionMenu, tokenizeMentions, type MentionMenu, type MentionPerson } from '../lib/mentions';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
+import { font } from '../lib/typography';
 
 /**
  * @mention suggestions for a text box: follows the caret, works out who to suggest for what has been
@@ -103,7 +104,7 @@ export function MentionSuggestions({
 export function MentionText({ body, people, style, onBrand }: { body: string; people: MentionPerson[]; style?: StyleProp<TextStyle>; onBrand?: boolean }) {
   const c = useColors();
   const tokens = useMemo(() => tokenizeMentions(body, people.map((p) => p.username)), [body, people]);
-  const mark: TextStyle = onBrand ? { color: c.onBrand, fontWeight: '700', backgroundColor: 'rgba(0,0,0,0.2)' } : { color: c.brand, fontWeight: '600' };
+  const mark: TextStyle = onBrand ? { color: c.onBrand, ...font('700'), backgroundColor: 'rgba(0,0,0,0.2)' } : { color: c.brandText, ...font('600') };
   return (
     <Text style={style}>
       {tokens.map((t, i) =>
@@ -131,7 +132,7 @@ const makeStyles = (c: Palette) =>
     },
     head: {
       fontSize: fontSize.xs,
-      fontWeight: '700',
+      ...font('700'),
       color: c.ink2,
       textTransform: 'uppercase',
       letterSpacing: 0.5,

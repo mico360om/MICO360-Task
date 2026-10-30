@@ -36,6 +36,7 @@ import {
 } from '../lib/users-admin';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /** The longest name, username or email the server takes. */
 const NAME_MAX = 191;
@@ -421,10 +422,10 @@ const makeStyles = (c: Palette) =>
     safe: { flex: 1, backgroundColor: c.ground },
     body: { padding: spacing.lg, gap: spacing.lg },
     section: { gap: spacing.sm },
-    eyebrow: { fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
-    title: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink },
+    eyebrow: { fontSize: fontSize.xs, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
+    title: { fontSize: fontSize.xl, ...font('800'), color: c.ink },
     hint: { marginTop: -spacing.sm, marginBottom: spacing.md, fontSize: fontSize.xs, color: c.ink2 },
-    label: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink, marginTop: spacing.sm, marginBottom: spacing.xs },
+    label: { fontSize: fontSize.sm, ...font('600'), color: c.ink, marginTop: spacing.sm, marginBottom: spacing.xs },
     role: { marginBottom: spacing.sm },
     roleHint: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 36 },
     selfNote: { marginBottom: spacing.md },

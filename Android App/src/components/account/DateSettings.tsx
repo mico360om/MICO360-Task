@@ -21,6 +21,7 @@ import { weekStartOf } from '../../lib/calendar';
 import { dateZones, subscribeTimeZone } from '../../lib/due-date';
 import { prefsSaveProblem } from '../../lib/notification-prefs';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * Settings → Calendar & dates (6a), as on the website: the first day of the week and, if wanted,
@@ -109,7 +110,7 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     section: { gap: spacing.sm },
     gap: { marginBottom: spacing.sm },
-    rowTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    rowTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     divided: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.md },
-    error: { fontSize: fontSize.sm, color: c.danger, fontWeight: '600', marginTop: spacing.sm },
+    error: { fontSize: fontSize.sm, color: c.dangerText, ...font('600'), marginTop: spacing.sm },
   });

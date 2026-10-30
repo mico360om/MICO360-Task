@@ -11,6 +11,7 @@ import { actionDueText, actionStatusLabel, actionStatusTone, isActionItemOverdue
 import type { ApiActionItem } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 type Scope = 'open' | 'all';
 
@@ -123,17 +124,17 @@ const makeStyles = (c: Palette) =>
     header: { gap: spacing.sm, marginBottom: spacing.xs },
     intro: { fontSize: fontSize.sm, color: c.ink2 },
     scope: { flexDirection: 'row', gap: spacing.sm },
-    overdueNote: { fontSize: fontSize.sm, fontWeight: '700', color: c.danger, backgroundColor: c.dangerSoft, borderRadius: radius.md, padding: spacing.sm },
+    overdueNote: { fontSize: fontSize.sm, ...font('700'), color: c.dangerText, backgroundColor: c.dangerSoft, borderRadius: radius.md, padding: spacing.sm },
     hint: { fontSize: fontSize.xs, color: c.ink3 },
     card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm },
     main: { gap: spacing.xs },
     pressed: { opacity: 0.7 },
     // Arabic descriptions read right to left (Android picks the direction from the text).
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
     done: { textDecorationLine: 'line-through', color: c.ink3 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
     sub: { fontSize: fontSize.xs, color: c.ink3, flexShrink: 1 },
-    overdue: { color: c.danger, fontWeight: '700' },
+    overdue: { color: c.dangerText, ...font('700') },
     taskChip: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', backgroundColor: c.successSoft, borderRadius: radius.pill, paddingHorizontal: spacing.md },
-    taskChipText: { fontSize: fontSize.xs, fontWeight: '700', color: c.success },
+    taskChipText: { fontSize: fontSize.xs, ...font('700'), color: c.successText },
   });

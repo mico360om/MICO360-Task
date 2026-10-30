@@ -12,6 +12,7 @@ import { SEARCH_DEBOUNCE_MS, exactTask, routeOf, searchEnabled, searchItems, sea
 import { openWebsitePage } from '../adapters/website';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 const RESULT_GROUPS = new Set(['Tasks', 'Projects', 'People', 'Meetings']);
 
@@ -174,7 +175,7 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
                   </Text>
                 ) : null}
               </View>
-              {opening ? <ActivityIndicator color={c.brand} /> : item.target.kind === 'website' ? <Text style={s.out}>↗</Text> : null}
+              {opening ? <ActivityIndicator color={c.brandText} /> : item.target.kind === 'website' ? <Text style={s.out}>↗</Text> : null}
             </Pressable>
           );
         }}
@@ -190,14 +191,14 @@ const makeStyles = (c: Palette) =>
     box: { flexDirection: 'row', alignItems: 'center', margin: spacing.lg, marginBottom: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.surface },
     input: { flex: 1, minHeight: 48, paddingHorizontal: spacing.md, fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     clear: { minHeight: 48, minWidth: 48, alignItems: 'center', justifyContent: 'center' },
-    clearText: { fontSize: fontSize.md, color: c.ink2, fontWeight: '700' },
+    clearText: { fontSize: fontSize.md, color: c.ink2, ...font('700') },
     status: { marginHorizontal: spacing.lg, marginBottom: spacing.sm, fontSize: fontSize.sm, color: c.ink2 },
     list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
-    group: { fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: c.ink3, marginTop: spacing.md, marginBottom: spacing.xs },
+    group: { fontSize: fontSize.xs, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink3, marginTop: spacing.md, marginBottom: spacing.xs },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: c.surface, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, marginBottom: spacing.xs },
     pressed: { opacity: 0.7 },
-    hint: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, fontFamily: 'monospace' },
+    hint: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, fontFamily: 'monospace' },
     primary: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     secondary: { fontSize: fontSize.xs, color: c.ink3, textAlign: 'auto' },
-    out: { fontSize: fontSize.md, color: c.brand, fontWeight: '700' },
+    out: { fontSize: fontSize.md, color: c.brandText, ...font('700') },
   });

@@ -8,6 +8,7 @@ import { dayLabel, highlightParts, searchSnippet } from '../../lib/chat-model';
 import { dmCandidates, messageClock, prefsMenu, type MemberRow } from '../../lib/chat-ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiChatMessage, ApiDirectoryUser, ConversationPrefs } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * The chat's sheets (3b): a new direct message (the people picker), my settings for a conversation
@@ -57,7 +58,7 @@ export function NewMessageSheet({
           accessibilityState={{ busy: opening === p.id, disabled: opening !== null }}
         >
           <View style={[s.initial, { backgroundColor: c.brandWash }]}>
-            <Text style={[s.initialText, { color: c.brand }]}>{p.label.slice(0, 1).toUpperCase()}</Text>
+            <Text style={[s.initialText, { color: c.brandText }]}>{p.label.slice(0, 1).toUpperCase()}</Text>
           </View>
           <View style={s.grow}>
             <Text style={s.name} numberOfLines={1}>
@@ -65,7 +66,7 @@ export function NewMessageSheet({
             </Text>
             <Text style={s.hint}>{p.hint}</Text>
           </View>
-          {opening === p.id ? <ActivityIndicator color={c.brand} /> : null}
+          {opening === p.id ? <ActivityIndicator color={c.brandText} /> : null}
         </Pressable>
       ))}
     </Sheet>
@@ -147,7 +148,7 @@ export function MembersSheet({
       {rows.map((m) => (
         <View key={m.id} style={s.row} accessible={m.me} accessibilityLabel={m.me ? `${m.name} (you), ${m.presence}` : undefined}>
           <View style={[s.initial, { backgroundColor: c.brandWash }]}>
-            <Text style={[s.initialText, { color: c.brand }]}>{m.name.slice(0, 1).toUpperCase()}</Text>
+            <Text style={[s.initialText, { color: c.brandText }]}>{m.name.slice(0, 1).toUpperCase()}</Text>
             <View style={[s.dot, { backgroundColor: m.online ? c.success : c.ink3, borderColor: c.surface }]} />
           </View>
           <View style={s.grow} accessible={!m.me} accessibilityLabel={!m.me ? `${m.name}, ${m.presence}` : undefined}>
@@ -155,10 +156,10 @@ export function MembersSheet({
               {m.name}
               {m.me ? ' (you)' : ''}
             </Text>
-            <Text style={[s.hint, m.online && { color: c.success }]}>{m.presence}</Text>
+            <Text style={[s.hint, m.online && { color: c.successText }]}>{m.presence}</Text>
           </View>
           {m.me ? null : opening === m.id ? (
-            <ActivityIndicator color={c.brand} style={s.iconBtn} />
+            <ActivityIndicator color={c.brandText} style={s.iconBtn} />
           ) : (
             <Pressable
               style={s.iconBtn}
@@ -169,7 +170,7 @@ export function MembersSheet({
               accessibilityState={{ disabled: opening !== null }}
               hitSlop={4}
             >
-              <Text style={[s.iconText, { color: c.brand }]}>✉</Text>
+              <Text style={[s.iconText, { color: c.brandText }]}>✉</Text>
             </Pressable>
           )}
         </View>
@@ -302,19 +303,19 @@ const makeStyles = (c: Palette) =>
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.xs },
     grow: { flex: 1 },
     initial: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    initialText: { fontWeight: '700', fontSize: fontSize.sm },
+    initialText: { ...font('700'), fontSize: fontSize.sm },
     dot: { position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
-    name: { fontSize: fontSize.md, color: c.ink, fontWeight: '600' },
+    name: { fontSize: fontSize.md, color: c.ink, ...font('600') },
     hint: { fontSize: fontSize.xs, color: c.ink2 },
     right: { marginLeft: 'auto' },
     empty: { fontSize: fontSize.sm, color: c.ink2, paddingVertical: spacing.sm },
     iconBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
-    iconText: { fontSize: fontSize.lg, fontWeight: '700' },
+    iconText: { fontSize: fontSize.lg, ...font('700') },
     result: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: c.line, gap: 2, minHeight: 48 },
     resultHead: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
-    where: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink, maxWidth: '45%' },
+    where: { fontSize: fontSize.xs, ...font('700'), color: c.ink, maxWidth: '45%' },
     snippet: { fontSize: fontSize.sm, color: c.ink },
-    mark: { fontWeight: '700', color: c.ink },
-    count: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, paddingVertical: spacing.xs },
+    mark: { ...font('700'), color: c.ink },
+    count: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, paddingVertical: spacing.xs },
     resultsError: { gap: spacing.xs },
   });

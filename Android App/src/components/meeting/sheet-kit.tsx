@@ -6,6 +6,7 @@ import { KeyboardAwareScrollView } from '../KeyboardAware';
 import { Button, TextField } from '../ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { PICKER_LIMIT, moreRowsText, pickerRows } from '../../lib/picker-rows';
+import { font } from '../../lib/typography';
 
 /**
  * The pieces the meeting's sheets are made of (2b): a bottom sheet whose fields scroll above the
@@ -337,31 +338,31 @@ const makeStyles = (c: Palette) =>
     // The fields shrink (and scroll) when the keyboard leaves less room, so the buttons stay in view.
     body: { flexGrow: 0, flexShrink: 1 },
     bodyContent: { gap: spacing.sm, paddingBottom: spacing.xs },
-    title: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'auto' },
     subtitle: { fontSize: fontSize.sm, color: c.ink2, textAlign: 'auto' },
     footer: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.xs },
     footerButton: { flex: 1 },
     message: { fontSize: fontSize.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, overflow: 'hidden' },
-    messageError: { color: c.danger, backgroundColor: c.dangerSoft, fontWeight: '600' },
-    messageSuccess: { color: c.success, backgroundColor: c.successSoft, fontWeight: '600' },
+    messageError: { color: c.dangerText, backgroundColor: c.dangerSoft, ...font('600') },
+    messageSuccess: { color: c.successText, backgroundColor: c.successSoft, ...font('600') },
     messageInfo: { color: c.ink2, backgroundColor: c.ground },
-    label: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
+    label: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
     group: { gap: spacing.xs, marginBottom: spacing.xs },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
-    chipTextOn: { color: c.brand, fontWeight: '700' },
+    chipText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
+    chipTextOn: { color: c.brandText, ...font('700') },
     pressed: { opacity: 0.7 },
     disabled: { opacity: 0.5 },
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
     checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     checkboxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    checkTick: { color: c.onBrand, fontSize: fontSize.sm, fontWeight: '800' },
+    checkTick: { color: c.onBrand, fontSize: fontSize.sm, ...font('800') },
     checkText: { fontSize: fontSize.md, color: c.ink, flexShrink: 1 },
     card: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, minHeight: 48 },
     cardOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    cardTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    cardTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     cardHint: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
     radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
     radioOn: { borderColor: c.brand },
@@ -373,6 +374,6 @@ const makeStyles = (c: Palette) =>
     pickerList: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, gap: 2 },
     search: { marginBottom: 0 },
     option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm },
-    optionText: { fontSize: fontSize.md, fontWeight: '600', color: c.ink, textAlign: 'auto' },
-    danger: { color: c.danger },
+    optionText: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
+    danger: { color: c.dangerText },
   });

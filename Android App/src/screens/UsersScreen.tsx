@@ -29,6 +29,7 @@ import {
 } from '../lib/users-admin';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * User Management (6b, administrators), as the website's: everyone's account with their role and
@@ -357,29 +358,29 @@ const makeStyles = (c: Palette) =>
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
     noticeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
     dismiss: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-    dismissText: { fontSize: fontSize.md, color: c.ink2, fontWeight: '700' },
-    locked: { fontSize: fontSize.sm, color: c.warning, backgroundColor: c.warningSoft, borderRadius: radius.md, padding: spacing.md },
+    dismissText: { fontSize: fontSize.md, color: c.ink2, ...font('700') },
+    locked: { fontSize: fontSize.sm, color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.md, padding: spacing.md },
     count: { fontSize: fontSize.sm, color: c.ink2 },
     card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.md },
     info: { gap: 2 },
     topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
-    name: { flexShrink: 1, fontSize: fontSize.md, fontWeight: '700', color: c.ink },
-    you: { fontWeight: '400', color: c.ink2 },
+    name: { flexShrink: 1, fontSize: fontSize.md, ...font('700'), color: c.ink },
+    you: { ...font('400'), color: c.ink2 },
     meta: { fontSize: fontSize.sm, color: c.ink2 },
     tags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
-    roles: { fontSize: fontSize.sm, color: c.ink, fontWeight: '600' },
+    roles: { fontSize: fontSize.sm, color: c.ink, ...font('600') },
     footer: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     button: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
     buttonWarning: { borderColor: c.warning },
-    buttonText: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
-    buttonWarningText: { color: c.warning },
-    buttonDanger: { color: c.danger },
+    buttonText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
+    buttonWarningText: { color: c.warningText },
+    buttonDanger: { color: c.dangerText },
     pressed: { opacity: 0.7 },
     disabled: { opacity: 0.4 },
     headerButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md },
-    headerButtonText: { color: c.onBrand, fontWeight: '800', fontSize: fontSize.md },
+    headerButtonText: { color: c.onBrand, ...font('800'), fontSize: fontSize.md },
     empty: { alignItems: 'center', padding: spacing.xl, gap: spacing.sm },
     emptyText: { fontSize: fontSize.md, color: c.ink2 },
     clear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md },
-    clearText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    clearText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
   });

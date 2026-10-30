@@ -9,6 +9,7 @@ import { moveBlockReason, needsSeriesChoice, projectedNote, quickDays, type Move
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { dueDayKey } from '../../lib/due-date';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 function useStyles() {
   const c = useColors();
@@ -235,16 +236,16 @@ const makeStyles = (c: Palette) =>
     quick: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
-    chipTextOn: { color: c.brand, fontWeight: '700' },
+    chipText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
+    chipTextOn: { color: c.brandText, ...font('700') },
     pressed: { opacity: 0.7 },
     monthBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     step: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
-    stepText: { fontSize: fontSize.xl, color: c.ink, fontWeight: '700' },
-    monthName: { flex: 1, textAlign: 'center', fontSize: fontSize.md, fontWeight: '700', color: c.ink },
+    stepText: { fontSize: fontSize.xl, color: c.ink, ...font('700') },
+    monthName: { flex: 1, textAlign: 'center', fontSize: fontSize.md, ...font('700'), color: c.ink },
     taskTitle: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     note: { fontSize: fontSize.sm, color: c.ink2 },
     fact: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: spacing.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line },
-    factLabel: { width: 120, fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, textTransform: 'uppercase' },
+    factLabel: { width: 120, fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase' },
     factValue: { flex: 1, minWidth: 140, fontSize: fontSize.sm, color: c.ink, textAlign: 'auto' },
   });

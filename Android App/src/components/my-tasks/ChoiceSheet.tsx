@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { Sheet } from '../meeting/sheet-kit';
 import { Button } from '../ui';
 import { spacing, radius, fontSize } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * One choice from a short list, in a sheet (My Tasks' filters and sort, a bulk action's priority or
@@ -45,7 +46,7 @@ export function ChoiceSheet({
             >
               {o.dot ? <View style={[styles.dot, { backgroundColor: o.dot }]} /> : null}
               <Text style={[styles.text, { color: on ? c.brand : c.ink }, on && styles.on]}>{o.label}</Text>
-              {on ? <Text style={{ color: c.brand, fontWeight: '800' }}>✓</Text> : null}
+              {on ? <Text style={{ color: c.brandText, ...font('800') }}>✓</Text> : null}
             </Pressable>
           );
         })}
@@ -58,6 +59,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.md },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  text: { flex: 1, fontSize: fontSize.md, fontWeight: '600' },
-  on: { fontWeight: '800' },
+  text: { flex: 1, fontSize: fontSize.md, ...font('600') },
+  on: { ...font('800') },
 });

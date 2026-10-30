@@ -29,6 +29,7 @@ import {
 import { displayName, type ApiMeeting } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /** What removing a chip clears. */
 const CHIP_CLEARS: Record<FilterChip['key'], Partial<MeetingFilters> & { sort?: MeetingSort }> = {
@@ -254,15 +255,15 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.surface,
     },
     filterButtonOn: { borderColor: c.brand },
-    filterText: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
-    filterTextOn: { color: c.brand },
+    filterText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
+    filterTextOn: { color: c.brandText },
     pressed: { opacity: 0.7 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
     usedChip: { borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash, borderRadius: radius.pill, paddingHorizontal: spacing.md, minHeight: 32, justifyContent: 'center' },
-    usedChipText: { fontSize: fontSize.xs, fontWeight: '600', color: c.ink },
+    usedChipText: { fontSize: fontSize.xs, ...font('600'), color: c.ink },
     summary: { fontSize: fontSize.sm, color: c.ink2 },
     clearAll: { minHeight: 32, justifyContent: 'center', paddingHorizontal: spacing.xs },
-    clearAllText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    clearAllText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     itemsLink: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -274,10 +275,10 @@ const makeStyles = (c: Palette) =>
       borderWidth: 1,
       borderColor: c.line,
     },
-    itemsIcon: { fontSize: fontSize.md, color: c.brand },
-    itemsText: { flex: 1, fontSize: fontSize.md, fontWeight: '600', color: c.ink },
-    itemsCount: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 },
-    overdue: { color: c.danger },
+    itemsIcon: { fontSize: fontSize.md, color: c.brandText },
+    itemsText: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
+    itemsCount: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
+    overdue: { color: c.dangerText },
     chevron: { fontSize: fontSize.xl, color: c.ink3 },
-    groupTitle: { fontSize: fontSize.xs, fontWeight: '800', color: c.ink3, letterSpacing: 0.8, marginTop: spacing.sm },
+    groupTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, letterSpacing: 0.8, marginTop: spacing.sm },
   });

@@ -10,6 +10,7 @@ import { ticksAfterReload } from '../../lib/checklist-ticks';
 import type { MentionPerson } from '../../lib/mentions';
 import type { ApiChecklistItem } from '../../lib/types';
 import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
+import { font } from '../../lib/typography';
 
 // ── Description ──────────────────────────────────────────────────────────────
 /** The description, edited in place (Save / Cancel). Empty, it offers to add one. */
@@ -438,28 +439,28 @@ const makeStyles = (c: Palette) =>
     muted: { fontSize: fontSize.sm, color: c.ink3 },
     multiline: { minHeight: 96, textAlignVertical: 'top', paddingTop: spacing.sm },
     dashed: { minHeight: 48, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line },
-    dashedText: { fontSize: fontSize.sm, color: c.ink2, fontWeight: '600' },
+    dashedText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
     aiBtn: { minHeight: 36, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand, justifyContent: 'center', backgroundColor: c.brandWash },
-    aiText: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand },
+    aiText: { fontSize: fontSize.xs, ...font('800'), color: c.brandText },
     progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    count: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 },
+    count: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     bar: { flex: 1, height: 8, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },
     barFill: { height: 8 },
     item: { flexDirection: 'row', alignItems: 'center', minHeight: 48 },
     checkHit: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     checkboxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, fontWeight: '900', lineHeight: 16 },
+    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
     itemText: { flex: 1, fontSize: fontSize.md, color: c.ink },
     itemDone: { color: c.ink3, textDecorationLine: 'line-through' },
     review: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash },
-    reviewTitle: { fontSize: fontSize.sm, fontWeight: '800', color: c.brand },
+    reviewTitle: { fontSize: fontSize.sm, ...font('800'), color: c.brandText },
     reviewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
     srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
     addRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
     comment: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, backgroundColor: c.ground, gap: 2 },
     pending: { opacity: 0.7, borderStyle: 'dashed' },
     commentHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44 },
-    author: { fontSize: fontSize.sm, fontWeight: '800', color: c.ink },
+    author: { fontSize: fontSize.sm, ...font('800'), color: c.ink },
     when: { fontSize: fontSize.xs, color: c.ink3 },
   });

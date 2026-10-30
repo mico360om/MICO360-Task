@@ -7,6 +7,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { ALL_PROJECTS_TEXT, findProjects } from '../../lib/all-board';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiProject } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * Which projects the All projects board shows (4c), as the website's "Projects:" panel: Show all,
@@ -79,7 +80,7 @@ const makeStyles = (c: Palette) =>
     pressed: { backgroundColor: c.ground },
     box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     boxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, fontWeight: '900', lineHeight: 16 },
-    name: { flex: 1, fontSize: fontSize.md, color: c.ink, fontWeight: '600' },
+    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
+    name: { flex: 1, fontSize: fontSize.md, color: c.ink, ...font('600') },
     none: { fontSize: fontSize.sm, color: c.ink3, paddingVertical: spacing.sm },
   });

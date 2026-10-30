@@ -12,6 +12,7 @@ import { parseDueDateInput } from '../lib/form-input';
 import { formatDueDay } from '../lib/due-date';
 import { dueFieldValue } from '../lib/task-detail';
 import { TextField } from './ui';
+import { font } from '../lib/typography';
 
 /**
  * The repeat editor (daily / weekly / monthly / quarterly / yearly, "every N", weekdays, "the 2nd
@@ -233,15 +234,15 @@ const makeStyles = (c: Palette) =>
       justifyContent: 'center',
     },
     chipActive: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, color: c.ink2, fontWeight: '600' },
-    chipTextActive: { color: c.brand },
-    summary: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600' },
+    chipText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
+    chipTextActive: { color: c.brandText },
+    summary: { fontSize: fontSize.sm, color: c.brandText, ...font('600') },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     label: { fontSize: fontSize.sm, color: c.ink2 },
     stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     stepBtn: { width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
-    stepText: { fontSize: fontSize.lg, color: c.ink, fontWeight: '700' },
-    stepValue: { minWidth: 90, textAlign: 'center', fontSize: fontSize.sm, color: c.ink, fontWeight: '600' },
+    stepText: { fontSize: fontSize.lg, color: c.ink, ...font('700') },
+    stepValue: { minWidth: 90, textAlign: 'center', fontSize: fontSize.sm, color: c.ink, ...font('600') },
     preview: { fontSize: fontSize.xs, color: c.ink3 },
     pause: { alignSelf: 'flex-start' },
   });

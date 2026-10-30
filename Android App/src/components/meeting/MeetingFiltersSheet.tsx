@@ -7,6 +7,7 @@ import { Chip } from '../task-detail/kit';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { MEETING_STATUS_LABELS } from '../../lib/meeting-detail';
 import { DATE_RANGES, SORTS, STATUS_CHOICES, type MeetingFilters, type MeetingSort } from '../../lib/meeting-list';
+import { font } from '../../lib/typography';
 
 /**
  * "Filters" for the Meetings list, as on the website: project (or standalone only), date, status
@@ -87,10 +88,10 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
     sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, maxHeight: '85%' },
-    title: { fontSize: fontSize.lg, fontWeight: '800', color: c.ink },
+    title: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     scroll: { flexGrow: 0 },
     group: { gap: spacing.xs },
-    groupLabel: { fontSize: fontSize.xs, fontWeight: '800', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8 },
+    groupLabel: { fontSize: fontSize.xs, ...font('800'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
     action: { flex: 1 },

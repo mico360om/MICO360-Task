@@ -18,6 +18,7 @@ import { refresh } from '../lib/refresh';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiNotification } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /** Does tapping this alert open something besides the alert list? */
 function hasTarget(n: ApiNotification): boolean {
@@ -176,7 +177,7 @@ const makeStyles = (c: Palette) =>
     body: { flex: 1, gap: 2 },
     // Arabic titles read right to left (Android picks the direction from the text).
     title: { fontSize: fontSize.md, color: c.ink2, textAlign: 'auto' },
-    titleUnread: { fontWeight: '600', color: c.ink },
+    titleUnread: { ...font('600'), color: c.ink },
     desc: { fontSize: fontSize.sm, color: c.ink2, textAlign: 'auto' },
     time: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
   });

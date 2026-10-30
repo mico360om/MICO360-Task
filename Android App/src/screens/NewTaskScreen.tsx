@@ -70,6 +70,7 @@ import {
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { displayName, type ApiTask, type Priority } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
@@ -710,16 +711,16 @@ const makeStyles = (c: Palette) =>
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 40, borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
-    chipTextOn: { color: c.brand, fontWeight: '700' },
+    chipText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
+    chipTextOn: { color: c.brandText, ...font('700') },
     dot: { width: 10, height: 10, borderRadius: 5 },
     pressed: { opacity: 0.7 },
     multiline: { minHeight: 96, paddingTop: spacing.sm, textAlignVertical: 'top' },
-    summary: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
+    summary: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     hint: { fontSize: fontSize.xs, color: c.ink2 },
-    problem: { fontSize: fontSize.xs, fontWeight: '700', color: c.danger },
+    problem: { fontSize: fontSize.xs, ...font('700'), color: c.dangerText },
     note: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
-    noteTitle: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
+    noteTitle: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     noteText: { fontSize: fontSize.sm, color: c.ink2 },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },
     grow: { flex: 1 },

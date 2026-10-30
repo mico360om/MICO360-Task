@@ -12,6 +12,7 @@ import { previewMode } from '../../lib/file-preview';
 import type { TaskRef } from '../../lib/task-detail';
 import type { ApiAttachment } from '../../lib/attachments';
 import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
+import { font } from '../../lib/typography';
 
 // ── Activity ─────────────────────────────────────────────────────────────────
 const FIRST = 5;
@@ -289,7 +290,7 @@ const makeStyles = (c: Palette) =>
     entry: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.xs },
     dot: { width: 10, height: 10, borderRadius: 5, marginTop: 5 },
     line: { fontSize: fontSize.sm, color: c.ink2 },
-    actor: { fontWeight: '800', color: c.ink },
+    actor: { ...font('800'), color: c.ink },
     path: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 2 },
     arrow: { fontSize: fontSize.xs, color: c.ink3 },
     step: { fontSize: fontSize.xs, color: c.ink2, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1, overflow: 'hidden' },
@@ -297,21 +298,21 @@ const makeStyles = (c: Palette) =>
     fileMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 56, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, backgroundColor: c.surface },
     thumb: { width: 40, height: 40, borderRadius: radius.sm },
     thumbIcon: { backgroundColor: c.ground, alignItems: 'center', justifyContent: 'center' },
-    fileName: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    fileName: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     upload: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs },
     rowCenter: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-    error: { fontSize: fontSize.sm, color: c.danger, fontWeight: '600' },
+    error: { fontSize: fontSize.sm, color: c.dangerText, ...font('600') },
     bar: { height: 6, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },
     barFill: { height: 6, backgroundColor: c.brand },
-    waiting: { fontSize: fontSize.xs, fontWeight: '800', color: c.warning, backgroundColor: c.warningSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, overflow: 'hidden' },
-    sub: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 },
+    waiting: { fontSize: fontSize.xs, ...font('800'), color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, overflow: 'hidden' },
+    sub: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     ref: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44 },
-    refMark: { fontSize: fontSize.sm, fontWeight: '900', width: 16, textAlign: 'center' },
-    refKey: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, fontFamily: 'monospace' },
+    refMark: { fontSize: fontSize.sm, ...font('900'), width: 16, textAlign: 'center' },
+    refKey: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, fontFamily: 'monospace' },
     refTitle: { flexShrink: 1, fontSize: fontSize.sm, color: c.ink },
     refDone: { color: c.ink3, textDecorationLine: 'line-through' },
     status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 },
     statusDot: { width: 7, height: 7, borderRadius: 4 },
-    statusText: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
+    statusText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: c.line },
   });

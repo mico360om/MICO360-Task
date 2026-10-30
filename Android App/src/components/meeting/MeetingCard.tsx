@@ -8,6 +8,7 @@ import { isRepeating, meetingPlace } from '../../lib/meetings';
 import { meetingStatusLabel, meetingStatusTone, meetingWhen, minutesBadge } from '../../lib/meeting-detail';
 import { dateLeafParts, isUnderWay, meetingCardLabel, peopleText, type ListContext } from '../../lib/meeting-list';
 import type { ApiMeeting } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 type LeafTone = 'today' | 'upcoming' | 'muted';
 
@@ -104,7 +105,7 @@ const makeStyles = (c: Palette) =>
     top: { flexDirection: 'row', gap: spacing.md, padding: spacing.md, paddingBottom: spacing.sm },
     body: { flex: 1, minWidth: 0 },
     // A title in Arabic reads right to left on its own line (Android picks the direction from the text).
-    title: { fontSize: fontSize.md, fontWeight: '700', color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.md, ...font('700'), color: c.ink, textAlign: 'auto' },
     struck: { textDecorationLine: 'line-through', color: c.ink3 },
     when: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
     sub: { fontSize: fontSize.xs, color: c.ink3, marginTop: 2 },
@@ -126,6 +127,6 @@ const makeStyles = (c: Palette) =>
     leafToday: { backgroundColor: c.brand, borderColor: c.brand },
     leafUpcoming: { backgroundColor: c.brandWash, borderColor: c.brandWash },
     leafMuted: { backgroundColor: c.ground, borderColor: c.line },
-    leafSmall: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-    leafDay: { fontSize: fontSize.lg, fontWeight: '800', lineHeight: 22 },
+    leafSmall: { fontSize: 10, ...font('700'), letterSpacing: 0.5 },
+    leafDay: { fontSize: fontSize.lg, ...font('800'), lineHeight: 22 },
   });

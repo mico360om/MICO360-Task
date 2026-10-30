@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { FieldLabel, InlinePicker } from '../meeting/sheet-kit';
 import type { PersonOption } from '../../lib/task-form';
 import { spacing, radius, fontSize } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * Who works on the task (4a), as on the website's AssigneeSelect: the chosen people as removable
@@ -77,8 +78,8 @@ const styles = StyleSheet.create({
   wrap: { gap: spacing.xs, marginBottom: spacing.md },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderRadius: radius.pill, paddingLeft: spacing.md, maxWidth: '100%', minHeight: 40 },
-  chipText: { fontSize: fontSize.sm, fontWeight: '600', flexShrink: 1, textAlign: 'auto' },
+  chipText: { fontSize: fontSize.sm, ...font('600'), flexShrink: 1, textAlign: 'auto' },
   remove: { width: 40, minHeight: 40, alignItems: 'center', justifyContent: 'center' },
-  removeText: { fontSize: fontSize.sm, fontWeight: '700' },
+  removeText: { fontSize: fontSize.sm, ...font('700') },
   note: { fontSize: fontSize.xs },
 });

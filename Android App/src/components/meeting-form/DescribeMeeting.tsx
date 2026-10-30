@@ -9,6 +9,7 @@ import { companyTodayKey } from '../../lib/due-date';
 import { AI_SENTENCE_MAX } from '../../lib/resources';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { AiMeetingDraft } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * "Describe the meeting" (2c), as on the website: the assistant reads a sentence and suggests the
@@ -70,7 +71,7 @@ export function DescribeMeeting({
 
   return (
     <View style={[styles.card, { borderColor: c.brand, backgroundColor: c.brandWash }]}>
-      <Text style={[styles.title, { color: c.brand }]} accessibilityRole="header">
+      <Text style={[styles.title, { color: c.brandText }]} accessibilityRole="header">
         ✨ Describe the meeting
       </Text>
       <Text style={[styles.hint, { color: c.ink2 }]}>
@@ -138,9 +139,9 @@ export function DescribeMeeting({
 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
-  title: { fontSize: fontSize.md, fontWeight: '800' },
+  title: { fontSize: fontSize.md, ...font('800') },
   hint: { fontSize: fontSize.xs },
-  heading: { fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 0.8 },
+  heading: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8 },
   multiline: { minHeight: 72, paddingTop: spacing.sm, textAlignVertical: 'top' },
   found: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
   replaces: { fontSize: fontSize.xs, marginLeft: 30, marginTop: -6 },

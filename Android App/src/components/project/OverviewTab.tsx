@@ -32,6 +32,7 @@ import {
 import type { ApiMember, ApiProject, ApiProjectMeetingsOverview, ApiTask } from '../../lib/types';
 import { displayName } from '../../lib/types';
 import type { Tone } from '../../lib/tone';
+import { font } from '../../lib/typography';
 
 const MILESTONE_TONE: Record<MilestoneState, Tone> = { done: 'success', waiting: 'warning', overdue: 'danger', upcoming: 'brand', undated: 'neutral' };
 
@@ -297,33 +298,33 @@ const makeStyles = (c: Palette) =>
     body: { fontSize: fontSize.md, color: c.ink2, lineHeight: 22 },
     details: { flexDirection: 'row', flexWrap: 'wrap', rowGap: spacing.sm, marginTop: spacing.sm },
     detail: { flexBasis: '50%', flexGrow: 1, paddingRight: spacing.sm, gap: 2 },
-    detailLabel: { fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: c.ink3 },
-    detailValue: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    detailLabel: { fontSize: fontSize.xs, ...font('700'), letterSpacing: 0.5, textTransform: 'uppercase', color: c.ink3 },
+    detailValue: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     owner: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.sm, gap: spacing.xs },
     note: { fontSize: fontSize.sm, color: c.ink2 },
     bars: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.sm, gap: spacing.md },
     barBlock: { gap: spacing.xs },
     barHead: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.xs },
-    barTitle: { fontSize: fontSize.md, fontWeight: '700', color: c.ink },
+    barTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink },
     barText: { fontSize: fontSize.sm, color: c.ink2, flexShrink: 1 },
-    late: { color: c.danger, fontWeight: '700' },
-    soon: { color: c.warning, fontWeight: '700' },
+    late: { color: c.dangerText, ...font('700') },
+    soon: { color: c.warningText, ...font('700') },
     actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
     action: { flexGrow: 1, flexBasis: '45%' },
-    error: { color: c.danger, fontSize: fontSize.sm },
+    error: { color: c.dangerText, fontSize: fontSize.sm },
     line: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: c.line, minHeight: 48 },
     flag: { fontSize: fontSize.md, width: 22, textAlign: 'center' },
     lineText: { flex: 1 },
-    lineTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    lineTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     lineSub: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
     done: { textDecorationLine: 'line-through', color: c.ink2 },
-    key: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink3, minWidth: 52 },
+    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink3, minWidth: 52 },
     when: { fontSize: fontSize.xs, color: c.ink2, maxWidth: '35%', textAlign: 'right' },
     faces: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
     face: { width: 28, height: 28, borderRadius: 14, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center' },
-    faceText: { color: c.onBrand, fontSize: 10, fontWeight: '700' },
+    faceText: { color: c.onBrand, fontSize: 10, ...font('700') },
     faceMore: { backgroundColor: c.ground, borderWidth: 1, borderColor: c.line },
-    faceMoreText: { color: c.ink2, fontSize: 10, fontWeight: '700' },
+    faceMoreText: { color: c.ink2, fontSize: 10, ...font('700') },
     who: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
     whoName: { fontSize: fontSize.md, color: c.ink },
     whoNum: { fontSize: fontSize.sm, color: c.ink2 },
@@ -332,5 +333,5 @@ const makeStyles = (c: Palette) =>
     statusName: { fontSize: fontSize.sm, color: c.ink, width: '32%' },
     statusTrack: { flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     statusFill: { height: 8, borderRadius: radius.pill },
-    statusNum: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink2, minWidth: 24, textAlign: 'right' },
+    statusNum: { fontSize: fontSize.sm, ...font('700'), color: c.ink2, minWidth: 24, textAlign: 'right' },
   });

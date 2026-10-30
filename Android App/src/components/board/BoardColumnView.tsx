@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { BoardCard } from './BoardCard';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { BoardCard as Card } from '../../lib/board';
+import { font } from '../../lib/typography';
 
 /**
  * One column of a board (4b; the All projects board's statuses too, 4c): its colour, name, count
@@ -99,12 +100,12 @@ const makeStyles = (c: Palette) =>
     columnStripe: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
     columnHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm },
     dot: { width: 10, height: 10, borderRadius: 5 },
-    columnName: { flex: 1, fontSize: fontSize.md, fontWeight: '700', color: c.ink },
-    count: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink2, minWidth: 20, textAlign: 'center' },
+    columnName: { flex: 1, fontSize: fontSize.md, ...font('700'), color: c.ink },
+    count: { fontSize: fontSize.sm, ...font('700'), color: c.ink2, minWidth: 20, textAlign: 'center' },
     columnBody: { gap: spacing.sm, paddingBottom: spacing.xxl * 2 },
     emptyCol: { color: c.ink3, fontSize: fontSize.sm, padding: spacing.sm },
     emptyAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.md, paddingVertical: spacing.lg, minHeight: 88 },
-    emptyAddText: { color: c.brand, fontSize: fontSize.sm, fontWeight: '700' },
+    emptyAddText: { color: c.brandText, fontSize: fontSize.sm, ...font('700') },
     colAdd: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-    colAddText: { color: c.ink2, fontSize: fontSize.lg, fontWeight: '700' },
+    colAddText: { color: c.ink2, fontSize: fontSize.lg, ...font('700') },
   });

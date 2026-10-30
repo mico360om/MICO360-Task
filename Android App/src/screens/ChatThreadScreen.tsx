@@ -48,6 +48,7 @@ import { afterNewest, isFarFromNewest, isNearNewest, KEEP_READING_POSITION, newM
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatAttachment, ApiDirectoryUser, ConversationPrefs, ReactionGroup, ReplyQuote } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /** How long a message jumped to stays marked. */
 const HIGHLIGHT_MS = 2500;
@@ -516,7 +517,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   // At the top of the inverted list: older history, or its beginning.
   const olderHeader = messagesQ.isFetchingNextPage ? (
     <View style={styles.older} accessibilityLiveRegion="polite">
-      <ActivityIndicator color={c.brand} />
+      <ActivityIndicator color={c.brandText} />
       <Text style={styles.olderText}>Loading older messages…</Text>
     </View>
   ) : messagesQ.isFetchNextPageError ? (
@@ -766,17 +767,17 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, gap: spacing.xs },
     noteWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
     headerTitle: { maxWidth: 240 },
-    headerName: { color: c.onBrand, fontSize: fontSize.md, fontWeight: '700' },
+    headerName: { color: c.onBrand, fontSize: fontSize.md, ...font('700') },
     headerSub: { color: c.onBrand, fontSize: fontSize.xs, opacity: 0.85 },
     headerBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: spacing.xs },
-    headerBtnText: { color: c.onBrand, fontSize: fontSize.xl, fontWeight: '700' },
+    headerBtnText: { color: c.onBrand, fontSize: fontSize.xl, ...font('700') },
     emptyWrap: { alignItems: 'center', justifyContent: 'center', gap: spacing.xs, padding: spacing.xl },
     emptyWave: { fontSize: 36 },
-    emptyTitle: { fontSize: fontSize.md, fontWeight: '700', color: c.ink },
+    emptyTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink },
     empty: { textAlign: 'center', color: c.ink2, fontSize: fontSize.sm },
     older: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
     olderText: { fontSize: fontSize.xs, color: c.ink2 },
-    olderError: { fontSize: fontSize.xs, color: c.danger },
+    olderError: { fontSize: fontSize.xs, color: c.dangerText },
     olderBtn: {
       minHeight: 44,
       justifyContent: 'center',
@@ -786,11 +787,11 @@ const makeStyles = (c: Palette) =>
       paddingHorizontal: spacing.md,
       backgroundColor: c.surface,
     },
-    olderBtnText: { color: c.brand, fontWeight: '700', fontSize: fontSize.sm },
+    olderBtnText: { color: c.brandText, ...font('700'), fontSize: fontSize.sm },
     beginning: { textAlign: 'center', fontSize: fontSize.xs, color: c.ink2, paddingVertical: spacing.sm },
     refused: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
-    refusedTitle: { fontSize: fontSize.md, fontWeight: '700', color: c.ink, textAlign: 'center' },
-    refusedText: { fontSize: fontSize.sm, color: c.danger, textAlign: 'center' },
+    refusedTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink, textAlign: 'center' },
+    refusedText: { fontSize: fontSize.sm, color: c.dangerText, textAlign: 'center' },
     pill: {
       position: 'absolute',
       bottom: spacing.md,
@@ -801,7 +802,7 @@ const makeStyles = (c: Palette) =>
       borderRadius: radius.pill,
       paddingHorizontal: spacing.lg,
     },
-    pillText: { color: c.onBrand, fontWeight: '700', fontSize: fontSize.sm },
+    pillText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm },
     jump: {
       position: 'absolute',
       bottom: spacing.md,
@@ -815,7 +816,7 @@ const makeStyles = (c: Palette) =>
       borderWidth: 1,
       borderColor: c.line,
     },
-    jumpText: { color: c.ink2, fontSize: fontSize.lg, fontWeight: '700' },
+    jumpText: { color: c.ink2, fontSize: fontSize.lg, ...font('700') },
     errWrap: { paddingHorizontal: spacing.md },
     mentionWrap: { flexGrow: 0, flexShrink: 1, maxHeight: 200, paddingHorizontal: spacing.md },
     mentionInner: { paddingBottom: spacing.xs },
@@ -832,10 +833,10 @@ const makeStyles = (c: Palette) =>
       borderRadius: radius.md,
       backgroundColor: c.surface,
     },
-    replyWho: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink },
+    replyWho: { fontSize: fontSize.xs, ...font('700'), color: c.ink },
     replyText: { fontSize: fontSize.xs, color: c.ink2 },
     replyClose: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    replyCloseText: { color: c.ink2, fontSize: fontSize.md, fontWeight: '700' },
+    replyCloseText: { color: c.ink2, fontSize: fontSize.md, ...font('700') },
     composer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -860,8 +861,8 @@ const makeStyles = (c: Palette) =>
       fontSize: fontSize.md,
     },
     counter: { fontSize: fontSize.xs, color: c.ink3, marginTop: 2 },
-    counterMax: { color: c.danger, fontWeight: '700' },
+    counterMax: { color: c.dangerText, ...font('700') },
     sendBtn: { backgroundColor: c.brand, borderRadius: radius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, minHeight: 44, justifyContent: 'center' },
     sendBtnDisabled: { opacity: 0.5 },
-    sendText: { color: c.onBrand, fontWeight: '700', fontSize: fontSize.sm },
+    sendText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm },
   });

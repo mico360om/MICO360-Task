@@ -5,6 +5,7 @@ import { STATUS_LABEL, itemMeta, itemName, type CalItem, type CalStatus } from '
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { statusColor } from './MonthGrid';
 import { moveButton } from '../../lib/calendar-reschedule';
+import { font } from '../../lib/typography';
 
 /** Each status's sign (with its words beside it — colour is never the only sign). */
 const STATUS_ICON: Record<CalStatus, string> = {
@@ -105,15 +106,15 @@ const makeStyles = (c: Palette) =>
     overdue: { borderColor: c.danger },
     pressed: { opacity: 0.7 },
     edge: { alignSelf: 'stretch', width: 4, marginVertical: -spacing.sm },
-    icon: { width: 22, textAlign: 'center', fontSize: fontSize.md, fontWeight: '800' },
+    icon: { width: 22, textAlign: 'center', fontSize: fontSize.md, ...font('800') },
     body: { flex: 1, gap: 2 },
     // An Arabic title reads right to left on its own line (Android picks the direction from the text).
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
     doneTitle: { color: c.ink2, textDecorationLine: 'line-through' },
     projectedTitle: { color: c.ink2 },
     meta: { fontSize: fontSize.xs, color: c.ink2 },
-    status: { fontWeight: '700' },
+    status: { ...font('700') },
     repeat: { fontSize: fontSize.sm, color: c.ink2 },
     move: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand },
-    moveText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    moveText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
   });

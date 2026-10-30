@@ -26,6 +26,7 @@ import { forgetPreviousUser } from '../../lib/user-switch';
 import { asyncStore } from '../../adapters/async-storage';
 import type { AuthScreenProps } from '../../navigation/types';
 import logo from '../../../assets/logo.png';
+import { font } from '../../lib/typography';
 
 type Mode = 'password' | 'otp';
 
@@ -465,18 +466,18 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.xl, justifyContent: 'center', flexGrow: 1 },
     brand: { alignItems: 'center', marginBottom: spacing.xl },
     logo: { width: 120, height: 120, marginBottom: spacing.md },
-    title: { fontSize: fontSize.xxl, fontWeight: '800', color: c.ink },
+    title: { fontSize: fontSize.xxl, ...font('800'), color: c.ink },
     subtitle: { fontSize: fontSize.md, color: c.ink2, marginTop: spacing.xs },
     bioWrap: { marginBottom: spacing.lg, gap: spacing.sm },
     bioOr: { textAlign: 'center', color: c.ink3, fontSize: fontSize.xs },
     tabs: { flexDirection: 'row', backgroundColor: c.line, borderRadius: radius.md, padding: 3, marginBottom: spacing.lg },
     tab: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.sm },
     tabActive: { backgroundColor: c.surface },
-    tabText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink2 },
-    tabTextActive: { color: c.brand },
+    tabText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
+    tabTextActive: { color: c.brandText },
     forgot: { alignItems: 'center', marginTop: spacing.md },
-    forgotText: { color: c.brand, fontSize: fontSize.sm, fontWeight: '600' },
-    linkMuted: { color: c.ink2, fontSize: fontSize.sm, fontWeight: '600' },
+    forgotText: { color: c.brandText, fontSize: fontSize.sm, ...font('600') },
+    linkMuted: { color: c.ink2, fontSize: fontSize.sm, ...font('600') },
     lockedInput: { backgroundColor: c.line, color: c.ink2 },
     codeLinks: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.md },
     note: { color: c.ink2, fontSize: fontSize.sm, marginBottom: spacing.md, textAlign: 'center' },
@@ -491,7 +492,7 @@ const makeStyles = (c: Palette) =>
       marginBottom: spacing.lg,
       gap: spacing.sm,
     },
-    lockedTitle: { color: c.danger, fontSize: fontSize.md, fontWeight: '700' },
+    lockedTitle: { color: c.dangerText, fontSize: fontSize.md, ...font('700') },
     lockedBody: { color: c.ink, fontSize: fontSize.sm },
     serverBox: { marginTop: spacing.xl, paddingTop: spacing.lg, borderTopWidth: 1, borderTopColor: c.line, alignItems: 'stretch', gap: spacing.sm },
     serverForm: { gap: spacing.sm },

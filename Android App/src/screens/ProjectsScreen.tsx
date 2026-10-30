@@ -17,6 +17,7 @@ import { canCreateProject, canManageProject } from '../lib/project-team';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiProject } from '../lib/types';
 import type { TabScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * The Projects tab (5b), as the website's Projects page: each project's picture, code and number,
@@ -239,7 +240,7 @@ const makeStyles = (c: Palette) =>
     head: { gap: spacing.sm },
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
     allBoard: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
-    allBoardText: { fontSize: fontSize.md, fontWeight: '700', color: c.brand },
+    allBoardText: { fontSize: fontSize.md, ...font('700'), color: c.brandText },
     flex: { flex: 1 },
     pressed: { opacity: 0.7 },
     card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },
@@ -247,20 +248,20 @@ const makeStyles = (c: Palette) =>
     main: { padding: spacing.lg, gap: spacing.sm },
     topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
     codes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, flexShrink: 1 },
-    code: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, letterSpacing: 0.5 },
+    code: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, letterSpacing: 0.5 },
     identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    name: { fontSize: fontSize.lg, fontWeight: '800', color: c.ink },
+    name: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     client: { fontSize: fontSize.sm, color: c.ink2 },
     internal: { fontSize: fontSize.sm, color: c.ink3 },
     progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: 6, borderRadius: 3, backgroundColor: c.brand },
-    pct: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink2 },
+    pct: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
     stats: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md, rowGap: 4, borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.sm },
     stat: { fontSize: fontSize.sm, color: c.ink2 },
-    overdue: { color: c.danger, fontWeight: '700' },
+    overdue: { color: c.dangerText, ...font('700') },
     owner: { fontSize: fontSize.sm, color: c.ink2 },
     footer: { flexDirection: 'row', flexWrap: 'wrap', borderTopWidth: 1, borderTopColor: c.line },
     footerButton: { flexGrow: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-    footerText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand, textAlign: 'center' },
+    footerText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText, textAlign: 'center' },
   });

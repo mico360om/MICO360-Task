@@ -5,6 +5,7 @@ import { priorityColor } from '../TaskRow';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { cardView, personInitials, type BoardCard as Card } from '../../lib/board';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' } as const;
 
@@ -171,20 +172,20 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.75 },
     stripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
     project: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-    projectName: { flexShrink: 1, fontSize: fontSize.xs, fontWeight: '600', color: c.ink2 },
+    projectName: { flexShrink: 1, fontSize: fontSize.xs, ...font('600'), color: c.ink2 },
     top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
-    key: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
+    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
     flags: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
     blocked: { backgroundColor: c.dangerSoft, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-    blockedText: { fontSize: fontSize.xs, fontWeight: '800', color: c.danger },
-    flag: { fontSize: fontSize.sm, color: c.brand },
+    blockedText: { fontSize: fontSize.xs, ...font('800'), color: c.dangerText },
+    flag: { fontSize: fontSize.sm, color: c.brandText },
     flagMuted: { fontSize: fontSize.sm, color: c.ink3 },
     priority: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
-    priorityText: { fontSize: fontSize.xs, fontWeight: '700' },
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    priorityText: { fontSize: fontSize.xs, ...font('700') },
+    title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: spacing.md, rowGap: 4 },
     due: { fontSize: fontSize.xs, color: c.ink2 },
-    dueLate: { color: c.danger, fontWeight: '700', backgroundColor: c.dangerSoft, borderRadius: 4, paddingHorizontal: 4, overflow: 'hidden' },
+    dueLate: { color: c.dangerText, ...font('700'), backgroundColor: c.dangerSoft, borderRadius: 4, paddingHorizontal: 4, overflow: 'hidden' },
     count: { fontSize: fontSize.xs, color: c.ink2 },
     bottom: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
     progress: { flex: 1, minWidth: 120, flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -197,7 +198,7 @@ const makeStyles = (c: Palette) =>
     face: { width: 26, height: 26, borderRadius: 13, backgroundColor: c.brandWash, borderWidth: 1.5, borderColor: c.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     overlap: { marginLeft: -7 },
     photo: { width: '100%', height: '100%' },
-    initials: { fontSize: 10, fontWeight: '700', color: c.brand },
+    initials: { fontSize: 10, ...font('700'), color: c.brandText },
     more: { marginLeft: -7, backgroundColor: c.ground, borderColor: c.line },
-    moreText: { fontSize: 10, fontWeight: '700', color: c.ink2 },
+    moreText: { fontSize: 10, ...font('700'), color: c.ink2 },
   });

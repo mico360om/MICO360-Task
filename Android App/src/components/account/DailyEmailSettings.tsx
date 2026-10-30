@@ -18,6 +18,7 @@ import {
   type NotificationPreferences,
 } from '../../lib/notification-prefs';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * Settings → Daily task emails (6a), as on the website: the two morning emails (pending tasks;
@@ -145,13 +146,13 @@ const makeStyles = (c: Palette) =>
     section: { gap: spacing.sm },
     row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
     rowText: { flex: 1 },
-    rowTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    rowTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     divided: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.md },
     warning: { backgroundColor: c.warningSoft, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
-    warningText: { color: c.warning, fontSize: fontSize.sm },
-    error: { fontSize: fontSize.sm, color: c.danger, fontWeight: '600', marginTop: spacing.sm },
+    warningText: { color: c.warningText, fontSize: fontSize.sm },
+    error: { fontSize: fontSize.sm, color: c.dangerText, ...font('600'), marginTop: spacing.sm },
     timeNote: { marginTop: -spacing.sm },
     saveTime: { marginTop: spacing.sm },
     testNote: { fontSize: fontSize.sm, color: c.ink2, marginTop: spacing.sm },
-    testNoteError: { color: c.danger },
+    testNoteError: { color: c.dangerText },
   });

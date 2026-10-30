@@ -10,6 +10,7 @@ import type { AuthScreenProps } from '../../navigation/types';
 import { ApiError, isNetworkError } from '../../lib/api-client';
 import { authErrorMessage, isEmailNotConfigured } from '../../lib/auth-errors';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
+import { font } from '../../lib/typography';
 
 export function ForgotPasswordScreen({ navigation }: AuthScreenProps<'Forgot'>) {
   const c = useColors();
@@ -92,5 +93,5 @@ const makeStyles = (c: Palette) =>
     intro: { marginBottom: spacing.md },
     sent: { gap: spacing.md },
     group: { gap: spacing.md },
-    sentTitle: { fontSize: 18, fontWeight: '700', color: c.ink },
+    sentTitle: { fontSize: 18, ...font('700'), color: c.ink },
   });

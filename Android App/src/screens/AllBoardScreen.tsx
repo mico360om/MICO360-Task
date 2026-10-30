@@ -24,6 +24,7 @@ import { Loader, EmptyState, ErrorNote } from '../components/ui';
 import type { BoardCard as Card } from '../lib/board';
 import type { ApiTask, ColumnCategory } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * The All projects board (4c), as the website's: every open project's tasks for one day under the
@@ -201,10 +202,10 @@ const makeStyles = (c: Palette) =>
     subtitle: { flex: 1, minWidth: 180, fontSize: fontSize.xs, color: c.ink2 },
     filter: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     filterOn: { borderColor: c.brand },
-    filterText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
-    filterTextOn: { color: c.brand },
+    filterText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
+    filterTextOn: { color: c.brandText },
     boardList: { flex: 1 },
     board: { padding: spacing.md, gap: spacing.md },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-    fabPlus: { color: c.onBrand, fontSize: 28, fontWeight: '700', lineHeight: 32 },
+    fabPlus: { color: c.onBrand, fontSize: 28, ...font('700'), lineHeight: 32 },
   });

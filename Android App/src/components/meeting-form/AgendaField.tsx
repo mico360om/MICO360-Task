@@ -8,6 +8,7 @@ import { AgendaDraftReview } from './AgendaDraftReview';
 import { addAgendaTopic, addDraftedItems, agendaMinutesInput, agendaTotal, meetingAiFailure, moveAgendaDraft, type AgendaDraft } from '../../lib/meeting-ai';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { AiAgendaItem, AiDraftAgendaInput } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * A new meeting's Agenda (2c), saved with it, as on the website: topics in order, each with a lead
@@ -89,7 +90,7 @@ export function AgendaField({
           </View>
         );
       })}
-      {agenda.length ? <Text style={[styles.small, { color: total.over ? c.warning : c.ink2, fontWeight: total.over ? '700' : '400' }]}>{total.text}</Text> : null}
+      {agenda.length ? <Text style={[styles.small, { color: total.over ? c.warningText : c.ink2, ...font(total.over ? '700' : '400') }]}>{total.text}</Text> : null}
       <TextField
         accessibilityLabel="New agenda item"
         value={title}
@@ -135,13 +136,13 @@ function Small({ label, a11y, onPress, disabled }: { label: string; a11y: string
 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
-  title: { fontSize: fontSize.sm, fontWeight: '800' },
+  title: { fontSize: fontSize.sm, ...font('800') },
   item: { borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   minutes: { width: 90 },
   small: { fontSize: fontSize.xs },
   small44: { width: 44, height: 44, borderWidth: 1, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  smallText: { fontSize: fontSize.md, fontWeight: '700' },
+  smallText: { fontSize: fontSize.md, ...font('700') },
   dim: { opacity: 0.4 },
   draftRow: { gap: spacing.xs },
 });

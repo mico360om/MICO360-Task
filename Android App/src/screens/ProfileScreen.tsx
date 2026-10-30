@@ -30,6 +30,7 @@ import { companyTodayKey } from '../lib/due-date';
 import { sitePageUrl } from '../lib/server-address';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * Your profile (6a), as the website's Profile page: your photo, name and role, your account
@@ -216,16 +217,16 @@ const makeStyles = (c: Palette) =>
     header: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.lg },
     photo: { width: 112, height: 112, borderRadius: 56, borderWidth: 1, borderColor: c.line, marginBottom: spacing.sm, backgroundColor: c.surface },
     initialsBox: { width: 112, height: 112, borderRadius: 56, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
-    initials: { color: c.onBrand, fontSize: fontSize.xxl, fontWeight: '800' },
-    name: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink, textAlign: 'center' },
+    initials: { color: c.onBrand, fontSize: fontSize.xxl, ...font('800') },
+    name: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'center' },
     photoActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
     photoButton: { minWidth: 120 },
-    photoProblem: { color: c.danger, fontSize: fontSize.sm, fontWeight: '600', textAlign: 'center', marginTop: spacing.xs },
+    photoProblem: { color: c.dangerText, fontSize: fontSize.sm, ...font('600'), textAlign: 'center', marginTop: spacing.xs },
     section: { gap: spacing.sm },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.lg, paddingVertical: spacing.sm },
     rowDivided: { borderTopWidth: 1, borderTopColor: c.line },
     rowLabel: { fontSize: fontSize.sm, color: c.ink2 },
-    rowValue: { flexShrink: 1, fontSize: fontSize.sm, fontWeight: '600', color: c.ink, textAlign: 'right' },
+    rowValue: { flexShrink: 1, fontSize: fontSize.sm, ...font('600'), color: c.ink, textAlign: 'right' },
     link: { alignSelf: 'flex-start', marginVertical: spacing.md, borderRadius: radius.sm },
-    linkText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    linkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
   });

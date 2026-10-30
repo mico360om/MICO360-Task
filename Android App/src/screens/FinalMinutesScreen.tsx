@@ -11,6 +11,7 @@ import { draftFailure, draftNotice, isEmptyContent, minutesSaveFailure, toConten
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { ApiFinalMinutes } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * The final minutes of a meeting — the "Final MOM" (2b), as on the website: start from a draft,
@@ -252,10 +253,10 @@ const makeStyles = (c: Palette) =>
     remove: { minWidth: 44, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
     removeText: { fontSize: fontSize.lg, color: c.ink3 },
     link: { minHeight: 44, justifyContent: 'center' },
-    linkText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    linkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     redraft: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg },
     problem: { backgroundColor: c.dangerSoft, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.sm },
-    problemText: { color: c.danger, fontSize: fontSize.sm, fontWeight: '600' },
+    problemText: { color: c.dangerText, fontSize: fontSize.sm, ...font('600') },
     inlineButton: { alignSelf: 'flex-start', minHeight: 40 },
     drafting: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
     footer: { padding: spacing.md, gap: spacing.xs, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },

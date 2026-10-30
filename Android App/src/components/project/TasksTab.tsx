@@ -8,6 +8,7 @@ import { formatDueDay } from '../../lib/due-date';
 import { TASK_FILTERS, shownProgress, taskPeople, taskPhase, tasksTabRowLabel, type TaskFilter, type TaskGroup } from '../../lib/project-dashboard';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /** What the Tasks tab's list shows, row by row: a status column's heading, then its tasks. */
 export type TasksTabItem = { kind: 'group'; group: TaskGroup } | { kind: 'task'; task: ApiTask; group: TaskGroup };
@@ -119,14 +120,14 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.7 },
     heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.md, paddingBottom: spacing.xs },
     dot: { width: 10, height: 10, borderRadius: 5 },
-    headingText: { fontSize: fontSize.md, fontWeight: '800', color: c.ink, flexShrink: 1 },
+    headingText: { fontSize: fontSize.md, ...font('800'), color: c.ink, flexShrink: 1 },
     count: { backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.sm },
-    countText: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 },
+    countText: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     row: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs, marginBottom: spacing.sm, minHeight: 56 },
     top: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-    key: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink3, marginTop: 3 },
+    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink3, marginTop: 3 },
     flag: { fontSize: fontSize.sm, marginTop: 1 },
-    title: { flex: 1, fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    title: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
     doneTitle: { color: c.ink2 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: spacing.sm, rowGap: 4 },
     status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 },
@@ -136,5 +137,5 @@ const makeStyles = (c: Palette) =>
     track: { width: 48, height: 6, borderRadius: 3, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: 6, borderRadius: 3 },
     metaText: { fontSize: fontSize.xs, color: c.ink2 },
-    overdue: { color: c.danger, fontWeight: '700' },
+    overdue: { color: c.dangerText, ...font('700') },
   });

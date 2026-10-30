@@ -7,6 +7,7 @@ import { useColors } from '../core/theme';
 import { asyncStore } from '../adapters/async-storage';
 import { appDownloadUrl, offeredAppVersion, showUpdateBanner, UPDATE_DISMISSED_KEY } from '../lib/app-version';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
+import { font } from '../lib/typography';
 
 /**
  * "A new version of MICO360 Tasks is available" — shown when the app file the site offers is newer
@@ -74,9 +75,9 @@ export function UpdateBanner() {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     wrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm, backgroundColor: c.brand },
-    text: { flex: 1, color: '#fff', fontSize: fontSize.sm, fontWeight: '600' },
+    text: { flex: 1, color: '#fff', fontSize: fontSize.sm, ...font('600') },
     button: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: '#fff' },
-    buttonText: { color: c.brand, fontWeight: '800', fontSize: fontSize.sm },
+    buttonText: { color: c.brandText, ...font('800'), fontSize: fontSize.sm },
     later: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.xs },
-    laterText: { color: '#fff', fontWeight: '700', fontSize: fontSize.sm, textDecorationLine: 'underline' },
+    laterText: { color: '#fff', ...font('700'), fontSize: fontSize.sm, textDecorationLine: 'underline' },
   });

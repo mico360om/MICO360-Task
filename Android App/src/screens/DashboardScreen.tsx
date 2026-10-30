@@ -12,6 +12,7 @@ import { AdminTotals } from '../components/AdminTotals';
 import { useQueryClient } from '@tanstack/react-query';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const c = useColors();
@@ -120,7 +121,7 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
     scroll: { padding: spacing.lg, gap: spacing.md },
-    greeting: { fontSize: fontSize.xxl, fontWeight: '800', color: c.ink },
+    greeting: { fontSize: fontSize.xxl, ...font('800'), color: c.ink },
     sub: { fontSize: fontSize.md, color: c.ink2, marginBottom: spacing.sm },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: {
@@ -132,7 +133,7 @@ const makeStyles = (c: Palette) =>
       borderColor: c.line,
       padding: spacing.lg,
     },
-    tileValue: { fontSize: fontSize.xxl, fontWeight: '800' },
+    tileValue: { fontSize: fontSize.xxl, ...font('800') },
     tileLabel: { fontSize: fontSize.sm, color: c.ink2, marginTop: 2 },
     section: { gap: spacing.sm },
     clear: { color: c.ink2, fontSize: fontSize.md },

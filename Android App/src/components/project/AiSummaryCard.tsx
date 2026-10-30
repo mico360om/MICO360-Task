@@ -9,6 +9,7 @@ import { aiFailureText } from '../../lib/task-detail';
 import { aiSummaryQuery, summaryButton } from '../../lib/ai-summary';
 import type { SummaryRequest } from '../../lib/project-dashboard';
 import { spacing, radius, fontSize } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * "AI status summary" (5b), as on the website: a plain-language read on where the project stands,
@@ -61,7 +62,7 @@ export function AiSummaryCard({ projectId, ready, request }: { projectId: string
       }
     >
       {error ? (
-        <Text style={[styles.box, { color: c.danger, backgroundColor: c.dangerSoft }]} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+        <Text style={[styles.box, { color: c.dangerText, backgroundColor: c.dangerSoft }]} accessibilityRole="alert" accessibilityLiveRegion="assertive">
           {error}
         </Text>
       ) : summary ? (
@@ -81,6 +82,6 @@ export function AiSummaryCard({ projectId, ready, request }: { projectId: string
 
 const styles = StyleSheet.create({
   button: { minHeight: 44, paddingHorizontal: spacing.md },
-  box: { fontSize: fontSize.sm, fontWeight: '600', borderRadius: radius.md, padding: spacing.md },
+  box: { fontSize: fontSize.sm, ...font('600'), borderRadius: radius.md, padding: spacing.md },
   summary: { fontSize: fontSize.md, lineHeight: 22 },
 });

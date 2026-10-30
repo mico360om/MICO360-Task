@@ -5,6 +5,7 @@ import { TextField } from '../ui';
 import { Sheet, SheetButtons, CheckRow, InlinePicker, FieldLabel, type PickOption } from '../meeting/sheet-kit';
 import { PRIORITIES, PRIORITY_LABEL, STATUS_FILTERS, STATUS_LABEL, activeFilterCount, DEFAULT_FILTERS, type CalendarFilters } from '../../lib/calendar-model';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /** Several of a few choices, as chips that each turn on and off. */
 function ToggleChips<T extends string>({ label, options, values, onToggle }: { label: string; options: { value: T; label: string }[]; values: T[]; onToggle: (v: T) => void }) {
@@ -91,7 +92,7 @@ const makeStyles = (c: Palette) =>
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
-    chipTextOn: { color: c.brand, fontWeight: '700' },
+    chipText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
+    chipTextOn: { color: c.brandText, ...font('700') },
     pressed: { opacity: 0.7 },
   });

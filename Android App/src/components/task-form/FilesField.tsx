@@ -6,6 +6,7 @@ import { FieldLabel } from '../meeting/sheet-kit';
 import { attachmentIcon, formatFileSize, uploadMimeType } from '../../lib/attachments';
 import { NEW_TASK_TEXT, type NewTaskFile } from '../../lib/task-form';
 import { spacing, radius, fontSize } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * Files for a new task (4a), as on the website's FilesField: picked files (any, or pictures) listed
@@ -42,7 +43,7 @@ export function FilesField({
                 {f.name}
               </Text>
               {f.error ? (
-                <Text style={[styles.meta, { color: c.danger }]} accessibilityRole="alert">
+                <Text style={[styles.meta, { color: c.dangerText }]} accessibilityRole="alert">
                   {f.error}
                 </Text>
               ) : pct !== null ? (
@@ -85,11 +86,11 @@ const styles = StyleSheet.create({
   grow: { flex: 1 },
   file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingLeft: spacing.md, paddingVertical: spacing.xs, minHeight: 52 },
   icon: { fontSize: fontSize.lg },
-  name: { fontSize: fontSize.sm, fontWeight: '600', textAlign: 'auto' },
+  name: { fontSize: fontSize.sm, ...font('600'), textAlign: 'auto' },
   meta: { fontSize: fontSize.xs, marginTop: 2 },
   track: { height: 6, borderRadius: radius.pill, overflow: 'hidden', marginTop: 6 },
   fill: { height: 6 },
   remove: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  removeText: { fontSize: fontSize.md, fontWeight: '700' },
+  removeText: { fontSize: fontSize.md, ...font('700') },
   hint: { fontSize: fontSize.xs },
 });

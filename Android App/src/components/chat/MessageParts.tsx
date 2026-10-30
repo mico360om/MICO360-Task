@@ -13,6 +13,7 @@ import type { ThreadMessage } from '../../lib/chat-timeline';
 import type { MentionPerson } from '../../lib/mentions';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiChatAttachment, ReactionGroup } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * A message in the thread (3b), as the website shows it: the answered message's quote (tap to show
@@ -43,7 +44,7 @@ export function UnreadLine() {
   return (
     <View style={s.unreadWrap} accessible accessibilityLabel="New messages start here">
       <View style={[s.unreadRule, { backgroundColor: c.danger }]} />
-      <Text style={[s.unreadText, { color: c.danger }]}>New</Text>
+      <Text style={[s.unreadText, { color: c.dangerText }]}>New</Text>
       <View style={[s.unreadRule, { backgroundColor: c.danger }]} />
     </View>
   );
@@ -323,19 +324,19 @@ export const MessageBubble = memo(function MessageBubble({
       ) : null}
 
       {state ? (
-        <Text style={[s.state, failed ? { color: c.danger, fontWeight: '700' } : null, mine ? s.textEnd : null]} accessibilityLiveRegion="polite">
+        <Text style={[s.state, failed ? { color: c.dangerText, ...font('700') } : null, mine ? s.textEnd : null]} accessibilityLiveRegion="polite">
           {state}
         </Text>
       ) : null}
       {m.changeFailed ? (
         // An edit or deletion of this message the server didn't save says so here (3b review), as the outbox does.
         <View style={mine ? s.alignEnd : null}>
-          <Text style={[s.state, { color: c.danger, fontWeight: '700' }, mine ? s.textEnd : null]} accessibilityLiveRegion="polite">
+          <Text style={[s.state, { color: c.dangerText, ...font('700') }, mine ? s.textEnd : null]} accessibilityLiveRegion="polite">
             {m.changeFailed.text}
           </Text>
           <View style={[s.outboxActions, mine ? s.alignEnd : null]}>
             <Pressable style={s.smallBtn} onPress={() => handlers.onRetry(m.changeFailed!.queueId)} accessibilityRole="button" accessibilityLabel={`Retry: ${m.changeFailed.text}`}>
-              <Text style={[s.smallBtnText, { color: c.brand }]}>Retry</Text>
+              <Text style={[s.smallBtnText, { color: c.brandText }]}>Retry</Text>
             </Pressable>
             <Pressable style={s.smallBtn} onPress={() => handlers.onDiscard(m.changeFailed!.queueId)} accessibilityRole="button" accessibilityLabel={`Discard the change: ${m.changeFailed.text}`}>
               <Text style={s.smallBtnText}>Discard</Text>
@@ -347,7 +348,7 @@ export const MessageBubble = memo(function MessageBubble({
         <View style={[s.outboxActions, s.alignEnd]}>
           {outbox.state === 'failed' ? (
             <Pressable style={s.smallBtn} onPress={() => handlers.onRetry(outbox.queueId)} accessibilityRole="button" accessibilityLabel={`Retry sending “${outbox.body.slice(0, 40)}”`}>
-              <Text style={[s.smallBtnText, { color: c.brand }]}>Retry</Text>
+              <Text style={[s.smallBtnText, { color: c.brandText }]}>Retry</Text>
             </Pressable>
           ) : null}
           {/* One the server may have is retried as it is (its client id keeps it single), never re-written (3b review). */}
@@ -364,7 +365,7 @@ export const MessageBubble = memo(function MessageBubble({
       {upload?.state === 'failed' ? (
         <View style={[s.outboxActions, s.alignEnd]}>
           <Pressable style={s.smallBtn} onPress={() => handlers.onRetryUpload(upload.key)} accessibilityRole="button" accessibilityLabel={`Retry sending ${upload.name}`}>
-            <Text style={[s.smallBtnText, { color: c.brand }]}>Retry</Text>
+            <Text style={[s.smallBtnText, { color: c.brandText }]}>Retry</Text>
           </Pressable>
           <Pressable style={s.smallBtn} onPress={() => handlers.onDiscardUpload(upload.key)} accessibilityRole="button" accessibilityLabel={`Discard ${upload.name}`}>
             <Text style={s.smallBtnText}>Discard</Text>
@@ -509,7 +510,7 @@ export function EditMessageSheet({
         maxLength={4100}
       />
       {length > 3500 ? (
-        <Text style={[s.hint, length > 4000 && { color: c.danger, fontWeight: '700' }]} accessibilityLiveRegion="polite">
+        <Text style={[s.hint, length > 4000 && { color: c.dangerText, ...font('700') }]} accessibilityLiveRegion="polite">
           {length.toLocaleString()} / 4,000
         </Text>
       ) : null}
@@ -554,21 +555,21 @@ export function ImageViewer({ attachment, baseUrl, onClose }: { attachment: ApiC
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     dayWrap: { alignItems: 'center', marginVertical: spacing.sm },
-    day: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 2, overflow: 'hidden' },
+    day: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 2, overflow: 'hidden' },
     unreadWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginVertical: spacing.xs },
     unreadRule: { flex: 1, height: 1 },
-    unreadText: { fontSize: fontSize.xs, fontWeight: '700' },
+    unreadText: { fontSize: fontSize.xs, ...font('700') },
     msg: { gap: 2, borderRadius: radius.md, paddingHorizontal: 2 },
     groupStart: { marginTop: spacing.sm },
     mine: { alignItems: 'flex-end' },
     theirs: { alignItems: 'flex-start' },
-    author: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink, paddingHorizontal: spacing.xs },
+    author: { fontSize: fontSize.xs, ...font('700'), color: c.ink, paddingHorizontal: spacing.xs },
     bubble: { maxWidth: '85%', borderWidth: 1, borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, gap: 4 },
     pending: { opacity: 0.75 },
     tombstone: { borderStyle: 'dashed', backgroundColor: 'transparent' },
     tombstoneText: { fontSize: fontSize.sm, fontStyle: 'italic', color: c.ink2 },
     quote: { borderLeftWidth: 3, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, minHeight: 44, justifyContent: 'center' },
-    quoteWho: { fontSize: fontSize.xs, fontWeight: '700' },
+    quoteWho: { fontSize: fontSize.xs, ...font('700') },
     quoteText: { fontSize: fontSize.xs },
     italic: { fontStyle: 'italic' },
     body: { fontSize: fontSize.md, lineHeight: 21 },
@@ -582,33 +583,33 @@ const makeStyles = (c: Palette) =>
     file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 48, maxWidth: 280 },
     fileIcon: { fontSize: fontSize.lg },
     grow: { flex: 1 },
-    fileName: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
+    fileName: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
     fileSize: { fontSize: 11, color: c.ink2 },
     progress: { height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
     reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
     chip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm, minHeight: 32 },
     chipEmoji: { fontSize: fontSize.md },
-    chipCount: { fontSize: fontSize.xs, fontWeight: '700' },
+    chipCount: { fontSize: fontSize.xs, ...font('700') },
     state: { fontSize: fontSize.xs, color: c.ink2 },
     outboxActions: { flexDirection: 'row', gap: spacing.sm },
     smallBtn: { minHeight: 44, minWidth: 64, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
-    smallBtnText: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink2 },
+    smallBtnText: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
     quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' },
     emojiBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
     emojiText: { fontSize: 24 },
     moreBtn: { borderWidth: 1, borderColor: c.line },
-    moreText: { fontSize: fontSize.lg, color: c.ink2, fontWeight: '700' },
+    moreText: { fontSize: fontSize.lg, color: c.ink2, ...font('700') },
     grid: { gap: spacing.xs },
     gridRow: { flexDirection: 'row', flexWrap: 'wrap' },
-    groupTitle: { fontSize: 11, fontWeight: '700', color: c.ink2, marginTop: spacing.xs },
+    groupTitle: { fontSize: 11, ...font('700'), color: c.ink2, marginTop: spacing.xs },
     emojiSearch: { borderWidth: 1, borderRadius: radius.md, minHeight: 44, paddingHorizontal: spacing.md, fontSize: fontSize.md },
     hint: { fontSize: fontSize.xs, color: c.ink2 },
     editBox: { borderWidth: 1, borderRadius: radius.md, minHeight: 96, maxHeight: 220, padding: spacing.md, fontSize: fontSize.md, textAlignVertical: 'top' },
     viewer: { flex: 1, backgroundColor: '#000' },
     viewerBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
-    viewerName: { flex: 1, color: '#fff', fontSize: fontSize.sm, fontWeight: '600' },
+    viewerName: { flex: 1, color: '#fff', fontSize: fontSize.sm, ...font('600') },
     viewerBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: spacing.md },
-    viewerBtnText: { color: '#fff', fontWeight: '700', fontSize: fontSize.sm },
+    viewerBtnText: { color: '#fff', ...font('700'), fontSize: fontSize.sm },
     viewerBody: { flex: 1, justifyContent: 'center' },
     viewerSpinner: { position: 'absolute', alignSelf: 'center' },
     viewerImage: { width: '100%', height: '100%' },

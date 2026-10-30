@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { monthOf, monthWeeks, weekdayLabels, type WeekStart } from '../../lib/calendar';
 import { dayCellLabel, type CalStatus } from '../../lib/calendar-model';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 export interface DayMarks {
   /** The statuses of the day's tasks, most urgent first (up to three show as dots). */
@@ -124,15 +125,15 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     grid: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: 2, gap: 2 },
     row: { flexDirection: 'row' },
-    weekday: { flex: 1, textAlign: 'center', fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, paddingVertical: spacing.xs },
+    weekday: { flex: 1, textAlign: 'center', fontSize: fontSize.xs, ...font('700'), color: c.ink2, paddingVertical: spacing.xs },
     cell: { flex: 1, minHeight: 48, margin: 1, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 2 },
     todayCell: { backgroundColor: c.brandWash },
     ringed: { borderWidth: 1.5, borderColor: c.ink2, borderStyle: 'dashed' },
     chosen: { backgroundColor: c.brand },
     pressed: { opacity: 0.7 },
-    day: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    day: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     outside: { color: c.ink3 },
-    todayText: { color: c.brand, fontWeight: '800' },
+    todayText: { color: c.brandText, ...font('800') },
     chosenText: { color: c.onBrand },
     dots: { flexDirection: 'row', gap: 3, height: 6, alignItems: 'center' },
     dot: { width: 6, height: 6, borderRadius: 3 },

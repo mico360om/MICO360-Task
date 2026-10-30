@@ -5,6 +5,7 @@ import { useColors } from '../core/theme';
 import { taskRowA11yLabel } from '../lib/task-a11y';
 import { formatDueDay, isOverdue, isTaskDone } from '../lib/due-date';
 import type { ApiTask, Priority } from '../lib/types';
+import { font } from '../lib/typography';
 
 export function priorityColor(c: Palette, p: Priority): string {
   switch (p) {
@@ -82,13 +83,13 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.7 },
     priority: { width: 6, alignSelf: 'stretch', borderRadius: radius.pill },
     body: { flex: 1 },
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     doneTitle: { textDecorationLine: 'line-through', color: c.ink2 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
-    key: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
+    key: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     due: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4 },
-    overdue: { color: c.danger, fontWeight: '700' },
-    progress: { fontSize: fontSize.xs, color: c.category.IN_PROGRESS, marginLeft: 4, fontWeight: '600' },
-    doneTag: { fontSize: fontSize.xs, color: c.category.DONE, marginLeft: 4, fontWeight: '600' },
-    milestone: { fontSize: fontSize.xs, color: c.brand, marginLeft: 4, fontWeight: '700' },
+    overdue: { color: c.dangerText, ...font('700') },
+    progress: { fontSize: fontSize.xs, color: c.category.IN_PROGRESS, marginLeft: 4, ...font('600') },
+    doneTag: { fontSize: fontSize.xs, color: c.category.DONE, marginLeft: 4, ...font('600') },
+    milestone: { fontSize: fontSize.xs, color: c.brandText, marginLeft: 4, ...font('700') },
   });

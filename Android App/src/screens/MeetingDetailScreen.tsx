@@ -54,6 +54,7 @@ import { failureText } from '../lib/task-detail';
 import { displayName, type ApiActionItem, type ApiAgendaItem, type ApiMeetingNote, type InvitationResponse, type MeetingStatus, type SeriesScope } from '../lib/types';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 const WHAT: Record<Section, string> = { agenda: 'the agenda', people: 'the people', notes: 'the notes', actions: 'the action items', minutes: 'the final minutes' };
 
@@ -582,9 +583,9 @@ const makeStyles = (c: Palette) =>
     notice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, minHeight: 44 },
     noticeOk: { backgroundColor: c.successSoft },
     noticeError: { backgroundColor: c.dangerSoft },
-    noticeText: { flex: 1, fontSize: fontSize.sm, fontWeight: '600' },
-    noticeTextOk: { color: c.success },
-    noticeTextError: { color: c.danger },
+    noticeText: { flex: 1, fontSize: fontSize.sm, ...font('600') },
+    noticeTextOk: { color: c.successText },
+    noticeTextError: { color: c.dangerText },
     dismiss: { fontSize: fontSize.sm, color: c.ink3 },
     undo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, borderRadius: radius.md, paddingLeft: spacing.md, marginBottom: spacing.sm },
     undoText: { fontSize: fontSize.sm, color: c.ink2 },

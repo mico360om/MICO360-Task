@@ -13,6 +13,7 @@ import { appTimeZone } from '../lib/due-date';
 import { serverLabel } from '../lib/server-address';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * About MICO360 Tasks (6b), as the website's About page: this app's version and build, the
@@ -169,26 +170,26 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, gap: spacing.md },
     head: { gap: spacing.lg },
     section: { gap: spacing.sm },
-    big: { fontSize: fontSize.lg, fontWeight: '800', color: c.ink },
+    big: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     connected: { marginTop: spacing.sm },
     update: { marginTop: spacing.md, gap: spacing.sm, backgroundColor: c.brandWash, borderRadius: radius.md, padding: spacing.md },
-    updateText: { fontSize: fontSize.sm, fontWeight: '600', color: c.brand },
+    updateText: { fontSize: fontSize.sm, ...font('600'), color: c.brandText },
     download: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.lg, borderRadius: radius.md, backgroundColor: c.brand },
-    downloadText: { color: c.onBrand, fontWeight: '800', fontSize: fontSize.sm },
+    downloadText: { color: c.onBrand, ...font('800'), fontSize: fontSize.sm },
     pressed: { opacity: 0.7 },
     tech: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: c.line, gap: spacing.xs },
-    techTitle: { fontSize: fontSize.xs, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: c.ink3 },
+    techTitle: { fontSize: fontSize.xs, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink3 },
     techRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     techLabel: { fontSize: fontSize.sm, color: c.ink2, minWidth: 110 },
     techValue: { flex: 1, minWidth: 140, fontSize: fontSize.sm, color: c.ink },
     mono: { fontFamily: 'monospace' },
-    history: { fontSize: fontSize.lg, fontWeight: '800', color: c.ink },
+    history: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     release: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.sm },
     releaseHead: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-    releaseVersion: { fontSize: fontSize.lg, fontWeight: '800', color: c.ink },
+    releaseVersion: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
     releaseDay: { fontSize: fontSize.sm, color: c.ink2 },
     releaseSection: { gap: 2, marginTop: spacing.xs },
-    releaseSectionTitle: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
+    releaseSectionTitle: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     bulletRow: { flexDirection: 'row', gap: spacing.sm, paddingStart: spacing.xs },
     bullet: { fontSize: fontSize.sm, color: c.ink2 },
     bulletText: { flex: 1, fontSize: fontSize.sm, color: c.ink2, textAlign: 'auto' },

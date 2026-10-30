@@ -16,6 +16,7 @@ import { displayName, type ApiAssignee, type ApiColumn, type ApiTag, type ApiTas
 import { Chip, IconButton, SaveNote, SectionCard, useSave } from './kit';
 import { aiFailureText, dueFieldValue } from '../../lib/task-detail';
 import { repeatDraftDone, type RepeatDraft } from '../../lib/recurrence-edit';
+import { font } from '../../lib/typography';
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
@@ -27,7 +28,7 @@ function Prop({ label, children }: { label: string; children: React.ReactNode })
   const c = useColors();
   return (
     <View style={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
-      <Text style={{ fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 }}>{label}</Text>
+      <Text style={{ fontSize: fontSize.xs, ...font('700'), color: c.ink2 }}>{label}</Text>
       {children}
     </View>
   );
@@ -191,7 +192,7 @@ export function DetailsCard({
         {suggestion ? (
           <View style={s.suggest}>
             <Text style={s.suggestText}>
-              ✨ AI suggests <Text style={{ fontWeight: '800' }}>{PRIORITY_LABEL[suggestion.priority]}</Text>. {suggestion.reason}
+              ✨ AI suggests <Text style={{ ...font('800') }}>{PRIORITY_LABEL[suggestion.priority]}</Text>. {suggestion.reason}
             </Text>
             <View style={s.row}>
               <Button
@@ -378,10 +379,10 @@ export function DetailsCard({
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     scope: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, backgroundColor: c.ground, borderRadius: radius.md, padding: spacing.sm },
-    scopeLabel: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, marginRight: spacing.xs },
+    scopeLabel: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, marginRight: spacing.xs },
     chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
     aiBtn: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand, justifyContent: 'center' },
-    aiText: { fontSize: fontSize.sm, fontWeight: '800', color: c.brand },
+    aiText: { fontSize: fontSize.sm, ...font('800'), color: c.brandText },
     suggest: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: c.brandWash },
     suggestText: { fontSize: fontSize.sm, color: c.ink },
     row: { flexDirection: 'row', gap: spacing.sm },
@@ -389,15 +390,15 @@ const makeStyles = (c: Palette) =>
     switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48 },
     switchText: { flex: 1, fontSize: fontSize.sm, color: c.ink2 },
     flex: { flex: 1 },
-    overdue: { alignSelf: 'flex-start', fontSize: fontSize.xs, fontWeight: '800', color: c.danger, backgroundColor: c.dangerSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
+    overdue: { alignSelf: 'flex-start', fontSize: fontSize.xs, ...font('800'), color: c.dangerText, backgroundColor: c.dangerSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
     muted: { fontSize: fontSize.sm, color: c.ink3 },
     person: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: c.brandWash, paddingLeft: spacing.md },
-    personText: { fontSize: fontSize.sm, color: c.brand, fontWeight: '700' },
+    personText: { fontSize: fontSize.sm, color: c.brandText, ...font('700') },
     addPerson: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, justifyContent: 'center' },
-    addPersonText: { fontSize: fontSize.sm, color: c.ink2, fontWeight: '700' },
+    addPersonText: { fontSize: fontSize.sm, color: c.ink2, ...font('700') },
     picker: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
     option: { minHeight: 48, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.sm },
-    optionText: { fontSize: fontSize.md, color: c.ink, fontWeight: '600' },
+    optionText: { fontSize: fontSize.md, color: c.ink, ...font('600') },
     optionSub: { fontSize: fontSize.xs, color: c.ink3 },
     bar: { height: 8, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },
     barFill: { height: 8, backgroundColor: c.category.DONE },

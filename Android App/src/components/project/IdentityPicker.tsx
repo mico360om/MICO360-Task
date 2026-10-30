@@ -80,7 +80,7 @@ export function IdentityPicker({
                   accessibilityState={{ selected: on, checked: on, disabled: !!disabled }}
                   style={({ pressed }) => [s.swatchHit, pressed && s.pressed]}
                 >
-                  <View style={[s.swatch, { backgroundColor: hex }, on && { borderColor: c.ink, borderWidth: 3 }]}>{on ? <Text style={{ color: readableOn(hex), fontWeight: '800' }}>✓</Text> : null}</View>
+                  <View style={[s.swatch, { backgroundColor: hex }, on && { borderColor: c.ink, borderWidth: 3 }]}>{on ? <Text style={{ color: readableOn(hex), ...font('800') }}>✓</Text> : null}</View>
                 </Pressable>
               );
             })}
@@ -149,11 +149,11 @@ const makeStyles = (c: Palette) =>
     segs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignSelf: 'flex-start', backgroundColor: c.line, borderRadius: radius.md, padding: 4 },
     seg: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.sm },
     segOn: { backgroundColor: c.surface },
-    segText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink2 },
-    segTextOn: { color: c.ink, fontWeight: '800' },
+    segText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
+    segTextOn: { color: c.ink, ...font('800') },
     gap: { gap: spacing.sm },
     note: { fontSize: fontSize.sm, color: c.ink2 },
-    legend: { fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
+    legend: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
     swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
     swatchHit: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
     swatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)' },

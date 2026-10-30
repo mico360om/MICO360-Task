@@ -4,6 +4,7 @@ import { useColors } from '../../core/theme';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
 import { isRtlText, listMarkers, parseRichNote, safeNoteHref, type RichRun } from '../../lib/rich-note';
 import type { ApiMeetingNote } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * A note's words: a plain note as written, a formatted one with its bold, italic, underline,
@@ -60,12 +61,12 @@ const makeStyles = (c: Palette) =>
     blocks: { gap: spacing.xs },
     // Arabic notes read right to left (Android picks the direction from the text).
     text: { fontSize: fontSize.sm, color: c.ink, lineHeight: 20, textAlign: 'auto' },
-    heading: { fontSize: fontSize.md, fontWeight: '800' },
-    bold: { fontWeight: '700' },
+    heading: { fontSize: fontSize.md, ...font('800') },
+    bold: { ...font('700') },
     italic: { fontStyle: 'italic' },
     underline: { textDecorationLine: 'underline' },
     highlight: { backgroundColor: c.warningSoft },
-    link: { color: c.brand, textDecorationLine: 'underline' },
+    link: { color: c.brandText, textDecorationLine: 'underline' },
     item: { flexDirection: 'row', gap: spacing.xs },
     marker: { minWidth: 18, color: c.ink2 },
     itemText: { flex: 1 },

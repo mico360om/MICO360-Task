@@ -9,6 +9,7 @@ import { KeyboardGroup } from '../KeyboardAware';
 import { PASSWORD_RULE_HINT, checkPasswordChange, createPasswordWipe, lateOutcomeFor, passwordChangeProblem, type PasswordField } from '../../lib/password-change';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * Profile → Change password (6a), as on the website: the current password, the new one twice. The
@@ -194,5 +195,5 @@ const makeStyles = (c: Palette) =>
     intro: { marginBottom: spacing.md },
     hint: { marginTop: -spacing.sm, marginBottom: spacing.md, fontSize: fontSize.xs, color: c.ink2 },
     done: { backgroundColor: c.successSoft, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
-    doneText: { color: c.success, fontSize: fontSize.sm, fontWeight: '600' },
+    doneText: { color: c.successText, fontSize: fontSize.sm, ...font('600') },
   });

@@ -11,6 +11,7 @@ import { meetingFailure, type ConfirmDialog, type MenuItem } from '../../lib/mee
 import { meetingWhen } from '../../lib/meeting-detail';
 import { spacing, fontSize, radius } from '../../lib/theme';
 import type { ApiMeeting, Recipient, SendReport, SeriesScope } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /** "More": the meeting's other actions, the destructive pair last. */
 export function ActionsSheet({ visible, items, onPick, onClose }: { visible: boolean; items: MenuItem[]; onPick: (item: MenuItem) => void; onClose: () => void }) {
@@ -79,11 +80,11 @@ function SendResults({ report, what }: { report: SendReport; what: string }) {
       <SheetMessage text={summary.text} tone={summary.failed ? 'error' : 'success'} />
       {(report.recipients ?? []).map((r) => (
         <View key={r.email} style={styles.person} accessible accessibilityLabel={`${r.name}, ${r.email}, ${r.ok ? 'delivered' : r.error ?? 'not delivered'}`}>
-          <Text style={{ color: r.ok ? c.success : c.danger, fontWeight: '800' }}>{r.ok ? '✓' : '✕'}</Text>
+          <Text style={{ color: r.ok ? c.success : c.danger, ...font('800') }}>{r.ok ? '✓' : '✕'}</Text>
           <View style={styles.flex}>
             <Text style={[styles.name, { color: c.ink }]}>{r.name}</Text>
             <Text style={[styles.small, { color: c.ink3 }]}>{r.email}</Text>
-            {!r.ok ? <Text style={[styles.small, { color: c.danger }]}>{r.error ?? 'Not delivered.'}</Text> : null}
+            {!r.ok ? <Text style={[styles.small, { color: c.dangerText }]}>{r.error ?? 'Not delivered.'}</Text> : null}
           </View>
         </View>
       ))}
@@ -321,9 +322,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.md },
   person: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs, minHeight: 44 },
   dim: { opacity: 0.5 },
-  name: { fontSize: fontSize.md, fontWeight: '600', textAlign: 'auto' },
+  name: { fontSize: fontSize.md, ...font('600'), textAlign: 'auto' },
   small: { fontSize: fontSize.xs },
   tag: { fontSize: fontSize.xs, borderRadius: radius.sm, paddingHorizontal: spacing.xs, overflow: 'hidden' },
-  section: { fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 0.8, marginTop: spacing.sm, opacity: 0.7 },
+  section: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8, marginTop: spacing.sm, opacity: 0.7 },
   preview: { borderWidth: 1, borderRadius: radius.md, padding: spacing.sm },
 });

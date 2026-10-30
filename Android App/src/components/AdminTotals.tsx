@@ -7,6 +7,7 @@ import { adminTotals, completionBars } from '../lib/project-list';
 import { statusBars } from '../lib/reports';
 import { toneStyle } from '../lib/tone';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
+import { font } from '../lib/typography';
 
 /**
  * Home for administrators (5b), as the website's dashboard: all tasks and the overdue ones across
@@ -93,15 +94,15 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.7 },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexGrow: 1, flexBasis: '47%', backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
-    tileValue: { fontSize: fontSize.xxl, fontWeight: '800' },
+    tileValue: { fontSize: fontSize.xxl, ...font('800') },
     tileLabel: { fontSize: fontSize.sm, color: c.ink2, marginTop: 2 },
     tileHint: { fontSize: fontSize.xs, color: c.ink3 },
     card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.sm },
-    cardTitle: { fontSize: fontSize.sm, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
+    cardTitle: { fontSize: fontSize.sm, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
     muted: { fontSize: fontSize.sm, color: c.ink2 },
     barRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
     barLabel: { width: '34%', fontSize: fontSize.sm, color: c.ink },
     track: { flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: 8, borderRadius: radius.pill },
-    barNum: { minWidth: 36, textAlign: 'right', fontSize: fontSize.sm, fontWeight: '700', color: c.ink2 },
+    barNum: { minWidth: 36, textAlign: 'right', fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
   });

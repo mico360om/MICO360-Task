@@ -17,6 +17,7 @@ import {
 } from '../lib/reports';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 type Option = { value: string; label: string };
 type Range = { from: string; to: string };
@@ -376,7 +377,7 @@ function Tables({ data, projectId, userId, memberLabel, c, s }: { data: SummaryD
             </View>
             <Text style={s.listMeta}>
               {r.total} total · {r.completed} completed · {r.total - r.completed} pending
-              {r.overdue ? <Text style={{ color: c.danger }}> · {r.overdue} overdue</Text> : null}
+              {r.overdue ? <Text style={{ color: c.dangerText }}> · {r.overdue} overdue</Text> : null}
             </Text>
           </View>
         ))}
@@ -404,7 +405,7 @@ function Tables({ data, projectId, userId, memberLabel, c, s }: { data: SummaryD
               <Text style={s.listName}>{w.name || w.username}</Text>
               <Text style={s.wlNums}>
                 {w.assigned} assigned · {w.completed} completed · {pct}% complete
-                {w.overdue ? <Text style={{ color: c.danger }}> · {w.overdue} overdue</Text> : null}
+                {w.overdue ? <Text style={{ color: c.dangerText }}> · {w.overdue} overdue</Text> : null}
               </Text>
             </View>
           );
@@ -510,58 +511,58 @@ function makeStyles(c: Palette) {
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: { borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 40, justifyContent: 'center', backgroundColor: c.surface },
     chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink2 },
-    chipTextOn: { color: c.brand },
+    chipText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
+    chipTextOn: { color: c.brandText },
     formats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
     fmt: { flexGrow: 1, flexBasis: 90, minHeight: 48, borderRadius: radius.md, borderWidth: 1, borderColor: c.brand, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, paddingHorizontal: spacing.sm },
     fmtOff: { borderColor: c.line },
-    fmtText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    fmtText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     fmtTextOff: { color: c.ink3 },
     hint: { fontSize: fontSize.xs },
     fieldWrap: { gap: spacing.xs },
-    fieldLabel: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: spacing.xs },
+    fieldLabel: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: spacing.xs },
     field: { minHeight: 48, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface },
     fieldValue: { flex: 1, fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     fieldCaret: { color: c.ink3, fontSize: fontSize.md },
     clear: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
-    clearText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    clearText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     dates: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     dateBox: { flexGrow: 1, flexBasis: 140 },
-    problem: { fontSize: fontSize.sm, fontWeight: '600', color: c.danger },
+    problem: { fontSize: fontSize.sm, ...font('600'), color: c.dangerText },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexBasis: '47%', flexGrow: 1, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md },
-    tileValue: { fontSize: fontSize.xxl, fontWeight: '800' },
-    tileLabel: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
+    tileValue: { fontSize: fontSize.xxl, ...font('800') },
+    tileLabel: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
     tileHint: { fontSize: fontSize.xs, color: c.ink2, marginTop: 4 },
     onTime: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
     big: { minWidth: 72 },
-    bigValue: { fontSize: fontSize.xxl, fontWeight: '800' },
+    bigValue: { fontSize: fontSize.xxl, ...font('800') },
     onTimeTrack: { height: 12, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     onTimeFill: { height: '100%', backgroundColor: c.success },
     onTimeText: { fontSize: fontSize.sm, color: c.ink2 },
     minis: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     mini: { flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, backgroundColor: c.ground },
-    miniValue: { fontSize: fontSize.lg, fontWeight: '800' },
-    miniLabel: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
+    miniValue: { fontSize: fontSize.lg, ...font('800') },
+    miniLabel: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     chart: { gap: 2, marginTop: spacing.md },
-    chartTitle: { fontSize: fontSize.md, fontWeight: '700', color: c.ink },
+    chartTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink },
     chartAbout: { fontSize: fontSize.xs, color: c.ink2, marginBottom: spacing.xs },
     track: { height: 8, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: '100%', borderRadius: radius.pill },
     listRow: { paddingVertical: spacing.sm, gap: 6 },
     listRowLine: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
     listHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    listName: { flex: 1, fontSize: fontSize.md, fontWeight: '600', color: c.ink, textAlign: 'auto' },
-    listPct: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
+    listName: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
+    listPct: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     listMeta: { fontSize: fontSize.xs, color: c.ink2 },
     wlRow: { paddingVertical: spacing.sm, gap: 2 },
     wlFirst: { marginTop: spacing.sm },
     wlNums: { fontSize: fontSize.xs, color: c.ink2 },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
     sheet: { maxHeight: '70%', backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: spacing.md },
-    sheetTitle: { fontSize: fontSize.lg, fontWeight: '700', color: c.ink, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+    sheetTitle: { fontSize: fontSize.lg, ...font('700'), color: c.ink, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
     option: { minHeight: 48, paddingHorizontal: spacing.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line },
     optionText: { flex: 1, fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
-    optionOn: { color: c.brand, fontWeight: '700' },
+    optionOn: { color: c.brandText, ...font('700') },
   });
 }

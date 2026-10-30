@@ -10,6 +10,7 @@ import { meetingDayKey } from '../../lib/meetings';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import type { ApiProjectMeetingsOverview } from '../../lib/types';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /** "Tue 20 Oct" for a 'YYYY-MM-DD' day (the website's day words), never shifted by the phone's time zone. */
 export function meetingDayLabel(date: string): string {
@@ -177,18 +178,18 @@ function Stat({ label, value, s, danger }: { label: string; value: number; s: St
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     list: { gap: spacing.sm },
-    subhead: { fontSize: fontSize.sm, fontWeight: '800', color: c.ink2, marginTop: spacing.sm },
+    subhead: { fontSize: fontSize.sm, ...font('800'), color: c.ink2, marginTop: spacing.sm },
     line: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: c.line, minHeight: 48 },
     pressed: { opacity: 0.7 },
     flag: { fontSize: fontSize.md, width: 22, textAlign: 'center', color: c.ink2 },
     lineText: { flex: 1 },
-    lineTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    lineTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     lineSub: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
-    overdue: { color: c.danger, fontWeight: '700' },
+    overdue: { color: c.dangerText, ...font('700') },
     meta: { fontSize: fontSize.sm, color: c.ink2 },
     stats: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: spacing.sm },
     stat: { alignItems: 'center', flexGrow: 1, flexBasis: '22%', minWidth: 72 },
-    statValue: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink },
-    statDanger: { color: c.danger },
+    statValue: { fontSize: fontSize.xl, ...font('800'), color: c.ink },
+    statDanger: { color: c.dangerText },
     statLabel: { fontSize: fontSize.xs, color: c.ink3, marginTop: 2, textAlign: 'center' },
   });

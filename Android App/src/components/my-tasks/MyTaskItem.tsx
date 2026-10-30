@@ -8,6 +8,7 @@ import { STATUS_NAME } from '../../lib/all-board';
 import { dueLabel, myTaskLabel, selectTaskLabel, type MyTaskRow } from '../../lib/my-tasks';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ColumnCategory } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' } as const;
 
@@ -97,24 +98,24 @@ const makeStyles = (c: Palette) =>
     boxHit: { width: 48, alignItems: 'center', paddingTop: spacing.md },
     box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     boxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, fontWeight: '900', lineHeight: 16 },
+    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
     main: { flex: 1, paddingVertical: spacing.md, paddingRight: spacing.md, gap: 6 },
     pressed: { opacity: 0.7 },
     top: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     project: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-    projectName: { flexShrink: 1, fontSize: fontSize.xs, fontWeight: '700', color: c.ink3, textTransform: 'uppercase', letterSpacing: 0.5 },
+    projectName: { flexShrink: 1, fontSize: fontSize.xs, ...font('700'), color: c.ink3, textTransform: 'uppercase', letterSpacing: 0.5 },
     priority: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
-    priorityText: { fontSize: fontSize.xs, fontWeight: '700' },
+    priorityText: { fontSize: fontSize.xs, ...font('700') },
     meta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-    key: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
+    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
     status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
     dot: { width: 7, height: 7, borderRadius: 4 },
-    statusText: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    statusText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
+    title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     titleDone: { textDecorationLine: 'line-through', color: c.ink3 },
     due: { fontSize: fontSize.xs, color: c.ink2 },
-    dueLate: { color: c.danger, fontWeight: '700' },
-    dueToday: { color: c.warning, fontWeight: '700' },
+    dueLate: { color: c.dangerText, ...font('700') },
+    dueToday: { color: c.warningText, ...font('700') },
     noDue: { color: c.ink3 },
     bottom: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     track: { flex: 1, height: 6, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
@@ -124,5 +125,5 @@ const makeStyles = (c: Palette) =>
     face: { width: 24, height: 24, borderRadius: 12, backgroundColor: c.brandWash, borderWidth: 1.5, borderColor: c.surface, alignItems: 'center', justifyContent: 'center' },
     overlap: { marginLeft: -6 },
     more: { backgroundColor: c.ground, borderColor: c.line },
-    initials: { fontSize: 9, fontWeight: '700', color: c.brand },
+    initials: { fontSize: 9, ...font('700'), color: c.brandText },
   });

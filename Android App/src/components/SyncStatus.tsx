@@ -6,6 +6,7 @@ import { Button } from './ui';
 import { describeMutation, waitingReason } from '../lib/perform-mutation';
 import { waitingTooLong, type QueuedMutation } from '../lib/sync-queue';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
+import { font } from '../lib/typography';
 
 /**
  * Offline-queue status for the signed-in user (XP-06): how many changes are waiting to sync, and
@@ -110,12 +111,12 @@ const makeStyles = (c: Palette) =>
       gap: spacing.xs,
     },
     failedBox: { backgroundColor: c.dangerSoft, borderColor: c.danger },
-    title: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
-    failedTitle: { color: c.danger },
+    title: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
+    failedTitle: { color: c.dangerText },
     sub: { fontSize: fontSize.xs, color: c.ink2, marginBottom: spacing.xs },
     item: { gap: 2, paddingTop: spacing.xs },
     itemText: { fontSize: fontSize.sm, color: c.ink },
-    itemError: { fontSize: fontSize.xs, color: c.danger },
+    itemError: { fontSize: fontSize.xs, color: c.dangerText },
     itemNote: { fontSize: fontSize.xs, color: c.ink2 },
     actions: { flexDirection: 'row', gap: spacing.sm },
     action: { flex: 1, minHeight: 40 },

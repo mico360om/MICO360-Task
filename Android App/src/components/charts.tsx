@@ -19,6 +19,7 @@ import {
   type Segment,
 } from '../lib/chart';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
+import { font } from '../lib/typography';
 
 /**
  * The Reports charts (5c), drawn with plain views (no chart or SVG package in the app; the rules
@@ -225,8 +226,8 @@ const makeStyles = (c: Palette) =>
     barRow: { gap: 4 },
     barHead: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
     // Names in Arabic read right to left (Android picks the direction from the text).
-    barLabel: { flex: 1, fontSize: fontSize.sm, fontWeight: '600', color: c.ink2, textAlign: 'auto' },
-    barValue: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
+    barLabel: { flex: 1, fontSize: fontSize.sm, ...font('600'), color: c.ink2, textAlign: 'auto' },
+    barValue: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     track: { height: 10, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     fill: { height: '100%', borderRadius: radius.pill },
     lineWrap: { gap: spacing.sm },
@@ -248,8 +249,8 @@ const makeStyles = (c: Palette) =>
     swatchDashed: { width: 6 },
     legendText: { fontSize: fontSize.xs, color: c.ink2 },
     numbersButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
-    numbersButtonText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    numbersButtonText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     table: { gap: 2, backgroundColor: c.ground, borderRadius: radius.md, padding: spacing.sm },
     tableRow: { fontSize: fontSize.xs, color: c.ink },
-    tableDay: { fontWeight: '700' },
+    tableDay: { ...font('700') },
   });

@@ -18,6 +18,7 @@ import { sitePageUrl } from '../lib/server-address';
 import { fingerprintSetting } from '../lib/biometric-login';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: 'light', label: 'Light' },
@@ -358,22 +359,22 @@ const makeStyles = (c: Palette) =>
     section: { gap: spacing.sm },
     row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
     rowText: { flex: 1 },
-    rowTitle: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
+    rowTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     rowBtn: { marginTop: spacing.md },
-    name: { fontSize: fontSize.lg, fontWeight: '700', color: c.ink },
+    name: { fontSize: fontSize.lg, ...font('700'), color: c.ink },
     mono: { fontSize: fontSize.sm, color: c.ink, marginTop: 2 },
     segment: { flexDirection: 'row', backgroundColor: c.ground, borderRadius: radius.md, padding: 3, gap: 3 },
     segmentItem: { flex: 1, minHeight: 44, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
     segmentItemActive: { backgroundColor: c.brand },
-    segmentText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink2 },
+    segmentText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
     segmentTextActive: { color: c.onBrand },
     divided: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.md },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
     chip: { borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, minHeight: 36, justifyContent: 'center' },
     chipActive: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, color: c.ink, fontWeight: '600' },
-    chipTextActive: { color: c.brand },
-    error: { fontSize: fontSize.sm, color: c.danger, marginTop: spacing.sm },
+    chipText: { fontSize: fontSize.sm, color: c.ink, ...font('600') },
+    chipTextActive: { color: c.brandText },
+    error: { fontSize: fontSize.sm, color: c.dangerText, marginTop: spacing.sm },
     links: { flexDirection: 'row', gap: spacing.lg },
-    linkText: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
+    linkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
   });

@@ -53,7 +53,7 @@ function Splash() {
   const colors = useColors();
   return (
     <View style={[styles.splash, { backgroundColor: colors.ground }]}>
-      <ActivityIndicator color={colors.brand} size="large" />
+      <ActivityIndicator color={colors.brandText} size="large" />
     </View>
   );
 }

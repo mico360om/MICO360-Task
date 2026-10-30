@@ -8,6 +8,7 @@ import { busyLines, clashLine, freeTimesFailure, freeTimesView, rangeText, reche
 import { meetingWhen } from '../../lib/meeting-detail';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { FreeTimesInput } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * Free times (2c), worked out by the server without AI, as on the website: three suggested times
@@ -55,7 +56,7 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
                 accessibilityLabel={`Use ${rangeText(s, null, timeZone)}`}
                 style={({ pressed }) => [styles.chip, { borderColor: c.brand, backgroundColor: c.brandWash }, pressed && styles.pressed]}
               >
-                <Text style={[styles.chipText, { color: c.brand }]}>{rangeText(s, null, timeZone)}</Text>
+                <Text style={[styles.chipText, { color: c.brandText }]}>{rangeText(s, null, timeZone)}</Text>
               </Pressable>
             ))}
           </View>
@@ -64,7 +65,7 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
       ) : null}
       {data?.clashes.length ? (
         <View style={[styles.clash, { backgroundColor: c.warningSoft }]} accessibilityRole="alert" accessibilityLabel="Clashes">
-          <Text style={[styles.clashTitle, { color: c.warning }]}>Someone invited already has a meeting then:</Text>
+          <Text style={[styles.clashTitle, { color: c.warningText }]}>Someone invited already has a meeting then:</Text>
           {data.clashes.map((cl) => (
             <Text key={`${cl.userId}-${cl.start}`} style={[styles.small, { color: c.ink }]}>
               {clashLine(cl, timeZone)}
@@ -74,7 +75,7 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
       ) : null}
       {data?.day.length && input ? (
         <View style={styles.day}>
-          <Text style={[styles.small, { color: c.ink2, fontWeight: '700' }]}>
+          <Text style={[styles.small, { color: c.ink2, ...font('700') }]}>
             Busy on {meetingWhen({ startAt: input.startAt, endAt: null }, timeZone).day} ({data.workingHours.start}–{data.workingHours.end})
           </Text>
           {busyLines(data.day, timeZone).map((p) => (
@@ -91,15 +92,15 @@ export function FreeTimes({ input, timeZone, onPick, disabled }: { input: FreeTi
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
-  title: { fontSize: fontSize.sm, fontWeight: '800' },
+  title: { fontSize: fontSize.sm, ...font('800') },
   ask: { minHeight: 40 },
   small: { fontSize: fontSize.xs, lineHeight: 17 },
-  bold: { fontWeight: '700' },
+  bold: { ...font('700') },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
-  chipText: { fontSize: fontSize.sm, fontWeight: '700' },
+  chipText: { fontSize: fontSize.sm, ...font('700') },
   pressed: { opacity: 0.7 },
   clash: { borderRadius: radius.md, padding: spacing.sm, gap: 2 },
-  clashTitle: { fontSize: fontSize.xs, fontWeight: '800' },
+  clashTitle: { fontSize: fontSize.xs, ...font('800') },
   day: { gap: 2 },
 });

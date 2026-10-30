@@ -6,6 +6,7 @@ import { InlinePicker, SheetMessage } from '../meeting/sheet-kit';
 import { addGuest, addTeamMember, invitableOptions, personKey, PEOPLE_FULL, PEOPLE_MAX, type MeetingPerson } from '../../lib/meeting-ai';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { ApiDirectoryUser } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * A new meeting's People (2c), saved with it in one go, as on the website: active team members
@@ -106,13 +107,13 @@ export function PeopleField({
 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
-  title: { fontSize: fontSize.sm, fontWeight: '800' },
+  title: { fontSize: fontSize.sm, ...font('800') },
   hint: { fontSize: fontSize.xs },
   person: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingLeft: spacing.md, minHeight: 48 },
   flex: { flex: 1, paddingVertical: spacing.xs },
-  name: { fontSize: fontSize.md, fontWeight: '600', textAlign: 'auto' },
+  name: { fontSize: fontSize.md, ...font('600'), textAlign: 'auto' },
   role: { minHeight: 36, justifyContent: 'center', borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm },
-  roleText: { fontSize: fontSize.xs, fontWeight: '700' },
+  roleText: { fontSize: fontSize.xs, ...font('700') },
   remove: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  removeText: { fontSize: fontSize.md, fontWeight: '700' },
+  removeText: { fontSize: fontSize.md, ...font('700') },
 });

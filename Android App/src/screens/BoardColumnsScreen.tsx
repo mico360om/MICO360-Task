@@ -14,6 +14,7 @@ import { colorName, customColor } from '../lib/project-identity';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiColumn, ColumnCategory } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 const STATUSES: ColumnCategory[] = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE'];
 
@@ -294,12 +295,12 @@ const makeStyles = (c: Palette) =>
     customRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, width: '100%' },
     rowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm },
     visible: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
-    visibleText: { fontSize: fontSize.sm, color: c.ink2, fontWeight: '600' },
+    visibleText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
     moves: { flexDirection: 'row', gap: spacing.xs },
     iconBtn: { width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' },
     iconDanger: { borderColor: c.dangerSoft, backgroundColor: c.dangerSoft },
-    iconText: { fontSize: fontSize.md, color: c.ink2, fontWeight: '700' },
-    iconTextDanger: { color: c.danger },
+    iconText: { fontSize: fontSize.md, color: c.ink2, ...font('700') },
+    iconTextDanger: { color: c.dangerText },
     add: { gap: spacing.sm, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.lg, padding: spacing.md, backgroundColor: c.surface },
     note: { fontSize: fontSize.sm, color: c.ink3 },
   });

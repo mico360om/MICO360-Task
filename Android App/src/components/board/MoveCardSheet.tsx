@@ -7,6 +7,7 @@ import { findPlaces, moveTargets, placeChoices, placeOrder, stepOrder, type Plac
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { BoardColumn } from '../../lib/board';
 import type { ApiTask } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * Move a card (4b), opened by long-pressing it (or TalkBack's "Move…"). The phone has no drag and
@@ -144,6 +145,6 @@ const makeStyles = (c: Palette) =>
     option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: radius.md, minHeight: 48 },
     pressed: { backgroundColor: c.ground },
     dot: { width: 12, height: 12, borderRadius: 6 },
-    optionText: { flex: 1, fontSize: fontSize.md, fontWeight: '600', color: c.ink },
-    trailing: { fontSize: fontSize.sm, color: c.ink3, fontWeight: '700' },
+    optionText: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
+    trailing: { fontSize: fontSize.sm, color: c.ink3, ...font('700') },
   });

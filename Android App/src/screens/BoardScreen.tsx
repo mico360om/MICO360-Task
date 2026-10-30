@@ -24,6 +24,7 @@ import { emptyBoardText } from '../lib/board-columns';
 import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
 import type { ApiTask } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * A project's board (4b), as the website's: one day at a time (the company's today, a day picked
@@ -242,9 +243,9 @@ const makeStyles = (c: Palette) =>
     progressHead: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.xs },
     progressBarTrack: { height: 8, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },
     progressBarFill: { height: 8, backgroundColor: c.category.DONE },
-    progressText: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
+    progressText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     boardList: { flex: 1 },
     board: { padding: spacing.md, gap: spacing.md },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-    fabPlus: { color: c.onBrand, fontSize: 28, fontWeight: '700', lineHeight: 32 },
+    fabPlus: { color: c.onBrand, fontSize: 28, ...font('700'), lineHeight: 32 },
   });

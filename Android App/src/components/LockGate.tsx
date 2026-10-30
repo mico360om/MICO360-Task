@@ -9,6 +9,7 @@ import { createAppStateCover, lockView, readLockSetting, screenPrivate } from '.
 import { setScreenPrivacy } from '../adapters/screen-capture';
 import { setAppCovered } from '../lib/chat-viewing';
 import { spacing, fontSize, type Palette } from '../lib/theme';
+import { font } from '../lib/typography';
 
 /**
  * Gates the app behind the OS biometric prompt when the user has enabled biometric unlock
@@ -163,7 +164,7 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.ground,
     },
     emoji: { fontSize: 44 },
-    title: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink, textAlign: 'center' },
+    title: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'center' },
     sub: { fontSize: fontSize.md, color: c.ink2, textAlign: 'center', marginBottom: spacing.md },
     btn: { alignSelf: 'stretch' },
   });

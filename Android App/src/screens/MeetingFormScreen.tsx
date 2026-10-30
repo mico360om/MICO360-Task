@@ -67,6 +67,7 @@ import { recurrenceSummary } from '../lib/recurrence-summary';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import { displayName, type AiMeetingDraft, type ApiMeeting, type MeetingStatus, type RecurrenceRule, type SeriesScope } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
@@ -524,9 +525,9 @@ const makeStyles = (c: Palette) =>
     time: { width: 110 },
     group: { gap: spacing.sm, marginBottom: spacing.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md },
     hint: { fontSize: fontSize.xs, color: c.ink2, marginBottom: spacing.sm },
-    summary: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
-    note: { fontSize: fontSize.xs, fontWeight: '600', color: c.ink },
-    problem: { fontSize: fontSize.xs, fontWeight: '700', color: c.danger },
+    summary: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
+    note: { fontSize: fontSize.xs, ...font('600'), color: c.ink },
+    problem: { fontSize: fontSize.xs, ...font('700'), color: c.dangerText },
     lockNote: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
     lockText: { fontSize: fontSize.sm, color: c.ink2 },
     multiline: { minHeight: 76, paddingTop: spacing.sm, textAlignVertical: 'top' },

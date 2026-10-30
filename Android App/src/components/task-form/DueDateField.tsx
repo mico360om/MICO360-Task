@@ -5,6 +5,7 @@ import { DayPicker } from '../calendar/CalendarSheets';
 import { FieldLabel } from '../meeting/sheet-kit';
 import { fullDayLabel, shiftDayKey, type WeekStart } from '../../lib/calendar';
 import { spacing, radius, fontSize } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * The due date (4a): the day shown in words, and — once tapped — a month to pick it from, with
@@ -94,7 +95,7 @@ const styles = StyleSheet.create({
   field: { flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 48, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
   value: { flex: 1, fontSize: fontSize.md },
   clear: { minHeight: 48, minWidth: 64, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
-  clearText: { fontSize: fontSize.sm, fontWeight: '700' },
+  clearText: { fontSize: fontSize.sm, ...font('700') },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.5 },
 });

@@ -15,6 +15,7 @@ export type SaveState =
 
 /** The message for a failed action: the server's reason when it gave one. */
 import { failureText } from '../../lib/task-detail';
+import { font } from '../../lib/typography';
 
 export { failureText };
 
@@ -57,7 +58,7 @@ export function SaveNote({ state }: { state: SaveState }) {
   if (state.status === 'idle') return null;
   if (state.status === 'error') {
     return (
-      <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ marginTop: spacing.xs, fontSize: fontSize.sm, color: c.danger, fontWeight: '600' }}>
+      <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ marginTop: spacing.xs, fontSize: fontSize.sm, color: c.dangerText, ...font('600') }}>
         {state.message}
       </Text>
     );
@@ -67,7 +68,7 @@ export function SaveNote({ state }: { state: SaveState }) {
   return (
     <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
       {state.status === 'saving' ? <ActivityIndicator size="small" color={c.ink3} /> : null}
-      <Text style={{ fontSize: fontSize.xs, color, fontWeight: '600' }}>{text}</Text>
+      <Text style={{ fontSize: fontSize.xs, color, ...font('600') }}>{text}</Text>
     </View>
   );
 }
@@ -102,7 +103,7 @@ export function IconButton({ glyph, label, onPress, disabled, tone = 'muted' }: 
       hitSlop={4}
       style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, opacity: disabled ? 0.35 : pressed ? 0.6 : 1 })}
     >
-      <Text style={{ fontSize: fontSize.lg, color, fontWeight: '700' }}>{glyph}</Text>
+      <Text style={{ fontSize: fontSize.lg, color, ...font('700') }}>{glyph}</Text>
     </Pressable>
   );
 }
@@ -136,9 +137,9 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
-    cardTitle: { flex: 1, fontSize: fontSize.xs, fontWeight: '800', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8 },
+    cardTitle: { flex: 1, fontSize: fontSize.xs, ...font('800'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8 },
     cardRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     dot: { width: 9, height: 9, borderRadius: 5 },
     tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 },
-    tagText: { fontSize: fontSize.xs, fontWeight: '700' },
+    tagText: { fontSize: fontSize.xs, ...font('700') },
   });

@@ -6,6 +6,7 @@ import { Sheet } from '../meeting/sheet-kit';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../../lib/board-date';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { WeekStart } from '../../lib/calendar';
+import { font } from '../../lib/typography';
 
 /**
  * A board's day (4b; the All projects board's too, 4c), as the website's date box: the day before
@@ -70,10 +71,10 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.6 },
     dateBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.md, flexWrap: 'wrap' },
     dateBtn: { width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
-    dateBtnText: { color: c.ink, fontSize: 20, fontWeight: '700', lineHeight: 22 },
+    dateBtnText: { color: c.ink, fontSize: 20, ...font('700'), lineHeight: 22 },
     dateLabelWrap: { flex: 1, minHeight: 44, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.xs },
-    dateLabel: { fontSize: fontSize.md, fontWeight: '700', color: c.ink },
-    dateHint: { fontSize: fontSize.xs, fontWeight: '700', color: c.brand, backgroundColor: c.surface, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, overflow: 'hidden' },
+    dateLabel: { fontSize: fontSize.md, ...font('700'), color: c.ink },
+    dateHint: { fontSize: fontSize.xs, ...font('700'), color: c.brandText, backgroundColor: c.surface, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, overflow: 'hidden' },
     todayBtn: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
-    todayBtnText: { fontSize: fontSize.sm, fontWeight: '600', color: c.ink },
+    todayBtnText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
   });

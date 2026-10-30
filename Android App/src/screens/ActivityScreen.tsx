@@ -24,6 +24,7 @@ import { relativeTime } from '../lib/relative-time';
 import { toneStyle } from '../lib/tone';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 type Section = { key: string; title: string; data: ApiActivityRow[] };
 
@@ -151,7 +152,7 @@ const makeStyles = (c: Palette) =>
     header: { gap: spacing.sm, marginBottom: spacing.sm },
     intro: { fontSize: fontSize.sm, color: c.ink2 },
     filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    day: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: spacing.md, marginBottom: spacing.sm },
+    day: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: spacing.md, marginBottom: spacing.sm },
     row: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
     // The website's timeline dot, coloured by what happened (the words say it too).
     dot: { width: 10, height: 10, borderRadius: 5, marginTop: spacing.lg },
@@ -159,16 +160,16 @@ const makeStyles = (c: Palette) =>
     main: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', minHeight: 44 },
     pressed: { opacity: 0.7 },
     avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: c.brandWash, alignItems: 'center', justifyContent: 'center' },
-    avatarText: { fontSize: fontSize.xs, fontWeight: '700', color: c.brand },
+    avatarText: { fontSize: fontSize.xs, ...font('700'), color: c.brandText },
     text: { flex: 1, gap: 2 },
     // Names and titles in Arabic read right to left (Android picks the direction from the text).
     what: { fontSize: fontSize.sm, color: c.ink, textAlign: 'auto' },
-    actor: { fontWeight: '700', color: c.ink },
-    key: { fontWeight: '700', color: c.brand },
+    actor: { ...font('700'), color: c.ink },
+    key: { ...font('700'), color: c.brandText },
     none: { color: c.ink2 },
     line: { fontSize: fontSize.xs, color: c.ink2, textAlign: 'auto' },
     time: { fontSize: fontSize.xs, color: c.ink2 },
     project: { alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, backgroundColor: c.ground, marginLeft: 40 },
-    projectText: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink2 },
+    projectText: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     empty: { gap: spacing.sm, alignItems: 'center' },
   });

@@ -6,6 +6,7 @@ import { Button } from '../ui';
 import { PREVIEW_TEXT, previewFailureText, type OfficePreview, type PreviewMode } from '../../lib/file-preview';
 import { formatFileSize, type ApiAttachment } from '../../lib/attachments';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 type View_ = { text?: { text: string; cut: boolean }; office?: OfficePreview; error?: string };
 
@@ -76,7 +77,7 @@ export function FilePreviewSheet({
               {view.error}
             </Text>
           ) : loading ? (
-            <ActivityIndicator style={s.loading} color={c.brand} accessibilityLabel="Loading the preview" />
+            <ActivityIndicator style={s.loading} color={c.brandText} accessibilityLabel="Loading the preview" />
           ) : mode === 'image' ? (
             // A picture the phone can't show (HEIC, AVIF, a file gone) says so (final review A6).
             href ? (
@@ -177,26 +178,26 @@ const makeStyles = (c: Palette) =>
     wrap: { flex: 1, backgroundColor: c.surface },
     flex: { flex: 1 },
     head: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderBottomWidth: 1, borderBottomColor: c.line },
-    name: { fontSize: fontSize.md, fontWeight: '700', color: c.ink },
+    name: { fontSize: fontSize.md, ...font('700'), color: c.ink },
     size: { fontSize: fontSize.xs, color: c.ink3 },
     close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    closeText: { fontSize: fontSize.lg, color: c.ink2, fontWeight: '700' },
+    closeText: { fontSize: fontSize.lg, color: c.ink2, ...font('700') },
     body: { flex: 1, backgroundColor: c.ground },
     loading: { marginTop: spacing.xxl },
-    error: { padding: spacing.lg, fontSize: fontSize.sm, color: c.danger, fontWeight: '600' },
+    error: { padding: spacing.lg, fontSize: fontSize.sm, color: c.dangerText, ...font('600') },
     image: { flex: 1, width: '100%' },
     pad: { padding: spacing.md, gap: spacing.sm },
     mono: { fontFamily: 'monospace', fontSize: fontSize.xs, color: c.ink },
     para: { fontSize: fontSize.sm, color: c.ink, lineHeight: 20 },
     note: { fontSize: fontSize.xs, color: c.ink3 },
     slide: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.surface, padding: spacing.sm, gap: 4 },
-    slideNo: { fontSize: fontSize.xs, fontWeight: '700', color: c.ink3, textTransform: 'uppercase' },
+    slideNo: { fontSize: fontSize.xs, ...font('700'), color: c.ink3, textTransform: 'uppercase' },
     tabs: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line },
     tabsRow: { gap: spacing.xs, paddingHorizontal: spacing.sm, paddingTop: spacing.sm },
     tab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderTopLeftRadius: radius.sm, borderTopRightRadius: radius.sm },
     tabOn: { backgroundColor: c.surface },
-    tabText: { fontSize: fontSize.xs, color: c.ink2, fontWeight: '600' },
-    tabTextOn: { color: c.ink, fontWeight: '800' },
+    tabText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
+    tabTextOn: { color: c.ink, ...font('800') },
     tr: { flexDirection: 'row' },
     th: { backgroundColor: c.surface },
     td: { width: 140, borderWidth: 0.5, borderColor: c.line, paddingHorizontal: 6, paddingVertical: 4, fontSize: fontSize.xs, color: c.ink },

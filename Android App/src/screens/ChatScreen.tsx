@@ -14,6 +14,7 @@ import { CHAT_SEARCH_MIN } from '../core/queries';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiChatMessage, ConversationPrefs } from '../lib/types';
 import type { TabScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 type SectionKey = 'favorites' | 'channels' | 'directs' | 'archived';
 const SECTION_TITLE: Record<SectionKey, string> = { favorites: 'Favorites', channels: 'Project channels', directs: 'Direct messages', archived: 'Archived' };
@@ -305,7 +306,7 @@ const ConversationRow = memo(function ConversationRow({
         </View>
       ) : (
         <View style={[styles.tile, styles.round, { backgroundColor: c.brandWash }]}>
-          <Text style={[styles.tileText, { color: c.brand }]}>{r.title.slice(0, 1).toUpperCase()}</Text>
+          <Text style={[styles.tileText, { color: c.brandText }]}>{r.title.slice(0, 1).toUpperCase()}</Text>
           <View style={[styles.dot, { backgroundColor: isOnline ? c.success : c.ink3, borderColor: c.surface }]} />
         </View>
       )}
@@ -315,7 +316,7 @@ const ConversationRow = memo(function ConversationRow({
             {r.prefs.favorite ? '★ ' : ''}
             {r.title}
           </Text>
-          {r.lastMessage ? <Text style={[styles.time, r.unread ? { color: c.brand, fontWeight: '700' } : null]}>{listTime(r.lastMessage.createdAt)}</Text> : null}
+          {r.lastMessage ? <Text style={[styles.time, r.unread ? { color: c.brandText, ...font('700') } : null]}>{listTime(r.lastMessage.createdAt)}</Text> : null}
         </View>
         <View style={styles.line}>
           <Text style={[styles.preview, r.unread ? { color: c.ink } : null]} numberOfLines={1}>
@@ -349,14 +350,14 @@ const makeStyles = (c: Palette) =>
       fontSize: fontSize.md,
     },
     searchMessages: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: c.brandWash },
-    searchMessagesText: { color: c.brand, fontWeight: '600', fontSize: fontSize.sm },
+    searchMessagesText: { color: c.brandText, ...font('600'), fontSize: fontSize.sm },
     back: { minHeight: 44, justifyContent: 'center' },
-    backText: { color: c.brand, fontWeight: '700', fontSize: fontSize.sm },
+    backText: { color: c.brandText, ...font('700'), fontSize: fontSize.sm },
     section: { gap: spacing.xs, marginTop: spacing.sm },
     sectionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 36 },
     chevron: { color: c.ink2, fontSize: fontSize.sm, width: 14 },
-    sectionTitle: { flex: 1, fontSize: fontSize.xs, fontWeight: '700', color: c.ink2, letterSpacing: 0.6 },
-    sectionCount: { fontSize: fontSize.xs, color: c.ink3, fontWeight: '600' },
+    sectionTitle: { flex: 1, fontSize: fontSize.xs, ...font('700'), color: c.ink2, letterSpacing: 0.6 },
+    sectionCount: { fontSize: fontSize.xs, color: c.ink3, ...font('600') },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -370,20 +371,20 @@ const makeStyles = (c: Palette) =>
     },
     tile: { width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
     round: { borderRadius: 18 },
-    tileText: { color: c.onBrand, fontWeight: '700', fontSize: fontSize.sm },
+    tileText: { color: c.onBrand, ...font('700'), fontSize: fontSize.sm },
     dot: { position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
     grow: { flex: 1, gap: 2 },
     line: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     rowTitle: { flex: 1, fontSize: fontSize.md, color: c.ink },
-    bold: { fontWeight: '700' },
+    bold: { ...font('700') },
     time: { fontSize: fontSize.xs, color: c.ink2 },
     preview: { flex: 1, fontSize: fontSize.xs, color: c.ink2 },
     badge: { minWidth: 20, height: 20, borderRadius: 10, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-    badgeText: { color: c.onBrand, fontSize: fontSize.xs, fontWeight: '700' },
+    badgeText: { color: c.onBrand, fontSize: fontSize.xs, ...font('700') },
     badgeMuted: { backgroundColor: c.line },
     badgeTextMuted: { color: c.ink },
     muted: { fontSize: fontSize.xs, color: c.ink2 },
     empty: { fontSize: fontSize.sm, color: c.ink2 },
     emptyRow: { minHeight: 44, justifyContent: 'center' },
-    link: { color: c.brand, fontWeight: '700' },
+    link: { color: c.brandText, ...font('700') },
   });

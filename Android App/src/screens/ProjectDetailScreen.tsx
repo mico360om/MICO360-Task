@@ -35,6 +35,7 @@ import {
 import type { ApiTask } from '../lib/types';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
 
@@ -280,7 +281,7 @@ const makeStyles = (c: Palette) =>
     head: { gap: spacing.md, marginBottom: spacing.sm },
     identity: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
     identityText: { flex: 1, gap: spacing.xs },
-    name: { fontSize: fontSize.xl, fontWeight: '800', color: c.ink },
+    name: { fontSize: fontSize.xl, ...font('800'), color: c.ink },
     badgeRow: { flexDirection: 'row' },
     meta: { fontSize: fontSize.sm, color: c.ink2 },
     tasksHead: { gap: spacing.sm },

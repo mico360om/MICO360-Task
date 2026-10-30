@@ -4,6 +4,7 @@ import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { useColors } from '../core/theme';
 import { isRepeating, meetingPlace, meetingRowLabel, meetingTime } from '../lib/meetings';
 import type { ApiMeeting } from '../lib/types';
+import { font } from '../lib/typography';
 
 type RowMeeting = Pick<ApiMeeting, 'id' | 'title' | 'status' | 'startAt' | 'endAt' | 'location' | 'onlineLink' | 'recurrenceRule' | 'recurrenceParentId'>;
 
@@ -66,12 +67,12 @@ const makeStyles = (c: Palette) =>
     icon: { fontSize: fontSize.lg },
     body: { flex: 1 },
     // An Arabic title reads right to left on its own line (Android picks the direction from the text).
-    title: { fontSize: fontSize.md, fontWeight: '600', color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
     struck: { textDecorationLine: 'line-through', color: c.ink2 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
-    time: { fontSize: fontSize.xs, color: c.brand, fontWeight: '700' },
+    time: { fontSize: fontSize.xs, color: c.brandText, ...font('700') },
     sub: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4 },
-    repeat: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4, fontWeight: '600' },
-    cancelled: { fontSize: fontSize.xs, color: c.danger, marginLeft: 4, fontWeight: '700' },
+    repeat: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4, ...font('600') },
+    cancelled: { fontSize: fontSize.xs, color: c.dangerText, marginLeft: 4, ...font('700') },
     chevron: { fontSize: fontSize.xl, color: c.ink3 },
   });

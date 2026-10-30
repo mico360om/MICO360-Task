@@ -8,6 +8,7 @@ import { EmptyNote, SectionCard } from './parts';
 import { addableUsers, memberLabel, memberProblem, membersInOrder, removeQuestion, roleAction } from '../../lib/project-team';
 import { displayName, type ApiDirectoryUser, type ApiMember } from '../../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
 
 /**
  * The project's people (the Team tab), as on the website: everyone on it, managers first. An
@@ -142,10 +143,10 @@ const makeStyles = (c: Palette) =>
     member: { borderTopWidth: 1, borderTopColor: c.line, paddingVertical: spacing.sm, gap: spacing.sm },
     who: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     avatar: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center' },
-    avatarText: { color: c.onBrand, fontWeight: '700', fontSize: 12 },
+    avatarText: { color: c.onBrand, ...font('700'), fontSize: 12 },
     text: { flex: 1 },
-    name: { fontSize: fontSize.md, fontWeight: '600', color: c.ink },
-    you: { fontWeight: '400', color: c.ink2 },
+    name: { fontSize: fontSize.md, ...font('600'), color: c.ink },
+    you: { ...font('400'), color: c.ink2 },
     sub: { fontSize: fontSize.sm, color: c.ink2 },
     actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     action: { flexGrow: 1, flexBasis: '40%', minHeight: 44 },

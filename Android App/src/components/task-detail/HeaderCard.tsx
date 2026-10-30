@@ -9,6 +9,7 @@ import type { ApiTask } from '../../lib/types';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { carryForward } from '../../lib/task-detail';
 import { IconButton, SaveNote, Tag, useSave } from './kit';
+import { font } from '../../lib/typography';
 
 const PRIORITY_LABEL: Record<string, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 /** The task title column's limit (VARCHAR 191). */
@@ -191,23 +192,23 @@ const makeStyles = (c: Palette) =>
     wrap: { gap: spacing.xs },
     topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     edit: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md },
-    editText: { fontSize: fontSize.sm, fontWeight: '700', color: c.ink },
+    editText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
-    key: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand, letterSpacing: 1, marginRight: spacing.xs },
+    key: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 1, marginRight: spacing.xs },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-    title: { flex: 1, fontSize: fontSize.xl, fontWeight: '800', color: c.ink, paddingTop: spacing.xs },
+    title: { flex: 1, fontSize: fontSize.xl, ...font('800'), color: c.ink, paddingTop: spacing.xs },
     editActions: { flexDirection: 'row', gap: spacing.sm },
     flex: { flex: 1 },
-    recurrence: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600' },
+    recurrence: { fontSize: fontSize.sm, color: c.brandText, ...font('600') },
     carry: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-    carryText: { fontSize: fontSize.sm, color: c.ink2, fontWeight: '600', backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4, overflow: 'hidden' },
+    carryText: { fontSize: fontSize.sm, color: c.ink2, ...font('600'), backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4, overflow: 'hidden' },
     carryLine: { fontSize: fontSize.xs, color: c.ink2, paddingLeft: spacing.md, paddingVertical: 2 },
     meetingLink: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-    meetingText: { fontSize: fontSize.sm, color: c.brand, fontWeight: '600', textDecorationLine: 'underline' },
-    meetingMuted: { fontSize: fontSize.sm, color: c.ink3, fontWeight: '600' },
+    meetingText: { fontSize: fontSize.sm, color: c.brandText, ...font('600'), textDecorationLine: 'underline' },
+    meetingMuted: { fontSize: fontSize.sm, color: c.ink3, ...font('600') },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
     sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingVertical: spacing.sm, paddingBottom: spacing.xl },
-    sheetTitle: { fontSize: fontSize.xs, fontWeight: '800', color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },
+    sheetTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },
     menuItem: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg },
-    menuText: { fontSize: fontSize.md, color: c.ink, fontWeight: '600' },
+    menuText: { fontSize: fontSize.md, color: c.ink, ...font('600') },
   });

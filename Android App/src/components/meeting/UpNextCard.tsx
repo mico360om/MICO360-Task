@@ -7,6 +7,7 @@ import { clockTime, joinLink, meetingPlace } from '../../lib/meetings';
 import { meetingWhen } from '../../lib/meeting-detail';
 import { isUnderWay, peopleText, startsLabel, type ListContext } from '../../lib/meeting-list';
 import type { ApiMeeting } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * The next meeting (or the one under way), on top of the list: when it starts, where, who's coming,
@@ -49,9 +50,9 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     card: { backgroundColor: c.brandWash, borderRadius: radius.lg, borderWidth: 1, borderColor: c.brandWash, padding: spacing.md, gap: 2 },
     live: { borderColor: c.brand },
-    eyebrow: { fontSize: fontSize.xs, fontWeight: '800', color: c.brand, letterSpacing: 0.8 },
-    when: { color: c.ink, fontWeight: '700', letterSpacing: 0 },
-    title: { fontSize: fontSize.lg, fontWeight: '800', color: c.ink, marginTop: 2, textAlign: 'auto' },
+    eyebrow: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 0.8 },
+    when: { color: c.ink, ...font('700'), letterSpacing: 0 },
+    title: { fontSize: fontSize.lg, ...font('800'), color: c.ink, marginTop: 2, textAlign: 'auto' },
     meta: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
     actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
     action: { flex: 1, minHeight: 44 },

@@ -44,6 +44,7 @@ import {
 import type { ApiProject } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
+import { font } from '../lib/typography';
 
 /**
  * New project (anyone signed in) and Edit project (whoever runs it: its owner, its managers, an
@@ -405,10 +406,10 @@ const makeStyles = (c: Palette) =>
     readOnly: { backgroundColor: c.ground, color: c.ink2 },
     codeNote: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, marginTop: -spacing.sm },
     note: { fontSize: fontSize.sm, color: c.ink2 },
-    noteError: { color: c.danger, fontWeight: '600' },
-    noteOk: { color: c.success, fontWeight: '600' },
+    noteError: { color: c.dangerText, ...font('600') },
+    noteOk: { color: c.successText, ...font('600') },
     use: { minHeight: 40, justifyContent: 'center' },
-    useText: { fontSize: fontSize.sm, fontWeight: '800', color: c.brand, textDecorationLine: 'underline' },
+    useText: { fontSize: fontSize.sm, ...font('800'), color: c.brandText, textDecorationLine: 'underline' },
     clients: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: -spacing.sm },
     clientChip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     clientText: { fontSize: fontSize.sm, color: c.ink },

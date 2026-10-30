@@ -5,6 +5,7 @@ import { Button } from '../ui';
 import { CheckRow } from '../meeting/sheet-kit';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import type { AiAgendaItem } from '../../lib/types';
+import { font } from '../../lib/typography';
 
 /**
  * The AI's drafted agenda, to tick through before anything is added (all ticked to start with), as
@@ -58,7 +59,7 @@ export function AgendaDraftReview({
 
 const styles = StyleSheet.create({
   box: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
-  heading: { fontSize: fontSize.xs, fontWeight: '800', letterSpacing: 0.8 },
+  heading: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8 },
   note: { fontSize: fontSize.sm },
   row: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   flex: { flex: 1 },
