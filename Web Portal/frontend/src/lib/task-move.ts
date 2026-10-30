@@ -1,4 +1,5 @@
 import type { BulkMoveResult, MovePerson, MovePreview, MoveResult, MoveTargets, TaskMovePreview } from '../api/tasks';
+import { dayText } from './day-words';
 
 /**
  * Moving tasks to another project, in words: who may (the menus disable the action and say why),
@@ -50,9 +51,7 @@ function names(people: MovePerson[], shown = 3): string {
 /** "Tue 27 Oct" (with the year when it isn't this year's). */
 function dayWords(day: string, today: string): string {
   const sameYear = day.slice(0, 4) === today.slice(0, 4);
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), timeZone: 'UTC' })
-    .format(new Date(`${day}T12:00:00Z`))
-    .replace(',', '');
+  return dayText(day, { weekday: 'short', year: !sameYear });
 }
 
 /** "One of them …" / "2 of them …". */

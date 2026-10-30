@@ -114,6 +114,14 @@ describe('startsLabel', () => {
     expect(startsLabel(at('2026-10-14T06:00:00.000Z'), now, TZ)).toBe(`Wednesday at ${clock('2026-10-14T06:00:00.000Z')}`);
     expect(startsLabel(at('2026-10-20T06:00:00.000Z'), now, TZ)).toBe(`Tue 20 Oct at ${clock('2026-10-20T06:00:00.000Z')}`);
   });
+
+  it('writes September as "Sep", never "Sept"', () => {
+    const sep = new Date('2026-09-10T05:00:00.000Z');
+    expect(startsLabel(at('2026-09-30T06:00:00.000Z'), sep, TZ)).toBe(`Wed 30 Sep at ${clock('2026-09-30T06:00:00.000Z')}`);
+    expect(whenItWas('2026-09-01T06:00:00.000Z', sep, TZ)).toBe('on Tue 1 Sep');
+    expect(whenItWas('2025-09-01T06:00:00.000Z', sep, TZ)).toBe('on 1 Sep 2025');
+    expect(filterChips({ ...EMPTY_FILTERS, range: 'custom', from: '2026-09-01', to: '2026-09-30' }, 'date', ctx)).toEqual([{ key: 'date', label: 'Date: 1 Sep 2026 – 30 Sep 2026' }]);
+  });
 });
 
 describe('filterChips', () => {

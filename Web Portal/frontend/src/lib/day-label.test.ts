@@ -7,4 +7,9 @@ describe('dayLabel', () => {
     expect(dayLabel('2026-11-01', { year: true })).toBe('Sun 1 Nov 2026');
     expect(dayLabel('2026-11-06', { only: 'weekday' })).toBe('Fri');
   });
+
+  it('writes September as "Sep", never "Sept"', () => {
+    expect(dayLabel('2026-09-30')).toBe('Wed 30 Sep');
+    expect(dayLabel('2026-09-30', { year: true })).toBe('Wed 30 Sep 2026');
+  });
 });

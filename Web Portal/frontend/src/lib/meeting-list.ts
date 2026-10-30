@@ -1,6 +1,7 @@
 import { MEETING_STATUS_LABELS, type Meeting, type MeetingStatus } from '../api/meetings';
 import { shiftDayKey, todayKey, zonedDayKey } from './due-date';
 import { formatClockTime } from './meetingFormat';
+import { dayText } from './day-words';
 
 /** Date presets for the meetings list (days are counted in the company's time zone). */
 export type DateRange = 'any' | 'today' | 'next7' | 'last7' | 'month' | 'last30' | 'custom';
@@ -224,8 +225,8 @@ export function whenItWas(iso: string, now: Date, timeZone: string): string {
   if (day >= today) return 'earlier today';
   if (day === shiftDayKey(today, -1)) return 'yesterday';
   if (day >= shiftDayKey(today, -6)) return `on ${dayWords(day, { weekday: 'long' })}`;
-  if (day.slice(0, 4) === today.slice(0, 4)) return `on ${dayWords(day, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')}`;
-  return `on ${dayWords(day, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  if (day.slice(0, 4) === today.slice(0, 4)) return `on ${dayText(day, { weekday: 'short', year: false })}`;
+  return `on ${dayText(day)}`;
 }
 
 /**
@@ -239,6 +240,7 @@ export function nextUpMeeting(list: Meeting[], now: Date): Meeting | null {
   return list.filter((m) => m.status === 'SCHEDULED' && new Date(m.startAt).getTime() > now.getTime()).sort(byStart)[0] ?? null;
 }
 
+/** A weekday's full name ("Monday") for a 'YYYY-MM-DD' day; other day words come from lib/day-words ("Sep", never "Sept"). */
 const dayWords = (key: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`));
 
 /** When the meeting starts, from now: "Happening now", "in 25 min", "Tomorrow at 10:00", "Tue 20 Oct at 10:00". */
@@ -253,7 +255,7 @@ export function startsLabel(m: Pick<Meeting, 'status' | 'startAt' | 'endAt'>, no
   if (day === today) return `Today at ${time}`;
   if (day === shiftDayKey(today, 1)) return `Tomorrow at ${time}`;
   if (day > today && day <= shiftDayKey(today, 6)) return `${dayWords(day, { weekday: 'long' })} at ${time}`;
-  return `${dayWords(day, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')} at ${time}`;
+  return `${dayText(day, { weekday: 'short', year: false })} at ${time}`;
 }
 
 export interface FilterChip {
@@ -261,7 +263,7 @@ export interface FilterChip {
   label: string;
 }
 
-const longDay = (key: string) => dayWords(key, { day: 'numeric', month: 'short', year: 'numeric' });
+const longDay = (key: string) => dayText(key);
 
 /** Each filter in use as a short label (and a sort other than by date), to show and remove one by one. */
 export function filterChips(f: MeetingFilters, sort: MeetingSort, ctx: Pick<ListContext, 'projectName'>): FilterChip[] {

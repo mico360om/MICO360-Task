@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_STATUSES, filtersFromParams, milestoneText, withFilters, idleText } from './management';
+import { DEFAULT_STATUSES, filtersFromParams, milestoneText, withFilters, idleText, shortDay, dayMonth } from './management';
+
+describe('shortDay / dayMonth: three-letter months, never "Sept"', () => {
+  it('writes "Wed 30 Sep" and "27 Sep"', () => {
+    expect(shortDay('2026-09-30')).toBe('Wed 30 Sep');
+    expect(shortDay('2026-10-28')).toBe('Wed 28 Oct');
+    expect(dayMonth('2026-09-27')).toBe('27 Sep');
+    expect(dayMonth('2026-08-09')).toBe('9 Aug');
+  });
+});
 
 describe('the Management filters in the address', () => {
   it('reads projects, owner, statuses and the period, with the defaults when left out or wrong', () => {

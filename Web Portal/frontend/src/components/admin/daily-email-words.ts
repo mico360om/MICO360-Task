@@ -7,6 +7,7 @@ import type {
   DailyEmailState,
 } from '../../api/daily-emails';
 import { zonedDayKey } from '../../lib/due-date';
+import { dayText } from '../../lib/day-words';
 
 /** The plain words for the daily emails on the admins' page (System Settings → Daily task emails). */
 
@@ -19,9 +20,9 @@ const wasWere = (n: number) => (n === 1 ? 'was' : 'were');
 export function clock(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso));
 }
-/** "Sat 24 Oct" for a 'YYYY-MM-DD' day. */
+/** "Sat 24 Oct" for a 'YYYY-MM-DD' day ("Wed 30 Sep", never "Sept"). */
 export function dayLabel(key: string): string {
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`)).replace(',', '');
+  return dayText(key, { weekday: 'short', year: false });
 }
 /** "07:01" today (in that time zone), else "Sat 24 Oct, 07:01". */
 export function when(iso: string, timeZone: string, now: Date = new Date()): string {

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { listShownText, matchCountText, pageText, showingText } from './daily-email-words';
+import { dayLabel, listShownText, matchCountText, nextSendText, pageText, showingText, when } from './daily-email-words';
+
+describe('Daily task emails: days in words', () => {
+  it('writes September as "Sep", never "Sept"', () => {
+    expect(dayLabel('2026-09-30')).toBe('Wed 30 Sep');
+    expect(when('2026-09-30T03:01:00Z', 'Asia/Muscat', new Date('2026-10-02T03:00:00Z'))).toBe('Wed 30 Sep, 07:01');
+    expect(nextSendText('2026-09-30T02:00:00Z', 'Asia/Muscat', new Date('2026-09-26T03:00:00Z'))).toBe('Wed 30 Sep at 06:00');
+  });
+});
 
 describe('Daily task emails: the words for the list’s pages', () => {
   it('who is shown, of how many', () => {

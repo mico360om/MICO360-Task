@@ -4,6 +4,7 @@
  */
 import type { ManagementFilters, ProjectStatus, Rag } from '../api/management';
 import { zonedDayKey } from './due-date';
+import { dayText } from './day-words';
 
 export const PROJECT_STATUSES: ProjectStatus[] = ['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED'];
 export const DEFAULT_STATUSES: ProjectStatus[] = ['PLANNING', 'ACTIVE', 'ON_HOLD'];
@@ -59,8 +60,7 @@ export function idleText(at: string, today: string, timeZone: string): string {
   return `${days} days ago`;
 }
 
-/** "Wed 28 Oct" for a 'YYYY-MM-DD' day. */
-export const shortDay = (key: string) =>
-  new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`)).replace(',', '');
+/** "Wed 28 Oct" for a 'YYYY-MM-DD' day ("Wed 30 Sep", never "Sept"). */
+export const shortDay = (key: string) => dayText(key, { weekday: 'short', year: false });
 /** "9 Aug" for a 'YYYY-MM-DD' day. */
-export const dayMonth = (key: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+export const dayMonth = (key: string) => dayText(key, { year: false });

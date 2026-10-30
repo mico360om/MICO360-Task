@@ -1,3 +1,5 @@
+import { dayText } from './day-words';
+
 /**
  * "New tasks are due today" (a project setting): the server gives a task created without a due date
  * the board day it is added to, when that day is later than today, else today (company time) — so a
@@ -24,8 +26,6 @@ export function defaultDueDay(
 export function defaultDueNote(day: string, today: string): string {
   if (day === today) return 'Due today (this project’s setting)';
   const sameYear = day.slice(0, 4) === today.slice(0, 4);
-  const words = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), timeZone: 'UTC' })
-    .format(new Date(`${day}T12:00:00Z`))
-    .replace(',', '');
+  const words = dayText(day, { weekday: 'short', year: !sameYear });
   return `Due ${words} (this project’s setting)`;
 }

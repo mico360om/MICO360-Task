@@ -1,6 +1,7 @@
 import type { MinutesState } from '../../api/meetings';
 import type { BadgeTone } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
+import { instantDayText } from '../../lib/day-words';
 
 /** How far a meeting's minutes are, as a badge (none when nothing was taken). */
 export const MINUTES: Record<MinutesState, { label: string; tone: BadgeTone } | null> = {
@@ -21,12 +22,13 @@ const LEAF: Record<LeafTone, string> = {
 /** The meeting's day as a calendar leaf: weekday, day number, month (filled in on today). */
 export function DateLeaf({ iso, timeZone, tone, className = '' }: { iso: string; timeZone: string; tone: LeafTone; className?: string }) {
   const d = new Date(iso);
-  const part = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone }).format(d);
+  // "Wed 30 Sep" in the meeting's (company) time zone: three-letter months, never "Sept".
+  const [weekday, day, month] = instantDayText(d, timeZone, { weekday: 'short', year: false }).split(' ');
   return (
     <div aria-hidden="true" className={`flex w-14 flex-none flex-col items-center rounded-xl border py-1.5 ${LEAF[tone]} ${className}`}>
-      <span className="text-[10px] font-bold uppercase tracking-wide">{part({ weekday: 'short' })}</span>
-      <b className="font-display text-xl font-bold leading-none text-ink">{part({ day: 'numeric' })}</b>
-      <span className="text-[10px] font-semibold uppercase">{part({ month: 'short' })}</span>
+      <span className="text-[10px] font-bold uppercase tracking-wide">{weekday}</span>
+      <b className="font-display text-xl font-bold leading-none text-ink">{day}</b>
+      <span className="text-[10px] font-semibold uppercase">{month}</span>
     </div>
   );
 }

@@ -21,5 +21,8 @@ describe('defaultDueNote', () => {
     expect(defaultDueNote(TODAY, TODAY)).toBe('Due today (this project’s setting)');
     expect(defaultDueNote('2026-10-27', TODAY)).toBe('Due Tue 27 Oct (this project’s setting)');
     expect(defaultDueNote('2027-01-05', TODAY)).toBe('Due Tue 5 Jan 2027 (this project’s setting)');
+    // Three-letter months, never "Sept".
+    expect(defaultDueNote('2026-09-30', TODAY)).toBe('Due Wed 30 Sep (this project’s setting)');
+    expect(defaultDueNote('2027-09-30', TODAY)).toBe('Due Thu 30 Sep 2027 (this project’s setting)');
   });
 });

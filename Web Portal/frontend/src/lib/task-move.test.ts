@@ -76,6 +76,12 @@ describe('What a move will change, in plain words', () => {
     ]);
   });
 
+  it('writes a September day as "Sep", never "Sept"', () => {
+    expect(moveChanges(preview([task({ dueDate: '2026-09-30', repeat: 'COPY' })]), '2026-09-20')).toContain(
+      'It gets Wed 30 Sep, the day it’s on the board for, as its due date, as new tasks in Operations do.',
+    );
+  });
+
   it('several tasks: the numbers they get, and how many each change applies to', () => {
     const many = [
       task({ id: 'a', newKey: 'OPS-17', milestoneCleared: true, dueDate: TODAY, repeat: 'SERIES' }),
