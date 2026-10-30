@@ -77,3 +77,17 @@ it('a tab label beside its icon keeps the 20 dp bottom-tabs gives its own labels
   expect(nav).toMatch(/position === 'beside-icon' \? TAB_LABEL_BESIDE : null/);
   expect(nav).toMatch(/const TAB_LABEL_BESIDE = \{ marginLeft: 20 \}/);
 });
+
+// Item 16 (S7): a row that already says "Waiting for approval", "favorite" or "% done" in its own label
+// keeps the mark from being a TalkBack stop of its own, as its siblings are.
+it('marks a row already speaks are hidden from TalkBack inside it', () => {
+  const HIDDEN = /importantForAccessibility="no-hide-descendants"[^>]*>\s*/.source;
+  const wrapped: Array<[file: string, inner: string]> = [
+    ['components/board/BoardCard.tsx', '<ApprovalChip />'],
+    ['components/my-tasks/MyTaskItem.tsx', '<ApprovalChip />'],
+    ['screens/ChatScreen.tsx', '<Icon name="ui.starFilled"'],
+    ['screens/ProjectsScreen.tsx', '<ProgressBar value={meta.completedPct}'],
+  ];
+  const bare = wrapped.filter(([file, inner]) => !new RegExp(HIDDEN + inner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(src(file)));
+  expect(bare.map(([f, i]) => `${f}: ${i}`)).toEqual([]);
+});

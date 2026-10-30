@@ -315,7 +315,11 @@ const ConversationRow = memo(function ConversationRow({
       )}
       <View style={styles.grow}>
         <View style={styles.line}>
-          {r.prefs.favorite ? <Icon name="ui.starFilled" size={14} color={c.warningText} label="Favorite" /> : null}
+          {r.prefs.favorite ? (
+            <View importantForAccessibility="no-hide-descendants">
+              <Icon name="ui.starFilled" size={14} color={c.warningText} />
+            </View>
+          ) : null}
           <Text style={[styles.rowTitle, r.unread ? styles.bold : null]} numberOfLines={1}>
             {r.title}
           </Text>

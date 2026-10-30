@@ -168,7 +168,7 @@ const ProjectCard = React.memo(function ProjectCard({
         </View>
         {meta?.hasProgress ? (
           <View style={s.progressRow}>
-            <View style={s.track}>
+            <View style={s.track} importantForAccessibility="no-hide-descendants">
               <ProgressBar value={meta.completedPct} color={color} label={`${p.name}: ${meta.completedPct}% done`} />
             </View>
             <Text style={s.pct}>{meta.completedPct}%</Text>
