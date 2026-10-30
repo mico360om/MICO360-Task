@@ -166,7 +166,20 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
             <h3 className="mb-1 text-sm font-semibold text-ink">Google Drive</h3>
             {driveNote ? <p role="status" className={`mb-3 ${noteClass(driveNote.ok)}`}>{driveNote.text}</p> : null}
             {!data.drive.configured ? (
-              <p className="text-sm text-ink-2">Google Drive isn’t set up on this server yet.</p>
+              data.drive.stored ? (
+                // A connection kept from before, on a server without the Google settings: it does nothing; let it go.
+                <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 text-sm text-ink-2 sm:flex-1">
+                    <p>Google Drive isn’t set up on this server yet.</p>
+                    <p className="mt-1">A connection to {data.drive.email ?? 'a Google account'} is still kept from before; nothing is sent with it.</p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => setAskDisconnect(true)} className={COARSE}>
+                    Disconnect
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-ink-2">Google Drive isn’t set up on this server yet.</p>
+              )
             ) : !data.drive.connected ? (
               <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="min-w-0 text-sm text-ink-2 sm:flex-1">
@@ -211,7 +224,9 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
           onConfirm={() => disconnect.mutate()}
           onClose={() => setAskDisconnect(false)}
         >
-          New copies stop going to Google Drive. The copies already there stay in your Drive.
+          {data?.drive.configured === false
+            ? 'The connection kept from before is removed. The copies already in Google Drive stay there.'
+            : 'New copies stop going to Google Drive. The copies already there stay in your Drive.'}
         </ConfirmDialog>
       ) : null}
     </section>

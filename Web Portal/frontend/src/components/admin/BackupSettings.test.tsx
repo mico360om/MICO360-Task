@@ -33,7 +33,7 @@ function overview(over: Partial<BackupOverview> = {}): BackupOverview {
     lastSuccess: { at: '2026-10-29T22:01:00.000Z', sizeBytes: 24 * 1024 * 1024 },
     warning: null,
     copies: [COPY({}), COPY({ id: 'c2', createdAt: '2026-10-16T22:01:00.000Z', kind: 'weekly', sizeBytes: 20 * 1024 * 1024 })],
-    drive: { configured: true, connected: false, email: null, connectedAt: null, problem: null, warning: null },
+    drive: { configured: true, connected: false, stored: false, email: null, connectedAt: null, problem: null, warning: null },
     ...over,
   };
 }
@@ -59,7 +59,7 @@ beforeEach(() => {
       if (method === 'POST' && u === '/backups/c1/download-link') return json({ data: { url: '/api/v1/backups/download?token=abc' } });
       if (method === 'POST' && u === '/backups/google/connect') return json({ data: { url: 'https://accounts.google.com/o/oauth2/v2/auth?state=s' } });
       if (method === 'DELETE' && u === '/backups/google') {
-        current = { ...current, drive: { ...current.drive, connected: false, email: null } };
+        current = { ...current, drive: { ...current.drive, connected: false, stored: false, email: null } };
         return json({ data: { disconnected: true } });
       }
       return json({ error: { code: 'NOT_FOUND', message: 'nope' } }, 404);
@@ -147,10 +147,24 @@ describe('System Settings → Backups', () => {
   });
 
   it('Google Drive not set up on this server: one line, no button', async () => {
-    current = overview({ drive: { configured: false, connected: false, email: null, connectedAt: null, problem: null, warning: null } });
+    current = overview({ drive: { configured: false, connected: false, stored: false, email: null, connectedAt: null, problem: null, warning: null } });
     renderIt();
     expect(await screen.findByText('Google Drive isn’t set up on this server yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Connect Google Drive/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).toBeNull();
+  });
+
+  it('not set up here, but a connection is still kept from before: says so and offers Disconnect', async () => {
+    current = overview({ drive: { configured: false, connected: false, stored: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: null, warning: null } });
+    renderIt();
+    expect(await screen.findByText('Google Drive isn’t set up on this server yet.')).toBeInTheDocument();
+    expect(screen.getByText('A connection to owner@gmail.com is still kept from before; nothing is sent with it.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Connect/ })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Disconnect Google Drive?' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => expect(requests).toContainEqual({ method: 'DELETE', url: '/backups/google' }));
+    await waitFor(() => expect(screen.queryByText(/still kept from before/)).toBeNull());
   });
 
   it('Connect Google Drive goes to Google’s page', async () => {
@@ -161,7 +175,7 @@ describe('System Settings → Backups', () => {
   });
 
   it('connected: names the account; Disconnect asks first', async () => {
-    current = overview({ drive: { configured: true, connected: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: null, warning: null } });
+    current = overview({ drive: { configured: true, connected: true, stored: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: null, warning: null } });
     renderIt();
     expect(await screen.findByText('Connected as owner@gmail.com')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
@@ -173,7 +187,7 @@ describe('System Settings → Backups', () => {
   });
 
   it('a connection that stopped working says so and offers Connect again', async () => {
-    current = overview({ drive: { configured: true, connected: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: 'Google Drive no longer accepts this connection.', warning: 'Google Drive no longer accepts this connection.' } });
+    current = overview({ drive: { configured: true, connected: true, stored: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: 'Google Drive no longer accepts this connection.', warning: 'Google Drive no longer accepts this connection.' } });
     renderIt();
     expect(await screen.findByText('Google Drive no longer accepts this connection.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Connect again' })).toBeInTheDocument();

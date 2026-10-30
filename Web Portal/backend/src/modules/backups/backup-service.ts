@@ -14,7 +14,10 @@ import { planBackupRetention, type CopyKind } from './retention';
 export interface DriveState {
   /** GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set on this server. */
   configured: boolean;
+  /** Set up here and a connection is stored: new copies go to Drive. */
   connected: boolean;
+  /** A connection is stored (also one this server can't use, being without the Google settings). */
+  stored: boolean;
   email: string | null;
   connectedAt: string | null;
   /** The connection stopped working (e.g. the access was taken back): connect again. */
@@ -429,7 +432,7 @@ export function createBackupService(deps: BackupServiceDeps) {
       const [recent, kept, drive, held] = await Promise.all([
         deps.repo.recent(20),
         keptCopies(),
-        deps.drive ? deps.drive.state().catch((): DriveState => ({ configured: true, connected: false, email: null, connectedAt: null, problem: null })) : Promise.resolve<DriveState>({ configured: false, connected: false, email: null, connectedAt: null, problem: null }),
+        deps.drive ? deps.drive.state().catch((): DriveState => ({ configured: true, connected: false, stored: false, email: null, connectedAt: null, problem: null })) : Promise.resolve<DriveState>({ configured: false, connected: false, stored: false, email: null, connectedAt: null, problem: null }),
         deps.lock.isHeld(at),
       ]);
       const running = recent.find((r) => r.status === 'RUNNING');

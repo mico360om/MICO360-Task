@@ -61,11 +61,11 @@ afterEach(async () => {
 describe('connecting Google Drive', () => {
   it('Connect → Google → back: "connected as" the account, the folder made, the token sealed at rest', async () => {
     const { drive } = setup();
-    expect(await drive.state()).toEqual({ configured: true, connected: false, email: null, connectedAt: null, problem: null });
+    expect(await drive.state()).toEqual({ configured: true, connected: false, stored: false, email: null, connectedAt: null, problem: null });
     const answer = await signIn(drive.connectUrl('admin1'));
     expect(fake.authRequests[0]!.get('scope')).toBe('https://www.googleapis.com/auth/drive.file');
     expect(await drive.complete(answer)).toEqual({ result: 'connected', userId: 'admin1', email: 'owner@gmail.com' });
-    expect(await drive.state()).toEqual({ configured: true, connected: true, email: 'owner@gmail.com', connectedAt: clock.toISOString(), problem: null });
+    expect(await drive.state()).toEqual({ configured: true, connected: true, stored: true, email: 'owner@gmail.com', connectedAt: clock.toISOString(), problem: null });
     expect([...fake.files.values()].map((f) => f.name)).toEqual([FOLDER_NAME]);
     const raw = JSON.stringify(stored);
     expect(raw).toContain('enc:v1:');
@@ -90,6 +90,17 @@ describe('connecting Google Drive', () => {
     expect((await drive.state()).configured).toBe(false);
     expect(() => drive.connectUrl('admin1')).toThrow(ConflictError);
     expect(() => drive.connectUrl('admin1')).toThrow('Google Drive isn’t set up on this server yet.');
+  });
+
+  it('a connection kept from before on a server whose Google settings are gone: not connected (nothing is sent), and it can be disconnected', async () => {
+    const { drive } = setup();
+    await drive.complete(await signIn(drive.connectUrl('admin1')));
+    const { drive: bare } = setup({ configured: false });
+    expect(await bare.state()).toEqual({ configured: false, connected: false, stored: true, email: 'owner@gmail.com', connectedAt: clock.toISOString(), problem: null });
+    await expect(bare.upload(archive())).rejects.toThrow(/not connected/);
+    expect(await bare.disconnect()).toEqual({ email: 'owner@gmail.com' });
+    expect(fake.revoked.size).toBe(0); // there is no Google client here to take the access back with
+    expect(await bare.state()).toMatchObject({ connected: false, stored: false, email: null });
   });
 
   it('Disconnect takes the access back at Google and forgets the connection', async () => {

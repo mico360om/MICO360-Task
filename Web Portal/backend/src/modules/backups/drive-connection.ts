@@ -123,7 +123,10 @@ export function createBackupDrive(deps: BackupDriveDeps): BackupDrive & {
       const conn = await deps.store.get();
       return {
         configured: Boolean(deps.google),
-        connected: Boolean(conn),
+        // A connection kept from before is of no use on a server without the Google settings: nothing
+        // is sent (no failing upload and email every night); it can still be disconnected.
+        connected: Boolean(conn && deps.google),
+        stored: Boolean(conn),
         email: conn?.email ?? null,
         connectedAt: conn?.connectedAt ?? null,
         problem: conn?.problem ?? null,

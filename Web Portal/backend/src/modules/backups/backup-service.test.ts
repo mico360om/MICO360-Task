@@ -357,7 +357,7 @@ describe('Google Drive copy', () => {
       uploads: [],
       retained: 0,
       async state() {
-        return { configured: true, connected: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: null };
+        return { configured: true, connected: true, stored: true, email: 'owner@gmail.com', connectedAt: '2026-10-29T10:00:00.000Z', problem: null };
       },
       async upload(f) {
         if (fail) throw fail;
@@ -389,7 +389,7 @@ describe('Google Drive copy', () => {
   });
 
   it('Drive not connected: the copy is made and marked as not sent (no warning)', async () => {
-    const drive = { ...fakeDrive(), state: async () => ({ configured: true, connected: false, email: null, connectedAt: null, problem: null }) };
+    const drive = { ...fakeDrive(), state: async () => ({ configured: true, connected: false, stored: false, email: null, connectedAt: null, problem: null }) };
     const svc = service({ drive });
     await svc.runNightlyIfDue();
     expect(repo.rows[0]).toMatchObject({ status: 'OK', driveStatus: null });
