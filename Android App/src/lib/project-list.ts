@@ -8,6 +8,7 @@
 import { ApiError, isNetworkError } from './api-client';
 import { formatDueDay, isTaskDone, isTaskLate } from './due-date';
 import { projectStatusLabel } from './project-identity';
+import { PROJECT_CHANGE_REFUSED } from './project-team';
 import { summarize, type ProjectPerformanceRow } from './reports';
 import type { Tone } from './tone';
 import type { ApiProject, ApiProjectProgress, ApiTask } from './types';
@@ -106,7 +107,7 @@ export function statusChangeProblem(error: unknown): string {
 
 /** Why the owner didn't change (an administrator's change on the project's Overview). */
 export function ownerChangeProblem(error: unknown): string {
-  if (error instanceof ApiError && error.status === 403) return 'Only an administrator can change the project owner.';
+  if (error instanceof ApiError && error.status === 403) return PROJECT_CHANGE_REFUSED;
   if (isNetworkError(error)) return 'You’re offline — the owner can be changed when you’re connected.';
   return 'Couldn’t change the owner. Please try again.';
 }

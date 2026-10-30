@@ -2,10 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ApiError, NetworkError } from './api-client';
-import { COLUMN_COLORS, COLUMN_TEXT, columnActionError, columnNameProblem, columnOrderSteps, columnSwapSteps, moveColumn, orderedColumns } from './board-columns';
+import { COLUMN_COLORS, COLUMN_TEXT, columnActionError, columnNameProblem, columnOrderSteps, columnSwapSteps, manageColumnsGate, moveColumn, orderedColumns } from './board-columns';
 import type { ApiColumn } from './types';
 
 const col = (id: string, position: number, patch: Partial<ApiColumn> = {}): ApiColumn => ({ id, projectId: 'p1', name: id, category: 'TODO', position, color: '#1E5A8B', enabled: true, ...patch });
+
+it('deleting a task and changing columns follow the project’s canManage', () => {
+  const emp = { id: 'u2', roles: ['EMPLOYEE'] };
+  expect(manageColumnsGate(emp, { canManage: true }, [], { membersKnown: false })).toBe('ok');
+  expect(manageColumnsGate(emp, { canManage: false }, [], { membersKnown: true })).toBe('refused');
+  expect(manageColumnsGate(emp, {}, [], { membersKnown: false })).toBe('needs-connection');
+  expect(manageColumnsGate(emp, { canManage: false }, [{ id: 'u2', role: 'MANAGER' }], { membersKnown: true })).toBe('refused');
+  expect(manageColumnsGate(emp, undefined, [{ id: 'u2', role: 'MANAGER' }], { membersKnown: true })).toBe('ok');
+});
 
 describe('Manage columns (4b), as on the website', () => {
   it('lists every column in board order, the hidden ones too', () => {
@@ -42,7 +51,7 @@ describe('Manage columns (4b), as on the website', () => {
     expect(columnActionError(new ApiError(409, 'COLUMN_NOT_EMPTY', 'This column still has 2 tasks. Move them to another column first.'))).toBe(
       'This column still has 2 tasks. Move them to another column first.',
     );
-    expect(columnActionError(new ApiError(403, 'FORBIDDEN', 'Forbidden'))).toBe('Only an administrator or a manager of this project can change its columns.');
+    expect(columnActionError(new ApiError(403, 'FORBIDDEN', 'Forbidden'))).toBe('Only this project’s owner, its managers or an administrator can change its columns.');
     expect(columnActionError(new NetworkError('offline'))).toBe('Couldn’t save that column change. Check your connection and try again.');
     expect(columnActionError(new Error('x'))).toBe('Couldn’t save that column change. Check your connection and try again.');
   });

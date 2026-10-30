@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, useWindowDimensions, Alert, AccessibilityInfo } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useDirectory, useProjectColumns, useProjectMembers, useProjectTasks, useProjectProgress, useMoveTask, useReorderColumn } from '../core/queries';
+import { useDirectory, useProject, useProjectColumns, useProjectMembers, useProjectTasks, useProjectProgress, useMoveTask, useReorderColumn } from '../core/queries';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useBoardRealtime } from '../core/useBoardRealtime';
 import { useServices, useSession } from '../core/providers';
@@ -52,9 +52,10 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const tasksQ = useProjectTasks(projectId, boardDate);
   const progressQ = useProjectProgress(projectId);
   const membersQ = useProjectMembers(projectId);
+  const projectQ = useProject(projectId);
   const dirQ = useDirectory();
-  // The server's rule (an administrator, or a manager of this project); it has the last word.
-  const canManage = canManageProject(user, membersQ.data ?? []);
+  // The server's rule (its owner, its managers, an administrator: the project's canManage); it has the last word.
+  const canManage = canManageProject(user, projectQ.data, membersQ.data ?? []);
   // Removed from this project while looking at it (server `project:removed`): leave the board.
   useBoardRealtime(projectId, () => {
     Alert.alert('No longer available', 'You were removed from this project.');

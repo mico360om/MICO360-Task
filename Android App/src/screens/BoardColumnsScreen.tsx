@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Switch, Alert, AccessibilityInfo, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useProjectColumns, useProjectMembers } from '../core/queries';
+import { useProject, useProjectColumns, useProjectMembers } from '../core/queries';
 import { useColumnActions } from '../core/board-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
@@ -31,6 +31,7 @@ export function BoardColumnsScreen({ route }: AppScreenProps<'BoardColumns'>) {
   const user = useSession()?.user ?? null;
   const columnsQ = useProjectColumns(projectId);
   const membersQ = useProjectMembers(projectId);
+  const projectQ = useProject(projectId);
   const actions = useColumnActions(projectId);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,9 +40,9 @@ export function BoardColumnsScreen({ route }: AppScreenProps<'BoardColumns'>) {
   const nameRef = useRef<TextInput>(null);
   const columns = useMemo(() => orderedColumns(columnsQ.data ?? []), [columnsQ.data]);
 
-  if (columnsQ.isLoading || membersQ.isLoading) return <Loader />;
-  // The server's rule; offline with the team not kept here it can't be checked — said so, never a refusal (4b review #13).
-  const gate = manageColumnsGate(user, membersQ.data ?? [], { membersKnown: !!membersQ.data });
+  if (columnsQ.isLoading || membersQ.isLoading || projectQ.isLoading) return <Loader />;
+  // The server's rule (the project's canManage); offline with neither it nor the team kept here it can't be checked — said so, never a refusal (4b review #13).
+  const gate = manageColumnsGate(user, projectQ.data, membersQ.data ?? [], { membersKnown: !!membersQ.data });
   if (gate !== 'ok') {
     return (
       <View style={s.safe}>

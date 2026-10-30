@@ -35,7 +35,7 @@ describe('the board screen (4b)', () => {
   it('picks the board’s day from a calendar, and offers Manage columns only to those the server lets manage the project', () => {
     expect(screen).toMatch(/<BoardDayBar boardDate=\{boardDate\} todayKey=\{todayKey\}/);
     expect(src('components/board/BoardDayBar.tsx')).toMatch(/<DayPicker/);
-    expect(screen).toMatch(/const canManage = canManageProject\(user, membersQ\.data \?\? \[\]\);/);
+    expect(screen).toMatch(/const canManage = canManageProject\(user, projectQ\.data, membersQ\.data \?\? \[\]\);/);
     expect(screen).toMatch(/\{canManage \? \(/);
     expect(screen).toMatch(/navigation\.navigate\('BoardColumns', \{ projectId, projectName \}\)/);
   });
@@ -56,7 +56,7 @@ describe('the board screen (4b)', () => {
 describe('Manage columns (4b)', () => {
   const screen = src('screens/BoardColumnsScreen.tsx');
   it('is for those the server lets manage the project; every change goes through the column actions', () => {
-    expect(screen).toMatch(/const gate = manageColumnsGate\(user, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\);/);
+    expect(screen).toMatch(/const gate = manageColumnsGate\(user, projectQ\.data, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\);/);
     expect(screen).toMatch(/gate === 'refused' \? <ErrorNote message=\{COLUMN_TEXT\.refused\} \/>/);
     for (const a of ['add', 'rename', 'recolour', 'setCategory', 'setEnabled', 'remove', 'move']) expect(screen, a).toMatch(new RegExp(`actions\\.${a}\\(`));
   });

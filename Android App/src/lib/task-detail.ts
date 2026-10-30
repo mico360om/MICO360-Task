@@ -3,6 +3,7 @@ import { appTimeZone, dueDayKey, formatDueDay, isOverdue, isTaskDone, type DateI
 import { moveItem } from './list-order';
 import { dayText, instantDayText } from './day-words';
 import { isWaitingForApproval } from './approvals';
+import { canManageProject } from './project-team';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
 import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
@@ -33,11 +34,13 @@ export function conflictText(e: unknown, fallback = 'Couldn’t save the change.
   return failureText(e, fallback);
 }
 
-/** Admins and the project's managers may delete a task (the server's rule). */
-export function canDeleteTask(user: { id: string; roles: string[] } | null, members: { id: string; role: 'MEMBER' | 'MANAGER' }[]): boolean {
-  if (!user) return false;
-  if (user.roles.includes('ADMIN')) return true;
-  return members.some((m) => m.id === user.id && m.role === 'MANAGER');
+/** Whoever runs the project may delete its tasks: the server's canManageTask (lib/project-team canManageProject). */
+export function canDeleteTask(
+  user: { id: string; roles: string[] } | null,
+  project: { canManage?: boolean } | null | undefined,
+  members: readonly { id: string; role: 'MEMBER' | 'MANAGER' }[] = [],
+): boolean {
+  return canManageProject(user, project, members);
 }
 
 /**

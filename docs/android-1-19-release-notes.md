@@ -10,6 +10,7 @@
 - In the Android app, a task waiting for approval is never counted or shown as overdue — the same numbers as the website.
 - In the Android app, moving a task that needs approval to Done says it is waiting for a project manager, instead of showing it done and jumping back; bulk Complete says the same.
 - In the Android app, asking for another sign-in code too soon says so and when to ask again, and the code step is still there if Android closes the app while you read the email.
+- In the Android app, anyone can create a project, and a project's owner, its managers and administrators can change it, its team, its columns and delete its tasks — as on the website.
 <!-- dates-and-fixes lines above this line -->
 
 ## New look — meetings, chat, account

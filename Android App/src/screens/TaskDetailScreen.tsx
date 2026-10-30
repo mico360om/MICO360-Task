@@ -16,6 +16,7 @@ import {
   useTaskTags,
   useSetTaskTags,
   useProjectMembers,
+  useProject,
   useTaskAssignees,
   useAssignUsers,
   useUnassignUser,
@@ -89,6 +90,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const setTags = useSetTaskTags(taskId);
   const assigneesQ = useTaskAssignees(taskId);
   const membersQ = useProjectMembers(projectId);
+  // Its project's canManage: who may delete the task (the server's rule).
+  const projectQ = useProject(projectId);
   const assign = useAssignUsers(taskId);
   const unassign = useUnassignUser(taskId);
   const checklistQ = useTaskChecklist(taskId);
@@ -427,7 +430,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
             {activity}
           </>
         )}
-        {canDeleteTask(session?.user ?? null, members) ? (
+        {canDeleteTask(session?.user ?? null, projectQ.data, members) ? (
           <View style={styles.danger}>
             <Text style={styles.dangerNote}>Deleting a task removes its checklist, comments and files.</Text>
             <Button title="Delete task" variant="ghost" onPress={confirmDelete} loading={deleteTask.isPending} accessibilityLabel="Delete task" />

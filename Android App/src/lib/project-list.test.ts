@@ -48,7 +48,7 @@ describe('changing a project’s status (administrators)', () => {
   });
 
   it('says plainly why the owner didn’t change, in the website’s words', () => {
-    expect(ownerChangeProblem(new ApiError(403, 'FORBIDDEN', 'Insufficient role'))).toBe('Only an administrator can change the project owner.');
+    expect(ownerChangeProblem(new ApiError(403, 'FORBIDDEN', 'Insufficient role'))).toBe('Only this project’s owner, its managers or an administrator can change it.');
     expect(ownerChangeProblem(new NetworkError('offline'))).toBe('You’re offline — the owner can be changed when you’re connected.');
     expect(ownerChangeProblem(new ApiError(500, 'ERROR', 'Request failed (500)'))).toBe('Couldn’t change the owner. Please try again.');
   });

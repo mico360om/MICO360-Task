@@ -204,6 +204,12 @@ export interface ApiProject {
   imageUrl?: string | null;
   /** Its owner (new tasks are assigned to them), or null. */
   ownerId?: string | null;
+  /**
+   * May the signed-in person run it — change it, its team and columns, delete its tasks (its owner,
+   * named managers, MANAGER members, administrators)? Sent by GET /projects, GET /projects/:id, POST
+   * and PUT; older servers leave it out.
+   */
+  canManage?: boolean;
 }
 
 // ── Meetings (taking part in them — 2a — and running them — 2b) ─────────────

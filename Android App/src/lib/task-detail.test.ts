@@ -10,11 +10,17 @@ describe('canDeleteTask', () => {
     { id: 'u1', role: 'MEMBER' as const },
     { id: 'u2', role: 'MANAGER' as const },
   ];
-  it('lets admins and the project’s managers delete, nobody else', () => {
-    expect(canDeleteTask({ id: 'u9', roles: ['ADMIN'] }, members)).toBe(true);
-    expect(canDeleteTask({ id: 'u2', roles: ['EMPLOYEE'] }, members)).toBe(true);
-    expect(canDeleteTask({ id: 'u1', roles: ['EMPLOYEE'] }, members)).toBe(false);
-    expect(canDeleteTask(null, members)).toBe(false);
+  it('without the project’s canManage (an older server): admins and the project’s managers delete, nobody else', () => {
+    expect(canDeleteTask({ id: 'u9', roles: ['ADMIN'] }, {}, members)).toBe(true);
+    expect(canDeleteTask({ id: 'u2', roles: ['EMPLOYEE'] }, {}, members)).toBe(true);
+    expect(canDeleteTask({ id: 'u1', roles: ['EMPLOYEE'] }, {}, members)).toBe(false);
+    expect(canDeleteTask(null, {}, members)).toBe(false);
+  });
+
+  it('deleting a task and changing columns follow the project’s canManage', () => {
+    const emp = { id: 'u2', roles: ['EMPLOYEE'] };
+    expect(canDeleteTask(emp, { canManage: true })).toBe(true);
+    expect(canDeleteTask(emp, { canManage: false }, [{ id: 'u2', role: 'MANAGER' }])).toBe(false);
   });
 });
 

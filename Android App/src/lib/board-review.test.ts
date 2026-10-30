@@ -69,12 +69,12 @@ describe('board review fixes (4b review #8–#13)', () => {
     expect(emptyBoardText({ columns: 3, canManage: false })).toEqual({ title: 'All columns are hidden', subtitle: 'Every column of this project is switched off.' });
     const admin = { id: 'u1', roles: ['ADMIN'] };
     const member = { id: 'u2', roles: ['EMPLOYEE'] };
-    expect(manageColumnsGate(admin, [], { membersKnown: false })).toBe('ok');
-    expect(manageColumnsGate(member, [{ id: 'u2', role: 'MANAGER' }], { membersKnown: true })).toBe('ok');
-    expect(manageColumnsGate(member, [{ id: 'u2', role: 'MEMBER' }], { membersKnown: true })).toBe('refused');
-    expect(manageColumnsGate(member, [], { membersKnown: false })).toBe('needs-connection');
+    expect(manageColumnsGate(admin, undefined, [], { membersKnown: false })).toBe('ok');
+    expect(manageColumnsGate(member, undefined, [{ id: 'u2', role: 'MANAGER' }], { membersKnown: true })).toBe('ok');
+    expect(manageColumnsGate(member, undefined, [{ id: 'u2', role: 'MEMBER' }], { membersKnown: true })).toBe('refused');
+    expect(manageColumnsGate(member, undefined, [], { membersKnown: false })).toBe('needs-connection');
     expect(COLUMN_TEXT.needsConnection).toBe('Needs a connection to check who can manage columns. Check your connection and try again.');
-    expect(src('screens/BoardColumnsScreen.tsx')).toMatch(/manageColumnsGate\(user, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\)/);
+    expect(src('screens/BoardColumnsScreen.tsx')).toMatch(/manageColumnsGate\(user, projectQ\.data, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\)/);
     expect(src('screens/BoardScreen.tsx')).toMatch(/emptyBoardText\(\{ columns: columnsQ\.data\?\.length \?\? 0, canManage \}\)/);
   });
 });

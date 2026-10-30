@@ -14,7 +14,7 @@ import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/
 import { boardProjects } from '../lib/all-board';
 import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectFiguresFor, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
 import { ownerName } from '../lib/project-dashboard';
-import { canEditProject } from '../lib/project-team';
+import { canCreateProject, canManageProject } from '../lib/project-team';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiProject } from '../lib/types';
 import type { TabScreenProps } from '../navigation/types';
@@ -22,15 +22,15 @@ import type { TabScreenProps } from '../navigation/types';
 /**
  * The Projects tab (5b), as the website's Projects page: each project's picture, code and number,
  * status in words, client, progress, task and overdue counts, dates and owner. A card opens the
- * project's dashboard; "Board" goes straight to its board. Administrators can add a project, edit
- * one and change its status (Archived goes through the archive action). It shows the last copy
- * offline; changes need a connection.
+ * project's dashboard; "Board" goes straight to its board. Anyone signed in can add a project; whoever
+ * runs one (the server's canManage) can edit it and change its status (Archived goes through the
+ * archive action). It shows the last copy offline; changes need a connection.
  */
 export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const user = useSession()?.user ?? null;
-  const admin = canEditProject(user);
+  const canCreate = canCreateProject(user);
   const { data: projects, isLoading, isError, refetch, isRefetching } = useProjects();
   const list = useMemo(() => projects ?? [], [projects]);
   // One request for every card's figures (5b review), fetched again when the tab is shown and out of date.
@@ -52,7 +52,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
       // Search stays in the header next to "+ New" (6b), as on every tab.
       headerRight: () => (
         <TabHeaderButtons>
-          {admin ? (
+          {canCreate ? (
             <Pressable onPress={() => navigation.navigate('ProjectForm')} accessibilityRole="button" accessibilityLabel="New project" hitSlop={8} style={s.headerButton}>
               <Text style={s.headerButtonText}>+ New</Text>
             </Pressable>
@@ -60,14 +60,14 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         </TabHeaderButtons>
       ),
     });
-  }, [navigation, admin, s]);
+  }, [navigation, canCreate, s]);
 
   const open = useCallback((p: ApiProject) => navigation.navigate('ProjectDetail', { projectId: p.id, projectName: p.name }), [navigation]);
   const board = useCallback((p: ApiProject) => navigation.navigate('Board', { projectId: p.id, projectName: p.name }), [navigation]);
   const edit = useCallback((p: ApiProject) => navigation.navigate('ProjectForm', { projectId: p.id }), [navigation]);
 
   if (isLoading) return <Loader />;
-  const empty = emptyProjects(admin);
+  const empty = emptyProjects(canCreate);
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -86,7 +86,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         }
         ListHeaderComponent={
           <View style={s.head}>
-            <Text style={s.subtitle}>{projectsSubtitle(admin)}</Text>
+            <Text style={s.subtitle}>{projectsSubtitle(canCreate)}</Text>
             {/* Every project on one board (4c) — offered when there is more than one, as on the website. */}
             {boardProjects(list).length > 1 ? (
               <Pressable
@@ -107,7 +107,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
           <ProjectCard
             project={item}
             meta={projectCardMeta(projectFiguresFor(figures, item.id), item.ownerId && dirQ.data ? ownerName(item.ownerId, people) : null)}
-            admin={admin}
+            canManage={canManageProject(user, item)}
             onOpen={open}
             onBoard={board}
             onEdit={edit}
@@ -126,7 +126,7 @@ type Styles = ReturnType<typeof makeStyles>;
 const ProjectCard = React.memo(function ProjectCard({
   project: p,
   meta,
-  admin,
+  canManage,
   onOpen,
   onBoard,
   onEdit,
@@ -135,7 +135,8 @@ const ProjectCard = React.memo(function ProjectCard({
 }: {
   project: ApiProject;
   meta: ProjectCardMeta | null;
-  admin: boolean;
+  /** Whoever runs it (the server's canManage): its status and Edit. */
+  canManage: boolean;
   onOpen: (p: ApiProject) => void;
   onBoard: (p: ApiProject) => void;
   onEdit: (p: ApiProject) => void;
@@ -190,8 +191,8 @@ const ProjectCard = React.memo(function ProjectCard({
       </Pressable>
       <View style={s.footer}>
         <FooterButton label="Board" a11y={`Board for ${p.name}`} onPress={() => onBoard(p)} s={s} />
-        {admin ? <FooterButton label={`Status: ${projectStatusLabel(p.status)}`} a11y={`Status for ${p.name}: ${projectStatusLabel(p.status)}. Change it`} onPress={() => onStatus(p)} s={s} /> : null}
-        {admin ? <FooterButton label="Edit" a11y={`Edit ${p.name}`} onPress={() => onEdit(p)} s={s} /> : null}
+        {canManage ? <FooterButton label={`Status: ${projectStatusLabel(p.status)}`} a11y={`Status for ${p.name}: ${projectStatusLabel(p.status)}. Change it`} onPress={() => onStatus(p)} s={s} /> : null}
+        {canManage ? <FooterButton label="Edit" a11y={`Edit ${p.name}`} onPress={() => onEdit(p)} s={s} /> : null}
       </View>
     </View>
   );

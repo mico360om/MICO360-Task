@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
-import { addableUsers, canEditProject, canManageProject, memberLabel, memberProblem, membersInOrder, removeQuestion, roleAction, teamManagers } from './project-team';
+import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
+import { addableUsers, canCreateProject, canManageProject, memberLabel, memberProblem, membersInOrder, PROJECT_CHANGE_REFUSED, removeQuestion, roleAction, teamManagers } from './project-team';
 import type { ApiMember } from './types';
 
 const member = (id: string, role: 'MEMBER' | 'MANAGER', first = id, last = ''): ApiMember => ({ id, username: id.toLowerCase(), email: `${id}@x`, firstName: first, lastName: last, role });
@@ -8,19 +9,42 @@ const member = (id: string, role: 'MEMBER' | 'MANAGER', first = id, last = ''): 
 describe('who may run the team', () => {
   const members = [member('u1', 'MANAGER'), member('u2', 'MEMBER')];
 
-  it('is the server’s rule: an administrator, or a manager of this project', () => {
-    expect(canManageProject({ id: 'admin', roles: ['ADMIN'] }, [])).toBe(true);
-    expect(canManageProject({ id: 'u1', roles: ['EMPLOYEE'] }, members)).toBe(true);
-    expect(canManageProject({ id: 'u2', roles: ['EMPLOYEE'] }, members)).toBe(false);
-    expect(canManageProject({ id: 'u9', roles: ['EMPLOYEE'] }, members)).toBe(false);
-    expect(canManageProject(null, members)).toBe(false);
+  it('without the server’s canManage (an older server): an administrator, or a MANAGER member of this project', () => {
+    expect(canManageProject({ id: 'admin', roles: ['ADMIN'] }, {}, [])).toBe(true);
+    expect(canManageProject({ id: 'u1', roles: ['EMPLOYEE'] }, undefined, members)).toBe(true);
+    expect(canManageProject({ id: 'u2', roles: ['EMPLOYEE'] }, {}, members)).toBe(false);
+    expect(canManageProject({ id: 'u9', roles: ['EMPLOYEE'] }, null, members)).toBe(false);
+    expect(canManageProject(null, {}, members)).toBe(false);
   });
+});
 
-  it('lets only an administrator change the project itself (the server refuses anyone else)', () => {
-    expect(canEditProject({ id: 'a', roles: ['ADMIN'] })).toBe(true);
-    expect(canEditProject({ id: 'u1', roles: ['EMPLOYEE'] })).toBe(false);
-    expect(canEditProject(null)).toBe(false);
-  });
+const emp = { id: 'u2', roles: ['EMPLOYEE'] };
+it('the server’s canManage decides: owners and named managers too, not only MANAGER members', () => {
+  expect(canManageProject(emp, { canManage: true }, [])).toBe(true);
+  expect(canManageProject(emp, { canManage: false }, [{ id: 'u2', role: 'MANAGER' }])).toBe(false);
+  expect(canManageProject(emp, {}, [{ id: 'u2', role: 'MANAGER' }])).toBe(true);
+  expect(canManageProject({ id: 'a', roles: ['ADMIN'] }, { canManage: false })).toBe(true);
+  expect(canManageProject(null, { canManage: true })).toBe(false);
+});
+it('anyone signed in may create a project', () => {
+  expect(canCreateProject(emp)).toBe(true);
+  expect(canCreateProject(null)).toBe(false);
+});
+describe.skipIf(!hasWeb('backend/src/modules/projects/project-routes.ts'))('the server’s words', () => {
+  it('refuses a change in the server’s words', () => expect(readWeb('backend/src/modules/projects/project-routes.ts')).toContain(`export const CHANGE_REFUSED = '${PROJECT_CHANGE_REFUSED}';`));
+});
+it('nothing says only an administrator can create or change a project', () => {
+  for (const f of ['screens/ProjectFormScreen.tsx', 'screens/ProjectsScreen.tsx', 'screens/ProjectDetailScreen.tsx', 'lib/project-list.ts', 'lib/board-columns.ts']) expect(src(f), f).not.toMatch(/Only an administrator (or a manager of this project )?can (create|change)/);
+  expect(src('screens/ProjectFormScreen.tsx')).toMatch(/PROJECT_CHANGE_REFUSED/);
+});
+it('the screens ask the project (its canManage), not roles alone', () => {
+  expect(src('screens/ProjectDetailScreen.tsx')).toMatch(/canManageProject\(user, project, members\)/);
+  expect(src('screens/ProjectsScreen.tsx')).toMatch(/canCreateProject\(user\)/);
+  expect(src('screens/ProjectsScreen.tsx')).toMatch(/canManageProject\(user, item\)/);
+  expect(src('screens/ProjectFormScreen.tsx')).toMatch(/canManageProject\(user, project/);
+  expect(src('screens/DashboardScreen.tsx')).toMatch(/roles\.includes\('ADMIN'\)/);
+  expect(src('screens/TaskDetailScreen.tsx')).toMatch(/canDeleteTask\(session\?\.user \?\? null, projectQ\.data, members\)/);
+  for (const f of ['screens/ProjectFormScreen.tsx', 'screens/ProjectsScreen.tsx', 'screens/ProjectDetailScreen.tsx', 'screens/DashboardScreen.tsx']) expect(src(f), f).not.toMatch(/canEditProject/);
 });
 
 describe('the team list', () => {
