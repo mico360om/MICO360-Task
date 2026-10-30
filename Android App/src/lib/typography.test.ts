@@ -1,5 +1,27 @@
-import { describe, it, expect } from 'vitest';
-import { FONT_FACES, font, fontFamilyFor, typeStyle, type FontWeight, type TypeRole } from './typography';
+import { describe, it, expect, afterEach } from 'vitest';
+import { FONT_FACES, font, fontFamilyFor, setBrandFaces, typeStyle, type FontWeight, type TypeRole } from './typography';
+
+// Final review L4: when the brand fonts didn't load (an error, or 3 s without them), styles name the
+// weight for the phone's own font instead of a face it doesn't have — headings stay bold.
+describe('on the phone’s fonts (the brand faces did not load)', () => {
+  afterEach(() => setBrandFaces(true));
+  it('font() and typeStyle() give the weight, not a missing face', () => {
+    setBrandFaces(false);
+    expect(font('700')).toEqual({ fontWeight: '700' });
+    expect(font('bold')).toEqual({ fontWeight: '700' });
+    expect(font('600', 'display')).toEqual({ fontWeight: '600' });
+    expect(typeStyle('title')).toEqual({ fontWeight: '800', fontSize: 22, lineHeight: 28, letterSpacing: -0.2 });
+    expect(typeStyle('body')).toEqual({ fontWeight: '400', fontSize: 14, lineHeight: 20 });
+    expect(typeStyle('eyebrow')).toMatchObject({ fontWeight: '600', textTransform: 'uppercase' });
+    expect(typeStyle('title')).not.toHaveProperty('fontFamily');
+  });
+  it('back on the brand faces, the face again and no weight', () => {
+    setBrandFaces(false);
+    setBrandFaces(true);
+    expect(font('700')).toEqual({ fontFamily: 'IBMPlexSans-Bold' });
+    expect(typeStyle('title')).not.toHaveProperty('fontWeight');
+  });
+});
 
 const ROLES: TypeRole[] = ['display', 'title', 'heading', 'subheading', 'body', 'bodyStrong', 'label', 'caption', 'eyebrow', 'badge', 'button', 'tab', 'number'];
 
