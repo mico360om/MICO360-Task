@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ApiError, NetworkError } from './api-client';
 import { NAV_COMMANDS } from './commands';
+import { websitePageUrl } from './website';
 import { ALL_PROJECTS_BOARD } from '../navigation/nav-actions';
 import {
   APP_PAGES,
@@ -24,8 +25,35 @@ const results = (over: Partial<SearchResults> = {}): SearchResults => ({
   ...over,
 });
 
-const ctx = { isAdmin: false, myId: 'me' };
+const ctx = { isAdmin: false, canLead: false, myId: 'me' };
 const groups = (items: { group: string }[]) => [...new Set(items.map((i) => i.group))];
+
+it('Timeline, Workload, Templates and MICO AI found by Search open on the website', () => {
+  for (const [q, path] of [['timeline', '/timeline'], ['workload', '/workload'], ['templates', '/templates'], ['mico ai', '/mico-ai']] as const) {
+    const item = searchItems({ raw: q, results: undefined, isAdmin: false, canLead: false, myId: 'u1' }).find((i) => i.target.kind === 'website');
+    expect(item?.target, q).toEqual({ kind: 'website', path });
+    expect(websitePageUrl('https://task.mico360.com/api/v1', path), q).not.toBeNull();
+  }
+});
+
+it('Management is offered to whoever runs a project, not only administrators', () => {
+  const has = (canLead: boolean) => searchItems({ raw: 'management', results: undefined, isAdmin: false, canLead, myId: 'u1' }).some((i) => i.primary === 'Management');
+  expect(has(false)).toBe(false);
+  expect(has(true)).toBe(true);
+  // "go to management" too, and it opens on the website.
+  expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: true, myId: 'u1' })[0]).toMatchObject({ group: 'Command', target: { kind: 'website', path: '/management' } });
+  expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: false, myId: 'u1' }).some((i) => i.group === 'Command')).toBe(false);
+});
+
+it('every website page Search offers is one the app opens (none does nothing)', () => {
+  for (const [id, page] of Object.entries(APP_PAGES)) if (page.target.kind === 'website') expect(websitePageUrl('https://task.mico360.com/api/v1', page.target.path), id).not.toBeNull();
+});
+
+it('the Search screen asks the server who runs a project', () => {
+  const screen = readFileSync(resolve(__dirname, '../screens/SearchScreen.tsx'), 'utf8');
+  expect(screen).toMatch(/const \{ allowed: canLead \} = useManagementAccess\(\);/);
+  expect(screen).toMatch(/searchItems\(\{ raw: term, results, isAdmin, canLead, myId \}\)/);
+});
 
 describe('search: what the box offers before and while typing', () => {
   it('waits for typing to pause, and asks the server from 2 letters', () => {
@@ -43,10 +71,10 @@ describe('search: what the box offers before and while typing', () => {
 
   it('pages match by name or keyword; the admin pages only for administrators, the rest on the website', () => {
     expect(searchItems({ raw: 'rep', results: undefined, ...ctx }).map((i) => i.primary)).toEqual([]);
-    expect(searchItems({ raw: 'rep', results: undefined, isAdmin: true, myId: 'me' }).map((i) => i.primary)).toEqual(['Reports']);
-    const ai = searchItems({ raw: 'models', results: undefined, isAdmin: true, myId: 'me' })[0]!;
+    expect(searchItems({ raw: 'rep', results: undefined, isAdmin: true, canLead: true, myId: 'me' }).map((i) => i.primary)).toEqual(['Reports']);
+    const ai = searchItems({ raw: 'models', results: undefined, isAdmin: true, canLead: true, myId: 'me' })[0]!;
     expect(ai).toMatchObject({ group: 'Go to', primary: 'AI Management', hint: 'On the website', target: { kind: 'website', path: '/admin/ai' }, label: 'AI Management, opens on the website' });
-    expect(searchItems({ raw: 'users', results: undefined, isAdmin: true, myId: 'me' })[0]).toMatchObject({ primary: 'User Management', target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } });
+    expect(searchItems({ raw: 'users', results: undefined, isAdmin: true, canLead: true, myId: 'me' })[0]).toMatchObject({ primary: 'User Management', target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } });
     expect(searchItems({ raw: 'what’s new', results: undefined, ...ctx })[0]).toMatchObject({ primary: 'About and version history', target: { kind: 'screen', action: { type: 'stack', screen: 'About' } } });
   });
 
@@ -71,7 +99,7 @@ describe('search: what the box offers before and while typing', () => {
   it('reads “open KEY” (or a bare key) and “go to …” as a command; the task-changing commands stay on the website', () => {
     expect(searchItems({ raw: 'mico-7', results: undefined, ...ctx })[0]).toMatchObject({ group: 'Command', primary: 'Open MICO-7', target: { kind: 'openKey', key: 'MICO-7' } });
     expect(searchItems({ raw: 'go to calendar', results: undefined, ...ctx })[0]).toMatchObject({ group: 'Command', primary: 'Go to Calendar', target: { kind: 'screen', action: { type: 'stack', screen: 'Calendar' } } });
-    expect(searchItems({ raw: 'go to audit', results: undefined, isAdmin: true, myId: 'me' })[0]).toMatchObject({ group: 'Command', primary: 'Go to Audit Logs', target: { kind: 'website', path: '/admin/audit' } });
+    expect(searchItems({ raw: 'go to audit', results: undefined, isAdmin: true, canLead: true, myId: 'me' })[0]).toMatchObject({ group: 'Command', primary: 'Go to Audit Logs', target: { kind: 'website', path: '/admin/audit' } });
     expect(groups(searchItems({ raw: 'complete MICO-7', results: undefined, ...ctx }))).not.toContain('Command');
     expect(searchItems({ raw: 'go to board', results: undefined, ...ctx })[0]).toMatchObject({ group: 'Command', primary: 'Go to Kanban Board', target: { kind: 'screen', action: ALL_PROJECTS_BOARD } });
   });
@@ -109,7 +137,7 @@ describe('search: the server’s results, in the website’s groups and numbers'
       ['Omar Ahmed', { kind: 'directMessage', userId: 'u2', name: 'Omar Ahmed' }],
     ]);
     expect(asMember[1]!.label).toBe('Person Omar Ahmed, opens a chat');
-    const asAdmin = searchItems({ raw: 'ma', results: people, isAdmin: true, myId: 'me' }).filter((i) => i.group === 'People');
+    const asAdmin = searchItems({ raw: 'ma', results: people, isAdmin: true, canLead: true, myId: 'me' }).filter((i) => i.group === 'People');
     expect(asAdmin[1]!.target).toEqual({ kind: 'screen', action: { type: 'stack', screen: 'Users', params: { q: 'omar' } } });
     // A name-less person shows the username.
     expect(searchItems({ raw: 'zz', results: r, ...ctx }).find((i) => i.group === 'People')?.primary).toBe('First0');

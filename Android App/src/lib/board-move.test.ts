@@ -1,6 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { moveTargets, movePlan, placeChoices, placeOrder, stepOrder, withOrder } from './board-move';
-import type { ApiColumn } from './types';
+import { moveTargets, movePlan, placeAsServerSays, placeChoices, placeOrder, stepOrder, withOrder } from './board-move';
+import type { ApiColumn, ApiTask } from './types';
+
+const task = (over: Partial<ApiTask> = {}): ApiTask => ({
+  id: 't1', key: 'RIG-4', title: 'Pressure test', description: null, projectId: 'p', columnId: 'todo', position: 0,
+  priority: 'NORMAL', startDate: null, dueDate: null, estimatedHours: null, progress: 0, completedAt: null, ...over,
+});
+
+describe('a move as the server answered it', () => {
+  it('after a move into Done the board shows the task where the server put it (waiting in Review)', () => {
+    const list = [task({ id: 't1', columnId: 'done' })];
+    expect(placeAsServerSays(list, { id: 't1', columnId: 'review', position: 0, completedAt: null, approvalRequestedAt: '2026-10-30T08:00:00Z', columnCategory: 'REVIEW' })[0]).toMatchObject({
+      columnId: 'review',
+      approvalRequestedAt: '2026-10-30T08:00:00Z',
+      columnCategory: 'REVIEW',
+    });
+  });
+
+  it('only the moved task changes; its other fields stay; no kind sent keeps the one it had', () => {
+    const list = [task({ id: 't1', columnId: 'done', columnCategory: 'DONE', completedAt: '2026-10-30T08:00:00Z', title: 'Kept' }), task({ id: 't2', columnId: 'done' })];
+    const out = placeAsServerSays(list, { id: 't1', columnId: 'review', position: 3, completedAt: null, approvalRequestedAt: '2026-10-30T08:00:00Z' });
+    expect(out[0]).toMatchObject({ title: 'Kept', columnId: 'review', position: 3, completedAt: null, columnCategory: 'DONE' });
+    expect(out[1]).toBe(list[1]);
+    expect(placeAsServerSays(list, { id: 'zz', columnId: 'x', position: 0, completedAt: null, approvalRequestedAt: null })).toEqual(list);
+  });
+});
 
 const col = (id: string, position: number, enabled = true): ApiColumn => ({ id, projectId: 'p', name: id, category: 'TODO', position, color: '#000', enabled });
 

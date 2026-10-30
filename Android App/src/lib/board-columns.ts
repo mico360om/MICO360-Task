@@ -1,8 +1,8 @@
 /**
  * Manage columns (4b), as the website's ColumnManager: add a column, rename it, give it a colour,
  * map it to a status, show or hide it, move it up or down, delete it. Who may do it is the
- * server's rule — an administrator, or a manager of the project (modules/projects/project-authz;
- * the app asks lib/project-team canManageProject, never roles alone) — and the server has the last
+ * server's rule — an administrator, or whoever runs the project: its owner and managers (the
+ * project's canManage; the app asks lib/project-team canManageProject, never roles alone) — and the server has the last
  * word. Every change needs a connection, as on the website. Pure, so it is tested here.
  */
 import { ApiError } from './api-client';
@@ -14,7 +14,7 @@ export const COLUMN_TEXT = {
   nameRequired: 'Column name is required.',
   addNote: 'New columns start as a “To do” stage — set its mapped status after adding.',
   connection: 'Couldn’t save that column change. Check your connection and try again.',
-  refused: 'Only an administrator or a manager of this project can change its columns.',
+  refused: 'Only this project’s owner, its managers or an administrator can change its columns.',
   /** Offline, with the project's team not kept on this phone: who manages it can't be checked (4b review #13). */
   needsConnection: 'Needs a connection to check who can manage columns. Check your connection and try again.',
 } as const;
@@ -27,17 +27,19 @@ export function emptyBoardText({ columns, canManage }: { columns: number; canMan
 
 /**
  * May this person manage the columns (the server's rule, lib/project-team)? An administrator
- * always; anyone else by the project's team — and when that couldn't be read (offline, nothing
- * kept), it can't be said: 'needs-connection', never a refusal.
+ * always; anyone else by the project's `canManage` — or, from an older server that doesn't send it,
+ * by the project's team; when neither could be read (offline, nothing kept), it can't be said:
+ * 'needs-connection', never a refusal.
  */
 export function manageColumnsGate(
   user: { id: string; roles: string[] } | null,
+  project: { canManage?: boolean } | null | undefined,
   members: readonly { id: string; role: 'MEMBER' | 'MANAGER' }[],
   o: { membersKnown: boolean },
 ): 'ok' | 'refused' | 'needs-connection' {
   if (user?.roles.includes('ADMIN')) return 'ok';
-  if (!o.membersKnown) return 'needs-connection';
-  return canManageProject(user, [...members]) ? 'ok' : 'refused';
+  if (typeof project?.canManage !== 'boolean' && !o.membersKnown) return 'needs-connection';
+  return canManageProject(user, project, members) ? 'ok' : 'refused';
 }
 
 /** Every column, hidden ones too, in board order. */

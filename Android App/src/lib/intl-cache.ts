@@ -5,9 +5,12 @@
  */
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-/** The formatter for these settings (`locale` undefined = the phone's own), made the first time. */
-export function dateFormat(locale: string | undefined, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = `${locale ?? ''}|${JSON.stringify(Object.keys(options).sort().map((k) => [k, options[k as keyof Intl.DateTimeFormatOptions]]))}`;
+/**
+ * The formatter for these settings, made the first time. The locale is always named (a fixed
+ * 'en-CA' / 'en-GB' / 'en-US'): the phone's own language never decides how a date reads.
+ */
+export function dateFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(Object.keys(options).sort().map((k) => [k, options[k as keyof Intl.DateTimeFormatOptions]]))}`;
   let f = formatters.get(key);
   if (!f) {
     f = new Intl.DateTimeFormat(locale, options);

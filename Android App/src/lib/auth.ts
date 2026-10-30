@@ -1,5 +1,6 @@
 import type { ApiClient } from './api-client';
 import type { Envelope, Session } from './types';
+import type { CodeAnswer } from './email-sign-in';
 
 /**
  * The longest text each sign-in field takes: the server's own limits (a longer email or password is
@@ -48,8 +49,9 @@ export function authApi(client: ApiClient) {
     logout: (refreshToken: string) =>
       client.post<Envelope<{ ok: true }>>('/auth/logout', { refreshToken }).then((r) => r.data),
 
-    requestOtp: (identifier: string) =>
-      client.post<Envelope<{ sent: true }>>('/auth/otp/request', { identifier }).then((r) => r.data),
+    /** Email a sign-in code: `{ sent: false, retryAfterSeconds }` when the same address asked less than a minute ago. */
+    requestOtp: (identifier: string): Promise<CodeAnswer> =>
+      client.post<Envelope<CodeAnswer>>('/auth/otp/request', { identifier }).then((r) => r.data),
     verifyOtp: (identifier: string, code: string) =>
       client.post<Envelope<Session>>('/auth/otp/verify', { identifier, code }).then((r) => r.data),
 

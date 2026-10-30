@@ -9,11 +9,11 @@ describe('dateFormat (one formatter per locale, zone and options)', () => {
     expect(a.format(new Date('2026-10-20T06:05:00.000Z'))).toBe('10:05');
   });
 
-  it('keeps different settings apart (the device locale included)', () => {
+  it('keeps different settings apart (the locale included)', () => {
     const muscat = dateFormat('en-CA', { timeZone: 'Asia/Muscat', year: 'numeric', month: '2-digit', day: '2-digit' });
     const utc = dateFormat('en-CA', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' });
     expect(muscat).not.toBe(utc);
-    expect(dateFormat(undefined, { month: 'short' })).not.toBe(dateFormat('en-GB', { month: 'short' }));
+    expect(dateFormat('en-US', { hour: '2-digit' })).not.toBe(dateFormat('en-GB', { hour: '2-digit' }));
     expect(muscat.format(new Date('2026-10-19T22:30:00.000Z'))).toBe('2026-10-20');
   });
 });

@@ -1,8 +1,9 @@
 /**
- * "Open on the website" (6b): the website's admin pages the app doesn't have — AI Management,
- * System Settings and Audit Logs — open in the browser, on the website of the server the app is
- * connected to. Only these pages, only on that server's own address, and only over https (or plain
- * http to an office-network server, the rule every request follows). Pure TypeScript.
+ * "Open on the website" (6b): the website's pages the app doesn't have — AI Management, System
+ * Settings and Audit Logs, and (until the app has its own screens) Timeline, Workload, Management,
+ * Templates and MICO AI — open in the browser, on the website of the server the app is connected
+ * to. Only these pages, only on that server's own address, and only over https (or plain http to an
+ * office-network server, the rule every request follows). Pure TypeScript.
  *
  * The app's own App Links never claim these paths (app.json), so the browser opens them and never
  * hands them back to the app.
@@ -24,9 +25,12 @@ export const WEBSITE_ONLY_PAGES: readonly WebsitePage[] = [
   { key: 'audit', label: 'Audit Logs', path: '/admin/audit', icon: '📜' },
 ];
 
+/** Every website page the app opens in the browser: Search and the menu offer these, and nothing else. */
+export const WEBSITE_LINK_PATHS = ['/admin/ai', '/admin/settings', '/admin/audit', '/timeline', '/workload', '/management', '/templates', '/mico-ai'] as const;
+
 /** The full address of one of those pages on this server's website, or null for anything else. */
 export function websitePageUrl(apiBase: string, path: string): string | null {
-  if (!WEBSITE_ONLY_PAGES.some((p) => p.path === path)) return null;
+  if (!(WEBSITE_LINK_PATHS as readonly string[]).includes(path)) return null;
   let base: URL;
   try {
     base = new URL(apiBase);

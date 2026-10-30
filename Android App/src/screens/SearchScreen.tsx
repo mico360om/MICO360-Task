@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useSearch } from '../core/search-queries';
+import { useManagementAccess } from '../core/management-queries';
 import { useStartDirect } from '../core/chat-features';
 import { useDebouncedValue } from '../core/useDebounced';
 import { ApiError, isNetworkError } from '../lib/api-client';
@@ -27,12 +28,14 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
   const session = useSession();
   const isAdmin = (session?.user.roles ?? []).includes('ADMIN');
   const myId = session?.user.id ?? null;
+  // Management is offered to whoever the server says runs a project (and administrators).
+  const { allowed: canLead } = useManagementAccess();
   const [term, setTerm] = useState('');
   const debounced = useDebouncedValue(term, SEARCH_DEBOUNCE_MS);
   const searchQ = useSearch(debounced);
   const asked = searchEnabled(debounced);
   const results = asked ? searchQ.data : undefined;
-  const items = useMemo(() => searchItems({ raw: term, results, isAdmin, myId }), [term, results, isAdmin, myId]);
+  const items = useMemo(() => searchItems({ raw: term, results, isAdmin, canLead, myId }), [term, results, isAdmin, canLead, myId]);
   const resultCount = items.filter((i) => RESULT_GROUPS.has(i.group)).length;
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);

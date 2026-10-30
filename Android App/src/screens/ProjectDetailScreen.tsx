@@ -18,7 +18,7 @@ import { TaskGroupHeading, TasksTabBar, TasksTabRow, tasksTabItems, type TasksTa
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
 import { ownerOptions, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
-import { canEditProject, canManageProject } from '../lib/project-team';
+import { canManageProject } from '../lib/project-team';
 import { ownerChangeProblem } from '../lib/project-list';
 import {
   canScheduleIn,
@@ -43,8 +43,8 @@ type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
  * tiles and completion; then Overview (details, work done and time, milestones, deadlines, the AI
  * status summary, who runs it and who has what, the next meeting, tasks by status), Tasks (every
  * task by status column, narrowed by where it stands or by words), Meetings and Team. Live: another
- * person's change to its tasks shows here at once. An administrator can edit the project and change
- * its owner; administrators and the project's managers run the team. It opens offline from the
+ * person's change to its tasks shows here at once. Whoever runs it — its owner, its managers, an
+ * administrator (the server's canManage) — can edit the project, change its owner and run the team. It opens offline from the
  * last copy; every change needs a connection.
  */
 export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'ProjectDetail'>) {
@@ -88,8 +88,8 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
   const statsReady = !!tasksQ.data && !!columnsQ.data;
   const members = useMemo(() => membersQ.data ?? [], [membersQ.data]);
   const people = useMemo(() => dirQ.data ?? [], [dirQ.data]);
-  const canManage = canManageProject(user, members);
-  const canEdit = canEditProject(user);
+  // The server's canManage (its owner, named managers and MANAGER members, administrators); members for an older server.
+  const canManage = canManageProject(user, project, members);
   // Until the people list has loaded (offline, say), an owner shows as "—" rather than "Unknown".
   const owner = dirQ.data || !project?.ownerId ? ownerName(project?.ownerId, people) : '—';
   const canSchedule = canScheduleIn(project);
@@ -166,7 +166,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
       <View style={s.actions}>
         {/* New task in this project (4a; the website's header New task starts in the project open). */}
         <Button title="New task" onPress={() => navigation.navigate('NewTask', { projectId })} style={s.action} />
-        {canEdit ? <Button title="✏️ Edit project" accessibilityLabel="Edit project" variant="secondary" onPress={() => navigation.navigate('ProjectForm', { projectId })} style={s.action} /> : null}
+        {canManage ? <Button title="✏️ Edit project" accessibilityLabel="Edit project" variant="secondary" onPress={() => navigation.navigate('ProjectForm', { projectId })} style={s.action} /> : null}
       </View>
       <SheetMessage text={ownerProblem} />
 
@@ -196,7 +196,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           members={members}
           ownerName={owner}
           ownerControl={
-            canEdit ? <InlinePicker label="Project owner" options={owners} value={project.ownerId ?? ''} onChange={changeOwner} placeholder="No owner" disabled={ownerMut.isPending} /> : null
+            canManage ? <InlinePicker label="Project owner" options={owners} value={project.ownerId ?? ''} onChange={changeOwner} placeholder="No owner" disabled={ownerMut.isPending} /> : null
           }
           meetings={meetingsQ.data}
           meetingsLoading={meetingsQ.isLoading}

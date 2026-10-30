@@ -48,7 +48,9 @@ describe('mobile due-date rules (XP-03)', () => {
   });
 
   it('formats the due day without shifting it', () => {
-    expect(formatDueDay('2026-09-30T00:00:00.000Z', 'en-US')).toBe('Sep 30');
+    expect(formatDueDay('2026-09-30T00:00:00.000Z')).toBe('30 Sep 2026');
+    expect(formatDueDay('2026-09-30', 'UTC', { weekday: 'short', year: false })).toBe('Wed 30 Sep');
+    expect(formatDueDay('2026-09-30T20:30:00.000Z', 'Asia/Muscat')).toBe('1 Oct 2026');
     expect(formatDueDay(null)).toBeNull();
   });
 });
@@ -74,18 +76,18 @@ describe('the app’s time zone can follow the server and your settings', () => 
 });
 
 describe('two zones, as on the website: the company’s everywhere, your own on the calendar', () => {
-  afterEach(() => setDateZones({ company: 'Asia/Muscat', own: null }));
+  afterEach(() => setDateZones({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 }));
 
   it('boards, due dates and meetings follow the company’s zone even when you chose your own', () => {
-    setDateZones({ company: 'Asia/Dubai', own: 'America/New_York' });
+    setDateZones({ company: 'Asia/Dubai', own: 'America/New_York', companyWeekStart: 0 });
     expect(appTimeZone()).toBe('Asia/Dubai');
     expect(companyTodayKey(new Date('2026-10-12T02:00:00.000Z'))).toBe('2026-10-12');
   });
 
   it('the calendar follows your own zone, else the company’s', () => {
-    setDateZones({ company: 'Asia/Dubai', own: 'America/New_York' });
+    setDateZones({ company: 'Asia/Dubai', own: 'America/New_York', companyWeekStart: 0 });
     expect(calendarTimeZone()).toBe('America/New_York');
-    setDateZones({ company: 'Asia/Dubai', own: null });
+    setDateZones({ company: 'Asia/Dubai', own: null, companyWeekStart: 0 });
     expect(calendarTimeZone()).toBe('Asia/Dubai');
   });
 
@@ -93,11 +95,21 @@ describe('two zones, as on the website: the company’s everywhere, your own on 
     const heard: string[] = [];
     const stop = subscribeTimeZone(() => heard.push(`${dateZones().company}|${dateZones().own}`));
     const before = dateZones();
-    setDateZones({ company: 'Asia/Muscat', own: null }); // unchanged
+    setDateZones({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 }); // unchanged
     expect(dateZones()).toBe(before);
-    setDateZones({ company: 'Asia/Muscat', own: 'Europe/London' });
+    setDateZones({ company: 'Asia/Muscat', own: 'Europe/London', companyWeekStart: 0 });
     expect(dateZones()).not.toBe(before);
     stop();
     expect(heard).toEqual(['Asia/Muscat|Europe/London']);
+  });
+
+  it('the company’s week start is one of them: the default is Sunday, and a change is heard', () => {
+    expect(dateZones()).toEqual({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 });
+    const heard: number[] = [];
+    const stop = subscribeTimeZone(() => heard.push(dateZones().companyWeekStart));
+    setDateZones({ company: 'Asia/Muscat', own: null, companyWeekStart: 1 });
+    setDateZones({ company: 'Asia/Muscat', own: null, companyWeekStart: 1 }); // unchanged
+    stop();
+    expect(heard).toEqual([1]);
   });
 });

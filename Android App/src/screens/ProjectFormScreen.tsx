@@ -13,7 +13,7 @@ import { ChipChoice, InlinePicker } from '../components/meeting/sheet-kit';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { IdentityPicker } from '../components/project/IdentityPicker';
 import { newIdempotencyKey } from '../lib/idempotency';
-import { canEditProject } from '../lib/project-team';
+import { canManageProject, PROJECT_CHANGE_REFUSED } from '../lib/project-team';
 import { ownerOptions } from '../lib/project-identity';
 import {
   CODE_MAX,
@@ -46,7 +46,8 @@ import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 
 /**
- * New project and Edit project (5b, administrators), as the website's form: the look (icon and
+ * New project (anyone signed in) and Edit project (whoever runs it: its owner, its managers, an
+ * administrator — the server's canManage), as the website's form: the look (icon and
  * colour, or a picture), name and code, client, project number, description, status, priority and
  * owner. The code is suggested from the name until it is typed in, is checked as it is typed and
  * can't change later. Saving shows progress and can't be sent twice; what was typed stays after an
@@ -56,13 +57,12 @@ export function ProjectFormScreen({ route, navigation }: AppScreenProps<'Project
   const projectId = route.params?.projectId;
   const user = useSession()?.user ?? null;
   const projectQ = useProject(projectId ?? '');
-  if (!canEditProject(user)) {
-    return <Blocked text="Only an administrator can create or edit projects." />;
-  }
   if (projectId && projectQ.isLoading) return <Loader />;
   if (projectId && !projectQ.data) {
     return <Blocked text="Couldn’t load this project. Check your connection and try again." onRetry={() => void projectQ.refetch()} />;
   }
+  // Editing is for whoever runs the project (the server refuses anyone else, in these words).
+  if (projectId && !canManageProject(user, projectQ.data)) return <Blocked text={PROJECT_CHANGE_REFUSED} />;
   return <ProjectForm key={projectId ?? 'new'} project={projectQ.data ?? null} navigation={navigation} />;
 }
 

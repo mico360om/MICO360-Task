@@ -7,6 +7,7 @@
  */
 import type { ApiTask, Priority } from './types';
 import { dueDayKey, isTaskDone } from './due-date';
+import { isWaitingForApproval } from './approvals';
 import { dayLabel } from './calendar';
 
 /** A task as the calendar gets it: a list row, whose people come as id and name. */
@@ -58,7 +59,8 @@ export interface CalItem {
 
 export function statusOf(task: CalendarTask, day: string, today: string): Exclude<CalStatus, 'projected'> {
   if (isTaskDone(task)) return 'done';
-  if (day < today) return 'overdue';
+  // Waiting for approval: never overdue while it waits — its column's colour (the website's, owner 30 Oct).
+  if (day < today && !isWaitingForApproval(task)) return 'overdue';
   if (task.columnCategory === 'BLOCKED') return 'blocked';
   if (task.columnCategory === 'IN_PROGRESS' || task.columnCategory === 'REVIEW') return 'in-progress';
   return 'todo';

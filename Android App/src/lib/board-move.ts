@@ -1,4 +1,27 @@
-import type { ApiColumn } from './types';
+import type { ApiColumn, ApiTask } from './types';
+
+/**
+ * The lists with the moved task where the server put it: its column, place, completion and approval
+ * as the move's answer says. A move into Done that needs approval comes back waiting in Review (or
+ * where it was), so the card shows there at once instead of in Done until the next reload.
+ */
+export function placeAsServerSays<T extends ApiTask>(
+  list: readonly T[],
+  moved: Pick<ApiTask, 'id' | 'columnId' | 'position' | 'completedAt' | 'approvalRequestedAt'> & { columnCategory?: string | null },
+): T[] {
+  return list.map((t) =>
+    t.id === moved.id
+      ? {
+          ...t,
+          columnId: moved.columnId,
+          position: moved.position,
+          completedAt: moved.completedAt ?? null,
+          approvalRequestedAt: moved.approvalRequestedAt ?? null,
+          ...(moved.columnCategory !== undefined ? { columnCategory: moved.columnCategory } : {}),
+        }
+      : t,
+  );
+}
 
 /**
  * Columns a card can be moved to from the board's "Move to…" sheet (long-press a card): the

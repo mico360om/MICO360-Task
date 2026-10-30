@@ -10,24 +10,30 @@ describe('canDeleteTask', () => {
     { id: 'u1', role: 'MEMBER' as const },
     { id: 'u2', role: 'MANAGER' as const },
   ];
-  it('lets admins and the project’s managers delete, nobody else', () => {
-    expect(canDeleteTask({ id: 'u9', roles: ['ADMIN'] }, members)).toBe(true);
-    expect(canDeleteTask({ id: 'u2', roles: ['EMPLOYEE'] }, members)).toBe(true);
-    expect(canDeleteTask({ id: 'u1', roles: ['EMPLOYEE'] }, members)).toBe(false);
-    expect(canDeleteTask(null, members)).toBe(false);
+  it('without the project’s canManage (an older server): admins and the project’s managers delete, nobody else', () => {
+    expect(canDeleteTask({ id: 'u9', roles: ['ADMIN'] }, {}, members)).toBe(true);
+    expect(canDeleteTask({ id: 'u2', roles: ['EMPLOYEE'] }, {}, members)).toBe(true);
+    expect(canDeleteTask({ id: 'u1', roles: ['EMPLOYEE'] }, {}, members)).toBe(false);
+    expect(canDeleteTask(null, {}, members)).toBe(false);
+  });
+
+  it('deleting a task and changing columns follow the project’s canManage', () => {
+    const emp = { id: 'u2', roles: ['EMPLOYEE'] };
+    expect(canDeleteTask(emp, { canManage: true })).toBe(true);
+    expect(canDeleteTask(emp, { canManage: false }, [{ id: 'u2', role: 'MANAGER' }])).toBe(false);
   });
 });
 
 describe('dueState', () => {
   it('says when it is due, and flags an overdue open task', () => {
-    expect(dueState({ dueDate: '2026-10-12T12:00:00Z', completedAt: null }, NOW, 'en-US')).toEqual({ text: 'Due Oct 12', overdue: false, dayKey: '2026-10-12' });
-    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null }, NOW, 'en-US')).toEqual({ text: 'Overdue · Oct 8', overdue: true, dayKey: '2026-10-08' });
+    expect(dueState({ dueDate: '2026-10-12T12:00:00Z', completedAt: null }, NOW)).toEqual({ text: 'Due 12 Oct 2026', overdue: false, waiting: false, dayKey: '2026-10-12' });
+    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null }, NOW)).toEqual({ text: 'Overdue · 8 Oct 2026', overdue: true, waiting: false, dayKey: '2026-10-08' });
   });
   it('never calls a finished task overdue; no date, no text', () => {
-    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: '2026-10-09T00:00:00Z' }, NOW, 'en-US').overdue).toBe(false);
+    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: '2026-10-09T00:00:00Z' }, NOW).overdue).toBe(false);
     // In a Done column without a completion time (e.g. moved there before completion was recorded).
-    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null, columnCategory: 'DONE' }, NOW, 'en-US')).toEqual({ text: 'Due Oct 8', overdue: false, dayKey: '2026-10-08' });
-    expect(dueState({ dueDate: null, completedAt: null }, NOW, 'en-US')).toEqual({ text: null, overdue: false, dayKey: null });
+    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null, columnCategory: 'DONE' }, NOW)).toEqual({ text: 'Due 8 Oct 2026', overdue: false, waiting: false, dayKey: '2026-10-08' });
+    expect(dueState({ dueDate: null, completedAt: null }, NOW)).toEqual({ text: null, overdue: false, waiting: false, dayKey: null });
   });
 });
 
@@ -99,15 +105,15 @@ describe('taskLoadProblem', () => {
 
 describe('meetingLine', () => {
   it('names the meeting a task was created from, and the meeting to open in the app', () => {
-    expect(meetingLine({ id: 'm 1', title: 'Weekly review', startAt: '2026-10-12T05:00:00.000Z', canView: true }, 'en-US', 'Asia/Muscat')).toEqual({
-      text: 'From meeting: Weekly review · Mon, Oct 12',
+    expect(meetingLine({ id: 'm 1', title: 'Weekly review', startAt: '2026-10-12T05:00:00.000Z', canView: true }, 'Asia/Muscat')).toEqual({
+      text: 'From meeting: Weekly review · Mon 12 Oct',
       meetingId: 'm 1',
     });
   });
 
   it('uses the meeting’s day in the company time zone', () => {
     // 22:30 UTC on the 11th is already the 12th in Muscat.
-    expect(meetingLine({ id: 'm1', title: 'Late call', startAt: '2026-10-11T22:30:00.000Z', canView: true }, 'en-US', 'Asia/Muscat')?.text).toBe('From meeting: Late call · Mon, Oct 12');
+    expect(meetingLine({ id: 'm1', title: 'Late call', startAt: '2026-10-11T22:30:00.000Z', canView: true }, 'Asia/Muscat')?.text).toBe('From meeting: Late call · Mon 12 Oct');
   });
 
   it('only mentions a meeting the person may not see, with nothing to open', () => {

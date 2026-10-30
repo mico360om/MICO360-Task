@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, useWindowDimensions, Alert, AccessibilityInfo } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useDirectory, useProjectColumns, useProjectMembers, useProjectTasks, useProjectProgress, useMoveTask, useReorderColumn } from '../core/queries';
+import { useDirectory, useProject, useProjectColumns, useProjectMembers, useProjectTasks, useProjectProgress, useMoveTask, useReorderColumn } from '../core/queries';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useBoardRealtime } from '../core/useBoardRealtime';
 import { useServices, useSession } from '../core/providers';
@@ -52,9 +52,10 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const tasksQ = useProjectTasks(projectId, boardDate);
   const progressQ = useProjectProgress(projectId);
   const membersQ = useProjectMembers(projectId);
+  const projectQ = useProject(projectId);
   const dirQ = useDirectory();
-  // The server's rule (an administrator, or a manager of this project); it has the last word.
-  const canManage = canManageProject(user, membersQ.data ?? []);
+  // The server's rule (its owner, its managers, an administrator: the project's canManage); it has the last word.
+  const canManage = canManageProject(user, projectQ.data, membersQ.data ?? []);
   // Removed from this project while looking at it (server `project:removed`): leave the board.
   useBoardRealtime(projectId, () => {
     Alert.alert('No longer available', 'You were removed from this project.');
@@ -101,9 +102,9 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       if (!stillSignedIn(maker, currentUserId())) return;
       if (out.kind === 'moved') tell(`Moved to ${dest?.column.name ?? 'the column'}.`);
       else {
-        tell(out.message, out.kind !== 'kept');
-        // Kept on this phone: shown as well as said (4b review #10).
-        if (out.kind === 'kept') notice(out.message);
+        tell(out.message, out.kind !== 'kept' && out.kind !== 'waiting');
+        // Kept on this phone, or gone to wait for approval: shown as well as said (4b review #10).
+        if (out.kind === 'kept' || out.kind === 'waiting') notice(out.message);
       }
     },
     [board, writes, currentUserId],

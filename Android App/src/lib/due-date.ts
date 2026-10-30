@@ -9,17 +9,23 @@
  * today, and completed tasks are never overdue.
  */
 import { dateFormat } from './intl-cache';
+import { dayText, type DayTextOptions } from './day-words';
+import { isWaitingForApproval } from './approvals';
 
 /** The default company time zone, until the server and your settings say otherwise. */
 export const COMPANY_TIMEZONE = 'Asia/Muscat';
 
-/** The company's time zone (the server's /config) and your own (the website's settings, or none). */
+/**
+ * The company's time zone and week start (the server's /config) and your own zone (the website's
+ * settings, or none). The week start is 0 = Sunday, 1 = Monday, 6 = Saturday.
+ */
 export interface DateZones {
   company: string;
   own: string | null;
+  companyWeekStart: 0 | 1 | 6;
 }
 
-let zones: DateZones = { company: COMPANY_TIMEZONE, own: null };
+let zones: DateZones = { company: COMPANY_TIMEZONE, own: null, companyWeekStart: 0 };
 const timeZoneListeners = new Set<() => void>();
 
 /**
@@ -36,15 +42,16 @@ export function calendarTimeZone(): string {
   return zones.own ?? zones.company;
 }
 
-/** Both zones; the same object until one changes (a useSyncExternalStore snapshot). */
+/** The zones and the company's week start; the same object until one changes (a useSyncExternalStore snapshot). */
 export function dateZones(): DateZones {
   return zones;
 }
 
-/** Set both zones; subscribers (the navigator) re-render when either changed. */
+/** Set the zones and the company's week start; subscribers (the navigator) hear when any of the three changed. */
 export function setDateZones(next: DateZones): void {
-  if (next.company === zones.company && next.own === zones.own) return;
-  zones = { company: next.company, own: next.own };
+  const companyWeekStart = next.companyWeekStart === 1 || next.companyWeekStart === 6 ? next.companyWeekStart : 0;
+  if (next.company === zones.company && next.own === zones.own && companyWeekStart === zones.companyWeekStart) return;
+  zones = { company: next.company, own: next.own, companyWeekStart };
   for (const listener of timeZoneListeners) listener();
 }
 
@@ -107,23 +114,38 @@ export function isTaskDone(task: { completedAt?: DateInput; columnCategory?: str
   return task.columnCategory === 'DONE' || !!task.completedAt;
 }
 
-/** True once the due day is before today (company time). Finished tasks are never overdue. */
-export function isOverdue(
-  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null },
-  now: Date = new Date(),
+/**
+ * Late (overdue): not done and past its due day in the company time zone — but never while it waits
+ * for approval (the work is handed in; the "Waiting for approval" badge shows instead). Sent back,
+ * it no longer waits and is late again. The server's rule (tasks/task-status isTaskLate) and the
+ * website's (due-display isTaskLate); a test runs the server's beside it.
+ */
+export function isTaskLate(
+  t: { dueDate?: DateInput; columnCategory?: string | null; completedAt?: DateInput; approvalRequestedAt?: string | null },
   timeZone: string = appTimeZone(),
+  now: Date = new Date(),
 ): boolean {
-  if (isTaskDone(task)) return false;
-  const days = daysUntilDue(task.dueDate, now, timeZone);
+  if (isTaskDone(t) || isWaitingForApproval(t)) return false;
+  const days = daysUntilDue(t.dueDate, now, timeZone);
   return days !== null && days < 0;
 }
 
+/** True once the due day is before today (company time). Finished tasks, and tasks waiting for approval, are never overdue (isTaskLate). */
+export function isOverdue(
+  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null; approvalRequestedAt?: string | null },
+  now: Date = new Date(),
+  timeZone: string = appTimeZone(),
+): boolean {
+  return isTaskLate(task, timeZone, now);
+}
+
 /**
- * A due date formatted for display, without shifting it across a day boundary (e.g. "Sep 30").
- * `locale` undefined → the device locale.
+ * A due date as its calendar day in words, never shifted across a day boundary, the website's way
+ * (due-display formatDueDay): "30 Sep 2026"; with { weekday: 'short', year: false } "Wed 30 Sep".
+ * The same whatever language the phone is set to. Null without a due day.
  */
-export function formatDueDay(due: DateInput, locale?: string, timeZone: string = appTimeZone()): string | null {
+export function formatDueDay(due: DateInput, timeZone: string = appTimeZone(), opts: DayTextOptions = {}): string | null {
   const key = dueDayKey(due, timeZone);
   if (!key) return null;
-  return dateFormat(locale, { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(`${key}T12:00:00Z`));
+  return dayText(key, opts) || null;
 }

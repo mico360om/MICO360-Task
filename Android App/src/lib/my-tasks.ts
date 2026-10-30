@@ -10,7 +10,8 @@
 import { STATUS_NAME, STATUS_ORDER } from './all-board';
 import { shiftDayKey } from './calendar';
 import { companyTodayKey, dueDayKey, isTaskDone } from './due-date';
-import { dateFormat } from './intl-cache';
+import { dayText } from './day-words';
+import { DECISION_WORDS, isWaitingForApproval } from './approvals';
 import type { ApiProject, ApiTask, ColumnCategory, Priority } from './types';
 
 /** The full filter state a saved view keeps. */
@@ -79,10 +80,13 @@ export interface MyTaskRow {
   /** Its status (column kind; To Do when the server names none). */
   cat: string;
   done: boolean;
+  /** Never while it waits for approval (the website's My Tasks). */
   overdue: boolean;
+  /** Finished, waiting for a project manager's approval (not done yet). */
+  waiting: boolean;
   dueToday: boolean;
   dueKey: string | null;
-  /** The due day, short ("Oct 20"); '' with none. */
+  /** The due day, short ("20 Oct", as the website's My Tasks); '' with none. */
   dueLabel: string;
   project: ApiProject | null;
 }
@@ -95,18 +99,20 @@ type When = { timeZone: string; now?: Date };
 export function enrichMyTasks(tasks: readonly ApiTask[], projects: readonly ApiProject[], o: When): MyTaskRow[] {
   const byId = new Map(projects.map((p) => [p.id, p]));
   const today = companyTodayKey(o.now ?? new Date(), o.timeZone);
-  const day = dateFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   return (Array.isArray(tasks) ? tasks : []).map((task) => {
     const done = isTaskDone(task);
     const dueKey = dueDayKey(task.dueDate, o.timeZone);
+    const waiting = !done && isWaitingForApproval(task);
     return {
       task,
       cat: task.columnCategory ?? 'TODO',
       done,
-      overdue: !!dueKey && dueKey < today && !done,
+      // Never overdue while it waits for approval: it says so instead (owner, 30 Oct).
+      overdue: !!dueKey && dueKey < today && !done && !waiting,
+      waiting,
       dueToday: !!dueKey && dueKey === today,
       dueKey,
-      dueLabel: dueKey ? day.format(new Date(`${dueKey}T12:00:00.000Z`)) : '',
+      dueLabel: dueKey ? dayText(dueKey, { year: false }) : '',
       project: byId.get(task.projectId) ?? null,
     };
   });
@@ -242,6 +248,7 @@ export function myTaskLabel(r: MyTaskRow): string {
     r.project ? `${r.project.name}.` : null,
     `${STATUS_NAME[r.cat as ColumnCategory] ?? r.cat}.`,
     `${PRIORITY_WORD[r.task.priority] ?? r.task.priority} priority.`,
+    r.waiting ? `${DECISION_WORDS.waiting}.` : null,
     `${dueLabel(r)}.`,
     r.done ? 'Done.' : `${r.task.progress}% done.`,
     people.length ? `${people.join(', ')}.` : null,

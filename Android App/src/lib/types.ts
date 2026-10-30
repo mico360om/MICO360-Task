@@ -75,6 +75,34 @@ export interface ApiTask {
   tags?: ApiTag[];
   /** Present only on the create response when assignees were applied in the same call. */
   assignees?: ApiAssignee[];
+  /** It needs the OK of whoever runs its project before it counts as done (older servers leave it out). */
+  needsApproval?: boolean;
+  /** Set while it waits for approval: finished, but not done yet (never late while it waits). */
+  approvalRequestedAt?: string | null;
+  approvalRequestedById?: string | null;
+  /** Its last approval. */
+  approvedAt?: string | null;
+  approvedById?: string | null;
+  /** Its approval as the signed-in person sees it (single-task responses). */
+  approval?: TaskApprovalInfo;
+}
+
+/** A person named on a task's approval (the website's api/tasks.ts). */
+export interface ApprovalPerson {
+  id: string;
+  name: string;
+}
+
+/** A task's approval as its details show it to the signed-in person (single-task responses). */
+export interface TaskApprovalInfo {
+  /** They may approve it or send it back (they run the project, or are an administrator). */
+  canApprove: boolean;
+  /** Who finished it (asked for approval). */
+  requestedBy: ApprovalPerson | null;
+  /** Who approved it last. */
+  approvedBy: ApprovalPerson | null;
+  /** The one person who runs the project; null when several do (or none). */
+  approverName: string | null;
 }
 
 /** A workspace tag (mirrors the backend tag catalog). */
@@ -176,6 +204,12 @@ export interface ApiProject {
   imageUrl?: string | null;
   /** Its owner (new tasks are assigned to them), or null. */
   ownerId?: string | null;
+  /**
+   * May the signed-in person run it — change it, its team and columns, delete its tasks (its owner,
+   * named managers, MANAGER members, administrators)? Sent by GET /projects, GET /projects/:id, POST
+   * and PUT; older servers leave it out.
+   */
+  canManage?: boolean;
 }
 
 // ── Meetings (taking part in them — 2a — and running them — 2b) ─────────────

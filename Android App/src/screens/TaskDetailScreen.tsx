@@ -16,6 +16,7 @@ import {
   useTaskTags,
   useSetTaskTags,
   useProjectMembers,
+  useProject,
   useTaskAssignees,
   useAssignUsers,
   useUnassignUser,
@@ -48,6 +49,8 @@ import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
 import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
 import { stillMatching } from '../lib/blocker-search';
+import { approvalNotice } from '../lib/approvals';
+import { notice } from '../components/notice';
 import { withQueuedTicks } from '../lib/checklist-ticks';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
@@ -87,6 +90,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const setTags = useSetTaskTags(taskId);
   const assigneesQ = useTaskAssignees(taskId);
   const membersQ = useProjectMembers(projectId);
+  // Its project's canManage: who may delete the task (the server's rule).
+  const projectQ = useProject(projectId);
   const assign = useAssignUsers(taskId);
   const unassign = useUnassignUser(taskId);
   const checklistQ = useTaskChecklist(taskId);
@@ -291,7 +296,15 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
       scope={scope}
       onScope={setScope}
       overdue={due.overdue}
-      onMove={(columnId) => move.mutateAsync({ id: task.id, columnId })}
+      onMove={(columnId) => {
+        const vars = { id: task.id, columnId };
+        // It needs approval: the server put it to wait (in Review) instead — said, and shown where it waits.
+        return move.mutateAsync(vars).then((moved) => {
+          const t = approvalNotice(vars.columnId, moved);
+          if (t) notice(t);
+          return moved;
+        });
+      }}
       onPatch={patch}
       onSuggestPriority={() => resources.ai.suggestPriority(task.title, task.description ?? undefined, task.dueDate)}
       assignees={assigneesQ.data ?? []}
@@ -417,7 +430,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
             {activity}
           </>
         )}
-        {canDeleteTask(session?.user ?? null, members) ? (
+        {canDeleteTask(session?.user ?? null, projectQ.data, members) ? (
           <View style={styles.danger}>
             <Text style={styles.dangerNote}>Deleting a task removes its checklist, comments and files.</Text>
             <Button title="Delete task" variant="ghost" onPress={confirmDelete} loading={deleteTask.isPending} accessibilityLabel="Delete task" />

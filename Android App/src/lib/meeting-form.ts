@@ -7,6 +7,7 @@
 import { ApiError, isNetworkError } from './api-client';
 import { normalizeDigits, parseDueDateInput, type Parsed } from './form-input';
 import { dateFormat } from './intl-cache';
+import { dayText } from './day-words';
 import { safeMeetingHref } from './meetings';
 import { MEETING_STATUS_LABELS } from './meeting-detail';
 import { recurrenceSummary, upcomingDates } from './recurrence-summary';
@@ -166,13 +167,9 @@ export function repeatProblem(rule: RecurrenceRule | null, firstDay: string): st
   return null;
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-/** "Mon 26 Oct" for a 'YYYY-MM-DD' day (the website's words), without Intl. */
+/** "Mon 26 Oct" for a 'YYYY-MM-DD' day (the website's day words), without Intl. */
 function dayLabel(key: string): string {
-  const d = new Date(`${key}T12:00:00.000Z`);
-  if (Number.isNaN(d.getTime())) return key;
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  return dayText(key, { weekday: 'short', year: false }) || key;
 }
 
 /** When the chosen day isn't one of the repeat's days, where the first meeting goes instead. */
@@ -181,8 +178,6 @@ export function firstMeetingNote(startDay: string, rule: RecurrenceRule): string
   return first !== startDay ? `The first meeting will be on ${dayLabel(first)}, the first day this repeat gives.` : null;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const dayText = (key: string) => `${Number(key.slice(8, 10))} ${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 
 /**
  * "Repeats every week on Tue, until 3 Nov 2026" for a series starting at `startAt`. A weekly rule

@@ -1,24 +1,33 @@
 /**
- * A project's team on the phone (5b), with the server's rules: who may run the team (an
- * administrator, or a MANAGER member of this project — backend modules/projects/project-authz.ts,
- * the same rule as deleting a task), who may change the project itself (administrators only), and
- * what adding, removing and changing a role say. Pure TypeScript.
+ * A project's team on the phone (5b), with the server's rules: who may run the project — change it,
+ * its status, owner, team and columns, and delete its tasks (its owner, its named managers and
+ * MANAGER members, and administrators: the server's canManage, backend modules/projects/
+ * project-authz.ts) — who may create one (anyone signed in, since 1.15), and what adding, removing
+ * and changing a role say. Pure TypeScript.
  */
 import { ApiError, isNetworkError } from './api-client';
 import { displayName, type ApiMember } from './types';
 
 type User = { id: string; roles: string[] } | null | undefined;
 
-/** May this person add and remove members and change their roles? (The server's rule.) */
-export function canManageProject(user: User, members: Pick<ApiMember, 'id' | 'role'>[]): boolean {
+/** The server's words when someone else tries to change a project (project-routes CHANGE_REFUSED). */
+export const PROJECT_CHANGE_REFUSED = 'Only this project’s owner, its managers or an administrator can change it.';
+
+/**
+ * May this person run the project — change it, its status, owner, team and columns, delete its
+ * tasks? An administrator always; else the server's `canManage` on the project (its owner, named
+ * managers and MANAGER members); an older server that doesn't send it: a MANAGER member of `members`.
+ */
+export function canManageProject(user: User, project: { canManage?: boolean } | null | undefined, members: readonly Pick<ApiMember, 'id' | 'role'>[] = []): boolean {
   if (!user) return false;
   if (user.roles.includes('ADMIN')) return true;
+  if (typeof project?.canManage === 'boolean') return project.canManage;
   return members.some((m) => m.id === user.id && m.role === 'MANAGER');
 }
 
-/** May this person change the project's own details, look, status or owner? Administrators only. */
-export function canEditProject(user: User): boolean {
-  return !!user && user.roles.includes('ADMIN');
+/** May this person create a project? Anyone signed in (the website since 1.15; the server allows it). */
+export function canCreateProject(user: User): boolean {
+  return !!user;
 }
 
 /** Managers first, then everyone by name. */

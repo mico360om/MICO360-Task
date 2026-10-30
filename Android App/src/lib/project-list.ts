@@ -6,8 +6,9 @@
  * project, with each project's completion coloured by how healthy it is. Pure TypeScript.
  */
 import { ApiError, isNetworkError } from './api-client';
-import { formatDueDay, isOverdue, isTaskDone } from './due-date';
+import { formatDueDay, isTaskDone, isTaskLate } from './due-date';
 import { projectStatusLabel } from './project-identity';
+import { PROJECT_CHANGE_REFUSED } from './project-team';
 import { summarize, type ProjectPerformanceRow } from './reports';
 import type { Tone } from './tone';
 import type { ApiProject, ApiProjectProgress, ApiTask } from './types';
@@ -32,15 +33,16 @@ export interface ProjectFigures {
 /**
  * Every card's figures from ONE task list (5b review), as the website's Projects page works them
  * out from its tasks/all query: each project's tasks, the finished ones (completed, or in a Done
- * column) and the overdue ones — due before today in company time; finished work is never overdue.
+ * column) and the overdue ones — due before today in company time; finished work, and work waiting
+ * for approval, is never overdue (the server's isTaskLate).
  */
-export function projectCardFigures(tasks: Pick<ApiTask, 'projectId' | 'dueDate' | 'completedAt' | 'columnCategory'>[], now: Date, timeZone: string): Record<string, ProjectFigures> {
+export function projectCardFigures(tasks: Pick<ApiTask, 'projectId' | 'dueDate' | 'completedAt' | 'columnCategory' | 'approvalRequestedAt'>[], now: Date, timeZone: string): Record<string, ProjectFigures> {
   const out: Record<string, ProjectFigures> = {};
   for (const t of tasks) {
     const f = (out[t.projectId] ??= { total: 0, done: 0, overdue: 0, completionPct: 0 });
     f.total += 1;
     if (isTaskDone(t)) f.done += 1;
-    else if (isOverdue(t, now, timeZone)) f.overdue += 1;
+    else if (isTaskLate(t, timeZone, now)) f.overdue += 1;
   }
   for (const f of Object.values(out)) f.completionPct = f.total ? Math.round((f.done / f.total) * 100) : 0;
   return out;
@@ -58,10 +60,10 @@ export function projectCardMeta(progress: ApiProjectProgress | ProjectFigures | 
   return { total: progress.total, overdue: progress.overdue, completedPct: progress.completionPct, hasProgress: progress.total > 0, ownerName };
 }
 
-/** "Oct 1 → Dec 15" (either may be "—"), or null when the project has neither date. */
-export function projectDates(start: string | null | undefined, target: string | null | undefined, locale?: string): string | null {
-  const a = formatDueDay(start ?? null, locale);
-  const b = formatDueDay(target ?? null, locale);
+/** "1 Oct 2026 → 15 Dec 2026" (either may be "—"), or null when the project has neither date. */
+export function projectDates(start: string | null | undefined, target: string | null | undefined, timeZone?: string): string | null {
+  const a = formatDueDay(start ?? null, timeZone);
+  const b = formatDueDay(target ?? null, timeZone);
   if (!a && !b) return null;
   return `${a ?? '—'} → ${b ?? '—'}`;
 }
@@ -105,7 +107,7 @@ export function statusChangeProblem(error: unknown): string {
 
 /** Why the owner didn't change (an administrator's change on the project's Overview). */
 export function ownerChangeProblem(error: unknown): string {
-  if (error instanceof ApiError && error.status === 403) return 'Only an administrator can change the project owner.';
+  if (error instanceof ApiError && error.status === 403) return PROJECT_CHANGE_REFUSED;
   if (isNetworkError(error)) return 'You’re offline — the owner can be changed when you’re connected.';
   return 'Couldn’t change the owner. Please try again.';
 }

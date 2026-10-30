@@ -200,7 +200,7 @@ describe('sign-out and the next person (6a review)', () => {
     const { signOut } = setup({ resetDateZones });
     await signOut.signOut('user');
     expect(resetDateZones).toHaveBeenCalledTimes(1);
-    expect(zonesAfterSignOut({ company: 'Asia/Dubai', own: 'Europe/London' })).toEqual({ company: 'Asia/Dubai', own: null });
+    expect(zonesAfterSignOut({ company: 'Asia/Dubai', own: 'Europe/London', companyWeekStart: 1 })).toEqual({ company: 'Asia/Dubai', own: null, companyWeekStart: 1 });
   });
 
   it('asks before signing out, warning about changes not saved to the server yet (Settings and Profile)', () => {

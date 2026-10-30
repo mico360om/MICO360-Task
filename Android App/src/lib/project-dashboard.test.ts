@@ -302,7 +302,7 @@ describe('the Tasks tab', () => {
 
   it('describes a row for TalkBack with its status, priority, progress, people and due day', () => {
     const t = task('a', { key: 'RIG-3', title: 'Book crane', priority: 'HIGH', progress: 40, dueDate: '2026-10-01T00:00:00.000Z', assignees: [{ id: 'u1', name: 'Omar' }] as never, isMilestone: true });
-    expect(tasksTabRowLabel(t, { statusName: 'To do', phase: 'overdue', dueText: 'Oct 1' })).toBe('RIG-3, milestone, Book crane, To do, High priority, 40% done, Omar, overdue, due Oct 1');
+    expect(tasksTabRowLabel(t, { statusName: 'To do', phase: 'overdue', dueText: '1 Oct 2026' })).toBe('RIG-3, milestone, Book crane, To do, High priority, 40% done, Omar, overdue, due 1 Oct 2026');
     const plain = task('b', { key: 'RIG-4', title: 'Paint', columnCategory: 'DONE' });
     expect(tasksTabRowLabel(plain, { statusName: 'Done', phase: 'completed', dueText: null })).toBe('RIG-4, Paint, Done, Normal priority, 100% done, Unassigned, No due date');
   });

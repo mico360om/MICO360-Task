@@ -1,14 +1,21 @@
 import { normalizeDigits } from './form-input';
+import type { KeyValueStore } from './storage';
 /**
- * Signing in with an emailed code (the "Email code" tab).
+ * Signing in with an emailed code (the "Email code" tab), as the website's sign-in page
+ * (Web Portal/frontend/src/lib/login-code-step.ts and pages/LoginPage.tsx; a test checks the words
+ * and rules are the same).
  *
  * The server can send codes only when its email is set up, so the tab is offered only once the
- * server has said so. A code can be re-sent once a minute (the server's own limit), and is 4 to 10
- * digits long (the server's OTP_LENGTH).
+ * server has said so. A code can be re-sent once a minute (the server's own limit) — asked too soon,
+ * the server sends nothing and says how long to wait — and is 4 to 10 digits long (OTP_LENGTH). The
+ * step (the address and when Resend works again) is kept on the phone, so it is still there when
+ * Android closed the app while the person read the email.
  */
 
-/** The server sends at most one code a minute per account, so "Resend" waits as long. */
-export const RESEND_AFTER_SECONDS = 60;
+/** How long another code waits after one is asked for (the server sends one a minute). */
+export const RESEND_AFTER_MS = 60_000;
+/** A code lasts 10 minutes: after that, there is no step to come back to. */
+const KEEP_MS = 10 * 60_000;
 const CODE_MIN_DIGITS = 4;
 const CODE_MAX_DIGITS = 10;
 
@@ -36,10 +43,82 @@ export async function fetchEmailEnabled(
   }
 }
 
-/** Seconds left before another code may be asked for (0 = now). */
-export function resendWaitSeconds(sentAtMs: number | null, nowMs: number): number {
-  if (sentAtMs === null) return 0;
-  return Math.max(0, Math.ceil((sentAtMs + RESEND_AFTER_SECONDS * 1000 - nowMs) / 1000));
+/** Seconds left before another code may be asked for (0 = now): until `resendAt`. */
+export function resendWaitSeconds(resendAt: number | null, nowMs: number): number {
+  if (resendAt === null) return 0;
+  return Math.max(0, Math.ceil((resendAt - nowMs) / 1000));
+}
+
+/** The server's answer to "email me a code": `sent: false` when the same address asked less than a minute ago. */
+export interface CodeAnswer {
+  sent?: boolean;
+  retryAfterSeconds?: number;
+}
+
+/** The seconds to wait when the server sent nothing (asked too soon), else null. */
+export function waitFromAnswer(answer: CodeAnswer | null | undefined): number | null {
+  return answer?.sent === false && typeof answer.retryAfterSeconds === 'number' ? Math.max(1, Math.ceil(answer.retryAfterSeconds)) : null;
+}
+
+/** Said when the same address asked again too soon — true whether or not it has an account. */
+export const askedTooSoon = (seconds: number) =>
+  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds}\u00a0s.`; // no line break between the number and its unit
+
+/** Said when another code went: the one before it no longer works. */
+export const NEW_CODE_SENT = 'We’ve sent a new code. Use the newest one — the earlier code no longer works.';
+
+/** Said once a code was asked for (the website's sign-in page). */
+export const CODE_SENT = 'If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.';
+
+/** Where the phone keeps the "Email code" step (the website keeps it under the same name). */
+export const CODE_STEP_KEY = 'mico360.signInCode';
+
+export interface CodeStep {
+  /** The address (or username) the code was asked for. */
+  identifier: string;
+  /** When another code may be asked for (ms since 1970). */
+  resendAt: number;
+}
+
+/**
+ * The "Email code" step kept on the phone: recalled while the code still lasts (10 minutes from
+ * when it was asked for), forgotten otherwise, on every sign-in and on going back. A store that
+ * fails never throws (the step simply starts over).
+ */
+export function createCodeStepMemory(store: KeyValueStore, key: string = CODE_STEP_KEY) {
+  return {
+    async remember(step: CodeStep): Promise<void> {
+      try {
+        await store.setItem(key, JSON.stringify(step));
+      } catch {
+        /* not kept: the step starts over after a restart, as before */
+      }
+    },
+    async recall(now: number = Date.now()): Promise<CodeStep | null> {
+      try {
+        const raw = await store.getItem(key);
+        if (!raw) return null;
+        const v = JSON.parse(raw) as Partial<CodeStep>;
+        const fresh = typeof v.resendAt === 'number' && now < v.resendAt - RESEND_AFTER_MS + KEEP_MS;
+        if (typeof v.identifier === 'string' && v.identifier && fresh) return { identifier: v.identifier, resendAt: v.resendAt! };
+        await store.deleteItem(key);
+      } catch {
+        try {
+          await store.deleteItem(key);
+        } catch {
+          /* nothing to forget */
+        }
+      }
+      return null;
+    },
+    async forget(): Promise<void> {
+      try {
+        await store.deleteItem(key);
+      } catch {
+        /* nothing to forget */
+      }
+    },
+  };
 }
 
 export function resendLabel(waitSeconds: number): string {

@@ -1,5 +1,5 @@
-import { appTimeZone, dueDayKey, isOverdue } from './due-date';
-import { dateFormat } from './intl-cache';
+import { appTimeZone, formatDueDay, isOverdue } from './due-date';
+import { DECISION_WORDS } from './approvals';
 import { displayName, type ApiColumn, type ApiTask, type Priority } from './types';
 
 export interface BoardColumn {
@@ -48,6 +48,8 @@ export interface BoardCard {
   /** The newest copy of a repeating task. */
   recurring: boolean;
   milestone: boolean;
+  /** Finished, waiting for a project manager's approval (not done yet): never overdue while it waits. */
+  awaitingApproval: boolean;
   /** In a Done column, or completed: never overdue. */
   done: boolean;
   /** Its project, on a board showing several projects (the All projects board, 4c). */
@@ -76,6 +78,7 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
     blocked: column.category === 'BLOCKED',
     recurring: Boolean(t.recurrenceRule),
     milestone: !!t.isMilestone,
+    awaitingApproval: !!t.approvalRequestedAt,
     done: column.category === 'DONE' || !!t.completedAt,
   };
 }
@@ -83,12 +86,9 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
 /** A face without a photo: the first letters of the first two words, from letters only, as the website's Avatar (lib/initials). */
 export { personInitials } from './initials';
 
-/** A due day as the website's card writes it: "Oct 20, 2026" (its own calendar day, company time). */
+/** A due day as the website's card writes it: "20 Oct 2026" (its own calendar day, company time). */
 export function cardDueText(due: string | null, timeZone: string = appTimeZone()): string | null {
-  const key = dueDayKey(due, timeZone);
-  if (!key) return null;
-  // Made once (lib/intl-cache), not once per card drawn (4b review #12).
-  return dateFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+  return formatDueDay(due, timeZone);
 }
 
 export interface CardBadge {
@@ -100,8 +100,10 @@ export interface CardBadge {
 
 export interface CardView {
   overdue: boolean;
+  /** Waiting for approval: its due day is shown plainly, never "Overdue". */
+  waiting: boolean;
   hasDue: boolean;
-  /** "Oct 20, 2026", "Overdue · Oct 20, 2026", or null with no due date. */
+  /** "20 Oct 2026", "Overdue · 20 Oct 2026", or null with no due date. */
   dueText: string | null;
   /** Up to three people's faces, then "+N". */
   shown: { id: string; name: string }[];
@@ -120,7 +122,9 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /** What the card shows, by the website's card rules (TaskCard). */
 export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string } = {}): CardView {
   const timeZone = opts.timeZone ?? appTimeZone();
-  const overdue = !card.done && isOverdue({ dueDate: card.dueDate }, opts.now ?? new Date(), timeZone);
+  // The website's card: finished work and work waiting for approval are never overdue.
+  const waiting = !card.done && card.awaitingApproval;
+  const overdue = !card.done && !waiting && isOverdue({ dueDate: card.dueDate }, opts.now ?? new Date(), timeZone);
   const day = cardDueText(card.dueDate, timeZone);
   const dueText = day ? (overdue ? `Overdue · ${day}` : day) : null;
   const shown = card.assignees.slice(0, 3);
@@ -136,6 +140,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
     card.blocked ? 'Blocked.' : null,
     card.milestone ? 'Milestone.' : null,
     card.recurring ? 'Repeats.' : null,
+    waiting ? `${DECISION_WORDS.waiting}.` : null,
     day ? (overdue ? `Overdue, due ${day}.` : `Due ${day}.`) : null,
     card.done ? 'Done.' : `${card.progress}% done.`,
     card.assignees.length ? `${card.assignees.map((a) => a.name).join(', ')}.` : 'Nobody assigned.',
@@ -143,6 +148,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
   ];
   return {
     overdue,
+    waiting,
     hasDue: !!day,
     dueText,
     shown,

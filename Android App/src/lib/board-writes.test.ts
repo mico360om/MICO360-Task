@@ -36,6 +36,15 @@ describe('moving a card on the board (4b): the move, then the column’s order, 
     expect(await moveCard(refused, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'refused', message: 'Couldn’t move that task — it was put back. You do not have permission to do that.' });
   });
 
+  it('a move into Done that went to wait for approval says so, and sends no order for the column it never reached (the website’s board)', async () => {
+    const deps = { move: vi.fn(async () => ({ key: 'RIG-4', columnId: 'review', approvalRequestedAt: '2026-10-30T08:00:00Z' })), reorder: vi.fn(async () => {}) };
+    expect(await moveCard(deps, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'waiting', message: 'RIG-4 needs approval, so it’s waiting for a project manager.' });
+    expect(deps.reorder).not.toHaveBeenCalled();
+    const there = { move: vi.fn(async () => ({ key: 'RIG-4', columnId: 'c2', approvalRequestedAt: null })), reorder: vi.fn(async () => {}) };
+    expect(await moveCard(there, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'moved' });
+    expect(there.reorder).toHaveBeenCalledTimes(1);
+  });
+
   it('moved, but its place not saved (the connection went): it says so', async () => {
     const deps = { move: vi.fn(async () => {}), reorder: vi.fn(async () => Promise.reject(new NetworkError('Network request failed.'))) };
     expect(await moveCard(deps, { id: 'x', toColumnId: 'c2', plan })).toEqual({ kind: 'order-not-saved', message: BOARD_TEXT.orderNotSaved });

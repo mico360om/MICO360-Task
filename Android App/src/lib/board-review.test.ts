@@ -38,7 +38,7 @@ describe('board review fixes (4b review #8–#13)', () => {
 
   it('#10 “saved on this phone” is shown, not only spoken (both boards)', () => {
     for (const p of ['screens/BoardScreen.tsx', 'screens/AllBoardScreen.tsx']) {
-      expect(src(p), p).toMatch(/if \(out\.kind === 'kept'\) notice\(out\.message\);/);
+      expect(src(p), p).toMatch(/if \(out\.kind === 'kept' \|\| out\.kind === 'waiting'\) notice\(out\.message\);/);
     }
     expect(src('screens/NewTaskScreen.tsx')).toMatch(/import \{ notice \} from '\.\.\/components\/notice';/);
   });
@@ -56,10 +56,10 @@ describe('board review fixes (4b review #8–#13)', () => {
     expect(src('components/meeting/sheet-kit.tsx')).toMatch(/scroll = true/);
   });
 
-  it('#12 a card’s due day uses a formatter made once, not one per card', () => {
+  it('#12 a card’s due day makes no formatter per card (the website’s day words, no Intl)', () => {
     const board = src('lib/board.ts');
-    expect(board).not.toMatch(/new Intl\.DateTimeFormat/);
-    expect(board).toMatch(/dateFormat\('en-US', \{ month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' \}\)/);
+    expect(board).not.toMatch(/new Intl\.DateTimeFormat|dateFormat\(/);
+    expect(board).toMatch(/return formatDueDay\(due, timeZone\);/);
   });
 
   it('#13 an empty board says what is really the matter; Manage columns offline says it needs a connection', () => {
@@ -69,12 +69,12 @@ describe('board review fixes (4b review #8–#13)', () => {
     expect(emptyBoardText({ columns: 3, canManage: false })).toEqual({ title: 'All columns are hidden', subtitle: 'Every column of this project is switched off.' });
     const admin = { id: 'u1', roles: ['ADMIN'] };
     const member = { id: 'u2', roles: ['EMPLOYEE'] };
-    expect(manageColumnsGate(admin, [], { membersKnown: false })).toBe('ok');
-    expect(manageColumnsGate(member, [{ id: 'u2', role: 'MANAGER' }], { membersKnown: true })).toBe('ok');
-    expect(manageColumnsGate(member, [{ id: 'u2', role: 'MEMBER' }], { membersKnown: true })).toBe('refused');
-    expect(manageColumnsGate(member, [], { membersKnown: false })).toBe('needs-connection');
+    expect(manageColumnsGate(admin, undefined, [], { membersKnown: false })).toBe('ok');
+    expect(manageColumnsGate(member, undefined, [{ id: 'u2', role: 'MANAGER' }], { membersKnown: true })).toBe('ok');
+    expect(manageColumnsGate(member, undefined, [{ id: 'u2', role: 'MEMBER' }], { membersKnown: true })).toBe('refused');
+    expect(manageColumnsGate(member, undefined, [], { membersKnown: false })).toBe('needs-connection');
     expect(COLUMN_TEXT.needsConnection).toBe('Needs a connection to check who can manage columns. Check your connection and try again.');
-    expect(src('screens/BoardColumnsScreen.tsx')).toMatch(/manageColumnsGate\(user, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\)/);
+    expect(src('screens/BoardColumnsScreen.tsx')).toMatch(/manageColumnsGate\(user, projectQ\.data, membersQ\.data \?\? \[\], \{ membersKnown: !!membersQ\.data \}\)/);
     expect(src('screens/BoardScreen.tsx')).toMatch(/emptyBoardText\(\{ columns: columnsQ\.data\?\.length \?\? 0, canManage \}\)/);
   });
 });

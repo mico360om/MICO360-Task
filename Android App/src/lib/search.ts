@@ -75,7 +75,7 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   // Website pages the app has no screen for yet (planning, templates, MICO AI): they open on the website.
   timeline: { target: { kind: 'website', path: '/timeline' } },
   workload: { target: { kind: 'website', path: '/workload' } },
-  // Administrators only here (the app doesn't ask whether someone runs a project): on the website.
+  // For administrators and whoever runs a project (GET /management/access): on the website.
   management: { target: { kind: 'website', path: '/management' } },
   templates: { target: { kind: 'website', path: '/templates' } },
   'mico-ai': { target: { kind: 'website', path: '/mico-ai' } },
@@ -84,9 +84,9 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   'admin-audit': { target: { kind: 'website', path: '/admin/audit' } },
 };
 
-/** The website's pages for these words that the phone has, best match first. */
-function pagesFor(raw: string, isAdmin: boolean) {
-  return matchNavCommands(raw, isAdmin)
+/** The website's pages for these words that the phone has, best match first (Management only when `canLead`). */
+function pagesFor(raw: string, isAdmin: boolean, canLead: boolean) {
+  return matchNavCommands(raw, isAdmin, canLead)
     .filter((c) => APP_PAGES[c.id])
     .map((c) => ({ command: c, page: APP_PAGES[c.id]!, label: APP_PAGES[c.id]!.label ?? c.label }));
 }
@@ -101,20 +101,33 @@ const personName = (u: { firstName?: string; lastName?: string; username: string
 /**
  * The list under the box: a command, then pages, then (from 2 letters, once the server answered)
  * tasks, projects, people and meetings. A result whose id isn't an id is left out — ids go into
- * the addresses the app asks the server for.
+ * the addresses the app asks the server for. `canLead`: may open Management (an administrator, or
+ * someone who runs a project — the website's `leads`).
  */
-export function searchItems({ raw, results, isAdmin, myId }: { raw: string; results: SearchResults | undefined; isAdmin: boolean; myId: string | null | undefined }): SearchItem[] {
+export function searchItems({
+  raw,
+  results,
+  isAdmin,
+  canLead,
+  myId,
+}: {
+  raw: string;
+  results: SearchResults | undefined;
+  isAdmin: boolean;
+  canLead: boolean;
+  myId: string | null | undefined;
+}): SearchItem[] {
   const out: SearchItem[] = [];
   const text = raw.trim();
-  const parsed = text ? parseCommand(text, isAdmin) : null;
+  const parsed = text ? parseCommand(text, isAdmin, canLead) : null;
   if (parsed?.type === 'open') {
     out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, label: `Open task ${parsed.taskKey}`, target: { kind: 'openKey', key: parsed.taskKey } });
   } else if (parsed?.type === 'navigate') {
-    const page = pagesFor(parsed.label, isAdmin).find((p) => p.command.to === parsed.to);
+    const page = pagesFor(parsed.label, isAdmin, canLead).find((p) => p.command.to === parsed.to);
     if (page) out.push(pageItem('cmd-nav', 'Command', `Go to ${page.label}`, page.page.target));
   }
 
-  for (const p of pagesFor(text, isAdmin).slice(0, text ? SEARCH_LIMITS.pages : SEARCH_LIMITS.pagesEmpty)) {
+  for (const p of pagesFor(text, isAdmin, canLead).slice(0, text ? SEARCH_LIMITS.pages : SEARCH_LIMITS.pagesEmpty)) {
     out.push(pageItem(`nav-${p.command.id}`, 'Go to', p.label, p.page.target));
   }
 

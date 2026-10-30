@@ -5,14 +5,15 @@ import { MeetingRow } from '../MeetingRow';
 import { Button, ErrorNote, Loader } from '../ui';
 import { EmptyNote, SectionCard } from './parts';
 import { formatDueDay } from '../../lib/due-date';
+import { dayText } from '../../lib/day-words';
 import { meetingDayKey } from '../../lib/meetings';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import type { ApiProjectMeetingsOverview } from '../../lib/types';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
 
-/** "Tue, Oct 20" for a 'YYYY-MM-DD' day, never shifted by the phone's time zone. */
+/** "Tue 20 Oct" for a 'YYYY-MM-DD' day (the website's day words), never shifted by the phone's time zone. */
 export function meetingDayLabel(date: string): string {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
+  return dayText(date, { weekday: 'short', year: false });
 }
 
 /**

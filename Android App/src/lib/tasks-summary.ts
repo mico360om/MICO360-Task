@@ -1,5 +1,6 @@
 import type { ApiTask } from './types';
 import { daysUntilDue, isTaskDone } from './due-date';
+import { isWaitingForApproval } from './approvals';
 
 export interface TaskSummary {
   total: number;
@@ -33,8 +34,10 @@ export function summarizeTasks(tasks: ApiTask[], now: Date): TaskSummary {
     }
     const days = daysUntilDue(task.dueDate, now);
     if (days === null) continue;
-    if (days < 0) overdue.push(task);
-    else if (days === 0) dueToday.push(task);
+    // Waiting for approval: handed in, never overdue while it waits (the website's myDueCounts).
+    if (days < 0) {
+      if (!isWaitingForApproval(task)) overdue.push(task);
+    } else if (days === 0) dueToday.push(task);
     else upcoming.push(task);
   }
 

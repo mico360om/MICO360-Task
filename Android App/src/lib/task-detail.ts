@@ -1,7 +1,9 @@
 /** Pure helpers behind the task details screen (kept here so they can be tested without a device). */
 import { appTimeZone, dueDayKey, formatDueDay, isOverdue, isTaskDone, type DateInput } from './due-date';
 import { moveItem } from './list-order';
-import { dateFormat } from './intl-cache';
+import { dayText, instantDayText } from './day-words';
+import { isWaitingForApproval } from './approvals';
+import { canManageProject } from './project-team';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
 import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
@@ -32,42 +34,44 @@ export function conflictText(e: unknown, fallback = 'Couldn’t save the change.
   return failureText(e, fallback);
 }
 
-/** Admins and the project's managers may delete a task (the server's rule). */
-export function canDeleteTask(user: { id: string; roles: string[] } | null, members: { id: string; role: 'MEMBER' | 'MANAGER' }[]): boolean {
-  if (!user) return false;
-  if (user.roles.includes('ADMIN')) return true;
-  return members.some((m) => m.id === user.id && m.role === 'MANAGER');
-}
-
-/** "Due Oct 12" / "Overdue · Oct 8" (company calendar day; a finished task is never overdue). */
-export function dueState(
-  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null },
-  now: Date = new Date(),
-  locale?: string,
-  timeZone: string = appTimeZone(),
-): { text: string | null; overdue: boolean; dayKey: string | null } {
-  const dayKey = dueDayKey(task.dueDate, timeZone);
-  if (!dayKey) return { text: null, overdue: false, dayKey: null };
-  const day = formatDueDay(task.dueDate, locale, timeZone);
-  const overdue = isOverdue(task, now, timeZone);
-  return { text: overdue ? `Overdue · ${day}` : `Due ${day}`, overdue, dayKey };
+/** Whoever runs the project may delete its tasks: the server's canManageTask (lib/project-team canManageProject). */
+export function canDeleteTask(
+  user: { id: string; roles: string[] } | null,
+  project: { canManage?: boolean } | null | undefined,
+  members: readonly { id: string; role: 'MEMBER' | 'MANAGER' }[] = [],
+): boolean {
+  return canManageProject(user, project, members);
 }
 
 /**
- * The line naming the meeting a task was created from: its title and day (company time) and the
- * meeting to open in the app, or — for someone not part of the meeting — just a mention.
+ * "Due 12 Oct 2026" / "Overdue · 8 Oct 2026" (company calendar day; a finished task is never
+ * overdue, and neither is one waiting for approval — it says "Due <day>" and `waiting`).
+ */
+export function dueState(
+  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null; approvalRequestedAt?: string | null },
+  now: Date = new Date(),
+  timeZone: string = appTimeZone(),
+): { text: string | null; overdue: boolean; waiting: boolean; dayKey: string | null } {
+  const waiting = !isTaskDone(task) && isWaitingForApproval(task);
+  const dayKey = dueDayKey(task.dueDate, timeZone);
+  if (!dayKey) return { text: null, overdue: false, waiting, dayKey: null };
+  const day = formatDueDay(task.dueDate, timeZone);
+  const overdue = isOverdue(task, now, timeZone);
+  return { text: overdue ? `Overdue · ${day}` : `Due ${day}`, overdue, waiting, dayKey };
+}
+
+/**
+ * The line naming the meeting a task was created from: its title and day (company time, "Fri 30
+ * Oct" as the website's) and the meeting to open in the app, or — for someone not part of the
+ * meeting — just a mention.
  */
 export function meetingLine(
   meeting: ApiTaskMeeting | null | undefined,
-  locale?: string,
   timeZone: string = appTimeZone(),
 ): { text: string; meetingId: string | null } | null {
   if (!meeting) return null;
   if (!meeting.canView || !meeting.title) return { text: 'From a meeting you’re not part of', meetingId: null };
-  const start = meeting.startAt ? new Date(meeting.startAt) : null;
-  const day = start && !Number.isNaN(start.getTime())
-    ? new Intl.DateTimeFormat(locale, { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(start)
-    : '';
+  const day = meeting.startAt ? instantDayText(meeting.startAt, timeZone, { weekday: 'short', year: false }) : '';
   return {
     text: day ? `From meeting: ${meeting.title} · ${day}` : `From meeting: ${meeting.title}`,
     meetingId: meeting.id,
@@ -138,7 +142,7 @@ export function taskLoadProblem(error: unknown): { message: string; canRetry: bo
 export function carryForward(log: readonly { from: unknown; to: unknown; at?: unknown }[] | null | undefined): { text: string; label: string; lines: string[] } | null {
   const moves = (Array.isArray(log) ? log : []).filter((e) => typeof e?.from === 'string' && typeof e?.to === 'string' && /^\d{4}-\d{2}-\d{2}/.test(e.from as string)) as { from: string; to: string }[];
   if (moves.length === 0) return null;
-  const day = (key: string) => dateFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key.slice(0, 10)}T12:00:00.000Z`));
+  const day = (key: string) => dayText(key);
   const since = day(moves[0]!.from);
   const n = moves.length;
   return {

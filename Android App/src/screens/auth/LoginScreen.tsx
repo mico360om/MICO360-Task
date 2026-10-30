@@ -1,14 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, StyleSheet, KeyboardAvoidingView, Platform, Pressable, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useServer } from '../../core/providers';
 import { useColors } from '../../core/theme';
-import { Button, TextField, ErrorNote } from '../../components/ui';
+import { Button, TextField, ErrorNote, NoticeNote } from '../../components/ui';
 import { KeyboardAwareScrollView, KeyboardGroup } from '../../components/KeyboardAware';
 import { authErrorMessage, biometricSignInProblem, isAccountLocked } from '../../lib/auth-errors';
 import { SIGN_IN_LIMITS } from '../../lib/auth';
 import { parseServerAddress, probeServer, serverLabel, sitePageUrl } from '../../lib/server-address';
-import { fetchEmailEnabled, isCodeComplete, normaliseCode, resendLabel, resendWaitSeconds } from '../../lib/email-sign-in';
+import {
+  askedTooSoon,
+  CODE_SENT,
+  createCodeStepMemory,
+  fetchEmailEnabled,
+  isCodeComplete,
+  NEW_CODE_SENT,
+  normaliseCode,
+  RESEND_AFTER_MS,
+  resendLabel,
+  resendWaitSeconds,
+  waitFromAnswer,
+} from '../../lib/email-sign-in';
 import { spacing, fontSize, radius, type Palette } from '../../lib/theme';
 import { forgetPreviousUser } from '../../lib/user-switch';
 import { asyncStore } from '../../adapters/async-storage';
@@ -37,15 +49,44 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
-  // When the last code was sent, and a clock that ticks while "Resend" waits out the server's limit.
-  const [sentAt, setSentAt] = useState<number | null>(null);
+  // When another code may be asked for (the server's limit, or its "asked too soon" wait), and a
+  // clock that ticks while "Resend" waits.
+  const [resendAt, setResendAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const resendWait = resendWaitSeconds(sentAt, now);
+  const resendWait = resendWaitSeconds(resendAt, now);
+  // What the code step says: the code went, a new one went, or it was asked for too soon.
+  const [info, setInfo] = useState<string | null>(null);
+  // The code step, kept on the phone: Android may close the app while the person reads the email.
+  const codeSteps = useMemo(() => createCodeStepMemory(asyncStore), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [canBio, setCanBio] = useState(false);
   const [bioLabel, setBioLabel] = useState<string | undefined>(undefined);
+
+  // Back on a code step kept from before Android closed the app: the same address, the code step
+  // and Resend waiting as it was (the website's sign-in page does the same after a reload).
+  useEffect(() => {
+    let active = true;
+    void codeSteps.recall().then((step) => {
+      if (!active || !step) return;
+      setMode('otp');
+      setIdentifier(step.identifier);
+      setCodeSent(true);
+      setResendAt(step.resendAt);
+      setNow(Date.now());
+      setInfo(CODE_SENT);
+    });
+    return () => { active = false; };
+  }, [codeSteps]);
+
+  /** Back to the first step of "Email code" (the caller forgets the kept step too). */
+  function resetCodeStep() {
+    setCodeSent(false);
+    setResendAt(null);
+    setCode('');
+    setInfo(null);
+  }
 
   // Offer biometric sign-in only when a credential is remembered and biometrics are on. Reading
   // the marker never shows a prompt; the token itself sits behind a biometric-bound key (MOB-01).
@@ -77,6 +118,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
       await forgetPreviousUser(s.user.id, userSwitch);
       // Push registration happens once the signed-in app mounts (every launch + token rotation).
       await session.setSession(s);
+      await codeSteps.forget();
     } catch (e) {
       handleError(e);
     } finally {
@@ -101,6 +143,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
       const s = await auth.biometricSignIn(cred.refreshToken);
       await forgetPreviousUser(s.user.id, userSwitch); // the key is theirs: this records who signed in
       await session.setSession(s);
+      await codeSteps.forget();
     } catch (e) {
       // Offline, a busy server or a refused account keep the key; a revoked or ended key is forgotten.
       const problem = biometricSignInProblem(e);
@@ -122,11 +165,23 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
     setError(null);
     setLocked(false);
     try {
-      await auth.requestOtp(identifier.trim());
+      const asked = identifier.trim();
+      const answer = await auth.requestOtp(asked);
       const at = Date.now();
-      setSentAt(at);
+      const wait = waitFromAnswer(answer);
+      if (wait !== null) {
+        // Nothing was sent: say so, and wait as long as the server asks. The code sent before still works.
+        setInfo(askedTooSoon(wait));
+        setResendAt(at + wait * 1000);
+        await codeSteps.remember({ identifier: asked, resendAt: at + wait * 1000 });
+      } else {
+        // A new code replaces the one before it (the server stops accepting the old one).
+        setInfo(codeSent ? NEW_CODE_SENT : CODE_SENT);
+        setResendAt(at + RESEND_AFTER_MS);
+        setCode('');
+        await codeSteps.remember({ identifier: asked, resendAt: at + RESEND_AFTER_MS });
+      }
       setNow(at);
-      setCode('');
       setCodeSent(true);
     } catch (e) {
       handleError(e);
@@ -137,19 +192,25 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
 
   const submitCode = () => afterLogin(auth.verifyOtp(identifier.trim(), code.trim()));
 
-  /** Back to the first step, to send the code somewhere else. */
+  /** Back to the first step, to send the code somewhere else: nothing kept for the next start. */
   function useDifferentAddress() {
-    setCodeSent(false);
-    setSentAt(null);
-    setCode('');
     setError(null);
+    resetCodeStep();
+    void codeSteps.forget();
+  }
+
+  /** The Password tab: going back from the code step forgets it. */
+  function choosePassword() {
+    setMode('password');
+    resetCodeStep();
+    void codeSteps.forget();
   }
 
   useEffect(() => {
     if (resendWait <= 0) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(tick);
-  }, [resendWait > 0, sentAt]);
+  }, [resendWait > 0, resendAt]);
 
   // Server choice: task.mico360.com by default, or e.g. a self-hosted server on the office network.
   const server = useServer();
@@ -161,16 +222,28 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   // Email codes and reset links need the server's email to be set up: ask the chosen server, and
   // offer "Email code" only once it has said yes (the same rule as the web app).
   const [emailEnabled, setEmailEnabled] = useState<boolean | null>(null);
+  // Another server: a code step kept for the one before means nothing here.
+  const shownServer = useRef(server.baseUrl);
   useEffect(() => {
     let active = true;
     setEmailEnabled(null);
+    if (shownServer.current !== server.baseUrl) {
+      shownServer.current = server.baseUrl;
+      resetCodeStep();
+      void codeSteps.forget();
+    }
     void fetchEmailEnabled(server.baseUrl).then((enabled) => {
       if (active) setEmailEnabled(enabled);
     });
     return () => { active = false; };
   }, [server.baseUrl]);
+  // The code step stays offered while the server hasn't answered yet; only its "no email" takes it away.
   useEffect(() => {
-    if (emailEnabled !== true && mode === 'otp') setMode('password');
+    if (emailEnabled === false && mode === 'otp') {
+      setMode('password');
+      resetCodeStep();
+      void codeSteps.forget();
+    }
   }, [emailEnabled, mode]);
 
   function startServerEdit() {
@@ -219,9 +292,9 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
             </View>
           ) : null}
 
-          {emailEnabled === true ? (
+          {emailEnabled === true || mode === 'otp' ? (
             <View style={styles.tabs}>
-              <ModeTab label="Password" active={mode === 'password'} onPress={() => setMode('password')} styles={styles} />
+              <ModeTab label="Password" active={mode === 'password'} onPress={choosePassword} styles={styles} />
               <ModeTab label="Email code" active={mode === 'otp'} onPress={() => setMode('otp')} styles={styles} />
             </View>
           ) : null}
@@ -280,9 +353,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
               <>
                 {codeSent ? (
                   <>
-                    <Text style={styles.note} accessibilityLiveRegion="polite">
-                      If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.
-                    </Text>
+                    {info ? <NoticeNote message={info} /> : null}
                     <KeyboardGroup>
                       <TextField
                         label="One-time code"

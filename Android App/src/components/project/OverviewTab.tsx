@@ -10,6 +10,7 @@ import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../
 import { meetingDayKey } from '../../lib/meetings';
 import { projectPriorityLabel, projectStatusLabel, projectStatusTone } from '../../lib/project-identity';
 import { teamManagers } from '../../lib/project-team';
+import { DECISION_WORDS } from '../../lib/approvals';
 import {
   dayText,
   meetingsLine,
@@ -32,7 +33,7 @@ import type { ApiMember, ApiProject, ApiProjectMeetingsOverview, ApiTask } from 
 import { displayName } from '../../lib/types';
 import type { Tone } from '../../lib/tone';
 
-const MILESTONE_TONE: Record<MilestoneState, Tone> = { done: 'success', overdue: 'danger', upcoming: 'brand', undated: 'neutral' };
+const MILESTONE_TONE: Record<MilestoneState, Tone> = { done: 'success', waiting: 'warning', overdue: 'danger', upcoming: 'brand', undated: 'neutral' };
 
 export interface OverviewProps {
   project: ApiProject;
@@ -165,20 +166,22 @@ export function OverviewTab(p: OverviewProps) {
           <EmptyNote>Nothing due in the next two weeks.</EmptyNote>
         ) : (
           soon.slice(0, 6).map((d) => {
-            const when = d.daysLeft < 0 ? `Late · ${dayText(d.due)}` : relativeDays(d.daysLeft);
+            // Past its day but waiting for approval: it says so, never "Late" (the website's, owner 30 Oct).
+            const waitingLate = d.waiting && d.daysLeft < 0;
+            const when = waitingLate ? DECISION_WORDS.waiting : d.daysLeft < 0 ? `Late · ${dayText(d.due)}` : relativeDays(d.daysLeft);
             return (
               <Pressable
                 key={d.task.id}
                 onPress={() => p.onOpenTask(d.task)}
                 accessibilityRole="button"
-                accessibilityLabel={`${d.task.key}, ${d.task.title}, ${d.daysLeft < 0 ? `late, was due ${dayText(d.due)}` : `due ${when}`}`}
+                accessibilityLabel={`${d.task.key}, ${d.task.title}, ${waitingLate ? `${DECISION_WORDS.waiting}, due ${dayText(d.due)}` : d.daysLeft < 0 ? `late, was due ${dayText(d.due)}` : `due ${when}`}`}
                 style={({ pressed }) => [s.line, pressed && s.pressed]}
               >
                 <Text style={s.key}>{d.task.key}</Text>
                 <Text style={[s.lineTitle, s.flex]} numberOfLines={2}>
                   {d.task.title}
                 </Text>
-                <Text style={[s.when, d.daysLeft < 0 ? s.late : d.daysLeft <= 2 ? s.soon : null]}>{when}</Text>
+                <Text style={[s.when, waitingLate ? s.soon : d.daysLeft < 0 ? s.late : d.daysLeft <= 2 ? s.soon : null]}>{when}</Text>
               </Pressable>
             );
           })

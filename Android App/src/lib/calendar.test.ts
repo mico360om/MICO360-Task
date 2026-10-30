@@ -18,6 +18,7 @@ import {
   type CalendarView,
   type WeekStart,
 } from './calendar';
+import { setDateZones } from './due-date';
 
 const dow = (key: string) => new Date(`${key}T00:00:00Z`).getUTCDay();
 
@@ -30,6 +31,24 @@ describe('the week start', () => {
     expect(weekStartOf(null)).toBe(0);
     expect(weekStartOf(undefined)).toBe(0);
     expect(weekStartOf({ weekStart: 3 as unknown as 1 })).toBe(0);
+  });
+
+  it('your own week start wins, else the company’s', () => {
+    expect(weekStartOf({ weekStart: null }, 1)).toBe(1);
+    expect(weekStartOf({ weekStart: 6 }, 1)).toBe(6);
+    expect(weekStartOf({ weekStart: 0 }, 1)).toBe(0);
+    expect(weekStartOf(null, 6)).toBe(6);
+    expect(weekStartOf({ weekStart: 3 }, 1)).toBe(1);
+  });
+
+  it('with no choice of your own, the company’s week start the server last said', () => {
+    setDateZones({ company: 'Asia/Muscat', own: null, companyWeekStart: 6 });
+    try {
+      expect(weekStartOf(null)).toBe(6);
+      expect(weekStartOf({ weekStart: 1 })).toBe(1);
+    } finally {
+      setDateZones({ company: 'Asia/Muscat', own: null, companyWeekStart: 0 });
+    }
   });
 
   it('orders the weekday names', () => {

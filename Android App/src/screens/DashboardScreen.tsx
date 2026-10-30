@@ -9,7 +9,6 @@ import { TaskRow } from '../components/TaskRow';
 import { Card, SectionTitle, Loader, EmptyState, ErrorNote, PageHeader } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { AdminTotals } from '../components/AdminTotals';
-import { canEditProject } from '../lib/project-team';
 import { useQueryClient } from '@tanstack/react-query';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
@@ -20,7 +19,8 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const session = useSession();
   const { data: tasks, isLoading, isError, refetch, isRefetching } = useMyTasks();
   const summary = useMemo(() => summarizeTasks(tasks ?? [], new Date()), [tasks]);
-  const admin = canEditProject(session?.user ?? null);
+  // The all-projects totals are for administrators.
+  const admin = !!session?.user.roles.includes('ADMIN');
   const qc = useQueryClient();
 
   if (isLoading) return <Loader />;

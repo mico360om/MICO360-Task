@@ -7,7 +7,7 @@
  */
 import type { ApiMeeting, MeetingStatus } from './types';
 import { appTimeZone, zonedDayKey } from './due-date';
-import { dateFormat } from './intl-cache';
+import { dayText, instantDayText } from './day-words';
 import { clockTime, isRepeating, meetingPlace } from './meetings';
 import { MEETING_STATUS_LABELS, meetingStatusLabel, meetingWhen, minutesBadge } from './meeting-detail';
 
@@ -157,7 +157,14 @@ export function nextUpMeeting(list: ApiMeeting[], now: Date): ApiMeeting | null 
   return list.filter((m) => m.status === 'SCHEDULED' && new Date(m.startAt).getTime() > now.getTime()).sort(byStart)[0] ?? null;
 }
 
-const dayWords = (key: string, opts: Intl.DateTimeFormatOptions) => dateFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`));
+/**
+ * The meeting's day as a calendar leaf's three lines, "FRI" / "30" / "OCT", in the zone given (the
+ * website's DateLeaf: three-letter months, never "SEPT"). Empty parts for a bad instant.
+ */
+export function dateLeafParts(iso: string, timeZone: string): { weekday: string; day: string; month: string } {
+  const [weekday = '', day = '', month = ''] = instantDayText(iso, timeZone, { weekday: 'short', year: false }).split(' ');
+  return { weekday: weekday.toUpperCase(), day, month: month.toUpperCase() };
+}
 
 /** When the meeting starts, from now: "Happening now", "in 25 min", "Tomorrow at 10:00", "Tue 20 Oct at 10:00". */
 export function startsLabel(m: Pick<ApiMeeting, 'status' | 'startAt' | 'endAt'>, now: Date, timeZone: string = appTimeZone()): string {
@@ -170,8 +177,8 @@ export function startsLabel(m: Pick<ApiMeeting, 'status' | 'startAt' | 'endAt'>,
   const time = clockTime(m.startAt, timeZone);
   if (day === today) return `Today at ${time}`;
   if (day === shiftDayKey(today, 1)) return `Tomorrow at ${time}`;
-  if (day > today && day <= shiftDayKey(today, 6)) return `${dayWords(day, { weekday: 'long' })} at ${time}`;
-  return `${dayWords(day, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')} at ${time}`;
+  if (day > today && day <= shiftDayKey(today, 6)) return `${dayText(day, { weekday: 'long' }).split(' ')[0]} at ${time}`;
+  return `${dayText(day, { weekday: 'short', year: false })} at ${time}`;
 }
 
 export interface FilterChip {
@@ -203,8 +210,8 @@ export function peopleText(m: Pick<ApiMeeting, 'attendeeCount' | 'attendees'>): 
  * standalone) and organizer, who is coming, its status when it isn't simply scheduled (or "Under
  * way"), how far the minutes are, decisions, open action items, and whether it repeats.
  */
-export function meetingCardLabel(m: ApiMeeting, ctx: ListContext, locale?: string, statusShown = true): string {
-  const when = meetingWhen(m, ctx.timeZone, locale);
+export function meetingCardLabel(m: ApiMeeting, ctx: ListContext, statusShown = true): string {
+  const when = meetingWhen(m, ctx.timeZone);
   const organizer = ctx.organizerName(m.organizerId);
   const decisions = m.decisionCount ?? 0;
   const open = m.openActionItemCount ?? 0;
