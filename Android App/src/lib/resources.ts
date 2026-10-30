@@ -6,6 +6,7 @@ import type { DatePreferences, ServerConfig } from './date-settings';
 import type { ApiAccountUser } from './account';
 import { readTaskDraft } from './task-describe';
 import { readOfficePreview } from './file-preview';
+import { micoAiApi } from './mico-ai-api';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -631,6 +632,8 @@ export function resourcesApi(client: ApiClient) {
         client.del<void>(`/messages/${seg(messageId)}/reactions/${encodeURIComponent(emoji)}`),
       markRead: (conversationId: string) => client.post<void>(`/conversations/${seg(conversationId)}/read`, {}),
     },
+    /** MICO AI: the person's own chats with the assistant (Stage 3; lib/mico-ai-api). */
+    micoAi: micoAiApi(client),
   };
 }
 
