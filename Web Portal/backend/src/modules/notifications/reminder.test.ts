@@ -69,3 +69,21 @@ describe('planReminders', () => {
     expect(reminderKey(n!, '2026-09-08')).toBe('TASK_OVERDUE:t1:u1:2026-09-08');
   });
 });
+
+describe('planReminders: tasks waiting for approval (owner, 30 Oct)', () => {
+  const waited = new Date('2026-09-07T09:00:00.000Z');
+  it('a task waiting for approval gets no overdue or due-soon reminders — its approver sees it under To approve', () => {
+    const out = planReminders(
+      [
+        { id: 'late', title: 'Report', dueDate: yesterday, columnCategory: 'REVIEW', approvalRequestedAt: waited, assigneeIds: ['u1'] },
+        { id: 'soon', title: 'Drawing', dueDate: inOneHour, columnCategory: 'REVIEW', approvalRequestedAt: waited, assigneeIds: ['u1'] },
+      ],
+      { now },
+    );
+    expect(out).toEqual([]);
+  });
+  it('sent back (no longer waiting): the reminders start again', () => {
+    const out = planReminders([{ id: 'late', title: 'Report', dueDate: yesterday, columnCategory: 'IN_PROGRESS', approvalRequestedAt: null, assigneeIds: ['u1'] }], { now });
+    expect(out).toEqual([expect.objectContaining({ type: 'TASK_OVERDUE', entityId: 'late', userId: 'u1' })]);
+  });
+});

@@ -10,6 +10,8 @@ export interface DigestTask {
   columnCategory: string | null;
   /** A completed task is left out, whatever column it sits in. */
   completedAt?: Date | null;
+  /** Waiting for approval since (task approvals): no deadline reminders meanwhile (owner, 30 Oct). */
+  approvalRequestedAt?: Date | null;
   /** Assignees ∪ watchers — everyone who should see this task in their digest. */
   recipientIds: string[];
 }
@@ -35,8 +37,8 @@ export interface BuildDigestOptions {
 /**
  * Group each recipient's open (not-done) tasks that are overdue or due today into a per-user
  * digest. Due dates are calendar days and "today" is the company-time-zone date, the same rule
- * as the board, reminders and reports. Pure and deterministic — the sweep decides who to
- * actually email and when.
+ * as the board, reminders and reports. A task waiting for approval is left out (it is handed in;
+ * owner, 30 Oct). Pure and deterministic — the sweep decides who to actually email and when.
  */
 export function buildDigests(tasks: DigestTask[], opts: BuildDigestOptions = {}): UserDigest[] {
   const now = opts.now ?? new Date();
@@ -51,7 +53,7 @@ export function buildDigests(tasks: DigestTask[], opts: BuildDigestOptions = {})
   };
 
   for (const t of tasks) {
-    if (isTaskDone(t)) continue;
+    if (isTaskDone(t) || t.approvalRequestedAt) continue;
     const due = dueDayKey(t.dueDate, timeZone);
     if (!due) continue;
     const bucket = due < today ? 'overdue' : due === today ? 'dueToday' : null;

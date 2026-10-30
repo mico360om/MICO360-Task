@@ -29,6 +29,11 @@ export interface DailyTask {
   /** Its column's status ("In Progress"). */
   statusLabel: string;
   completedAt: Date | null;
+  /**
+   * Waiting for approval since (task approvals): handed in, so the pending email lists it on its own
+   * "Waiting for approval" line — never as overdue (owner, 30 Oct).
+   */
+  waitingSince?: Date | null;
 }
 
 const PRIORITY_CHIP: Record<DailyTask['priority'], EmailChip> = {
@@ -176,6 +181,22 @@ function approvalBlocks(n: number | undefined, appUrl: string): Block[] {
 }
 
 /**
+ * The person's own tasks waiting for approval: "Waiting for approval (2): …" and each with its link
+ * (up to PER_PROJECT, then how many more) — nothing when none wait.
+ */
+function waitingBlocks(waiting: DailyTask[], appUrl: string): Block[] {
+  if (!waiting.length) return [];
+  const one = waiting.length === 1;
+  const shown = waiting.slice(0, PER_PROJECT);
+  const left = waiting.length - shown.length;
+  return [
+    { kind: 'text', text: `Waiting for approval (${waiting.length}): a project manager must approve ${one ? 'it before it counts' : 'them before they count'} as done.` },
+    { kind: 'links', items: shown.map((t) => ({ label: `${t.key} · ${t.title}`, href: taskLink(appUrl, t.id) })) },
+    ...(left > 0 ? [{ kind: 'text', text: `+${plural(left, 'more task')} waiting for approval.` } as Block] : []),
+  ];
+}
+
+/**
  * The morning email of someone's pending tasks (assigned to them, not done): the day at a glance, then
  * a section per project (the one with the most urgent task first), each with its details and its
  * tasks, most urgent first (overdue, due today, upcoming, no due date; then priority).
@@ -183,17 +204,23 @@ function approvalBlocks(n: number | undefined, appUrl: string): Block[] {
  * `awaitingApproval`: how many tasks wait for this person's approval (they run the project, or are an
  * administrator) — a line near the top with a button to the To approve list. With none of their own
  * tasks pending, the email is about those alone.
+ *
+ * Their own tasks waiting for approval (handed in) are left out of the counts and the project sections
+ * — never "overdue" — and listed on their own "Waiting for approval" line after them (owner, 30 Oct).
  */
 export function pendingEmail(
   p: { name: string; tasks: DailyTask[]; timeZone: string; now: Date; appUrl: string; assetUrl?: string; awaitingApproval?: number },
   opts?: TemplateOptions,
 ): EmailContent {
-  if (p.tasks.length === 0) {
-    const waiting = p.awaitingApproval ?? 0;
-    const line = `${plural(waiting, 'task')} waiting for your approval`;
+  const handedIn = p.tasks.filter((t) => t.waitingSince).sort(byDueThenPriority(p.timeZone));
+  const open = p.tasks.filter((t) => !t.waitingSince);
+  if (open.length === 0) {
+    const approvals = p.awaitingApproval ?? 0;
+    const line = approvals || !handedIn.length ? `${plural(approvals, 'task')} waiting for your approval` : `${plural(handedIn.length, 'task')} of yours waiting for approval`;
     const blocks: Block[] = [
-      { kind: 'text', text: 'You have no pending tasks of your own.' },
-      ...approvalBlocks(waiting, p.appUrl),
+      { kind: 'text', text: handedIn.length ? 'You have no other pending tasks.' : 'You have no pending tasks of your own.' },
+      ...approvalBlocks(approvals, p.appUrl),
+      ...waitingBlocks(handedIn, p.appUrl),
       settingsNote(p.appUrl, 'this email'),
     ];
     return render(line, `${line}.`, `Good morning, ${p.name}`, todayLabel(p.now, p.timeZone), blocks, opts);
@@ -201,7 +228,7 @@ export function pendingEmail(
   const days = (t: DailyTask) => daysUntilDue(t.dueDate, p.timeZone, p.now);
   const isOverdue = (t: DailyTask) => (days(t) ?? 0) < 0;
   const isToday = (t: DailyTask) => days(t) === 0;
-  const sorted = [...p.tasks].sort(byDueThenPriority(p.timeZone));
+  const sorted = [...open].sort(byDueThenPriority(p.timeZone));
   const overdue = sorted.filter(isOverdue).length;
   const today = sorted.filter(isToday).length;
   const upcoming = sorted.filter((t) => (days(t) ?? -1) > 0).length;
@@ -221,7 +248,7 @@ export function pendingEmail(
   });
   const groups = byProject(sorted);
   const fit = fitting(groups);
-  const n = p.tasks.length;
+  const n = open.length;
   const blocks: Block[] = [
     { kind: 'text', text: `You have ${plural(n, 'task')} that ${n === 1 ? 'isn’t' : 'aren’t'} done yet${groups.length > 1 ? `, in ${groups.length} projects` : ''}.` },
     ...approvalBlocks(p.awaitingApproval, p.appUrl),
@@ -230,6 +257,7 @@ export function pendingEmail(
       today > 0 && { text: `${today} due today`, tone: 'warning' },
       upcoming > 0 && { text: `${upcoming} upcoming`, tone: 'info' },
       noDue > 0 && { text: `${noDue} with no due date`, tone: 'muted' },
+      handedIn.length > 0 && { text: `${handedIn.length} waiting for approval`, tone: 'muted' },
     ]),
     ...fit.shown.map((g): Block => {
       const late = g.tasks.filter(isOverdue).length;
@@ -250,6 +278,7 @@ export function pendingEmail(
       };
     }),
     ...moreProjects(fit),
+    ...waitingBlocks(handedIn, p.appUrl),
     { kind: 'button', label: 'Open My Tasks', href: `${base(p.appUrl)}/my-tasks` },
     settingsNote(p.appUrl, 'this email'),
   ];

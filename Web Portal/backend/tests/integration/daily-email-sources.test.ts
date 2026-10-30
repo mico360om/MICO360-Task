@@ -81,6 +81,14 @@ describe('Daily email sources (integration)', () => {
     expect((await sources.tasks.pending(bo)).map((t) => t.key).sort()).toEqual(['DM-2', 'DM-3']);
   });
 
+  it('pending: a task waiting for approval says since when (the email lists it on its own line)', async () => {
+    const waited = new Date('2026-10-20T08:00:00Z');
+    await prisma.task.updateMany({ where: { key: 'DM-2', project: { code: 'DMOPEN' } }, data: { needsApproval: true, approvalRequestedAt: waited } });
+    const tasks = await sources.tasks.pending(ada);
+    expect(tasks.find((t) => t.key === 'DM-2')!.waitingSince).toEqual(waited);
+    expect(tasks.find((t) => t.key === 'DM-1')!.waitingSince).toBeNull();
+  });
+
   it('completed: the person’s tasks finished in the window', async () => {
     const tasks = await sources.tasks.completedBetween(ada, new Date('2026-10-20T00:00:00Z'), new Date('2026-10-21T00:00:00Z'));
     expect(tasks.map((t) => t.key)).toEqual(['DM-4']);

@@ -11,6 +11,8 @@ export interface EscalationTask {
   /** A completed task never escalates, whatever column it sits in. */
   completedAt?: Date | null;
   projectId: string;
+  /** Waiting for approval since (task approvals): no deadline reminders meanwhile (owner, 30 Oct). */
+  approvalRequestedAt?: Date | null;
 }
 
 export interface EscalationPlan {
@@ -34,7 +36,8 @@ export interface PlanEscalationOptions {
 /**
  * Decide which tasks warrant escalating to their project's owner/managers: any Blocked task, or a
  * task overdue by at least the threshold (whole company-time calendar days past its due day).
- * "Blocked" wins when a task is both. Pure/deterministic.
+ * "Blocked" wins when a task is both. A task waiting for approval never escalates: whoever runs the
+ * project already has it under To approve (owner, 30 Oct). Pure/deterministic.
  */
 export function planEscalations(tasks: EscalationTask[], opts: PlanEscalationOptions = {}): EscalationPlan[] {
   const now = opts.now ?? new Date();
@@ -43,7 +46,7 @@ export function planEscalations(tasks: EscalationTask[], opts: PlanEscalationOpt
   const plans: EscalationPlan[] = [];
 
   for (const t of tasks) {
-    if (isTaskDone(t)) continue;
+    if (isTaskDone(t) || t.approvalRequestedAt) continue;
     if (t.columnCategory === 'BLOCKED') {
       plans.push({ taskId: t.id, projectId: t.projectId, key: t.key, title: t.title, reason: 'blocked', overdueDays: 0 });
       continue;
