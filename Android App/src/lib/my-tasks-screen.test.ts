@@ -25,7 +25,8 @@ describe('the My Tasks screen (4d), as the website’s page', () => {
     expect(screen).toMatch(/useSavedViews\(\)/);
     expect(screen).toMatch(/\[\.\.\.BUILT_IN_VIEWS, \.\.\.views\.custom\]/);
     expect(screen).toContain('Name this view…');
-    expect(screen).toContain('＋ Save view');
+    // "＋ Save view": the plus is the drawn icon since the Task 16 sweep.
+    expect(screen).toMatch(/<Icon name="ui\.plus"[^>]*\/>\s*<Text style=\{s\.chipText\}>Save view<\/Text>/);
   });
 
   it('selects tasks (only shown ones) and runs the website’s bulk actions, asking before clearing due dates', () => {

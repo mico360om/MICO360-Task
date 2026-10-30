@@ -40,7 +40,8 @@ import {
 } from '../lib/calendar-screen';
 import { displayName, type ApiProject } from '../lib/types';
 import { MeetingRow } from '../components/MeetingRow';
-import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
+import { SkeletonList, EmptyState, ErrorNote, Button, IconButton } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { usePullRefresh } from '../components/meeting/live';
 import { MonthGrid, type DayMarks } from '../components/calendar/MonthGrid';
 import { CalendarTaskRow } from '../components/calendar/CalendarTaskRow';
@@ -280,7 +281,8 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
             hitSlop={6}
             style={({ pressed }) => [styles.add, pressed && styles.pressed]}
           >
-            <Text style={styles.addText}>＋ Add</Text>
+            <Icon name="ui.plus" size={14} color={c.brandText} />
+            <Text style={styles.addText}>Add</Text>
           </Pressable>
         ) : null}
       </View>
@@ -341,9 +343,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
       {/* Previous / Today / Next and the period (tap it to go to a date); the views and the filters. */}
       <View style={styles.toolbar}>
         <View style={styles.toolRow}>
-          <Pressable onPress={() => step(-1)} accessibilityRole="button" accessibilityLabel={`Previous ${unit}`} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
-            <Text style={styles.iconText}>‹</Text>
-          </Pressable>
+          <IconButton icon="ui.back" label={`Previous ${unit}`} variant="outlined" onPress={() => step(-1)} />
           <Pressable
             onPress={() => {
               setSelected(null);
@@ -355,9 +355,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
           >
             <Text style={styles.pillText}>Today</Text>
           </Pressable>
-          <Pressable onPress={() => step(1)} accessibilityRole="button" accessibilityLabel={`Next ${unit}`} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
-            <Text style={styles.iconText}>›</Text>
-          </Pressable>
+          <IconButton icon="ui.back" rotate={180} label={`Next ${unit}`} variant="outlined" onPress={() => step(1)} />
           <Pressable onPress={() => setGoTo(true)} accessibilityRole="button" accessibilityLabel={`${period}. Go to a date`} style={({ pressed }) => [styles.periodButton, pressed && styles.pressed]}>
             <Text style={styles.period} numberOfLines={2} accessibilityLiveRegion="polite">
               {period}
@@ -395,7 +393,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
       </View>
 
       {rangeQ.isLoading || !weekKnown ? (
-        <Loader />
+        <SkeletonList rows={6} />
       ) : rangeQ.isError && !rangeQ.data ? (
         <View style={styles.errorWrap}>
           <ErrorNote
@@ -430,7 +428,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
           accessibilityRole="button"
           accessibilityLabel={`Add a task on ${dayLabel(addDay)}`}
         >
-          <Text style={styles.fabPlus}>＋</Text>
+          <Icon name="ui.plus" size={26} color={c.onBrand} />
         </Pressable>
       ) : null}
 
@@ -444,7 +442,7 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
             </Pressable>
           ) : null}
           <Pressable onPress={() => setToast(null)} accessibilityRole="button" accessibilityLabel="Dismiss" style={({ pressed }) => [styles.toastButton, pressed && styles.pressed]}>
-            <Text style={styles.toastClose}>✕</Text>
+            <Icon name="ui.close" size={18} color={c.ink2} />
           </Pressable>
         </View>
       ) : null}
@@ -498,16 +496,14 @@ const makeStyles = (c: Palette) =>
       borderBottomColor: c.line,
     },
     toolRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
-    iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface },
-    iconText: { fontSize: fontSize.xl, ...font('700'), color: c.ink },
     pill: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     pillOn: { borderColor: c.brand, backgroundColor: c.brandWash },
     pillText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     pillTextOn: { color: c.brandText },
     periodButton: { flex: 1, minWidth: 120, minHeight: 44, justifyContent: 'center' },
     period: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
-    segment: { flexDirection: 'row', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.surface, padding: 2 },
-    segmentItem: { minHeight: 40, minWidth: 64, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
+    segment: { flexDirection: 'row', borderWidth: 1, borderColor: c.line, borderRadius: radius.input, backgroundColor: c.surface, padding: 2 },
+    segmentItem: { minHeight: 40, minWidth: 64, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center', borderRadius: radius.badge },
     segmentOn: { backgroundColor: c.brand },
     segmentText: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
     segmentTextOn: { color: c.onBrand },
@@ -515,16 +511,16 @@ const makeStyles = (c: Palette) =>
     list: { padding: spacing.lg, gap: spacing.sm },
     dimmed: { opacity: 0.6 },
     header: { gap: spacing.sm, marginBottom: spacing.xs },
-    note: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: c.line },
-    nothingBar: { gap: spacing.sm, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.md, padding: spacing.md, backgroundColor: c.surface },
+    note: { fontSize: fontSize.sm, color: c.ink2, backgroundColor: c.surface, borderRadius: radius.input, padding: spacing.md, borderWidth: 1, borderColor: c.line },
+    nothingBar: { gap: spacing.sm, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.input, padding: spacing.md, backgroundColor: c.surface },
     nothingText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
-    earlier: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md },
+    earlier: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md },
     earlierText: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
     sectionHead: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.md },
     sectionTitle: { flexShrink: 1, fontSize: fontSize.md, ...font('800'), color: c.ink },
     todayTitle: { color: c.brandText },
     overdueTitle: { color: c.dangerText },
-    add: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface },
+    add: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface },
     addText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     empty: { fontSize: fontSize.sm, color: c.ink3, paddingVertical: spacing.xs },
     more: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
@@ -543,7 +539,6 @@ const makeStyles = (c: Palette) =>
       justifyContent: 'center',
       elevation: 4,
     },
-    fabPlus: { fontSize: 28, color: c.onBrand, ...font('700'), lineHeight: 32 },
     toast: {
       position: 'absolute',
       left: spacing.lg,
@@ -554,7 +549,7 @@ const makeStyles = (c: Palette) =>
       paddingVertical: spacing.sm,
       paddingLeft: spacing.md,
       paddingRight: spacing.xs,
-      borderRadius: radius.md,
+      borderRadius: radius.button,
       borderWidth: 1,
       borderColor: c.line,
       backgroundColor: c.surface,
@@ -564,5 +559,4 @@ const makeStyles = (c: Palette) =>
     toastText: { flex: 1, fontSize: fontSize.sm, color: c.ink },
     toastButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     toastUndo: { fontSize: fontSize.sm, ...font('800'), color: c.brandText },
-    toastClose: { fontSize: fontSize.md, color: c.ink2 },
   });

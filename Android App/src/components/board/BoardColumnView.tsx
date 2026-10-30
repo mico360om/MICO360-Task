@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { BoardCard } from './BoardCard';
+import { Icon } from '../Icon';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { BoardCard as Card } from '../../lib/board';
 import { font } from '../../lib/typography';
@@ -57,7 +58,7 @@ export const BoardColumnView = React.memo(function BoardColumnView({
         </Text>
         {/* The website's "+" on every column: a new task starts in this column. */}
         <Pressable onPress={() => onAdd(id)} accessibilityRole="button" accessibilityLabel={`Add a task to ${name}`} hitSlop={6} style={({ pressed }) => [s.colAdd, pressed && s.pressed]}>
-          <Text style={s.colAddText}>＋</Text>
+          <Icon name="ui.plus" size={20} color={c.ink2} />
         </Pressable>
       </View>
       <FlatList
@@ -83,7 +84,10 @@ export const BoardColumnView = React.memo(function BoardColumnView({
         ListEmptyComponent={
           <Pressable onPress={() => onAdd(id)} accessibilityRole="button" accessibilityLabel={`No tasks in ${name}. Add a task`} style={({ pressed }) => [s.emptyAdd, pressed && s.pressed]}>
             <Text style={s.emptyCol}>No tasks</Text>
-            <Text style={s.emptyAddText}>＋ Add a task</Text>
+            <View style={s.emptyAddRow}>
+              <Icon name="ui.plus" size={14} color={c.brandText} />
+              <Text style={s.emptyAddText}>Add a task</Text>
+            </View>
           </Pressable>
         }
       />
@@ -96,7 +100,7 @@ const noStep = () => {};
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     pressed: { opacity: 0.6 },
-    column: { backgroundColor: c.ground, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.sm, paddingTop: spacing.sm + 3, overflow: 'hidden' },
+    column: { backgroundColor: c.ground, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.sm, paddingTop: spacing.sm + 3, overflow: 'hidden' },
     columnStripe: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
     columnHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm },
     dot: { width: 10, height: 10, borderRadius: 5 },
@@ -104,8 +108,8 @@ const makeStyles = (c: Palette) =>
     count: { fontSize: fontSize.sm, ...font('700'), color: c.ink2, minWidth: 20, textAlign: 'center' },
     columnBody: { gap: spacing.sm, paddingBottom: spacing.xxl * 2 },
     emptyCol: { color: c.ink3, fontSize: fontSize.sm, padding: spacing.sm },
-    emptyAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.md, paddingVertical: spacing.lg, minHeight: 88 },
+    emptyAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.button, paddingVertical: spacing.lg, minHeight: 88 },
+    emptyAddRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     emptyAddText: { color: c.brandText, fontSize: fontSize.sm, ...font('700') },
-    colAdd: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-    colAddText: { color: c.ink2, fontSize: fontSize.lg, ...font('700') },
+    colAdd: { width: 44, height: 44, borderRadius: radius.input, alignItems: 'center', justifyContent: 'center' },
   });

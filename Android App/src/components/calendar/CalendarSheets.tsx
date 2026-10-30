@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Sheet, SheetButtons, CardChoice, SheetMessage } from '../meeting/sheet-kit';
 import { MonthGrid } from './MonthGrid';
+import { IconButton } from '../ui';
 import { dayLabel, fullDayLabel, shiftMonth, type WeekStart } from '../../lib/calendar';
 import { PRIORITY_LABEL, STATUS_LABEL, type CalItem } from '../../lib/calendar-model';
 import { moveBlockReason, needsSeriesChoice, projectedNote, quickDays, type MoveScope } from '../../lib/calendar-reschedule';
@@ -67,15 +68,11 @@ export function DayPicker({
         </View>
       ) : null}
       <View style={s.monthBar}>
-        <Pressable onPress={() => setMonth(shiftMonth(month, -1))} accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={8} style={({ pressed }) => [s.step, pressed && s.pressed]}>
-          <Text style={s.stepText}>‹</Text>
-        </Pressable>
+        <IconButton icon="ui.back" label="Previous month" variant="outlined" onPress={() => setMonth(shiftMonth(month, -1))} />
         <Text style={s.monthName} accessibilityLiveRegion="polite">
           {monthName}
         </Text>
-        <Pressable onPress={() => setMonth(shiftMonth(month, 1))} accessibilityRole="button" accessibilityLabel="Next month" hitSlop={8} style={({ pressed }) => [s.step, pressed && s.pressed]}>
-          <Text style={s.stepText}>›</Text>
-        </Pressable>
+        <IconButton icon="ui.back" rotate={180} label="Next month" variant="outlined" onPress={() => setMonth(shiftMonth(month, 1))} />
       </View>
       <MonthGrid cursor={month} weekStart={weekStart} today={today} selected={value} onPick={onChange} outlined={ringed} outlinedWord={ringedWord} label={monthName} hint={hint} />
     </View>
@@ -240,8 +237,6 @@ const makeStyles = (c: Palette) =>
     chipTextOn: { color: c.brandText, ...font('700') },
     pressed: { opacity: 0.7 },
     monthBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    step: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
-    stepText: { fontSize: fontSize.xl, color: c.ink, ...font('700') },
     monthName: { flex: 1, textAlign: 'center', fontSize: fontSize.md, ...font('700'), color: c.ink },
     taskTitle: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     note: { fontSize: fontSize.sm, color: c.ink2 },

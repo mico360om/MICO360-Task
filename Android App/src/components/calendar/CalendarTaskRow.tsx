@@ -3,19 +3,39 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { STATUS_LABEL, itemMeta, itemName, type CalItem, type CalStatus } from '../../lib/calendar-model';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
-import { statusColor } from './MonthGrid';
 import { moveButton } from '../../lib/calendar-reschedule';
 import { font } from '../../lib/typography';
+import type { IconName } from '../../lib/icons';
+import { Icon } from '../Icon';
 
-/** Each status's sign (with its words beside it — colour is never the only sign). */
-const STATUS_ICON: Record<CalStatus, string> = {
-  overdue: '!',
-  blocked: '⊘',
-  'in-progress': '◐',
-  todo: '○',
-  done: '✓',
-  projected: '↻',
+/**
+ * Each status's sign (with its words beside it — colour is never the only sign): the website's
+ * calendar icons where the app has them; "To do" is the website's plain circle, drawn as a ring.
+ */
+const STATUS_ICON: Record<CalStatus, IconName | null> = {
+  overdue: 'ui.alert',
+  blocked: 'kit.lock',
+  'in-progress': 'kit.clock',
+  todo: null,
+  done: 'kit.checkCircle',
+  projected: 'kit.repeat',
 };
+
+/** The status's words and sign in its text tone (the dots keep the fills: MonthGrid statusColor). */
+function statusTextColor(c: Palette, s: CalStatus): string {
+  switch (s) {
+    case 'overdue':
+      return c.dangerText;
+    case 'blocked':
+      return c.warningText;
+    case 'in-progress':
+      return c.infoText;
+    case 'done':
+      return c.successText;
+    default:
+      return c.ink2;
+  }
+}
 
 /**
  * A task on the calendar: its status (sign and words), up to two lines of its title, its key (or
@@ -42,7 +62,8 @@ export function CalendarTaskRow({
   const s = useMemo(() => makeStyles(c), [c]);
   const projected = item.kind === 'projected';
   const meta = itemMeta(item, projectName);
-  const tone = statusColor(c, item.status);
+  const tone = statusTextColor(c, item.status);
+  const sign = STATUS_ICON[item.status];
   const move = movable ? moveButton(item) : null;
   const actionLabel = move ? move.a11y : 'Why it can’t be moved';
   return (
@@ -60,22 +81,22 @@ export function CalendarTaskRow({
       style={({ pressed }) => [s.row, projected && s.projected, item.status === 'overdue' && s.overdue, pressed && s.pressed]}
     >
       <View style={[s.edge, { backgroundColor: projectColor || c.line }]} />
-      <Text style={[s.icon, { color: tone }]} importantForAccessibility="no" maxFontSizeMultiplier={1.4}>
-        {STATUS_ICON[item.status]}
-      </Text>
+      <View style={s.icon} importantForAccessibility="no-hide-descendants">
+        {sign ? <Icon name={sign} size={18} color={tone} /> : <View style={[s.ring, { borderColor: tone }]} />}
+      </View>
       <View style={s.body}>
         <Text style={[s.title, item.status === 'done' && s.doneTitle, projected && s.projectedTitle]} numberOfLines={2}>
           {item.task.title}
         </Text>
         <Text style={s.meta} numberOfLines={2}>
-          <Text style={[s.status, { color: item.status === 'todo' ? c.ink2 : tone }]}>{STATUS_LABEL[item.status]}</Text>
+          <Text style={[s.status, { color: tone }]}>{STATUS_LABEL[item.status]}</Text>
           {meta ? ` · ${meta}` : ''}
         </Text>
       </View>
       {item.kind === 'task' && item.recurring ? (
-        <Text style={s.repeat} importantForAccessibility="no">
-          🔁
-        </Text>
+        <View importantForAccessibility="no-hide-descendants">
+          <Icon name="kit.repeat" size={16} color={c.ink2} />
+        </View>
       ) : null}
       {move ? (
         // TalkBack reaches it as the row's action (named the same); the button is for sight.
@@ -97,7 +118,7 @@ const makeStyles = (c: Palette) =>
       paddingVertical: spacing.sm,
       paddingRight: spacing.md,
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      borderRadius: radius.button,
       borderWidth: 1,
       borderColor: c.line,
       overflow: 'hidden',
@@ -106,7 +127,8 @@ const makeStyles = (c: Palette) =>
     overdue: { borderColor: c.danger },
     pressed: { opacity: 0.7 },
     edge: { alignSelf: 'stretch', width: 4, marginVertical: -spacing.sm },
-    icon: { width: 22, textAlign: 'center', fontSize: fontSize.md, ...font('800') },
+    icon: { width: 22, alignItems: 'center', justifyContent: 'center' },
+    ring: { width: 15, height: 15, borderRadius: 8, borderWidth: 2 },
     body: { flex: 1, gap: 2 },
     // An Arabic title reads right to left on its own line (Android picks the direction from the text).
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },
@@ -114,7 +136,6 @@ const makeStyles = (c: Palette) =>
     projectedTitle: { color: c.ink2 },
     meta: { fontSize: fontSize.xs, color: c.ink2 },
     status: { ...font('700') },
-    repeat: { fontSize: fontSize.sm, color: c.ink2 },
     move: { minHeight: 36, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand },
     moveText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
   });

@@ -6,11 +6,11 @@ import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { summarizeTasks } from '../lib/tasks-summary';
 import { TaskRow } from '../components/TaskRow';
-import { Card, SectionTitle, Loader, EmptyState, ErrorNote, PageHeader } from '../components/ui';
+import { Card, SectionTitle, SkeletonList, EmptyState, ErrorNote, PageHeader, StatTile } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { AdminTotals } from '../components/AdminTotals';
 import { useQueryClient } from '@tanstack/react-query';
-import { spacing, fontSize, radius, type Palette } from '../lib/theme';
+import { spacing, fontSize, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
 
@@ -24,7 +24,7 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const admin = !!session?.user.roles.includes('ADMIN');
   const qc = useQueryClient();
 
-  if (isLoading) return <Loader />;
+  if (isLoading) return <SkeletonList rows={6} />;
 
   const firstName = session?.user.username ?? 'there';
   const openTask = (id: string, title: string) => navigation.navigate('TaskDetail', { taskId: id, title });
@@ -54,10 +54,18 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
         ) : null}
 
         <View style={styles.tiles}>
-          <Tile label="Overdue" value={summary.overdue.length} tone={c.danger} styles={styles} />
-          <Tile label="Due today" value={summary.dueToday.length} tone={c.category.IN_PROGRESS} styles={styles} />
-          <Tile label="Upcoming" value={summary.upcoming.length} tone={c.category.REVIEW} styles={styles} />
-          <Tile label="Completed" value={summary.completed} tone={c.category.DONE} styles={styles} />
+          <View style={styles.tile}>
+            <StatTile label="Overdue" value={summary.overdue.length} icon="ui.alert" tone="danger" />
+          </View>
+          <View style={styles.tile}>
+            <StatTile label="Due today" value={summary.dueToday.length} icon="kit.calendar" tone="warning" />
+          </View>
+          <View style={styles.tile}>
+            <StatTile label="Upcoming" value={summary.upcoming.length} icon="kit.clock" tone="info" />
+          </View>
+          <View style={styles.tile}>
+            <StatTile label="Completed" value={summary.completed} icon="kit.checkCircle" tone="success" />
+          </View>
         </View>
 
         {/* Administrators: every project's totals, as on the website's dashboard (5b). */}
@@ -73,8 +81,8 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
 
         <Section title="Due today" styles={styles}>
           {summary.dueToday.length === 0 ? (
-            <Card>
-              <Text style={styles.clear}>Nothing due today. 🎉</Text>
+            <Card padded={false}>
+              <EmptyState icon="kit.checkCircle" title="Nothing due today." />
             </Card>
           ) : (
             summary.dueToday.map((t) => <TaskRow key={t.id} task={t} onPress={() => openTask(t.id, t.title)} />)
@@ -99,15 +107,6 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
 
 type Styles = ReturnType<typeof makeStyles>;
 
-function Tile({ label, value, tone, styles }: { label: string; value: number; tone: string; styles: Styles }) {
-  return (
-    <View style={styles.tile}>
-      <Text style={[styles.tileValue, { color: tone }]}>{value}</Text>
-      <Text style={styles.tileLabel}>{label}</Text>
-    </View>
-  );
-}
-
 function Section({ title, children, styles }: { title: string; children: React.ReactNode; styles: Styles }) {
   return (
     <View style={styles.section}>
@@ -124,17 +123,6 @@ const makeStyles = (c: Palette) =>
     greeting: { fontSize: fontSize.xxl, ...font('800'), color: c.ink },
     sub: { fontSize: fontSize.md, color: c.ink2, marginBottom: spacing.sm },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    tile: {
-      flexGrow: 1,
-      flexBasis: '47%',
-      backgroundColor: c.surface,
-      borderRadius: radius.lg,
-      borderWidth: 1,
-      borderColor: c.line,
-      padding: spacing.lg,
-    },
-    tileValue: { fontSize: fontSize.xxl, ...font('800') },
-    tileLabel: { fontSize: fontSize.sm, color: c.ink2, marginTop: 2 },
+    tile: { flexGrow: 1, flexBasis: '47%' },
     section: { gap: spacing.sm },
-    clear: { color: c.ink2, fontSize: fontSize.md },
   });

@@ -7,6 +7,7 @@
 - In the Android app, people and projects show the website's pictures and drawn project icons, and empty pages show an icon and what to do next.
 - In the Android app, the top bar is white with the MICO360 logo, Search and a bell for notifications; the side menu is grouped like the website's (Workspace, Communication, Admin); the bottom tabs are Dashboard, My Tasks, Projects, Meetings and Chat, with drawn icons.
 - In the Android app, the side menu offers Management to the people who run a project.
+- In the Android app, the Dashboard, My Tasks, the boards and the calendar use the new look, with the waiting-for-approval mark and loading placeholders.
 <!-- new-look lines above this line -->
 
 ## Dates and fixes

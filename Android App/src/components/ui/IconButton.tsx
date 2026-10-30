@@ -19,6 +19,7 @@ export function IconButton({
   badge,
   hint,
   disabled,
+  rotate,
 }: {
   icon: IconName;
   label: string;
@@ -29,6 +30,8 @@ export function IconButton({
   badge?: number | string;
   hint?: string;
   disabled?: boolean;
+  /** Turns the icon (`ui.back` at 180 is "next"). */
+  rotate?: 0 | 90 | 180 | 270;
 }) {
   const c = useColors();
   const showBadge = badge !== undefined && badge !== '' && badge !== 0;
@@ -46,7 +49,7 @@ export function IconButton({
         disabled ? styles.dim : pressed ? { backgroundColor: c.ground } : null,
       ]}
     >
-      <Icon name={icon} size={size} color={color ?? c.ink2} />
+      <Icon name={icon} size={size} color={color ?? c.ink2} rotate={rotate} />
       {showBadge ? (
         <View style={[styles.badge, { backgroundColor: c.brand, borderColor: c.surface }]} importantForAccessibility="no-hide-descendants">
           <Text style={[styles.badgeText, { color: c.onBrand }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>

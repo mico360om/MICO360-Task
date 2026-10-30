@@ -6,7 +6,8 @@ import { useBulkTaskActions, useSavedViews } from '../core/my-tasks-queries';
 import { useServices } from '../core/providers';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, TextField, Button, PageHeader } from '../components/ui';
+import { SkeletonList, EmptyState, ErrorNote, TextField, Button, PageHeader, Chip } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { Sheet } from '../components/meeting/sheet-kit';
 import { DayPicker } from '../components/calendar/CalendarSheets';
 import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
@@ -173,7 +174,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
   const [barHeight, setBarHeight] = useState(0);
   const listBottom = showBar ? Math.max(LIST_BOTTOM, barHeight + spacing.md + spacing.lg) : LIST_BOTTOM;
 
-  if (tasksQ.isLoading) return <Loader />;
+  if (tasksQ.isLoading) return <SkeletonList rows={6} />;
 
   const header = (
     <View style={s.head}>
@@ -187,21 +188,20 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
             {allViews.map((v) => (
               <View key={v.id} style={[s.view, v.id === activeView && s.chipOn]}>
                 <Pressable onPress={() => setFilters(v.filters)} accessibilityRole="button" accessibilityLabel={`View: ${v.name}`} accessibilityState={{ selected: v.id === activeView }} style={s.viewMain}>
-                  <Text style={[s.chipText, v.id === activeView && s.chipTextOn]}>
-                    {v.builtIn ? '★ ' : ''}
-                    {v.name}
-                  </Text>
+                  {v.builtIn ? <Icon name="ui.starFilled" size={12} color={v.id === activeView ? c.brandText : c.ink2} /> : null}
+                  <Text style={[s.chipText, v.id === activeView && s.chipTextOn]}>{v.name}</Text>
                 </Pressable>
                 {!v.builtIn ? (
                   <Pressable onPress={() => views.remove(v.id)} accessibilityRole="button" accessibilityLabel={`Delete view ${v.name}`} hitSlop={6} style={s.viewX}>
-                    <Text style={s.viewXText}>×</Text>
+                    <Icon name="ui.close" size={14} color={c.ink3} />
                   </Pressable>
                 ) : null}
               </View>
             ))}
             {naming === null && filtersActive(filters) ? (
               <Pressable onPress={() => setNaming('')} accessibilityRole="button" accessibilityLabel="Save view" style={s.saveView}>
-                <Text style={s.chipText}>＋ Save view</Text>
+                <Icon name="ui.plus" size={14} color={c.ink2} />
+                <Text style={s.chipText}>Save view</Text>
               </Pressable>
             ) : null}
           </View>
@@ -222,19 +222,20 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
             </View>
           ) : null}
           <View style={s.rowWrap}>
-            <Chip label="All" value={counts.total} on={chips.all} onPress={() => setFilters((f) => toggleChip(f, 'all'))} dot={c.ink3} s={s} />
-            <Chip label="Open" value={counts.open} on={chips.open} onPress={() => setFilters((f) => toggleChip(f, 'open'))} dot={c.info} s={s} />
-            <Chip label="Overdue" value={counts.overdue} on={chips.overdue} onPress={() => setFilters((f) => toggleChip(f, 'overdue'))} dot={c.danger} s={s} />
-            <Chip label="Completed" value={counts.done} on={chips.completed} onPress={() => setFilters((f) => toggleChip(f, 'completed'))} dot={c.success} s={s} />
+            <Chip label="All" count={counts.total} selected={chips.all} onPress={() => setFilters((f) => toggleChip(f, 'all'))} dot={c.ink3} a11yLabel={`All: ${counts.total}`} />
+            <Chip label="Open" count={counts.open} selected={chips.open} onPress={() => setFilters((f) => toggleChip(f, 'open'))} dot={c.info} a11yLabel={`Open: ${counts.open}`} />
+            <Chip label="Overdue" count={counts.overdue} selected={chips.overdue} onPress={() => setFilters((f) => toggleChip(f, 'overdue'))} dot={c.danger} a11yLabel={`Overdue: ${counts.overdue}`} />
+            <Chip label="Completed" count={counts.done} selected={chips.completed} onPress={() => setFilters((f) => toggleChip(f, 'completed'))} dot={c.success} a11yLabel={`Completed: ${counts.done}`} />
           </View>
           <View style={s.rowWrap}>
             {filterButtons.map((b) => {
               const on = b.key !== 'sort' && !!filters[b.key];
               return (
                 <Pressable key={b.key} onPress={() => setSheet(b.key)} accessibilityRole="button" accessibilityLabel={`${b.a11y}: ${labelOf(b.key)}`} style={({ pressed }) => [s.filter, on && s.chipOn, pressed && s.pressed]}>
-                  <Text style={[s.chipText, on && s.chipTextOn]} numberOfLines={1}>
-                    {b.title}: {labelOf(b.key)} ▾
+                  <Text style={[s.chipText, s.filterText, on && s.chipTextOn]} numberOfLines={1}>
+                    {b.title}: {labelOf(b.key)}
                   </Text>
+                  <Icon name="ui.chevron" size={14} color={on ? c.brandText : c.ink2} />
                 </Pressable>
               );
             })}
@@ -253,7 +254,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
                 accessibilityState={{ checked: allShownSelected }}
                 style={s.selectAll}
               >
-                <View style={[s.box, allShownSelected && s.boxOn]}>{allShownSelected ? <Text style={s.tick}>✓</Text> : null}</View>
+                <View style={[s.box, allShownSelected && s.boxOn]}>{allShownSelected ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
                 <Text style={s.selectText}>Select all</Text>
               </Pressable>
               <Text style={s.showing} accessibilityLiveRegion="polite">
@@ -332,7 +333,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
           accessibilityRole="button"
           accessibilityLabel="New task"
         >
-          <Text style={s.fabPlus}>＋</Text>
+          <Icon name="ui.plus" size={26} color={c.onBrand} />
         </Pressable>
       )}
 
@@ -403,16 +404,6 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
 
 type Styles = ReturnType<typeof makeStyles>;
 
-function Chip({ label, value, on, onPress, dot, s }: { label: string; value: number; on: boolean; onPress: () => void; dot: string; s: Styles }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} accessibilityState={{ selected: on }} style={({ pressed }) => [s.chip, on && s.chipOn, pressed && s.pressed]}>
-      <View style={[s.chipDot, { backgroundColor: dot }]} />
-      <Text style={[s.chipText, on && s.chipTextOn]}>{label}</Text>
-      <Text style={[s.chipValue, on && s.chipTextOn]}>{value}</Text>
-    </Pressable>
-  );
-}
-
 function BulkButton({ label, onPress, disabled, s, strong }: { label: string; onPress: () => void; disabled?: boolean; s: Styles; strong?: boolean }) {
   return (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} style={({ pressed }) => [s.bulkButton, strong && s.bulkStrong, (pressed || disabled) && s.pressed]}>
@@ -433,35 +424,30 @@ const makeStyles = (c: Palette) =>
     eyebrow: { fontSize: fontSize.xs, ...font('700'), color: c.ink3, textTransform: 'uppercase', letterSpacing: 0.5 },
     rowWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
     view: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, backgroundColor: c.surface },
-    viewMain: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md },
+    viewMain: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.md },
     viewX: { minHeight: 40, minWidth: 32, alignItems: 'center', justifyContent: 'center', paddingRight: spacing.sm },
-    viewXText: { fontSize: fontSize.md, color: c.ink3, ...font('700') },
-    saveView: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md },
+    saveView: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md },
     naming: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipDot: { width: 7, height: 7, borderRadius: 4 },
     chipText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
     chipTextOn: { color: c.brandText },
-    chipValue: { fontSize: fontSize.sm, color: c.ink, ...font('800') },
-    filter: { minHeight: 40, maxWidth: '100%', justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    filter: { minHeight: 40, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    filterText: { flexShrink: 1 },
     clear: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.sm },
     clearText: { fontSize: fontSize.sm, color: c.brandText, ...font('700') },
     selectRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs },
     selectAll: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
     box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     boxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
     selectText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
     showing: { flex: 1, textAlign: 'right', fontSize: fontSize.xs, color: c.ink2 },
     noMatch: { gap: spacing.md, alignItems: 'center' },
-    bulkBar: { position: 'absolute', left: spacing.md, right: spacing.md, bottom: spacing.md, backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm, elevation: 6 },
+    bulkBar: { position: 'absolute', left: spacing.md, right: spacing.md, bottom: spacing.md, backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm, elevation: 6 },
     bulkHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     bulkCount: { flex: 1, fontSize: fontSize.md, ...font('800'), color: c.ink },
-    bulkButton: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md },
+    bulkButton: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.button, paddingHorizontal: spacing.md },
     bulkStrong: { borderColor: c.success, backgroundColor: c.successSoft },
     bulkText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
     bulkStrongText: { color: c.successText },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-    fabPlus: { color: c.onBrand, fontSize: 28, ...font('700'), lineHeight: 32 },
   });

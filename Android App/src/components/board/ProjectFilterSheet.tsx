@@ -8,6 +8,7 @@ import { ALL_PROJECTS_TEXT, findProjects } from '../../lib/all-board';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiProject } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * Which projects the All projects board shows (4c), as the website's "Projects:" panel: Show all,
@@ -59,7 +60,7 @@ export function ProjectFilterSheet({
             accessibilityState={{ checked: on }}
             style={({ pressed }) => [s.option, pressed && s.pressed]}
           >
-            <View style={[s.box, on && s.boxOn]}>{on ? <Text style={s.tick}>✓</Text> : null}</View>
+            <View style={[s.box, on && s.boxOn]}>{on ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
             <ProjectAvatar project={p} size="xs" />
             <Text style={s.name} numberOfLines={1}>
               {p.name}
@@ -76,11 +77,10 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     flex: { flex: 1 },
     row: { flexDirection: 'row', gap: spacing.sm },
-    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.md },
+    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.button },
     pressed: { backgroundColor: c.ground },
     box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     boxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
     name: { flex: 1, fontSize: fontSize.md, color: c.ink, ...font('600') },
     none: { fontSize: fontSize.sm, color: c.ink3, paddingVertical: spacing.sm },
   });

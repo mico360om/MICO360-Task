@@ -2,20 +2,18 @@ import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { ProjectAvatar } from '../ProjectAvatar';
-import { priorityColor } from '../TaskRow';
-import { personInitials } from '../../lib/board';
+import { Icon } from '../Icon';
+import { ApprovalChip, Avatar, PriorityBadge, ProgressBar } from '../ui';
 import { STATUS_NAME } from '../../lib/all-board';
 import { dueLabel, myTaskLabel, selectTaskLabel, type MyTaskRow } from '../../lib/my-tasks';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ColumnCategory } from '../../lib/types';
 import { font } from '../../lib/typography';
 
-const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' } as const;
-
 /**
  * One of my tasks (4d), as the website's My Tasks card: its box to select it, its project, priority,
  * key and status, the title (struck through when done), the due day (Overdue in company time, "Due
- * today"), the progress and up to three people. Tapping it opens the task; the box only selects.
+ * today"), the approval chip while it waits, the progress and up to three people. Tapping it opens the task; the box only selects.
  */
 export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen, onToggle }: { row: MyTaskRow; selected: boolean; onOpen: (row: MyTaskRow) => void; onToggle: (id: string) => void }) {
   const c = useColors();
@@ -34,7 +32,7 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
         hitSlop={6}
         style={s.boxHit}
       >
-        <View style={[s.box, selected && s.boxOn]}>{selected ? <Text style={s.tick}>✓</Text> : null}</View>
+        <View style={[s.box, selected && s.boxOn]}>{selected ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
       </Pressable>
       <Pressable onPress={() => onOpen(row)} accessibilityRole="button" accessibilityLabel={myTaskLabel(row)} accessibilityHint="Opens the task" style={({ pressed }) => [s.main, pressed && s.pressed]}>
         <View style={s.top} importantForAccessibility="no-hide-descendants">
@@ -48,9 +46,7 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
           ) : (
             <View style={s.project} />
           )}
-          <View style={[s.priority, { borderColor: priorityColor(c, t.priority) }]}>
-            <Text style={[s.priorityText, { color: priorityColor(c, t.priority) }]}>{PRIORITY_WORD[t.priority] ?? t.priority}</Text>
-          </View>
+          <PriorityBadge priority={t.priority} />
         </View>
         <View style={s.meta} importantForAccessibility="no-hide-descendants">
           <Text style={s.key}>{t.key}</Text>
@@ -62,25 +58,25 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
         <Text style={[s.title, row.done && s.titleDone]} numberOfLines={2} importantForAccessibility="no">
           {t.title}
         </Text>
-        <Text style={[s.due, row.overdue && s.dueLate, row.dueToday && !row.overdue && s.dueToday, !t.dueDate && s.noDue]} importantForAccessibility="no">
-          📅 {due}
-        </Text>
+        {row.waiting ? <ApprovalChip /> : null}
+        <View style={s.dueRow} importantForAccessibility="no-hide-descendants">
+          <Icon name="kit.calendar" size={12} color={row.overdue ? c.dangerText : row.dueToday ? c.warningText : t.dueDate ? c.ink2 : c.ink3} />
+          <Text style={[s.due, row.overdue && s.dueLate, row.dueToday && !row.overdue && s.dueToday, !t.dueDate && s.noDue]}>{due}</Text>
+        </View>
         <View style={s.bottom} importantForAccessibility="no-hide-descendants">
           <View style={s.track}>
-            <View style={[s.fill, { width: `${Math.max(0, Math.min(100, t.progress))}%` }]} />
+            <ProgressBar value={t.progress} label="Progress" />
           </View>
           <Text style={s.pct}>{t.progress}%</Text>
           <View style={s.faces}>
             {shownPeople.map((p, i) => (
-              <View key={p.id} style={[s.face, i > 0 && s.overlap]}>
-                <Text style={s.initials} allowFontScaling={false}>
-                  {personInitials(p.name)}
-                </Text>
+              <View key={p.id} style={i > 0 ? s.overlap : null}>
+                <Avatar name={p.name} size="sm" />
               </View>
             ))}
             {people.length > 3 ? (
               <View style={[s.face, s.overlap, s.more]}>
-                <Text style={s.initials}>+{people.length - 3}</Text>
+                <Text style={s.moreText}>+{people.length - 3}</Text>
               </View>
             ) : null}
           </View>
@@ -92,38 +88,35 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    card: { flexDirection: 'row', backgroundColor: c.surface, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },
+    card: { flexDirection: 'row', backgroundColor: c.surface, borderRadius: radius.button, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },
     cardOn: { borderColor: c.brand, backgroundColor: c.brandWash },
     overdue: { borderLeftWidth: 3, borderLeftColor: c.danger },
     boxHit: { width: 48, alignItems: 'center', paddingTop: spacing.md },
     box: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     boxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
     main: { flex: 1, paddingVertical: spacing.md, paddingRight: spacing.md, gap: 6 },
     pressed: { opacity: 0.7 },
     top: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     project: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     projectName: { flexShrink: 1, fontSize: fontSize.xs, ...font('700'), color: c.ink3, textTransform: 'uppercase', letterSpacing: 0.5 },
-    priority: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
-    priorityText: { fontSize: fontSize.xs, ...font('700') },
     meta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
-    status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.badge, overflow: 'hidden' },
+    status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: 6, paddingVertical: 2 },
     dot: { width: 7, height: 7, borderRadius: 4 },
     statusText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     titleDone: { textDecorationLine: 'line-through', color: c.ink3 },
+    dueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     due: { fontSize: fontSize.xs, color: c.ink2 },
     dueLate: { color: c.dangerText, ...font('700') },
     dueToday: { color: c.warningText, ...font('700') },
     noDue: { color: c.ink3 },
     bottom: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    track: { flex: 1, height: 6, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
-    fill: { height: 6, borderRadius: radius.pill, backgroundColor: c.brand },
+    track: { flex: 1 },
     pct: { fontSize: fontSize.xs, color: c.ink3, minWidth: 32, textAlign: 'right' },
     faces: { flexDirection: 'row', alignItems: 'center' },
-    face: { width: 24, height: 24, borderRadius: 12, backgroundColor: c.brandWash, borderWidth: 1.5, borderColor: c.surface, alignItems: 'center', justifyContent: 'center' },
+    face: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
     overlap: { marginLeft: -6 },
     more: { backgroundColor: c.ground, borderColor: c.line },
-    initials: { fontSize: 9, ...font('700'), color: c.brandText },
+    moreText: { fontSize: 9, ...font('700'), color: c.ink2 },
   });

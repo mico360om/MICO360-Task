@@ -21,7 +21,8 @@ import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
 import { notice } from '../components/notice';
 import { emptyBoardText } from '../lib/board-columns';
-import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
+import { SkeletonList, EmptyState, ErrorNote, Button } from '../components/ui';
+import { Icon } from '../components/Icon';
 import type { ApiTask } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
@@ -136,7 +137,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
     [navigation, projectId, boardDate],
   );
 
-  if (columnsQ.isLoading) return <Loader />;
+  if (columnsQ.isLoading) return <SkeletonList rows={4} />;
 
   const progress = progressQ.data;
 
@@ -164,7 +165,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       {columnsQ.isError && !columnsQ.data ? (
         <ErrorNote message="Couldn't load this board. Check your connection and try again." onRetry={() => void columnsQ.refetch()} retrying={columnsQ.isRefetching} />
       ) : tasksQ.isLoading ? (
-        <Loader />
+        <SkeletonList rows={4} />
       ) : tasksQ.isError && !tasksQ.data ? (
         // Never show a failed load as an empty board ("No tasks") — MOB-08.
         <ErrorNote message="Couldn't load the tasks for this day. Check your connection and try again." onRetry={() => void tasksQ.refetch()} retrying={tasksQ.isRefetching} />
@@ -191,7 +192,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       )}
 
       <Pressable style={[styles.fab, { bottom: spacing.lg + insets.bottom }]} onPress={() => addTask()} accessibilityRole="button" accessibilityLabel="New task">
-        <Text style={styles.fabPlus}>＋</Text>
+        <Icon name="ui.plus" size={26} color={c.onBrand} />
       </Pressable>
 
       <MoveCardSheet
@@ -247,5 +248,4 @@ const makeStyles = (c: Palette) =>
     boardList: { flex: 1 },
     board: { padding: spacing.md, gap: spacing.md },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-    fabPlus: { color: c.onBrand, fontSize: 28, ...font('700'), lineHeight: 32 },
   });

@@ -5,6 +5,7 @@ import { Sheet } from '../meeting/sheet-kit';
 import { Button } from '../ui';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * One choice from a short list, in a sheet (My Tasks' filters and sort, a bulk action's priority or
@@ -45,8 +46,8 @@ export function ChoiceSheet({
               style={({ pressed }) => [styles.option, pressed && { backgroundColor: c.ground }]}
             >
               {o.dot ? <View style={[styles.dot, { backgroundColor: o.dot }]} /> : null}
-              <Text style={[styles.text, { color: on ? c.brand : c.ink }, on && styles.on]}>{o.label}</Text>
-              {on ? <Text style={{ color: c.brandText, ...font('800') }}>✓</Text> : null}
+              <Text style={[styles.text, { color: on ? c.brandText : c.ink }, on && styles.on]}>{o.label}</Text>
+              {on ? <Icon name="misc.check" size={18} color={c.brandText} /> : null}
             </Pressable>
           );
         })}
@@ -57,7 +58,7 @@ export function ChoiceSheet({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.md },
+  option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.button },
   dot: { width: 10, height: 10, borderRadius: 5 },
   text: { flex: 1, fontSize: fontSize.md, ...font('600') },
   on: { ...font('800') },

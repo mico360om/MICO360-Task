@@ -123,10 +123,10 @@ export function MonthGrid({
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    grid: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: 2, gap: 2 },
+    grid: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.button, padding: 2, gap: 2 },
     row: { flexDirection: 'row' },
     weekday: { flex: 1, textAlign: 'center', fontSize: fontSize.xs, ...font('700'), color: c.ink2, paddingVertical: spacing.xs },
-    cell: { flex: 1, minHeight: 48, margin: 1, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 2 },
+    cell: { flex: 1, minHeight: 48, margin: 1, borderRadius: radius.badge, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 2 },
     todayCell: { backgroundColor: c.brandWash },
     ringed: { borderWidth: 1.5, borderColor: c.ink2, borderStyle: 'dashed' },
     chosen: { backgroundColor: c.brand },

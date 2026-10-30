@@ -1,19 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, Image, StyleSheet, type AccessibilityActionEvent } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, type AccessibilityActionEvent } from 'react-native';
 import { useColors } from '../../core/theme';
-import { priorityColor } from '../TaskRow';
 import { ProjectAvatar } from '../ProjectAvatar';
-import { cardView, personInitials, type BoardCard as Card } from '../../lib/board';
+import { Icon } from '../Icon';
+import { ApprovalChip, Avatar, Badge, PriorityBadge, ProgressBar } from '../ui';
+import { cardView, type BoardCard as Card } from '../../lib/board';
+import type { IconName } from '../../lib/icons';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
 
-const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' } as const;
+const COUNT_ICON: Record<'checklist' | 'comments' | 'files', IconName> = { checklist: 'misc.check', comments: 'ui.message', files: 'ui.paperclip' };
 
 /**
  * A card on the board (4b), as the website's TaskCard: its column's colour as a stripe; the key,
  * Blocked, milestone, repeat and priority; the title; the due day (Overdue in company time, never
  * for finished work); subtasks, comments and files when there are some; the progress; and up to
- * three faces (photos from this server only) and "+N". On the All projects board (4c) it names its
+ * three faces (photos from this server only) and "+N"; the website's approval chip while it waits. On the All projects board (4c) it names its
  * project first. Tap opens the task; long-press (or TalkBack's actions: Move…, Move up, Move down)
  * places it. It grows with the font size.
  */
@@ -77,16 +79,10 @@ export const BoardCard = React.memo(function BoardCard({
       <View style={s.top} importantForAccessibility="no-hide-descendants">
         <Text style={s.key}>{card.key}</Text>
         <View style={s.flags}>
-          {card.blocked ? (
-            <View style={s.blocked}>
-              <Text style={s.blockedText}>⊘ BLOCKED</Text>
-            </View>
-          ) : null}
-          {card.milestone ? <Text style={s.flag}>🏁</Text> : null}
-          {card.recurring ? <Text style={s.flagMuted}>🔁</Text> : null}
-          <View style={[s.priority, { borderColor: priorityColor(c, card.priority) }]}>
-            <Text style={[s.priorityText, { color: priorityColor(c, card.priority) }]}>{PRIORITY_WORD[card.priority] ?? card.priority}</Text>
-          </View>
+          {card.blocked ? <Badge label="Blocked" tone="danger" /> : null}
+          {card.milestone ? <Icon name="misc.milestone" size={14} color={c.brandText} /> : null}
+          {card.recurring ? <Icon name="kit.repeat" size={14} color={c.ink3} /> : null}
+          <PriorityBadge priority={card.priority} />
         </View>
       </View>
 
@@ -94,15 +90,21 @@ export const BoardCard = React.memo(function BoardCard({
         {card.title}
       </Text>
 
+      {view.waiting ? <ApprovalChip /> : null}
+
       {view.hasDue || view.counts.length ? (
         <View style={s.meta} importantForAccessibility="no-hide-descendants">
           {view.dueText ? (
-            <Text style={[s.due, view.overdue && s.dueLate]}>📅 {view.dueText}</Text>
+            <View style={[s.metaItem, view.overdue && s.dueLate]}>
+              <Icon name="kit.calendar" size={12} color={view.overdue ? c.dangerText : c.ink2} />
+              <Text style={[s.due, view.overdue && s.dueLateText]}>{view.dueText}</Text>
+            </View>
           ) : null}
           {view.counts.map((b) => (
-            <Text key={b.kind} style={s.count}>
-              {b.kind === 'checklist' ? '☑' : b.kind === 'comments' ? '💬' : '📎'} {b.value}
-            </Text>
+            <View key={b.kind} style={s.metaItem}>
+              <Icon name={COUNT_ICON[b.kind]} size={12} color={c.ink2} />
+              <Text style={s.count}>{b.value}</Text>
+            </View>
           ))}
         </View>
       ) : null}
@@ -110,7 +112,7 @@ export const BoardCard = React.memo(function BoardCard({
       <View style={s.bottom} importantForAccessibility="no-hide-descendants">
         <View style={s.progress}>
           <View style={s.track}>
-            <View style={[s.fill, { width: `${Math.max(0, Math.min(100, card.progress))}%` }]} />
+            <ProgressBar value={card.progress} label="Progress" />
           </View>
           <Text style={s.pct}>{card.progress}%</Text>
         </View>
@@ -123,7 +125,9 @@ export const BoardCard = React.memo(function BoardCard({
             ) : null}
             <View style={s.faces}>
               {view.shown.map((p, i) => (
-                <Face key={p.id} name={p.name} photo={photoOf(p.id)} s={s} first={i === 0} />
+                <View key={p.id} style={i > 0 ? s.overlap : null}>
+                  <Avatar name={p.name} src={photoOf(p.id)} size="sm" />
+                </View>
               ))}
               {view.extra > 0 ? (
                 <View style={[s.face, s.more]}>
@@ -138,28 +142,12 @@ export const BoardCard = React.memo(function BoardCard({
   );
 });
 
-function Face({ name, photo, s, first }: { name: string; photo: string | null; s: Styles; first: boolean }) {
-  const [broken, setBroken] = useState(false);
-  return (
-    <View style={[s.face, !first && s.overlap]}>
-      {photo && !broken ? (
-        <Image source={{ uri: photo }} style={s.photo} onError={() => setBroken(true)} accessibilityIgnoresInvertColors />
-      ) : (
-        <Text style={s.initials} allowFontScaling={false}>
-          {personInitials(name)}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-type Styles = ReturnType<typeof makeStyles>;
-
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     card: {
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      // The website's task card is rounded-xl (14).
+      borderRadius: radius.button,
       borderWidth: 1,
       borderColor: c.line,
       padding: spacing.md,
@@ -174,31 +162,24 @@ const makeStyles = (c: Palette) =>
     project: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     projectName: { flexShrink: 1, fontSize: fontSize.xs, ...font('600'), color: c.ink2 },
     top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'wrap' },
-    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
+    key: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.badge, overflow: 'hidden' },
     flags: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-    blocked: { backgroundColor: c.dangerSoft, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-    blockedText: { fontSize: fontSize.xs, ...font('800'), color: c.dangerText },
-    flag: { fontSize: fontSize.sm, color: c.brandText },
-    flagMuted: { fontSize: fontSize.sm, color: c.ink3 },
-    priority: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 1 },
-    priorityText: { fontSize: fontSize.xs, ...font('700') },
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     meta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: spacing.md, rowGap: 4 },
+    metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     due: { fontSize: fontSize.xs, color: c.ink2 },
-    dueLate: { color: c.dangerText, ...font('700'), backgroundColor: c.dangerSoft, borderRadius: 4, paddingHorizontal: 4, overflow: 'hidden' },
+    dueLate: { backgroundColor: c.dangerSoft, borderRadius: radius.badge, paddingHorizontal: 4 },
+    dueLateText: { color: c.dangerText, ...font('700') },
     count: { fontSize: fontSize.xs, color: c.ink2 },
     bottom: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
     progress: { flex: 1, minWidth: 120, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    track: { flex: 1, height: 6, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
-    fill: { height: 6, borderRadius: radius.pill, backgroundColor: c.brand },
+    track: { flex: 1 },
     pct: { fontSize: fontSize.xs, color: c.ink3, minWidth: 32, textAlign: 'right' },
     people: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
     single: { fontSize: fontSize.xs, color: c.ink2, maxWidth: 110 },
     faces: { flexDirection: 'row', alignItems: 'center' },
-    face: { width: 26, height: 26, borderRadius: 13, backgroundColor: c.brandWash, borderWidth: 1.5, borderColor: c.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-    overlap: { marginLeft: -7 },
-    photo: { width: '100%', height: '100%' },
-    initials: { fontSize: 10, ...font('700'), color: c.brandText },
-    more: { marginLeft: -7, backgroundColor: c.ground, borderColor: c.line },
+    overlap: { marginLeft: -6 },
+    face: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    more: { marginLeft: -6, backgroundColor: c.ground, borderColor: c.line },
     moreText: { fontSize: 10, ...font('700'), color: c.ink2 },
   });

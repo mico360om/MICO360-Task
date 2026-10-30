@@ -8,6 +8,7 @@ import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { BoardColumn } from '../../lib/board';
 import type { ApiTask } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * Move a card (4b), opened by long-pressing it (or TalkBack's "Move…"). The phone has no drag and
@@ -107,7 +108,8 @@ export function MoveCardSheet({
                   label={col.name}
                   a11y={`Move to ${col.name}, ${count} ${count === 1 ? 'task' : 'tasks'}. Then choose where in it.`}
                   dot={col.color}
-                  trailing={`${count} ›`}
+                  trailing={String(count)}
+                  next
                   onPress={() => setTo(col.id)}
                 />
               );
@@ -120,7 +122,7 @@ export function MoveCardSheet({
 }
 
 /** One choice in a move sheet (the All projects board's status sheet uses it too — 4c). */
-export function MoveOption({ label, a11y, dot, trailing, onPress }: { label: string; a11y?: string; dot?: string; trailing?: string; onPress: () => void }) {
+export function MoveOption({ label, a11y, dot, trailing, next, onPress }: { label: string; a11y?: string; dot?: string; trailing?: string; /** Opens a further choice (a chevron). */ next?: boolean; onPress: () => void }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   return (
@@ -132,6 +134,7 @@ export function MoveOption({ label, a11y, dot, trailing, onPress }: { label: str
           {trailing}
         </Text>
       ) : null}
+      {next ? <Icon name="ui.chevron" rotate={270} size={16} color={c.ink3} /> : null}
     </Pressable>
   );
 }
@@ -142,7 +145,7 @@ const makeStyles = (c: Palette) =>
     places: { flexGrow: 0, flexShrink: 1 },
     group: { gap: 2, marginBottom: spacing.md },
     none: { fontSize: fontSize.sm, color: c.ink3, paddingVertical: spacing.sm },
-    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: radius.md, minHeight: 48 },
+    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: radius.button, minHeight: 48 },
     pressed: { backgroundColor: c.ground },
     dot: { width: 12, height: 12, borderRadius: 6 },
     optionText: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },

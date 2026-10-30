@@ -11,27 +11,6 @@ import { appSources } from './testing/web-source';
  * more fails the last test — so the list only shrinks. R3 and R4 hold everywhere already.
  */
 const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task20', readonly string[]>> = {
-  // Task 16 — Dashboard, My Tasks, boards, calendar
-  task16: [
-    'components/AdminTotals.tsx',
-    'components/TaskRow.tsx',
-    'components/board/BoardCard.tsx',
-    'components/board/BoardColumnView.tsx',
-    'components/board/BoardDayBar.tsx',
-    'components/board/MoveCardSheet.tsx',
-    'components/board/ProjectFilterSheet.tsx',
-    'components/calendar/CalendarSheets.tsx',
-    'components/calendar/CalendarTaskRow.tsx',
-    'components/calendar/MonthGrid.tsx',
-    'components/my-tasks/ChoiceSheet.tsx',
-    'components/my-tasks/MyTaskItem.tsx',
-    'screens/AllBoardScreen.tsx',
-    'screens/BoardColumnsScreen.tsx',
-    'screens/BoardScreen.tsx',
-    'screens/CalendarScreen.tsx',
-    'screens/DashboardScreen.tsx',
-    'screens/MyTasksScreen.tsx',
-  ],
   // Task 17 — task details and the task form
   task17: [
     'components/Mentions.tsx',
@@ -119,6 +98,14 @@ const NOT_A_GLYPH = new Set(['©', '®', '™']);
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 /** A status fill used as a text colour (tools/codemods/status-text.js turns these into the text tones). */
 const STATUS_TEXT = /(?<![A-Za-z])(color|tintColor|tabBarActiveTintColor|tabBarInactiveTintColor|headerTintColor|placeholderTextColor)(\s*[:=]\s*\{?\s*)(c|colors)\.(brand|danger|success|warning|info)\b/g;
+/**
+ * Colour codes that are words, not styling (R2 allows exactly these): the example a "colour code"
+ * box shows as its hint, for a person to read and type — content, not a colour the app paints.
+ */
+const COLOUR_TEXT_ALLOWED: Record<string, readonly string[]> = {
+  'screens/BoardColumnsScreen.tsx': ['#1E5A8B'],
+  'components/project/IdentityPicker.tsx': ['#1E5A8B'],
+};
 
 const FILES = appSources();
 
@@ -163,7 +150,7 @@ const RULES: Rule[] = [
     says: 'no colour literals — colours come from lib/theme.ts (project colours from lib/project-identity.ts)',
     pendable: true,
     applies: (f) => f !== 'lib/theme.ts' && f !== 'lib/project-identity.ts',
-    breaks: (f) => STRINGS.get(f)!.filter((s) => HEX.test(s.trim()) || /rgba?\(/i.test(s)),
+    breaks: (f) => STRINGS.get(f)!.filter((s) => (HEX.test(s.trim()) || /rgba?\(/i.test(s)) && !(COLOUR_TEXT_ALLOWED[f] ?? []).includes(s)),
   },
   {
     id: 'R3',

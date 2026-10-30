@@ -6,7 +6,7 @@ import { useColumnActions } from '../core/board-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
-import { Button, ErrorNote, Loader, TextField } from '../components/ui';
+import { Button, ErrorNote, IconButton, SkeletonList, TextField } from '../components/ui';
 import { ChipChoice, SheetMessage } from '../components/meeting/sheet-kit';
 import { COLUMN_COLORS, COLUMN_TEXT, columnNameProblem, manageColumnsGate, orderedColumns } from '../lib/board-columns';
 import { CATEGORY_LABEL } from '../lib/task-status';
@@ -41,7 +41,7 @@ export function BoardColumnsScreen({ route }: AppScreenProps<'BoardColumns'>) {
   const nameRef = useRef<TextInput>(null);
   const columns = useMemo(() => orderedColumns(columnsQ.data ?? []), [columnsQ.data]);
 
-  if (columnsQ.isLoading || membersQ.isLoading || projectQ.isLoading) return <Loader />;
+  if (columnsQ.isLoading || membersQ.isLoading || projectQ.isLoading) return <SkeletonList rows={4} />;
   // The server's rule (the project's canManage); offline with neither it nor the team kept here it can't be checked — said so, never a refusal (4b review #13).
   const gate = manageColumnsGate(user, projectQ.data, membersQ.data ?? [], { membersKnown: !!membersQ.data });
   if (gate !== 'ok') {
@@ -126,7 +126,7 @@ export function BoardColumnsScreen({ route }: AppScreenProps<'BoardColumns'>) {
             returnKeyType="done"
             maxLength={191}
           />
-          <Button title="＋ Add column" onPress={add} loading={busy} />
+          <Button title="Add column" icon="ui.plus" onPress={add} loading={busy} />
           <Text style={s.note}>{COLUMN_TEXT.addNote}</Text>
         </View>
       </KeyboardAwareScrollView>
@@ -161,6 +161,7 @@ function ColumnRow({
   onMove: (dir: 'up' | 'down') => void;
   onDelete: () => void;
 }) {
+  const c = useColors();
   const [name, setName] = useState(col.name);
   const [colours, setColours] = useState(false);
   const [custom, setCustom] = useState('');
@@ -254,27 +255,12 @@ function ColumnRow({
           </Text>
         </View>
         <View style={s.moves}>
-          <IconBtn glyph="▲" label={`Move ${col.name} up`} disabled={first || busy} onPress={() => onMove('up')} s={s} />
-          <IconBtn glyph="▼" label={`Move ${col.name} down`} disabled={last || busy} onPress={() => onMove('down')} s={s} />
-          <IconBtn glyph="🗑" label={`Delete ${col.name}`} disabled={busy} onPress={onDelete} s={s} danger />
+          <IconButton icon="kit.up" label={`Move ${col.name} up`} variant="outlined" disabled={first || busy} onPress={() => onMove('up')} />
+          <IconButton icon="kit.down" label={`Move ${col.name} down`} variant="outlined" disabled={last || busy} onPress={() => onMove('down')} />
+          <IconButton icon="ui.trash" label={`Delete ${col.name}`} variant="outlined" color={c.dangerText} disabled={busy} onPress={onDelete} />
         </View>
       </View>
     </View>
-  );
-}
-
-function IconBtn({ glyph, label, disabled, onPress, s, danger }: { glyph: string; label: string; disabled?: boolean; onPress: () => void; s: Styles; danger?: boolean }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
-      style={({ pressed }) => [s.iconBtn, danger && s.iconDanger, pressed && s.pressed, disabled && s.disabled]}
-    >
-      <Text style={[s.iconText, danger && s.iconTextDanger]}>{glyph}</Text>
-    </Pressable>
   );
 }
 
@@ -285,10 +271,10 @@ const makeStyles = (c: Palette) =>
     flex: { flex: 1 },
     pressed: { opacity: 0.6 },
     disabled: { opacity: 0.35 },
-    row: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm },
+    row: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.md, gap: spacing.sm },
     rowHidden: { opacity: 0.75 },
     rowTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    swatch: { width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
+    swatch: { width: 44, height: 44, borderRadius: radius.input, borderWidth: 1, borderColor: c.line },
     colours: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     colour: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: 'transparent' },
     colourOn: { borderColor: c.ink },
@@ -297,10 +283,6 @@ const makeStyles = (c: Palette) =>
     visible: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
     visibleText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
     moves: { flexDirection: 'row', gap: spacing.xs },
-    iconBtn: { width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' },
-    iconDanger: { borderColor: c.dangerSoft, backgroundColor: c.dangerSoft },
-    iconText: { fontSize: fontSize.md, color: c.ink2, ...font('700') },
-    iconTextDanger: { color: c.dangerText },
-    add: { gap: spacing.sm, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.lg, padding: spacing.md, backgroundColor: c.surface },
+    add: { gap: spacing.sm, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.card, padding: spacing.md, backgroundColor: c.surface },
     note: { fontSize: fontSize.sm, color: c.ink3 },
   });

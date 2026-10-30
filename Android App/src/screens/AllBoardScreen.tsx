@@ -20,7 +20,8 @@ import { BoardDayBar } from '../components/board/BoardDayBar';
 import { StatusMoveSheet } from '../components/board/StatusMoveSheet';
 import { ProjectFilterSheet } from '../components/board/ProjectFilterSheet';
 import { notice } from '../components/notice';
-import { Loader, EmptyState, ErrorNote } from '../components/ui';
+import { SkeletonList, EmptyState, ErrorNote } from '../components/ui';
+import { Icon } from '../components/Icon';
 import type { BoardCard as Card } from '../lib/board';
 import type { ApiTask, ColumnCategory } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
@@ -101,7 +102,7 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
   const [boardHeight, setBoardHeight] = useState(0);
   const columnHeight = Math.max(0, boardHeight - spacing.md * 2);
 
-  if (projectsQ.isLoading || !hiddenRead) return <Loader />;
+  if (projectsQ.isLoading || !hiddenRead) return <SkeletonList rows={4} />;
 
   return (
     <View style={styles.container}>
@@ -115,7 +116,8 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
             accessibilityLabel={`${projectFilterLabel(shownCount, shownProjects.length)}. Choose the projects on the board`}
             style={({ pressed }) => [styles.filter, shownCount < shownProjects.length && styles.filterOn, pressed && styles.pressed]}
           >
-            <Text style={[styles.filterText, shownCount < shownProjects.length && styles.filterTextOn]}>⏷ {projectFilterLabel(shownCount, shownProjects.length)}</Text>
+            <Icon name="ui.chevron" size={16} color={shownCount < shownProjects.length ? c.brandText : c.ink2} />
+            <Text style={[styles.filterText, shownCount < shownProjects.length && styles.filterTextOn]}>{projectFilterLabel(shownCount, shownProjects.length)}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -125,7 +127,7 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
       ) : shownProjects.length === 0 ? (
         <EmptyState title="No projects yet" subtitle="Projects that are finished or archived aren’t on this board." />
       ) : tasksQ.isLoading ? (
-        <Loader />
+        <SkeletonList rows={4} />
       ) : tasksQ.isError && !tasksQ.data ? (
         // Never show a failed load as an empty board (MOB-08).
         <ErrorNote message="Couldn't load the tasks for this day. Check your connection and try again." onRetry={() => void tasksQ.refetch()} retrying={tasksQ.isRefetching} />
@@ -150,7 +152,7 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
 
       {shownProjects.length > 0 ? (
         <Pressable style={[styles.fab, { bottom: spacing.lg + insets.bottom }]} onPress={() => addTask()} accessibilityRole="button" accessibilityLabel="New task">
-          <Text style={styles.fabPlus}>＋</Text>
+          <Icon name="ui.plus" size={26} color={c.onBrand} />
         </Pressable>
       ) : null}
 
@@ -200,12 +202,11 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.6 },
     head: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
     subtitle: { flex: 1, minWidth: 180, fontSize: fontSize.xs, color: c.ink2 },
-    filter: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
+    filter: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     filterOn: { borderColor: c.brand },
     filterText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
     filterTextOn: { color: c.brandText },
     boardList: { flex: 1 },
     board: { padding: spacing.md, gap: spacing.md },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-    fabPlus: { color: c.onBrand, fontSize: 28, ...font('700'), lineHeight: 32 },
   });

@@ -6,6 +6,8 @@ import { taskRowA11yLabel } from '../lib/task-a11y';
 import { formatDueDay, isOverdue, isTaskDone } from '../lib/due-date';
 import type { ApiTask, Priority } from '../lib/types';
 import { font } from '../lib/typography';
+import { Icon } from './Icon';
+import { PriorityBadge } from './ui';
 
 export function priorityColor(c: Palette, p: Priority): string {
   switch (p) {
@@ -50,7 +52,6 @@ export function TaskRow({ task, onPress, onLongPress }: { task: ApiTask; onPress
       }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <View style={[styles.priority, { backgroundColor: priorityColor(c, task.priority) }]} />
       <View style={styles.body}>
         <Text style={[styles.title, done && styles.doneTitle]} numberOfLines={2}>
           {task.title}
@@ -60,10 +61,22 @@ export function TaskRow({ task, onPress, onLongPress }: { task: ApiTask; onPress
           {due ? <Text style={[styles.due, overdue && styles.overdue]}>· {overdue ? 'Overdue' : 'Due'} {due}</Text> : null}
           {task.progress > 0 && !done ? <Text style={styles.progress}>· {task.progress}%</Text> : null}
           {done ? <Text style={styles.doneTag}>· Done</Text> : null}
-          {task.recurrenceRule ? <Text style={styles.key}>· 🔁</Text> : null}
-          {task.isMilestone ? <Text style={styles.milestone}>· 🏁 Milestone</Text> : null}
+          {task.recurrenceRule ? (
+            <View style={styles.mark}>
+              <Text style={styles.key}>·</Text>
+              <Icon name="kit.repeat" size={12} color={c.ink2} />
+            </View>
+          ) : null}
+          {task.isMilestone ? (
+            <View style={styles.mark}>
+              <Text style={styles.milestone}>·</Text>
+              <Icon name="misc.milestone" size={12} color={c.brandText} />
+              <Text style={styles.milestone}>Milestone</Text>
+            </View>
+          ) : null}
         </View>
       </View>
+      <PriorityBadge priority={task.priority} />
     </Pressable>
   );
 }
@@ -74,22 +87,22 @@ const makeStyles = (c: Palette) =>
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      borderRadius: radius.button,
       borderWidth: 1,
       borderColor: c.line,
       padding: spacing.md,
       gap: spacing.md,
     },
     pressed: { opacity: 0.7 },
-    priority: { width: 6, alignSelf: 'stretch', borderRadius: radius.pill },
     body: { flex: 1 },
+    mark: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 4 },
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     doneTitle: { textDecorationLine: 'line-through', color: c.ink2 },
     meta: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
     key: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     due: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 4 },
     overdue: { color: c.dangerText, ...font('700') },
-    progress: { fontSize: fontSize.xs, color: c.category.IN_PROGRESS, marginLeft: 4, ...font('600') },
-    doneTag: { fontSize: fontSize.xs, color: c.category.DONE, marginLeft: 4, ...font('600') },
-    milestone: { fontSize: fontSize.xs, color: c.brandText, marginLeft: 4, ...font('700') },
+    progress: { fontSize: fontSize.xs, color: c.warningText, marginLeft: 4, ...font('600') },
+    doneTag: { fontSize: fontSize.xs, color: c.successText, marginLeft: 4, ...font('600') },
+    milestone: { fontSize: fontSize.xs, color: c.brandText, ...font('700') },
   });
