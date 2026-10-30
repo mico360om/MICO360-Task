@@ -135,7 +135,9 @@ describe('MeetingsPage', () => {
     meetings = [meeting({ id: 'live', title: 'Site walk', startAt: new Date(Date.now() - 10 * 60_000).toISOString(), endAt: new Date(end).toISOString() })];
     renderPage();
     const next = await screen.findByRole('region', { name: /up next/i });
-    const clock = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: TZ }).format(new Date(end));
+    // The website's 24-hour clock ("08:50", "00:04"): an hour-numeric expectation ("8:50") failed every
+    // run before 10:00 in Muscat.
+    const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: TZ }).format(new Date(end));
     expect(next).toHaveTextContent('Under way');
     expect(next).toHaveTextContent(`until ${clock}`);
     expect(next).not.toHaveTextContent('Happening now');
