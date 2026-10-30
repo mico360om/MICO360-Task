@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import config from '../../../tailwind.config.js';
 
 // Every dialog, sheet and panel dims the page behind it with the one shared scrim (bg-scrim): a
 // tint of the ink colour turns into a light-grey wash in dark mode, where ink is near-white.
@@ -13,7 +12,8 @@ const files = (dir: string): string[] =>
 
 describe('dialog backdrops', () => {
   it('the scrim is one dark colour, the same in light and dark mode', () => {
-    expect((config.theme.extend.colors as Record<string, unknown>).scrim).toBe('rgb(0 0 0 / 0.5)');
+    const config = readFileSync(resolve(__dirname, '../../../tailwind.config.js'), 'utf8');
+    expect(config).toMatch(/^\s*scrim: 'rgb\(0 0 0 \/ 0\.5\)',$/m);
   });
 
   it('no full-screen layer tints the page with ink (or another per-file colour) instead of the shared scrim', () => {
