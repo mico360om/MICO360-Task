@@ -294,6 +294,32 @@ describe('Backup → restore round trip (integration)', () => {
     await expect(restoreBackup(restoreOpts(plainCopy))).rejects.toThrow(/not empty/i);
   }, 60_000);
 
+  it('a files folder that already holds files needs --force-files: --force (wipe the database) alone doesn’t do it', async () => {
+    const used = join(work, 'used-folder');
+    mkdirSync(used, { recursive: true });
+    writeFileSync(join(used, 'someone-elses.txt'), 'keep me');
+    const target = new PrismaClient({ datasources: { db: { url: targetUrl } } });
+    try {
+      const before = await fingerprint(target);
+      await expect(restoreBackup(restoreOpts(plainCopy, { force: true, filesInto: used }))).rejects.toThrow(`The folder ${used} is not empty. Restore the files into a new, empty folder (or add --force-files to write into this one).`);
+      // Refused before anything was changed.
+      expect(await fingerprint(target)).toEqual(before);
+      expect(readFileSync(join(used, 'someone-elses.txt'), 'utf8')).toBe('keep me');
+    } finally {
+      await target.$disconnect();
+    }
+  }, 60_000);
+
+  it('a restore that stops part-way says plainly that the database now holds only part of the copy', async () => {
+    const broken = join(work, 'broken-row.tar.gz');
+    // A row that can't be loaded (one value for a table of many columns), part-way through the tables.
+    await rewriteCopy(plainCopy, broken, 'tasks', (lines) => [...lines, '["only one value"]']);
+    const err = (await restoreBackup(restoreOpts(broken, { force: true })).catch((e: unknown) => e)) as Error;
+    expect(err).toBeInstanceOf(RestoreError);
+    expect(err.message).toMatch(/^The restore stopped part-way \(.+\)\./);
+    expect(err.message).toContain(`The database "${TARGET_DB}" now holds only part of the copy, so don’t use it: empty it (or make a new, empty database) and run the restore again.`);
+  }, 240_000);
+
   it('refuses a copy made by a newer version of the app (a database change this one does not have)', async () => {
     const older = join(work, 'older-migrations');
     cpSync(MIGRATIONS, older, { recursive: true });

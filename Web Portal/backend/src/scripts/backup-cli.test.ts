@@ -20,6 +20,7 @@ describe('backup:restore arguments', () => {
       filesInto: '/home/u/uploads-restored',
       noFiles: false,
       force: false,
+      forceFiles: false,
       check: false,
       keyFile: null,
       envFile: null,
@@ -33,10 +34,17 @@ describe('backup:restore arguments', () => {
       url: 'mysql://u:p@h:3306/x',
       noFiles: true,
       force: true,
+      forceFiles: false,
       keyFile: 'k.txt',
       envFile: 'server.env',
     });
     expect(parseRestoreArgs(['c.tar.gz', '--check'])).toMatchObject({ file: 'c.tar.gz', check: true });
+  });
+
+  it('wiping a database (--force) and writing into a folder that holds files (--force-files) are asked for separately', () => {
+    expect(parseRestoreArgs(['c.tar.gz', '--into', 'db', '--files-into', 'up', '--force-files'])).toMatchObject({ force: false, forceFiles: true });
+    expect(parseRestoreArgs(['c.tar.gz', '--into', 'db', '--files-into', 'up', '--force'])).toMatchObject({ force: true, forceFiles: false });
+    expect(parseRestoreArgs(['c.tar.gz', '--into', 'db', '--files-into', 'up', '--force', '--force-files'])).toMatchObject({ force: true, forceFiles: true });
   });
 
   it('says what is missing, in plain words', () => {

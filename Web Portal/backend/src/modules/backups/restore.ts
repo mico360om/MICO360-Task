@@ -20,10 +20,12 @@ export interface RestoreOptions {
   key?: string;
   /** The database to restore into (it must be empty unless `force`). */
   targetUrl: string;
-  /** Where the uploaded files go (empty or new, unless `force`); null/undefined = leave the files out. */
+  /** Where the uploaded files go (empty or new, unless `forceFiles`); null/undefined = leave the files out. */
   filesInto?: string | null;
-  /** Wipe a database (and write into a folder) that already holds something. */
+  /** Wipe a database that already holds tables (--force). */
   force?: boolean;
+  /** Write into a files folder that already holds files (--force-files): asked for on its own. */
+  forceFiles?: boolean;
   /** This app's prisma/migrations folder, its schema.prisma and the Prisma CLI (prisma/build/index.js). */
   migrationsDir: string;
   schemaFile: string;
@@ -226,11 +228,12 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
     );
   }
   const filesInto = opts.filesInto ? resolve(opts.filesInto) : null;
-  if (filesInto && folderHasFiles(filesInto) && !opts.force) {
-    throw new RestoreError(`The folder ${filesInto} is not empty. Restore the files into a new, empty folder (or add --force to write into this one).`);
+  if (filesInto && folderHasFiles(filesInto) && !opts.forceFiles) {
+    throw new RestoreError(`The folder ${filesInto} is not empty. Restore the files into a new, empty folder (or add --force-files to write into this one).`);
   }
 
   const target = await openTarget(opts.targetUrl, name, opts.createDatabase);
+  const writtenFiles = new Map<string, string>();
   try {
     const sql = prismaSqlRunner(target);
     const existing = await sql.query<{ n: bigint }>('SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
@@ -238,6 +241,17 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
     if (count > 0 && !opts.force) {
       throw new RestoreError(`The database "${name}" is not empty (it has ${count} tables). Restore into a new, empty database, or add --force to wipe this one first.`);
     }
+    // From here on the database (and the files folder) are being changed: a failure leaves them partial.
+    try {
+      return await loadInto(sql, count);
+    } catch (err) {
+      throw partialRestore(err, name, writtenFiles.size ? filesInto : null);
+    }
+  } finally {
+    await target.$disconnect();
+  }
+
+  async function loadInto(sql: SqlRunner, count: number): Promise<RestoreReport> {
     if (count > 0) {
       log(`Wiping the database "${name}" (--force)…`);
       await wipe(sql);
@@ -266,7 +280,6 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
     const byName = new Map<string, ManifestTable>(toLoad.map((t) => [t.name, t] as const));
     const expected = new Map<string, RowsDigest>();
     const typesOf = (t: ManifestTable) => t.columns.map((c) => made.get(t.name)!.columns.find((h) => h.name === c.name)!.type);
-    const writtenFiles = new Map<string, string>();
     let loadedTables = 0;
     log('Loading the tables and files…');
     for await (const entry of openArchiveEntries(opts.file, opts.key)) {
@@ -343,7 +356,17 @@ export async function restoreBackup(opts: RestoreOptions): Promise<RestoreReport
       fileBytes: filesInto ? check.fileBytes : 0,
       warnings,
     };
-  } finally {
-    await target.$disconnect();
   }
+}
+
+/**
+ * A restore that stopped after it began changing the target: the reason, then plainly that the
+ * database (and the files folder, when files were written) now hold only part of the copy.
+ */
+function partialRestore(err: unknown, database: string, filesFolder: string | null): RestoreError {
+  const reason = (String((err as Error)?.message ?? err).split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? 'no reason was given').slice(0, 300);
+  const why = err instanceof RestoreError ? err.message : `The restore stopped part-way (${reason}).`;
+  const db = `The database "${database}" now holds only part of the copy, so don’t use it: empty it (or make a new, empty database) and run the restore again.`;
+  const files = filesFolder ? ` The folder ${filesFolder} holds only some of the files: empty it as well (or use a new folder).` : '';
+  return new RestoreError(`${why}\n\n${db}${files}`);
 }

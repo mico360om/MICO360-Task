@@ -152,8 +152,9 @@ folder, then point the app at them and restart. The live data is not touched unt
 switch back.
 
 What the tool does: it checks the whole copy against its checksums first (a damaged or incomplete copy is
-refused before anything changes), refuses a database or folder that already holds something (unless
-`--force`), refuses a copy made by a newer version of the app (update the app first), creates the tables
+refused before anything changes), refuses a database that already holds tables (unless `--force`, which
+wipes it) and a files folder that already holds files (unless `--force-files` — asked for separately),
+refuses a copy made by a newer version of the app (update the app first), creates the tables
 exactly as they were when the copy was made, loads every table, writes every file, then reads everything
 back and compares it with the copy. It ends with "✔ Restored … Every table and file was read back and
 matches the copy."
@@ -222,13 +223,20 @@ The server must be running (its database is used). Below, `<program>` is the pro
 
 `--into <the live database> --force` wipes that database and restores the copy into it. Stop the app first.
 The tool refuses the live database without `--force`, and with it waits 10 seconds (press Ctrl+C to
-stop). Prefer the side-by-side way above.
+stop). Writing the files into the live uploads folder needs `--force-files` as well. Prefer the
+side-by-side way above.
+
+If a restore stops part-way (the disk fills, the connection drops), the tool says so: the database you
+restored into — and the files folder, when files were written — then hold only part of the copy. Don't
+use them: empty them (or make a new, empty database and folder) and run the restore again.
 
 ### Messages you may see
 
 | Message | What to do |
 | --- | --- |
 | The database "…" is not empty | Make a new, empty database (step 1), or add `--force` to wipe that one. |
+| The folder … is not empty | Give a new, empty folder to `--files-into`, or add `--force-files` to write into that one. |
+| … now holds only part of the copy | The restore stopped part-way (the reason comes first). Empty that database (and folder), or use new ones, and restore again. |
 | The database "…" doesn't exist, and it couldn't be made here | Create it first (step 1). |
 | This copy was made by a newer version of MICO360 Tasks | Update the app first, then restore. |
 | This copy is locked with a backup key | Add `--key-file <file with the key>`, or `BACKUP_ENCRYPTION_KEY` in the settings file. |

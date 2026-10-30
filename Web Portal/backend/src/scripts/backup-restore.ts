@@ -3,8 +3,9 @@
 //   npm run backup:restore -- <backup file> --into <new database> --files-into <new folder>
 //   npm run backup:restore -- <backup file> --check            (only check the file, no database)
 //
-// Options: --no-files (leave the uploaded files out) · --force (wipe a database / write into a folder
-// that already holds something) · --key-file <file> (the BACKUP_ENCRYPTION_KEY of an encrypted copy;
+// Options: --no-files (leave the uploaded files out) · --force (wipe a database that already holds
+// tables) · --force-files (write into a files folder that already holds files) · --key-file <file>
+// (the BACKUP_ENCRYPTION_KEY of an encrypted copy;
 // BACKUP_ENCRYPTION_KEY in the settings works too) · --env-file <file> (another settings file, e.g.
 // the Windows server's config\server.env) · --url mysql://user:password@host:3306/<database>.
 import { readFileSync } from 'node:fs';
@@ -61,6 +62,7 @@ async function main(): Promise<number> {
     targetUrl,
     filesInto: args.noFiles ? null : args.filesInto,
     force: args.force,
+    forceFiles: args.forceFiles,
     migrationsDir: join(root, 'prisma', 'migrations'),
     schemaFile: join(root, 'prisma', 'schema.prisma'),
     prismaCli: createRequire(join(root, 'package.json')).resolve('prisma/build/index.js'),

@@ -13,17 +13,20 @@ export interface RestoreArgs {
   url: string | null;
   filesInto: string | null;
   noFiles: boolean;
+  /** --force: wipe a database that already holds tables. */
   force: boolean;
+  /** --force-files: write into a files folder that already holds files. */
+  forceFiles: boolean;
   check: boolean;
   keyFile: string | null;
   envFile: string | null;
 }
 
 const VALUE_FLAGS = ['--into', '--url', '--files-into', '--key-file', '--env-file'] as const;
-const SWITCHES = ['--no-files', '--force', '--check'] as const;
+const SWITCHES = ['--no-files', '--force', '--force-files', '--check'] as const;
 
 export function parseRestoreArgs(argv: string[]): RestoreArgs {
-  const out: RestoreArgs = { file: '', into: null, url: null, filesInto: null, noFiles: false, force: false, check: false, keyFile: null, envFile: null };
+  const out: RestoreArgs = { file: '', into: null, url: null, filesInto: null, noFiles: false, force: false, forceFiles: false, check: false, keyFile: null, envFile: null };
   const set = (flag: string, value: string) => {
     if (flag === '--into') out.into = value;
     else if (flag === '--url') out.url = value;
@@ -40,6 +43,7 @@ export function parseRestoreArgs(argv: string[]): RestoreArgs {
       i += 1;
     } else if (a === '--no-files') out.noFiles = true;
     else if (a === '--force') out.force = true;
+    else if (a === '--force-files') out.forceFiles = true;
     else if (a === '--check') out.check = true;
     else if (a.startsWith('--')) throw new UsageError(`Unknown option ${a}. Options: ${[...VALUE_FLAGS, ...SWITCHES].join(' ')}`);
     else if (!out.file) out.file = a;
