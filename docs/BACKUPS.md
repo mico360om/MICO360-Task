@@ -54,10 +54,20 @@ For scale: a test company with 129,000 rows and 150 MB of files made a **152 MB 
 - Older copies are deleted automatically: on the server **and** in Google Drive.
 
 Room needed: about 14 copies, each roughly the size of the uploaded files plus the compressed database.
-System Settings → Backups shows how many copies are kept on the server and how much room they take in
-all.
+Every copy holds everything (the data **and** the files). System Settings → Backups shows how many copies
+are kept on the server and how much room they take in all.
 
-Before each copy the server checks the free disk space (it needs about the uploads plus the database,
+**Size warning.** System Settings → Backups shows a warning — and the administrators get **one** email —
+when either of these first happens:
+
+- the copies kept on the server take more than **5 GB** in all (`BACKUP_WARN_GB` changes the limit); or
+- the free disk space is less than about **twice the newest copy**, so the next copies may not fit.
+
+The email is sent again only after the problem has cleared and come back. What to do: check the disk
+use (on Hostinger: hPanel → the website's **Dashboard** → *Disk usage*), remove old uploaded files that
+are no longer needed, or ask for fewer backup copies to be kept.
+
+Before each copy the server also checks the free disk space (it needs about the uploads plus the database,
 and a fifth more). **On shared hosting such as Hostinger, that check may see the whole disk of the
 shared machine rather than your plan's own limit**, so it can pass while the plan is nearly full; the
 copy then fails with "The server's disk is full." and the administrators are told. Look at the plan's
@@ -92,17 +102,52 @@ Back up now, and whether it reached Google Drive. **Download** saves the file st
 An unencrypted copy is a normal `.tar.gz`: 7-Zip or Windows' `tar` can open it to look inside
 (`manifest.json`, `database/<table>.jsonl`, `files/…`).
 
-## Encrypting the copies (optional)
+## Locking the copies (backup key)
 
-Set `BACKUP_ENCRYPTION_KEY` to a long passphrase (16 characters or more) and restart. From then on every
-copy is encrypted (AES-256), on the server and in Google Drive; System Settings says so.
+A copy holds everything, password hashes included. **Lock the copies with a backup key**, so that a
+downloaded copy or the Google Drive folder is of no use to anyone without the key. It is optional in the
+app, but recommended — and on a real server (`NODE_ENV=production`) without a key, System Settings →
+Backups says the copies aren't locked, and the administrators get one email when the first unlocked copy
+is made.
 
-> **Write the key down in two safe places away from the server** (for example a password manager and a
-> sealed paper copy). Without it, **no encrypted copy can ever be restored** — nobody, including us, can
-> open them. If the server is lost, the key on it is lost with it.
+With a key, every copy is encrypted (AES-256), on the server and in Google Drive, and its name ends in
+`.tar.gz.enc`.
 
-If you change the key, keep the old one until the old copies have gone (about five weeks): each copy
-needs the key that was set when it was made. Copies made before the key was set stay unencrypted.
+> **Keep the key in two safe places away from the server** — a password manager, and a sealed paper
+> copy. **Not in Google Drive** (the copies are there: a key beside them unlocks them) and not in email.
+> Without the key, **no locked copy can ever be restored** — nobody, including us, can open them. If the
+> server is lost, the key on it is lost with it.
+
+### Step by step
+
+1. **Make a key**: 32 random bytes, written as 44 characters. On any computer with Node — the Hostinger
+   SSH terminal, or the Windows server's own `"<program>\node\node.exe"` — run:
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   ```
+
+   It prints something like `q8Zr…kLw=` (letters, digits, `+`, `/`, `=`). Each run gives a new one: make
+   it once. (A password manager's generator works too: 40 or more random letters and digits.)
+2. **Save it** in the password manager straight away, and write the sealed paper copy.
+3. **Give it to the server** — copy it exactly, with no spaces around it:
+   - **Hostinger**: hPanel → Websites → task.mico360.com → Advanced → Node.js → **Environment
+     variables**: add `BACKUP_ENCRYPTION_KEY` with the key as its value, save, then **Restart**.
+   - **Windows server**: tray icon → **Edit server settings**: add the line
+     `BACKUP_ENCRYPTION_KEY=<the key>`, save, then tray icon → **Restart the server**.
+4. **Check**: System Settings → Backups now says "Copies are encrypted with the backup key", and the
+   "aren't locked" warning is gone. Press **Back up now**: the new copy's name ends in `.tar.gz.enc`.
+
+Copies made before the key was set stay unlocked until they are deleted by the 7 + 4 rule (about five
+weeks); delete them by hand (server folder and Google Drive) if they should go sooner. If you change the
+key, keep the old one until the old copies have gone: each copy needs the key that was set when it was
+made.
+
+To restore a locked copy, give the key with `--key-file <a file holding the key>` or as
+`BACKUP_ENCRYPTION_KEY` in the settings file given with `--env-file`. **A key that once had spaces
+around it** (copies made while it did were locked with the spaces): give it with `--key-file` (the file
+holding the key exactly as it was set), or in quotes in the settings file —
+`BACKUP_ENCRYPTION_KEY="  the key  "`. Without quotes the spaces are dropped and that copy won't open.
 
 ## Google Drive (one-time setup)
 
@@ -250,7 +295,7 @@ use them: empty them (or make a new, empty database and folder) and run the rest
 | The database "…" doesn't exist, and it couldn't be made here | Create it first (step 1). |
 | This copy was made by a newer version of MICO360 Tasks | Update the app first, then restore. |
 | This copy is locked with a backup key | Add `--key-file <file with the key>`, or `BACKUP_ENCRYPTION_KEY` in the settings file. |
-| That backup key does not open this copy | Use the key that was set when the copy was made. |
+| That backup key does not open this copy | Use the key that was set when the copy was made. If it once had spaces around it, give it with `--key-file`, or in quotes (see "Locking the copies"). |
 | The backup file is incomplete / damaged | Use another copy (the day before, or the Google Drive one). |
 
 ## Settings
@@ -258,8 +303,9 @@ use them: empty them (or make a new, empty database and folder) and run the rest
 | Setting | Meaning |
 | --- | --- |
 | `BACKUP_DIR` | Where copies are kept. Blank = `backups` beside `UPLOAD_DIR`. Must be private, outside the app. |
-| `BACKUP_ENCRYPTION_KEY` | Optional passphrase (16+ characters) that encrypts every copy. See the warning above. |
+| `BACKUP_ENCRYPTION_KEY` | The backup key that locks every copy (16+ characters; recommended: the 44-character key from "Locking the copies"). Blank = unlocked copies, warned about on a real server. |
 | `BACKUP_NIGHTLY` | Blank = on when `NODE_ENV=production` (the Hostinger site, the Windows server), off on other servers. `true` / `false` says otherwise. Back up now works either way. |
+| `BACKUP_WARN_GB` | The size warning: the copies kept on the server taking more than this many GB in all. Blank = 5. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | The Google sign-in made in "Google Drive (one-time setup)". Blank = no Google Drive. |
 | `GOOGLE_REDIRECT_URI` | Only when it differs from `API_BASE_URL` + `/api/v1/backups/google/callback` (the Windows server). |
 

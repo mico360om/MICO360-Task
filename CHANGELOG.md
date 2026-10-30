@@ -24,13 +24,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   Drive is connected in System Settings (a one-time setup).
 - If a nightly copy fails (also when the server was stopped part-way through it), or can't reach Google
   Drive, the administrators get an email — and once if no new copy has been made for a day and a half.
+- A size warning in System Settings (and one email) when the copies kept on the server take more than
+  5 GB in all (BACKUP_WARN_GB), or the free disk space is less than about twice the newest copy, with
+  what to do.
 
 ### Security
 - Backups are kept in a private server folder the website never shows; only administrators can see or
   download them, and every download (and every download link asked for) is recorded in the Audit Logs.
   Development and test servers make no nightly copies, so none can end up in the source code. Google Drive access is limited to
-  the files the app makes. Copies can be encrypted with a backup key (BACKUP_ENCRYPTION_KEY); keep that
-  key safe off the server, because no encrypted copy opens without it.
+  the files the app makes. Copies can be locked with a backup key (BACKUP_ENCRYPTION_KEY); on a live
+  server without one, System Settings says the copies aren't locked and the administrators get one
+  email. BACKUPS.md shows how to make a strong key; keep it in a password manager, away from the
+  server and from Google Drive, because no locked copy opens without it.
 
 ## [1.18.1] - 2026-10-29
 

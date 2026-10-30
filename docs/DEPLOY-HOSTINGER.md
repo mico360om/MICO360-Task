@@ -116,7 +116,8 @@ Environment variables**, and add each `KEY = VALUE` from that file. At minimum:
 | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` | the **rotated** Mailjet keys — without them sign-in codes, password-reset links and meeting invitations are disabled (the API answers 503 `EMAIL_NOT_CONFIGURED`) |
 | `MAILJET_WEBHOOK_TOKEN` | a random secret; also put it in Mailjet's event-webhook URL (see `docs/EMAIL.md`). In production the webhook refuses every event until it is set. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional: the Google sign-in that lets the nightly backups also go to the owner's Google Drive. Made once in Google Cloud — the steps are in [BACKUPS.md](BACKUPS.md). |
-| `BACKUP_ENCRYPTION_KEY` | optional: 16+ characters that encrypt every backup copy. **Keep it in two safe places off the server** — without it no encrypted copy can be restored ([BACKUPS.md](BACKUPS.md)). |
+| `BACKUP_ENCRYPTION_KEY` | **recommended (the owner wants the copies locked)**: the backup key that locks every backup copy. Make it once in the SSH terminal with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`, save it in a password manager (not in Google Drive), then paste it here exactly, with no spaces around it, and Restart. Without it no locked copy can be restored — steps in [BACKUPS.md](BACKUPS.md) "Locking the copies". Without a key, System Settings warns that the copies aren't locked. |
+| `BACKUP_WARN_GB` | optional: System Settings warns (and emails once) when the backup copies take more than this many GB in all. Blank = 5. |
 
 On the Node.js site that deploys from GitHub, the web build is rebuilt by every deployment, so the
 phone app goes in `~/mico360-data/downloads/MICO360-Tasks.apk`, beside `~/mico360-data/uploads`:

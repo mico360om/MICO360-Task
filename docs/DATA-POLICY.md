@@ -23,8 +23,11 @@ The app makes its own backups ([BACKUPS.md](BACKUPS.md)):
   sees only the files it makes there).
 - **Access**: only administrators can see, make or download copies; every download is in the audit log.
   A copy holds everything, including password hashes, so downloaded copies must be kept private.
-- **Encryption**: optional, with `BACKUP_ENCRYPTION_KEY` (AES-256). The Google Drive connection and AI
-  provider keys inside a copy stay sealed with `SECRETS_ENCRYPTION_KEY` either way.
+- **Encryption**: with `BACKUP_ENCRYPTION_KEY` (AES-256) — optional in the app, but the owner wants the
+  copies locked, and a production server without a key says so in System Settings (and emails the
+  administrators once). The key is kept in a password manager, never beside the copies in Google Drive.
+  The Google Drive connection and AI provider keys inside a copy stay sealed with
+  `SECRETS_ENCRYPTION_KEY` either way.
 - **Restore tests**: the restore tool checks every table and file against the copy after restoring; the
   automated tests restore a copy into an empty database on every build. Try a restore into a spare
   database now and then (BACKUPS.md, "Restoring a copy").

@@ -79,7 +79,8 @@ Edit with the tray icon → **Edit server settings**, save, then **Restart the s
 | `COMPANY_TIMEZONE` | Company time zone for due dates and reports (default `Asia/Muscat`). |
 | `UPLOAD_DIR` | Optional other folder for uploaded files. |
 | `BACKUP_DIR` | Optional other folder for the nightly backup copies (default: `backups` in the data folder). |
-| `BACKUP_ENCRYPTION_KEY` | Optional: encrypts every backup copy. Keep it in two safe places off this computer — without it no copy can be restored. |
+| `BACKUP_ENCRYPTION_KEY` | Recommended: the backup key that locks every backup copy (without one, System Settings warns that the copies aren't locked). Make it once in Command Prompt with `"<program>\node\node.exe" -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`, save it in a password manager — not in Google Drive — then add the line `BACKUP_ENCRYPTION_KEY=<the key>` here, exactly, with no spaces around it, and restart the server. Without the key no locked copy can be restored. Steps: [BACKUPS.md](BACKUPS.md) "Locking the copies". |
+| `BACKUP_WARN_GB` | Optional: System Settings warns (and emails once) when the backup copies take more than this many GB in all. Blank = 5. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Optional: send the backups to Google Drive too. Steps in [BACKUPS.md](BACKUPS.md). |
 
 `DATABASE_URL`, the `JWT_*` secrets and `SECRETS_ENCRYPTION_KEY` were generated for this server.

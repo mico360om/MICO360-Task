@@ -43,9 +43,14 @@ COMPANY_TIMEZONE=Asia/Muscat
 # --- Backups (docs/BACKUPS.md) ---------------------------------------------
 # Copies go to ~/mico360-data/backups (beside UPLOAD_DIR) every night at 02:00.
 # The nightly copy is on because NODE_ENV=production (above); BACKUP_NIGHTLY=false turns it off.
-# Optional: encrypt every copy. Keep this key in two safe places OFF the server:
-# without it no encrypted copy can be restored.
-# BACKUP_ENCRYPTION_KEY=
+# Recommended (the owner wants the copies locked): the backup key. Make it once with
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+# keep it in a password manager (NOT in Google Drive), and paste it here exactly.
+# Without it no locked copy can be restored. Blank = unlocked copies (System
+# Settings warns).
+BACKUP_ENCRYPTION_KEY=
+# Optional: warn when the copies kept on the server take more than this many GB (blank = 5).
+# BACKUP_WARN_GB=5
 # Optional: also send the copies to Google Drive — the Google sign-in made once
 # in Google Cloud (steps in docs/BACKUPS.md). Blank = no Google Drive.
 GOOGLE_CLIENT_ID=
