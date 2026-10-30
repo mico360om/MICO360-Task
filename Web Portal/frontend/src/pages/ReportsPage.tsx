@@ -416,7 +416,11 @@ export function ReportsPage() {
 
             {rangeProblem ? (
               <p id="reports-range-problem" role="alert" className="mt-3 text-xs font-medium text-danger">
-                {rangeProblem === 'backwards' ? 'The start date must be on or before the end date.' : 'The end date can’t be after today.'} Still showing {shortDay(from)} – {shortDay(to)}.
+                {rangeProblem === 'backwards' ? (
+                  <>The start date must be on or before the end date. Still showing {shortDay(from)} – {shortDay(to)}.</>
+                ) : (
+                  <>The end date can’t be after today. Still showing {shortDay(from)} – {shortDay(to)}.</>
+                )}
               </p>
             ) : null}
 
