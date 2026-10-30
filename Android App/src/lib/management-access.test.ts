@@ -23,5 +23,7 @@ it('the access query is the website’s: per person, asked only for someone who 
   expect(q).toMatch(/staleTime: 60_000/);
   expect(q).toMatch(/retry: 2/);
   expect(q).toMatch(/resources\.management\.access\(\)/);
-  expect(src('lib/resources.ts')).toMatch(/management: \{\s*access: \(\) => data\(client\.get<Envelope<\{ allowed: boolean; scope: 'ALL' \| 'RUN' \| null \}>>\('\/management\/access'\)\),/);
+  // Stage 3 Task 6: the resource is Management's whole API now; access keeps its request and type.
+  expect(src('lib/resources.ts')).toMatch(/management: managementApi\(client\),/);
+  expect(src('lib/management-api.ts')).toMatch(/access: \(o\?: CallOpts\) => client\.get<Envelope<\{ allowed: boolean; scope: ManagementScope \| null \}>>\('\/management\/access', o\)/);
 });
