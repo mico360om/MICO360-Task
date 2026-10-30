@@ -13,6 +13,16 @@ const tasks: ReportTask[] = [
   { id: 'C', projectId: 'p2', projectName: 'RIG', columnCategory: 'TODO', createdAt: d('2000-01-04T09:00:00Z'), dueDate: null, completedAt: null, assigneeIds: [] },
 ];
 
+describe('buildTimeSeries: a task waiting for approval is not overdue on the days it waits (owner, 30 Oct)', () => {
+  it('counts it overdue until the day it started waiting, then not (it is still open: remaining)', () => {
+    // Due on the 2nd; handed in for approval at 10:00 on the 4th (Muscat), still waiting.
+    const waiting: ReportTask = { ...tasks[1]!, columnCategory: 'REVIEW', approvalRequestedAt: d('2000-01-04T06:00:00Z') };
+    const r = buildTimeSeries([waiting], '2000-01-01', '2000-01-05', 'Asia/Muscat');
+    expect(r.points.map((p) => p.overdue)).toEqual([0, 0, 1, 0, 0]);
+    expect(r.points.map((p) => p.remaining)).toEqual([1, 1, 1, 1, 1]);
+  });
+});
+
 describe('enumerateDays', () => {
   it('lists each inclusive UTC day in the range', () => {
     expect(enumerateDays('2000-01-01', '2000-01-05')).toEqual(['2000-01-01', '2000-01-02', '2000-01-03', '2000-01-04', '2000-01-05']);

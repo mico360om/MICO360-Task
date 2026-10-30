@@ -30,6 +30,7 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         title: t.title,
         priority: t.priority,
         columnName: t.column.name,
+        approvalRequestedAt: t.approvalRequestedAt,
       }));
     },
     async getUsers() {

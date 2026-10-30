@@ -86,6 +86,24 @@ describe('due dates are company-time calendar days', () => {
   });
 });
 
+describe('a task waiting for approval is not overdue while it waits (owner, 30 Oct; ruling 45)', () => {
+  const now = new Date('2026-10-30T06:00:00Z');
+  const late = { id: 'w', projectId: 'p1', projectName: 'MICO', columnCategory: 'REVIEW', createdAt: new Date('2026-10-01'), dueDate: new Date('2026-10-20T00:00:00Z'), completedAt: null, assigneeIds: ['u1'] };
+  const waiting: ReportTask = { ...late, approvalRequestedAt: new Date('2026-10-25T08:00:00Z') };
+
+  it('leaves it out of the projects’ and the people’s overdue counts, and its row isn’t overdue', async () => {
+    expect(projectPerformance([waiting], 'Asia/Muscat', now)[0]!.overdue).toBe(0);
+    expect(userWorkload([waiting], [{ id: 'u1', username: 'ada' }], 'Asia/Muscat', now)[0]!.overdue).toBe(0);
+    const svc = createReportService({ data: { async getTasks() { return [waiting]; }, async getUsers() { return []; } }, timeZone: 'Asia/Muscat', now: () => now });
+    expect((await svc.taskListReport())[0]).toMatchObject({ overdue: false, done: false });
+  });
+
+  it('sent back (no longer waiting), it counts as overdue again', () => {
+    expect(projectPerformance([{ ...late, approvalRequestedAt: null }], 'Asia/Muscat', now)[0]!.overdue).toBe(1);
+    expect(userWorkload([late], [{ id: 'u1', username: 'ada' }], 'Asia/Muscat', now)[0]!.overdue).toBe(1);
+  });
+});
+
 describe('applyReportFilter', () => {
   it('filters by project and by team member (assignee)', () => {
     expect(applyReportFilter(tasks, { projectId: 'p2' }).map((t) => t.id)).toEqual(['3']);

@@ -11,7 +11,7 @@ export interface TimeSeriesPoint {
   created: number;
   /** Tasks completed on this day. */
   completed: number;
-  /** Open tasks whose due day was before this day (overdue during it). */
+  /** Open tasks whose due day was before this day (overdue during it), less those waiting for approval by its end. */
   overdue: number;
   /** Open (not-yet-done) tasks that existed as of the end of this day — the burndown actual. */
   remaining: number;
@@ -78,7 +78,11 @@ export function buildTimeSeries(tasks: ReportTask[], from: string, to: string, t
       if (open) {
         remaining += 1;
         const due = dueKeys.get(t.id);
-        if (due && due < date) overdue += 1;
+        // Not overdue on a day it was waiting for approval by its end (owner, 30 Oct). Only its
+        // current wait is known from the task: an earlier wait that ended (approved, sent back)
+        // still counts on its days.
+        const waiting = t.approvalRequestedAt ? t.approvalRequestedAt.getTime() < boundary : false;
+        if (due && due < date && !waiting) overdue += 1;
       }
     }
     return { date, created, completed, overdue, remaining, ideal: 0 };

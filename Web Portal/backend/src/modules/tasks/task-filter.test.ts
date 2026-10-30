@@ -70,6 +70,15 @@ describe('filterAndSortTasks', () => {
     expect(filterAndSortTasks(tasks, { overdue: true, now }).map((t) => t.id)).toEqual(['past']);
   });
 
+  it('a task waiting for approval is not overdue while it waits (owner, 30 Oct); sent back, it is again', () => {
+    const tasks = [
+      task({ id: 'past', dueDate: new Date('2026-09-01T00:00:00Z') }),
+      task({ id: 'waiting', dueDate: new Date('2026-09-01T00:00:00Z'), columnCategory: 'REVIEW', approvalRequestedAt: new Date('2026-09-02T08:00:00Z') }),
+      task({ id: 'sentback', dueDate: new Date('2026-09-01T00:00:00Z'), columnCategory: 'IN_PROGRESS', approvalRequestedAt: null }),
+    ];
+    expect(filterAndSortTasks(tasks, { overdue: true, now }).map((t) => t.id)).toEqual(['past', 'sentback']);
+  });
+
   it('counts a task as overdue only from the day after its due day (company time)', () => {
     const tasks = [
       task({ id: 'today', dueDate: new Date('2026-09-30T00:00:00Z') }),

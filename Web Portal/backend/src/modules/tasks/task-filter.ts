@@ -1,6 +1,5 @@
 import type { TaskRecord } from './task-repository';
-import { isOverdue } from '../../lib/due-date';
-import { defaultCompanyTimeZone, isTaskDone } from './task-status';
+import { defaultCompanyTimeZone, isTaskLate } from './task-status';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
 
 const PRIORITY_RANK: Record<string, number> = { LOW: 0, NORMAL: 1, HIGH: 2, URGENT: 3 };
@@ -22,7 +21,7 @@ export interface TaskFilterCriteria {
   dueBefore?: Date;
   /** Due on/after this instant. */
   dueAfter?: Date;
-  /** Keep only overdue tasks (due day before today in the company time zone, not done). */
+  /** Keep only overdue tasks (due day before today in the company time zone, not done, not waiting for approval). */
   overdue?: boolean;
   sort?: SortField;
   order?: SortOrder;
@@ -44,7 +43,7 @@ function matches(t: TaskRecord, c: TaskFilterCriteria, q: string, now: Date, tim
   }
   if (c.dueBefore && (!t.dueDate || new Date(t.dueDate).getTime() > c.dueBefore.getTime())) return false;
   if (c.dueAfter && (!t.dueDate || new Date(t.dueDate).getTime() < c.dueAfter.getTime())) return false;
-  if (c.overdue && !(isOverdue(t.dueDate, timeZone, now) && !isTaskDone(t))) return false;
+  if (c.overdue && !isTaskLate(t, timeZone, now)) return false;
   return true;
 }
 

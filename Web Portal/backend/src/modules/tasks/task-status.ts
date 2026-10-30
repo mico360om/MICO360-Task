@@ -1,3 +1,5 @@
+import { isOverdue, type DateInput } from '../../lib/due-date';
+
 /**
  * Shared task-status rules, so boards, filters, reminders and reports never disagree.
  */
@@ -33,4 +35,18 @@ export async function columnEntryChange(
 /** A task is done when it sits in a DONE column or carries a completion time. */
 export function isTaskDone(t: { columnCategory?: string | null; completedAt?: Date | string | null }): boolean {
   return t.columnCategory === 'DONE' || (t.completedAt !== null && t.completedAt !== undefined);
+}
+
+/**
+ * Late (overdue): not done and past its due day in the company time zone — but never while it waits
+ * for approval: the work is handed in, so a task waiting for a project manager's OK isn't late
+ * anywhere (owner, 30 Oct; approvals ruling 45). Sent back, it no longer waits and is late again.
+ */
+export function isTaskLate(
+  t: { dueDate?: DateInput; columnCategory?: string | null; completedAt?: Date | string | null; approvalRequestedAt?: Date | string | null },
+  timeZone: string,
+  now: Date = new Date(),
+): boolean {
+  if (isTaskDone(t) || (t.approvalRequestedAt !== null && t.approvalRequestedAt !== undefined)) return false;
+  return isOverdue(t.dueDate, timeZone, now);
 }

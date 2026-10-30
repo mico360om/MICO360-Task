@@ -1,7 +1,7 @@
 import { buildTimeSeries, type TimeSeriesResult } from './report-timeseries';
 import type { WeekStart } from '../planning/timeline';
-import { completedOnTime, dueDayKey, isOverdue } from '../../lib/due-date';
-import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
+import { completedOnTime, dueDayKey } from '../../lib/due-date';
+import { defaultCompanyTimeZone, isTaskDone, isTaskLate } from '../tasks/task-status';
 
 export interface ReportTask {
   id: string;
@@ -18,6 +18,8 @@ export interface ReportTask {
   priority?: string;
   /** The task's column (its status as the team names it). */
   columnName?: string;
+  /** Waiting for approval since then (task approvals): not overdue while it waits (owner, 30 Oct). */
+  approvalRequestedAt?: Date | null;
 }
 
 export interface ReportUser {
@@ -58,9 +60,10 @@ export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}
 }
 
 // "Done" is the shared rule (DONE column or a completion time), so the dashboard, the task lists
-// and every report agree. "Overdue" means the due day is before today in the company time zone.
+// and every report agree. "Overdue" means the due day is before today in the company time zone,
+// and never while the task waits for approval (the shared isTaskLate).
 const isDone = (t: ReportTask): boolean => isTaskDone(t);
-const isOverdueOpen = (t: ReportTask, timeZone: string, now: Date): boolean => !isDone(t) && isOverdue(t.dueDate, timeZone, now);
+const isOverdueOpen = (t: ReportTask, timeZone: string, now: Date): boolean => isTaskLate(t, timeZone, now);
 
 /** Number of tasks in each column category. */
 export function statusBreakdown(tasks: ReportTask[]): Record<string, number> {
