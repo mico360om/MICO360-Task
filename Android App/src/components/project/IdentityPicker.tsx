@@ -3,9 +3,10 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button, TextField } from '../ui';
 import { SheetMessage } from '../meeting/sheet-kit';
-import { COLOR_NAMES, PROJECT_COLORS, PROJECT_ICON_KEYS, PROJECT_ICON_LABEL, colorName, customColor, iconGlyph, readableOn } from '../../lib/project-identity';
-import { OS_LEVEL } from '../ProjectAvatar';
+import { COLOR_NAMES, PROJECT_COLORS, PROJECT_ICON_KEYS, PROJECT_ICON_LABEL, colorName, customColor, readableOn } from '../../lib/project-identity';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * How a project looks (the New / Edit project form), as on the website: a colour and an icon (or
@@ -117,10 +118,13 @@ export function IdentityPicker({
                   accessibilityState={{ selected: on, checked: on, disabled: !!disabled }}
                   style={({ pressed }) => [s.iconCell, on ? { backgroundColor: color, borderColor: color } : null, pressed && s.pressed]}
                 >
-                  <Text allowFontScaling={false} style={[s.iconGlyph, { color: on ? textOn : c.ink2 }]}>
-                    {/* An icon this phone's Android can't draw is named by its first letters (5b review). */}
-                    {key ? iconGlyph(key, OS_LEVEL) ?? PROJECT_ICON_LABEL[key].slice(0, 2) : 'Aa'}
-                  </Text>
+                  {key ? (
+                    <Icon name={`project.${key}`} size={22} color={on ? textOn : c.ink2} />
+                  ) : (
+                    <Text allowFontScaling={false} style={[s.initials, { color: on ? textOn : c.ink2 }]}>
+                      Aa
+                    </Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -155,5 +159,5 @@ const makeStyles = (c: Palette) =>
     swatch: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.1)' },
     icons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
     iconCell: { width: 48, height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
-    iconGlyph: { fontSize: 20, fontWeight: '800' },
+    initials: { ...font('700'), fontSize: 17 },
   });

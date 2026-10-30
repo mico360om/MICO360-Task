@@ -68,3 +68,25 @@ export function chipLook(p: Palette, selected: boolean): { bg: string; fg: strin
 export function toggleLook(p: Palette, on: boolean): { track: string; thumb: string } {
   return { track: on ? p.brand : p.line, thumb: p.onBrand };
 }
+
+/** The website's Avatar sizes (box and initials text, in dp). */
+export const AVATAR_SIZES = { sm: { box: 24, text: 10 }, md: { box: 32, text: 12 }, lg: { box: 64, text: 18 } } as const;
+export type AvatarSize = keyof typeof AVATAR_SIZES;
+
+export type ProjectAvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+
+/** The website's ProjectAvatar sizes: tile, initials, drawn icon and corner radius. */
+export const PROJECT_AVATAR_SIZES: Record<ProjectAvatarSize, { box: number; text: number; icon: number; radius: number }> = {
+  xs: { box: 20, text: 9, icon: 12, radius: 6 },
+  sm: { box: 24, text: 10, icon: 14, radius: 6 },
+  md: { box: 32, text: 12, icon: 18, radius: 8 },
+  lg: { box: 44, text: 15, icon: 22, radius: 14 },
+  xl: { box: 64, text: 20, icon: 32, radius: 18 },
+  '2xl': { box: 96, text: 30, icon: 46, radius: 24 },
+};
+
+/** A progress value as a whole percent, 0–100 (anything not a number counts as 0). */
+export function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, Math.round(value)));
+}

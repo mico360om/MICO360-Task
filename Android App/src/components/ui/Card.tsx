@@ -9,12 +9,15 @@ export function Card({
   style,
   onPress,
   accessibilityLabel,
+  accessibilityHint,
   padded = true,
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   accessibilityLabel?: string;
+  /** What tapping does (a tappable card only). */
+  accessibilityHint?: string;
   padded?: boolean;
 }) {
   const c = useColors();
@@ -32,6 +35,7 @@ export function Card({
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
         style={({ pressed }) => [base, pressed ? { backgroundColor: c.surface2 } : null, style]}
       >
         {children}

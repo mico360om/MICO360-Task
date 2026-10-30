@@ -3,8 +3,9 @@
  * one stored on this server, '/uploads/…'), else its icon on its colour, else its initials; and its
  * status and priority in words. The icon names are the server's (backend
  * modules/projects/project-icons.ts) and the labels, colours and code rules the website's
- * (frontend lib/project-icons.tsx); a test keeps them equal. The phone has no vector drawing, so
- * each icon is drawn as a matching symbol on the project's colour. Pure TypeScript.
+ * (frontend lib/project-icons.tsx); a test keeps them equal. Each icon is the website's own
+ * drawing (lib/icons.ts PROJECT_ICONS, drawn by components/Icon), the same on every phone, in
+ * the readable colour on the project's colour. Pure TypeScript.
  */
 import { serverFileHref } from './attachments';
 import { letterWords, numberWords } from './initials';
@@ -49,37 +50,6 @@ export const PROJECT_ICON_LABEL: Record<ProjectIconKey, string> = {
   leaf: 'Leaf', bulb: 'Light bulb', megaphone: 'Megaphone', shield: 'Shield', star: 'Star', truck: 'Truck', users: 'People', wrench: 'Wrench',
   flask: 'Flask', book: 'Book', camera: 'Camera', cart: 'Cart', plane: 'Plane', ship: 'Ship', bolt: 'Lightning', oil: 'Oil drop',
 };
-
-/** The symbol the phone draws for each icon (one each, so no two look alike). */
-export const PROJECT_ICON_GLYPH: Record<ProjectIconKey, string> = {
-  briefcase: '💼', rocket: '🚀', building: '🏢', chart: '📊', code: '💻', cog: '⚙️', globe: '🌐', heart: '❤️',
-  leaf: '🍃', bulb: '💡', megaphone: '📣', shield: '🛡️', star: '⭐', truck: '🚚', users: '👥', wrench: '🔧',
-  flask: '🧪', book: '📖', camera: '📷', cart: '🛒', plane: '✈️', ship: '🚢', bolt: '⚡', oil: '🛢️',
-};
-
-/**
- * The oldest Android (API level) whose emoji font draws each icon (5b review). The app runs from
- * Android 6 (API 23); 🛡️ and 🛢️ (Unicode 7) and 🛒 (Unicode 9) come with Android 7 (API 24), 🧪
- * (Unicode 11) with Android 9 (API 28). An older phone draws the project's initials instead of an
- * empty box.
- */
-export const ICON_MIN_ANDROID: Record<ProjectIconKey, number> = {
-  briefcase: 23, rocket: 23, building: 23, chart: 23, code: 23, cog: 23, globe: 23, heart: 23,
-  leaf: 23, bulb: 23, megaphone: 23, shield: 24, star: 23, truck: 23, users: 23, wrench: 23,
-  flask: 28, book: 23, camera: 23, cart: 24, plane: 23, ship: 23, bolt: 23, oil: 24,
-};
-
-/** The symbol for an icon on this phone (`osLevel`: its Android API level), or null to draw initials. */
-export function iconGlyph(icon: string | null | undefined, osLevel: number): string | null {
-  if (!isProjectIcon(icon)) return null;
-  return osLevel >= ICON_MIN_ANDROID[icon] ? PROJECT_ICON_GLYPH[icon] : null;
-}
-
-/**
- * The light plate an icon sits on (5b review): an emoji keeps its own colours (a red heart, a grey
- * gear), so on a project's colour it could all but vanish; on the plate it always reads.
- */
-export const GLYPH_PLATE = 'rgba(255,255,255,0.9)';
 
 /** The colours on offer, as on the website (each readable with the text colour readableOn picks). */
 export const PROJECT_COLORS = ['#8B1E1E', '#B5432E', '#C2410C', '#B7791F', '#4D7C0F', '#2E7D53', '#0F766E', '#0E7490', '#1E5A8B', '#4338CA', '#7A5AA8', '#9D174D', '#475569', '#1F2937'];
@@ -202,24 +172,21 @@ export function ownerOptions(
 /** What a project's tile shows: its picture (falling back to the rest if it doesn't load), its icon or its initials, on its colour. */
 export interface ProjectLook {
   picture: string | null;
-  glyph: string | null;
-  /** The plate behind the icon (GLYPH_PLATE), or null when initials are drawn. */
-  plate: string | null;
+  /** The drawn icon (lib/icons `project.<icon>`), or null to show the initials. */
+  icon: ProjectIconKey | null;
   initials: string;
   background: string;
+  /** The icon's and initials' colour: white or near-black, whichever reads on the background. */
   foreground: string;
   /** The project's name (the tile's accessible name when it stands alone). */
   label: string;
 }
 
-/** `osLevel`: the phone's Android API level (an icon it can't draw shows the initials). */
-export function projectLook(project: { name: string; color?: string | null; icon?: string | null; imageUrl?: string | null }, apiBase: string, osLevel = Number.MAX_SAFE_INTEGER): ProjectLook {
+export function projectLook(project: { name: string; color?: string | null; icon?: string | null; imageUrl?: string | null }, apiBase: string): ProjectLook {
   const background = project.color && HEX_COLOR.test(project.color) ? project.color : DEFAULT_PROJECT_COLOR;
-  const glyph = iconGlyph(project.icon, osLevel);
   return {
     picture: projectPictureHref(apiBase, project.imageUrl),
-    glyph,
-    plate: glyph ? GLYPH_PLATE : null,
+    icon: isProjectIcon(project.icon) ? project.icon : null,
     initials: projectInitials(project.name),
     background,
     foreground: readableOn(background),

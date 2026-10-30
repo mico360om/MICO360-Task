@@ -4,15 +4,11 @@ import { resolve } from 'node:path';
 import { transformSync } from 'esbuild';
 import {
   COLOR_NAMES,
-  GLYPH_PLATE,
-  ICON_MIN_ANDROID,
-  iconGlyph,
   ownerOptions,
   CODE_PATTERN,
   DEFAULT_PROJECT_COLOR,
   HEX_COLOR,
   PROJECT_COLORS,
-  PROJECT_ICON_GLYPH,
   PROJECT_ICON_KEYS,
   PROJECT_ICON_LABEL,
   PROJECT_STATUSES,
@@ -31,6 +27,7 @@ import {
 } from './project-identity';
 import { serverFileHref } from './attachments';
 import { avatarHref } from './account';
+import { isIconName } from './icons';
 
 const API = 'https://task.mico360.com/api/v1';
 
@@ -68,17 +65,16 @@ describe('a project’s look', () => {
   it('is its picture, else its icon on its colour, else its initials', () => {
     expect(projectLook({ name: 'Rig Inspection', color: '#2E7D53', icon: 'truck', imageUrl: '/uploads/p/1.png' }, API)).toEqual({
       picture: 'https://task.mico360.com/uploads/p/1.png',
-      glyph: '🚚',
-      plate: GLYPH_PLATE,
+      icon: 'truck',
       initials: 'RI',
       background: '#2E7D53',
       foreground: '#ffffff',
       label: 'Rig Inspection',
     });
     const icon = projectLook({ name: 'Rig Inspection', color: '#2E7D53', icon: 'truck', imageUrl: null }, API);
-    expect([icon.picture, icon.glyph]).toEqual([null, '🚚']);
+    expect([icon.picture, icon.icon]).toEqual([null, 'truck']);
     const initials = projectLook({ name: 'Rig Inspection', color: '#2E7D53', icon: 'not-an-icon' }, API);
-    expect([initials.picture, initials.glyph, initials.initials]).toEqual([null, null, 'RI']);
+    expect([initials.picture, initials.icon, initials.initials]).toEqual([null, null, 'RI']);
   });
 
   it('uses the website’s maroon when a project has no colour, and readable text on any colour', () => {
@@ -91,15 +87,14 @@ describe('a project’s look', () => {
     expect(readableOn('oops')).toBe('#ffffff');
   });
 
-  it('has a symbol and a name for every icon the server takes', () => {
+  it('has a drawn icon and a name for every icon the server takes', () => {
     for (const key of PROJECT_ICON_KEYS) {
-      expect(PROJECT_ICON_GLYPH[key]).toBeTruthy();
+      expect(isIconName(`project.${key}`), key).toBe(true);
       expect(PROJECT_ICON_LABEL[key]).toBeTruthy();
       expect(isProjectIcon(key)).toBe(true);
     }
     expect(isProjectIcon('dragon')).toBe(false);
     expect(isProjectIcon(null)).toBe(false);
-    expect(new Set(Object.values(PROJECT_ICON_GLYPH)).size).toBe(PROJECT_ICON_KEYS.length);
   });
 
   it('makes two initials from the first two words, in any script', () => {
@@ -235,22 +230,17 @@ describe.skipIf(!existsSync(webIcons) || !existsSync(webEditor) || !existsSync(w
   });
 });
 
-describe('icons every phone can draw, readable on every colour (5b review #9)', () => {
-  it('an icon newer than the phone’s Android is drawn as the project’s initials instead (no empty box)', () => {
-    // 🧪 is Unicode 11 (Android 9); the app runs from Android 6 (API 23).
-    expect(iconGlyph('flask', 27)).toBeNull();
-    expect(iconGlyph('flask', 28)).toBe('🧪');
-    expect(iconGlyph('cart', 23)).toBeNull();
-    expect(iconGlyph('cart', 24)).toBe('🛒');
-    expect(iconGlyph('briefcase', 23)).toBe('💼');
-    expect(projectLook({ name: 'Lab Tests', icon: 'flask' }, API, 26)).toMatchObject({ glyph: null, initials: 'LT' });
-    // Every icon is known to some Android version.
-    for (const key of PROJECT_ICON_KEYS) expect(ICON_MIN_ANDROID[key], key).toBeGreaterThanOrEqual(23);
+describe('drawn project icons, readable on every colour', () => {
+  it('a project with an icon shows that drawn icon in the readable colour on its colour', () => {
+    expect(projectLook({ name: 'Rig', icon: 'heart', color: '#9D174D' }, API)).toMatchObject({ icon: 'heart', foreground: readableOn('#9D174D'), background: '#9D174D', picture: null });
+    expect(projectLook({ name: 'Lab Tests', icon: 'nope' }, API)).toMatchObject({ icon: null, initials: 'LT' });
+    for (const key of PROJECT_ICON_KEYS) expect(isIconName(`project.${key}`), key).toBe(true);
   });
 
-  it('an icon sits on a light plate, so its own colours read on any project colour', () => {
-    expect(projectLook({ name: 'Rig', icon: 'heart', color: '#9D174D' }, API, 34).plate).toBe(GLYPH_PLATE);
-    expect(projectLook({ name: 'Rig', color: '#9D174D' }, API, 34).plate).toBeNull();
+  it('no emoji symbols or Android-version table are left (every phone draws the same icon)', async () => {
+    const mod = (await import('./project-identity')) as Record<string, unknown>;
+    for (const gone of ['PROJECT_ICON_GLYPH', 'ICON_MIN_ANDROID', 'iconGlyph', 'GLYPH_PLATE']) expect(mod[gone], gone).toBeUndefined();
+    expect(readFileSync(resolve(__dirname, 'project-identity.ts'), 'utf8')).not.toMatch(/osLevel|\p{Extended_Pictographic}/u);
   });
 
   it('the owner can be chosen only from active people, on the dashboard as in the form (the current owner stays listed)', () => {

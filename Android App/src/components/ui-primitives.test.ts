@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
-import { appPath, appSource as src, appSources } from '../testing/web-source';
+import { appPath, appSource as src, appSources, hasWeb, readWeb } from '../testing/web-source';
 
 /** The names a file exports (`export { A, B as C }`, `export function|const|class X`). */
 function exportsOf(rel: string): string[] {
@@ -55,4 +55,45 @@ it('no primitive sets a fontWeight or a colour literal', () => {
     expect(text, f).not.toMatch(/fontWeight\s*:/);
     expect(text, f).not.toMatch(/'#[0-9a-f]{3,8}'|rgba?\(/i);
   }
+});
+
+it('ProjectAvatar and IdentityPicker draw project icons, no emoji', () => {
+  for (const f of ['components/ProjectAvatar.tsx', 'components/project/IdentityPicker.tsx']) {
+    expect(src(f), f).toMatch(/<Icon name=\{`project\.\$\{/);
+    expect(src(f), f).not.toMatch(/\p{Extended_Pictographic}/u);
+  }
+});
+
+it('ApprovalChip says the website’s words with the hourglass', () => {
+  expect(src('components/ui/ApprovalChip.tsx')).toMatch(/misc\.waiting[^]*Waiting for approval/);
+  expect(src('components/ui/ApprovalChip.tsx')).toMatch(/accessibilityLabel="Waiting for approval"/);
+  if (hasWeb('frontend/src/components/approvals/ApprovalChip.tsx')) expect(readWeb('frontend/src/components/approvals/ApprovalChip.tsx')).toContain('Waiting for approval');
+});
+
+it('ui/index.ts also exports the identity and status primitives', () =>
+  expect(exportsOf('components/ui/index.ts')).toEqual(expect.arrayContaining(['Avatar', 'StatTile', 'ApprovalChip', 'ProgressBar', 'BrandLogo', 'PageHeader'])));
+
+it('the avatar shows only this server’s pictures and its initials otherwise', () => {
+  const s = src('components/ui/Avatar.tsx');
+  expect(s).toMatch(/serverFileHref\(baseUrl, src\)/);
+  expect(s).toMatch(/personInitials\(name\)/);
+  expect(s).toMatch(/onError=\{\(\) => setBroken\(true\)\}/);
+});
+
+it('the progress bar tells TalkBack how far along it is', () => {
+  const s = src('components/ui/ProgressBar.tsx');
+  expect(s).toMatch(/accessibilityRole="progressbar"/);
+  expect(s).toMatch(/accessibilityValue=\{\{ min: 0, max: 100, now \}\}/);
+});
+
+it('the page header names the page for TalkBack and wraps its actions', () => {
+  const s = src('components/ui/PageHeader.tsx');
+  expect(s).toMatch(/accessibilityRole="header"/);
+  expect(s).toMatch(/flexWrap: 'wrap'/);
+});
+
+it('the empty state has an icon bubble and an optional action', () => {
+  const s = src('components/ui/EmptyState.tsx');
+  expect(s).toMatch(/icon = 'misc\.inbox'/);
+  expect(s).toMatch(/<Button title=\{action\.title\} onPress=\{action\.onPress\}/);
 });
