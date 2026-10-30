@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { ALL_PROJECTS_BOARD, chatScreenId, meetingScreenId, targetToAction, taskScreenId } from './nav-actions';
-import { DRAWER_ITEMS, activeDrawerKey, actionRouteName, drawerItemsFor } from './drawer-menu';
+import { DRAWER_SECTIONS, activeDrawerKey, actionRouteName, drawerSectionsFor } from './drawer-menu';
 import { TAB_ITEMS } from './tabs';
+import { isIconName } from '../lib/icons';
+import { appSource as src } from '../testing/web-source';
 import { notificationToTarget } from '../lib/deep-link';
 
 describe('targetToAction', () => {
-  it('pushes the task’s screen and switches tabs for chat/notifications', () => {
+  it('pushes the task’s screen, switches to the Chat tab and opens Notifications (a stack screen now)', () => {
     expect(targetToAction({ screen: 'TaskDetail', params: { taskId: 't1' } })).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't1' } });
     expect(targetToAction({ screen: 'Chat' })).toEqual({ type: 'tab', tab: 'Chat' });
-    expect(targetToAction({ screen: 'Notifications' })).toEqual({ type: 'tab', tab: 'Notifications' });
+    expect(targetToAction({ screen: 'Notifications' })).toEqual({ type: 'stack', screen: 'Notifications' });
   });
 
   it('pushes the project’s dashboard (5c)', () => {
@@ -43,99 +45,71 @@ describe('targetToAction', () => {
   });
 });
 
-describe('drawer menu', () => {
-  it('exposes destinations with unique keys and a route for each', () => {
-    const keys = DRAWER_ITEMS.map((i) => i.key);
-    expect(new Set(keys).size).toBe(keys.length);
-    for (const i of DRAWER_ITEMS) expect(actionRouteName(i.action)).toBeTruthy();
+const items = (sections: ReturnType<typeof drawerSectionsFor>) => sections.flatMap((s) => s.items);
+const allItems = DRAWER_SECTIONS.flatMap((s) => s.items);
+
+describe('five tabs and a menu grouped like the website’s sidebar', () => {
+  it('five tabs: Dashboard, My Tasks, Projects, Meetings, Chat, with drawn icons', () => {
+    expect(TAB_ITEMS.map((t) => [t.name, t.title])).toEqual([['Dashboard', 'Dashboard'], ['MyTasks', 'My Tasks'], ['Projects', 'Projects'], ['Meetings', 'Meetings'], ['Chat', 'Chat']]);
+    for (const t of TAB_ITEMS) expect(isIconName(t.icon), t.name).toBe(true);
   });
 
-  it('includes the stack-only screens the tabs do not reach (Calendar, Profile, My Action Items)', () => {
-    const routes = DRAWER_ITEMS.map((i) => actionRouteName(i.action));
-    expect(routes).toContain('Calendar');
-    expect(routes).toContain('Profile');
-    expect(routes).toContain('MyActionItems');
-  });
-
-  it('lists the tabs in the tab bar’s order, with My Action Items under Meetings', () => {
-    const tabs = DRAWER_ITEMS.filter((i) => i.action.type === 'tab').map((i) => actionRouteName(i.action));
-    expect(tabs).toEqual(TAB_ITEMS.map((t) => t.name));
-    const keys = DRAWER_ITEMS.map((i) => i.key);
-    expect(keys.slice(keys.indexOf('Meetings'), keys.indexOf('Meetings') + 2)).toEqual(['Meetings', 'MyActionItems']);
-    expect(DRAWER_ITEMS.find((i) => i.key === 'Meetings')?.action).toEqual({ type: 'tab', tab: 'Meetings' });
-    expect(activeDrawerKey('MyActionItems')).toBe('MyActionItems');
-  });
-
-  it('keeps the tab bar to six tabs: Settings is in the menu only', () => {
-    expect(TAB_ITEMS.map((t) => t.name)).toEqual(['Dashboard', 'MyTasks', 'Projects', 'Meetings', 'Chat', 'Notifications']);
-    expect(DRAWER_ITEMS.find((i) => i.key === 'Settings')?.action).toEqual({ type: 'stack', screen: 'Settings' });
-    expect(activeDrawerKey('Settings')).toBe('Settings');
-    // Each tab is named and drawn as the menu names it.
-    for (const t of TAB_ITEMS) {
-      const item = DRAWER_ITEMS.find((i) => i.key === t.name);
-      expect([item?.label, item?.icon]).toEqual([t.title, t.icon]);
+  it('the drawer is grouped like the website’s sidebar', () => {
+    const all = drawerSectionsFor(['ADMIN'], true);
+    expect(all.map((s) => s.title)).toEqual(['Workspace', 'Communication', 'Admin', null]);
+    expect(all[0]!.items.map((i) => i.label)).toEqual(['Dashboard', 'My Tasks', 'Kanban Board', 'Projects', 'Calendar', 'Timeline', 'Workload', 'Meetings', 'My Action Items', 'Templates', 'Management', 'Reports']);
+    expect(all[1]!.items.map((i) => i.label)).toEqual(['Chat', 'MICO AI', 'Notifications', 'Activity']);
+    expect(all[2]!.items.map((i) => i.label)).toEqual(['User Management', 'AI Management', 'System Settings', 'Audit Logs']);
+    expect(all[3]!.items.map((i) => i.label)).toEqual(['Settings', 'Profile', 'About']);
+    for (const i of all.flatMap((s) => s.items)) {
+      expect(isIconName(i.icon), i.key).toBe(true);
+      expect(i.label).not.toMatch(/\p{Extended_Pictographic}/u);
     }
   });
 
-  it('offers Activity to everyone, under Alerts, as the website’s menu (5c)', () => {
-    const keys = DRAWER_ITEMS.map((i) => i.key);
-    expect(keys.slice(keys.indexOf('Notifications'), keys.indexOf('Notifications') + 2)).toEqual(['Notifications', 'Activity']);
-    expect(DRAWER_ITEMS.find((i) => i.key === 'Activity')).toMatchObject({ label: 'Activity', action: { type: 'stack', screen: 'Activity' } });
-    expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).toContain('Activity');
-    expect(activeDrawerKey('Activity')).toBe('Activity');
+  it('each row opens what the website’s row opens: a tab, an app screen, or the website page', () => {
+    const action = (key: string) => allItems.find((i) => i.key === key)?.action;
+    expect(action('Dashboard')).toEqual({ type: 'tab', tab: 'Dashboard' });
+    expect(action('AllBoard')).toEqual(ALL_PROJECTS_BOARD);
+    expect(action('Calendar')).toEqual({ type: 'stack', screen: 'Calendar' });
+    expect(action('Notifications')).toEqual({ type: 'stack', screen: 'Notifications' });
+    expect(action('Profile')).toEqual({ type: 'stack', screen: 'Profile' });
+    for (const [key, path] of [['Timeline', '/timeline'], ['Workload', '/workload'], ['Templates', '/templates'], ['Management', '/management'], ['MicoAi', '/mico-ai'], ['website-ai', '/admin/ai'], ['website-settings', '/admin/settings'], ['website-audit', '/admin/audit']] as const) {
+      expect(action(key), key).toEqual({ type: 'website', path });
+    }
+    expect(action('Users')).toEqual({ type: 'stack', screen: 'Users' });
+    expect(allItems.map((i) => i.key)).not.toContain('Search'); // Search is in the top bar on every tab
   });
 
-  it('offers Reports to administrators only (the server checks the role too)', () => {
-    expect(drawerItemsFor(['ADMIN']).map((i) => i.key)).toContain('Reports');
-    expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).not.toContain('Reports');
-    expect(drawerItemsFor([]).length).toBe(DRAWER_ITEMS.filter((i) => !i.adminOnly).length);
-    expect(activeDrawerKey('Reports')).toBe('Reports');
+  it('an employee sees no Admin section, Reports or Management; someone who runs a project sees Management (Review Focus 5)', () => {
+    const keys = (r: string[], lead: boolean) => items(drawerSectionsFor(r, lead)).map((i) => i.key);
+    expect(drawerSectionsFor(['EMPLOYEE'], false).map((s) => s.key)).toEqual(['workspace', 'communication', 'account']);
+    expect(keys(['EMPLOYEE'], false)).not.toContain('Reports');
+    expect(keys(['EMPLOYEE'], true)).not.toContain('Reports');
+    expect(keys(['EMPLOYEE'], false)).not.toContain('Management');
+    expect(keys(['EMPLOYEE'], true)).toContain('Management');
+    expect(keys(['ADMIN'], false)).toEqual(expect.arrayContaining(['Management', 'Reports', 'Users', 'website-ai']));
+    for (const k of ['Users', 'website-ai', 'website-settings', 'website-audit']) expect(keys(['EMPLOYEE'], true)).not.toContain(k);
+    expect(drawerSectionsFor([], false).map((s) => s.key)).toEqual(['workspace', 'communication', 'account']);
   });
 
-  it('resolves the active drawer key from the focused route name', () => {
-    expect(activeDrawerKey('Projects')).toBe('Projects');
-    expect(activeDrawerKey('Calendar')).toBe('Calendar');
-    expect(activeDrawerKey('SomethingElse')).toBeUndefined();
-    expect(activeDrawerKey(undefined)).toBeUndefined();
-  });
-});
-
-describe('the menu’s Kanban Board (final review B2)', () => {
-  it('comes after My Tasks, as in the website’s menu, opens the All projects board and is lit while it is open', () => {
-    const keys = DRAWER_ITEMS.map((i) => i.key);
-    expect(keys.slice(keys.indexOf('MyTasks'), keys.indexOf('MyTasks') + 2)).toEqual(['MyTasks', 'AllBoard']);
-    expect(DRAWER_ITEMS.find((i) => i.key === 'AllBoard')).toMatchObject({ label: 'Kanban Board', action: ALL_PROJECTS_BOARD });
-    expect(drawerItemsFor(['EMPLOYEE']).map((i) => i.key)).toContain('AllBoard');
-    expect(activeDrawerKey('AllBoard')).toBe('AllBoard');
-  });
-});
-
-describe('the menu’s Search, About and Admin pages (6b)', () => {
-  const keys = (roles: string[]) => drawerItemsFor(roles).map((i) => i.key);
-
-  it('offers Search and About to everyone', () => {
-    expect(keys(['EMPLOYEE'])).toEqual(expect.arrayContaining(['Search', 'About']));
-    expect(DRAWER_ITEMS.find((i) => i.key === 'Search')).toMatchObject({ label: 'Search', action: { type: 'stack', screen: 'Search' } });
-    expect(DRAWER_ITEMS.find((i) => i.key === 'About')).toMatchObject({ label: 'About', action: { type: 'stack', screen: 'About' } });
-    expect(activeDrawerKey('About')).toBe('About');
-  });
-
-  it('gives administrators the website’s Admin menu: User Management in the app, the rest on the website', () => {
-    const admin = drawerItemsFor(['ADMIN']);
-    const at = admin.findIndex((i) => i.key === 'Users');
-    expect(admin.slice(at, at + 4).map((i) => [i.label, i.action])).toEqual([
-      ['User Management', { type: 'stack', screen: 'Users' }],
-      ['AI Management', { type: 'website', path: '/admin/ai' }],
-      ['System Settings', { type: 'website', path: '/admin/settings' }],
-      ['Audit Logs', { type: 'website', path: '/admin/audit' }],
-    ]);
-    expect(keys(['EMPLOYEE'])).not.toEqual(expect.arrayContaining(['Users']));
-    for (const k of ['Users', 'website-ai', 'website-settings', 'website-audit']) expect(keys(['EMPLOYEE'])).not.toContain(k);
-    expect(activeDrawerKey('Users')).toBe('Users');
+  it('every row has a unique key and a destination', () => {
+    const keys = allItems.map((i) => i.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const i of allItems) expect(actionRouteName(i.action), i.key).toBeTruthy();
     expect(actionRouteName({ type: 'website', path: '/admin/ai' })).toBe('/admin/ai');
   });
 
-  it('turns a search result or menu choice into the screen it opens', () => {
-    expect(targetToAction({ screen: 'Chat' })).toEqual({ type: 'tab', tab: 'Chat' });
+  it('lights the row of the screen on show', () => {
+    for (const [route, key] of [['Dashboard', 'Dashboard'], ['Projects', 'Projects'], ['AllBoard', 'AllBoard'], ['Calendar', 'Calendar'], ['MyActionItems', 'MyActionItems'], ['Reports', 'Reports'], ['Notifications', 'Notifications'], ['Activity', 'Activity'], ['Users', 'Users'], ['Settings', 'Settings'], ['About', 'About']] as const) {
+      expect(activeDrawerKey(route), route).toBe(key);
+    }
+    expect(activeDrawerKey('SomethingElse')).toBeUndefined();
+    expect(activeDrawerKey(undefined)).toBeUndefined();
   });
+
+  it('the drawer reads the roles of the session on screen, every render', () =>
+    expect(src('components/AppDrawer.tsx')).toMatch(/const roles = useSession\(\)\?\.user\.roles \?\? \[\];[^]*drawerSectionsFor\(roles, /));
+
+  it('a push or link for Notifications opens its stack screen', () => expect(targetToAction({ screen: 'Notifications' })).toEqual({ type: 'stack', screen: 'Notifications' }));
 });

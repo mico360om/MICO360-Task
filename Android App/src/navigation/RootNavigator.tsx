@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Text } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   NavigationContainer,
@@ -20,9 +20,8 @@ import { useChatBadge } from '../core/chat';
 import { useDeliveryAcks } from '../core/chat-features';
 import { chatTabBadge, chatTabLabel } from '../lib/chat';
 import { useTheme } from '../core/theme';
-import { spacing } from '../lib/theme';
+import { typeStyle } from '../lib/typography';
 import { notificationToTarget } from '../lib/deep-link';
-import { useDrawerStore } from '../lib/drawer-store';
 import { dateZones, subscribeTimeZone } from '../lib/due-date';
 import { useDateSettingsLoad } from '../core/calendar-queries';
 import { asyncStore } from '../adapters/async-storage';
@@ -33,8 +32,11 @@ import { targetToAction, requiresSession, chatScreenId, meetingScreenId, taskScr
 import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, holdUntilSignedIn, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
-import { TAB_ITEMS, type TabName } from './tabs';
+import { TAB_ITEMS, TAB_LABEL_MAX_SCALE, type TabName } from './tabs';
 import { AppDrawer } from '../components/AppDrawer';
+import { AppTopBar } from '../components/AppTopBar';
+import { Icon } from '../components/Icon';
+import type { IconName } from '../lib/icons';
 import { UpdateBanner } from '../components/UpdateBanner';
 
 import { LoginScreen } from '../screens/auth/LoginScreen';
@@ -68,9 +70,7 @@ import { SearchScreen } from '../screens/SearchScreen';
 import { AboutScreen } from '../screens/AboutScreen';
 import { UsersScreen } from '../screens/UsersScreen';
 import { UserFormScreen } from '../screens/UserFormScreen';
-import { SearchButton } from '../components/SearchButton';
-import { useAlertsCount, useAlertsLive, usePushOpened } from '../core/alerts';
-import { alertsBadge, alertsTabLabel } from '../lib/alerts';
+import { useAlertsLive, usePushOpened } from '../core/alerts';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const AppStack = createNativeStackNavigator<AppStackParamList>();
@@ -89,9 +89,9 @@ const TAB_SCREENS: Record<TabName, React.ComponentType<never>> = {
   Projects: ProjectsScreen,
   Meetings: MeetingsScreen,
   Chat: ChatScreen,
-  Notifications: NotificationsScreen,
 };
-const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as Record<TabName, string>;
+const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as Record<TabName, IconName>;
+const TAB_TITLE = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.title])) as Record<TabName, string>;
 
 /**
  * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
@@ -164,46 +164,27 @@ function AlertsMount() {
   return null;
 }
 
-function HamburgerButton() {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Open menu"
-      hitSlop={12}
-      onPress={() => useDrawerStore.getState().openDrawer()}
-      style={{ paddingHorizontal: spacing.lg }}
-    >
-      <Text style={{ fontSize: 20, color: colors.onBrand }}>☰</Text>
-    </Pressable>
-  );
-}
-
 function MainTabs() {
-  // Unread alerts (5c): the Alerts tab's number, as the website's bell.
-  const alerts = useAlertsCount();
   const { colors } = useTheme();
   // Unread chat messages (3a): without muted conversations or the one being read.
   const unread = useChatBadge();
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
-        headerStyle: { backgroundColor: colors.brand },
-        headerTintColor: colors.onBrand,
-        headerTitleStyle: { fontWeight: '700' },
-        headerLeft: () => <HamburgerButton />,
-        // Search from every tab, as the website's search box on every page (6b).
-        headerRight: () => <SearchButton />,
-        tabBarActiveTintColor: colors.brand,
+        // The white top bar on every tab: menu, logo, Search and the bell (the page titles itself).
+        header: () => <AppTopBar />,
+        tabBarActiveTintColor: colors.brandText,
         tabBarInactiveTintColor: colors.ink3,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line },
-        tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>{TAB_ICON[route.name]}</Text>,
-        ...(route.name === 'Notifications'
-          ? { tabBarBadge: alertsBadge(alerts), tabBarAccessibilityLabel: alertsTabLabel(alerts), tabBarBadgeStyle: { backgroundColor: colors.brand, color: colors.onBrand } }
-          : {}),
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, borderTopWidth: 1 },
+        tabBarIcon: ({ color }) => <Icon name={TAB_ICON[route.name]} size={22} color={color} />,
+        tabBarLabel: ({ color }) => (
+          <Text style={[typeStyle('tab'), { color }]} maxFontSizeMultiplier={TAB_LABEL_MAX_SCALE} numberOfLines={1}>
+            {TAB_TITLE[route.name]}
+          </Text>
+        ),
       })}
     >
-      {/* Six tabs, in the side menu's order; Settings is in the menu (navigation/tabs). */}
+      {/* Five tabs, as the website's phone layout; the rest is in the side menu (navigation/tabs). */}
       {TAB_ITEMS.map((t) => (
         <Tabs.Screen
           key={t.name}
@@ -277,10 +258,12 @@ export function RootNavigator() {
     },
   };
 
+  // Stack screens: a white header with the page's name, as the website's pages.
   const appHeader = {
-    headerStyle: { backgroundColor: colors.brand },
-    headerTintColor: colors.onBrand,
-    headerTitleStyle: { fontWeight: '700' as const },
+    headerStyle: { backgroundColor: colors.surface },
+    headerTintColor: colors.ink,
+    headerTitleStyle: { ...typeStyle('heading'), color: colors.ink },
+    headerShadowVisible: true,
   };
 
   // A push opened from the phone's list reads its alert, as clicking it on the website does (5c).
@@ -329,6 +312,7 @@ export function RootNavigator() {
         <>
           <AppStack.Navigator screenOptions={appHeader}>
             <AppStack.Screen name="Tabs" component={MainTabs} options={{ headerShown: false }} />
+            <AppStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
             <AppStack.Screen
               name="Board"
               component={BoardScreen}

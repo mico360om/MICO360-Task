@@ -25,6 +25,8 @@ export type NavAction =
   | { type: 'stack'; screen: 'Search' }
   | { type: 'stack'; screen: 'About' }
   | { type: 'stack'; screen: 'Users'; params?: AppStackParamList['Users'] }
+  /** The bell's list (a stack screen since the top bar has the bell). */
+  | { type: 'stack'; screen: 'Notifications' }
   /** A website page the app doesn't have (6b): whoever offers it opens it in the browser (lib/website). */
   | { type: 'website'; path: string }
   /** A signed-out destination (the password-reset screen opened from the e-mail link). */
@@ -60,7 +62,7 @@ export function targetToAction(target: LinkTarget): NavAction {
       return { type: 'auth', screen: 'Reset', params: target.params };
     case 'Notifications':
     default:
-      return { type: 'tab', tab: 'Notifications' };
+      return { type: 'stack', screen: 'Notifications' };
   }
 }
 

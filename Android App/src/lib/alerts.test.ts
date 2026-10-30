@@ -6,7 +6,7 @@ import {
   alertForPush,
   allRead,
   alertsBadge,
-  alertsTabLabel,
+  bellLabel,
   countAfterRead,
   launcherBadgeStep,
   markAllProblem,
@@ -43,11 +43,12 @@ describe('the Alerts tab number (5c), as on the website’s bell', () => {
     expect(alertsBadge(100)).toBe('99+');
   });
 
-  it('is read out with the tab, like the bell’s “Notifications, 3 unread”', () => {
-    expect(alertsTabLabel(3)).toBe('Alerts, 3 unread');
-    expect(alertsTabLabel(1)).toBe('Alerts, 1 unread');
-    expect(alertsTabLabel(0)).toBe('Alerts');
-    expect(alertsTabLabel(undefined)).toBe('Alerts');
+  it('the bell says how many are unread', () => {
+    expect(bellLabel(3)).toBe('Notifications, 3 unread');
+    expect(bellLabel(1)).toBe('Notifications, 1 unread');
+    expect(bellLabel(0)).toBe('Notifications');
+    expect(bellLabel(null)).toBe('Notifications');
+    expect(bellLabel(undefined)).toBe('Notifications');
   });
 
   it('is asked of the server as often as the website asks (every 30 s, only while the app is in front)', () => {

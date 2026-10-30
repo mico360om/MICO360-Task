@@ -106,7 +106,7 @@ describe('createPendingAction (WEB-18 — push taps while signed out wait for si
   it('drops a stale action', () => {
     let t = 0;
     const p = createPendingAction({ ttlMs: 1000, now: () => t });
-    p.set({ type: 'tab', tab: 'Notifications' });
+    p.set({ type: 'stack', screen: 'Notifications' });
     t = 5000;
     expect(p.peek()).toBeNull();
     expect(p.take()).toBeNull();
@@ -167,7 +167,7 @@ describe('website addresses open in the app (6b)', () => {
   it('the other pages the app has', () => {
     expect(tab('/dashboard')).toBe('Dashboard');
     expect(tab('/my-tasks')).toBe('MyTasks');
-    expect(tab('/notifications')).toBe('Notifications');
+    expect(first('/notifications')).toMatchObject({ name: 'Notifications' });
     for (const [path, screen] of [
       ['/calendar', 'Calendar'],
       ['/activity', 'Activity'],
@@ -268,7 +268,7 @@ describe('a link tapped while signed out opens after the sign-in (6b review)', (
     expect(replay(task.held)).toMatchObject({ type: 'NAVIGATE', payload: { name: 'TaskDetail', params: { taskId: 't1' } } });
     expect(replay(tapped('/meetings/m1', false).held)).toMatchObject({ payload: { name: 'MeetingDetail', params: { meetingId: 'm1' } } });
     expect(replay(tapped('/chat?conversation=c1', false).held)).toMatchObject({ payload: { name: 'ChatThread', params: { conversationId: 'c1' } } });
-    expect(replay(tapped('notifications', false).held)).toMatchObject({ payload: { name: 'Tabs', params: { screen: 'Notifications' } } });
+    expect(replay(tapped('notifications', false).held)).toMatchObject({ payload: { name: 'Notifications' } });
     expect(replay(tapped('/board', false).held)).toMatchObject({ payload: { name: 'AllBoard' } });
   });
 

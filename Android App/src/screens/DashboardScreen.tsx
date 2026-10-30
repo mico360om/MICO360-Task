@@ -6,7 +6,7 @@ import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { summarizeTasks } from '../lib/tasks-summary';
 import { TaskRow } from '../components/TaskRow';
-import { Card, SectionTitle, Loader, EmptyState, ErrorNote } from '../components/ui';
+import { Card, SectionTitle, Loader, EmptyState, ErrorNote, PageHeader } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { AdminTotals } from '../components/AdminTotals';
 import { canEditProject } from '../lib/project-team';
@@ -42,6 +42,7 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
           />
         }
       >
+        <PageHeader title="Dashboard" />
         <Text style={styles.greeting}>Hi {firstName}</Text>
         <Text style={styles.sub}>Here&apos;s what needs your attention.</Text>
 

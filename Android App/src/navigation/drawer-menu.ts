@@ -1,44 +1,92 @@
 import { ALL_PROJECTS_BOARD, type NavAction } from './nav-actions';
-import { WEBSITE_ONLY_PAGES } from '../lib/website';
+import type { IconName } from '../lib/icons';
 
 export interface DrawerItem {
   key: string;
   label: string;
-  icon: string;
+  icon: IconName;
   action: NavAction;
   /** Shown only to administrators (the server enforces the role as well). */
   adminOnly?: boolean;
+  /** Shown to administrators and to people who run a project (the website's Management page). */
+  leadsOnly?: boolean;
 }
 
+export interface DrawerSection {
+  key: 'workspace' | 'communication' | 'admin' | 'account';
+  /** The section's heading; the account rows have none. */
+  title: string | null;
+  items: readonly DrawerItem[];
+}
+
+const tab = (t: 'Dashboard' | 'MyTasks' | 'Projects' | 'Meetings' | 'Chat'): NavAction => ({ type: 'tab', tab: t });
+const website = (path: string): NavAction => ({ type: 'website', path });
+
 /**
- * The side-drawer destinations: the bottom tabs first, in the tab bar's order (navigation/tabs),
- * with the Kanban Board under My Tasks (as in the website's menu — final review B2) and My Action
- * Items under Meetings, then the screens the tabs don't reach.
+ * The side menu, grouped and ordered as the website's sidebar (Workspace / Communication / Admin),
+ * with the account pages under them. Rows for pages the app doesn't have yet open the website.
+ * Search is not here: it is in the top bar on every tab.
  */
-export const DRAWER_ITEMS: readonly DrawerItem[] = [
-  { key: 'Dashboard', label: 'Home', icon: '🏠', action: { type: 'tab', tab: 'Dashboard' } },
-  { key: 'MyTasks', label: 'My Tasks', icon: '✓', action: { type: 'tab', tab: 'MyTasks' } },
-  { key: 'AllBoard', label: 'Kanban Board', icon: '▦', action: ALL_PROJECTS_BOARD },
-  { key: 'Projects', label: 'Projects', icon: '🗂', action: { type: 'tab', tab: 'Projects' } },
-  { key: 'Meetings', label: 'Meetings', icon: '👥', action: { type: 'tab', tab: 'Meetings' } },
-  { key: 'MyActionItems', label: 'My Action Items', icon: '☑', action: { type: 'stack', screen: 'MyActionItems' } },
-  { key: 'Chat', label: 'Chat', icon: '💬', action: { type: 'tab', tab: 'Chat' } },
-  { key: 'Notifications', label: 'Alerts', icon: '🔔', action: { type: 'tab', tab: 'Notifications' } },
-  { key: 'Activity', label: 'Activity', icon: '📈', action: { type: 'stack', screen: 'Activity' } },
-  { key: 'Calendar', label: 'Calendar', icon: '📅', action: { type: 'stack', screen: 'Calendar' } },
-  { key: 'Search', label: 'Search', icon: '🔍', action: { type: 'stack', screen: 'Search' } },
-  { key: 'Reports', label: 'Reports', icon: '📊', action: { type: 'stack', screen: 'Reports' }, adminOnly: true },
-  // The website's Admin menu (6b): User Management in the app; the other pages open on the website.
-  { key: 'Users', label: 'User Management', icon: '🛡', action: { type: 'stack', screen: 'Users' }, adminOnly: true },
-  ...WEBSITE_ONLY_PAGES.map((p) => ({ key: `website-${p.key}`, label: p.label, icon: p.icon, action: { type: 'website' as const, path: p.path }, adminOnly: true })),
-  { key: 'Profile', label: 'Profile', icon: '👤', action: { type: 'stack', screen: 'Profile' } },
-  { key: 'Settings', label: 'Settings', icon: '⚙️', action: { type: 'stack', screen: 'Settings' } },
-  { key: 'About', label: 'About', icon: 'ℹ️', action: { type: 'stack', screen: 'About' } },
+export const DRAWER_SECTIONS: readonly DrawerSection[] = [
+  {
+    key: 'workspace',
+    title: 'Workspace',
+    items: [
+      { key: 'Dashboard', label: 'Dashboard', icon: 'nav.dashboard', action: tab('Dashboard') },
+      { key: 'MyTasks', label: 'My Tasks', icon: 'nav.tasks', action: tab('MyTasks') },
+      { key: 'AllBoard', label: 'Kanban Board', icon: 'nav.board', action: ALL_PROJECTS_BOARD },
+      { key: 'Projects', label: 'Projects', icon: 'nav.projects', action: tab('Projects') },
+      { key: 'Calendar', label: 'Calendar', icon: 'nav.calendar', action: { type: 'stack', screen: 'Calendar' } },
+      { key: 'Timeline', label: 'Timeline', icon: 'nav.timeline', action: website('/timeline') },
+      { key: 'Workload', label: 'Workload', icon: 'nav.workload', action: website('/workload') },
+      { key: 'Meetings', label: 'Meetings', icon: 'nav.meetings', action: tab('Meetings') },
+      { key: 'MyActionItems', label: 'My Action Items', icon: 'nav.actionItems', action: { type: 'stack', screen: 'MyActionItems' } },
+      { key: 'Templates', label: 'Templates', icon: 'nav.templates', action: website('/templates') },
+      { key: 'Management', label: 'Management', icon: 'nav.management', action: website('/management'), leadsOnly: true },
+      { key: 'Reports', label: 'Reports', icon: 'nav.reports', action: { type: 'stack', screen: 'Reports' }, adminOnly: true },
+    ],
+  },
+  {
+    key: 'communication',
+    title: 'Communication',
+    items: [
+      { key: 'Chat', label: 'Chat', icon: 'nav.chat', action: tab('Chat') },
+      { key: 'MicoAi', label: 'MICO AI', icon: 'nav.ai', action: website('/mico-ai') },
+      { key: 'Notifications', label: 'Notifications', icon: 'nav.notifications', action: { type: 'stack', screen: 'Notifications' } },
+      { key: 'Activity', label: 'Activity', icon: 'nav.activity', action: { type: 'stack', screen: 'Activity' } },
+    ],
+  },
+  {
+    // The website's Admin menu (6b): User Management in the app; the other pages open on the website.
+    key: 'admin',
+    title: 'Admin',
+    items: [
+      { key: 'Users', label: 'User Management', icon: 'nav.users', action: { type: 'stack', screen: 'Users' }, adminOnly: true },
+      { key: 'website-ai', label: 'AI Management', icon: 'nav.aiManagement', action: website('/admin/ai'), adminOnly: true },
+      { key: 'website-settings', label: 'System Settings', icon: 'nav.sliders', action: website('/admin/settings'), adminOnly: true },
+      { key: 'website-audit', label: 'Audit Logs', icon: 'nav.audit', action: website('/admin/audit'), adminOnly: true },
+    ],
+  },
+  {
+    key: 'account',
+    title: null,
+    items: [
+      { key: 'Settings', label: 'Settings', icon: 'nav.settings', action: { type: 'stack', screen: 'Settings' } },
+      { key: 'Profile', label: 'Profile', icon: 'kit.user', action: { type: 'stack', screen: 'Profile' } },
+      { key: 'About', label: 'About', icon: 'misc.info', action: { type: 'stack', screen: 'About' } },
+    ],
+  },
 ];
 
-/** The drawer destinations for a user with these roles. */
-export function drawerItemsFor(roles: readonly string[]): DrawerItem[] {
-  return DRAWER_ITEMS.filter((i) => !i.adminOnly || roles.includes('ADMIN'));
+/**
+ * The menu for someone with these roles: Admin rows for administrators only, Management for
+ * administrators and people who run a project (`canLead`); a section left empty is dropped.
+ */
+export function drawerSectionsFor(roles: readonly string[], canLead: boolean): DrawerSection[] {
+  const admin = roles.includes('ADMIN');
+  return DRAWER_SECTIONS.map((s) => ({ ...s, items: s.items.filter((i) => (!i.adminOnly || admin) && (!i.leadsOnly || admin || canLead)) })).filter(
+    (s) => s.items.length > 0,
+  );
 }
 
 /** The destination route name an action lands on (a tab name or a stack screen name; a website page's address; a held link's first screen). */
@@ -50,5 +98,9 @@ export function actionRouteName(action: NavAction): string {
 /** The drawer key whose destination matches the currently-focused route (for the active highlight). */
 export function activeDrawerKey(routeName: string | undefined): string | undefined {
   if (!routeName) return undefined;
-  return DRAWER_ITEMS.find((i) => actionRouteName(i.action) === routeName)?.key;
+  for (const s of DRAWER_SECTIONS) {
+    const hit = s.items.find((i) => actionRouteName(i.action) === routeName);
+    if (hit) return hit.key;
+  }
+  return undefined;
 }

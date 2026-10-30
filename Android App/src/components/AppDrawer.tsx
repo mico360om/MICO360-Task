@@ -1,43 +1,42 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-  type ViewStyle,
-} from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '../core/theme';
-import { spacing, radius, hexToRgba, type Palette } from '../lib/theme';
+import { BRAND_GRADIENT, radius, type Palette } from '../lib/theme';
+import { typeStyle } from '../lib/typography';
 import { useDrawerStore } from '../lib/drawer-store';
-import { drawerItemsFor, activeDrawerKey } from '../navigation/drawer-menu';
+import { drawerSectionsFor, activeDrawerKey, type DrawerItem } from '../navigation/drawer-menu';
 import { useServices, useSession } from '../core/providers';
+import { useChatBadge } from '../core/chat';
+import { chatTabBadge } from '../lib/chat';
 import { openWebsitePage } from '../adapters/website';
 import { websiteLinkLabel } from '../lib/website';
 import type { NavAction } from '../navigation/nav-actions';
 import { navigationRef } from '../navigation/ref';
-import { AppText } from './ui';
+import { Icon } from './Icon';
+import { BrandLogo } from './ui';
 
 const PANEL_WIDTH = Math.min(300, Math.round(Dimensions.get('window').width * 0.82));
 const OPEN_MS = 220;
 const CLOSE_MS = 180;
 
 /**
- * Left slide-in navigation drawer (A0.x). Built on `Animated` + `Modal` instead of
- * react-native-drawer/reanimated so the app keeps its lean, low-resource dependency set. Reads its
- * open state from the global drawer store; `onNavigate` performs the chosen destination and the
- * drawer then closes itself.
+ * The side menu, as the website's sidebar: the logo, then Workspace / Communication / Admin and the
+ * account pages, each row with its drawn icon; the open page's row in the brand gradient. Built on
+ * `Animated` + `Modal` (no drawer library). Reads its open state from the global drawer store;
+ * `onNavigate` performs the chosen destination and the drawer then closes itself.
  */
 export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => void }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const open = useDrawerStore((s) => s.open);
-  const closeDrawer = useDrawerStore((s) => s.closeDrawer);
+  const open = useDrawerStore((st) => st.open);
+  const closeDrawer = useDrawerStore((st) => st.closeDrawer);
   const s = makeStyles(c);
-  const items = drawerItemsFor(useSession()?.user.roles ?? []);
+  // Worked out on every render from the session on screen: a shared phone shows the new person's menu.
+  const roles = useSession()?.user.roles ?? [];
+  const sections = drawerSectionsFor(roles, roles.includes('ADMIN'));
+  const chatBadge = chatTabBadge(useChatBadge());
   const { baseUrl } = useServices();
 
   // Keep the Modal mounted through the exit animation so the panel slides out instead of snapping.
@@ -57,9 +56,7 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
 
   if (!rendered) return null;
 
-  const activeKey = activeDrawerKey(
-    navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined,
-  );
+  const activeKey = activeDrawerKey(navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined);
 
   const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [-PANEL_WIDTH, 0] });
   const backdropOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
@@ -71,44 +68,60 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
     else onNavigate(action);
   };
 
+  const row = (item: DrawerItem) => {
+    const active = item.key === activeKey;
+    const website = item.action.type === 'website';
+    const badge = item.key === 'Chat' ? chatBadge : undefined;
+    const fg = active ? c.onBrand : c.ink;
+    return (
+      <Pressable
+        key={item.key}
+        accessibilityRole={website ? 'link' : 'button'}
+        accessibilityLabel={website ? websiteLinkLabel(item.label) : badge !== undefined ? `${item.label}, ${badge} unread` : item.label}
+        accessibilityState={{ selected: active }}
+        onPress={() => select(item.action)}
+        style={({ pressed }) => [s.row, !active && pressed ? s.rowPressed : null]}
+      >
+        {active ? (
+          <LinearGradient colors={BRAND_GRADIENT.colors} locations={BRAND_GRADIENT.locations} start={BRAND_GRADIENT.start} end={BRAND_GRADIENT.end} style={s.rowFill} />
+        ) : null}
+        <Icon name={item.icon} size={18} color={active ? c.onBrand : c.ink2} />
+        <Text style={[typeStyle(active ? 'bodyStrong' : 'body'), s.label, { color: fg }]} numberOfLines={1}>
+          {item.label}
+        </Text>
+        {badge !== undefined ? (
+          <View style={[s.badge, { backgroundColor: active ? c.surface : c.brand }]}>
+            <Text style={[typeStyle('number'), s.badgeText, { color: active ? c.ink : c.onBrand }]}>{badge}</Text>
+          </View>
+        ) : null}
+        {website ? <Icon name="kit.globe" size={16} color={active ? c.onBrand : c.ink3} /> : null}
+      </Pressable>
+    );
+  };
+
   return (
     <Modal visible transparent animationType="none" onRequestClose={closeDrawer}>
       <View style={StyleSheet.absoluteFill}>
         <Animated.View style={[s.backdrop, { opacity: backdropOpacity }]}>
           <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Close menu" onPress={closeDrawer} />
         </Animated.View>
-        <Animated.View
-          style={[s.panel, { paddingTop: insets.top, transform: [{ translateX }] }] as ViewStyle[]}
-        >
-          <View style={[s.header, { paddingTop: spacing.lg }]}>
-            <AppText variant="title" color={c.onBrand}>MICO360</AppText>
-            <AppText variant="caption" color={hexToRgba(c.onBrand, 0.85)}>Tasks</AppText>
+        <Animated.View style={[s.panel, { paddingTop: insets.top, transform: [{ translateX }] }] as ViewStyle[]}>
+          <View style={s.header}>
+            <BrandLogo height={32} />
           </View>
-          <ScrollView contentContainerStyle={{ paddingVertical: spacing.sm, paddingBottom: insets.bottom + spacing.md }}>
-            {items.map((item) => {
-              const active = item.key === activeKey;
-              const website = item.action.type === 'website';
-              return (
-                <Pressable
-                  key={item.key}
-                  accessibilityRole={website ? 'link' : 'button'}
-                  accessibilityLabel={website ? websiteLinkLabel(item.label) : undefined}
-                  accessibilityState={{ selected: active }}
-                  onPress={() => select(item.action)}
-                  style={({ pressed }) => [s.row, active && s.rowActive, pressed && s.rowPressed]}
-                >
-                  <AppText variant="body" style={s.icon}>{item.icon}</AppText>
-                  <AppText variant={active ? 'bodyStrong' : 'body'} color={active ? c.brand : c.ink} style={s.label}>
-                    {item.label}
-                  </AppText>
-                  {website ? (
-                    <AppText variant="body" color={c.ink3} importantForAccessibility="no">
-                      ↗
-                    </AppText>
-                  ) : null}
-                </Pressable>
-              );
-            })}
+          <ScrollView contentContainerStyle={{ padding: 8, paddingBottom: insets.bottom + 16 }}>
+            {sections.map((section) => (
+              <View key={section.key} style={s.section}>
+                {section.title ? (
+                  <Text style={[typeStyle('eyebrow'), s.sectionTitle, { color: c.ink3 }]} accessibilityRole="header">
+                    {section.title}
+                  </Text>
+                ) : (
+                  <View style={[s.divider, { backgroundColor: c.line }]} />
+                )}
+                {section.items.map(row)}
+              </View>
+            ))}
           </ScrollView>
         </Animated.View>
       </View>
@@ -118,7 +131,7 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
 
 function makeStyles(c: Palette) {
   return StyleSheet.create({
-    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: c.scrim },
     panel: {
       position: 'absolute',
       top: 0,
@@ -129,24 +142,22 @@ function makeStyles(c: Palette) {
       borderRightWidth: 1,
       borderRightColor: c.line,
     },
-    header: {
-      backgroundColor: c.brand,
-      paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.lg,
-      gap: 2,
-    },
+    header: { height: 56, justifyContent: 'center', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: c.line },
+    section: { marginBottom: 8 },
+    sectionTitle: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
+    divider: { height: 1, marginHorizontal: 12, marginVertical: 8 },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.md,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      borderRadius: radius.md,
-      marginHorizontal: spacing.sm,
+      gap: 12,
+      minHeight: 44,
+      paddingHorizontal: 12,
+      borderRadius: radius.button,
     },
-    rowActive: { backgroundColor: c.brandWash },
-    rowPressed: { opacity: 0.7 },
-    icon: { width: 22, textAlign: 'center' },
+    rowFill: { ...StyleSheet.absoluteFillObject, borderRadius: radius.button },
+    rowPressed: { backgroundColor: c.ground },
     label: { flex: 1 },
+    badge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
+    badgeText: { fontSize: 11, lineHeight: 14 },
   });
 }

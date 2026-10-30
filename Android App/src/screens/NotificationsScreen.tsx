@@ -17,7 +17,7 @@ import { relativeTime } from '../lib/relative-time';
 import { refresh } from '../lib/refresh';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiNotification } from '../lib/types';
-import type { TabScreenProps } from '../navigation/types';
+import type { AppScreenProps } from '../navigation/types';
 
 /** Does tapping this alert open something besides the alert list? */
 function hasTarget(n: ApiNotification): boolean {
@@ -31,7 +31,7 @@ function hasTarget(n: ApiNotification): boolean {
  * needs a connection; reading one without a connection is kept and sent later. The list shows the
  * last copy offline. The tab's number is the unread count (lib/alerts has the badge rule).
  */
-export function NotificationsScreen({ navigation }: TabScreenProps<'Notifications'>) {
+export function NotificationsScreen({ navigation }: AppScreenProps<'Notifications'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const focused = useIsFocused();

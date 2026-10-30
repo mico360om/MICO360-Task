@@ -139,15 +139,15 @@ export function serverCount(event: { type: string; action?: { type: string; manu
   return typeof count === 'number' && Number.isFinite(count) ? count : undefined;
 }
 
-/** The number on the Alerts tab: none at 0, the count up to 99, then "99+" (the website's bell). */
+/** The number on the bell: none at 0, the count up to 99, then "99+" (the website's bell). */
 export function alertsBadge(count: number | null | undefined): number | string | undefined {
   if (!count || count <= 0) return undefined;
   return count > 99 ? '99+' : count;
 }
 
-/** What TalkBack reads for the Alerts tab, like the bell's "Notifications, 3 unread". */
-export function alertsTabLabel(count: number | null | undefined): string {
-  return count && count > 0 ? `Alerts, ${count} unread` : 'Alerts';
+/** What TalkBack reads for the bell, as the website's: "Notifications, 3 unread". */
+export function bellLabel(count: number | null | undefined): string {
+  return count && count > 0 ? `Notifications, ${count} unread` : 'Notifications';
 }
 
 /**

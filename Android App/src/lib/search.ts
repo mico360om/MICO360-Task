@@ -58,7 +58,7 @@ export interface SearchItem {
 
 /** Where each of the website's search pages opens on the phone (its own name, where the app's differs). */
 export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }> = {
-  dashboard: { label: 'Home', target: { kind: 'screen', action: { type: 'tab', tab: 'Dashboard' } } },
+  dashboard: { target: { kind: 'screen', action: { type: 'tab', tab: 'Dashboard' } } },
   'my-tasks': { target: { kind: 'screen', action: { type: 'tab', tab: 'MyTasks' } } },
   // The website's Kanban Board, by its name: where it opens on the phone is ALL_PROJECTS_BOARD (6b review).
   board: { target: { kind: 'screen', action: ALL_PROJECTS_BOARD } },
@@ -66,7 +66,7 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   calendar: { target: { kind: 'screen', action: { type: 'stack', screen: 'Calendar' } } },
   chat: { target: { kind: 'screen', action: { type: 'tab', tab: 'Chat' } } },
   activity: { target: { kind: 'screen', action: { type: 'stack', screen: 'Activity' } } },
-  notifications: { label: 'Alerts', target: { kind: 'screen', action: { type: 'tab', tab: 'Notifications' } } },
+  notifications: { target: { kind: 'screen', action: { type: 'stack', screen: 'Notifications' } } },
   reports: { target: { kind: 'screen', action: { type: 'stack', screen: 'Reports' } } },
   settings: { target: { kind: 'screen', action: { type: 'stack', screen: 'Settings' } } },
   profile: { target: { kind: 'screen', action: { type: 'stack', screen: 'Profile' } } },

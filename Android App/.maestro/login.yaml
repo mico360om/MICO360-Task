@@ -23,7 +23,7 @@ env:
 - hideKeyboard
 - tapOn: 'Sign in'
 # Dashboard greeting + bottom tabs prove we're signed in.
-- assertVisible: 'Home'
+- assertVisible: 'Dashboard'
 - assertVisible: 'My Tasks'
 - assertVisible: 'Projects'
 - assertVisible: 'Chat'

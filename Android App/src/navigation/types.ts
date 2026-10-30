@@ -15,11 +15,12 @@ export type TabsParamList = {
   Projects: undefined;
   Meetings: undefined;
   Chat: undefined;
-  Notifications: undefined;
 };
 
 export type AppStackParamList = {
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
+  /** The bell's list (the top bar on every tab), as the website's Notifications page. */
+  Notifications: undefined;
   Board: { projectId: string; projectName?: string };
   /** Every open project's tasks for a day under the six shared statuses (4c). */
   AllBoard: undefined;

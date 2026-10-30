@@ -5,6 +5,7 @@
 - In the Android app, text uses the website's fonts (IBM Plex Sans and Archivo), and figures line up in columns.
 - In the Android app, buttons, badges, chips, fields and switches look like the website's.
 - In the Android app, people and projects show the website's pictures and drawn project icons, and empty pages show an icon and what to do next.
+- In the Android app, the top bar is white with the MICO360 logo, Search and a bell for notifications; the side menu is grouped like the website's (Workspace, Communication, Admin); the bottom tabs are Dashboard, My Tasks, Projects, Meetings and Chat, with drawn icons.
 <!-- new-look lines above this line -->
 
 ## Dates and fixes

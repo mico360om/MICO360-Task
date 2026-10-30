@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { useDirectory, useMeetings, useMyActionItems, useProjects, type MeetingScope } from '../core/queries';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, TextField, Button } from '../components/ui';
+import { Loader, EmptyState, ErrorNote, TextField, Button, PageHeader } from '../components/ui';
 import { Chip } from '../components/task-detail/kit';
 import { MeetingCard } from '../components/meeting/MeetingCard';
 import { UpNextCard } from '../components/meeting/UpNextCard';
@@ -113,6 +113,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
 
   const header = (
     <View style={styles.header}>
+      <PageHeader title="Meetings" />
       <Button title="＋ New meeting" accessibilityLabel="Schedule a new meeting" onPress={() => navigation.navigate('MeetingForm')} />
       <TextField
         value={filters.q}

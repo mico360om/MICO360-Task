@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, RefreshControl, TextInput, type AccessibilityActionEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProjects, useConversations, useDirectory } from '../core/queries';
@@ -6,8 +6,7 @@ import { useSession } from '../core/providers';
 import { useOpenProjectChat } from '../core/chat';
 import { useConversationPrefs, usePresence, useStartDirect } from '../core/chat-features';
 import { useColors } from '../core/theme';
-import { Loader, ErrorNote } from '../components/ui';
-import { TabHeaderButtons } from '../components/SearchButton';
+import { Loader, ErrorNote, IconButton, PageHeader } from '../components/ui';
 import { ChatSearchResults, NewMessageSheet, PrefsSheet } from '../components/chat/ChatSheets';
 import { inboxSections, previewOf, type InboxRow } from '../lib/chat-model';
 import { listTime } from '../lib/chat-ui';
@@ -52,19 +51,6 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
     goToThread(id, name);
   });
   const prefs = useConversationPrefs();
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      // Search stays in the header next to ＋ (6b), as on every tab.
-      headerRight: () => (
-        <TabHeaderButtons>
-          <Pressable onPress={() => setDmOpen(true)} accessibilityRole="button" accessibilityLabel="New direct message" hitSlop={8} style={styles.headerBtn}>
-            <Text style={styles.headerBtnText}>＋</Text>
-          </Pressable>
-        </TabHeaderButtons>
-      ),
-    });
-  }, [navigation, styles]);
 
   const people = useMemo(() => new Map((dirQ.data ?? []).map((u) => [u.id, u])), [dirQ.data]);
   const fullName = useCallback(
@@ -169,6 +155,7 @@ export function ChatScreen({ navigation }: TabScreenProps<'Chat'>) {
           />
         }
       >
+        <PageHeader title="Chat" actions={<IconButton icon="ui.plus" label="New direct message" variant="outlined" onPress={() => setDmOpen(true)} />} />
         <TextInput
           style={styles.search}
           value={query}
@@ -351,8 +338,6 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
     scroll: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xxl },
-    headerBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: spacing.sm },
-    headerBtnText: { color: c.onBrand, fontSize: fontSize.xl, fontWeight: '700' },
     search: {
       minHeight: 44,
       borderWidth: 1,

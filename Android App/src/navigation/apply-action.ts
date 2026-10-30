@@ -75,5 +75,8 @@ export function applyNavAction(action: NavAction): void {
     case 'Users':
       navigationRef.navigate('Users', action.params);
       break;
+    case 'Notifications':
+      navigationRef.navigate('Notifications');
+      break;
   }
 }

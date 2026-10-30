@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, AccessibilityInfo } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,9 +6,8 @@ import { useDirectory, useProjects } from '../core/queries';
 import { useProjectCardFigures, useProjectStatus } from '../core/project-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, Badge } from '../components/ui';
+import { Loader, EmptyState, ErrorNote, Badge, Button, PageHeader } from '../components/ui';
 import { ProjectAvatar } from '../components/ProjectAvatar';
-import { TabHeaderButtons } from '../components/SearchButton';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
 import { PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
 import { boardProjects } from '../lib/all-board';
@@ -47,21 +46,6 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   const people = useMemo(() => dirQ.data ?? [], [dirQ.data]);
   const [statusFor, setStatusFor] = useState<ApiProject | null>(null);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      // Search stays in the header next to "+ New" (6b), as on every tab.
-      headerRight: () => (
-        <TabHeaderButtons>
-          {admin ? (
-            <Pressable onPress={() => navigation.navigate('ProjectForm')} accessibilityRole="button" accessibilityLabel="New project" hitSlop={8} style={s.headerButton}>
-              <Text style={s.headerButtonText}>+ New</Text>
-            </Pressable>
-          ) : null}
-        </TabHeaderButtons>
-      ),
-    });
-  }, [navigation, admin, s]);
-
   const open = useCallback((p: ApiProject) => navigation.navigate('ProjectDetail', { projectId: p.id, projectName: p.name }), [navigation]);
   const board = useCallback((p: ApiProject) => navigation.navigate('Board', { projectId: p.id, projectName: p.name }), [navigation]);
   const edit = useCallback((p: ApiProject) => navigation.navigate('ProjectForm', { projectId: p.id }), [navigation]);
@@ -86,6 +70,10 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
         }
         ListHeaderComponent={
           <View style={s.head}>
+            <PageHeader
+              title="Projects"
+              actions={admin ? <Button size="sm" icon="ui.plus" title="New project" onPress={() => navigation.navigate('ProjectForm')} /> : null}
+            />
             <Text style={s.subtitle}>{projectsSubtitle(admin)}</Text>
             {/* Every project on one board (4c) — offered when there is more than one, as on the website. */}
             {boardProjects(list).length > 1 ? (
@@ -249,10 +237,8 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, gap: spacing.md },
     head: { gap: spacing.sm },
     subtitle: { fontSize: fontSize.sm, color: c.ink2 },
-    headerButton: { paddingHorizontal: spacing.lg, minHeight: 44, justifyContent: 'center' },
     allBoard: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     allBoardText: { fontSize: fontSize.md, fontWeight: '700', color: c.brand },
-    headerButtonText: { color: c.onBrand, fontWeight: '800', fontSize: fontSize.md },
     flex: { flex: 1 },
     pressed: { opacity: 0.7 },
     card: { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, overflow: 'hidden' },

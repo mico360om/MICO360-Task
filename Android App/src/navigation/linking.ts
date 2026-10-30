@@ -141,7 +141,9 @@ export const linkingConfig = {
     Forgot: 'forgot',
     Reset: 'reset',
     // Signed-in (app stack)
-    Tabs: { screens: { Notifications: 'notifications', Dashboard: 'home', Meetings: 'meetings', MyTasks: 'my-tasks', Projects: 'projects', Chat: 'chat' } },
+    Tabs: { screens: { Dashboard: 'home', Meetings: 'meetings', MyTasks: 'my-tasks', Projects: 'projects', Chat: 'chat' } },
+    // The bell's list: a stack screen (the top bar opens it from every tab).
+    Notifications: 'notifications',
     // A project link opens its dashboard, as the website's /projects/<id> does (5c); /board its board.
     ProjectDetail: 'project/:projectId',
     Board: 'project/:projectId/board',

@@ -6,7 +6,7 @@ import { useBulkTaskActions, useSavedViews } from '../core/my-tasks-queries';
 import { useServices } from '../core/providers';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, TextField, Button } from '../components/ui';
+import { Loader, EmptyState, ErrorNote, TextField, Button, PageHeader } from '../components/ui';
 import { Sheet } from '../components/meeting/sheet-kit';
 import { DayPicker } from '../components/calendar/CalendarSheets';
 import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
@@ -176,6 +176,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
 
   const header = (
     <View style={s.head}>
+      <PageHeader title="My Tasks" />
       <Text style={s.subtitle}>{MY_TASKS_TEXT.subtitle}</Text>
       <TextField value={q} onChangeText={setQ} placeholder="Search my tasks…" accessibilityLabel="Search my tasks" autoCapitalize="none" style={s.search} />
       {counts.total > 0 ? (

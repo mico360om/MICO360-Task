@@ -37,7 +37,7 @@ describe('search: what the box offers before and while typing', () => {
 
   it('with nothing typed, offers the first five pages, as the website’s box (the Kanban Board among them: 6b review)', () => {
     const items = searchItems({ raw: '', results: undefined, ...ctx });
-    expect(items.map((i) => i.primary)).toEqual(['Home', 'My Tasks', 'Kanban Board', 'Projects', 'Calendar']);
+    expect(items.map((i) => i.primary)).toEqual(['Dashboard', 'My Tasks', 'Kanban Board', 'Projects', 'Calendar']);
     expect(groups(items)).toEqual(['Go to']);
   });
 
@@ -47,16 +47,20 @@ describe('search: what the box offers before and while typing', () => {
     const ai = searchItems({ raw: 'models', results: undefined, isAdmin: true, myId: 'me' })[0]!;
     expect(ai).toMatchObject({ group: 'Go to', primary: 'AI Management', hint: 'On the website', target: { kind: 'website', path: '/admin/ai' }, label: 'AI Management, opens on the website' });
     expect(searchItems({ raw: 'users', results: undefined, isAdmin: true, myId: 'me' })[0]).toMatchObject({ primary: 'User Management', target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } });
-    expect(searchItems({ raw: 'alerts', results: undefined, ...ctx })[0]).toMatchObject({ primary: 'Alerts', target: { kind: 'screen', action: { type: 'tab', tab: 'Notifications' } } });
     expect(searchItems({ raw: 'what’s new', results: undefined, ...ctx })[0]).toMatchObject({ primary: 'About and version history', target: { kind: 'screen', action: { type: 'stack', screen: 'About' } } });
+  });
+
+  it('"alerts" finds Notifications, a stack screen; "dashboard" is called Dashboard', () => {
+    expect(searchItems({ raw: 'alerts', results: undefined, ...ctx })[0]).toMatchObject({ primary: 'Notifications', target: { kind: 'screen', action: { type: 'stack', screen: 'Notifications' } } });
+    expect(searchItems({ raw: 'dashboard', results: undefined, ...ctx })[0]).toMatchObject({ primary: 'Dashboard' });
   });
 
   it('has a phone page for every page of the website’s search, the Kanban Board too (6b review)', () => {
     const missing = NAV_COMMANDS.filter((c) => !APP_PAGES[c.id]).map((c) => c.id);
     expect(missing).toEqual([]);
-    // "board" finds the Kanban Board first, then the dashboard (Home), as the website ranks them.
+    // "board" finds the Kanban Board first, then the Dashboard, as the website ranks them.
     const board = searchItems({ raw: 'board', results: undefined, ...ctx });
-    expect(board.map((i) => i.primary)).toEqual(['Kanban Board', 'Home']);
+    expect(board.map((i) => i.primary)).toEqual(['Kanban Board', 'Dashboard']);
     // It opens the All projects board (4c), as the website's Kanban Board shows every project.
     expect(board[0]).toMatchObject({ group: 'Go to', label: 'Go to Kanban Board', target: { kind: 'screen', action: ALL_PROJECTS_BOARD } });
     expect(ALL_PROJECTS_BOARD).toEqual({ type: 'stack', screen: 'AllBoard' });

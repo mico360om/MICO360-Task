@@ -1,22 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import { TAB_ITEMS } from './tabs';
-
-const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+import { appPath, appSource as src } from '../testing/web-source';
 
 /**
- * Search (🔍) is in every tab's header (6b), as the website's search box is on every page. The tabs
- * share one header button (RootNavigator's screenOptions); a tab that sets its own right side (Chat's
- * ＋ New direct message, Projects' + New) replaces it, so it must put the 🔍 back — through
- * TabHeaderButtons (components/SearchButton), the 🔍 followed by its own buttons.
+ * The frame, as the website's (Stage 1): one white top bar on every tab — the menu, the logo,
+ * Search and the bell — and each tab's title in its own content (PageHeader), with the tab's own
+ * buttons (New project, New direct message) beside it instead of in the bar.
  */
-describe('every tab’s header offers Search (6b, after the lane merge)', () => {
+describe('the white top bar and the page titles', () => {
   const root = src('navigation/RootNavigator.tsx');
-
-  it('the tabs share the 🔍 as their header’s right side', () => {
-    expect(root).toMatch(/<Tabs\.Navigator\s+screenOptions=\{\(\{ route \}\) => \(\{[^]*?headerRight: \(\) => <SearchButton \/>,/);
-  });
 
   /** Each tab's screen file, as RootNavigator maps and imports it. */
   const tabScreenFiles = (): Array<[string, string]> => {
@@ -30,34 +23,38 @@ describe('every tab’s header offers Search (6b, after the lane merge)', () => 
 
   it('finds every tab’s screen', () => {
     const files = tabScreenFiles();
-    expect(files.map(([name]) => name)).toEqual(['Dashboard', 'MyTasks', 'Projects', 'Meetings', 'Chat', 'Notifications']);
+    expect(files.map(([name]) => name)).toEqual(['Dashboard', 'MyTasks', 'Projects', 'Meetings', 'Chat']);
     for (const [name, file] of files) expect(file, name).not.toBe('');
   });
 
-  it('a tab with its own header buttons keeps the 🔍 first (Chat’s ＋ and Projects’ + New among them)', () => {
-    const own: string[] = [];
+  it('every tab shows the white top bar', () => expect(root).toMatch(/<Tabs\.Navigator\s+screenOptions=\{\(\{ route \}\) => \(\{[^]*?header: \(\) => <AppTopBar \/>,/));
+
+  it('each tab screen titles itself with PageHeader and sets no headerRight', () => {
     for (const [name, file] of tabScreenFiles()) {
-      const screen = src(file);
-      const sets = screen.match(/headerRight:/g)?.length ?? 0;
-      if (sets === 0) continue;
-      own.push(name);
-      // Every right side the screen sets is TabHeaderButtons — never a button alone, never none for someone.
-      const withSearch = screen.match(/headerRight: \(\) => \(\s*<TabHeaderButtons>/g)?.length ?? 0;
-      expect(withSearch, `${file}: every headerRight is <TabHeaderButtons>`).toBe(sets);
-      expect(screen, file).toMatch(/import \{ TabHeaderButtons \} from '\.\.\/components\/SearchButton';/);
+      const title = TAB_ITEMS.find((t) => t.name === name)!.title;
+      expect(src(file), name).toMatch(new RegExp(`<PageHeader[^>]*title="${title}"`));
+      expect(src(file), name).not.toMatch(/headerRight/);
     }
-    expect(own).toEqual(expect.arrayContaining(['Projects', 'Chat']));
   });
 
-  it('TabHeaderButtons is the 🔍 followed by the tab’s own buttons', () => {
-    const button = src('components/SearchButton.tsx');
-    expect(button).toMatch(/export function TabHeaderButtons\([^]*?<SearchButton \/>\s*\{children\}/);
-    expect(button).toMatch(/accessibilityLabel="Search"/);
-    expect(button).toMatch(/navigationRef\.navigate\('Search'\)/);
+  it('Projects offers New project and Chat New direct message in their page header', () => {
+    expect(src('screens/ProjectsScreen.tsx')).toMatch(/<PageHeader[^]*?actions=\{[^]*?title="New project"/);
+    expect(src('screens/ChatScreen.tsx')).toMatch(/<PageHeader[^]*?actions=\{[^]*?label="New direct message"/);
   });
 
-  it('Chat’s header has both: 🔍 Search and ＋ New direct message', () => {
-    const chat = src('screens/ChatScreen.tsx');
-    expect(chat).toMatch(/<TabHeaderButtons>\s*<Pressable onPress=\{\(\) => setDmOpen\(true\)\} accessibilityRole="button" accessibilityLabel="New direct message"/);
+  it('the top bar: menu, logo, Search and the bell with its count', () => {
+    const s = src('components/AppTopBar.tsx');
+    for (const m of ['label="Open menu"', '<BrandLogo', 'label="Search"', 'label={bellLabel(count)}', 'badge={alertsBadge(count)}', "navigate('Notifications')", "navigate('Search')"]) expect(s).toContain(m);
+    expect(s).toContain('hint="Finds tasks, projects, people, meetings and pages"');
   });
+
+  it('stack screens get the white header and Notifications is one of them', () => {
+    expect(root).toMatch(/headerStyle: \{ backgroundColor: colors\.surface \}/);
+    expect(root).toMatch(/headerTintColor: colors\.ink/);
+    expect(root).toMatch(/<AppStack\.Screen name="Notifications" component=\{NotificationsScreen\} options=\{\{ title: 'Notifications' \}\} \/>/);
+    expect(root).not.toMatch(/HamburgerButton|SearchButton|headerStyle: \{ backgroundColor: colors\.brand/);
+    expect(existsSync(appPath('src/components/SearchButton.tsx'))).toBe(false);
+  });
+
+  it('the sign-in test lands on the Dashboard', () => expect(src('../.maestro/login.yaml')).toMatch(/assertVisible: 'Dashboard'/));
 });
