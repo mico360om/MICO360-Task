@@ -20,14 +20,14 @@ describe('canDeleteTask', () => {
 
 describe('dueState', () => {
   it('says when it is due, and flags an overdue open task', () => {
-    expect(dueState({ dueDate: '2026-10-12T12:00:00Z', completedAt: null }, NOW)).toEqual({ text: 'Due 12 Oct 2026', overdue: false, dayKey: '2026-10-12' });
-    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null }, NOW)).toEqual({ text: 'Overdue · 8 Oct 2026', overdue: true, dayKey: '2026-10-08' });
+    expect(dueState({ dueDate: '2026-10-12T12:00:00Z', completedAt: null }, NOW)).toEqual({ text: 'Due 12 Oct 2026', overdue: false, waiting: false, dayKey: '2026-10-12' });
+    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null }, NOW)).toEqual({ text: 'Overdue · 8 Oct 2026', overdue: true, waiting: false, dayKey: '2026-10-08' });
   });
   it('never calls a finished task overdue; no date, no text', () => {
     expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: '2026-10-09T00:00:00Z' }, NOW).overdue).toBe(false);
     // In a Done column without a completion time (e.g. moved there before completion was recorded).
-    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null, columnCategory: 'DONE' }, NOW)).toEqual({ text: 'Due 8 Oct 2026', overdue: false, dayKey: '2026-10-08' });
-    expect(dueState({ dueDate: null, completedAt: null }, NOW)).toEqual({ text: null, overdue: false, dayKey: null });
+    expect(dueState({ dueDate: '2026-10-08T12:00:00Z', completedAt: null, columnCategory: 'DONE' }, NOW)).toEqual({ text: 'Due 8 Oct 2026', overdue: false, waiting: false, dayKey: '2026-10-08' });
+    expect(dueState({ dueDate: null, completedAt: null }, NOW)).toEqual({ text: null, overdue: false, waiting: false, dayKey: null });
   });
 });
 

@@ -10,6 +10,7 @@ import type { ApiColumn, ApiTask, Priority } from './types';
 import type { Tone } from './tone';
 import { appTimeZone, dueDayKey, isTaskDone } from './due-date';
 import { dayText as dayWords } from './day-words';
+import { DECISION_WORDS, isWaitingForApproval } from './approvals';
 
 const DAY_MS = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / DAY_MS);
@@ -17,28 +18,28 @@ const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T
 /** The app's one "finished" rule (due-date's isTaskDone). */
 export const isTaskFinished = (t: ApiTask) => isTaskDone(t);
 
-export type MilestoneState = 'done' | 'overdue' | 'upcoming' | 'undated';
+export type MilestoneState = 'done' | 'waiting' | 'overdue' | 'upcoming' | 'undated';
 
-/** The project's milestones by date (undated last), with where each stands. */
+/** The project's milestones by date (undated last), with where each stands (waiting for approval is never late). */
 export function projectMilestones(tasks: ApiTask[], today: string, timeZone: string = appTimeZone()) {
   return tasks
     .filter((t) => t.isMilestone)
     .map((t) => {
       const due = dueDayKey(t.dueDate, timeZone);
-      const state: MilestoneState = isTaskFinished(t) ? 'done' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
+      const state: MilestoneState = isTaskFinished(t) ? 'done' : isWaitingForApproval(t) ? 'waiting' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
       return { task: t, due, state, daysLeft: due && state !== 'done' ? daysBetween(today, due) : null };
     })
     .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.task.title.localeCompare(b.task.title));
 }
 
-/** Open tasks due within `withinDays` (and every overdue one), soonest first. */
+/** Open tasks due within `withinDays` (and every overdue one), soonest first; `waiting` = waiting for approval (never late). */
 export function projectDeadlines(tasks: ApiTask[], today: string, withinDays = 14, timeZone: string = appTimeZone()) {
-  const list: { task: ApiTask; due: string; daysLeft: number }[] = [];
+  const list: { task: ApiTask; due: string; daysLeft: number; waiting: boolean }[] = [];
   for (const t of tasks) {
     const due = dueDayKey(t.dueDate, timeZone);
     if (!due || isTaskFinished(t)) continue;
     const daysLeft = daysBetween(today, due);
-    if (daysLeft <= withinDays) list.push({ task: t, due, daysLeft });
+    if (daysLeft <= withinDays) list.push({ task: t, due, daysLeft, waiting: isWaitingForApproval(t) });
   }
   return list.sort((a, b) => a.daysLeft - b.daysLeft || a.task.title.localeCompare(b.task.title));
 }
@@ -56,11 +57,11 @@ export type TaskPhase = 'completed' | 'overdue' | 'ongoing' | 'pending';
 
 const ONGOING = new Set(['IN_PROGRESS', 'REVIEW', 'BLOCKED']);
 
-/** Completed; overdue (open and past its due day); ongoing (being worked on); or pending (not started). */
+/** Completed; overdue (open, past its due day and not waiting for approval); ongoing (being worked on); or pending (not started). */
 export function taskPhase(t: ApiTask, today: string, timeZone: string = appTimeZone()): TaskPhase {
   if (isTaskFinished(t)) return 'completed';
   const due = dueDayKey(t.dueDate, timeZone);
-  if (due && due < today) return 'overdue';
+  if (due && due < today && !isWaitingForApproval(t)) return 'overdue';
   return ONGOING.has(t.columnCategory ?? '') ? 'ongoing' : 'pending';
 }
 
@@ -199,6 +200,8 @@ export function timelineText(t: ProjectTimeline | null): string {
 /** Where a milestone stands, in the website's words. */
 export function milestoneNote(state: MilestoneState, daysLeft: number | null): string {
   if (state === 'done') return 'Reached';
+  // Finished, waiting for approval: never late while it waits (the website's, owner 30 Oct).
+  if (state === 'waiting') return DECISION_WORDS.waiting;
   if (state === 'undated') return 'No date set';
   if (daysLeft === null) return '';
   if (state === 'overdue') return `Late by ${-daysLeft} ${daysLeft === -1 ? 'day' : 'days'}`;

@@ -6,7 +6,7 @@
  * project, with each project's completion coloured by how healthy it is. Pure TypeScript.
  */
 import { ApiError, isNetworkError } from './api-client';
-import { formatDueDay, isOverdue, isTaskDone } from './due-date';
+import { formatDueDay, isTaskDone, isTaskLate } from './due-date';
 import { projectStatusLabel } from './project-identity';
 import { summarize, type ProjectPerformanceRow } from './reports';
 import type { Tone } from './tone';
@@ -32,15 +32,16 @@ export interface ProjectFigures {
 /**
  * Every card's figures from ONE task list (5b review), as the website's Projects page works them
  * out from its tasks/all query: each project's tasks, the finished ones (completed, or in a Done
- * column) and the overdue ones — due before today in company time; finished work is never overdue.
+ * column) and the overdue ones — due before today in company time; finished work, and work waiting
+ * for approval, is never overdue (the server's isTaskLate).
  */
-export function projectCardFigures(tasks: Pick<ApiTask, 'projectId' | 'dueDate' | 'completedAt' | 'columnCategory'>[], now: Date, timeZone: string): Record<string, ProjectFigures> {
+export function projectCardFigures(tasks: Pick<ApiTask, 'projectId' | 'dueDate' | 'completedAt' | 'columnCategory' | 'approvalRequestedAt'>[], now: Date, timeZone: string): Record<string, ProjectFigures> {
   const out: Record<string, ProjectFigures> = {};
   for (const t of tasks) {
     const f = (out[t.projectId] ??= { total: 0, done: 0, overdue: 0, completionPct: 0 });
     f.total += 1;
     if (isTaskDone(t)) f.done += 1;
-    else if (isOverdue(t, now, timeZone)) f.overdue += 1;
+    else if (isTaskLate(t, timeZone, now)) f.overdue += 1;
   }
   for (const f of Object.values(out)) f.completionPct = f.total ? Math.round((f.done / f.total) * 100) : 0;
   return out;

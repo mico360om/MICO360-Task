@@ -10,6 +10,7 @@
  */
 import { dateFormat } from './intl-cache';
 import { dayText, type DayTextOptions } from './day-words';
+import { isWaitingForApproval } from './approvals';
 
 /** The default company time zone, until the server and your settings say otherwise. */
 export const COMPANY_TIMEZONE = 'Asia/Muscat';
@@ -113,15 +114,29 @@ export function isTaskDone(task: { completedAt?: DateInput; columnCategory?: str
   return task.columnCategory === 'DONE' || !!task.completedAt;
 }
 
-/** True once the due day is before today (company time). Finished tasks are never overdue. */
+/**
+ * Late (overdue): not done and past its due day in the company time zone — but never while it waits
+ * for approval (the work is handed in; the "Waiting for approval" badge shows instead). Sent back,
+ * it no longer waits and is late again. The server's rule (tasks/task-status isTaskLate) and the
+ * website's (due-display isTaskLate); a test runs the server's beside it.
+ */
+export function isTaskLate(
+  t: { dueDate?: DateInput; columnCategory?: string | null; completedAt?: DateInput; approvalRequestedAt?: string | null },
+  timeZone: string = appTimeZone(),
+  now: Date = new Date(),
+): boolean {
+  if (isTaskDone(t) || isWaitingForApproval(t)) return false;
+  const days = daysUntilDue(t.dueDate, now, timeZone);
+  return days !== null && days < 0;
+}
+
+/** True once the due day is before today (company time). Finished tasks, and tasks waiting for approval, are never overdue (isTaskLate). */
 export function isOverdue(
-  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null },
+  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null; approvalRequestedAt?: string | null },
   now: Date = new Date(),
   timeZone: string = appTimeZone(),
 ): boolean {
-  if (isTaskDone(task)) return false;
-  const days = daysUntilDue(task.dueDate, now, timeZone);
-  return days !== null && days < 0;
+  return isTaskLate(task, timeZone, now);
 }
 
 /**

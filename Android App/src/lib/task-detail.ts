@@ -2,6 +2,7 @@
 import { appTimeZone, dueDayKey, formatDueDay, isOverdue, isTaskDone, type DateInput } from './due-date';
 import { moveItem } from './list-order';
 import { dayText, instantDayText } from './day-words';
+import { isWaitingForApproval } from './approvals';
 import { ApiError, isNetworkError } from './api-client';
 import type { FeedEntry } from './activity-feed';
 import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
@@ -39,17 +40,21 @@ export function canDeleteTask(user: { id: string; roles: string[] } | null, memb
   return members.some((m) => m.id === user.id && m.role === 'MANAGER');
 }
 
-/** "Due 12 Oct 2026" / "Overdue · 8 Oct 2026" (company calendar day; a finished task is never overdue). */
+/**
+ * "Due 12 Oct 2026" / "Overdue · 8 Oct 2026" (company calendar day; a finished task is never
+ * overdue, and neither is one waiting for approval — it says "Due <day>" and `waiting`).
+ */
 export function dueState(
-  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null },
+  task: { dueDate: DateInput; completedAt?: DateInput; columnCategory?: string | null; approvalRequestedAt?: string | null },
   now: Date = new Date(),
   timeZone: string = appTimeZone(),
-): { text: string | null; overdue: boolean; dayKey: string | null } {
+): { text: string | null; overdue: boolean; waiting: boolean; dayKey: string | null } {
+  const waiting = !isTaskDone(task) && isWaitingForApproval(task);
   const dayKey = dueDayKey(task.dueDate, timeZone);
-  if (!dayKey) return { text: null, overdue: false, dayKey: null };
+  if (!dayKey) return { text: null, overdue: false, waiting, dayKey: null };
   const day = formatDueDay(task.dueDate, timeZone);
   const overdue = isOverdue(task, now, timeZone);
-  return { text: overdue ? `Overdue · ${day}` : `Due ${day}`, overdue, dayKey };
+  return { text: overdue ? `Overdue · ${day}` : `Due ${day}`, overdue, waiting, dayKey };
 }
 
 /**

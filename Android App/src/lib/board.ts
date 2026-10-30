@@ -1,4 +1,5 @@
 import { appTimeZone, formatDueDay, isOverdue } from './due-date';
+import { DECISION_WORDS } from './approvals';
 import { displayName, type ApiColumn, type ApiTask, type Priority } from './types';
 
 export interface BoardColumn {
@@ -47,6 +48,8 @@ export interface BoardCard {
   /** The newest copy of a repeating task. */
   recurring: boolean;
   milestone: boolean;
+  /** Finished, waiting for a project manager's approval (not done yet): never overdue while it waits. */
+  awaitingApproval: boolean;
   /** In a Done column, or completed: never overdue. */
   done: boolean;
   /** Its project, on a board showing several projects (the All projects board, 4c). */
@@ -75,6 +78,7 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
     blocked: column.category === 'BLOCKED',
     recurring: Boolean(t.recurrenceRule),
     milestone: !!t.isMilestone,
+    awaitingApproval: !!t.approvalRequestedAt,
     done: column.category === 'DONE' || !!t.completedAt,
   };
 }
@@ -96,6 +100,8 @@ export interface CardBadge {
 
 export interface CardView {
   overdue: boolean;
+  /** Waiting for approval: its due day is shown plainly, never "Overdue". */
+  waiting: boolean;
   hasDue: boolean;
   /** "20 Oct 2026", "Overdue · 20 Oct 2026", or null with no due date. */
   dueText: string | null;
@@ -116,7 +122,9 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /** What the card shows, by the website's card rules (TaskCard). */
 export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string } = {}): CardView {
   const timeZone = opts.timeZone ?? appTimeZone();
-  const overdue = !card.done && isOverdue({ dueDate: card.dueDate }, opts.now ?? new Date(), timeZone);
+  // The website's card: finished work and work waiting for approval are never overdue.
+  const waiting = !card.done && card.awaitingApproval;
+  const overdue = !card.done && !waiting && isOverdue({ dueDate: card.dueDate }, opts.now ?? new Date(), timeZone);
   const day = cardDueText(card.dueDate, timeZone);
   const dueText = day ? (overdue ? `Overdue · ${day}` : day) : null;
   const shown = card.assignees.slice(0, 3);
@@ -132,6 +140,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
     card.blocked ? 'Blocked.' : null,
     card.milestone ? 'Milestone.' : null,
     card.recurring ? 'Repeats.' : null,
+    waiting ? `${DECISION_WORDS.waiting}.` : null,
     day ? (overdue ? `Overdue, due ${day}.` : `Due ${day}.`) : null,
     card.done ? 'Done.' : `${card.progress}% done.`,
     card.assignees.length ? `${card.assignees.map((a) => a.name).join(', ')}.` : 'Nobody assigned.',
@@ -139,6 +148,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
   ];
   return {
     overdue,
+    waiting,
     hasDue: !!day,
     dueText,
     shown,
