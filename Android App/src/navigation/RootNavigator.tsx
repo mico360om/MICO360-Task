@@ -92,6 +92,8 @@ const TAB_SCREENS: Record<TabName, React.ComponentType<never>> = {
 };
 const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as Record<TabName, IconName>;
 const TAB_TITLE = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.title])) as Record<TabName, string>;
+/** A label beside its icon (tablets, ≥ 768 dp): the gap bottom-tabs gives its own labels there. */
+const TAB_LABEL_BESIDE = { marginLeft: 20 };
 
 /**
  * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
@@ -180,8 +182,8 @@ function MainTabs() {
         tabBarInactiveTintColor: colors.ink3,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, borderTopWidth: 1 },
         tabBarIcon: ({ color }) => <Icon name={TAB_ICON[route.name]} size={22} color={color} />,
-        tabBarLabel: ({ color }) => (
-          <Text style={[typeStyle('tab'), { color }]} maxFontSizeMultiplier={labelScale} numberOfLines={1} adjustsFontSizeToFit>
+        tabBarLabel: ({ color, position }) => (
+          <Text style={[typeStyle('tab'), { color }, position === 'beside-icon' ? TAB_LABEL_BESIDE : null]} maxFontSizeMultiplier={labelScale} numberOfLines={1} adjustsFontSizeToFit>
             {TAB_TITLE[route.name]}
           </Text>
         ),

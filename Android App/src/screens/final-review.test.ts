@@ -58,3 +58,22 @@ it('task keys in Search and blockers are plain monospace, as on the website', ()
     expect(rule, file).not.toMatch(/font\(/);
   }
 });
+
+// Item 12 (S14): the side menu's Chat count grows with a large font instead of being clipped by a fixed
+// height; like IconButton's badge it stops growing at 1.3.
+it('the side menu’s Chat count is never clipped', () => {
+  const drawer = src('components/AppDrawer.tsx');
+  const badge = /\n\s+badge: \{[^\n]*/.exec(drawer)?.[0] ?? '';
+  expect(badge).toMatch(/minHeight: 20/);
+  expect(badge).not.toMatch(/[^n]height: 20/);
+  expect(drawer).toMatch(/s\.badgeText[^>]*\bnumberOfLines=\{1\} maxFontSizeMultiplier=\{1\.3\}>\{badge\}/);
+});
+
+// Item 13 (L8): on a tablet (≥ 768 dp) the tab label sits beside its icon; bottom-tabs gives its own
+// labels 20 dp there (BottomTabItem labelBeside), so our label does too.
+it('a tab label beside its icon keeps the 20 dp bottom-tabs gives its own labels', () => {
+  const nav = src('navigation/RootNavigator.tsx');
+  expect(nav).toMatch(/tabBarLabel: \(\{ color, position \}\) =>/);
+  expect(nav).toMatch(/position === 'beside-icon' \? TAB_LABEL_BESIDE : null/);
+  expect(nav).toMatch(/const TAB_LABEL_BESIDE = \{ marginLeft: 20 \}/);
+});
