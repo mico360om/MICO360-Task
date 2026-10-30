@@ -143,6 +143,20 @@ describe('Task approvals on MySQL (integration)', () => {
     expect(await prisma.task.findMany({ where: { projectId: fromTemplate.id }, select: { needsApproval: true } })).toEqual([{ needsApproval: true }]);
   });
 
+  it('only the project’s manager may turn approval off; in a project that ticks new tasks a worker’s "off" is kept on (owner, 30 Oct)', async () => {
+    const t = await taskService.createTask({ title: 'Isometric drawing', projectId, columnId: await col('IN_PROGRESS'), createdById: workerId, needsApproval: true });
+    await expect(taskService.updateTask(t.id, { needsApproval: false }, t.version, 'one', workerId)).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: t.id }, select: { needsApproval: true, version: true } })).toEqual({ needsApproval: true, version: t.version });
+    // An edit that leaves the tick out (an older app) keeps it.
+    expect(await taskService.updateTask(t.id, { title: 'Isometric drawing, rev B' }, t.version, 'one', workerId)).toMatchObject({ needsApproval: true });
+    expect(await taskService.updateTask(t.id, { needsApproval: false }, undefined, 'one', managerId)).toMatchObject({ needsApproval: false });
+    await prisma.project.update({ where: { id: projectId }, data: { newTasksNeedApproval: true } });
+    const kept = await taskService.createTask({ title: 'Valve log', projectId, columnId: await col('TODO'), createdById: workerId, needsApproval: false });
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: kept.id }, select: { needsApproval: true } })).toEqual({ needsApproval: true });
+    const managers = await taskService.createTask({ title: 'Valve log (manager)', projectId, columnId: await col('TODO'), createdById: managerId, needsApproval: false });
+    expect(managers.needsApproval).toBe(false);
+  });
+
   it('two approvals at the same moment: one wins, the other is told it isn’t waiting any more', async () => {
     const t = await taskService.createTask({ title: 'Survey', projectId, columnId: await col('IN_PROGRESS'), createdById: workerId, needsApproval: true });
     await taskService.moveTask(t.id, await col('DONE'), undefined, workerId);

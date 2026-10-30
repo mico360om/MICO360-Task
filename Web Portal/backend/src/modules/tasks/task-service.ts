@@ -78,7 +78,8 @@ export interface MoveExtra {
 /** Plain words for the approval refusals. */
 export const APPROVAL_WORDS = {
   notApprover: 'Only the people who run this project can approve its tasks or send them back.',
-  switchOff: 'Only the people who run this project can turn off approval while the task is waiting.',
+  /** Turning "Needs approval" off, waiting or not: only the project's managers and admins (owner, 30 Oct). */
+  switchOff: 'Only the project’s managers can turn off approval for this task.',
   notWaiting: 'This task isn’t waiting for approval any more.',
   noDone: 'This project has no Done column. Add one in Manage columns, then approve the task.',
   noReason: 'Say why you’re sending it back.',
@@ -225,8 +226,12 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     // The start date is automatic: the creation time, or the due day when that is already past.
     const startDate = input.startDate ?? (dueDate && dayOf(at) > dayOf(dueDate) ? dueDate : at);
     const recurrenceRule = input.recurrenceRule ? withAnchorDay(asCheckRule(input.recurrenceRule, input.inspectionFormId), dueDate) : input.recurrenceRule;
-    // Needs approval: as asked, else the project's "New tasks in this project need approval".
-    const needsApproval = input.needsApproval ?? settings?.newTasksNeedApproval ?? false;
+    // Needs approval: as asked, else the project's "New tasks in this project need approval". Where the
+    // project ticks new tasks, only someone who runs it (or an admin) may leave it off: anyone else's
+    // "false" is kept on, quietly — the task is still made (owner, 30 Oct).
+    const projectTicks = Boolean(settings?.newTasksNeedApproval);
+    let needsApproval = input.needsApproval ?? projectTicks;
+    if (!needsApproval && projectTicks && approvals && !(await mayApprove(input.createdById, input.projectId))) needsApproval = true;
     // A task created straight into a DONE column is complete from the start — unless it needs approval
     // and its creator can't approve: then it waits, in the first Review column (else the first open one).
     let columnId = input.columnId;
@@ -325,10 +330,14 @@ export function createTaskService({ tasks, projects, now = () => new Date(), tim
     if (ruleAfter && formAfter && ruleAfter.createNext !== 'ON_SCHEDULE') next.recurrenceRule = asCheckRule(ruleAfter, formAfter);
     if (next.recurrenceRule) next.recurrenceRule = withAnchorDay(next.recurrenceRule, due);
 
-    // "Needs approval" turned off while it waits: only someone who may approve — and then it completes
-    // as usual, in the first Done column (unless this edit moves it somewhere itself).
-    const switchingOff = Boolean(approvals) && patch.needsApproval === false && isAwaitingApproval(current);
-    if (switchingOff && !(await mayApprove(actorId, current.projectId))) throw new ForbiddenError(APPROVAL_WORDS.switchOff);
+    // "Needs approval" turned off — waiting or not — only by someone who may approve (the project's
+    // managers, admins; owner, 30 Oct): anyone else could untick it and then finish without approval.
+    // Turning it on is anyone's who can edit the task; an edit that leaves it out changes nothing.
+    const turningOff = Boolean(approvals) && patch.needsApproval === false && (Boolean(current.needsApproval) || isAwaitingApproval(current));
+    if (turningOff && !(await mayApprove(actorId, current.projectId))) throw new ForbiddenError(APPROVAL_WORDS.switchOff);
+    // Turned off while it waits: it then completes as usual, in the first Done column (unless this
+    // edit moves it somewhere itself).
+    const switchingOff = turningOff && isAwaitingApproval(current);
     // The move is judged with the tick as this edit leaves it.
     const subject: TaskRecord = patch.needsApproval !== undefined ? { ...current, needsApproval: patch.needsApproval } : current;
 

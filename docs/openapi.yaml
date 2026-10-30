@@ -445,7 +445,10 @@ paths:
         - { name: columnId, in: query, schema: { type: string } }
       responses: { '200': { description: OK } }
     post:
-      summary: Create a task
+      summary: >-
+        Create a task. needsApproval left out: the project's "New tasks in this project need approval"
+        decides. In a project with that setting, only whoever runs it (or an administrator) can create a
+        task without approval — anyone else's needsApproval false is kept on.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } }
@@ -460,9 +463,12 @@ paths:
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       responses: { '200': { description: OK }, '404': { description: Not found } }
     put:
-      summary: Update a task
+      summary: >-
+        Update a task. Anyone who can edit it may turn needsApproval on; turning it off (waiting or not)
+        is only for whoever runs the project or an administrator — 403 for anyone else, nothing saved.
+        An update that leaves needsApproval out changes nothing about it.
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
-      responses: { '200': { description: OK } }
+      responses: { '200': { description: OK }, '403': { description: "Only the project’s managers can turn off approval for this task." } }
     delete:
       summary: Delete a task (admin)
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]

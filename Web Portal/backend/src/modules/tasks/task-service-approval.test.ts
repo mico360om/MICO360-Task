@@ -12,8 +12,18 @@ describe('creating a task', () => {
     expect((await s.make({ projectId: 'p2', columnId: 'q-todo' })).needsApproval).toBe(true);
     expect((await s.make()).needsApproval).toBe(false);
   });
-  it('a tick sent (on or off) wins over the project’s setting', async () => {
-    expect((await s.make({ projectId: 'p2', columnId: 'q-todo', needsApproval: false })).needsApproval).toBe(false);
+  it('a tick sent (on or off) wins over the project’s setting — when whoever runs the project sends it', async () => {
+    expect((await s.make({ projectId: 'p2', columnId: 'q-todo', needsApproval: false, by: 'omar' })).needsApproval).toBe(false);
+    expect((await s.make({ projectId: 'p2', columnId: 'q-todo', needsApproval: false, by: 'admin' })).needsApproval).toBe(false);
+    expect((await s.make({ needsApproval: true })).needsApproval).toBe(true);
+  });
+  it('someone who doesn’t run the project can’t leave it off where the project ticks new tasks: it is kept on (owner, 30 Oct)', async () => {
+    const t = await s.make({ projectId: 'p2', columnId: 'q-todo', needsApproval: false });
+    expect(t.needsApproval).toBe(true);
+    expect(s.rows.get(t.id)!.needsApproval).toBe(true);
+  });
+  it('where the project doesn’t tick new tasks, anyone may leave it off (or tick it)', async () => {
+    expect((await s.make({ needsApproval: false })).needsApproval).toBe(false);
     expect((await s.make({ needsApproval: true })).needsApproval).toBe(true);
   });
   it('straight into Done by someone who can’t approve: it waits in Review instead', async () => {
@@ -97,9 +107,38 @@ describe('turning "Needs approval" off', () => {
     expect(await s.svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', 'omar')).toMatchObject({ needsApproval: false, columnId: 'done', completedAt: NOW, approvalRequestedAt: null });
     expect(s.moved.at(-1)).toMatchObject({ prev: 'rev', actor: 'omar', approval: 'SWITCHED_OFF' });
   });
-  it('when it isn’t waiting: anyone who can edit it', async () => {
+  it('when it isn’t waiting: only whoever runs the project or an admin (owner, 30 Oct) — anyone else is refused in plain words, nothing saved', async () => {
     const t = await s.make({ needsApproval: true });
-    expect(await s.svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', 'sara')).toMatchObject({ needsApproval: false, columnId: 'doing' });
+    await expect(s.svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', 'sara')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(s.svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', 'sara')).rejects.toThrow('Only the project’s managers can turn off approval for this task.');
+    expect(s.rows.get(t.id)).toMatchObject({ needsApproval: true, version: 0 });
+    expect(await s.svc.updateTask(t.id, { needsApproval: false }, undefined, 'one', 'omar')).toMatchObject({ needsApproval: false, columnId: 'doing' });
+    const u = await s.make({ needsApproval: true });
+    expect(await s.svc.updateTask(u.id, { needsApproval: false }, undefined, 'one', 'admin')).toMatchObject({ needsApproval: false });
+  });
+  it('without a person (no actor) it can’t be turned off either', async () => {
+    const t = await s.make({ needsApproval: true });
+    await expect(s.svc.updateTask(t.id, { needsApproval: false })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+  it('unticked in the same edit that moves it to Done: refused for someone who doesn’t run the project — it can’t skip approval', async () => {
+    const t = await s.make({ needsApproval: true });
+    await expect(s.svc.updateTask(t.id, { needsApproval: false, columnId: 'done' }, undefined, 'one', 'sara')).rejects.toBeInstanceOf(ForbiddenError);
+    expect(s.rows.get(t.id)).toMatchObject({ needsApproval: true, columnId: 'doing', completedAt: null, approvalRequestedAt: null });
+    expect(s.moved).toEqual([]);
+  });
+  it('anyone who can edit it may turn it on', async () => {
+    const t = await s.make();
+    expect(await s.svc.updateTask(t.id, { needsApproval: true }, undefined, 'one', 'sara')).toMatchObject({ needsApproval: true });
+  });
+  it('an edit that leaves it out (Android 1.11, the extension) changes nothing about it — and isn’t refused', async () => {
+    const t = await s.make({ needsApproval: true });
+    expect(await s.svc.updateTask(t.id, { title: 'Inspection report, rev 2' }, undefined, 'one', 'sara')).toMatchObject({ title: 'Inspection report, rev 2', needsApproval: true });
+  });
+  it('sending it as it already is isn’t a change: off on a task without it, on on a task with it', async () => {
+    const off = await s.make();
+    expect(await s.svc.updateTask(off.id, { needsApproval: false, title: 'Plain' }, undefined, 'one', 'sara')).toMatchObject({ needsApproval: false, title: 'Plain' });
+    const on = await s.make({ needsApproval: true });
+    expect(await s.svc.updateTask(on.id, { needsApproval: true, title: 'Ticked' }, undefined, 'one', 'sara')).toMatchObject({ needsApproval: true, title: 'Ticked' });
   });
 });
 

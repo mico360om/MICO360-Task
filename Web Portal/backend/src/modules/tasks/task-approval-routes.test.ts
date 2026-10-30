@@ -29,7 +29,8 @@ let waitingId = '';
 let hiddenId = '';
 
 beforeEach(async () => {
-  world = approvalWorld();
+  // Project p2 ticks its new tasks ("New tasks in this project need approval").
+  world = approvalWorld({ p2: { newTasksNeedApproval: true } });
   audits = [];
   events = [];
   const t = await world.make({ needsApproval: true });
@@ -147,5 +148,36 @@ describe('the task API carries the tick', () => {
     const res = await app.inject({ method: 'PATCH', url: `/api/v1/tasks/${t.id}/move`, headers: await bearer('sara'), payload: { columnId: 'done' } });
     expect(res.statusCode).toBe(200);
     expect(res.json().data).toMatchObject({ columnId: 'rev', completedAt: null, approvalRequestedById: 'sara' });
+  });
+});
+
+describe('turning approval off: only the project’s managers and admins (owner, 30 Oct)', () => {
+  it('someone on the team who doesn’t run it: PUT needsApproval false → 403 in plain words, nothing changes', async () => {
+    const t = await world.make({ needsApproval: true });
+    const res = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${t.id}`, headers: await bearer('sara'), payload: { needsApproval: false } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.message).toBe('Only the project’s managers can turn off approval for this task.');
+    expect(world.rows.get(t.id)).toMatchObject({ needsApproval: true, version: 0 });
+  });
+  it('whoever runs the project, and an admin: 200, turned off', async () => {
+    const t = await world.make({ needsApproval: true });
+    const res = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${t.id}`, headers: await bearer('omar'), payload: { needsApproval: false } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.needsApproval).toBe(false);
+    const u = await world.make({ needsApproval: true });
+    expect((await app.inject({ method: 'PUT', url: `/api/v1/tasks/${u.id}`, headers: await bearer('admin', ['ADMIN']), payload: { needsApproval: false } })).json().data.needsApproval).toBe(false);
+  });
+  it('an edit from an older app that leaves the field out changes nothing about it', async () => {
+    const t = await world.make({ needsApproval: true });
+    const res = await app.inject({ method: 'PUT', url: `/api/v1/tasks/${t.id}`, headers: await bearer('sara'), payload: { title: 'Pressure test, rev 2' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ title: 'Pressure test, rev 2', needsApproval: true });
+  });
+  it('creating in a project that ticks new tasks: kept on for someone who doesn’t run it, even when they send false; off for its manager', async () => {
+    const sara = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers: await bearer('sara'), payload: { title: 'Valve log', projectId: 'p2', columnId: 'q-todo', needsApproval: false, assigneeIds: [] } });
+    expect(sara.statusCode).toBe(201);
+    expect(sara.json().data.needsApproval).toBe(true);
+    const omar = await app.inject({ method: 'POST', url: '/api/v1/tasks', headers: await bearer('omar'), payload: { title: 'Valve log', projectId: 'p2', columnId: 'q-todo', needsApproval: false, assigneeIds: [] } });
+    expect(omar.json().data.needsApproval).toBe(false);
   });
 });
