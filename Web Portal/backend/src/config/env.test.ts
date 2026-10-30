@@ -80,6 +80,11 @@ describe('loadEnv', () => {
     expect(loadEnv({ ...base, BACKUP_NIGHTLY: 'TRUE' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(true);
   });
 
+  it('the backup key is read without spaces or a line end around it (as the restore tool reads it)', () => {
+    expect(loadEnv({ ...base, BACKUP_ENCRYPTION_KEY: '  a long enough backup key \r\n' } as NodeJS.ProcessEnv).BACKUP_ENCRYPTION_KEY).toBe('a long enough backup key');
+    expect(loadEnv({ ...base, BACKUP_ENCRYPTION_KEY: '   ' } as NodeJS.ProcessEnv).BACKUP_ENCRYPTION_KEY).toBe('');
+  });
+
   it('the stand-in Google address for tests is ignored in production', () => {
     const strong = (c: string) => c.repeat(40);
     const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: strong('a'), JWT_REFRESH_SECRET: strong('b'), BACKUP_GOOGLE_TEST_BASE_URL: 'http://127.0.0.1:9999' };

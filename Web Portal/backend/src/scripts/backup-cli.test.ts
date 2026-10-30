@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { parseRestoreArgs, restoreTargetUrl } from './backup-cli';
+import { keyCandidates, parseRestoreArgs, restoreTargetUrl } from './backup-cli';
+
+describe('the backup key the restore tool tries', () => {
+  it('trimmed first (as the server reads it), then exactly as written, without and with its line end', () => {
+    expect(keyCandidates('  a long enough backup key  \n')).toEqual(['a long enough backup key', '  a long enough backup key  ', '  a long enough backup key  \n']);
+    expect(keyCandidates('a long enough backup key\r\n')).toEqual(['a long enough backup key', 'a long enough backup key\r\n']);
+    expect(keyCandidates('a long enough backup key')).toEqual(['a long enough backup key']);
+    expect(keyCandidates('   \n')).toEqual([]);
+    expect(keyCandidates(undefined)).toEqual([]);
+    expect(keyCandidates('')).toEqual([]);
+  });
+});
 
 describe('backup:restore arguments', () => {
   it('a copy into a named database, with its files into a folder', () => {

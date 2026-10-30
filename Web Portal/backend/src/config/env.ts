@@ -76,8 +76,9 @@ const EnvSchema = z.object({
   // website serves; blank = `backups` beside UPLOAD_DIR, outside the app folder, so deploys keep it.
   BACKUP_DIR: z.string().optional().default(''),
   // When set (16+ characters), every copy is encrypted with it. Keep it somewhere safe OFF this server:
-  // without it no encrypted copy can ever be restored.
-  BACKUP_ENCRYPTION_KEY: z.string().optional().default(''),
+  // without it no encrypted copy can ever be restored. Spaces around it are not part of it (the
+  // restore tool reads it the same way).
+  BACKUP_ENCRYPTION_KEY: z.string().trim().optional().default(''),
   // 'false' turns the nightly copy off (e.g. on a test server); "Back up now" still works.
   BACKUP_NIGHTLY: z
     .string()

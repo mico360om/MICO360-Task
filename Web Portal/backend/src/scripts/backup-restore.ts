@@ -12,9 +12,9 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { RestoreError, databaseName, restoreBackup } from '../modules/backups/restore';
-import { verifyArchive } from '../modules/backups/backup-archive';
+import { findCopyKey, verifyArchive } from '../modules/backups/backup-archive';
 import { formatBytes } from '../modules/backups/backup-service';
-import { UsageError, backendRoot, loadSettings, parseRestoreArgs, restoreTargetUrl } from './backup-cli';
+import { UsageError, backendRoot, keyCandidates, loadSettings, parseRestoreArgs, restoreTargetUrl } from './backup-cli';
 
 const say = (line = '') => console.log(line);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -23,7 +23,8 @@ async function main(): Promise<number> {
   const args = parseRestoreArgs(process.argv.slice(2));
   const root = backendRoot();
   loadSettings(root, args.envFile);
-  const key = args.keyFile ? readFileSync(args.keyFile, 'utf8').trim() : process.env.BACKUP_ENCRYPTION_KEY?.trim() || undefined;
+  // The key as the server reads it (trimmed), else exactly as written (copies made before the server trimmed it).
+  const key = await findCopyKey(args.file, keyCandidates(args.keyFile ? readFileSync(args.keyFile, 'utf8') : process.env.BACKUP_ENCRYPTION_KEY));
   const started = Date.now();
 
   if (args.check) {

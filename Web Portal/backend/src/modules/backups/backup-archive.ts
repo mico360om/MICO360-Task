@@ -353,7 +353,8 @@ async function firstBytes(file: string, n: number): Promise<Buffer> {
 /** A plain-words RestoreError for anything that goes wrong reading a copy. */
 export function plainReadError(err: unknown): RestoreError {
   if (err instanceof RestoreError) return err;
-  if (err instanceof BackupKeyError || err instanceof BackupDamagedError || err instanceof TarError) return new RestoreError(err.message);
+  if (err instanceof BackupKeyError) return new RestoreError(err.message, 'key');
+  if (err instanceof BackupDamagedError || err instanceof TarError) return new RestoreError(err.message);
   const code = (err as NodeJS.ErrnoException)?.code ?? '';
   if (code === 'Z_BUF_ERROR' || /unexpected end of file/i.test(String((err as Error)?.message))) return new RestoreError('The backup file is incomplete (it stops part-way through).');
   if (code.startsWith('Z_') || /incorrect header check|invalid/i.test(String((err as Error)?.message))) return new RestoreError('The backup file is damaged, or it is not a MICO360 Tasks backup.');
@@ -363,7 +364,7 @@ export function plainReadError(err: unknown): RestoreError {
 /** The entries of a backup copy, decrypted (with its key) and unpacked as they are read. */
 export async function* openArchiveEntries(file: string, key?: string): AsyncGenerator<TarEntry> {
   const encrypted = isEncryptedHeader(await firstBytes(file, 8));
-  if (encrypted && !key) throw new RestoreError('This copy is locked with a backup key (BACKUP_ENCRYPTION_KEY). Give the key that was set when it was made.');
+  if (encrypted && !key) throw new RestoreError('This copy is locked with a backup key (BACKUP_ENCRYPTION_KEY). Give the key that was set when it was made.', 'key');
   const out = new PassThrough({ highWaterMark: 1024 * 1024 });
   const src = createReadStream(file);
   pipelineCb([src, ...(encrypted ? [decryptStream(key!)] : []), createGunzip(), out], () => undefined);
@@ -405,6 +406,28 @@ export async function readManifest(file: string, key?: string): Promise<BackupMa
     return manifest;
   }
   throw new RestoreError('This is not a MICO360 Tasks backup (it has no list of contents).');
+}
+
+/**
+ * The first of `keys` that opens the copy, tried in order (the restore tool gives the key trimmed,
+ * then exactly as written: copies made before the server trimmed BACKUP_ENCRYPTION_KEY were sealed
+ * with any spaces around it). An unencrypted copy needs no key; with no key that opens it, the
+ * first key's answer is given ("does not open this copy").
+ */
+export async function findCopyKey(file: string, keys: string[]): Promise<string | undefined> {
+  if (!keys.length) return undefined;
+  let refusal: RestoreError | null = null;
+  for (const key of keys) {
+    try {
+      await readManifest(file, key);
+      return key;
+    } catch (err) {
+      const plain = plainReadError(err);
+      if (plain.kind !== 'key') throw plain;
+      refusal ??= plain;
+    }
+  }
+  throw refusal!;
 }
 
 async function readAll(body: Readable): Promise<Buffer> {

@@ -59,6 +59,18 @@ export function restoreTargetUrl(args: Pick<RestoreArgs, 'url' | 'into'>, databa
   return urlForDatabase(databaseUrl, args.into!);
 }
 
+/**
+ * The backup keys to try, from a key file's text or BACKUP_ENCRYPTION_KEY: first trimmed (how the
+ * server reads it), then as written, without and with its line end — copies made before the server
+ * trimmed the key were sealed with any spaces around it.
+ */
+export function keyCandidates(raw: string | null | undefined): string[] {
+  if (raw === null || raw === undefined) return [];
+  const asWritten = raw.replace(/\r?\n$/, '');
+  if (!raw.trim()) return [];
+  return [...new Set([raw.trim(), asWritten, raw])];
+}
+
 /** The backend folder (with package.json, prisma/ and node_modules), from source or from dist/. */
 export function backendRoot(from: string = __dirname): string {
   let dir = from;
