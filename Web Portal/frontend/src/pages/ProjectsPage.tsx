@@ -165,12 +165,14 @@ export function ProjectsPage() {
     } else statusMut.mutate({ project, status });
   };
 
-  // On a phone the tabs are one row that scrolls sideways: the chosen one is kept in view.
+  // On a phone the tabs are one row that scrolls sideways: the chosen one is kept in view — again
+  // once the list has loaded, as the counts it brings widen the tabs.
   const tabRow = useScrollRow<HTMLDivElement>();
+  const countsShown = query.isSuccess;
   useEffect(() => {
     const chosen = document.getElementById(tabId(state.status));
     if (tabRow.el && chosen) revealInRow(tabRow.el, chosen);
-  }, [state.status, tabRow.el]);
+  }, [state.status, tabRow.el, countsShown]);
 
   function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
     const at = STATUS_TABS.findIndex((t) => t.value === state.status);

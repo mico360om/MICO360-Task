@@ -415,6 +415,14 @@ describe('ProjectsPage status tabs on a phone (below 768px)', () => {
     await waitFor(() => expect(list).toHaveAttribute('data-more', 'start'));
   });
 
+  it('a tab chosen before (a reload, a shared link) is scrolled into view once the list has loaded and the tabs have their counts', async () => {
+    renderPage('/projects?status=archived');
+    // Laid out before the list arrives: the counts that come with it can move the tabs.
+    const m = layOut(screen.getByRole('tablist', { name: 'Project status' }));
+    await loaded().catch(() => undefined);
+    await waitFor(() => expect(m.scrollLeft).toBe(584 + 110 + 32 - 300));
+  });
+
   it('scroll the chosen tab into view (from the keyboard too), clear of the fade', async () => {
     renderPage();
     await loaded();
