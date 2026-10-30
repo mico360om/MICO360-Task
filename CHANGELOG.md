@@ -31,6 +31,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   back, the reminders start again.
 - The Calendar and the Timeline mark a task waiting for approval with an hourglass, as the board
   and lists do.
+- A task waiting for approval is not late anywhere while it waits: My Tasks, the Dashboard, the
+  Calendar, the Timeline, the board, the task panel, the project page, the Projects page, Workload,
+  Reports, the Management page, its PDF and the weekly management email, and the client page leave
+  it out of overdue and late figures and show the "Waiting for approval" badge where it would have
+  been marked late. Sent back, it counts as late again.
+- Client page: a task or milestone past its due date and not done says "Late" beside its status,
+  and the top of the page says when it was updated ("Updated 30 Oct 2026, 10:15", company time).
+- Client page: its "Privacy notice" link opens a short notice written for clients — what they can
+  see, what is never shown, how the emailed code and the 30-day sign-in work, and what their email
+  address is used for.
 - Chrome extension: marking such a task done (My Tasks or the board) says it is waiting for
   approval and shows it where it waits, instead of as done. Board cards show the "Waiting for
   approval" badge, and the project's managers can Approve or Send back (with a reason) from My
@@ -62,6 +72,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A finished meeting shows its Final MOM and action items first, above the agenda and live notes.
 - First steps: "Create a project" and "Add your team" open the New project and New user forms
   straight away.
+- Share with client: the panel says what Resend does before you press it — it emails a new link and
+  the old one stops working — and the email to the client says the new link replaces the one sent
+  before.
 
 ### Bug fixes
 - Dialogs in dark mode sat on a light-grey wash; every dialog and panel now dims the page behind it
@@ -73,6 +86,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Reports: a date typed into the range counts once it is finished, so the page no longer loads the
   dates it passes through or says "Still showing" a range nobody chose; an end date after today is
   refused with a message.
+- September is written "Sep", never "Sept", in the daily and weekly emails, on the Management page
+  and in its PDF, in meeting dates and cards, in the new-task and move notes, and in templates.
 
 ### Security
 - Backups are kept in a private server folder the website never shows; only administrators can see or
