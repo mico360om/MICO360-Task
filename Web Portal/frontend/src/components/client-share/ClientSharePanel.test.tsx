@@ -85,6 +85,16 @@ describe('Share with client', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('already shared with that address');
   });
 
+  it('says before a Resend what it does: a new link, the old one stops working (owner, 30 Oct) — heard with each Resend button', async () => {
+    show();
+    const fatma = await screen.findByRole('listitem', { name: 'Fatma Al Harthy' });
+    const hint = 'Resend emails a new link. The old link stops working, and devices signed in with it are signed out.';
+    expect(screen.getByText(hint)).toBeInTheDocument();
+    const resend = within(fatma).getByRole('button', { name: 'Resend the link to Fatma Al Harthy' });
+    expect(resend).toHaveAccessibleDescription(hint);
+    expect(resend).toHaveAttribute('title', 'Sends a new link; the old one stops working');
+  });
+
   it('Resend sends a new link and says the old one and the signed-in devices stop working', async () => {
     const user = userEvent.setup();
     api.resend.mockResolvedValue(FATMA);
@@ -92,7 +102,7 @@ describe('Share with client', () => {
     const fatma = await screen.findByRole('listitem', { name: 'Fatma Al Harthy' });
     await user.click(within(fatma).getByRole('button', { name: 'Resend the link to Fatma Al Harthy' }));
     expect(api.resend).toHaveBeenCalledWith('p1', 's1');
-    expect(await screen.findByRole('status')).toHaveTextContent('A new link was sent. The old link and any signed-in devices no longer work.');
+    expect(await screen.findByRole('status')).toHaveTextContent('A new link was sent to fatma@client.example. The old link no longer works, and devices signed in with it were signed out.');
   });
 
   it('an archived project: read-only, with Remove still there (no sharing, no Resend)', async () => {

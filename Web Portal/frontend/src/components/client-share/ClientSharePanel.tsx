@@ -40,7 +40,7 @@ export function ClientSharePanel({
 }) {
   const qc = useQueryClient();
   const api = clientSharesApi(apiClient);
-  const ids = { title: useId(), intro: useId(), name: useId(), email: useId() };
+  const ids = { title: useId(), intro: useId(), name: useId(), email: useId(), resendHint: useId() };
   const key = ['client-shares', projectId];
   const sharesQ = useQuery({ queryKey: key, queryFn: () => api.list(projectId) });
   const shares = Array.isArray(sharesQ.data) ? sharesQ.data : [];
@@ -76,8 +76,9 @@ export function ClientSharePanel({
       setProblem(null);
       setNotice(null);
     },
-    onSuccess: () => {
-      setNotice('A new link was sent. The old link and any signed-in devices no longer work.');
+    onSuccess: (share) => {
+      // What resend() did: the old link (and any code sent with it) ended, and the share's devices were signed out.
+      setNotice(`A new link was sent to ${share.email}. The old link no longer works, and devices signed in with it were signed out.`);
       void refresh();
     },
     onError: (err) => setProblem(reason(err, 'Couldn’t send a new link. Please try again.')),
@@ -168,6 +169,12 @@ export function ClientSharePanel({
 
             <div>
               <h3 className="eyebrow mb-2">Clients</h3>
+              {/* Before anyone presses Resend: what it does (owner, 30 Oct). Each Resend button is described by it. */}
+              {shares.length > 0 && !archived ? (
+                <p id={ids.resendHint} className="mb-2 text-xs text-ink-2">
+                  Resend emails a new link. The old link stops working, and devices signed in with it are signed out.
+                </p>
+              ) : null}
               {sharesQ.isLoading ? (
                 <p className="text-sm text-ink-2">Loading…</p>
               ) : sharesQ.isError ? (
@@ -186,6 +193,7 @@ export function ClientSharePanel({
                       canResend={emailEnabled}
                       showResend={!archived}
                       resending={resendM.isPending && resendM.variables?.id === s.id}
+                      resendHintId={ids.resendHint}
                       onResend={() => resendM.mutate(s)}
                       onRemove={() => {
                         setRemoveProblem(null);
@@ -222,6 +230,7 @@ function ShareRow({
   canResend,
   showResend,
   resending,
+  resendHintId,
   onResend,
   onRemove,
 }: {
@@ -230,6 +239,8 @@ function ShareRow({
   canResend: boolean;
   showResend: boolean;
   resending: boolean;
+  /** The line saying what Resend does (the button's description). */
+  resendHintId?: string;
   onResend: () => void;
   onRemove: () => void;
 }) {
@@ -247,7 +258,7 @@ function ShareRow({
       </div>
       <div className="flex flex-none gap-2">
         {showResend ? (
-          <Button type="button" size="sm" variant="secondary" loading={resending} disabled={busy || !canResend} onClick={onResend} aria-label={`Resend the link to ${s.name}`}>
+          <Button type="button" size="sm" variant="secondary" loading={resending} disabled={busy || !canResend} onClick={onResend} aria-label={`Resend the link to ${s.name}`} aria-describedby={resendHintId} title="Sends a new link; the old one stops working">
             Resend
           </Button>
         ) : null}
