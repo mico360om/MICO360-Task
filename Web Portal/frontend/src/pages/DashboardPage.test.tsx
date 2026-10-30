@@ -147,15 +147,51 @@ describe('DashboardPage', () => {
     expect(heading.querySelector('bdi')).toHaveTextContent('admin');
   });
 
-  it('lays out the stat tiles for how many there are: four for an administrator, two for anyone else', async () => {
+  it('four stat tiles in a row on a wide screen, for an administrator and for anyone else', async () => {
     const { unmount } = renderPage();
     expect(screen.getByTestId('stat-tiles')).toHaveAttribute('data-count', '4');
+    expect(screen.getByTestId('stat-tiles').className).toMatch(/lg:grid-cols-4/);
     unmount();
     useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
     renderPage();
     const tiles = screen.getByTestId('stat-tiles');
-    expect(tiles).toHaveAttribute('data-count', '2');
-    expect(tiles.className).not.toMatch(/lg:grid-cols-4/);
+    expect(tiles).toHaveAttribute('data-count', '4');
+    expect(tiles.className).toMatch(/lg:grid-cols-4/);
+    expect(tiles.querySelectorAll('a')).toHaveLength(4);
+  });
+
+  it('an employee sees their own Overdue and Due this week, counted in the company’s week (from the tasks the page loads)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-28T06:00:00Z')); // Wednesday 28 Oct, 10:00 in Muscat
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    const task = (id: string, dueDate: string | null, extra: Record<string, unknown> = {}) => ({
+      id, key: id.toUpperCase(), title: id, description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'NORMAL', startDate: null, dueDate, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra,
+    });
+    const mine = [task('late', '2026-10-27'), task('done-late', '2026-10-26', { columnCategory: 'DONE' }), task('today', '2026-10-28'), task('fri', '2026-10-30'), task('sat', '2026-10-31'), task('none', null)];
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      asked.push(u);
+      if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', weekStart: 6, productName: '', companyName: '', serverTime: new Date().toISOString() } });
+      if (u.endsWith('/tasks/mine')) return json({ data: mine });
+      if (u.includes('/projects')) return json({ data: [{ id: 'p1' }] });
+      return json({ data: [] });
+    }));
+    try {
+      renderPage();
+      const tiles = screen.getByTestId('stat-tiles');
+      // The company's week runs Saturday to Friday: Saturday 31 Oct is next week's.
+      const tile = (label: string) => screen.getByText(label, { selector: '*' }).closest('a')!;
+      await waitFor(() => expect(tile('Due this week')).toHaveTextContent(/^2\s*Due this week/));
+      expect(tile('Overdue')).toHaveTextContent(/^1\s*Overdue\s*Past their due day$/);
+      expect(tiles).toHaveTextContent('Today – Fri 30 Oct');
+      expect(screen.getByRole('link', { name: /Overdue/ })).toHaveAttribute('href', '/my-tasks');
+      expect(screen.getByRole('link', { name: /Due this week/ })).toHaveAttribute('href', '/my-tasks');
+      // Counted from the tasks the page already loads: nothing new is asked of the server.
+      expect(asked.some((u) => /\/reports\//.test(u))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('puts the stat tiles two to a row even on a phone (one per row left a phone screenful of two numbers)', () => {

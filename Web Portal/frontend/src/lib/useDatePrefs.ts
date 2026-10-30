@@ -23,6 +23,12 @@ export interface DateSettings {
 
 const isWeekStart = (v: unknown): v is WeekStart => v === 0 || v === 1 || v === 6;
 
+/** The company's week start (an administrator sets it; Sunday until then), from /config alone. */
+export function useCompanyWeekStart(): WeekStart {
+  const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
+  return isWeekStart(configQ.data?.weekStart) ? configQ.data.weekStart : 0;
+}
+
 /** Your date settings (Settings → Calendar), falling back to the company's time zone and week start (Sunday until set). */
 export function useDateSettings(): DateSettings {
   const companyTimeZone = useCompanyTimeZone();
