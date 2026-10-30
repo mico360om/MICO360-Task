@@ -30,11 +30,17 @@ const PAD = { left: 40, right: 16, top: 14, bottom: 26 };
 const LABEL_CHAR = 6;
 const LABEL_GAP = 6;
 
-/** Round a max value up to a clean axis top so gridline labels read nicely. */
-function niceCeil(v: number): number {
-  if (v <= 1) return 1;
-  const step = Math.pow(10, Math.floor(Math.log10(v)));
-  return Math.ceil(v / step) * step;
+/**
+ * A whole-number gridline step: the smallest of 1, 2, 5, 10, 20, 25, 50, 100, … that reaches the
+ * highest value in at most four steps — so a chart topping out at 3 reads 0, 1, 2, 3, never 0, 1, 2, 2, 3.
+ */
+function axisStep(max: number): number {
+  for (let p = 1; ; p *= 10) {
+    for (const m of [1, 2, 2.5, 5]) {
+      const step = m * p;
+      if (Number.isInteger(step) && step * 4 >= max) return step;
+    }
+  }
 }
 
 /**
@@ -73,14 +79,15 @@ export function LineChart({ series, labels, ariaLabel, height = 220, unit = '', 
   const plotW = Math.max(1, width - PAD.left - PAD.right);
   const plotH = Math.max(1, height - PAD.top - PAD.bottom);
   const rawMax = Math.max(1, ...series.flatMap((s) => s.values.filter((v): v is number => v !== null)));
-  const top = niceCeil(rawMax);
+  const step = axisStep(rawMax);
+  const top = Math.ceil(rawMax / step) * step;
 
   const x = (i: number) => (n <= 1 ? PAD.left + plotW / 2 : PAD.left + (i / (n - 1)) * plotW);
   const y = (v: number) => PAD.top + (1 - v / top) * plotH;
   const baseY = PAD.top + plotH;
 
-  // Horizontal gridlines + y labels (0 .. top in 4 steps).
-  const gridRows = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ v: Math.round(top * f), yy: y(top * f) }));
+  // Horizontal gridlines + y labels: 0 .. top in whole-number steps (at most four).
+  const gridRows = Array.from({ length: top / step + 1 }, (_, k) => ({ v: k * step, yy: y(k * step) }));
 
   // The first and last axis labels sit against their edge, so they are never cut off.
   const anchorOf = (i: number): 'start' | 'middle' | 'end' => (n <= 1 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle');
