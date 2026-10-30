@@ -6,6 +6,8 @@ import { asyncStore } from '../adapters/async-storage';
 import { isNetworkError } from '../lib/api-client';
 import { hiddenProjectsKey, moveToStatus, readHiddenProjects, statusMovePlan, withStatus } from '../lib/all-board';
 import { taskMovePayload, type MoveOutcome } from '../lib/board-writes';
+import { placeAsServerSays } from '../lib/board-move';
+import { approvalNotice } from '../lib/approvals';
 import { allTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { ALL_BOARD_KEY } from '../lib/realtime';
 import { refresh } from '../lib/refresh';
@@ -103,6 +105,12 @@ export function useStatusMove(): (task: ApiTask, status: ColumnCategory, project
       if (detail) qc.setQueryData<ApiTask>(['task', task.id], { ...detail, columnId, columnCategory: status });
       return { boards, detail };
     },
+    // Where the server put it: a move into Done that needs approval waits in Review (or where it was).
+    onSuccess: (moved, { task }) => {
+      if (!moved || moved.id !== task.id) return;
+      qc.setQueriesData<ApiTask[]>({ queryKey: [...ALL_BOARD_KEY] }, (list) => (Array.isArray(list) ? placeAsServerSays(list, moved) : list));
+      qc.setQueryData<ApiTask>(['task', task.id], (detail) => (detail ? placeAsServerSays([detail], moved)[0] : detail));
+    },
     onError: async (err, { task, columnId, status }, ctx) => {
       if (isNetworkError(err)) {
         // Kept on this phone by the write path (already, nearly always): the card stays where it was put.
@@ -134,7 +142,13 @@ export function useStatusMove(): (task: ApiTask, status: ColumnCategory, project
       const plan = statusMovePlan(task, status, columns, projectName);
       if (plan.kind !== 'move') return plan;
       const { columnId } = plan;
-      return moveToStatus(() => run({ task, columnId, status }), { id: task.id, columnId });
+      let moved: ApiTask | undefined;
+      const outcome = await moveToStatus(async () => {
+        moved = await run({ task, columnId, status });
+      }, { id: task.id, columnId });
+      // It needs approval: it went to wait instead of to that status, and the person is told.
+      const message = outcome.kind === 'moved' ? approvalNotice(columnId, moved) : null;
+      return message ? { kind: 'waiting', message } : outcome;
     },
     [qc, reads, resources, run],
   );

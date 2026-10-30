@@ -7,6 +7,15 @@
  */
 import { ApiError, isNetworkError } from './api-client';
 import { keptOnPhoneText } from './write-order';
+import { approvalNotice } from './approvals';
+
+/** A move's answer as approvalNotice reads it (the server's task), or null when it isn't one. */
+export function movedTask(answer: unknown): { key: string; columnId: string; approvalRequestedAt?: string | null } | null {
+  if (!answer || typeof answer !== 'object') return null;
+  const a = answer as { key?: unknown; columnId?: unknown; approvalRequestedAt?: unknown };
+  if (typeof a.key !== 'string' || typeof a.columnId !== 'string') return null;
+  return { key: a.key, columnId: a.columnId, approvalRequestedAt: typeof a.approvalRequestedAt === 'string' ? a.approvalRequestedAt : null };
+}
 
 export const BOARD_TEXT = {
   moveRefused: 'Couldn’t move that task — it was put back. Please try again.',
@@ -24,6 +33,8 @@ export function moveRefusedText(e: unknown): string {
 
 export type MoveOutcome =
   | { kind: 'moved' }
+  /** It needs approval: the server put it to wait (in Review, or where it was) instead of where it was asked to go. */
+  | { kind: 'waiting'; message: string }
   /** No answer, or behind an earlier change: kept on this phone with its place, sent later. */
   | { kind: 'kept'; message: string }
   /** Moved, but the column's new order didn't go. */
@@ -48,13 +59,17 @@ export function taskMovePayload(v: { id: string; columnId: string; position?: nu
 }
 
 export async function moveCard(deps: MoveDeps, req: { id: string; toColumnId: string; plan: { index: number; orderedIds: string[]; at: number } }): Promise<MoveOutcome> {
+  let moved: unknown;
   try {
-    await deps.move(req.id, req.toColumnId, req.plan.index, req.plan.at);
+    moved = await deps.move(req.id, req.toColumnId, req.plan.index, req.plan.at);
   } catch (e) {
     // Kept: a place among other cards is sent as its number, so it may land elsewhere (4b review #8).
     if (isNetworkError(e)) return { kind: 'kept', message: req.plan.orderedIds.length >= 2 ? `${keptOnPhoneText(e)} ${BOARD_TEXT.placeMayChange}` : keptOnPhoneText(e) };
     return { kind: 'refused', message: moveRefusedText(e) };
   }
+  // It went to wait for approval instead: said, and no order sent for the column it never reached (the website's board).
+  const waits = approvalNotice(req.toColumnId, movedTask(moved));
+  if (waits) return { kind: 'waiting', message: waits };
   if (req.plan.orderedIds.length < 2) return { kind: 'moved' };
   try {
     await deps.reorder(req.toColumnId, req.plan.orderedIds);

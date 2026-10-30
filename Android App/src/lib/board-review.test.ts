@@ -38,7 +38,7 @@ describe('board review fixes (4b review #8–#13)', () => {
 
   it('#10 “saved on this phone” is shown, not only spoken (both boards)', () => {
     for (const p of ['screens/BoardScreen.tsx', 'screens/AllBoardScreen.tsx']) {
-      expect(src(p), p).toMatch(/if \(out\.kind === 'kept'\) notice\(out\.message\);/);
+      expect(src(p), p).toMatch(/if \(out\.kind === 'kept' \|\| out\.kind === 'waiting'\) notice\(out\.message\);/);
     }
     expect(src('screens/NewTaskScreen.tsx')).toMatch(/import \{ notice \} from '\.\.\/components\/notice';/);
   });

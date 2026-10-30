@@ -84,8 +84,10 @@ export function useBulkTaskActions(): (tasks: (BulkTaskRef & { version?: number 
         move: async (t, columnId) => {
           // The column's kind goes with it, so a move kept offline shows under its new status (4c).
           const category = (await columnsOf(t.projectId).catch(() => [] as ApiColumn[])).find((c) => c.id === columnId)?.category;
-          await sendTaskMove(services, { id: t.id, columnId, projectId: t.projectId, category });
+          const moved = await sendTaskMove(services, { id: t.id, columnId, projectId: t.projectId, category });
           refresher.add(moveRefreshes(t.id, t.projectId));
+          // The server's answer: one that needs approval comes back waiting, and is counted (bulkResultText).
+          return moved;
         },
         assign: async (t, userId) => {
           const w = owned(services);

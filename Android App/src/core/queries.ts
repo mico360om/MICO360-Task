@@ -18,7 +18,7 @@ import { queueOnOffline, sendInOrder } from '../lib/write-order';
 import { ownedWrite, type OwnedWrite } from '../lib/owned-write';
 import { pendingKeys, settleShownAgenda, settleShownAttendees } from '../lib/pending-keys';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
-import { withOrder } from '../lib/board-move';
+import { placeAsServerSays, withOrder } from '../lib/board-move';
 import { taskMovePayload } from '../lib/board-writes';
 import { useDebouncedValue } from './useDebounced';
 import { CHAT_PAGE_SIZE, olderPageCursor, type ThreadPages } from '../lib/chat-thread';
@@ -618,6 +618,13 @@ export function useMoveTask(projectId: string) {
       qc.setQueriesData<ApiTask[]>({ queryKey: boardPrefix }, (list) => list?.map((t) => (t.id === id ? { ...t, columnId, ...(at !== undefined ? { position: at } : {}) } : t)));
       if (detail) qc.setQueryData<ApiTask>(['task', id], { ...detail, columnId });
       return { boards, detail };
+    },
+    // The server's answer is where the task really is: a move into Done that needs approval comes
+    // back waiting in Review (or where it was), so the card stays there — no jump back on the reload.
+    onSuccess: (moved, vars) => {
+      if (!moved || moved.id !== vars.id) return;
+      qc.setQueriesData<ApiTask[]>({ queryKey: boardPrefix }, (list) => (Array.isArray(list) ? placeAsServerSays(list, moved) : list));
+      qc.setQueryData<ApiTask>(['task', vars.id], (detail) => (detail ? placeAsServerSays([detail], moved)[0] : detail));
     },
     onError: async (err, vars, ctx) => {
       if (isNetworkError(err)) {

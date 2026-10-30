@@ -101,9 +101,9 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       if (!stillSignedIn(maker, currentUserId())) return;
       if (out.kind === 'moved') tell(`Moved to ${dest?.column.name ?? 'the column'}.`);
       else {
-        tell(out.message, out.kind !== 'kept');
-        // Kept on this phone: shown as well as said (4b review #10).
-        if (out.kind === 'kept') notice(out.message);
+        tell(out.message, out.kind !== 'kept' && out.kind !== 'waiting');
+        // Kept on this phone, or gone to wait for approval: shown as well as said (4b review #10).
+        if (out.kind === 'kept' || out.kind === 'waiting') notice(out.message);
       }
     },
     [board, writes, currentUserId],

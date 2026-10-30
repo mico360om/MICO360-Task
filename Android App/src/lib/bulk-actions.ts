@@ -5,6 +5,8 @@
  * counted, never fatal; a change kept on this phone is counted apart. Pure (the writes come in).
  */
 import { isNetworkError } from './api-client';
+import { approvalNotice } from './approvals';
+import { movedTask } from './board-writes';
 import type { Refresh } from './refresh';
 import type { ApiColumn, Priority } from './types';
 
@@ -35,6 +37,8 @@ export interface BulkResult {
   kept: number;
   /** Not tried: the run was stopped before them (absent when it ran to the end). */
   stopped?: number;
+  /** Complete / Move to…: moved, but the server put them to wait for approval (absent when none did). */
+  waiting?: number;
 }
 
 export interface BulkRunOptions {
@@ -51,6 +55,11 @@ export async function runBulk(tasks: readonly BulkTaskRef[], action: BulkAction,
   let failed = 0;
   let kept = 0;
   let tried = 0;
+  let waiting = 0;
+  // A move that needs approval comes back waiting (in Review, or where it was) instead of in its column.
+  const moveTo = async (task: BulkTaskRef, columnId: string) => {
+    if (approvalNotice(columnId, movedTask(await deps.move(task, columnId)))) waiting += 1;
+  };
   opts.onProgress?.(0, tasks.length);
   for (const task of tasks) {
     if (opts.shouldContinue && !opts.shouldContinue()) break;
@@ -60,11 +69,11 @@ export async function runBulk(tasks: readonly BulkTaskRef[], action: BulkAction,
         case 'complete': {
           const col = await deps.doneColumnFor(task);
           if (!col) throw new NoDoneColumn('No done column for this project.');
-          await deps.move(task, col);
+          await moveTo(task, col);
           break;
         }
         case 'move':
-          await deps.move(task, action.columnId);
+          await moveTo(task, action.columnId);
           break;
         case 'setDueDate':
           await deps.update(task, { dueDate: action.dueDate });
@@ -84,7 +93,7 @@ export async function runBulk(tasks: readonly BulkTaskRef[], action: BulkAction,
     opts.onProgress?.(tried, tasks.length);
   }
   const stopped = tasks.length - tried;
-  return { succeeded, failed, kept, ...(stopped ? { stopped } : {}) };
+  return { succeeded, failed, kept, ...(stopped ? { stopped } : {}), ...(waiting ? { waiting } : {}) };
 }
 
 /** While a bulk action runs: "12 of 150 done…" (final review A2). */
@@ -135,10 +144,13 @@ export function bulkResultText(label: string, r: BulkResult): string {
   if (left && r.succeeded === 0 && r.failed === 0 && r.kept === 0) return 'Stopped — no tasks were changed.';
   const stopped = left ? `Stopped — ${left} ${left === 1 ? 'task wasn’t' : 'tasks weren’t'} changed.` : '';
   const kept = r.kept ? `${r.kept} saved on this phone — will sync when you’re online.` : '';
+  // The website's words for the tasks that went to wait for approval (MyTasksPage's toast).
+  const w = r.waiting ?? 0;
+  const waits = w ? `${w} need${w === 1 ? 's' : ''} approval and ${w === 1 ? 'is' : 'are'} waiting for a project manager.` : '';
   const done =
     r.succeeded === 0 && r.failed === 0 && r.kept
       ? 'Saved on this phone — will sync when you’re online.'
-      : [r.failed === 0 ? `${label} ${r.succeeded} task${r.succeeded === 1 ? '' : 's'}.` : `${label} ${r.succeeded}, ${r.failed} couldn’t be updated.`, kept].filter(Boolean).join(' ');
+      : [r.failed === 0 ? `${label} ${r.succeeded} task${r.succeeded === 1 ? '' : 's'}.` : `${label} ${r.succeeded}, ${r.failed} couldn’t be updated.`, waits, kept].filter(Boolean).join(' ');
   return stopped ? `${done} ${stopped}` : done;
 }
 
