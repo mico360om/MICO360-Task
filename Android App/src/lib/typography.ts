@@ -1,19 +1,67 @@
 /**
- * Typography tokens ported from the web design system. The web pairs a display face (Archivo)
- * with a body face (IBM Plex Sans); the mobile app carries the same type scale and role names.
- * Weights carry the hierarchy on the system font out of the box; when the brand faces are loaded
- * (expo-font — see App.tsx), pass `brandFonts: true` to apply them. Pure TS (no RN imports) so
- * the scale is unit-testable.
+ * The website's type: IBM Plex Sans for body and UI text, Archivo for titles and big numbers, the
+ * same files the website bundles (assets/fonts, made by tools/fonts/convert-fonts.py, loaded by
+ * core/fonts.ts before the first screen). Pure TS (no RN imports) so the scale is unit-testable.
+ *
+ * Android picks a bundled face by its family name, one file per weight. A `fontWeight` on top of a
+ * loaded face makes Android draw a fake bold, so styles never set `fontWeight`: they use `font()`
+ * or `typeStyle()`, which name the face.
  */
 
-export type FontWeight = 'normal' | 'bold' | '400' | '500' | '600' | '700' | '800';
+export type FontWeight = '400' | '500' | '600' | '700' | '800' | '900';
 
-/** Brand faces, applied only once loaded; falls back to the platform system font otherwise. */
-export const fontFamilies = {
-  display: 'Archivo', // titles / headings
-  body: 'IBMPlexSans', // body / UI text
-} as const;
-export type FontFamilyRole = keyof typeof fontFamilies;
+export type FontFace =
+  | 'IBMPlexSans-Regular'
+  | 'IBMPlexSans-Medium'
+  | 'IBMPlexSans-SemiBold'
+  | 'IBMPlexSans-Bold'
+  | 'Archivo-SemiBold'
+  | 'Archivo-Bold'
+  | 'Archivo-ExtraBold'
+  | 'Archivo-Black';
+
+type Family = 'body' | 'display';
+
+/** Every bundled face, its family and weight. */
+export const FONT_FACES: Record<FontFace, { family: Family; weight: FontWeight }> = {
+  'IBMPlexSans-Regular': { family: 'body', weight: '400' },
+  'IBMPlexSans-Medium': { family: 'body', weight: '500' },
+  'IBMPlexSans-SemiBold': { family: 'body', weight: '600' },
+  'IBMPlexSans-Bold': { family: 'body', weight: '700' },
+  'Archivo-SemiBold': { family: 'display', weight: '600' },
+  'Archivo-Bold': { family: 'display', weight: '700' },
+  'Archivo-ExtraBold': { family: 'display', weight: '800' },
+  'Archivo-Black': { family: 'display', weight: '900' },
+};
+
+const BODY: Record<FontWeight, FontFace> = {
+  '400': 'IBMPlexSans-Regular',
+  '500': 'IBMPlexSans-Medium',
+  '600': 'IBMPlexSans-SemiBold',
+  '700': 'IBMPlexSans-Bold',
+  '800': 'IBMPlexSans-Bold',
+  '900': 'IBMPlexSans-Bold',
+};
+
+const DISPLAY: Record<FontWeight, FontFace> = {
+  '400': 'Archivo-SemiBold',
+  '500': 'Archivo-SemiBold',
+  '600': 'Archivo-SemiBold',
+  '700': 'Archivo-Bold',
+  '800': 'Archivo-ExtraBold',
+  '900': 'Archivo-Black',
+};
+
+/** The bundled face nearest to `weight` in a family (body has no 800/900, display no 400/500). */
+export function fontFamilyFor(family: Family, weight: FontWeight): FontFace {
+  return (family === 'display' ? DISPLAY : BODY)[weight];
+}
+
+/** The style that sets a weight: the face's family name ('normal' = 400, 'bold' = 700). */
+export function font(weight: FontWeight | 'normal' | 'bold', family: Family = 'body'): { fontFamily: FontFace } {
+  const w: FontWeight = weight === 'normal' ? '400' : weight === 'bold' ? '700' : weight;
+  return { fontFamily: fontFamilyFor(family, w) };
+}
 
 export type TypeRole =
   | 'display'
@@ -23,46 +71,41 @@ export type TypeRole =
   | 'body'
   | 'bodyStrong'
   | 'label'
-  | 'caption';
+  | 'caption'
+  | 'eyebrow'
+  | 'badge'
+  | 'button'
+  | 'tab'
+  | 'number';
 
 export interface TypeStyle {
+  fontFamily: FontFace;
   fontSize: number;
-  fontWeight: FontWeight;
   lineHeight: number;
   letterSpacing?: number;
-  /** Which brand face this role uses when brand fonts are loaded. */
-  family: FontFamilyRole;
+  textTransform?: 'uppercase';
+  /** Figures that line up in columns. */
+  fontVariant?: ['tabular-nums'];
 }
 
-/** The type scale — one entry per role. Sizes align with `fontSize` in theme.ts. */
-export const typeScale: Record<TypeRole, TypeStyle> = {
-  display: { fontSize: 28, fontWeight: '700', lineHeight: 34, letterSpacing: -0.5, family: 'display' },
-  title: { fontSize: 22, fontWeight: '700', lineHeight: 28, letterSpacing: -0.3, family: 'display' },
-  heading: { fontSize: 18, fontWeight: '700', lineHeight: 24, family: 'display' },
-  subheading: { fontSize: 15, fontWeight: '600', lineHeight: 20, family: 'body' },
-  body: { fontSize: 15, fontWeight: '400', lineHeight: 22, family: 'body' },
-  bodyStrong: { fontSize: 15, fontWeight: '600', lineHeight: 22, family: 'body' },
-  label: { fontSize: 13, fontWeight: '600', lineHeight: 16, letterSpacing: 0.3, family: 'body' },
-  caption: { fontSize: 11, fontWeight: '500', lineHeight: 14, letterSpacing: 0.2, family: 'body' },
+const SCALE: Record<TypeRole, TypeStyle> = {
+  display: { fontFamily: 'Archivo-ExtraBold', fontSize: 30, lineHeight: 36, letterSpacing: -0.3, fontVariant: ['tabular-nums'] },
+  title: { fontFamily: 'Archivo-ExtraBold', fontSize: 22, lineHeight: 28, letterSpacing: -0.2 },
+  heading: { fontFamily: 'Archivo-Bold', fontSize: 18, lineHeight: 24 },
+  subheading: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 15, lineHeight: 20 },
+  body: { fontFamily: 'IBMPlexSans-Regular', fontSize: 14, lineHeight: 20 },
+  bodyStrong: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 14, lineHeight: 20 },
+  label: { fontFamily: 'IBMPlexSans-Medium', fontSize: 14, lineHeight: 20 },
+  caption: { fontFamily: 'IBMPlexSans-Regular', fontSize: 12, lineHeight: 16 },
+  eyebrow: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 11, lineHeight: 14, textTransform: 'uppercase', letterSpacing: 0.55 },
+  badge: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 11, lineHeight: 14, textTransform: 'uppercase', letterSpacing: 0.3 },
+  button: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 14, lineHeight: 20 },
+  tab: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 11, lineHeight: 14 },
+  number: { fontFamily: 'IBMPlexSans-SemiBold', fontSize: 14, lineHeight: 20, fontVariant: ['tabular-nums'] },
 };
 
-export interface ResolvedType {
-  fontSize: number;
-  fontWeight: FontWeight;
-  lineHeight: number;
-  letterSpacing?: number;
-  fontFamily?: string;
-}
-
-/**
- * Resolve a role to a React-Native-ready style object. Applies the brand `fontFamily` only when
- * `brandFonts` is true (i.e. the fonts have actually been loaded), so text renders correctly on
- * the system font until then.
- */
-export function typeStyle(role: TypeRole, opts: { brandFonts?: boolean } = {}): ResolvedType {
-  const t = typeScale[role];
-  const out: ResolvedType = { fontSize: t.fontSize, fontWeight: t.fontWeight, lineHeight: t.lineHeight };
-  if (t.letterSpacing !== undefined) out.letterSpacing = t.letterSpacing;
-  if (opts.brandFonts) out.fontFamily = fontFamilies[t.family];
-  return out;
+/** A role's React-Native-ready text style (a fresh copy, safe to spread and extend). */
+export function typeStyle(role: TypeRole): TypeStyle {
+  const s = SCALE[role];
+  return { ...s, ...(s.fontVariant ? { fontVariant: [...s.fontVariant] as ['tabular-nums'] } : {}) };
 }

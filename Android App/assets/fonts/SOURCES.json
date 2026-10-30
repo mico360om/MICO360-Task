@@ -1,0 +1,58 @@
+{
+  "Archivo-Black": {
+    "merged": true,
+    "sources": {
+      "archivo-latin-900-normal.woff2": "e915040a27c5310623be7ae57b6e4c508e8800206dcc37abe99984510e74a66d",
+      "archivo-latin-ext-900-normal.woff2": "b49a810f819f7cc190cf1c6cf780b4d1f3a282c71b514fd28e27eeb485d8dad0"
+    }
+  },
+  "Archivo-Bold": {
+    "merged": true,
+    "sources": {
+      "archivo-latin-700-normal.woff2": "abada6cd4c92a9a706f6d7ed3189f322ff43dd78b9402c7d1137465b861d2a04",
+      "archivo-latin-ext-700-normal.woff2": "8affe3b4758ec03c7c1a8b40c119209cbb1815fd836160570f94935ce9a683ec"
+    }
+  },
+  "Archivo-ExtraBold": {
+    "merged": true,
+    "sources": {
+      "archivo-latin-800-normal.woff2": "c26cda2400b374eb1adb6e0973c86f455e2df17ca57c6755eb37d7bde47663fb",
+      "archivo-latin-ext-800-normal.woff2": "5aca026bdcb2d06623bcab485c8ed44ecaee07aa39c9b6fdbf855925a1e821b4"
+    }
+  },
+  "Archivo-SemiBold": {
+    "merged": true,
+    "sources": {
+      "archivo-latin-600-normal.woff2": "d9e8c29fdd348edde2a4f9aae438e569dd165bbbdebda78495824a2d9aaa67e8",
+      "archivo-latin-ext-600-normal.woff2": "cd902f80bcf11cc6545648c156415deded5336611928c0fb6b02325ad3af13f0"
+    }
+  },
+  "IBMPlexSans-Bold": {
+    "merged": true,
+    "sources": {
+      "ibm-plex-sans-latin-700-normal.woff2": "42e7b0c143c19df9d99fd896e76b48f846edf0902d200bc29796b34d12c33aa7",
+      "ibm-plex-sans-latin-ext-700-normal.woff2": "92f0392bd74fa3955bfa92f6ec747e7246d3567b6f46b32ddbaf271104836ab8"
+    }
+  },
+  "IBMPlexSans-Medium": {
+    "merged": true,
+    "sources": {
+      "ibm-plex-sans-latin-500-normal.woff2": "0717336fb31fcdcde4b8deb3675bb4a0f7f6d484864afcd6751ac29975962203",
+      "ibm-plex-sans-latin-ext-500-normal.woff2": "2846035d85100f84c79393f80f1442d4ee720129ab8b3ffa8969aae281db8c6c"
+    }
+  },
+  "IBMPlexSans-Regular": {
+    "merged": true,
+    "sources": {
+      "ibm-plex-sans-latin-400-normal.woff2": "3b646991d30055a93a4ecc499713d4347953a74a947ecab435ab72070cbdab0e",
+      "ibm-plex-sans-latin-ext-400-normal.woff2": "c93d2a12aaa280f68b9ab7b726ff8dfedda67c99ef9abed047c1847a1cc6d583"
+    }
+  },
+  "IBMPlexSans-SemiBold": {
+    "merged": true,
+    "sources": {
+      "ibm-plex-sans-latin-600-normal.woff2": "8960851d691c054ed38e259bdcf1a6190d157b4203ed5bb32c632a863fb8ec2f",
+      "ibm-plex-sans-latin-ext-600-normal.woff2": "b25dfd4f979e442ae1e25cd0894463434cf01ba21ac1a35d39f4a82bd4cc060e"
+    }
+  }
+}

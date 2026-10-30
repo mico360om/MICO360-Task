@@ -3,3 +3,9 @@ declare module '*.png' {
   const value: number;
   export default value;
 }
+
+// The bundled fonts (assets/fonts, loaded by core/fonts.ts).
+declare module '*.ttf' {
+  const value: number;
+  export default value;
+}

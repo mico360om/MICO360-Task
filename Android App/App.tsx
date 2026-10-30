@@ -12,6 +12,7 @@ import { initSentry } from './src/adapters/sentry';
 import { appInfo } from './src/adapters/app-info';
 import { releaseName } from './src/lib/app-version';
 import { asyncStore } from './src/adapters/async-storage';
+import { useBrandFonts } from './src/core/fonts';
 
 // Crash/analytics sink (A9.3): a production build with EXPO_PUBLIC_SENTRY_DSN reports to Sentry;
 // dev logs to the console; a production build without a DSN stays silent until ops configures one.
@@ -28,6 +29,9 @@ function buildReporter() {
 const reporter = buildReporter();
 
 export default function App() {
+  // The website's fonts first: until they are loaded the native splash stays on screen.
+  const fontsReady = useBrandFonts();
+  if (!fontsReady) return null;
   return (
     <ErrorBoundary reporter={reporter}>
       <SafeAreaProvider>
