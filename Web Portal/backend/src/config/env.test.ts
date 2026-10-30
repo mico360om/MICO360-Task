@@ -77,6 +77,16 @@ describe('loadEnv', () => {
     expect(env).toMatchObject({ BACKUP_DIR: '', BACKUP_ENCRYPTION_KEY: '', GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', GOOGLE_REDIRECT_URI: '' });
   });
 
+  it('BACKUP_WARN_GB: the size of the kept copies that brings a warning, 5 GB unless set', () => {
+    const warnGb = (v?: string) => loadEnv({ ...base, ...(v === undefined ? {} : { BACKUP_WARN_GB: v }) } as NodeJS.ProcessEnv).BACKUP_WARN_GB;
+    expect(warnGb()).toBe(5);
+    expect(warnGb('')).toBe(5);
+    expect(warnGb(' 12 ')).toBe(12);
+    expect(warnGb('0.5')).toBe(0.5);
+    expect(() => warnGb('lots')).toThrow(/BACKUP_WARN_GB/);
+    expect(() => warnGb('0')).toThrow(/BACKUP_WARN_GB/);
+  });
+
   it('the nightly copy is on by default only in production (both server packages); off on development and test servers', () => {
     const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'A'.repeat(40), JWT_REFRESH_SECRET: 'B'.repeat(40) };
     const nightly = (extra: Record<string, string>) => loadEnv({ ...base, ...extra } as NodeJS.ProcessEnv).BACKUP_NIGHTLY;

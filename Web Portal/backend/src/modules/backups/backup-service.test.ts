@@ -4,7 +4,7 @@ import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmS
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Writable } from 'node:stream';
-import { createBackupService, type BackupDrive, type BackupServiceDeps } from './backup-service';
+import { createBackupService, noticesIn, type BackupDrive, type BackupServiceDeps } from './backup-service';
 import type { BackupRepository, BackupRunLock, BackupRunRecord } from './backup-repository';
 import { writeBackupArchive, type ArchiveResult } from './backup-archive';
 import { fakeSqlRunner, fillingDisk } from './backup-fakes';
@@ -123,7 +123,8 @@ const goodArchive = async (o: { outFile: string; workDir: string }): Promise<Arc
   return { sizeBytes: 13, sha256: 'a'.repeat(64), md5: 'b'.repeat(32), tables: 64, rows: 1000, files: 5, fileBytes: 999, latestMigration: 'm', encrypted: false };
 };
 
-let noCopyMark: string | null;
+/** The once-only email marks (system_settings in the app). */
+let notices: Map<string, string>;
 
 function service(extra: Partial<BackupServiceDeps> = {}) {
   return createBackupService({
@@ -137,10 +138,11 @@ function service(extra: Partial<BackupServiceDeps> = {}) {
     alertAdmins: async (a) => {
       alerts.push(a);
     },
-    noCopyAlertMark: {
-      read: async () => noCopyMark,
-      write: async (v) => {
-        noCopyMark = v;
+    notices: {
+      read: async (name) => notices.get(name) ?? null,
+      write: async (name, value) => {
+        if (value === null) notices.delete(name);
+        else notices.set(name, value);
       },
     },
     ...extra,
@@ -156,7 +158,7 @@ beforeEach(() => {
   archiveCalls = 0;
   archiveFails = null;
   gate = null;
-  noCopyMark = null;
+  notices = new Map();
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -610,5 +612,120 @@ describe('telling the administrators when copies stop', () => {
     clock = muscat('2026-11-02', '01:00');
     await service({ nightlyEnabled: false }).runNightlyIfDue();
     expect(alerts).toEqual([]);
+  });
+});
+
+describe('the once-only email marks, kept in one system_settings row', () => {
+  it('reads and writes each mark on its own; null clears one; a row that isn’t an object reads as empty', async () => {
+    let stored: unknown;
+    const n = noticesIn({ read: async () => stored, write: async (v: unknown) => void (stored = v) });
+    expect(await n.read('space')).toBeNull();
+    await n.write('space', '2026-10-30T00:00:00.000Z');
+    await n.write('noCopy', 'run1');
+    expect(stored).toEqual({ space: '2026-10-30T00:00:00.000Z', noCopy: 'run1' });
+    await n.write('space', null);
+    expect(stored).toEqual({ noCopy: 'run1' });
+    expect(await n.read('noCopy')).toBe('run1');
+    stored = 'not an object';
+    expect(await n.read('noCopy')).toBeNull();
+  });
+});
+
+describe('locking the copies with a backup key (the owner wants it on)', () => {
+  const KEY = 'a long enough backup key';
+  const makeCopy = async (svc: ReturnType<typeof service>, hhmm: string) => {
+    clock = muscat('2026-10-30', hhmm);
+    await svc.start('admin1');
+    await svc.idle();
+  };
+
+  it('in production without a key: the card says the copies aren’t locked and what to do; the first unlocked copy emails the administrators, once', async () => {
+    const svc = service({ production: true });
+    const { keyWarning } = await svc.overview();
+    expect(keyWarning).toMatch(/^Backup copies aren’t locked with a backup key/);
+    expect(keyWarning).toMatch(/set it as BACKUP_ENCRYPTION_KEY in the hosting settings/);
+    expect(keyWarning).toMatch(/password manager/);
+    expect(keyWarning).toMatch(/can’t be opened/);
+    await makeCopy(svc, '10:00');
+    expect(alerts).toEqual([{ title: 'Backup copies aren’t locked with a key', message: `A backup copy was just made without a backup key. ${keyWarning}` }]);
+    await makeCopy(svc, '11:00');
+    expect(alerts).toHaveLength(1);
+  });
+
+  it('with a key, or on a development or test server, there is no such warning or email', async () => {
+    const locked = service({ production: true, encryptionKey: KEY });
+    expect((await locked.overview()).keyWarning).toBeNull();
+    await makeCopy(locked, '10:00');
+    const dev = service({ production: false });
+    expect((await dev.overview()).keyWarning).toBeNull();
+    await makeCopy(dev, '11:00');
+    expect(alerts).toEqual([]);
+  });
+
+  it('after a locked copy, a later unlocked one (the key was taken out) is emailed about again', async () => {
+    await makeCopy(service({ production: true }), '10:00');
+    await makeCopy(service({ production: true, encryptionKey: KEY }), '11:00');
+    await makeCopy(service({ production: true }), '12:00');
+    expect(alerts.map((a) => a.title)).toEqual(['Backup copies aren’t locked with a key', 'Backup copies aren’t locked with a key']);
+  });
+});
+
+describe('disk space for the copies (everything is kept in each copy, with a size warning)', () => {
+  const GB = 1024 * 1024 * 1024;
+  async function keptCopy(day: string, sizeBytes: number) {
+    const row = await repo.create({ trigger: 'NIGHTLY', localDate: day, startedAt: muscat(day, '02:00'), requestedById: null });
+    const fileName = `mico360-tasks-backup-${day}-0200-${row.id.slice(-6)}.tar.gz`;
+    writeFileSync(join(dir, fileName), 'x');
+    await repo.update(row.id, { status: 'OK', fileName, sizeBytes, finishedAt: muscat(day, '02:01') });
+  }
+  const ADVICE = 'Check the server’s disk use (on Hostinger: hPanel → the website’s Dashboard → Disk usage), remove old uploaded files that are no longer needed, or ask for fewer backup copies to be kept.';
+
+  it('more than BACKUP_WARN_GB kept: the card warns with what to do; one email, and again only after it cleared and came back', async () => {
+    await keptCopy('2026-10-28', 60);
+    await keptCopy('2026-10-29', 60);
+    clock = muscat('2026-10-30', '01:00'); // tonight's copy isn't due yet
+    const over = service({ warnBytes: 100 });
+    const warning = `The backup copies kept on the server take 120 B in all, more than the 100 B set as the warning limit (BACKUP_WARN_GB). ${ADVICE}`;
+    expect((await over.overview()).spaceWarning).toBe(warning);
+    await over.runNightlyIfDue();
+    expect(alerts).toEqual([{ title: 'Check the disk space for backups', message: warning }]);
+    clock = muscat('2026-10-30', '01:10');
+    await over.runNightlyIfDue();
+    expect(alerts).toHaveLength(1);
+
+    // Cleared (here: a higher limit) — then back: emailed again.
+    const fine = service({ warnBytes: 1000 });
+    expect((await fine.overview()).spaceWarning).toBeNull();
+    await fine.runNightlyIfDue();
+    expect(alerts).toHaveLength(1);
+    await service({ warnBytes: 100 }).runNightlyIfDue();
+    expect(alerts.map((a) => a.title)).toEqual(['Check the disk space for backups', 'Check the disk space for backups']);
+  });
+
+  it('the limit is 5 GB unless BACKUP_WARN_GB says otherwise', async () => {
+    await keptCopy('2026-10-29', 4 * GB);
+    clock = muscat('2026-10-30', '01:00');
+    expect((await service().overview()).spaceWarning).toBeNull();
+    await keptCopy('2026-10-28', 2 * GB);
+    expect((await service().overview()).spaceWarning).toMatch(/^The backup copies kept on the server take 6 GB in all, more than the 5 GB set as the warning limit/);
+  });
+
+  it('free disk space under about twice the newest copy: warned (the next copies may not fit) and emailed', async () => {
+    await keptCopy('2026-10-29', 10);
+    clock = muscat('2026-10-30', '01:00');
+    expect((await service({ freeSpace: async () => 25 }).overview()).spaceWarning).toBeNull();
+    const low = service({ freeSpace: async () => 15 });
+    const warning = `Only 15 B of disk space is free, less than twice the newest copy (10 B): the next copies may not fit. ${ADVICE}`;
+    expect((await low.overview()).spaceWarning).toBe(warning);
+    await low.runNightlyIfDue();
+    expect(alerts).toEqual([{ title: 'Check the disk space for backups', message: warning }]);
+  });
+
+  it('is checked after each copy as well (also on a server with the nightly copy off)', async () => {
+    const svc = service({ nightlyEnabled: false, warnBytes: 10 });
+    await svc.start('admin1');
+    await svc.idle();
+    expect(alerts.map((a) => a.title)).toEqual(['Check the disk space for backups']);
+    expect(alerts[0]!.message).toMatch(/^The backup copies kept on the server take 13 B in all, more than the 10 B/);
   });
 });

@@ -27,6 +27,8 @@ function overview(over: Partial<BackupOverview> = {}): BackupOverview {
   return {
     folder: '/home/u/mico360-data/backups',
     folderWarning: null,
+    keyWarning: null,
+    spaceWarning: null,
     encrypted: false,
     nightly: { enabled: true, hour: 2, timeZone: 'Asia/Muscat' },
     running: null,
@@ -124,6 +126,15 @@ describe('System Settings → Backups', () => {
     renderIt();
     const alerts = await screen.findAllByRole('alert');
     expect(alerts.map((a) => a.textContent)).toEqual(['Last night’s backup failed: The server’s disk is full.', 'The backup folder is inside the app folder, so a new deployment may remove it.']);
+  });
+
+  it('warns when the copies aren’t locked with a backup key, and when they take a lot of disk space', async () => {
+    const keyWarning = 'Backup copies aren’t locked with a backup key, so anyone who gets one can read everything in it.';
+    const spaceWarning = 'The backup copies kept on the server take 6 GB in all, more than the 5 GB set as the warning limit (BACKUP_WARN_GB).';
+    current = overview({ keyWarning, spaceWarning });
+    renderIt();
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts.map((a) => a.textContent)).toEqual([keyWarning, spaceWarning]);
   });
 
   it('Back up now: starts a copy, says so, and reads again until it is done', async () => {

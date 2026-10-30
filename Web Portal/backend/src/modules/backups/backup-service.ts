@@ -63,10 +63,14 @@ export interface BackupServiceDeps {
   /** Emails the active administrators (best effort; not called when email isn't set up). */
   alertAdmins?: (alert: { title: string; message: string }) => Promise<void>;
   /**
-   * Which good copy the "no new copy since …" email was sent about (kept in system_settings), so it
-   * goes out once — and again only after a newer good copy, when copies stop again.
+   * What each once-only email was last sent about (kept in system_settings), so it goes out once when
+   * its problem first appears, and again only after the problem cleared and came back.
    */
-  noCopyAlertMark?: { read(): Promise<string | null>; write(copyId: string | null): Promise<void> };
+  notices?: BackupNotices;
+  /** NODE_ENV=production: unlocked copies (no BACKUP_ENCRYPTION_KEY) are warned about there. */
+  production?: boolean;
+  /** BACKUP_WARN_GB in bytes: kept copies taking more than this in all bring a warning (5 GB). */
+  warnBytes?: number;
   drive?: BackupDrive;
   now?: () => Date;
   logger?: { info(msg: string, ctx?: Record<string, unknown>): void; warn(msg: string, ctx?: Record<string, unknown>): void; error(msg: string, ctx?: Record<string, unknown>): void };
@@ -84,9 +88,42 @@ export interface BackupCopyView {
   driveError: string | null;
 }
 
+/** The once-only emails: no new copy for 36 hours, copies not locked with a key, disk space. */
+export type BackupNoticeName = 'noCopy' | 'unlocked' | 'space';
+
+export interface BackupNotices {
+  read(name: BackupNoticeName): Promise<string | null>;
+  /** null: the problem cleared (the next time it appears, it is emailed again). */
+  write(name: BackupNoticeName, value: string | null): Promise<void>;
+}
+
+/** The once-only marks, all in one stored value (a system_settings row the settings API never shows). */
+export function noticesIn(kv: { read(): Promise<unknown>; write(value: unknown): Promise<void> }): BackupNotices {
+  const all = async (): Promise<Record<string, string>> => {
+    const v = await kv.read();
+    return v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as Record<string, string>) } : {};
+  };
+  return {
+    async read(name) {
+      const v = (await all())[name];
+      return typeof v === 'string' ? v : null;
+    },
+    async write(name, value) {
+      const marks = await all();
+      if (value === null) delete marks[name];
+      else marks[name] = value;
+      await kv.write(marks);
+    },
+  };
+}
+
 export interface BackupOverview {
   folder: string;
   folderWarning: string | null;
+  /** In production without BACKUP_ENCRYPTION_KEY: the copies aren't locked, and what to do. */
+  keyWarning: string | null;
+  /** The kept copies take more than BACKUP_WARN_GB, or the free space is short: what to do. */
+  spaceWarning: string | null;
   encrypted: boolean;
   nightly: { enabled: boolean; hour: number; timeZone: string };
   running: { id: string; trigger: BackupTrigger; startedAt: string } | null;
@@ -107,6 +144,16 @@ const HEARTBEAT_MS = 60 * 1000;
 /** A copy still being made after this long is stopped (a hung disk or database must not hold the lock forever). */
 const MAX_RUN_MS = 3 * 60 * 60 * 1000;
 const STOPPED = 'It stopped before it finished (the server may have restarted).';
+/** BACKUP_WARN_GB when it isn't set: 5 GB. */
+const DEFAULT_WARN_BYTES = 5 * 1024 * 1024 * 1024;
+
+const UNLOCKED_WARNING =
+  'Backup copies aren’t locked with a backup key, so anyone who gets one (a downloaded copy, or the Google Drive folder) can read everything in it. ' +
+  'To lock them: make a key (docs/BACKUPS.md, “Locking the copies”), set it as BACKUP_ENCRYPTION_KEY in the hosting settings, restart the app, ' +
+  'and keep a copy of the key in a password manager — not in Google Drive. Keep it safe: without the key a locked copy can’t be opened.';
+
+const SPACE_ADVICE =
+  'Check the server’s disk use (on Hostinger: hPanel → the website’s Dashboard → Disk usage), remove old uploaded files that are no longer needed, or ask for fewer backup copies to be kept.';
 
 function durationText(ms: number): string {
   if (ms >= 60 * 60 * 1000) {
@@ -139,6 +186,7 @@ export function createBackupService(deps: BackupServiceDeps) {
   const key = deps.encryptionKey ?? '';
   const nightlyEnabled = deps.nightlyEnabled ?? true;
   const maxRunMs = deps.maxRunMs ?? MAX_RUN_MS;
+  const warnBytes = deps.warnBytes ?? DEFAULT_WARN_BYTES;
   let current: Promise<void> | null = null;
 
   const dayFormat = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' });
@@ -183,16 +231,60 @@ export function createBackupService(deps: BackupServiceDeps) {
 
   /** The "no new copy" warning, emailed once when it first appears (again only after a newer good copy). */
   async function emailIfNoNewCopy(): Promise<void> {
-    if (!deps.noCopyAlertMark || !nightlyEnabled) return;
+    if (!deps.notices || !nightlyEnabled) return;
     const [recent, kept] = await Promise.all([deps.repo.recent(20), keptCopies()]);
     const { staleSince } = warningFor(recent, kept[0]?.row, now());
-    if (!staleSince || (await deps.noCopyAlertMark.read()) === staleSince.id) return;
+    if (!staleSince || (await deps.notices.read('noCopy')) === staleSince.id) return;
     const since = dayFormat.format(staleSince.startedAt);
     await alert(
       `No new backup copy since ${since}`,
       `No new backup copy has been made since ${since}. Is the server running at night? Open System Settings → Backups to check, and press "Back up now" to make one.`,
     );
-    await deps.noCopyAlertMark.write(staleSince.id);
+    await deps.notices.write('noCopy', staleSince.id);
+  }
+
+  /** In production, copies made without BACKUP_ENCRYPTION_KEY: they aren't locked, and what to do. */
+  const keyWarning = deps.production && !key ? UNLOCKED_WARNING : null;
+
+  /** A good copy was just made: the first unlocked one in production is emailed about (once, until a locked one). */
+  async function emailIfUnlocked(copyId: string): Promise<void> {
+    if (!deps.notices) return;
+    const sent = await deps.notices.read('unlocked');
+    if (!keyWarning) {
+      if (sent && key) await deps.notices.write('unlocked', null); // a locked copy: it cleared
+      return;
+    }
+    if (sent) return;
+    await alert('Backup copies aren’t locked with a key', `A backup copy was just made without a backup key. ${keyWarning}`);
+    await deps.notices.write('unlocked', copyId);
+  }
+
+  /**
+   * Too much room taken by the kept copies (more than BACKUP_WARN_GB), or too little free space for
+   * the next one (under about twice the newest copy): in words, with what to do; null when fine.
+   */
+  async function spaceWarningFor(kept: { row: BackupRunRecord }[]): Promise<string | null> {
+    const problems: string[] = [];
+    const total = kept.reduce((n, { row }) => n + (row.sizeBytes ?? 0), 0);
+    if (total > warnBytes) problems.push(`The backup copies kept on the server take ${formatBytes(total)} in all, more than the ${formatBytes(warnBytes)} set as the warning limit (BACKUP_WARN_GB).`);
+    const newest = kept[0]?.row.sizeBytes ?? 0;
+    const free = newest > 0 && deps.freeSpace ? await deps.freeSpace(deps.backupDir).catch(() => null) : null;
+    if (free !== null && free < 2 * newest) problems.push(`Only ${formatBytes(free)} of disk space is free, less than twice the newest copy (${formatBytes(newest)}): the next copies may not fit.`);
+    return problems.length ? `${problems.join(' ')} ${SPACE_ADVICE}` : null;
+  }
+
+  /** The disk space warning, emailed once when it first appears, and again only after it cleared and came back. */
+  async function emailIfShortOfSpace(): Promise<void> {
+    if (!deps.notices) return;
+    const warning = await spaceWarningFor(await keptCopies());
+    const sent = await deps.notices.read('space');
+    if (!warning) {
+      if (sent) await deps.notices.write('space', null);
+      return;
+    }
+    if (sent) return;
+    await alert('Check the disk space for backups', warning);
+    await deps.notices.write('space', now().toISOString());
   }
 
   async function clearLeftovers(): Promise<void> {
@@ -343,6 +435,8 @@ export function createBackupService(deps: BackupServiceDeps) {
       deps.logger?.info('backup copy made', { file: fileName, bytes: result.sizeBytes, tables: result.tables, files: result.files });
       await sendToDrive(done, result);
       await applyRetention().catch((err) => deps.logger?.warn('old backup copies could not be cleared', { err }));
+      await emailIfUnlocked(row.id).catch((err) => deps.logger?.warn('the "copies aren’t locked" email could not be sent', { err }));
+      await emailIfShortOfSpace().catch((err) => deps.logger?.warn('the backup disk space email could not be sent', { err }));
       return (await deps.repo.find(row.id)) ?? done;
     } catch (err) {
       const reason = plainReason(err);
@@ -408,6 +502,7 @@ export function createBackupService(deps: BackupServiceDeps) {
         }
       }
       await emailIfNoNewCopy().catch((err) => deps.logger?.warn('the "no new backup copy" email could not be sent', { err }));
+      await emailIfShortOfSpace().catch((err) => deps.logger?.warn('the backup disk space email could not be sent', { err }));
       return tried;
     },
 
@@ -447,6 +542,8 @@ export function createBackupService(deps: BackupServiceDeps) {
       return {
         folder: deps.backupDir,
         folderWarning: deps.dirProblem ?? (deps.dirInsideApp ? 'The backup folder is inside the app folder, so a new deployment may remove it. Set BACKUP_DIR (or UPLOAD_DIR) to a folder outside the app.' : null),
+        keyWarning,
+        spaceWarning: await spaceWarningFor(kept),
         encrypted: Boolean(key),
         nightly: { enabled: nightlyEnabled, hour: NIGHTLY_HOUR, timeZone: tz },
         running: running && held ? { id: running.id, trigger: running.trigger, startedAt: running.startedAt.toISOString() } : null,

@@ -21,6 +21,10 @@ export interface BackupOverview {
   /** Where the copies are kept on the server. */
   folder: string;
   folderWarning: string | null;
+  /** On a real server without a backup key: the copies aren't locked, and what to do. */
+  keyWarning: string | null;
+  /** The kept copies take more than BACKUP_WARN_GB, or the free disk space is short: what to do. */
+  spaceWarning: string | null;
   encrypted: boolean;
   nightly: { enabled: boolean; hour: number; timeZone: string };
   running: { id: string; trigger: BackupTrigger; startedAt: string } | null;

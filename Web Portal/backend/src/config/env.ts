@@ -86,6 +86,9 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v === undefined || v.trim() === '' ? null : !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase()))),
+  // System Settings (and one email) warn when the backup copies kept on the server take more than
+  // this many GB in all. Blank = 5.
+  BACKUP_WARN_GB: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().positive().max(1_000_000).default(5)),
   // Google Drive copies of the backups: the OAuth client made once in Google Cloud (docs/BACKUPS.md).
   // Blank = no Google Drive. The redirect address defaults to API_BASE_URL/api/v1/backups/google/callback.
   GOOGLE_CLIENT_ID: z.string().optional().default(''),

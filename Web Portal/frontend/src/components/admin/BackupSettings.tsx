@@ -130,6 +130,8 @@ export function BackupSettings({ pollMs = POLL_MS, open = (url: string) => windo
           <p className="mb-4 text-sm text-ink-2">{scheduleText(data.nightly)}</p>
           {data.warning ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{data.warning}</p> : null}
           {data.folderWarning ? <p role="alert" className="mb-3 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">{data.folderWarning}</p> : null}
+          {data.keyWarning ? <p role="alert" className="mb-3 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">{data.keyWarning}</p> : null}
+          {data.spaceWarning ? <p role="alert" className="mb-3 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">{data.spaceWarning}</p> : null}
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line py-3">
             <div className="min-w-0">

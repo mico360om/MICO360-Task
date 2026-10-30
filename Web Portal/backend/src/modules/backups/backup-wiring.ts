@@ -6,7 +6,7 @@ import { secretBoxFromEnv } from '../settings/secret-box';
 import { writeBackupArchive } from './backup-archive';
 import { backupDirProblem, isInside, resolveBackupDir } from './backup-config';
 import type { BackupRouteDeps } from './backup-routes';
-import { createBackupService, type BackupServiceDeps } from './backup-service';
+import { createBackupService, noticesIn, type BackupServiceDeps } from './backup-service';
 import { diskFree, estimateBackupBytes } from './backup-space';
 import { createBackupDrive, createDriveConnectionStore, prismaSettingKeyValue } from './drive-connection';
 import { createGoogleDrive, googleUrls } from './google-drive';
@@ -22,6 +22,7 @@ type BackupEnv = Pick<
   | 'WEB_ROOT'
   | 'BACKUP_ENCRYPTION_KEY'
   | 'BACKUP_NIGHTLY'
+  | 'BACKUP_WARN_GB'
   | 'GOOGLE_CLIENT_ID'
   | 'GOOGLE_CLIENT_SECRET'
   | 'GOOGLE_REDIRECT_URI'
@@ -58,8 +59,6 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
   const webRoot = env.WEB_ROOT ? resolve(cwd, env.WEB_ROOT) : null;
   const appDir = appFolder(cwd);
   const sql = prismaSqlRunner(prisma);
-  // Which copy the "no new copy since …" email was about (never shown by the settings API).
-  const noCopyMark = prismaSettingKeyValue(prisma, 'backups.noCopyAlert');
 
   const google =
     env.GOOGLE_CLIENT_ID.trim() && env.GOOGLE_CLIENT_SECRET.trim()
@@ -93,13 +92,9 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
     freeSpace: diskFree,
     neededSpace: () => estimateBackupBytes(sql, uploadDir),
     alertAdmins: opts.alertAdmins,
-    noCopyAlertMark: {
-      read: async () => {
-        const v = await noCopyMark.read();
-        return typeof v === 'string' ? v : null;
-      },
-      write: (copyId) => (copyId ? noCopyMark.write(copyId) : noCopyMark.erase()),
-    },
+    notices: noticesIn(prismaSettingKeyValue(prisma, 'backups.notices')),
+    production: env.NODE_ENV === 'production',
+    warnBytes: env.BACKUP_WARN_GB * 1024 * 1024 * 1024,
     drive,
     logger: opts.logger,
   });
