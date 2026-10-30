@@ -21,10 +21,25 @@ const DIGEST: WeeklyDigest = {
     { id: 'zara', name: 'Zara Ahmed', lateTasks: 3 },
     { id: 'bilal', name: 'Bilal Ahmed', lateTasks: 1 },
   ],
+  approvals: { total: 3, projects: [{ id: 'rig', code: 'RIG', name: 'Rig Inspection Portal', count: 2 }, { id: 'arab', code: 'ARB', name: 'مشروع الحفر', count: 1 }] },
 };
 
 describe('weeklySummaryEmail', () => {
   const mail = weeklySummaryEmail({ name: 'Sara Ahmed', digest: DIGEST, week: '2026-10-25', appUrl: 'https://task.mico360.com/' });
+
+  it('says how many tasks wait for approval, in all and per project (as the Management page), with a link to the To approve list (owner, 30 Oct)', () => {
+    for (const s of ['Waiting for approval', 'Waiting for approval, by project:', '  - Rig Inspection Portal (RIG): 2 tasks', '  - مشروع الحفر (ARB): 1 task', 'https://task.mico360.com/my-tasks#to-approve']) {
+      expect(mail.text, s).toContain(s);
+    }
+    expect(mail.text).toMatch(/Waiting for approval\W+3/);
+    expect(mail.text.indexOf('Waiting for approval, by project:')).toBeLessThan(mail.text.indexOf('Open the dashboard'));
+    expect(mail.html).toContain('href="https://task.mico360.com/my-tasks#to-approve"');
+    // None waiting: the number is 0, with no list and no link.
+    const none = weeklySummaryEmail({ name: 'Sara Ahmed', digest: { ...DIGEST, approvals: { total: 0, projects: [] } }, week: '2026-10-25', appUrl: 'https://task.mico360.com/' });
+    expect(none.text).toMatch(/Waiting for approval\W+0/);
+    expect(none.text).not.toContain('by project');
+    expect(none.text).not.toContain('#to-approve');
+  });
 
   it('says in its subject how many projects are red and amber, and the late work', () => {
     expect(mail.subject).toBe('Weekly summary: 1 red, 1 amber · 5 late tasks');

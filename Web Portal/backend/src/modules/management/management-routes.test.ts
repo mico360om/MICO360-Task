@@ -51,14 +51,14 @@ const tokenService = createTokenService({
 });
 const auth = async (id: string, roles: string[]) => ({ authorization: `Bearer ${(await tokenService.issueTokens({ id, roles })).accessToken}` });
 
-async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}) {
+async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}, data: FakeManagementData = DATA) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
   });
   const service = createManagementService({
-    source: fakeManagementSource(DATA),
-    workload: fakeWorkloadFor(DATA),
+    source: fakeManagementSource(data),
+    workload: fakeWorkloadFor(data),
     settings: { companyWeekStart: async () => 0, workingHours: async () => ({ days: [0, 1, 2, 3, 4] }), dailyLimit: async () => 5 },
     timeZone: 'Asia/Muscat',
     now: () => NOW,
@@ -162,6 +162,22 @@ describe('Management routes', () => {
     ]) {
       expect(text, s).toContain(s);
     }
+  });
+
+  it('PDF: tasks waiting for approval, in all and per project, as on the page (owner, 30 Oct)', async () => {
+    const waiting: FakeManagementData = { ...DATA, tasks: DATA.tasks.map((t) => (t.id === 'r1' || t.id === 'c1' ? { ...t, waitingSince: '2026-10-26T08:00:00.000Z' } : t.id === 'm1' ? { ...t, waitingSince: '2026-10-25T08:00:00.000Z' } : t)) };
+    const app = await makeApp({}, waiting);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers: await auth('admin', ['ADMIN']) });
+    const lines = inspectPdf(res.rawPayload).pages.flat();
+    const text = lines.join('\n');
+    for (const s of ['Waiting for approval', 'In all: 3 tasks', 'Tasks finished but not approved yet by whoever runs the project. They don’t count as done until then.', 'Rig Inspection Portal (RIG)', 'MICO360 Platform (MICO)']) expect(text, s).toContain(s);
+    // Most first: Rig (2) before MICO (1); after Project health, before Inspections.
+    expect(text.indexOf('Rig Inspection Portal (RIG)', text.indexOf('In all: 3 tasks'))).toBeLessThan(text.indexOf('MICO360 Platform (MICO)', text.indexOf('In all: 3 tasks')));
+    expect(text.indexOf('Project health')).toBeLessThan(text.indexOf('In all: 3 tasks'));
+    expect(text.indexOf('In all: 3 tasks')).toBeLessThan(text.indexOf('Inspections'));
+    // None waiting: the section says so.
+    const calm = await (await makeApp()).inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers: await auth('admin', ['ADMIN']) });
+    expect(inspectPdf(calm.rawPayload).pages.flat().join('\n')).toContain('Nothing is waiting for approval.');
   });
 
   it('PDF: one project chosen is in the file name; a runner’s copy says it is their projects', async () => {
