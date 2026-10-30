@@ -121,8 +121,9 @@ const webRepeat = await load('meeting-repeat.ts');
 const webFlow = await load('meeting-flow.ts');
 
 describe.skipIf(!webList || !webFormat || !webRepeat || !webFlow)('meetings match the web’s (lib/meeting-*.ts, meetingFormat.ts)', () => {
-  const STARTS = ['2026-10-21T06:00:00.000Z', '2026-10-21T06:45:00.000Z', '2026-10-21T19:59:00.000Z', '2026-10-22T03:00:00.000Z', '2026-10-25T10:00:00.000Z', '2026-11-30T23:00:00.000Z', '2026-10-01T06:00:00.000Z'];
-  const NOWS = ['2026-10-21T06:30:00.000Z', '2026-10-21T19:30:00.000Z', '2026-12-31T21:00:00.000Z'].map((s) => new Date(s));
+  // A September start and a September "now" too: en-GB's Intl writes "Sept", the day words "Sep".
+  const STARTS = ['2026-10-21T06:00:00.000Z', '2026-10-21T06:45:00.000Z', '2026-10-21T19:59:00.000Z', '2026-10-22T03:00:00.000Z', '2026-10-25T10:00:00.000Z', '2026-11-30T23:00:00.000Z', '2026-10-01T06:00:00.000Z', '2026-09-30T06:00:00.000Z'];
+  const NOWS = ['2026-10-21T06:30:00.000Z', '2026-10-21T19:30:00.000Z', '2026-12-31T21:00:00.000Z', '2026-09-10T05:00:00.000Z'].map((s) => new Date(s));
   const list = STARTS.flatMap((s, i) => [
     meeting(`m${i}`, s, { endAt: i % 2 ? null : new Date(Date.parse(s) + 5400000).toISOString(), updatedAt: `2026-10-0${(i % 9) + 1}T00:00:00Z` }),
     meeting(`d${i}`, s, { status: ['DRAFT', 'IN_PROGRESS', 'CANCELLED', 'COMPLETED'][i % 4] }),

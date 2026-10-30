@@ -75,6 +75,7 @@ export function nextUpMeeting(list, now) {
   return list.filter((m) => m.status === 'SCHEDULED' && new Date(m.startAt).getTime() > now.getTime()).sort(byStart)[0] || null;
 }
 
+/** A weekday's full name ("Monday"); the other day words come from day-words.js ("Sep", never "Sept"), as on the web. */
 const dayWords = (key, opts) => new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`));
 
 /** "Happening now", "in 25 min", "Tomorrow at 10:00", "Tue 20 Oct at 10:00". */
@@ -89,7 +90,7 @@ export function startsLabel(m, now, timeZone) {
   if (day === today) return `Today at ${time}`;
   if (day === shiftDayKey(today, 1)) return `Tomorrow at ${time}`;
   if (day > today && day <= shiftDayKey(today, 6)) return `${dayWords(day, { weekday: 'long' })} at ${time}`;
-  return `${dayWords(day, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')} at ${time}`;
+  return `${dayText(day, { weekday: 'short', year: false })} at ${time}`;
 }
 
 const byStartAt = (a, b) => a.startAt.localeCompare(b.startAt);

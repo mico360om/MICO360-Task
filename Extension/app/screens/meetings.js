@@ -6,6 +6,7 @@ import {
 } from '../../src/meetings.js';
 import { seriesIdOf } from '../../src/calendar.js';
 import { todayKey, zonedDayKey } from '../../src/due-date.js';
+import { instantDayText } from '../../src/day-words.js';
 
 /** Meetings whose answers are looked up from an older server (the soonest): each is one small read. */
 const ANSWERS_READ = 12;
@@ -104,7 +105,8 @@ export function MeetingsScreen(ctx) {
   function card(m, { answer, project, organizer, now, answerSlots }) {
     const tz = ctx.timeZone;
     const d = new Date(m.startAt);
-    const part = (o) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone: tz }).format(d);
+    // "Wed 30 Sep" in company time, as the web's DateLeaf: three-letter months, never "Sept".
+    const [leafWeekday, leafDay, leafMonth] = instantDayText(d, tz, { weekday: 'short', year: false }).split(' ');
     const today = zonedDayKey(d, tz) === todayKey(tz, now);
     const live = isUnderWay(m, now);
     const cancelled = m.status === 'CANCELLED';
@@ -115,7 +117,7 @@ export function MeetingsScreen(ctx) {
     if (answer) answerSlots.set(m.id, slot);
     return el('article', { class: `mt-card${live ? ' live' : ''}${cancelled ? ' cancelled' : ''}`, dataset: { meetingId: m.id } },
       el('div', { class: `mt-leaf${today ? ' today' : ''}`, 'aria-hidden': 'true' },
-        el('span', {}, part({ weekday: 'short' })), el('b', {}, part({ day: 'numeric' })), el('span', {}, part({ month: 'short' }))),
+        el('span', {}, leafWeekday), el('b', {}, leafDay), el('span', {}, leafMonth)),
       el('div', { class: 'mt-body' },
         // A focus key with the meeting's id: a series shares its title, and Up next's Open its name.
         el('h3', { class: 'mt-h' }, el('button', { class: 'linkbtn mt-title', type: 'button', dir: 'auto', 'aria-label': `Open ${m.title}`, dataset: { focusKey: `card-open-${m.id}` }, onClick: open }, m.title)),
