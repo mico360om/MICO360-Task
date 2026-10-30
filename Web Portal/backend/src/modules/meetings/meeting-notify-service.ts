@@ -2,6 +2,7 @@ import { ConflictError, HttpError, NotFoundError, ValidationError } from '../../
 import { buildIcs, buildIcsCalendar, type IcsEvent, type IcsMethod, type IcsPerson } from '../../lib/ics';
 import { zonedDayKey } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
+import { fmtDate, fmtTimeRange } from './minutes';
 import { recurrenceSummary } from '../tasks/recurrence-summary';
 import { wallOf } from './meeting-series';
 import type { Logger } from '../../lib/logger';
@@ -157,13 +158,13 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
   /** The meeting's own zone when valid, else the company zone — never a zone that makes formatting throw. */
   const zoneOf = (m: MeetingRecord): string => (m.timeZone && isValidTimeZone(m.timeZone) ? m.timeZone : fallbackZone);
 
+  /**
+   * "Thursday 1 October 2026, 10:00 – 11:30 (GMT+4)": day before month and the 24-hour clock, in the
+   * meeting's zone — as the minutes PDF writes the meeting's day and times.
+   */
   function formatWhen(m: MeetingRecord): string {
     const tz = zoneOf(m);
-    const day = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: tz }).format(m.startAt);
-    const t = (d: Date) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(d);
-    const zone = new Intl.DateTimeFormat('en-US', { hour: 'numeric', timeZone: tz, timeZoneName: 'short' }).formatToParts(m.startAt).find((p) => p.type === 'timeZoneName')?.value ?? tz;
-    const time = m.endAt ? `${t(m.startAt)} – ${t(m.endAt)}` : t(m.startAt);
-    return `${day}, ${time} (${zone})`;
+    return `${fmtDate(m.startAt.toISOString(), tz)}, ${fmtTimeRange(m.startAt.toISOString(), m.endAt?.toISOString() ?? null, tz)}`;
   }
 
   async function requireMeeting(id: string): Promise<MeetingRecord> {
