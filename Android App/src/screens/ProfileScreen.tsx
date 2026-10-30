@@ -203,7 +203,7 @@ const makeStyles = (c: Palette) =>
     photo: { width: 112, height: 112, borderRadius: 56, borderWidth: 1, borderColor: c.line, marginBottom: spacing.sm, backgroundColor: c.surface },
     initialsBox: { width: 112, height: 112, borderRadius: 56, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
     initials: { color: c.onBrand, fontSize: fontSize.xxl, ...font('800') },
-    name: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'center' },
+    name: { fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, textAlign: 'center' },
     photoActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
     photoButton: { minWidth: 120 },
     photoProblem: { color: c.dangerText, fontSize: fontSize.sm, ...font('600'), textAlign: 'center', marginTop: spacing.xs },

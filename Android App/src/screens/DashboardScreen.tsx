@@ -120,7 +120,7 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
     scroll: { padding: spacing.lg, gap: spacing.md },
-    greeting: { fontSize: fontSize.xxl, ...font('800'), color: c.ink },
+    greeting: { fontSize: fontSize.xxl, ...font('800', 'display'), color: c.ink },
     sub: { fontSize: fontSize.md, color: c.ink2, marginBottom: spacing.sm },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexGrow: 1, flexBasis: '47%' },

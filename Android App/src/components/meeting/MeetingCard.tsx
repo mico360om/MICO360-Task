@@ -142,5 +142,5 @@ const makeStyles = (c: Palette) =>
     leafUpcoming: { backgroundColor: c.brandWash, borderColor: c.brandWash },
     leafMuted: { backgroundColor: c.ground, borderColor: c.line },
     leafSmall: { fontSize: 10, ...font('700'), letterSpacing: 0.5 },
-    leafDay: { fontSize: fontSize.lg, ...font('800'), lineHeight: 22 },
+    leafDay: { fontSize: fontSize.lg, ...font('700', 'display'), lineHeight: 22 },
   });

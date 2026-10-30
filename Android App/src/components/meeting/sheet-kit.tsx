@@ -338,7 +338,7 @@ const makeStyles = (c: Palette) =>
     // The fields shrink (and scroll) when the keyboard leaves less room, so the buttons stay in view.
     body: { flexGrow: 0, flexShrink: 1 },
     bodyContent: { gap: spacing.sm, paddingBottom: spacing.xs },
-    title: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, textAlign: 'auto' },
     subtitle: { fontSize: fontSize.sm, color: c.ink2, textAlign: 'auto' },
     footer: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.xs },
     footerButton: { flex: 1 },

@@ -270,7 +270,7 @@ const makeStyles = (c: Palette) =>
     codes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, flexShrink: 1 },
     code: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 2, letterSpacing: 0.5 },
     identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    name: { fontSize: fontSize.lg, ...font('800'), color: c.ink },
+    name: { fontSize: fontSize.lg, ...font('700', 'display'), color: c.ink },
     client: { fontSize: fontSize.sm, color: c.ink2 },
     internal: { fontSize: fontSize.sm, color: c.ink3 },
     progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
