@@ -203,8 +203,8 @@ export function resolveColors(scheme: 'light' | 'dark' | null | undefined): Pale
 export const colors = lightColors;
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
-/** The website's radii (rounded-md 6 badges, rounded-lg 8 fields, rounded-xl 14 buttons, rounded-2xl 18 cards, rounded-3xl 24 sheets). `sm`/`md`/`lg` are the old names, kept until every screen uses the new ones. */
-export const radius = { badge: 6, input: 8, button: 14, card: 18, sheet: 24, pill: 999, sm: 6, md: 10, lg: 14 } as const;
+/** The website's radii, by what the element is: rounded-md 6 badges, rounded-lg 8 fields, rounded-xl 14 buttons, rounded-2xl 18 cards, rounded-3xl 24 sheets. */
+export const radius = { badge: 6, input: 8, button: 14, card: 18, sheet: 24, pill: 999 } as const;
 export const fontSize = { xs: 11, sm: 13, md: 15, lg: 18, xl: 22, xxl: 28 } as const;
 
 /** Convert a #rrggbb hex to an rgba() string (for translucent brand fills). */

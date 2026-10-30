@@ -68,9 +68,11 @@ it('has the website’s values even without the website next to it', () => {
   expect([lightColors.onBrand, darkColors.onBrand]).toEqual(['#FFFFFF', '#FFFFFF']);
 });
 
-it('the radii: badge 6, input 8, button 14, card 18, sheet 24, pill; sm/md/lg kept as aliases for now', () => {
-  expect(radius).toEqual({ badge: 6, input: 8, button: 14, card: 18, sheet: 24, pill: 999, sm: 6, md: 10, lg: 14 });
+it('the radii: badge 6, input 8, button 14, card 18, sheet 24, pill', () => {
+  expect(radius).toEqual({ badge: 6, input: 8, button: 14, card: 18, sheet: 24, pill: 999 });
 });
+
+it('radius has only role names', () => expect(Object.keys(radius).sort()).toEqual(['badge', 'button', 'card', 'input', 'pill', 'sheet']));
 
 it('the website’s soft/card/lift/brand shadows as phone elevations', () => {
   const ink = '#211B1A';

@@ -6,11 +6,8 @@ import { appSources } from './testing/web-source';
  * The look's house rules, checked over every app source file (src/**, not tests or src/testing):
  * the website's drawn icons instead of glyphs, colours only from the palette, the text tones for
  * text, the brand faces for weight, skeletons for a first load, faces through Avatar and the named
- * radii. Files the screen sweeps (Tasks 16–20) have not reached yet are listed in PENDING, one
- * block per sweep task; each sweep deletes its block, and a listed file that breaks nothing any
- * more fails the last test — so the list only shrinks. R3 and R4 hold everywhere already.
+ * radii. Every rule holds for every file (the Stage 1 sweeps, Tasks 16–20, reached them all).
  */
-const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task20', readonly string[]>> = {};
 
 /** UI glyphs: emoji and the arrows, ticks, stars, boxes and pluses that stood in for icons. */
 const GLYPH = /[\p{Extended_Pictographic}\u{FE0F}‹›↑↓↻⊘⋯★☆☐☰✓✕✎■-◿＋]/gu;
@@ -48,8 +45,6 @@ const matchesOf = (re: RegExp, text: string) => [...text.matchAll(new RegExp(re.
 interface Rule {
   id: string;
   says: string;
-  /** May a file on PENDING break it for now? */
-  pendable: boolean;
   applies: (file: string) => boolean;
   /** What breaks it in this file (empty: nothing). */
   breaks: (file: string, text: string) => string[];
@@ -59,7 +54,6 @@ const RULES: Rule[] = [
   {
     id: 'R1',
     says: 'no UI glyphs in shown text — use <Icon> (chat emoji are content: lib/emoji.ts; 📎 is the website’s chat preview word)',
-    pendable: true,
     applies: (f) => f !== 'lib/emoji.ts',
     breaks: (f) =>
       STRINGS.get(f)!
@@ -69,68 +63,49 @@ const RULES: Rule[] = [
   {
     id: 'R2',
     says: 'no colour literals — colours come from lib/theme.ts (project colours from lib/project-identity.ts)',
-    pendable: true,
     applies: (f) => f !== 'lib/theme.ts' && f !== 'lib/project-identity.ts',
     breaks: (f) => STRINGS.get(f)!.filter((s) => (HEX.test(s.trim()) || /rgba?\(/i.test(s)) && !(COLOUR_TEXT_ALLOWED[f] ?? []).includes(s)),
   },
   {
     id: 'R3',
     says: 'no status fill as a text colour — text uses brandText/dangerText/successText/warningText/infoText',
-    pendable: false,
     applies: (f) => f.endsWith('.tsx'),
     breaks: (_f, text) => matchesOf(STATUS_TEXT, text),
   },
   {
     id: 'R4',
     says: 'no fontWeight — the weight is the face: font(…) / typeStyle(…)',
-    pendable: false,
     applies: (f) => f.endsWith('.tsx'),
     breaks: (_f, text) => matchesOf(/fontWeight\s*:/, text),
   },
   {
     id: 'R5',
     says: 'a screen’s first load shows <SkeletonList />, not <Loader />',
-    pendable: true,
     applies: (f) => f.startsWith('screens/'),
     breaks: (_f, text) => matchesOf(/<Loader\b/, text),
   },
   {
     id: 'R7',
     says: 'initials circles only through <Avatar> (components/ui/Avatar.tsx)',
-    pendable: true,
     applies: (f) => (f.startsWith('components/') || f.startsWith('screens/')) && f !== 'components/ui/Avatar.tsx',
     breaks: (_f, text) => matchesOf(/\bpersonInitials\(/, text),
   },
   {
     id: 'R8',
     says: 'the named radii — badge, input, button, card, sheet, pill — not radius.sm/md/lg',
-    pendable: true,
     applies: () => true,
     breaks: (_f, text) => matchesOf(/\bradius\.(?:sm|md|lg)\b/, text),
   },
 ];
 
-const pending = new Set(Object.values(PENDING).flat());
-const sources = new Map(FILES);
-
 describe('the style guard', () => {
   for (const rule of RULES) {
     it(`${rule.id}: ${rule.says}`, () => {
-      const broken = FILES.filter(([f]) => rule.applies(f) && !(rule.pendable && pending.has(f)))
+      const broken = FILES.filter(([f]) => rule.applies(f))
         .map(([f, text]) => [f, rule.breaks(f, text)] as const)
         .filter(([, found]) => found.length > 0)
         .map(([f, found]) => `${f}: ${[...new Set(found)].slice(0, 6).join(' ')}`);
       expect(broken).toEqual([]);
     });
   }
-
-  it('the pending list only shrinks: every file on it still breaks a rule (else remove it from PENDING)', () => {
-    const stale = [...pending].filter((f) => {
-      const text = sources.get(f);
-      if (text === undefined) return true;
-      return !RULES.some((r) => r.pendable && r.applies(f) && r.breaks(f, text).length > 0);
-    });
-    expect(stale).toEqual([]);
-    expect(pending.size).toBe(Object.values(PENDING).flat().length); // no file listed twice
-  });
 });
