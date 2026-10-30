@@ -14,8 +14,29 @@ const GLYPH = /[\p{Extended_Pictographic}\u{FE0F}‹›↑↓↻⊘⋯★☆☐�
 /** Marks that are words, not icons. */
 const NOT_A_GLYPH = new Set(['©', '®', '™']);
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
-/** A status fill used as a text colour (tools/codemods/status-text.js turns these into the text tones). */
-const STATUS_TEXT = /(?<![A-Za-z])(color|tintColor|tabBarActiveTintColor|tabBarInactiveTintColor|headerTintColor|placeholderTextColor)(\s*[:=]\s*\{?\s*)(c|colors)\.(brand|danger|success|warning|info)\b/g;
+/** The props whose value colours text or an icon (R3 reads their whole value, ternaries included). */
+const TEXT_COLOUR_PROPS = new Set(['color', 'tintColor', 'tabBarActiveTintColor', 'tabBarInactiveTintColor', 'headerTintColor', 'placeholderTextColor']);
+/** A status FILL read from the palette — not its …Text tone, …Soft wash, brandWash, brand2…: tools/codemods/status-text.js turns these into the text tones. */
+const STATUS_FILL = /\b(?:c|colors|p)\.(?:brand|danger|success|warning|info)\b/g;
+/** Components whose `color` paints a fill, not text (R3 allows exactly these): a progress bar's bar. */
+const FILL_COLOUR_PROPS: Record<string, readonly string[]> = { ProgressBar: ['color'] };
+
+/** The value of every text-colour prop in a file (style objects and JSX props), as source text. */
+function textColourValues(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const out: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isPropertyAssignment(n) && (ts.isIdentifier(n.name) || ts.isStringLiteral(n.name)) && TEXT_COLOUR_PROPS.has(n.name.text)) out.push(n.initializer.getText(sf));
+    if (ts.isJsxAttribute(n) && ts.isIdentifier(n.name) && TEXT_COLOUR_PROPS.has(n.name.text) && n.initializer) {
+      const element = n.parent.parent;
+      const tag = ts.isJsxOpeningElement(element) || ts.isJsxSelfClosingElement(element) ? element.tagName.getText(sf) : '';
+      if (!(FILL_COLOUR_PROPS[tag] ?? []).includes(n.name.text)) out.push(n.initializer.getText(sf));
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
 /**
  * Colour codes that are words, not styling (R2 allows exactly these): the example a "colour code"
  * box shows as its hint, for a person to read and type — content, not a colour the app paints.
@@ -69,8 +90,8 @@ const RULES: Rule[] = [
   {
     id: 'R3',
     says: 'no status fill as a text colour — text uses brandText/dangerText/successText/warningText/infoText',
-    applies: (f) => f.endsWith('.tsx'),
-    breaks: (_f, text) => matchesOf(STATUS_TEXT, text),
+    applies: () => true,
+    breaks: (f, text) => textColourValues(f, text).flatMap((v) => matchesOf(STATUS_FILL, v)),
   },
   {
     id: 'R4',

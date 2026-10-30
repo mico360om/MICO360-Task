@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   text: { ...typeStyle('button'), fontSize: 13, lineHeight: 18 },
-  count: { ...typeStyle('number'), fontSize: 12, lineHeight: 16, opacity: 0.85 },
+  count: { ...typeStyle('number'), fontSize: 12, lineHeight: 16 },
   dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1 },
   pressed: { opacity: 0.85 },
   dim: { opacity: 0.5 },

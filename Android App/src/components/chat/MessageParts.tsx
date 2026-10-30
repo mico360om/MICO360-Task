@@ -63,7 +63,7 @@ function Body({ text, people, mine, style, onLongPress }: { text: string; people
     <Text style={style}>
       {parts.map((p, i) =>
         p.url ? (
-          <Text key={i} style={{ color: mine ? c.onBrand : c.brand, textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(p.url!)} onLongPress={onLongPress}>
+          <Text key={i} style={{ color: mine ? c.onBrand : c.brandText, textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(p.url!)} onLongPress={onLongPress}>
             {p.text}
           </Text>
         ) : (
@@ -330,7 +330,7 @@ export const MessageBubble = memo(function MessageBubble({
                 accessibilityLabel={reactionLabel(r, myId, nameOf)}
               >
                 <Text style={s.chipEmoji}>{r.emoji}</Text>
-                <Text style={[s.chipCount, { color: mineToo ? c.brand : c.ink2 }]}>{r.userIds.length}</Text>
+                <Text style={[s.chipCount, { color: mineToo ? c.brandText : c.ink2 }]}>{r.userIds.length}</Text>
               </Pressable>
             );
           })}

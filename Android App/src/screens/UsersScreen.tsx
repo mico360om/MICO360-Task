@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useAfterUserChange, useUserActions, useUsers } from '../core/admin-queries';
-import { Avatar, Badge, ErrorNote, NoticeNote, SkeletonList, TextField } from '../components/ui';
+import { Avatar, Badge, ErrorNote, IconButton, NoticeNote, SkeletonList, TextField } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { FilterChips } from '../components/project/parts';
 import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
@@ -66,13 +66,11 @@ export function UsersScreen({ navigation, route }: AppScreenProps<'Users'>) {
     navigation.setOptions({
       headerRight: showNew
         ? () => (
-            <Pressable onPress={() => navigation.navigate('UserForm')} accessibilityRole="button" accessibilityLabel="New user" hitSlop={8} style={s.headerButton}>
-              <Text style={s.headerButtonText}>+ New</Text>
-            </Pressable>
+            <IconButton icon="ui.plus" label="New user" color={c.brandText} onPress={() => navigation.navigate('UserForm')} />
           )
         : undefined,
     });
-  }, [navigation, showNew, s]);
+  }, [navigation, showNew, c]);
 
   const users = useMemo(() => usersQ.data ?? [], [usersQ.data]);
   const shown = useMemo(() => filterUsers(users, { q, filter }), [users, q, filter]);
@@ -378,8 +376,6 @@ const makeStyles = (c: Palette) =>
     buttonDanger: { color: c.dangerText },
     pressed: { opacity: 0.7 },
     disabled: { opacity: 0.4 },
-    headerButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md },
-    headerButtonText: { color: c.onBrand, ...font('800'), fontSize: fontSize.md },
     empty: { alignItems: 'center', padding: spacing.xl, gap: spacing.sm },
     emptyText: { fontSize: fontSize.md, color: c.ink2 },
     clear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md },

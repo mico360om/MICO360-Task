@@ -193,7 +193,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
                 </Pressable>
                 {!v.builtIn ? (
                   <Pressable onPress={() => views.remove(v.id)} accessibilityRole="button" accessibilityLabel={`Delete view ${v.name}`} hitSlop={6} style={s.viewX}>
-                    <Icon name="ui.close" size={14} color={c.ink3} />
+                    <Icon name="ui.close" size={14} color={c.ink2} />
                   </Pressable>
                 ) : null}
               </View>
