@@ -188,6 +188,9 @@ describe('a client opens the link and enters the emailed code', () => {
     const other = lastLink();
     expect(await svc.requestCode(link, 'fatma@client.example', {})).toEqual({ sent: true });
     expect(await svc.requestCode(other, 'fatma@client.example', {})).toEqual({ sent: true });
+    // Both codes go — and are waited for here, so they never land in the next test's mailbox.
+    await settle();
+    expect(codes).toHaveLength(2);
   });
 
   it('codes are kept only as a hash', async () => {
