@@ -73,6 +73,7 @@ import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-a
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
 import { inspectionsApi } from './inspections-api';
+import { clientSharesApi } from './client-share';
 
 type NewUserBody = ReturnType<typeof newUserBody>;
 type UserPatchBody = ReturnType<typeof userPatch>;
@@ -183,6 +184,8 @@ export function resourcesApi(client: ApiClient) {
   return {
     /** Inspections: a project's, a task's, answering, signing, follow-ups, schedules, the report (Stage 4). */
     inspections: inspectionsApi(client),
+    /** Sharing a project with its client; Show to client on tasks and minutes (Stage 4). */
+    clientShares: clientSharesApi(client),
     projects: {
       list: () => data(client.get<Envelope<ApiProject[]>>('/projects')),
       get: (id: string) => data(client.get<Envelope<ApiProject>>(`/projects/${seg(id)}`)),

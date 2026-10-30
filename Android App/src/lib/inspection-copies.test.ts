@@ -62,6 +62,10 @@ describe('apiRoutes reads a calls file as verb and path per call', () => {
       '  remove: (id: string) => client.del<void>(`/inspections/${id}`),',
       '  start: (p: string, input: I, key?: string) => client.post<{ data: D }>(`/projects/${seg(p)}/inspections`, input, idempotencyHeaders(key)),',
       '  reportPdf: (id: string) => client.getBlob(`/inspections/${seg(id)}/report.pdf`),',
+      '  setVisible: (id: string, visible: boolean) =>',
+      '    client',
+      '      .put<{ data: V }>(`/inspections/${seg(id)}/client-visibility`, { visible })',
+      '      .then((r) => r.data),',
       '});',
     ].join('\r\n');
     expect(apiRoutes(text)).toEqual({
@@ -70,6 +74,7 @@ describe('apiRoutes reads a calls file as verb and path per call', () => {
       dueChecks: 'GET /projects/:p/inspection-checks?state=open',
       remove: 'DELETE /inspections/:p',
       start: 'POST /projects/:p/inspections',
+      setVisible: 'PUT /inspections/:p/client-visibility',
     });
   });
 });
