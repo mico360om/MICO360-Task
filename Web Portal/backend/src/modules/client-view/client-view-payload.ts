@@ -1,5 +1,5 @@
 import { dueDayKey, todayKey, zonedDayKey } from '../../lib/due-date';
-import { isTaskDone } from '../tasks/task-status';
+import { isTaskDone, isTaskLate } from '../tasks/task-status';
 import { resolveMinutesTimeZone } from '../meetings/minutes';
 import type { FinalMinutesContent } from '../meetings/final-minutes';
 import { clientMinutesContent } from './client-minutes-content';
@@ -78,6 +78,11 @@ export interface ClientItem {
   status: ClientTaskStatus;
   /** 'YYYY-MM-DD'. */
   dueDate: string | null;
+  /**
+   * Past its due day (company time) and not done, as the staff see it — never while it waits for
+   * approval (owner, 30 Oct: the client sees that one as "In progress").
+   */
+  late: boolean;
 }
 
 export interface ClientMinutes {
@@ -109,7 +114,10 @@ export interface ClientView {
   tasks: ClientItem[];
   minutes: ClientMinutes[];
   inspections: ClientInspectionSummary[];
+  /** When this was read (the page's "Updated 30 Oct 2026, 10:15"). */
   generatedAt: string;
+  /** The company time zone, which the page writes that time in. */
+  timeZone: string;
 }
 
 const PROJECT_STATUS: Record<string, string> = { PLANNING: 'Planning', ACTIVE: 'In progress', ON_HOLD: 'On hold', COMPLETED: 'Completed' };
@@ -142,8 +150,13 @@ function elapsedPercent(start: string | null, target: string | null, today: stri
 
 const byDueThenTitle = (a: ClientItem, b: ClientItem) => (a.dueDate ?? '9999-12-31').localeCompare(b.dueDate ?? '9999-12-31') || a.title.localeCompare(b.title);
 
-function item(t: ClientTaskSource, timeZone: string): ClientItem {
-  return { title: String(t.title), status: clientTaskStatus(t), dueDate: dueDayKey(t.dueDate, timeZone) };
+function item(t: ClientTaskSource, timeZone: string, now: Date): ClientItem {
+  return {
+    title: String(t.title),
+    status: clientTaskStatus(t),
+    dueDate: dueDayKey(t.dueDate, timeZone),
+    late: isTaskLate({ columnCategory: t.columnCategory, completedAt: t.completedAt, dueDate: t.dueDate, approvalRequestedAt: t.awaitingApproval ? now : null }, timeZone, now),
+  };
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
@@ -198,8 +211,8 @@ export function buildClientView(input: ClientViewInput): ClientView {
     },
     progress: { percentDone: total ? Math.round((done / total) * 100) : 0 },
     timeline: { startDate, targetDate, today, elapsedPercent: elapsedPercent(startDate, targetDate, today) },
-    milestones: shown.filter((t) => t.isMilestone).map((t) => item(t, timeZone)).sort(byDueThenTitle),
-    tasks: shown.filter((t) => !t.isMilestone).map((t) => item(t, timeZone)).sort(byDueThenTitle),
+    milestones: shown.filter((t) => t.isMilestone).map((t) => item(t, timeZone, now)).sort(byDueThenTitle),
+    tasks: shown.filter((t) => !t.isMilestone).map((t) => item(t, timeZone, now)).sort(byDueThenTitle),
     minutes: input.minutes
       .filter((m) => m.status === 'APPROVED' && m.clientVisible === true)
       .sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
@@ -215,5 +228,6 @@ export function buildClientView(input: ClientViewInput): ClientView {
       }),
     inspections: (input.inspections ?? []).map(inspectionCopy),
     generatedAt: now.toISOString(),
+    timeZone,
   };
 }

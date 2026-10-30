@@ -65,15 +65,15 @@ describe('the client page payload: an explicit allow-list', () => {
         'project.color', 'project.icon', 'project.imageUrl',
         'progress', 'progress.percentDone',
         'timeline', 'timeline.startDate', 'timeline.targetDate', 'timeline.today', 'timeline.elapsedPercent',
-        'milestones', 'milestones[].title', 'milestones[].status', 'milestones[].dueDate',
-        'tasks', 'tasks[].title', 'tasks[].status', 'tasks[].dueDate',
+        'milestones', 'milestones[].title', 'milestones[].status', 'milestones[].dueDate', 'milestones[].late',
+        'tasks', 'tasks[].title', 'tasks[].status', 'tasks[].dueDate', 'tasks[].late',
         'minutes', 'minutes[].id', 'minutes[].title', 'minutes[].date', 'minutes[].approvedOn', 'minutes[].content',
         'minutes[].content.summary', 'minutes[].content.discussion', 'minutes[].content.discussion[].topic', 'minutes[].content.discussion[].text',
         'minutes[].content.decisions', 'minutes[].content.risks', 'minutes[].content.nextSteps',
         'inspections', 'inspections[].id', 'inspections[].title', 'inspections[].date', 'inspections[].place', 'inspections[].result',
         'inspections[].counts', 'inspections[].counts.total', 'inspections[].counts.passed', 'inspections[].counts.failed', 'inspections[].counts.na',
         'inspections[].revisionNumber', 'inspections[].reopenedOn',
-        'generatedAt',
+        'generatedAt', 'timeZone',
       ].sort(),
     );
   });
@@ -133,11 +133,44 @@ describe('the client page payload: an explicit allow-list', () => {
 
   it('splits milestones from tasks, soonest due first (no date last)', () => {
     const v = buildClientView(input());
-    expect(v.milestones).toEqual([{ title: 'Site survey', status: 'Done', dueDate: '2026-10-10' }]);
+    expect(v.milestones).toEqual([{ title: 'Site survey', status: 'Done', dueDate: '2026-10-10', late: false }]);
     expect(v.tasks).toEqual([
-      { title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02' },
-      { title: 'Report draft', status: 'Not started', dueDate: null },
+      { title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02', late: false },
+      { title: 'Report draft', status: 'Not started', dueDate: null, late: false },
     ]);
+  });
+
+  it('marks a task or milestone past its due day and not done as late — never one waiting for approval (owner, 30 Oct)', () => {
+    const v = buildClientView(
+      input({
+        items: [
+          // Due yesterday (25 Oct), today, and done late: only the open one past its day is late.
+          { title: 'Pressure test', isMilestone: false, clientVisible: true, columnCategory: 'IN_PROGRESS', completedAt: null, dueDate: new Date('2026-10-25T00:00:00Z') },
+          { title: 'Due today', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: new Date('2026-10-26T00:00:00Z') },
+          { title: 'Finished late', isMilestone: false, clientVisible: true, columnCategory: 'DONE', completedAt: new Date('2026-10-24T00:00:00Z'), dueDate: new Date('2026-10-20T00:00:00Z') },
+          // Handed in, waiting for a manager: shown in progress, not late.
+          { title: 'Handed in', isMilestone: false, clientVisible: true, columnCategory: 'REVIEW', completedAt: null, dueDate: new Date('2026-10-22T00:00:00Z'), awaitingApproval: true },
+          { title: 'Handover', isMilestone: true, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: new Date('2026-10-23T00:00:00Z') },
+          { title: 'Sign-off', isMilestone: true, clientVisible: true, columnCategory: 'REVIEW', completedAt: null, dueDate: new Date('2026-10-23T00:00:00Z'), awaitingApproval: true },
+        ],
+      }),
+    );
+    expect(v.tasks.map((t) => [t.title, t.status, t.late])).toEqual([
+      ['Finished late', 'Done', false],
+      ['Handed in', 'In progress', false],
+      ['Pressure test', 'In progress', true],
+      ['Due today', 'Not started', false],
+    ]);
+    expect(v.milestones.map((t) => [t.title, t.status, t.late])).toEqual([
+      ['Handover', 'Not started', true],
+      ['Sign-off', 'In progress', false],
+    ]);
+  });
+
+  it('says when it was read and in which time zone (the page writes "Updated 26 Oct 2026, 12:00")', () => {
+    const v = buildClientView(input());
+    expect(v.generatedAt).toBe('2026-10-26T08:00:00.000Z');
+    expect(v.timeZone).toBe('Asia/Muscat');
   });
 
   it('counts the whole project for % done, never naming what isn’t marked', () => {

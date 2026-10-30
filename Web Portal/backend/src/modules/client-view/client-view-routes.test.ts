@@ -363,7 +363,7 @@ describe('the client’s own routes', () => {
     expect(page.statusCode).toBe(200);
     const body = page.body;
     expect(page.json().data.project.name).toBe('Rig 7 Inspection');
-    expect(page.json().data.milestones).toEqual([{ title: 'Marked milestone', status: 'In progress', dueDate: null }]);
+    expect(page.json().data.milestones).toEqual([{ title: 'Marked milestone', status: 'In progress', dueDate: null, late: false }]);
     for (const hidden of ['Unmarked internal step', 'Other project', 'Other Confidential Project', 'Omar Ahmed', OWNER, NAMED, MEMBER, 'ownerId', 'managerId', 'assignee', 'description', 'comment']) {
       expect(body).not.toContain(hidden);
     }
