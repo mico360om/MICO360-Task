@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ClientViewScreen } from './ClientViewPage';
@@ -44,7 +44,7 @@ const signInNeeded = () => new ApiError(401, 'CLIENT_SIGN_IN', 'Enter the code w
 function fakeApi(over: Partial<ClientViewApi> = {}): ClientViewApi {
   return {
     view: vi.fn(async () => VIEW),
-    requestCode: vi.fn(async () => undefined),
+    requestCode: vi.fn(async () => ({ sent: true as const })),
     verify: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
     minutesPdf: vi.fn(async () => ({ blob: new Blob(['%PDF']), fileName: 'minutes-kick-off.pdf' })),
@@ -54,9 +54,9 @@ function fakeApi(over: Partial<ClientViewApi> = {}): ClientViewApi {
   };
 }
 
-const show = (api: ClientViewApi) =>
+const show = (api: ClientViewApi, link = 'LINK') =>
   render(
-    <MemoryRouter initialEntries={['/client/LINK']}>
+    <MemoryRouter initialEntries={[`/client/${link}`]}>
       <Routes>
         <Route path="/client/:token" element={<ClientViewScreen api={api} />} />
       </Routes>
@@ -65,6 +65,103 @@ const show = (api: ClientViewApi) =>
 
 beforeEach(() => {
   document.head.querySelectorAll('meta[name="referrer"]').forEach((m) => m.remove());
+  sessionStorage.clear();
+});
+afterEach(() => vi.restoreAllMocks());
+
+const stored = () => JSON.stringify({ ...sessionStorage });
+const signInNeededApi = () => fakeApi({ view: vi.fn(async () => Promise.reject(signInNeeded())) });
+
+/** Asks for a code on the email step and waits for the code step. */
+async function askForCode(user = userEvent.setup()) {
+  await user.type(await screen.findByLabelText('Email address'), 'fatma@client.example');
+  await user.click(screen.getByRole('button', { name: 'Email me a code' }));
+  return screen.findByLabelText('6-digit code');
+}
+
+describe('the client page’s code step, like the staff sign-in', () => {
+  const signInFirst = () => {
+    let signedIn = false;
+    return fakeApi({
+      view: vi.fn(async () => (signedIn ? VIEW : Promise.reject(signInNeeded()))),
+      verify: vi.fn(async () => {
+        signedIn = true;
+      }),
+    });
+  };
+
+  it('keeps the code step after the page is reloaded: remembered for this browser tab, never in the address', async () => {
+    const user = userEvent.setup();
+    show(signInNeededApi());
+    await askForCode(user);
+    cleanup(); // the page is reloaded 25 s later
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 25_000);
+    const api = signInFirst();
+    show(api);
+    const box = await screen.findByLabelText('6-digit code');
+    expect(screen.getByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
+    expect(screen.getByText((_, el) => el?.tagName === 'P' && /^If fatma@client\.example can open this page/.test(el.textContent ?? ''))).toBeInTheDocument();
+    // The wait for another code carries on where it was.
+    expect(screen.getByRole('button', { name: /send a new code/i }).textContent).toMatch(/^Send a new code in 3[45]\u00a0s$/);
+    expect(window.location.href).not.toContain('fatma');
+    expect(JSON.stringify({ ...localStorage })).not.toContain('fatma@client.example');
+    expect(stored()).not.toContain('LINK'); // the private link itself is never stored
+    await user.type(box, '482913');
+    await user.click(screen.getByRole('button', { name: 'Open the project' }));
+    expect(api.verify).toHaveBeenCalledWith('fatma@client.example', '482913');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' })).toBeInTheDocument();
+    // Signed in: the step is forgotten.
+    expect(stored()).not.toContain('fatma@client.example');
+  });
+
+  it('remembers the step for its own link only', async () => {
+    show(signInNeededApi());
+    await askForCode();
+    cleanup();
+    show(signInNeededApi(), 'OTHER');
+    expect(await screen.findByLabelText('Email address')).toHaveValue('');
+  });
+
+  it('forgets the step on “Use a different email”, and after ten minutes', async () => {
+    const user = userEvent.setup();
+    show(signInNeededApi());
+    await askForCode(user);
+    await user.click(screen.getByRole('button', { name: 'Use a different email' }));
+    cleanup();
+    show(signInNeededApi());
+    expect(await screen.findByLabelText('Email address')).toBeInTheDocument();
+    await askForCode(user);
+    cleanup();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60_000);
+    show(signInNeededApi());
+    expect(await screen.findByLabelText('Email address')).toBeInTheDocument();
+  });
+
+  it('asked again within a minute, says no new code was sent and how long to wait — and still takes the code already sent', async () => {
+    const user = userEvent.setup();
+    const api = signInFirst();
+    api.requestCode = vi.fn(async () => ({ sent: false as const, retryAfterSeconds: 42 }));
+    show(api);
+    const box = await askForCode(user);
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(
+      'You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in 42 s.',
+    );
+    expect(status.textContent).toContain('42\u00a0s.'); // the number and its unit never split across lines
+    expect(screen.getByRole('button', { name: /send a new code/i }).textContent).toMatch(/^Send a new code in 4[12]\u00a0s$/);
+    await user.type(box, '482913');
+    await user.click(screen.getByRole('button', { name: 'Open the project' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' })).toBeInTheDocument();
+  });
+
+  it('a new code sent from the code step says so: use the newest one', async () => {
+    const user = userEvent.setup();
+    show(signInNeededApi());
+    await askForCode(user);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+    await user.click(await screen.findByRole('button', { name: 'Send a new code' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('We’ve sent a new code. Use the newest one — the earlier code no longer works.');
+  });
 });
 
 describe('the client page', () => {

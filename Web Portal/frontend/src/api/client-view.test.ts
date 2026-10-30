@@ -37,13 +37,18 @@ describe('the client page’s API (no staff account)', () => {
   it('asks for a code, and signs in with the address and the code', async () => {
     const f = fakeFetch(() => new Response(JSON.stringify({ data: { sent: true } }), { status: 202 }));
     const api = clientViewApi(LINK, { baseUrl: '/api/v1', fetch: f.fn });
-    await api.requestCode('fatma@client.example');
+    expect(await api.requestCode('fatma@client.example')).toEqual({ sent: true });
     await api.verify('fatma@client.example', '123456');
     expect(f.calls.map((c) => [c.url, c.init.method, c.init.body])).toEqual([
       ['/api/v1/client/code', 'POST', JSON.stringify({ email: 'fatma@client.example' })],
       ['/api/v1/client/verify', 'POST', JSON.stringify({ email: 'fatma@client.example', code: '123456' })],
     ]);
     expect(headersOf(f.calls[0]!.init)['Content-Type']).toBe('application/json');
+  });
+
+  it('passes on the server’s “asked too soon” answer: nothing sent, and the seconds to wait', async () => {
+    const f = fakeFetch(() => new Response(JSON.stringify({ data: { sent: false, retryAfterSeconds: 42 } }), { status: 202 }));
+    expect(await clientViewApi(LINK, { baseUrl: '/api/v1', fetch: f.fn }).requestCode('fatma@client.example')).toEqual({ sent: false, retryAfterSeconds: 42 });
   });
 
   it('turns a refusal into an ApiError with the server’s code and words', async () => {

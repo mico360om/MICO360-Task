@@ -7,7 +7,7 @@ import { androidAppLink, checkHostedApk, type AndroidAppLink } from '../lib/andr
 import { LoginForm } from '../features/auth/LoginForm';
 import { createApiClient, ApiError } from '../lib/api-client';
 import { useAuthStore, type Session } from '../stores/auth-store';
-import { forgetCodeStep, recallCodeStep, rememberCodeStep, RESEND_AFTER_MS, type CodeStep } from '../lib/login-code-step';
+import { askedTooSoon, forgetCodeStep, NEW_CODE_SENT, recallCodeStep, rememberCodeStep, RESEND_AFTER_MS, waitFromAnswer, type CodeAnswer, type CodeStep } from '../lib/login-code-step';
 import logoW from '../assets/logo-w.png';
 import { HeroField } from '../components/HeroField';
 import { BrandLogo } from '../components/ui/BrandLogo';
@@ -23,13 +23,11 @@ interface AuthResponse {
 
 /** The answer to "email me a code": `sent: false` when the same address asked less than a minute ago. */
 interface CodeRequestResponse {
-  data?: { sent?: boolean; retryAfterSeconds?: number };
+  data?: CodeAnswer;
 }
 
 // Said alike for every address, so it never tells whether an account exists.
 const CODE_SENT = 'If that account exists, we’ve emailed it a one-time code. Check your inbox — and your spam folder.';
-const tooSoon = (seconds: number) =>
-  `You asked for a code less than a minute ago, so we haven’t sent another. Check your email — and your spam folder — or ask again in ${seconds}\u00a0s.`; // no line break between the number and its unit
 
 export function LoginPage() {
   const setSession = useAuthStore((s) => s.setSession);
@@ -115,16 +113,16 @@ export function LoginPage() {
     setErrorCode(null);
     try {
       const res = await api.post<CodeRequestResponse>('/auth/otp/request', { identifier });
-      const wait = res?.data?.sent === false && typeof res.data.retryAfterSeconds === 'number' ? Math.max(1, Math.ceil(res.data.retryAfterSeconds)) : null;
+      const wait = waitFromAnswer(res?.data);
       if (wait !== null) {
         // Nothing was sent: say so, and wait as long as the server asks. The code sent before still works.
         const at = Date.now() + wait * 1000;
-        setInfo(tooSoon(wait));
+        setInfo(askedTooSoon(wait));
         setWaitUntil(at);
         rememberCodeStep({ identifier, resendAt: at });
       } else {
         // A new code replaces the one before it (the server stops accepting the old one).
-        setInfo(codeSent ? 'We’ve sent a new code. Use the newest one — the earlier code no longer works.' : CODE_SENT);
+        setInfo(codeSent ? NEW_CODE_SENT : CODE_SENT);
         setWaitUntil(null);
         rememberCodeStep({ identifier, resendAt: Date.now() + RESEND_AFTER_MS });
       }
