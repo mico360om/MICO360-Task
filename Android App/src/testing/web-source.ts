@@ -38,6 +38,81 @@ export function loadWebTs(rel: string, imports: Record<string, string> = {}): Re
   return mod.exports;
 }
 
+/** A JSX element as `loadWebTsx` builds it. */
+export interface JsxNode {
+  type: unknown;
+  props: Record<string, unknown>;
+  children: unknown[];
+}
+
+const FRAGMENT = '#fragment';
+
+const flatChildren = (xs: unknown[]): unknown[] =>
+  (xs.flat(Infinity) as unknown[]).filter((c) => c !== null && c !== undefined && c !== false && c !== true);
+
+function jsx(type: unknown, props: Record<string, unknown> | null, ...children: unknown[]): JsxNode {
+  return { type, props: props ?? {}, children: flatChildren(children) };
+}
+
+/** Every import of a TSX module: any property is a function that does nothing. */
+const stubModule = (): unknown => new Proxy({}, { get: () => () => undefined });
+
+/**
+ * Run a website TSX module without React: its JSX becomes plain `{ type, props, children }` nodes
+ * (`type` '#fragment' for <>…</>), every import is a stub. `expose` also returns module-level
+ * consts that are not exported (Sidebar's `I`) as `__exposed`.
+ */
+export function loadWebTsx(rel: string, opts: { expose?: string[] } = {}): Record<string, unknown> {
+  let { code } = transformSync(readWeb(rel), { loader: 'tsx', jsx: 'transform', jsxFactory: '__h', jsxFragment: '__f', format: 'cjs' });
+  if (opts.expose?.length) code += `\nmodule.exports.__exposed = { ${opts.expose.join(', ')} };`;
+  const mod = { exports: {} as Record<string, unknown> };
+  new Function('module', 'exports', 'require', '__h', '__f', code)(mod, mod.exports, stubModule, jsx, FRAGMENT);
+  return mod.exports;
+}
+
+type Shape = import('../lib/icons').Shape;
+
+const isFilled = (fill: unknown) => fill !== undefined && fill !== null && fill !== 'none';
+
+/**
+ * The drawing in a JSX tree from `loadWebTsx`: function components are called with their props
+ * (children included), fragments and the `svg` unwrapped; path/circle/rect come back with numbers.
+ * Also the svg's stroke width, viewBox and whether it is filled.
+ */
+export function svgShapes(node: unknown): { shapes: Shape[]; strokeWidth?: number; viewBox?: string; filled?: boolean } {
+  const out: { shapes: Shape[]; strokeWidth?: number; viewBox?: string; filled?: boolean } = { shapes: [] };
+  const visit = (n: unknown): void => {
+    if (Array.isArray(n)) return n.forEach(visit);
+    if (typeof n === 'function') return visit((n as () => unknown)());
+    if (!n || typeof n !== 'object') return;
+    const { type, props, children } = n as JsxNode;
+    if (typeof type === 'function') {
+      return visit((type as (p: object) => unknown)({ ...props, children: children.length === 1 ? children[0] : children }));
+    }
+    if (type === 'svg') {
+      if (props.strokeWidth !== undefined && out.strokeWidth === undefined) out.strokeWidth = Number(props.strokeWidth);
+      if (typeof props.viewBox === 'string' && out.viewBox === undefined) out.viewBox = props.viewBox;
+      if (isFilled(props.fill)) out.filled = true;
+    } else if (type === 'path') {
+      const s: Shape = { el: 'path', d: String(props.d) };
+      if (isFilled(props.fill)) s.fill = true;
+      if (props.fillOpacity !== undefined) s.fillOpacity = Number(props.fillOpacity);
+      out.shapes.push(s);
+    } else if (type === 'circle') {
+      const s: Shape = { el: 'circle', cx: Number(props.cx), cy: Number(props.cy), r: Number(props.r) };
+      if (isFilled(props.fill)) s.fill = true;
+      out.shapes.push(s);
+    } else if (type === 'rect') {
+      const s: Shape = { el: 'rect', x: Number(props.x), y: Number(props.y), width: Number(props.width), height: Number(props.height) };
+      if (props.rx !== undefined) s.rx = Number(props.rx);
+      out.shapes.push(s);
+    }
+    children.forEach(visit);
+  };
+  visit(node);
+  return out;
+}
+
 /** A path under `Android App/`. */
 export function appPath(rel: string): string {
   return resolve(APP, rel);
