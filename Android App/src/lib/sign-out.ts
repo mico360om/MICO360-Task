@@ -53,6 +53,12 @@ export interface SignOutDeps {
   clearPickedFiles: () => Promise<unknown>;
   /** Forget the person's own time zone, here and in what the phone kept (zonesAfterSignOut — 6a review). */
   resetDateZones?: () => Promise<unknown>;
+  /**
+   * Delete this person's inspection records kept on the phone, waiting or not (Stage 4) — only when
+   * they sign out on purpose (after the warning counted them). The lock screen and an expired
+   * session keep them: they are sent when the same person signs in again.
+   */
+  clearInspections?: (userId: string) => Promise<unknown>;
   /** Upper bound for each network step, so signing out offline is not blocked (default 5 s). */
   networkTimeoutMs?: number;
   /** Diagnostics hook for a step that failed (the sign-out still completes). */
@@ -85,8 +91,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
  * 3. clear the session (UI returns to sign-in);
  * 4. clear the query cache and every `mico360.cache.*` entry, so the next person to sign in on
  *    this phone never sees the previous user's tasks, chats or notifications;
- * 5. an explicit sign-out from Settings also deletes the user's queued offline changes (after the
- *    UI warned about them). When the session expired, or someone signed out from the lock screen,
+ * 5. an explicit sign-out from Settings also deletes the user's queued offline changes and their
+ *    inspection records (after the UI warned about them). When the session expired, or someone signed out from the lock screen,
  *    they are kept — they belong to that user and replay only when the same user signs in again,
  *    so neither expiry nor a stranger at the lock screen can discard the owner's work.
  *
@@ -136,6 +142,7 @@ export function createSignOut(deps: SignOutDeps) {
     await step('picked-files', () => deps.clearPickedFiles());
     if (deps.resetDateZones) await step('date-zones', () => deps.resetDateZones!());
     if (reason === 'user' && userId) await step('queue', () => deps.clearQueuedChanges(userId));
+    if (reason === 'user' && userId && deps.clearInspections) await step('inspections', () => deps.clearInspections!(userId));
   }
 
   function signOut(reason: SignOutReason = 'user'): Promise<void> {

@@ -38,6 +38,7 @@ import { exportFiles } from '../adapters/files';
 import { pickedFiles } from '../adapters/picked-files';
 import { isBiometricAvailable, authenticateBiometric } from '../adapters/biometric';
 import { launcherBadge } from '../adapters/alerts';
+import { createInspectionOutboxes, type InspectionOutboxes } from '../lib/inspection-outboxes';
 
 export interface Services {
   baseUrl: string;
@@ -70,6 +71,8 @@ export interface Services {
   signOut: ReturnType<typeof createSignOut>['signOut'];
   /** Report / task exports (.xlsx, .pdf, .csv): download with the session, then the share sheet. */
   exporter: ReturnType<typeof createExporter>;
+  /** Inspections answered on the phone: one outbox per person, kept on the phone, sent when online (Stage 4). */
+  inspections: InspectionOutboxes;
   /** The signed-in user's id (or null). */
   currentUserId: () => string | null;
   /** A password change on its way (a refused session refresh waits for it — 6a review). */
@@ -250,6 +253,9 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     if (!sync.isFlushing() && queue.pendingFor(currentUserId()).length > 0) void sync.trigger();
   };
 
+  // Inspection records kept on the phone (read back at start), each person's sent only with their session.
+  const inspections = createInspectionOutboxes({ store: asyncStore, api });
+
   const push = createPushRegistrar({
     getPushToken,
     registerToken: (token, platform) => resources.deviceTokens.register(token, platform),
@@ -275,6 +281,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     clearQueryCache: () => queryClient.clear(),
     clearReadCache: () => cache.clear(),
     clearQueuedChanges: (userId) => queue.clearForUser(userId),
+    clearInspections: (id) => inspections.clearOwner(id),
     deactivatePush: async () => {
       // No number on the app's icon, and this person's notifications off the phone's list (5c). From
       // here no count reaches the icon until the next sign-in (a poll still on its way can't put this
@@ -329,6 +336,7 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
     biometricLogin,
     signOut: signOutApi.signOut,
     exporter,
+    inspections,
     currentUserId,
     passwordGate,
     isSigningOut: () => signOutApi.isSigningOut(),

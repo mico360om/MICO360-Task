@@ -28,5 +28,6 @@
 <!-- meetings-chat-account lines above this line -->
 
 ## Inspections, templates and client sharing
+- In the Android app, signing out warns about inspection changes not sent yet, and someone else signing in on the same phone never sees or sends them.
 <!-- inspections lines above this line -->
 <!-- templates-client lines above this line -->

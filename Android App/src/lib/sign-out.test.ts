@@ -209,3 +209,18 @@ describe('sign-out and the next person (6a review)', () => {
     expect(signOutQuestion(3).message).toBe('3 changes have not been saved to the server yet. Signing out deletes them from this phone. Sign out anyway?');
   });
 });
+
+describe('sign-out and inspections kept on the phone (Stage 4)', () => {
+  it('signing out on purpose clears the person’s inspections; the lock screen and an expired session keep them', async () => {
+    for (const [reason, cleared] of [['user', ['u1']], ['lock', []], ['expired', []]] as const) {
+      const clearInspections = vi.fn(async () => undefined);
+      await setup({ clearInspections }).signOut.signOut(reason);
+      expect(clearInspections.mock.calls.map((c) => (c as unknown[])[0]), reason).toEqual(cleared);
+    }
+  });
+  it('clears them after the queued changes', async () => {
+    const { log, signOut } = setup({ clearInspections: async (u: string) => void log.push(`inspections:${u}`) });
+    await signOut.signOut('user');
+    expect(log.slice(-2)).toEqual(['queue:u1', 'inspections:u1']);
+  });
+});

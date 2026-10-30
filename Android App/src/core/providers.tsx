@@ -10,6 +10,7 @@ import { setDateZones } from '../lib/due-date';
 import { followAppState, followConnectivity } from '../lib/query-client';
 import type { Session } from '../lib/types';
 import type { QueuedMutation } from '../lib/sync-queue';
+import { useInspectionOutboxSync } from './inspection-sync';
 
 const ServicesContext = createContext<Services | null>(null);
 
@@ -141,10 +142,22 @@ function ServicesRoot({
   return (
     <QueryClientProvider client={services.queryClient}>
       <ServerContext.Provider value={serverChoice}>
-        <ServicesContext.Provider value={services}>{children}</ServicesContext.Provider>
+        <ServicesContext.Provider value={services}>
+          <InspectionOutboxSync />
+          {children}
+        </ServicesContext.Provider>
       </ServerContext.Provider>
     </QueryClientProvider>
   );
+}
+
+/**
+ * Sends the signed-in person's waiting inspection changes (Stage 4) beside the offline queue's own
+ * sync: at start and on sign-in, back online, in front again and every minute.
+ */
+function InspectionOutboxSync() {
+  useInspectionOutboxSync();
+  return null;
 }
 
 /** The server in use and a way to change it (sign-in screen). */
