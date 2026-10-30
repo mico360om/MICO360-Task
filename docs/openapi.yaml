@@ -748,7 +748,7 @@ paths:
         - { name: status, in: query, schema: { type: string }, description: 'Comma-separated project statuses; default PLANNING,ACTIVE,ON_HOLD' }
         - { name: weeks, in: query, schema: { type: integer, enum: [4, 12, 26], default: 12 } }
       responses:
-        '200': { description: '`{ data: { scope, generatedAt, timeZone, today, weekStart, filters, period, options, tiles, projects, inspections, people, workload, trends } }`' }
+        '200': { description: '`{ data: { scope, generatedAt, timeZone, today, weekStart, filters, period, options, tiles, projects, approvals: { total, projects: [{ id, code, name, count }] }, inspections, people, workload, trends } }` — approvals: the tasks waiting for approval in the scope, in all and per project (most first)' }
         '400': { description: 'VALIDATION: an unknown status, a period other than 4, 12 or 26 weeks, or a malformed id' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: 'Not an administrator and runs no project' }
@@ -758,7 +758,7 @@ paths:
     get:
       summary: The list behind a number on the Management page (at most 200 rows, with the full count), inside the caller's scope and filters
       parameters:
-        - { name: metric, in: query, required: true, schema: { type: string, enum: [late-tasks, late-milestones, missing-checks, checks-due, checks-done, checks-done-late, checks-no-report, follow-ups, inspections, failed-item, failed-form, person-overloaded, person-actions, overdue-actions, projects, people-overloaded] } }
+        - { name: metric, in: query, required: true, schema: { type: string, enum: [late-tasks, late-milestones, missing-checks, checks-due, checks-done, checks-done-late, checks-no-report, follow-ups, inspections, failed-item, failed-form, person-overloaded, person-actions, overdue-actions, projects, people-overloaded, awaiting-approval] } }
         - { name: projectId, in: query, schema: { type: string }, description: 'One project (404 outside the caller''s scope)' }
         - { name: personId, in: query, schema: { type: string }, description: 'One person''s rows (only inside the caller''s projects); required for person-overloaded' }
         - { name: formId, in: query, schema: { type: string }, description: 'failed-item, failed-form, inspections: the form (none: inspections whose form is gone)' }
@@ -778,13 +778,77 @@ paths:
         '429': { description: 'RATE_LIMITED: more than 120 overviews and lists a minute' }
   /management/overview.pdf:
     get:
-      summary: The Management overview as a branded PDF (the same filters; logo, the filters in words, generated at in company time, page numbers)
+      summary: The Management overview as a branded PDF (the same filters; logo, the filters in words, generated at in company time, the tasks waiting for approval, page numbers)
       description: Ten a minute per person. The file is named by the server (management-overview[-<one project>]-<company day>.pdf, Content-Disposition).
       responses:
         '200': { description: application/pdf }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: 'Not an administrator and runs no project' }
         '429': { description: RATE_LIMITED }
+
+  /backups:
+    get:
+      summary: System Settings → Backups (administrators) — the copies kept on the server and how the last ones went
+      description: >-
+        `{ data: { folder, folderWarning, keyWarning, spaceWarning, encrypted, nightly: { enabled, hour, timeZone },
+        running: { id, trigger, startedAt } | null, lastSuccess: { at, sizeBytes } | null, warning, copies: [{ id,
+        fileName, createdAt, sizeBytes, kind, trigger: NIGHTLY|MANUAL, encrypted, drive: UPLOADED|FAILED|SKIPPED|null,
+        driveError }], keptBytes, drive: { configured, connected, stored, email, connectedAt, problem, warning } } }` —
+        the newest copy first; 7 nightly, 4 weekly and the 3 newest "Back up now" copies are kept (docs/BACKUPS.md).
+      responses:
+        '200': { description: OK }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Not an administrator }
+    post:
+      summary: Back up now — starts a copy of the whole database and every uploaded file (audit backup.create)
+      responses:
+        '202': { description: '`{ data: { id, status: RUNNING, trigger: MANUAL, startedAt } }` — the copy is made in the background; GET /backups shows when it is done' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Not an administrator }
+        '409': { description: 'BACKUP_RUNNING: a backup is being made right now' }
+  /backups/{id}/download-link:
+    post:
+      summary: A download link for one kept copy — single use, for two minutes (audit backup.download-link)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: '`{ data: { url } }` — /api/v1/backups/download?token=…, opened by the browser itself' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Not an administrator }
+        '404': { description: That copy is no longer kept }
+  /backups/download:
+    get:
+      security: []
+      summary: Download a copy with its signed link (the link stands in for the sign-in; audit backup.download)
+      parameters: [ { name: token, in: query, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: 'The file (application/gzip, or application/octet-stream when locked with the backup key), named by the server (Content-Disposition)' }
+        '403': { description: The link's administrator is no longer an active administrator (plain text) }
+        '404': { description: That copy is no longer kept (plain text) }
+        '410': { description: The link expired or was already used (plain text) }
+  /backups/google/connect:
+    post:
+      summary: Connect Google Drive — the Google consent page's address (drive.file access only)
+      responses:
+        '200': { description: '`{ data: { url } }`' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Not an administrator }
+  /backups/google/callback:
+    get:
+      security: []
+      summary: Where Google sends the administrator back; redirects to System Settings with ?drive=connected|denied|failed#backups (audit backup.drive-connect)
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302': { description: To /admin/settings?drive=…#backups }
+  /backups/google:
+    delete:
+      summary: Disconnect Google Drive (the copies already there stay; audit backup.drive-disconnect)
+      responses:
+        '200': { description: '`{ data: { disconnected: true } }`' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Not an administrator }
 
   /search:
     get:
