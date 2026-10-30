@@ -523,6 +523,15 @@ describe('the overview for System Settings', () => {
     clock = muscat('2026-10-30', '09:00');
     expect((await service().overview()).warning).toBe('No new copy has been made since 27 Oct 2026. Is the server running at night?');
   });
+
+  it('names the day as the rest of the app does — day before month, "Sep" never "Sept"', async () => {
+    const row = await repo.create({ trigger: 'NIGHTLY', localDate: '2026-09-27', startedAt: muscat('2026-09-27', '02:00'), requestedById: null });
+    const fileName = `mico360-tasks-backup-2026-09-27-0200-${row.id.slice(-6)}.tar.gz`;
+    writeFileSync(join(dir, fileName), 'x');
+    await repo.update(row.id, { status: 'OK', fileName, sizeBytes: 1, finishedAt: muscat('2026-09-27', '02:01') });
+    clock = muscat('2026-09-30', '09:00');
+    expect((await service().overview()).warning).toBe('No new copy has been made since 27 Sep 2026. Is the server running at night?');
+  });
 });
 
 describe('telling the administrators when copies stop', () => {

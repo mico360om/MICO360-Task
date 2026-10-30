@@ -3,6 +3,7 @@ import { mkdir, readdir, rm, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ConflictError } from '../../lib/http-errors';
 import { zonedDayKey } from '../../lib/due-date';
+import { formatDay } from '../../lib/export-format';
 import type { ArchiveResult } from './backup-archive';
 import { backupFileName, isBackupFileName, plainReason } from './backup-config';
 import { BACKUP_KEY_MIN_LENGTH } from './backup-crypto';
@@ -189,7 +190,8 @@ export function createBackupService(deps: BackupServiceDeps) {
   const warnBytes = deps.warnBytes ?? DEFAULT_WARN_BYTES;
   let current: Promise<void> | null = null;
 
-  const dayFormat = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' });
+  /** "27 Oct 2026": the company day of an instant, as every other date the app writes (never "Sept"). */
+  const dayFormat = { format: (at: Date) => formatDay(zonedDayKey(at, tz)) };
 
   /**
    * Tries left RUNNING by a server that stopped part-way (a restart, a deployment, out of memory) are

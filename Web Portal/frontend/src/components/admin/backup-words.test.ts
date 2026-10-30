@@ -13,6 +13,9 @@ describe('System Settings → Backups: words', () => {
   it('when a copy was made, in company time', () => {
     // 22:01 UTC is 02:01 the next morning in Muscat.
     expect(copyWhen('2026-10-29T22:01:00.000Z', 'Asia/Muscat')).toBe('30 Oct 2026, 02:01');
+    // Day before month as everywhere else (lib/day-words): "Sep", never the "Sept" some browsers write.
+    expect(copyWhen('2026-09-29T22:01:00.000Z', 'Asia/Muscat')).toBe('30 Sep 2026, 02:01');
+    expect(copyWhen('2026-09-30T20:05:00.000Z', 'Asia/Muscat')).toBe('1 Oct 2026, 00:05');
   });
 
   it('the schedule line', () => {

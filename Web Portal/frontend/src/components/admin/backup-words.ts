@@ -1,3 +1,5 @@
+import { dateTimeText } from '../../lib/day-words';
+
 /** Plain words for System Settings → Backups. */
 
 export function sizeText(bytes: number): string {
@@ -12,16 +14,9 @@ export function sizeText(bytes: number): string {
   return `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10} ${units[i]}`;
 }
 
-const formats = new Map<string, Intl.DateTimeFormat>();
-
-/** "30 Oct 2026, 02:01" in the company time zone. */
+/** "30 Oct 2026, 02:01" in the company time zone (day before month, 24 hours: lib/day-words). */
 export function copyWhen(iso: string, timeZone: string): string {
-  let f = formats.get(timeZone);
-  if (!f) {
-    f = new Intl.DateTimeFormat('en-GB', { timeZone, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-    formats.set(timeZone, f);
-  }
-  return f.format(new Date(iso));
+  return dateTimeText(iso, timeZone);
 }
 
 export function scheduleText(nightly: { enabled: boolean; hour: number; timeZone: string }): string {
