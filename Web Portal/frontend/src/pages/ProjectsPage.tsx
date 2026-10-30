@@ -30,6 +30,7 @@ import {
 } from '../lib/project-list';
 import { useProjectListState } from '../lib/useProjectListState';
 import { useNewFromAddress } from '../lib/useNewFromAddress';
+import { revealInRow, useScrollRow } from '../lib/scroll-row';
 
 const OVERVIEW_KEY = PROJECTS_OVERVIEW_KEY;
 
@@ -164,6 +165,13 @@ export function ProjectsPage() {
     } else statusMut.mutate({ project, status });
   };
 
+  // On a phone the tabs are one row that scrolls sideways: the chosen one is kept in view.
+  const tabRow = useScrollRow<HTMLDivElement>();
+  useEffect(() => {
+    const chosen = document.getElementById(tabId(state.status));
+    if (tabRow.el && chosen) revealInRow(tabRow.el, chosen);
+  }, [state.status, tabRow.el]);
+
   function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
     const at = STATUS_TABS.findIndex((t) => t.value === state.status);
     const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: STATUS_TABS.length - 1 }[e.key];
@@ -211,8 +219,16 @@ export function ProjectsPage() {
         />
       ) : (
       <>
-      {/* Status at a glance — also the main filter. */}
-      <div role="tablist" aria-label="Project status" onKeyDown={onTabKey} className="mb-3 flex flex-wrap gap-2">
+      {/* Status at a glance — also the main filter. Below 768px one row that scrolls sideways (three
+          rows of tabs came before the first card), with a fade where more tabs are hidden. */}
+      <div
+        ref={tabRow.ref}
+        data-more={tabRow.more}
+        role="tablist"
+        aria-label="Project status"
+        onKeyDown={onTabKey}
+        className="scroll-row relative mb-3 flex gap-2 overflow-x-auto max-md:-mx-1 max-md:-mt-1 max-md:mb-2 max-md:p-1 md:flex-wrap md:overflow-visible"
+      >
         {STATUS_TABS.map((t) => {
           const selected = t.value === state.status;
           return (
@@ -225,7 +241,7 @@ export function ProjectsPage() {
               aria-controls={PANEL_ID}
               tabIndex={selected ? 0 : -1}
               onClick={() => update({ status: t.value })}
-              className={`inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:h-11 ${
+              className={`inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:h-11 ${
                 selected ? 'border-transparent bg-brand-gradient text-white shadow-sm' : 'border-line bg-surface text-ink-2 hover:border-brand/30 hover:text-ink'
               }`}
             >
