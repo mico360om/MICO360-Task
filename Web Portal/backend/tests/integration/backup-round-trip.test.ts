@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, createWriteStream, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createInterface } from 'node:readline';
-import { writeBackupArchive, readManifest, openArchiveEntries, verifyArchive } from '../../src/modules/backups/backup-archive';
+import { PassThrough } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
+import { createTarWriter } from '../../src/modules/backups/tar';
+import { writeBackupArchive, readManifest, openArchiveEntries, verifyArchive, entryLines } from '../../src/modules/backups/backup-archive';
 import { restoreBackup, RestoreError } from '../../src/modules/backups/restore';
 import { prismaSqlRunner, type SqlRunner } from '../../src/modules/backups/sql-runner';
 
@@ -32,6 +35,9 @@ const work = mkdtempSync(join(tmpdir(), 'mico-bk-rt-'));
 const uploads = join(work, 'uploads');
 const MARK = `bkrt${Date.now().toString(36)}`;
 const ids: Record<string, string> = {};
+
+// Text a JavaScript line reader takes for line breaks (U+2028, U+2029) or a Windows line end, inside a value.
+const LINE_BREAKS = 'line one\u2028line two\u2029next paragraph\r\nWindows line\rold Mac line\nend';
 
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const createDatabase = async (name: string) => {
@@ -103,7 +109,7 @@ async function seed() {
   const column = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'To do', position: 0 } });
   // The copy's id sorts before its parent's, so a load in key order meets the child first.
   const parent = await prisma.task.create({ data: { id: `zz${MARK}parent`, key: `${MARK}-1`, title: 'Monthly gas test', projectId: project.id, columnId: column.id, createdById: user.id, estimatedHours: 1.1, actualHours: 0.30000000000000004, description: null, recurrenceRule: { freq: 'MONTHLY' } } });
-  await prisma.task.create({ data: { id: `aa${MARK}copy`, key: `${MARK}-2`, title: 'Monthly gas test (copy)', projectId: project.id, columnId: column.id, createdById: user.id, recurrenceParentId: parent.id, dueDate: new Date('2026-10-30T09:15:42.123Z'), estimatedHours: 1e-7 } });
+  await prisma.task.create({ data: { id: `aa${MARK}copy`, key: `${MARK}-2`, title: 'Monthly gas test (copy)', projectId: project.id, columnId: column.id, createdById: user.id, recurrenceParentId: parent.id, dueDate: new Date('2026-10-30T09:15:42.123Z'), estimatedHours: 1e-7, description: LINE_BREAKS } });
   const inspection = await prisma.inspection.create({
     data: { projectId: project.id, formVersion: 1, title: 'Pressure check', structure: { sections: [{ title: 'Valves', items: [] }] }, inspectorId: user.id, startedById: user.id },
   });
@@ -135,6 +141,33 @@ async function cleanup() {
   await prisma.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
 }
 
+/**
+ * A copy of a plain copy with one table's lines changed by `edit` (its manifest checksums made to match,
+ * so it passes the check): stands in for copies made by older code, or for rows that can't be loaded.
+ */
+async function rewriteCopy(src: string, dest: string, table: string, edit: (lines: string[]) => string[]): Promise<void> {
+  const entries: { name: string; data: Buffer }[] = [];
+  for await (const entry of openArchiveEntries(src)) {
+    const chunks: Buffer[] = [];
+    for await (const c of entry.body) chunks.push(c as Buffer);
+    entries.push({ name: entry.name, data: Buffer.concat(chunks) });
+  }
+  const t = entries.find((e) => e.name === `database/${table}.jsonl`)!;
+  const lines = edit(t.data.toString('utf8').split('\n').filter(Boolean));
+  t.data = Buffer.from(lines.map((l) => `${l}\n`).join(''), 'utf8');
+  const m = entries.find((e) => e.name === 'manifest.json')!;
+  const manifest = JSON.parse(m.data.toString('utf8')) as { database: { tables: { name: string; rows: number; sha256: string; bytes: number }[] } };
+  Object.assign(manifest.database.tables.find((x) => x.name === table)!, { rows: lines.length, sha256: sha(t.data), bytes: t.data.length });
+  m.data = Buffer.from(JSON.stringify(manifest, null, 2));
+  const out = new PassThrough();
+  const written = pipeline(out, createGzip(), createWriteStream(dest));
+  const tar = createTarWriter(out);
+  for (const e of entries) await tar.addBuffer(e.name, e.data);
+  await tar.finish();
+  out.end();
+  await written;
+}
+
 /** Reads one table's lines out of an archive. */
 async function tableLines(file: string, table: string, key?: string): Promise<string[]> {
   const lines: string[] = [];
@@ -143,7 +176,7 @@ async function tableLines(file: string, table: string, key?: string): Promise<st
       entry.body.resume();
       continue;
     }
-    for await (const line of createInterface({ input: entry.body, crlfDelay: Infinity })) if (line) lines.push(line);
+    for await (const line of entryLines(entry.body)) if (line) lines.push(line);
   }
   return lines;
 }
@@ -241,6 +274,7 @@ describe('Backup → restore round trip (integration)', () => {
       const copy = await target.task.findUnique({ where: { id: `aa${MARK}copy` } });
       expect(copy).toMatchObject({ recurrenceParentId: `zz${MARK}parent`, estimatedHours: 1e-7 });
       expect(copy!.dueDate!.toISOString()).toBe('2026-10-30T09:15:42.123Z');
+      expect(copy!.description).toBe(LINE_BREAKS);
       const user = await target.user.findUnique({ where: { id: ids.user } });
       expect(user).toMatchObject({ firstName: 'خرم', lastName: 'Test 🚀' });
       expect(user!.notificationPrefs).toEqual({ muted: ['TASK_COMMENT'], weeklySummary: false, note: 'قيمة "مقتبسة"' });
@@ -285,6 +319,22 @@ describe('Backup → restore round trip (integration)', () => {
       await target.$disconnect();
     }
     expect(filesUnder(opts.filesInto!)).toEqual(filesUnder(uploads));
+  }, 240_000);
+
+  it('a copy made before U+2028 / U+2029 were escaped (they are in its rows as they are) still restores', async () => {
+    const escaped = (code: number) => `${String.fromCharCode(92)}u${code.toString(16)}`;
+    const raw = (code: number) => String.fromCharCode(code);
+    const old = join(work, 'old-format.tar.gz');
+    await rewriteCopy(plainCopy, old, 'tasks', (lines) => lines.map((l) => l.split(escaped(0x2028)).join(raw(0x2028)).split(escaped(0x2029)).join(raw(0x2029))));
+    expect((await tableLines(old, 'tasks')).some((l) => l.includes(raw(0x2028)) && l.includes(raw(0x2029)))).toBe(true);
+    await restoreBackup(restoreOpts(old, { force: true }));
+    const target = new PrismaClient({ datasources: { db: { url: targetUrl } } });
+    try {
+      expect((await target.task.findUnique({ where: { id: `aa${MARK}copy` } }))!.description).toBe(LINE_BREAKS);
+      expect(await fingerprint(target)).toEqual(await fingerprint(prisma));
+    } finally {
+      await target.$disconnect();
+    }
   }, 240_000);
 
   it('a damaged or cut-short copy is refused before anything is changed (the whole copy is checked first)', async () => {

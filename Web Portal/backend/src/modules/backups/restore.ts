@@ -3,11 +3,10 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
-import { createInterface } from 'node:readline';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { PrismaClient } from '@prisma/client';
-import { MIGRATIONS_TABLE, openArchiveEntries, verifyArchive, type BackupManifest, type ManifestTable } from './backup-archive';
+import { MIGRATIONS_TABLE, entryLines, openArchiveEntries, verifyArchive, type BackupManifest, type ManifestTable } from './backup-archive';
 import { RestoreError } from './backup-errors';
 import { dumpRows, insertBatches, listTables, quoteId, type TableInfo } from './db-dump';
 import { prismaSqlRunner, type SqlRunner } from './sql-runner';
@@ -184,7 +183,7 @@ async function loadTable(sql: SqlRunner, table: TableInfo, body: Readable, diges
         rows = [];
         bytes = 0;
       };
-      for await (const line of createInterface({ input: body, crlfDelay: Infinity })) {
+      for await (const line of entryLines(body)) {
         if (!line) continue;
         const row = JSON.parse(line) as unknown[];
         digest.add(row, types);

@@ -79,8 +79,39 @@ export interface WriteArchiveOptions {
   now?: () => Date;
 }
 
-/** One row as one line of the table's entry. */
-export const rowLine = (row: unknown[]): string => `${JSON.stringify(row)}\n`;
+// JSON text may hold U+2028 / U+2029 as they are, but JavaScript line readers take them for line
+// breaks; written as JSON escapes they can never split a row (JSON.parse turns them back).
+const LINE_SEPARATORS = new RegExp(`[${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`, 'g');
+const jsonEscape = (c: string) => `${'\\'}u${c.charCodeAt(0).toString(16).padStart(4, '0')}`;
+
+/** One row as one line of the table's entry: a JSON array with no line break of any kind inside it. */
+export const rowLine = (row: unknown[]): string => `${JSON.stringify(row).replace(LINE_SEPARATORS, jsonEscape)}\n`;
+
+/**
+ * The lines of a table entry, split at "\n" bytes only — never at U+2028 / U+2029 or "\r", which a
+ * JSON line may hold (copies made before those were escaped hold them as they are). The "\n" byte is
+ * never part of a longer UTF-8 character, so a character cut across chunks is joined before decoding.
+ */
+export async function* entryLines(body: Readable): AsyncGenerator<string> {
+  const pending: Buffer[] = [];
+  for await (const chunk of body) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+    let start = 0;
+    let nl = buf.indexOf(0x0a);
+    while (nl !== -1) {
+      const piece = buf.subarray(start, nl);
+      if (pending.length) {
+        pending.push(piece);
+        yield Buffer.concat(pending).toString('utf8');
+        pending.length = 0;
+      } else yield piece.toString('utf8');
+      start = nl + 1;
+      nl = buf.indexOf(0x0a, start);
+    }
+    if (start < buf.length) pending.push(buf.subarray(start));
+  }
+  if (pending.length) yield Buffer.concat(pending).toString('utf8');
+}
 
 class Digest extends Transform {
   private readonly sha = createHash('sha256');
