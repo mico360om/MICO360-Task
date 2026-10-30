@@ -5,7 +5,8 @@ import { todayKey, shiftDayKey, isDayKey, formatDayKey, relativeDayHint } from '
 import { isRecurring } from '../../src/recurrence.js';
 import { isTempId, tempId } from '../../src/pending-overlay.js';
 import { cardFacts, cardLabel } from '../../src/task-cards.js';
-import { approvalNotice, isWaitingForApproval } from '../../src/approvals.js';
+import { DECISION_WORDS, approvalNotice, approveLabel, approvedNotice, isWaitingForApproval, sendBackLabel, sentBackNotice } from '../../src/approvals.js';
+import { openSendBackDialog } from '../send-back-dialog.js';
 import { hasFiles } from '../../src/file-drop-guard.js';
 import { menuButton } from '../menu.js';
 import { openNewTaskDialog } from '../new-task-dialog.js';
@@ -17,6 +18,7 @@ const ICON = {
   comments: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
   attachments: ['M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48'],
   milestone: ['M5 21V4', 'M5 4h11l-2 4 2 4H5'],
+  waiting: ['M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3'],
   plus: ['M12 5v14M5 12h14'],
 };
 
@@ -38,6 +40,9 @@ const MOVE_REPLY_FIELDS = ['version', 'columnId', 'columnCategory', 'completedAt
  *
  * From the keyboard: a card is a button (Enter or Space opens it), and its "Move to…" menu moves it
  * to another column; focus then follows the card and a screen reader hears where it went.
+ *
+ * Task approvals: a card waiting for approval says so (the web's badge); for someone who can approve
+ * it (the server's To approve list), Approve and Send back sit beside it — not inside the card.
  */
 export function BoardScreen(ctx) {
   const projectId = ctx.params.projectId;
@@ -59,6 +64,8 @@ export function BoardScreen(ctx) {
   let focusTaskId = null; // the card to focus after the next render (moved from the keyboard)
   let keptFocus = null;   // the card or "Add a task" button that had focus when a reload began
   let loads = 0;          // each read's number: an answer to an earlier one is dropped
+  let approvable = new Set(); // waiting tasks this person may approve (the server's To approve list)
+  const deciding = new Set(); // tasks being approved or sent back (their buttons wait)
   let drawn = false;      // the board has been shown (a quiet reload keeps it on screen meanwhile)
 
   if (!projectId) {
@@ -90,6 +97,11 @@ export function BoardScreen(ctx) {
         ctx.api.projects.progress(projectId),
       ]);
       if (n !== loads) return;
+      // Cards waiting for approval: which this person may approve (asked fresh, only when some wait).
+      const waiting = (tks.data ?? []).some(isWaitingForApproval);
+      const canDecide = waiting && ctx.api.tasks.approvals ? await ctx.api.tasks.approvals().then((a) => new Set(((a && a.tasks) || []).map((x) => x.id)), () => new Set()) : new Set();
+      if (n !== loads) return;
+      approvable = canDecide;
       err = '';
       project = p.data ?? null;
       columns = (cols.data ?? []).filter((c) => c.enabled).sort((a, b) => a.position - b.position);
@@ -280,8 +292,10 @@ export function BoardScreen(ctx) {
         pill(PRIORITY_LABEL[task.priority] || task.priority || '', task.priority),
       ),
       el('div', { class: 'tt', dir: 'auto' }, task.title),
-      f.dueText || f.counts.length
+      f.awaitingApproval || f.dueText || f.counts.length
         ? el('div', { class: 'row meta' },
+          // The web card's badge: finished, waiting for a project manager's approval (not done yet).
+          f.awaitingApproval ? el('span', { class: 'twaiting', title: 'A project manager must approve it before it counts as done.' }, svgIcon(ICON.waiting, 12, 2.2), DECISION_WORDS.waiting) : null,
           f.dueText ? el('span', { class: `tdue${f.overdue ? ' overdue' : ''}` }, svgIcon(ICON.due, 13), f.dueText) : null,
           f.counts.map(badge))
         : null,
@@ -303,6 +317,13 @@ export function BoardScreen(ctx) {
     });
     node.addEventListener('dragend', () => { node.classList.remove('dragging'); draggingId = null; });
     const wrap = el('div', { class: 'tcard-wrap' }, node);
+    // Approve and Send back, for someone who can approve it: beside the card, two controls of their own.
+    if (f.awaitingApproval && !f.done && approvable.has(task.id)) {
+      const busy = deciding.has(task.id) ? 'true' : null;
+      wrap.append(el('div', { class: 'tcard-approval' },
+        el('button', { class: 'btn sm primary', type: 'button', 'aria-label': approveLabel(task.key), 'aria-disabled': busy, dataset: { approve: task.id }, onClick: () => { if (!deciding.has(task.id)) void approve(task); } }, DECISION_WORDS.approve),
+        el('button', { class: 'btn sm', type: 'button', 'aria-label': sendBackLabel(task.key), 'aria-disabled': busy, dataset: { sendBack: task.id }, onClick: () => { if (!deciding.has(task.id)) sendBack(task); } }, DECISION_WORDS.sendBack)));
+    }
     // Moving without dragging: the other columns, in board order.
     if (columns.some((c) => c.id !== task.columnId)) {
       wrap.classList.add('has-move');
@@ -321,6 +342,58 @@ export function BoardScreen(ctx) {
       }));
     }
     return wrap;
+  }
+
+  /** The server's answer to a decision: the task's new status and version, drawn where it now is. */
+  function decided(task, data, words) {
+    if (data && data.id === task.id) for (const f of MOVE_REPLY_FIELDS) if (data[f] !== undefined) task[f] = data[f];
+    approvable.delete(task.id);
+    focusTaskId = task.id; // focus follows the card
+    err = '';
+    note = '';
+    announce(words);
+    render();
+  }
+
+  /** Approve a waiting card (online only, from the version seen): it is done, in its Done column. */
+  async function approve(task) {
+    deciding.add(task.id);
+    const btn = [...view.querySelectorAll('[data-approve]')].find((b) => b.dataset.approve === task.id);
+    if (btn) btn.setAttribute('aria-disabled', 'true');
+    try {
+      const data = await ctx.api.tasks.approve(task.id, task.version);
+      deciding.delete(task.id);
+      // Approved, a repeating task's next copy is made on the server: read the board again.
+      if (isRecurring(task)) { announce(approvedNotice(task.key)); await load(); } else decided(task, data, approvedNotice(task.key));
+    } catch (e) {
+      deciding.delete(task.id);
+      err = writeErrorMessage(e, 'Couldn’t approve it. Please try again.');
+      if (e && e.status === 409) await load({ quiet: true });
+      render();
+    } finally {
+      ctx.afterMutation();
+    }
+  }
+
+  /** Send a waiting card back: the dialog asks why (required), then it is drawn where the server put it. */
+  function sendBack(task) {
+    const find = (sel, key, id) => [...view.querySelectorAll(sel)].find((b) => b.dataset[key] === id);
+    openSendBackDialog({
+      taskKey: task.key,
+      taskTitle: task.title,
+      errorText: (e) => writeErrorMessage(e, 'Couldn’t send it back. Please try again.'),
+      onSend: async (reason) => {
+        deciding.add(task.id);
+        try {
+          const data = await ctx.api.tasks.sendBack(task.id, reason, task.version);
+          decided(task, data, sentBackNotice(task.key));
+          ctx.afterMutation();
+        } finally {
+          deciding.delete(task.id);
+        }
+      },
+      focusBack: () => find('[data-send-back]', 'sendBack', task.id) || find('.tcard', 'taskId', task.id),
+    });
   }
 
   /** Say something to screen readers (the board's polite live region). */

@@ -224,3 +224,31 @@ describe('Stage 5: notification preferences and chat calls', () => {
     expect(sent.opts.signal).toBeTruthy();
   });
 });
+
+describe('task approvals (the website’s API)', () => {
+  it('reads the To approve list fresh (never from the offline cache), and approves or sends back with the version seen', async () => {
+    const calls = [];
+    const auth = fakeAuth((path, opts) => {
+      calls.push({ path, method: opts?.method ?? 'GET', body: opts?.body ? JSON.parse(opts.body) : null });
+      return json({ data: path === '/tasks/approvals' ? { canApprove: true, tasks: [{ id: 't1' }] } : { id: 't1', path } });
+    });
+    const cache = { read: vi.fn() };
+    const api = createApi({ auth, cache });
+    expect(await api.tasks.approvals()).toEqual({ canApprove: true, tasks: [{ id: 't1' }] });
+    await api.tasks.approve('t1', 4);
+    await api.tasks.sendBack('t1', 'Add the readings', 5);
+    await api.tasks.approve('t2');
+    expect(calls).toEqual([
+      { path: '/tasks/approvals', method: 'GET', body: null },
+      { path: '/tasks/t1/approve', method: 'POST', body: { expectedVersion: 4 } },
+      { path: '/tasks/t1/send-back', method: 'POST', body: { reason: 'Add the readings', expectedVersion: 5 } },
+      { path: '/tasks/t2/approve', method: 'POST', body: {} },
+    ]);
+    expect(cache.read).not.toHaveBeenCalled();
+  });
+
+  it('a refusal throws the server’s answer (403 in plain words, 409 not waiting any more)', async () => {
+    const api = createApi({ auth: fakeAuth(() => json({ error: { code: 'NOT_WAITING', message: 'This task isn’t waiting for approval any more.' } }, 409)), cache: noCache });
+    await expect(api.tasks.approve('t1', 1)).rejects.toMatchObject({ status: 409, code: 'NOT_WAITING', message: 'This task isn’t waiting for approval any more.' });
+  });
+});

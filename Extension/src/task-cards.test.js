@@ -35,6 +35,13 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
     expect(cardFacts(task({ assignees: people.slice(0, 1) }), { timeZone: TZ, now: NOW }).people.single).toBe('Omar Ahmed');
   });
 
+  it('a task waiting for approval: the card says so, and its label too (as the web’s card)', () => {
+    const f = cardFacts(task({ columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-21T05:00:00Z' }), { timeZone: TZ, now: NOW });
+    expect(f.awaitingApproval).toBe(true);
+    expect(cardLabel(task(), f)).toContain(', waiting for approval,');
+    expect(cardFacts(task(), { timeZone: TZ, now: NOW }).awaitingApproval).toBe(false);
+  });
+
   it('a milestone, a blocked column, a repeat; and a label that says it all', () => {
     const f = cardFacts(task({ isMilestone: true, columnCategory: 'BLOCKED', recurrenceRule: { freq: 'WEEKLY', interval: 1 }, counts: { comments: 1, attachments: 2, checklistDone: 0, checklistTotal: 3 }, assignees: [{ id: 'u1', name: 'Omar Ahmed' }, { id: 'u2', name: 'Aisha Khan' }] }), { timeZone: TZ, now: NOW });
     expect(f).toMatchObject({ milestone: true, blocked: true, recurring: true });
@@ -107,6 +114,7 @@ describe.skipIf(!webBoard || !webDue)('src/task-cards.js matches the web (lib/bo
     task({ id: 'b', key: 'A-2', columnId: 'c2', position: 0, recurrenceRule: { freq: 'DAILY', interval: 1 } }),
     task({ id: 'c', key: 'A-3', columnId: 'c3', position: 0, completedAt: null }),
     task({ id: 'd', key: 'A-4', columnId: 'c1', position: 1, completedAt: '2026-10-19T08:00:00Z', isMilestone: undefined }),
+    task({ id: 'e', key: 'A-5', columnId: 'c1', position: 2, approvalRequestedAt: '2026-10-20T08:00:00Z' }),
   ];
 
   it('a card says the same about a task as the web’s board does', () => {
@@ -115,8 +123,8 @@ describe.skipIf(!webBoard || !webDue)('src/task-cards.js matches the web (lib/bo
       const category = COLUMNS.find((c) => c.id === t.columnId).category;
       const mine = cardFacts({ ...t, columnCategory: category }, { timeZone: TZ, now: NOW });
       const w = web.get(t.key);
-      expect({ done: mine.done, blocked: mine.blocked, milestone: mine.milestone, recurring: mine.recurring }, t.key)
-        .toEqual({ done: w.done, blocked: w.blocked, milestone: w.milestone, recurring: w.recurring });
+      expect({ done: mine.done, blocked: mine.blocked, milestone: mine.milestone, recurring: mine.recurring, awaitingApproval: mine.awaitingApproval }, t.key)
+        .toEqual({ done: w.done, blocked: w.blocked, milestone: w.milestone, recurring: w.recurring, awaitingApproval: w.awaitingApproval });
     }
   });
 

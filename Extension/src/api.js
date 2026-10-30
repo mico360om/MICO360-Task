@@ -173,6 +173,13 @@ export function createApi({ auth, cache, pending }) {
       watch: (id) => get(`watch:${id}`, `/tasks/${id}/watch`),
       watchers: (id) => get(`watchers:${id}`, `/tasks/${id}/watchers`),
       mentionable: (id) => get(`mentionable:${id}`, `/tasks/${id}/mentionable`),
+      // Task approvals, as on the website. The To approve list (`{ canApprove, tasks }`: the waiting
+      // tasks this person may approve) is always read fresh — a decision needs the connection, so no
+      // button is offered from a saved copy. Approve and Send back are sent now, never kept for later,
+      // from the version seen (409 VERSION_CONFLICT / NOT_WAITING when it changed meanwhile).
+      approvals: () => raw('/tasks/approvals'),
+      approve: (id, expectedVersion) => post(`/tasks/${id}/approve`, expectedVersion != null ? { expectedVersion } : {}),
+      sendBack: (id, reason, expectedVersion) => post(`/tasks/${id}/send-back`, { reason, ...(expectedVersion != null ? { expectedVersion } : {}) }),
     },
     /** The workspace's shared list of tags (suggested while tagging a task). */
     tags: () => get('tags', '/tags'),

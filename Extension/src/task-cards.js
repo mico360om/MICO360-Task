@@ -11,6 +11,7 @@ import { DEFAULT_TIME_ZONE } from './config.js';
 import { dueDayKey, isOverdue } from './due-date.js';
 import { isDone } from './summary.js';
 import { isRecurring } from './recurrence.js';
+import { isWaitingForApproval } from './approvals.js';
 
 const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 const P_RANK = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
@@ -54,6 +55,8 @@ export function cardFacts(task, { timeZone = DEFAULT_TIME_ZONE, now = new Date()
     milestone: !!task.isMilestone,
     blocked: task.columnCategory === 'BLOCKED',
     recurring: isRecurring(task),
+    // Finished, waiting for a project manager's approval (not done yet) — the web card's badge.
+    awaitingApproval: isWaitingForApproval(task),
     progress: Math.max(0, Math.min(100, Number(task.progress) || 0)),
   };
 }
@@ -71,6 +74,7 @@ export function cardLabel(task, facts) {
     PRIORITY_WORD[task.priority] ? `${PRIORITY_WORD[task.priority]} priority` : null,
     f.milestone ? 'milestone' : null,
     f.blocked ? 'blocked' : null,
+    f.awaitingApproval ? 'waiting for approval' : null,
     f.overdue ? 'overdue' : null,
     f.due ? `due ${f.due}` : null,
     f.recurring ? 'repeats' : null,
