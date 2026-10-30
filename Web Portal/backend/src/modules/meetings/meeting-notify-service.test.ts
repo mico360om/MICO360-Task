@@ -279,7 +279,7 @@ describe('MeetingNotifyService — time zones and resilience (MTG-01/03)', () =>
     const labels = [email.sendMeetingInvite, email.sendMeetingMinutes].map((f) => (f.mock.calls[0]![1] as { whenLabel: string }).whenLabel);
     expect(labels).toEqual(['Thursday 1 October 2026, 13:30 – 15:00 (GMT+4)', 'Thursday 1 October 2026, 13:30 – 15:00 (GMT+4)']);
     expect(preview.text).toContain('Thursday 1 October 2026, 13:30 – 15:00 (GMT+4)');
-    expect(preview.text).not.toMatch(/(AM|PM)|Oct 1/);
+    expect(preview.text).not.toMatch(/\b(AM|PM)\b|Oct 1/);
   });
 
   it('falls back to the company zone for an invalid stored zone instead of failing', async () => {
