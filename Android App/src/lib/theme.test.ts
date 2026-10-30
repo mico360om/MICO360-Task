@@ -36,6 +36,6 @@ describe('theme', () => {
 
   it('dark ground is darker than its ink (a real dark theme, not a copy of light)', () => {
     expect(darkColors.ground).not.toBe(lightColors.ground);
-    expect(darkColors.ink).toBe('#F4F2F0');
+    expect(darkColors.ink).toBe('#F4F0EE');
   });
 });

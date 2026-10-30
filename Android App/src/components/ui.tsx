@@ -71,7 +71,7 @@ function makeStyles(c: Palette) {
     empty: { alignItems: 'center', justifyContent: 'center', padding: spacing.xxl, gap: spacing.sm },
     emptyTitle: { ...typeStyle('heading'), color: c.ink },
     errorNote: {
-      backgroundColor: c.errorWash,
+      backgroundColor: c.dangerSoft,
       borderWidth: 1,
       borderColor: c.danger,
       borderRadius: radius.md,

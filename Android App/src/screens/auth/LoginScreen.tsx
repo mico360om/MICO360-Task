@@ -412,7 +412,7 @@ const makeStyles = (c: Palette) =>
     // Under a button, the same gap as the "Forgot your password?" link it replaces.
     noteBelow: { marginTop: spacing.md, marginBottom: 0 },
     lockedNote: {
-      backgroundColor: c.errorWash,
+      backgroundColor: c.dangerSoft,
       borderWidth: 1,
       borderColor: c.danger,
       borderRadius: radius.md,

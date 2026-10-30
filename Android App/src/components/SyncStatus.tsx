@@ -109,7 +109,7 @@ const makeStyles = (c: Palette) =>
       padding: spacing.md,
       gap: spacing.xs,
     },
-    failedBox: { backgroundColor: c.errorWash, borderColor: c.danger },
+    failedBox: { backgroundColor: c.dangerSoft, borderColor: c.danger },
     title: { fontSize: fontSize.sm, fontWeight: '700', color: c.brand },
     failedTitle: { color: c.danger },
     sub: { fontSize: fontSize.xs, color: c.ink2, marginBottom: spacing.xs },
