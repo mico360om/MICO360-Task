@@ -104,7 +104,7 @@ export function MentionSuggestions({
 export function MentionText({ body, people, style, onBrand }: { body: string; people: MentionPerson[]; style?: StyleProp<TextStyle>; onBrand?: boolean }) {
   const c = useColors();
   const tokens = useMemo(() => tokenizeMentions(body, people.map((p) => p.username)), [body, people]);
-  const mark: TextStyle = onBrand ? { color: c.onBrand, ...font('700'), backgroundColor: 'rgba(0,0,0,0.2)' } : { color: c.brandText, ...font('600') };
+  const mark: TextStyle = onBrand ? { color: c.onBrand, ...font('700'), backgroundColor: c.brandInk } : { color: c.brandText, ...font('600') };
   return (
     <Text style={style}>
       {tokens.map((t, i) =>
@@ -126,7 +126,7 @@ const makeStyles = (c: Palette) =>
       backgroundColor: c.surface,
       borderWidth: 1,
       borderColor: c.line,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       marginTop: spacing.xs,
       overflow: 'hidden',
     },

@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, type ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, type ViewStyle } from 'react-native';
 import { useColors } from '../../core/theme';
 import { isNetworkError } from '../../lib/api-client';
 import { keptOnPhoneText } from '../../lib/write-order';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
+import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 export type SaveState =
   | { status: 'idle' }
@@ -15,7 +17,6 @@ export type SaveState =
 
 /** The message for a failed action: the server's reason when it gave one. */
 import { failureText } from '../../lib/task-detail';
-import { font } from '../../lib/typography';
 
 export { failureText };
 
@@ -52,7 +53,7 @@ export function useSave() {
   return { state, run, fail, reset, busy: state.status === 'saving' };
 }
 
-/** "Saving…" / "✓ Saved" / "Will sync when you're online" (announced), or the error (an alert). */
+/** "Saving…" / "Saved" (with the check) / "Will sync when you're online" (announced), or the error (an alert). */
 export function SaveNote({ state }: { state: SaveState }) {
   const c = useColors();
   if (state.status === 'idle') return null;
@@ -63,11 +64,12 @@ export function SaveNote({ state }: { state: SaveState }) {
       </Text>
     );
   }
-  const text = state.status === 'saving' ? 'Saving…' : state.status === 'saved' ? '✓ Saved' : state.message ?? 'Saved on this phone — will sync when you’re online.';
-  const color = state.status === 'saved' ? c.success : c.ink3;
+  const text = state.status === 'saving' ? 'Saving…' : state.status === 'saved' ? 'Saved' : state.message ?? 'Saved on this phone — will sync when you’re online.';
+  const color = state.status === 'saved' ? c.successText : c.ink3;
   return (
     <View accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
       {state.status === 'saving' ? <ActivityIndicator size="small" color={c.ink3} /> : null}
+      {state.status === 'saved' ? <Icon name="misc.check" size={14} color={color} /> : null}
       <Text style={{ fontSize: fontSize.xs, color, ...font('600') }}>{text}</Text>
     </View>
   );
@@ -89,25 +91,6 @@ export function SectionCard({ title, right, children, style }: { title: string; 
   );
 }
 
-/** A round 44dp icon button with a text glyph. */
-export function IconButton({ glyph, label, onPress, disabled, tone = 'muted' }: { glyph: string; label: string; onPress: () => void; disabled?: boolean; tone?: 'muted' | 'danger' | 'brand' }) {
-  const c = useColors();
-  const color = tone === 'danger' ? c.danger : tone === 'brand' ? c.brand : c.ink2;
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
-      hitSlop={4}
-      style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, opacity: disabled ? 0.35 : pressed ? 0.6 : 1 })}
-    >
-      <Text style={{ fontSize: fontSize.lg, color, ...font('700') }}>{glyph}</Text>
-    </Pressable>
-  );
-}
-
 /** The selectable chip is the app's shared one (status, priority, scope…, with an optional colour dot). */
 export { Chip } from '../ui';
 
@@ -115,7 +98,7 @@ export { Chip } from '../ui';
 export function Tag({ label, color, tone }: { label: string; color?: string; tone?: 'danger' }) {
   const c = useColors();
   const s = useKitStyles();
-  const fg = tone === 'danger' ? c.danger : color ?? c.ink2;
+  const fg = tone === 'danger' ? c.dangerText : color ?? c.ink2;
   const bg = tone === 'danger' ? c.dangerSoft : c.ground;
   return (
     <View style={[s.tag, { backgroundColor: bg }]}>
@@ -135,11 +118,11 @@ export function useKitStyles() {
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
+    card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
     cardTitle: { flex: 1, fontSize: fontSize.xs, ...font('800'), color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8 },
     cardRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     dot: { width: 9, height: 9, borderRadius: 5 },
-    tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 },
+    tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 3 },
     tagText: { fontSize: fontSize.xs, ...font('700') },
   });

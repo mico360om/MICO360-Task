@@ -1,23 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { TextField, Button } from '../ui';
+import { ApprovalChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
-import { priorityColor } from '../TaskRow';
+import { Icon } from '../Icon';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { carryForward } from '../../lib/task-detail';
-import { IconButton, SaveNote, Tag, useSave } from './kit';
+import { SaveNote, Tag, useSave } from './kit';
 import { font } from '../../lib/typography';
 
-const PRIORITY_LABEL: Record<string, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 /** The task title column's limit (VARCHAR 191). */
 const TITLE_MAX = 191;
 
 /**
  * The top of the task: reference, status, priority and due date at a glance, the title (edited in
- * place), and a "⋯" menu for the secondary actions (watching, exporting). A task made from a meeting
+ * place), and a menu (the three dots) for the secondary actions (watching, exporting); the approval
+ * chip while it waits. A task made from a meeting
  * names that meeting; tapping it opens the meeting in the app.
  */
 export function HeaderCard({
@@ -96,15 +96,14 @@ export function HeaderCard({
         <View style={s.meta}>
           <Text style={s.key}>{task.key}</Text>
           {statusName ? <Tag label={statusName} color={categoryColorOf(c, statusCategory ?? 'TODO')} /> : null}
-          <Tag label={PRIORITY_LABEL[task.priority] ?? task.priority} color={priorityColor(c, task.priority)} />
+          <PriorityBadge priority={task.priority} />
           {due.text ? <Tag label={due.text} tone={due.overdue ? 'danger' : undefined} /> : null}
+          {task.approvalRequestedAt ? <ApprovalChip size="sm" /> : null}
         </View>
         {onEdit ? (
-          <Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit task" accessibilityHint="Edit every detail of the task" style={({ pressed }) => [s.edit, pressed && { opacity: 0.6 }]}>
-            <Text style={s.editText}>✎ Edit</Text>
-          </Pressable>
+          <Button title="Edit" icon="ui.edit" variant="secondary" size="sm" onPress={onEdit} accessibilityLabel="Edit task" accessibilityHint="Edit every detail of the task" />
         ) : null}
-        <IconButton glyph="⋯" label="More actions" onPress={() => setMenu(true)} tone="brand" />
+        <IconButton icon="misc.dots" label="More actions" onPress={() => setMenu(true)} color={c.brandText} />
       </View>
 
       {draft === null ? (
@@ -112,7 +111,7 @@ export function HeaderCard({
           <Text style={s.title} accessibilityRole="header">
             {task.title}
           </Text>
-          {onSaveTitle ? <IconButton glyph="✎" label="Edit title" onPress={() => { save.reset(); setDraft(task.title); }} /> : null}
+          {onSaveTitle ? <IconButton icon="ui.edit" label="Edit title" onPress={() => { save.reset(); setDraft(task.title); }} /> : null}
         </View>
       ) : (
         // Typing keeps the title and its Save / Cancel above the keyboard.
@@ -134,11 +133,22 @@ export function HeaderCard({
       )}
       <SaveNote state={save.state} />
       {task.recurrenceRule ? (
-        <Text style={s.recurrence}>🔁 {recurrenceSummary(task.recurrenceRule)}</Text>
+        <View style={s.line}>
+          <Icon name="kit.repeat" size={14} color={c.brandText} />
+          <Text style={s.recurrence}>{recurrenceSummary(task.recurrenceRule)}</Text>
+        </View>
       ) : task.recurrenceParentId ? (
-        <Text style={s.recurrence}>🔁 Part of a repeating series</Text>
+        <View style={s.line}>
+          <Icon name="kit.repeat" size={14} color={c.brandText} />
+          <Text style={s.recurrence}>Part of a repeating series</Text>
+        </View>
       ) : null}
-      {task.isMilestone ? <Text style={s.recurrence}>🏁 Milestone</Text> : null}
+      {task.isMilestone ? (
+        <View style={s.line}>
+          <Icon name="misc.milestone" size={14} color={c.brandText} />
+          <Text style={s.recurrence}>Milestone</Text>
+        </View>
+      ) : null}
       {carried ? (
         <View>
           <Pressable
@@ -149,7 +159,10 @@ export function HeaderCard({
             accessibilityState={{ expanded: carryOpen }}
             style={({ pressed }) => [s.carry, pressed && { opacity: 0.6 }]}
           >
-            <Text style={s.carryText}>↪ {carried.text} {carryOpen ? '▴' : '▾'}</Text>
+            <View style={s.carryPill}>
+              <Text style={s.carryText}>{carried.text}</Text>
+              <Icon name="ui.chevron" size={14} color={c.ink2} rotate={carryOpen ? 180 : 0} />
+            </View>
           </Pressable>
           {carryOpen ? carried.lines.map((line) => (
             <Text key={line} style={s.carryLine}>
@@ -166,10 +179,17 @@ export function HeaderCard({
           onPress={() => onOpenMeeting?.(meeting.meetingId!)}
           style={({ pressed }) => [s.meetingLink, pressed && { opacity: 0.6 }]}
         >
-          <Text style={s.meetingText}>📅 {meeting.text} ›</Text>
+          <View style={s.line}>
+            <Icon name="kit.calendar" size={14} color={c.brandText} />
+            <Text style={s.meetingText}>{meeting.text}</Text>
+            <Icon name="ui.chevron" rotate={270} size={14} color={c.brandText} />
+          </View>
         </Pressable>
       ) : meeting ? (
-        <Text style={s.meetingMuted}>📅 {meeting.text}</Text>
+        <View style={s.line}>
+          <Icon name="kit.calendar" size={14} color={c.ink3} />
+          <Text style={s.meetingMuted}>{meeting.text}</Text>
+        </View>
       ) : null}
 
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
@@ -191,23 +211,23 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     wrap: { gap: spacing.xs },
     topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    edit: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.md, paddingHorizontal: spacing.md },
-    editText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
     key: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 1, marginRight: spacing.xs },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
     title: { flex: 1, fontSize: fontSize.xl, ...font('800'), color: c.ink, paddingTop: spacing.xs },
     editActions: { flexDirection: 'row', gap: spacing.sm },
     flex: { flex: 1 },
-    recurrence: { fontSize: fontSize.sm, color: c.brandText, ...font('600') },
+    line: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    recurrence: { flexShrink: 1, fontSize: fontSize.sm, color: c.brandText, ...font('600') },
     carry: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-    carryText: { fontSize: fontSize.sm, color: c.ink2, ...font('600'), backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4, overflow: 'hidden' },
+    carryPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 },
+    carryText: { flexShrink: 1, fontSize: fontSize.sm, color: c.ink2, ...font('600') },
     carryLine: { fontSize: fontSize.xs, color: c.ink2, paddingLeft: spacing.md, paddingVertical: 2 },
     meetingLink: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-    meetingText: { fontSize: fontSize.sm, color: c.brandText, ...font('600'), textDecorationLine: 'underline' },
-    meetingMuted: { fontSize: fontSize.sm, color: c.ink3, ...font('600') },
-    backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
-    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingVertical: spacing.sm, paddingBottom: spacing.xl },
+    meetingText: { flexShrink: 1, fontSize: fontSize.sm, color: c.brandText, ...font('600'), textDecorationLine: 'underline' },
+    meetingMuted: { flexShrink: 1, fontSize: fontSize.sm, color: c.ink3, ...font('600') },
+    backdrop: { flex: 1, backgroundColor: c.scrim, justifyContent: 'flex-end' },
+    sheet: { backgroundColor: c.surface, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, paddingVertical: spacing.sm, paddingBottom: spacing.xl },
     sheetTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },
     menuItem: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg },
     menuText: { fontSize: fontSize.md, color: c.ink, ...font('600') },

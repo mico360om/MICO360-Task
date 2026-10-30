@@ -12,6 +12,7 @@ import { parseDueDateInput } from '../lib/form-input';
 import { formatDueDay } from '../lib/due-date';
 import { dueFieldValue } from '../lib/task-detail';
 import { TextField } from './ui';
+import { Icon } from './Icon';
 import { font } from '../lib/typography';
 
 /**
@@ -100,7 +101,12 @@ export function RecurrenceEditor({
       {rule ? (
         <>
           {/* A meeting's form says how its series repeats, from its first meeting's day and time. */}
-          {meeting ? null : <Text style={styles.summary}>🔁 {recurrenceSummary(rule)}</Text>}
+          {meeting ? null : (
+            <View style={styles.row}>
+              <Icon name="kit.repeat" size={14} color={c.brandText} />
+              <Text style={[styles.summary, styles.shrink]}>{recurrenceSummary(rule)}</Text>
+            </View>
+          )}
 
           <View style={styles.row}>
             <Text style={styles.label}>Every</Text>
@@ -210,7 +216,8 @@ export function RecurrenceEditor({
 
           {meeting ? null : (
             <Pressable onPress={() => set(togglePaused(rule))} disabled={disabled} accessibilityRole="button" style={[styles.chip, styles.pause]}>
-              <Text style={styles.chipText}>{rule.paused ? '▶ Resume series' : '⏸ Pause series'}</Text>
+              <Icon name={rule.paused ? 'kit.play' : 'kit.pause'} size={12} color={c.ink2} />
+              <Text style={styles.chipText}>{rule.paused ? 'Resume series' : 'Pause series'}</Text>
             </Pressable>
           )}
         </>
@@ -244,5 +251,6 @@ const makeStyles = (c: Palette) =>
     stepText: { fontSize: fontSize.lg, color: c.ink, ...font('700') },
     stepValue: { minWidth: 90, textAlign: 'center', fontSize: fontSize.sm, color: c.ink, ...font('600') },
     preview: { fontSize: fontSize.xs, color: c.ink3 },
-    pause: { alignSelf: 'flex-start' },
+    pause: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 },
+    shrink: { flexShrink: 1 },
   });

@@ -11,7 +11,8 @@ import { useServices } from '../core/providers';
 import { notice } from '../components/notice';
 import { useColors } from '../core/theme';
 import { pickedFiles } from '../adapters/picked-files';
-import { Button, ErrorNote, Loader, TextField } from '../components/ui';
+import { Button, ErrorNote, SkeletonList, TextField } from '../components/ui';
+import { Icon } from '../components/Icon';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { RecurrenceEditor } from '../components/RecurrenceEditor';
 import { CardChoice, CheckRow, ChipChoice, FieldLabel, InlinePicker } from '../components/meeting/sheet-kit';
@@ -479,7 +480,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
   if (editing && !filled.current) {
     if (taskQ.isError && !taskQ.data) return <ErrorNote message="Couldn’t load this task. Check your connection and try again." onRetry={() => void taskQ.refetch()} retrying={taskQ.isRefetching} />;
-    return <Loader />;
+    return <SkeletonList rows={5} />;
   }
 
   return (
@@ -495,9 +496,12 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         {projectsQ.isError && !projectsQ.data ? <ErrorNote message="Couldn’t load your projects. Check your connection and try again." onRetry={() => void projectsQ.refetch()} retrying={projectsQ.isRefetching} /> : null}
         {locked ? (
           <View style={s.note}>
-            <Text style={s.noteText} accessibilityLiveRegion="polite">
-              🔒 {NEW_TASK_TEXT.locked}
-            </Text>
+            <View style={s.lineRow}>
+              <Icon name="kit.lock" size={14} color={c.ink2} />
+              <Text style={[s.noteText, s.shrink]} accessibilityLiveRegion="polite">
+                {NEW_TASK_TEXT.locked}
+              </Text>
+            </View>
             <Button title={START_OVER.label} variant="ghost" onPress={startOver} disabled={saving} accessibilityLabel="Start over: unlock the form. The task may already be created — check the board first." />
           </View>
         ) : null}
@@ -631,7 +635,12 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
         <View style={s.card} onLayout={(e) => (repeatY.current = e.nativeEvent.layout.y)}>
           <FieldLabel>Repeat</FieldLabel>
-          {draft.rule ? <Text style={s.summary}>🔁 {scheduleText(draft.rule, draft.dueDate)}</Text> : null}
+          {draft.rule ? (
+            <View style={s.lineRow}>
+              <Icon name="kit.repeat" size={14} color={c.ink} />
+              <Text style={[s.summary, s.shrink]}>{scheduleText(draft.rule, draft.dueDate)}</Text>
+            </View>
+          ) : null}
           {!canRepeat ? <Text style={s.hint}>{EDIT_TEXT.noRepeatHere}</Text> : null}
           {canRepeat ? <RecurrenceEditor
             value={draft.rule}
@@ -705,8 +714,8 @@ const makeStyles = (c: Palette) =>
     safe: { flex: 1, backgroundColor: c.ground },
     body: { padding: spacing.lg, gap: spacing.xs, paddingBottom: spacing.xxl },
     group: { gap: spacing.xs, marginBottom: spacing.md },
-    card: { gap: spacing.sm, marginBottom: spacing.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.lg, padding: spacing.md },
-    fixed: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
+    card: { gap: spacing.sm, marginBottom: spacing.md, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: spacing.md },
+    fixed: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderRadius: radius.input, paddingHorizontal: spacing.md },
     fixedText: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     chip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 40, borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
@@ -719,7 +728,9 @@ const makeStyles = (c: Palette) =>
     summary: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     hint: { fontSize: fontSize.xs, color: c.ink2 },
     problem: { fontSize: fontSize.xs, ...font('700'), color: c.dangerText },
-    note: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
+    lineRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    shrink: { flexShrink: 1 },
+    note: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.xs },
     noteTitle: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
     noteText: { fontSize: fontSize.sm, color: c.ink2 },
     footer: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.surface },

@@ -72,11 +72,10 @@ describe('attachments', () => {
     expect(uploadMimeType('data.bin', 'text/comma-separated-values')).toBe('text/comma-separated-values');
   });
 
-  it('picks an icon by type', () => {
-    expect(attachmentIcon('image/png')).toBe('🖼️');
-    expect(attachmentIcon('application/pdf')).toBe('📕');
-    expect(attachmentIcon('text/csv')).toBe('📊');
-    expect(attachmentIcon('text/plain')).toBe('📄');
+  it('draws the website’s file icon for every kind (the kind is said in words beside it)', () => {
+    for (const type of ['image/png', 'application/pdf', 'application/zip', 'text/csv', 'application/vnd.ms-powerpoint', 'text/plain', '']) {
+      expect(attachmentIcon(type), type).toBe('ui.file');
+    }
   });
 
   it('no longer labels the old Office formats the server refuses (.doc, .xls, .ppt)', () => {

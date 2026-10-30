@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useParseTask } from '../../core/new-task';
 import { Button, TextField } from '../ui';
+import { Icon } from '../Icon';
 import { CheckRow, SheetMessage } from '../meeting/sheet-kit';
 import { chosenTaskPatch, describeFailure, describeHint, DESCRIBE_TEXT, type AiTaskDraft, type DescribedFields, type TaskSuggestion } from '../../lib/task-describe';
 import { companyTodayKey } from '../../lib/due-date';
@@ -56,9 +57,12 @@ export function DescribeTask({
 
   return (
     <View style={[styles.card, { borderColor: c.brand, backgroundColor: c.brandWash }]}>
-      <Text style={[styles.title, { color: c.brandText }]} accessibilityRole="header">
-        ✨ {DESCRIBE_TEXT.heading}
-      </Text>
+      <View style={styles.titleRow}>
+        <Icon name="nav.ai" size={16} color={c.brandText} />
+        <Text style={[styles.title, styles.shrink, { color: c.brandText }]} accessibilityRole="header">
+          {DESCRIBE_TEXT.heading}
+        </Text>
+      </View>
       <Text style={[styles.hint, { color: c.ink2 }]}>{describeHint(withProject)}</Text>
       <TextField
         accessibilityLabel={DESCRIBE_TEXT.heading}
@@ -110,12 +114,14 @@ export function DescribeTask({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  shrink: { flexShrink: 1 },
+  card: { borderWidth: 1, borderRadius: radius.card, padding: spacing.md, gap: spacing.sm, marginBottom: spacing.md },
   title: { fontSize: fontSize.md, ...font('800') },
   hint: { fontSize: fontSize.xs },
   heading: { fontSize: fontSize.xs, ...font('800'), letterSpacing: 0.8 },
   multiline: { minHeight: 72, paddingTop: spacing.sm, textAlignVertical: 'top' },
-  found: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
+  found: { borderWidth: 1, borderRadius: radius.input, padding: spacing.md, gap: spacing.xs },
   replaces: { fontSize: fontSize.xs, marginLeft: 30, marginTop: -6 },
   row: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
   flex: { flex: 1 },

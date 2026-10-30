@@ -7,6 +7,7 @@ import { attachmentIcon, formatFileSize, uploadMimeType } from '../../lib/attach
 import { NEW_TASK_TEXT, type NewTaskFile } from '../../lib/task-form';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * Files for a new task (4a), as on the website's FilesField: picked files (any, or pictures) listed
@@ -35,9 +36,9 @@ export function FilesField({
         const pct = f.fraction !== undefined ? Math.round(f.fraction * 100) : null;
         return (
           <View key={f.key} style={[styles.file, { borderColor: c.line, backgroundColor: c.surface }]}>
-            <Text style={styles.icon} importantForAccessibility="no">
-              {attachmentIcon(uploadMimeType(f.name, f.mimeType))}
-            </Text>
+            <View importantForAccessibility="no-hide-descendants">
+              <Icon name={attachmentIcon(uploadMimeType(f.name, f.mimeType))} size={20} color={c.ink2} />
+            </View>
             <View style={styles.grow}>
               <Text style={[styles.name, { color: c.ink }]} numberOfLines={1}>
                 {f.name}
@@ -61,7 +62,7 @@ export function FilesField({
             </View>
             {!busy && f.fraction === undefined ? (
               <Pressable onPress={() => onRemove(f.key)} accessibilityRole="button" accessibilityLabel={`Remove ${f.name}`} hitSlop={6} style={styles.remove}>
-                <Text style={[styles.removeText, { color: c.ink2 }]}>✕</Text>
+                <Icon name="ui.close" size={16} color={c.ink2} />
               </Pressable>
             ) : null}
           </View>
@@ -84,13 +85,11 @@ const styles = StyleSheet.create({
   wrap: { gap: spacing.xs, marginBottom: spacing.md },
   row: { flexDirection: 'row', gap: spacing.sm },
   grow: { flex: 1 },
-  file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.md, paddingLeft: spacing.md, paddingVertical: spacing.xs, minHeight: 52 },
-  icon: { fontSize: fontSize.lg },
+  file: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radius.input, paddingLeft: spacing.md, paddingVertical: spacing.xs, minHeight: 52 },
   name: { fontSize: fontSize.sm, ...font('600'), textAlign: 'auto' },
   meta: { fontSize: fontSize.xs, marginTop: 2 },
   track: { height: 6, borderRadius: radius.pill, overflow: 'hidden', marginTop: 6 },
   fill: { height: 6 },
   remove: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  removeText: { fontSize: fontSize.md, ...font('700') },
   hint: { fontSize: fontSize.xs },
 });

@@ -37,7 +37,7 @@ import {
 import { useMyQueuedChanges, useServices, useSession } from '../core/providers';
 import { useDebouncedValue } from '../core/useDebounced';
 import { useColors } from '../core/theme';
-import { Loader, ErrorNote, Button } from '../components/ui';
+import { SkeletonList, ErrorNote, Button } from '../components/ui';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { statusOf } from '../lib/task-status';
 import { inSeries, isEarlierCopy } from '../lib/recurrence-edit';
@@ -162,7 +162,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   // Memoized: the checklist resets what it shows only when its items really change.
   const checklistItems = useMemo(() => withQueuedTicks(checklistQ.data?.items ?? [], queued.pending, taskId), [checklistQ.data, queued.pending, taskId]);
 
-  if (taskQ.isLoading) return <Loader />;
+  if (taskQ.isLoading) return <SkeletonList rows={6} />;
   if (taskQ.isError || !task) {
     const problem = taskLoadProblem(taskQ.error);
     return <ErrorNote message={problem.message} onRetry={problem.canRetry ? () => void taskQ.refetch() : undefined} retrying={taskQ.isRefetching} />;

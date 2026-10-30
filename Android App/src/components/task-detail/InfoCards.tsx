@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Image, StyleSheet, Alert } from 'react-native';
 import { useColors } from '../../core/theme';
-import { TextField, Button } from '../ui';
+import { TextField, Button, IconButton } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
+import { Icon } from '../Icon';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { buildTimeline, type FeedEntry, type TimelineKind } from '../../lib/activity-feed';
 import { fileKind } from '../../lib/file-kind';
@@ -11,7 +12,7 @@ import { attachmentIcon, formatFileSize } from '../../lib/attachments';
 import { previewMode } from '../../lib/file-preview';
 import type { TaskRef } from '../../lib/task-detail';
 import type { ApiAttachment } from '../../lib/attachments';
-import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
+import { SaveNote, SectionCard, relativeTime, useSave } from './kit';
 import { font } from '../../lib/typography';
 
 // ── Activity ─────────────────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ export function FilesCard({
                 <Image source={{ uri: hrefOf(a) }} style={s.thumb} accessibilityIgnoresInvertColors accessible={false} />
               ) : (
                 <View style={[s.thumb, s.thumbIcon]}>
-                  <Text style={{ fontSize: fontSize.lg }}>{attachmentIcon(a.mimeType)}</Text>
+                  <Icon name={attachmentIcon(a.mimeType)} size={20} color={c.ink2} />
                 </View>
               )}
               <View style={s.flex}>
@@ -131,12 +132,11 @@ export function FilesCard({
                 <Text style={s.when}>{formatFileSize(a.sizeBytes)}</Text>
               </View>
             </Pressable>
-            {onPreview && previewMode(a.mimeType, a.filename) ? <IconButton glyph="👁" label={`Preview ${a.filename}`} onPress={() => onPreview(a)} /> : null}
+            {onPreview && previewMode(a.mimeType, a.filename) ? <IconButton icon="misc.eye" label={`Preview ${a.filename}`} onPress={() => onPreview(a)} /> : null}
             {canDelete(a) ? (
               <IconButton
-                glyph="🗑"
-                label={`Delete ${a.filename}`}
-                tone="danger"
+                icon="ui.trash"
+                label={`Delete ${a.filename}`} color={c.dangerText}
                 onPress={() =>
                   Alert.alert('Delete file?', `${a.filename} will be removed from this task.`, [
                     { text: 'Keep', style: 'cancel' },
@@ -154,7 +154,7 @@ export function FilesCard({
             <Text style={[s.fileName, s.flex]} numberOfLines={1}>
               {u.name}
             </Text>
-            {u.error ? <IconButton glyph="×" label={`Dismiss ${u.name}`} onPress={() => onDismissUpload(u.key)} /> : <Text style={s.when}>{Math.round(u.fraction * 100)}%</Text>}
+            {u.error ? <IconButton icon="ui.close" label={`Dismiss ${u.name}`} onPress={() => onDismissUpload(u.key)} /> : <Text style={s.when}>{Math.round(u.fraction * 100)}%</Text>}
           </View>
           {u.error ? (
             <Text accessibilityRole="alert" style={s.error}>{u.error.includes(`“${u.name}”`) ? u.error : `${u.name}: ${u.error}`}</Text>
@@ -177,7 +177,9 @@ function RefLine({ t, onRemove }: { t: TaskRef; onRemove?: () => void }) {
   const s = useMemo(() => makeStyles(c), [c]);
   return (
     <View style={s.ref} accessibilityLabel={`${t.key} ${t.title}${t.statusName ? `, ${t.statusName}` : ''}`}>
-      <Text style={[s.refMark, { color: t.done ? c.success : c.warning }]}>{t.done ? '✓' : '●'}</Text>
+      <View style={s.refMark}>
+        {t.done ? <Icon name="misc.check" size={14} color={c.successText} /> : <View style={[s.refDot, { backgroundColor: c.warning }]} />}
+      </View>
       <Text style={s.refKey}>{t.key}</Text>
       <Text style={[s.refTitle, t.done && s.refDone]} numberOfLines={1}>
         {t.title}
@@ -188,7 +190,7 @@ function RefLine({ t, onRemove }: { t: TaskRef; onRemove?: () => void }) {
           <Text style={s.statusText}>{t.statusName}</Text>
         </View>
       ) : null}
-      {onRemove ? <IconButton glyph="×" label={`Remove blocker ${t.key}`} onPress={onRemove} /> : null}
+      {onRemove ? <IconButton icon="ui.close" label={`Remove blocker ${t.key}`} onPress={onRemove} /> : null}
     </View>
   );
 }
@@ -293,26 +295,27 @@ const makeStyles = (c: Palette) =>
     actor: { ...font('800'), color: c.ink },
     path: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 2 },
     arrow: { fontSize: fontSize.xs, color: c.ink3 },
-    step: { fontSize: fontSize.xs, color: c.ink2, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 1, overflow: 'hidden' },
+    step: { fontSize: fontSize.xs, color: c.ink2, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: 6, paddingVertical: 1, overflow: 'hidden' },
     file: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-    fileMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 56, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, backgroundColor: c.surface },
-    thumb: { width: 40, height: 40, borderRadius: radius.sm },
+    fileMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 56, borderWidth: 1, borderColor: c.line, borderRadius: radius.button, padding: spacing.sm, backgroundColor: c.surface },
+    thumb: { width: 40, height: 40, borderRadius: radius.badge },
     thumbIcon: { backgroundColor: c.ground, alignItems: 'center', justifyContent: 'center' },
     fileName: { fontSize: fontSize.md, ...font('600'), color: c.ink },
-    upload: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs },
+    upload: { borderWidth: 1, borderColor: c.line, borderRadius: radius.button, padding: spacing.sm, gap: spacing.xs },
     rowCenter: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     error: { fontSize: fontSize.sm, color: c.dangerText, ...font('600') },
     bar: { height: 6, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },
     barFill: { height: 6, backgroundColor: c.brand },
-    waiting: { fontSize: fontSize.xs, ...font('800'), color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2, overflow: 'hidden' },
+    waiting: { fontSize: fontSize.xs, ...font('800'), color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 2, overflow: 'hidden' },
     sub: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     ref: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44 },
-    refMark: { fontSize: fontSize.sm, ...font('900'), width: 16, textAlign: 'center' },
+    refMark: { width: 16, alignItems: 'center', justifyContent: 'center' },
+    refDot: { width: 8, height: 8, borderRadius: 4 },
     refKey: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, fontFamily: 'monospace' },
     refTitle: { flexShrink: 1, fontSize: fontSize.sm, color: c.ink },
     refDone: { color: c.ink3, textDecorationLine: 'line-through' },
-    status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 },
+    status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: 6, paddingVertical: 2 },
     statusDot: { width: 7, height: 7, borderRadius: 4 },
     statusText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
-    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: c.line },
+    option: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.sm, borderRadius: radius.input, borderWidth: 1, borderColor: c.line },
   });

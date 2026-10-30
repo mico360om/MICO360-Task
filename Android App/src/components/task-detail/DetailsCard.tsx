@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Switch } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { TextField, Button } from '../ui';
+import { TextField, Button, IconButton, Toggle } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
+import { Icon } from '../Icon';
 import { priorityColor } from '../TaskRow';
 import { RecurrenceEditor } from '../RecurrenceEditor';
 import { DueDateField } from '../task-form/DueDateField';
@@ -13,7 +14,7 @@ import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../
 import { parseDueDateInput, parseHoursInput } from '../../lib/form-input';
 import { parseTags } from '../../lib/quick-add';
 import { displayName, type ApiAssignee, type ApiColumn, type ApiTag, type ApiTask, type Priority } from '../../lib/types';
-import { Chip, IconButton, SaveNote, SectionCard, useSave } from './kit';
+import { Chip, SaveNote, SectionCard, useSave } from './kit';
 import { aiFailureText, dueFieldValue } from '../../lib/task-detail';
 import { repeatDraftDone, type RepeatDraft } from '../../lib/recurrence-edit';
 import { font } from '../../lib/typography';
@@ -185,15 +186,19 @@ export function DetailsCard({
           ))}
           {onSuggestPriority ? (
             <Pressable onPress={() => void suggest()} disabled={suggesting} accessibilityRole="button" accessibilityLabel="Suggest priority with AI" style={s.aiBtn}>
-              <Text style={s.aiText}>{suggesting ? 'Thinking…' : '✨ AI'}</Text>
+              {suggesting ? null : <Icon name="nav.ai" size={14} color={c.brandText} />}
+              <Text style={s.aiText}>{suggesting ? 'Thinking…' : 'AI'}</Text>
             </Pressable>
           ) : null}
         </View>
         {suggestion ? (
           <View style={s.suggest}>
-            <Text style={s.suggestText}>
-              ✨ AI suggests <Text style={{ ...font('800') }}>{PRIORITY_LABEL[suggestion.priority]}</Text>. {suggestion.reason}
-            </Text>
+            <View style={s.suggestRow}>
+              <Icon name="nav.ai" size={16} color={c.brandText} />
+              <Text style={[s.suggestText, s.flex]}>
+                AI suggests <Text style={{ ...font('800') }}>{PRIORITY_LABEL[suggestion.priority]}</Text>. {suggestion.reason}
+              </Text>
+            </View>
             <View style={s.row}>
               <Button
                 title="Apply"
@@ -228,17 +233,12 @@ export function DetailsCard({
       </Prop>
 
       <Prop label="Milestone">
-        <View style={s.switchRow}>
-          <Text style={s.switchText}>🏁 A key point of the project, shown on its dashboard</Text>
-          <Switch
-            value={!!task.isMilestone}
-            disabled={milestoneSave.busy}
-            accessibilityLabel="Milestone"
-            onValueChange={(on) => void milestoneSave.run(() => onPatch({ isMilestone: on }), 'Couldn’t change the milestone.', true)}
-            trackColor={{ true: c.brand, false: c.line }}
-            thumbColor={c.surface}
-          />
-        </View>
+        <Toggle
+          on={!!task.isMilestone}
+          disabled={milestoneSave.busy}
+          label="A key point of the project, shown on its dashboard"
+          onChange={(on) => void milestoneSave.run(() => onPatch({ isMilestone: on }), 'Couldn’t change the milestone.', true)}
+        />
         <SaveNote state={milestoneSave.state} />
       </Prop>
 
@@ -285,7 +285,7 @@ export function DetailsCard({
           {assignees.map((a) => (
             <View key={a.id} style={s.person}>
               <Text style={s.personText}>{displayName(a)}</Text>
-              <IconButton glyph="×" label={`Remove ${displayName(a)}`} onPress={() => void peopleSave.run(() => onUnassign(a.id), 'Couldn’t remove the assignee.', true)} />
+              <IconButton icon="ui.close" label={`Remove ${displayName(a)}`} onPress={() => void peopleSave.run(() => onUnassign(a.id), 'Couldn’t remove the assignee.', true)} />
             </View>
           ))}
           {!picking ? (
@@ -330,7 +330,8 @@ export function DetailsCard({
               <Chip key={t.id} label={t.name} dot={t.color} />
             ))}
             <Pressable onPress={() => { tagsSave.reset(); setTagsDraft(tags.map((t) => t.name).join(', ')); }} accessibilityRole="button" accessibilityLabel="Edit tags" style={s.addPerson}>
-              <Text style={s.addPersonText}>✎ Edit</Text>
+              <Icon name="ui.edit" size={14} color={c.ink2} />
+              <Text style={s.addPersonText}>Edit</Text>
             </Pressable>
           </View>
         ) : (
@@ -378,26 +379,25 @@ export function DetailsCard({
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
-    scope: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, backgroundColor: c.ground, borderRadius: radius.md, padding: spacing.sm },
+    scope: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, backgroundColor: c.ground, borderRadius: radius.input, padding: spacing.sm },
     scopeLabel: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, marginRight: spacing.xs },
     chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
-    aiBtn: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand, justifyContent: 'center' },
+    aiBtn: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand, flexDirection: 'row', alignItems: 'center', gap: 4 },
     aiText: { fontSize: fontSize.sm, ...font('800'), color: c.brandText },
-    suggest: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: c.brandWash },
+    suggest: { gap: spacing.sm, padding: spacing.sm, borderRadius: radius.input, backgroundColor: c.brandWash },
+    suggestRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
     suggestText: { fontSize: fontSize.sm, color: c.ink },
     row: { flexDirection: 'row', gap: spacing.sm },
     rowCenter: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-    switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 48 },
-    switchText: { flex: 1, fontSize: fontSize.sm, color: c.ink2 },
     flex: { flex: 1 },
-    overdue: { alignSelf: 'flex-start', fontSize: fontSize.xs, ...font('800'), color: c.dangerText, backgroundColor: c.dangerSoft, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
+    overdue: { alignSelf: 'flex-start', fontSize: fontSize.xs, ...font('800'), color: c.dangerText, backgroundColor: c.dangerSoft, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 2 },
     muted: { fontSize: fontSize.sm, color: c.ink3 },
     person: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: c.brandWash, paddingLeft: spacing.md },
     personText: { fontSize: fontSize.sm, color: c.brandText, ...font('700') },
-    addPerson: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, justifyContent: 'center' },
+    addPerson: { minHeight: 40, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, flexDirection: 'row', alignItems: 'center', gap: 4 },
     addPersonText: { fontSize: fontSize.sm, color: c.ink2, ...font('700') },
-    picker: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.line },
-    option: { minHeight: 48, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.sm },
+    picker: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.input, borderWidth: 1, borderColor: c.line },
+    option: { minHeight: 48, justifyContent: 'center', paddingHorizontal: spacing.sm, borderRadius: radius.badge },
     optionText: { fontSize: fontSize.md, color: c.ink, ...font('600') },
     optionSub: { fontSize: fontSize.xs, color: c.ink3 },
     bar: { height: 8, backgroundColor: c.line, borderRadius: radius.pill, overflow: 'hidden' },

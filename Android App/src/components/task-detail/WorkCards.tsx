@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { useColors } from '../../core/theme';
-import { TextField, Button } from '../ui';
+import { TextField, Button, IconButton } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
+import { Icon } from '../Icon';
 import { MentionSuggestions, MentionText, useMentionInput } from '../Mentions';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { aiFailureText, moveBy } from '../../lib/task-detail';
 import { ticksAfterReload } from '../../lib/checklist-ticks';
 import type { MentionPerson } from '../../lib/mentions';
 import type { ApiChecklistItem } from '../../lib/types';
-import { IconButton, SaveNote, SectionCard, relativeTime, useSave } from './kit';
+import { SaveNote, SectionCard, relativeTime, useSave } from './kit';
 import { font } from '../../lib/typography';
 
 // ── Description ──────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ export function DescriptionCard({ description, onSave }: { description: string |
     if (await save.run(() => onSave?.(draft.trim()), 'Couldn’t save the description.', true)) setDraft(null);
   }
   return (
-    <SectionCard title="Description" right={onSave && draft === null && description ? <IconButton glyph="✎" label="Edit description" onPress={() => { save.reset(); setDraft(description); }} /> : undefined}>
+    <SectionCard title="Description" right={onSave && draft === null && description ? <IconButton icon="ui.edit" label="Edit description" onPress={() => { save.reset(); setDraft(description); }} /> : undefined}>
       {draft !== null ? (
         <KeyboardGroup style={{ gap: spacing.xs }}>
           <TextField value={draft} onChangeText={setDraft} multiline numberOfLines={4} accessibilityLabel="Description" placeholder="What needs doing, and how will we know it’s done?" autoFocus style={s.multiline} />
@@ -41,7 +42,8 @@ export function DescriptionCard({ description, onSave }: { description: string |
         <Text style={s.body}>{description}</Text>
       ) : onSave ? (
         <Pressable onPress={() => setDraft('')} accessibilityRole="button" accessibilityLabel="Add a description" style={s.dashed}>
-          <Text style={s.dashedText}>✎ Add a description</Text>
+          <Icon name="ui.edit" size={14} color={c.ink2} />
+          <Text style={s.dashedText}>Add a description</Text>
         </Pressable>
       ) : (
         <Text style={s.muted}>No description.</Text>
@@ -105,13 +107,13 @@ function ChecklistRow({
           hitSlop={8}
           style={s.checkHit}
         >
-          <View style={[s.checkbox, item.done && s.checkboxOn]}>{item.done ? <Text style={s.tick}>✓</Text> : null}</View>
+          <View style={[s.checkbox, item.done && s.checkboxOn]}>{item.done ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
         </Pressable>
         <Text style={[s.itemText, item.done && s.itemDone]}>{item.text}</Text>
-        <IconButton glyph="↑" label={`Move “${item.text}” up`} onPress={() => onMove(-1)} disabled={first} />
-        <IconButton glyph="↓" label={`Move “${item.text}” down`} onPress={() => onMove(1)} disabled={last} />
-        <IconButton glyph="✎" label={`Edit “${item.text}”`} onPress={() => { save.reset(); setDraft(item.text); }} />
-        <IconButton glyph="×" label={`Remove “${item.text}”`} onPress={onRemove} tone="danger" />
+        <IconButton icon="kit.up" label={`Move “${item.text}” up`} onPress={() => onMove(-1)} disabled={first} />
+        <IconButton icon="kit.down" label={`Move “${item.text}” down`} onPress={() => onMove(1)} disabled={last} />
+        <IconButton icon="ui.edit" label={`Edit “${item.text}”`} onPress={() => { save.reset(); setDraft(item.text); }} />
+        <IconButton icon="ui.close" label={`Remove “${item.text}”`} onPress={onRemove} color={c.dangerText} />
       </View>
       <SaveNote state={save.state} />
     </View>
@@ -222,7 +224,8 @@ export function ChecklistCard({
       right={
         onSuggest ? (
           <Pressable onPress={() => void suggest()} disabled={suggesting} accessibilityRole="button" accessibilityLabel="Suggest steps with AI" style={s.aiBtn}>
-            <Text style={s.aiText}>{suggesting ? 'Thinking…' : '✨ Suggest steps · AI'}</Text>
+            {suggesting ? null : <Icon name="nav.ai" size={12} color={c.brandText} />}
+            <Text style={s.aiText}>{suggesting ? 'Thinking…' : 'Suggest steps · AI'}</Text>
           </Pressable>
         ) : undefined
       }
@@ -238,7 +241,10 @@ export function ChecklistCard({
       ) : null}
       {suggestions ? (
         <View style={s.review} accessibilityLabel="Suggested steps">
-          <Text style={s.reviewTitle}>✨ AI suggestions — choose which to add</Text>
+          <View style={s.reviewHead}>
+            <Icon name="nav.ai" size={14} color={c.brandText} />
+            <Text style={[s.reviewTitle, s.flexShrink]}>AI suggestions — choose which to add</Text>
+          </View>
           {suggestions.map((x, i) => (
             <Pressable
               key={`${i}-${x.text}`}
@@ -248,7 +254,7 @@ export function ChecklistCard({
               accessibilityLabel={x.text}
               style={s.reviewRow}
             >
-              <View style={[s.checkbox, x.on && s.checkboxOn]}>{x.on ? <Text style={s.tick}>✓</Text> : null}</View>
+              <View style={[s.checkbox, x.on && s.checkboxOn]}>{x.on ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
               <Text style={s.itemText}>{x.text}</Text>
             </Pressable>
           ))}
@@ -328,12 +334,11 @@ function CommentRow({ cm, people, onEdit, onDelete }: { cm: CommentView; people:
         <Text style={s.when}>{relativeTime(cm.createdAt)}</Text>
         {cm.edited ? <Text style={s.when}>(edited)</Text> : null}
         <View style={s.flex} />
-        {draft === null && cm.mine ? <IconButton glyph="✎" label="Edit your comment" onPress={() => { save.reset(); setDraft(cm.body); }} /> : null}
+        {draft === null && cm.mine ? <IconButton icon="ui.edit" label="Edit your comment" onPress={() => { save.reset(); setDraft(cm.body); }} /> : null}
         {draft === null && cm.canDelete ? (
           <IconButton
-            glyph="🗑"
-            label={cm.mine ? 'Delete your comment' : `Delete comment by ${cm.authorName}`}
-            tone="danger"
+            icon="ui.trash"
+            label={cm.mine ? 'Delete your comment' : `Delete comment by ${cm.authorName}`} color={c.dangerText}
             onPress={() =>
               Alert.alert('Delete comment?', 'This can’t be undone.', [
                 { text: 'Keep', style: 'cancel' },
@@ -438,9 +443,9 @@ const makeStyles = (c: Palette) =>
     body: { fontSize: fontSize.md, color: c.ink, lineHeight: 22 },
     muted: { fontSize: fontSize.sm, color: c.ink3 },
     multiline: { minHeight: 96, textAlignVertical: 'top', paddingTop: spacing.sm },
-    dashed: { minHeight: 48, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line },
+    dashed: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, borderRadius: radius.button, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line },
     dashedText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
-    aiBtn: { minHeight: 36, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand, justifyContent: 'center', backgroundColor: c.brandWash },
+    aiBtn: { minHeight: 36, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: c.brand, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.brandWash },
     aiText: { fontSize: fontSize.xs, ...font('800'), color: c.brandText },
     progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     count: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
@@ -450,15 +455,16 @@ const makeStyles = (c: Palette) =>
     checkHit: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: c.ink3, alignItems: 'center', justifyContent: 'center' },
     checkboxOn: { borderColor: c.brand, backgroundColor: c.brand },
-    tick: { color: c.onBrand, fontSize: 14, ...font('900'), lineHeight: 16 },
     itemText: { flex: 1, fontSize: fontSize.md, color: c.ink },
     itemDone: { color: c.ink3, textDecorationLine: 'line-through' },
-    review: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash },
+    review: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.input, borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash },
+    reviewHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    flexShrink: { flexShrink: 1 },
     reviewTitle: { fontSize: fontSize.sm, ...font('800'), color: c.brandText },
     reviewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
     srOnly: { position: 'absolute', width: 1, height: 1, opacity: 0 },
     addRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-    comment: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: spacing.sm, backgroundColor: c.ground, gap: 2 },
+    comment: { borderWidth: 1, borderColor: c.line, borderRadius: radius.button, padding: spacing.sm, backgroundColor: c.ground, gap: 2 },
     pending: { opacity: 0.7, borderStyle: 'dashed' },
     commentHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44 },
     author: { fontSize: fontSize.sm, ...font('800'), color: c.ink },

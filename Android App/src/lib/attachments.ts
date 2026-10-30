@@ -3,6 +3,7 @@
  * TypeScript helpers; the screen supplies the file picker and opens links.
  */
 import { ApiError, isNetworkError } from './api-client';
+import type { IconName } from './icons';
 
 export interface ApiAttachment {
   id: string;
@@ -118,14 +119,9 @@ export function uploadMimeType(filename: string, pickerType?: string | null): st
   return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream';
 }
 
-/** A small icon for the file type. */
-export function attachmentIcon(mimeType: string): string {
-  if (mimeType.startsWith('image/')) return '🖼️';
-  if (mimeType === 'application/pdf') return '📕';
-  if (mimeType === 'application/zip') return '🗜️';
-  if (/sheet|excel|csv/.test(mimeType)) return '📊';
-  if (/presentation|powerpoint/.test(mimeType)) return '📽️';
-  return '📄';
+/** The drawn icon beside a file: the website's file icon for every kind (its kind is in words beside it). */
+export function attachmentIcon(_mimeType: string): IconName {
+  return 'ui.file';
 }
 
 /** The React Native multipart part for a picked file ({ uri, name, type }). */

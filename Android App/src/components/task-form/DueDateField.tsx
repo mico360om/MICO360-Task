@@ -6,6 +6,7 @@ import { FieldLabel } from '../meeting/sheet-kit';
 import { fullDayLabel, shiftDayKey, type WeekStart } from '../../lib/calendar';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * The due date (4a): the day shown in words, and — once tapped — a month to pick it from, with
@@ -48,10 +49,9 @@ export function DueDateField({
           accessibilityState={{ expanded: open, disabled: !!disabled }}
           style={({ pressed }) => [styles.field, { borderColor: c.line, backgroundColor: c.surface }, pressed && styles.pressed, disabled && styles.disabled]}
         >
-          <Text style={[styles.value, { color: value ? c.ink : c.ink3 }]}>📅 {shown}</Text>
-          <Text style={{ color: c.ink3 }} importantForAccessibility="no">
-            {open ? '▴' : '▾'}
-          </Text>
+          <Icon name="kit.calendar" size={16} color={value ? c.ink2 : c.ink3} />
+          <Text style={[styles.value, { color: value ? c.ink : c.ink3 }]}>{shown}</Text>
+          <Icon name="ui.chevron" size={16} color={c.ink3} rotate={open ? 180 : 0} />
         </Pressable>
         {value ? (
           <Pressable
@@ -92,9 +92,9 @@ export function DueDateField({
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs, marginBottom: spacing.md },
   row: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
-  field: { flex: 1, flexDirection: 'row', alignItems: 'center', minHeight: 48, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
+  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, borderWidth: 1, borderRadius: radius.input, paddingHorizontal: spacing.md },
   value: { flex: 1, fontSize: fontSize.md },
-  clear: { minHeight: 48, minWidth: 64, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md },
+  clear: { minHeight: 48, minWidth: 64, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radius.input, paddingHorizontal: spacing.md },
   clearText: { fontSize: fontSize.sm, ...font('700') },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.5 },

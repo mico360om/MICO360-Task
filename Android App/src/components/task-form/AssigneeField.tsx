@@ -5,6 +5,7 @@ import { FieldLabel, InlinePicker } from '../meeting/sheet-kit';
 import type { PersonOption } from '../../lib/task-form';
 import { spacing, radius, fontSize } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { Icon } from '../Icon';
 
 /**
  * Who works on the task (4a), as on the website's AssigneeSelect: the chosen people as removable
@@ -53,7 +54,7 @@ export function AssigneeField({
                 hitSlop={6}
                 style={styles.remove}
               >
-                <Text style={[styles.removeText, { color: c.ink2 }]}>✕</Text>
+                <Icon name="ui.close" size={14} color={c.ink2} />
               </Pressable>
             </View>
           ))}
@@ -80,6 +81,5 @@ const styles = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderRadius: radius.pill, paddingLeft: spacing.md, maxWidth: '100%', minHeight: 40 },
   chipText: { fontSize: fontSize.sm, ...font('600'), flexShrink: 1, textAlign: 'auto' },
   remove: { width: 40, minHeight: 40, alignItems: 'center', justifyContent: 'center' },
-  removeText: { fontSize: fontSize.sm, ...font('700') },
   note: { fontSize: fontSize.xs },
 });

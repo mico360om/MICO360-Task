@@ -3,6 +3,7 @@ import { Modal, View, Text, Image, Pressable, ScrollView, StyleSheet, ActivityIn
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '../../core/theme';
 import { Button } from '../ui';
+import { Icon } from '../Icon';
 import { PREVIEW_TEXT, previewFailureText, type OfficePreview, type PreviewMode } from '../../lib/file-preview';
 import { formatFileSize, type ApiAttachment } from '../../lib/attachments';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
@@ -68,7 +69,7 @@ export function FilePreviewSheet({
           </View>
           <Button title="Download" variant="secondary" onPress={() => onDownload(file)} accessibilityLabel={`Download ${file.filename}`} />
           <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close preview" style={s.close}>
-            <Text style={s.closeText}>✕</Text>
+            <Icon name="ui.close" size={20} color={c.ink2} />
           </Pressable>
         </View>
         <View style={s.body}>
@@ -181,7 +182,6 @@ const makeStyles = (c: Palette) =>
     name: { fontSize: fontSize.md, ...font('700'), color: c.ink },
     size: { fontSize: fontSize.xs, color: c.ink3 },
     close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    closeText: { fontSize: fontSize.lg, color: c.ink2, ...font('700') },
     body: { flex: 1, backgroundColor: c.ground },
     loading: { marginTop: spacing.xxl },
     error: { padding: spacing.lg, fontSize: fontSize.sm, color: c.dangerText, ...font('600') },
@@ -190,11 +190,11 @@ const makeStyles = (c: Palette) =>
     mono: { fontFamily: 'monospace', fontSize: fontSize.xs, color: c.ink },
     para: { fontSize: fontSize.sm, color: c.ink, lineHeight: 20 },
     note: { fontSize: fontSize.xs, color: c.ink3 },
-    slide: { borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.surface, padding: spacing.sm, gap: 4 },
+    slide: { borderWidth: 1, borderColor: c.line, borderRadius: radius.input, backgroundColor: c.surface, padding: spacing.sm, gap: 4 },
     slideNo: { fontSize: fontSize.xs, ...font('700'), color: c.ink3, textTransform: 'uppercase' },
     tabs: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line },
     tabsRow: { gap: spacing.xs, paddingHorizontal: spacing.sm, paddingTop: spacing.sm },
-    tab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderTopLeftRadius: radius.sm, borderTopRightRadius: radius.sm },
+    tab: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderTopLeftRadius: radius.badge, borderTopRightRadius: radius.badge },
     tabOn: { backgroundColor: c.surface },
     tabText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     tabTextOn: { color: c.ink, ...font('800') },
