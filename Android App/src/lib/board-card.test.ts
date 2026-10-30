@@ -109,7 +109,10 @@ describe('the cards follow the website’s card rules (drift)', () => {
 
   it('the website’s card: Overdue in company time and never when done, the due text, three faces and +N, counts only when there are some', () => {
     const card = web('components/TaskCard.tsx');
-    expect(card).toMatch(/const overdue = !task\.done && isOverdue\(task\.dueDate, timeZone\);/);
+    // Since 30 Oct (approvals ruling 45) the website also never flags a task waiting for approval as
+    // overdue. This app (1.11, paused) doesn't read approvals yet, so a waiting task still shows
+    // Overdue here until it does — a known gap, told to the owner; every other task follows the same rule.
+    expect(card).toMatch(/const overdue = !task\.done && !task\.awaitingApproval && isOverdue\(task\.dueDate, timeZone\);/);
     expect(card).toMatch(/const dueText = formatDueDay\(task\.dueDate, timeZone\) \|\| 'No due date';/);
     expect(card).toMatch(/\{overdue \? `Overdue · \$\{dueText\}` : dueText\}/);
     expect(card).toMatch(/const shownAssignees = task\.assignees\.slice\(0, 3\);/);
