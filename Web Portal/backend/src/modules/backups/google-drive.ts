@@ -290,6 +290,8 @@ export function createGoogleDrive(opts: GoogleDriveOptions) {
     try {
       let offset = 0;
       let failures = 0;
+      // "Resume incomplete" answers in a row that took nothing: Drive is stuck, so give up in time.
+      let stalls = 0;
       const buf = Buffer.alloc(Math.max(1, Math.min(chunkSize, size)));
       while (true) {
         const end = Math.min(offset + chunkSize, size);
@@ -303,8 +305,15 @@ export function createGoogleDrive(opts: GoogleDriveOptions) {
         }
         if (res && (res.status === 200 || res.status === 201)) return (await res.json()) as { id: string; md5Checksum?: string };
         if (res && res.status === 308) {
-          offset = nextOffset(res);
+          const next = nextOffset(res);
           failures = 0;
+          if (next > offset) stalls = 0;
+          else {
+            stalls += 1;
+            if (stalls > MAX_STALLS) throw new DriveError('http', 'Google Drive stopped taking the copy part-way (it kept asking for the same piece).');
+            await sleep(delay * 2 ** stalls);
+          }
+          offset = next;
           continue;
         }
         if (res && (res.status === 404 || res.status === 410)) throw new SessionLost();
@@ -328,6 +337,9 @@ export function createGoogleDrive(opts: GoogleDriveOptions) {
 }
 
 class SessionLost extends Error {}
+
+/** "Resume incomplete" answers in a row without progress before an upload gives up. */
+const MAX_STALLS = 5;
 
 /** The next byte to send after a 308 (its Range header says what Drive has). */
 function nextOffset(res: Response): number {

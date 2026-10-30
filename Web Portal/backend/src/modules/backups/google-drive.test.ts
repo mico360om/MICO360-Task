@@ -140,6 +140,20 @@ describe('Drive: the backups folder, uploads, listing and deleting', () => {
     }
   });
 
+  it('Drive answering "resume incomplete" again and again without taking the bytes: the upload gives up instead of looping', async () => {
+    const { g, access } = await connected();
+    const folder = await g.ensureFolder(access, null);
+    const a = archive(600 * 1024);
+    fake.stallUploads(true);
+    const hang = new Promise((_, reject) => setTimeout(() => reject(new Error('it loops')), 10_000).unref());
+    const err = await Promise.race([g.upload(access, { path: a.path, name: 'x.tar.gz', folderId: folder, sizeBytes: a.data.length, md5: a.md5, appProperties: {} }), hang]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DriveError);
+    expect(plainDriveError(err)).toBe('Google Drive stopped taking the copy part-way (it kept asking for the same piece).');
+    // A few tries, with waits between them — not thousands.
+    expect(fake.stalledAnswers).toBeGreaterThan(1);
+    expect(fake.stalledAnswers).toBeLessThan(20);
+  });
+
   it('a full Drive is a "full" error', async () => {
     const { g, access } = await connected();
     const folder = await g.ensureFolder(access, null);

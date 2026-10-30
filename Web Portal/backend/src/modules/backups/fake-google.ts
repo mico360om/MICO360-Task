@@ -39,6 +39,10 @@ export interface FakeGoogle {
   revoked: Set<string>;
   /** The next upload chunk is dropped: 'drop' closes the connection, 503 answers an error. */
   failNextChunk(how: 'drop' | 503): void;
+  /** Every upload chunk is answered 308 "resume incomplete" without being kept (no progress, ever). */
+  stallUploads(stall: boolean): void;
+  /** How many such answers were given. */
+  readonly stalledAnswers: number;
   /** Drive answers "storage quota exceeded" to new uploads. */
   setFull(full: boolean): void;
   /** The sign-in page answers "access denied" (the person pressed Cancel). */
@@ -110,6 +114,8 @@ export async function startFakeGoogle(opts: { email?: string; clientId?: string;
   const sessions = new Map<string, UploadSession>();
   const authRequests: URLSearchParams[] = [];
   let failNext: 'drop' | 503 | null = null;
+  let stalled = false;
+  let stalledAnswers = 0;
   let full = false;
   let deny = false;
   let base = '';
@@ -252,6 +258,12 @@ export async function startFakeGoogle(opts: { email?: string; clientId?: string;
             if (how === 'drop') return req.socket.destroy();
             return json(res, 503, { error: { code: 503, message: 'Backend Error' } });
           }
+          if (stalled) {
+            // "Resume incomplete", but nothing was kept: the upload never gets further.
+            stalledAnswers += 1;
+            res.writeHead(308, s.length ? { range: `bytes=0-${s.length - 1}` } : {});
+            return res.end();
+          }
           const start = Number(m[1]);
           if (start !== s.length) {
             // Out of step: say what we have.
@@ -283,6 +295,12 @@ export async function startFakeGoogle(opts: { email?: string; clientId?: string;
     revoked,
     failNextChunk: (how) => {
       failNext = how;
+    },
+    stallUploads: (v) => {
+      stalled = v;
+    },
+    get stalledAnswers() {
+      return stalledAnswers;
     },
     setFull: (v) => {
       full = v;
