@@ -5,6 +5,7 @@
  * to the invitation. src/meetings.test.js runs these and the web's over the same inputs. Pure (no DOM).
  */
 import { todayKey, zonedDayKey, shiftDayKey, zonedStartOfDay } from './due-date.js';
+import { clockText, dayKeyIn, dayText } from './day-words.js';
 import { recurrenceSummary } from './recurrence.js';
 
 export const MEETING_STATUS_LABELS = { DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled' };
@@ -22,31 +23,20 @@ export const responseLabel = (r) => RESPONSE_LABELS[r || 'PENDING'] || plainWord
 
 // ---- days and times (the web's formats, in the zone given) ----------------------------------
 
-const fmtCache = new Map();
+// Day before month and the 24-hour clock (src/day-words.js), as the website's meetingFormat.ts.
 function fmt(kind, timeZone) {
-  const key = `${kind}|${timeZone || ''}`;
-  let f = fmtCache.get(key);
-  if (!f) {
-    const opts = kind === 'date' ? { weekday: 'short', month: 'short', day: 'numeric' }
-      : kind === 'time' ? { hour: 'numeric', minute: '2-digit' }
-        : { year: 'numeric', month: '2-digit', day: '2-digit' };
-    try {
-      f = new Intl.DateTimeFormat(kind === 'day' ? 'en-CA' : undefined, timeZone ? { ...opts, timeZone } : opts);
-    } catch {
-      f = new Intl.DateTimeFormat(kind === 'day' ? 'en-CA' : undefined, opts); // an unknown zone: the device's
-    }
-    fmtCache.set(key, f);
-  }
-  return f;
+  if (kind === 'day') return { format: (d) => dayKeyIn(d, timeZone) };
+  if (kind === 'time') return { format: (d) => clockText(d, timeZone) };
+  return { format: (d) => dayText(dayKeyIn(d, timeZone), { weekday: 'short', year: false }) };
 }
 
-/** "Thu, Oct 1" — the meeting's day. */
+/** "Thu 1 Oct" — the meeting's day. */
 export function formatMeetingDay(startAt, timeZone) {
   const d = new Date(startAt);
   return Number.isNaN(d.getTime()) ? '' : fmt('date', timeZone).format(d);
 }
 
-/** "10:00 AM – 11:30 AM" (the end day named when it runs past midnight). */
+/** "10:00 – 11:30" (the end day named when it runs past midnight). */
 export function formatMeetingTimes(startAt, endAt, timeZone) {
   const start = new Date(startAt);
   if (Number.isNaN(start.getTime())) return '';
@@ -133,9 +123,6 @@ export function groupMeetings(list, ctx, sort) {
 export function upcomingGroups(list, ctx) {
   return groupMeetings(list, ctx, 'date').filter((g) => g.key === 'today' || g.key === 'next7' || g.key === 'later');
 }
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const dayText = (key) => `${Number(key.slice(8, 10))} ${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 
 /** "Repeats every week on Tue, until 3 Nov 2026" for a meeting series starting at `startAt`. */
 export function meetingRepeatText(rule, startAt, timeZone) {

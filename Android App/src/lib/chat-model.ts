@@ -6,6 +6,7 @@
  * arrived; search highlights; which files can be sent; and who is online. Pure, so it is tested here.
  */
 import { dateFormat } from './intl-cache';
+import { dayLabel as dayWords } from './calendar';
 import type { ApiChatMessage, ApiChatParticipant, ApiConversationSummary, ConversationPrefs } from './types';
 
 /** Consecutive messages from one person within this window form one group (one name). */
@@ -32,13 +33,13 @@ function dayKey(iso: string, timeZone?: string): string {
   return dateFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
 }
 
-/** "Today", "Yesterday", "Mon, Oct 12" (a past year with it). */
+/** "Today", "Yesterday", "Mon 12 Oct" (a past year with it): day before month, as the website's. */
 export function dayLabel(iso: string, now = new Date(), timeZone?: string): string {
   const key = dayKey(iso, timeZone);
   if (key === dayKey(now.toISOString(), timeZone)) return 'Today';
   if (key === dayKey(new Date(now.getTime() - 864e5).toISOString(), timeZone)) return 'Yesterday';
   const sameYear = key.slice(0, 4) === dayKey(now.toISOString(), timeZone).slice(0, 4);
-  return dateFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
+  return dayWords(key, { weekday: 'short', day: true, month: 'short', year: !sameYear });
 }
 
 /**
@@ -259,7 +260,7 @@ export function lastActiveLabel(lastActiveAt: string | null, online: boolean, no
   if (h < 24) return `Last active ${h}h ago`;
   const d = Math.round(h / 24);
   if (d < 7) return `Last active ${d}d ago`;
-  return `Last active on ${new Date(lastActiveAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+  return `Last active on ${dayWords(dayKey(lastActiveAt), { day: true, month: 'short' })}`;
 }
 
 /** Presence updates pushed over the socket. */

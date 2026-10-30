@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as extDue from './due-date.js';
 import * as extRecurrence from './recurrence.js';
+import * as extWords from './day-words.js';
 
 // The extension keeps plain-JavaScript copies of rules the web app and the server own: the due-day
 // rules (Web Portal/frontend/src/lib/due-date.ts) and the repeat summary
@@ -13,9 +14,11 @@ import * as extRecurrence from './recurrence.js';
 const repo = resolve(__dirname, '../..');
 const WEB_DUE = resolve(repo, 'Web Portal/frontend/src/lib/due-date.ts');
 const SERVER_SUMMARY = resolve(repo, 'Web Portal/backend/src/modules/tasks/recurrence-summary.ts');
+const WEB_WORDS = resolve(repo, 'Web Portal/frontend/src/lib/day-words.ts');
 const load = (file) => (existsSync(file) ? import(pathToFileURL(file).href) : null);
 const webDue = await load(WEB_DUE);
 const serverSummary = await load(SERVER_SUMMARY);
+const webWords = await load(WEB_WORDS);
 
 /** Every [args…] combination of the given lists. */
 const product = (...lists) => lists.reduce((acc, list) => acc.flatMap((a) => list.map((x) => [...a, x])), [[]]);
@@ -101,5 +104,32 @@ describe.skipIf(!serverSummary)('repeat summaries: src/recurrence.js matches the
   it('names weekdays and weeks of the month the same way', () => {
     expect(extRecurrence.WEEKDAY_NAMES).toEqual(serverSummary.WEEKDAY_NAMES);
     expect(extRecurrence.WEEK_OF_MONTH).toEqual(serverSummary.WEEK_OF_MONTH);
+  });
+});
+
+describe.skipIf(!webWords)('dates in words: src/day-words.js matches the web app (lib/day-words.ts)', () => {
+  const NAMES = ['dayText', 'dayKeyIn', 'clockText', 'instantDayText', 'weekdayText', 'dateTimeText'];
+  const KEYS = ['2026-10-05', '2026-09-04', '2026-01-31', '2028-02-29', '2026-12-31T23:00:00Z', '', 'nope', '2026-13-01'];
+  const OPTS = [undefined, { weekday: 'short' }, { weekday: 'long', month: 'long' }, { year: false }, { weekday: 'short', year: false }, { month: 'long', year: false }];
+  const INSTANTS = ['2026-10-29T20:30:00Z', '2026-10-30T05:05:00Z', '2026-12-31T21:00:00Z', '2026-03-29T00:59:00Z', 'nope', ''];
+  const ZONES = [undefined, 'Asia/Muscat', 'UTC', 'America/Los_Angeles', 'Pacific/Kiritimati'];
+
+  it('exports the same functions', () => {
+    for (const name of NAMES) {
+      expect(typeof extWords[name], `extension ${name}`).toBe('function');
+      expect(typeof webWords[name], `web ${name}`).toBe('function');
+    }
+  });
+
+  it('writes every day, time and day-and-time the same way', () => {
+    for (const [key, opts] of product(KEYS, OPTS)) expect(extWords.dayText(key, opts), `${key} ${JSON.stringify(opts)}`).toBe(webWords.dayText(key, opts));
+    for (const [at, zone] of product(INSTANTS, ZONES)) {
+      expect(extWords.clockText(at, zone), `${at} ${zone}`).toBe(webWords.clockText(at, zone));
+      expect(extWords.weekdayText(at, zone), `${at} ${zone}`).toBe(webWords.weekdayText(at, zone));
+      for (const opts of OPTS) {
+        expect(extWords.instantDayText(at, zone, opts), `${at} ${zone}`).toBe(webWords.instantDayText(at, zone, opts));
+        expect(extWords.dateTimeText(at, zone, opts), `${at} ${zone}`).toBe(webWords.dateTimeText(at, zone, opts));
+      }
+    }
   });
 });

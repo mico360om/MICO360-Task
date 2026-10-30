@@ -9,6 +9,7 @@
  */
 import { DEFAULT_TIME_ZONE } from './config.js';
 import { dueDayKey, isOverdue } from './due-date.js';
+import { dayText } from './day-words.js';
 import { isDone } from './summary.js';
 import { isRecurring } from './recurrence.js';
 import { personInitials } from './initials.js';
@@ -16,11 +17,11 @@ import { personInitials } from './initials.js';
 const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 const P_RANK = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
 
-/** A due date as its calendar day, e.g. "Oct 20, 2026" (the web's formatDueDay). */
+/** A due date as its calendar day, day before month: "20 Oct 2026" (the web's formatDueDay). */
 export function formatDueDay(due, timeZone = DEFAULT_TIME_ZONE) {
   const key = dueDayKey(due, timeZone);
   if (!key) return '';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+  return dayText(key);
 }
 
 /** Two letters for a person's avatar, from letters only: "Mohammed (OXY)" is "MO" (the web's Avatar, lib/initials.ts). */
