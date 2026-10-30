@@ -14,6 +14,36 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+<!-- 1.19 owner design pass (branch design/1.19-owner): these Improvements and Bug fixes come after 1.18.2. -->
+
+### Improvements
+- Phones: the Projects page's six status tabs sit in one row that scrolls sideways (they took three
+  rows before the first project); the task panel shows the checklist and comments before Client
+  view, files and blockers; an empty Board column is only as tall as its "No tasks · Add a task";
+  User Management shows one card per person, with every action, instead of a table to swipe.
+- Dates read day before month everywhere — the Board, task cards and the task panel, My Tasks,
+  meetings, chat, Activity, Audit Logs and Reports ("Fri 30 Oct 2026", "Overdue · 27 Oct 2026") —
+  and times in 24 hours, as the minutes PDF and the daily emails write them. Meeting invitations,
+  updates, reminders and minutes emails say "Monday 5 October 2026, 10:00 – 11:00 (GMT+4)".
+- Dashboard: an employee sees four tiles like an administrator — My tasks, Projects, Overdue and
+  Due this week (to the end of the company's week).
+- A finished meeting shows its Final MOM and action items first, above the agenda and live notes.
+- First steps: "Create a project" and "Add your team" open the New project and New user forms
+  straight away.
+
+### Bug fixes
+- Dialogs in dark mode sat on a light-grey wash; every dialog and panel now dims the page behind it
+  with the same dark shade in light and dark mode.
+- Line charts with small numbers repeated their scale labels (0, 0, 1, 1, 1); they now count in
+  whole steps (0, 1, 2, 3).
+- The client page's email-code sign-in now stays on the code step after a reload, and asking for
+  another code within a minute says none was sent and how long to wait, as staff sign-in does.
+- Reports: a date typed into the range counts once it is finished, so the page no longer loads the
+  dates it passes through or says "Still showing" a range nobody chose; an end date after today is
+  refused with a message.
+
+<!-- 1.18.2 (released as v1.18.2 on integrate/1.18.2): -->
+
 ### Improvements
 - A brand-new company sees first steps, not a page of zeros: the Dashboard says Welcome and shows
   "Set up your workspace" (Create a project, Add your team); My Tasks, Notifications and Activity
