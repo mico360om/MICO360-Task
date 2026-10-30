@@ -33,7 +33,8 @@ export async function setUpServiceWorker(w: ServiceWorkerWorld): Promise<Service
     for (const name of (await w.caches?.keys().catch(() => [])) ?? []) if (name.startsWith('mico360-')) await w.caches!.delete(name).catch(() => false);
     return 'removed';
   }
-  if (w.location.pathname.startsWith('/client/') || w.location.pathname === '/client') return 'skipped';
+  // Never for a client: their page, nor the privacy notice written for them (no staff page).
+  if (w.location.pathname.startsWith('/client/') || w.location.pathname === '/client' || w.location.pathname.replace(/\/+$/, '') === '/privacy/client') return 'skipped';
   if (w.location.protocol !== 'https:' && !LOCAL.has(w.location.hostname)) return 'skipped';
   try {
     await w.serviceWorker.register('/sw.js', { scope: '/' });

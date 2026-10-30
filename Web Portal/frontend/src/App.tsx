@@ -18,6 +18,7 @@ const ForgotPasswordPage = lazyPage(() => import('./pages/ForgotPasswordPage'), 
 const ResetPasswordPage = lazyPage(() => import('./pages/ResetPasswordPage'), 'ResetPasswordPage');
 const PrivacyPage = lazyPage(() => import('./pages/LegalPages'), 'PrivacyPage');
 const TermsPage = lazyPage(() => import('./pages/LegalPages'), 'TermsPage');
+const ClientPrivacyPage = lazyPage(() => import('./pages/LegalPages'), 'ClientPrivacyPage');
 const BoardPage = lazyPage(() => import('./pages/BoardPage'), 'BoardPage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 const ProjectDetailPage = lazyPage(() => import('./pages/ProjectDetailPage'), 'ProjectDetailPage');
@@ -93,6 +94,8 @@ export function App() {
         {/* Public: linked from sign-in and the phone app (store listing needs a privacy policy address). */}
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        {/* Public too: the clients' privacy notice, linked from the client page (no sign-in of any kind). */}
+        <Route path="/privacy/client" element={<ClientPrivacyPage />} />
         {/* A shared client follows one project: outside the staff sign-in and the app shell. */}
         <Route path="/client/:token" element={<ClientViewPage />} />
         <Route element={<ProtectedRoute />}>

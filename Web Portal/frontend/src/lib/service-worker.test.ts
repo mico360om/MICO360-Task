@@ -45,6 +45,8 @@ describe('setting up the service worker', () => {
 
   it('not on the client page, not without support, not on an insecure site', async () => {
     expect(await setUpServiceWorker(world({ pathname: '/client/abc' }).env)).toBe('skipped');
+    // Nor on the clients' privacy notice (a client opens it from their page; it's no staff page).
+    expect(await setUpServiceWorker(world({ pathname: '/privacy/client' }).env)).toBe('skipped');
     expect(await setUpServiceWorker(world({ sw: false }).env)).toBe('unsupported');
     expect(await setUpServiceWorker(world({ protocol: 'http:', hostname: 'task.example' }).env)).toBe('skipped');
     expect(await setUpServiceWorker(world({ protocol: 'http:', hostname: 'localhost' }).env)).toBe('registered');

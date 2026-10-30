@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { BrandLogo } from '../components/ui/BrandLogo';
 
 /**
@@ -9,9 +9,22 @@ import { BrandLogo } from '../components/ui/BrandLogo';
  */
 
 const UPDATED = '29 September 2026';
+const CLIENT_UPDATED = '30 October 2026';
 const CONTACT = 'info@mico360.com';
 
-function LegalLayout({ title, children }: { title: string; children: ReactNode }) {
+/** Back to where the reader came from (the shared project page), when they came from a page of this site. */
+function BackButton() {
+  const navigate = useNavigate();
+  // The first page of the visit has the key "default": nothing to go back to here.
+  if (useLocation().key === 'default') return null;
+  return (
+    <button type="button" onClick={() => navigate(-1)} className="tap text-sm font-semibold text-brand hover:underline">
+      Back
+    </button>
+  );
+}
+
+function LegalLayout({ title, updated = UPDATED, back = 'login', children }: { title: string; updated?: string; back?: 'login' | 'previous'; children: ReactNode }) {
   return (
     <main className="min-h-screen bg-ground px-3 py-6 sm:px-8 sm:py-10">
       <article className="mx-auto max-w-3xl rounded-2xl border border-line bg-surface p-5 shadow-soft sm:p-10">
@@ -19,12 +32,16 @@ function LegalLayout({ title, children }: { title: string; children: ReactNode }
           <span className="flex">
             <BrandLogo className="h-10" />
           </span>
-          <Link to="/login" className="tap text-sm font-semibold text-brand hover:underline">
-            Back to sign in
-          </Link>
+          {back === 'login' ? (
+            <Link to="/login" className="tap text-sm font-semibold text-brand hover:underline">
+              Back to sign in
+            </Link>
+          ) : (
+            <BackButton />
+          )}
         </div>
         <h1 className="font-display text-3xl font-bold text-ink">{title}</h1>
-        <p className="mt-1 text-sm text-ink-3">Last updated {UPDATED}</p>
+        <p className="mt-1 text-sm text-ink-3">Last updated {updated}</p>
         <div className="mt-8 space-y-7 text-[15px] leading-relaxed text-ink-2">{children}</div>
       </article>
     </main>
@@ -122,6 +139,65 @@ export function PrivacyPage() {
           Questions about this notice or your information: <a className="font-semibold text-brand hover:underline" href={`mailto:${CONTACT}`}>{CONTACT}</a>.
           If this notice changes, the date at the top changes too.
         </p>
+      </Section>
+    </LegalLayout>
+  );
+}
+
+/**
+ * The privacy notice for clients: someone outside the company following one shared project on its
+ * client page (ClientViewPage), linked from that page's footer and open without signing in. Every
+ * line is what the client view does (client-view-payload, client-access-service, the Share with
+ * client panel): keep it true when they change. The owner approves the wording before it goes live.
+ */
+export function ClientPrivacyPage() {
+  return (
+    <LegalLayout title="Privacy notice for clients" updated={CLIENT_UPDATED} back="previous">
+      <p>
+        A company that uses MICO360 Tasks has shared one of its projects with you on a private, read-only page. This
+        notice explains what that page shows you, what it never shows, how signing in works, and how your email address
+        is used.
+      </p>
+
+      <Section title="What you can see">
+        <p>Only what the company chose to share with you:</p>
+        <List
+          items={[
+            'the project’s name and details, how much of its work is done, and its timeline;',
+            'the tasks and milestones it marked for you: each one’s title, status and due date, and “Late” when one is past its due date and not done;',
+            'the meeting minutes it approved and marked for you;',
+            'the inspection reports it marked for you, with the inspector’s notes on each item and the names of the people who signed them.',
+          ]}
+        />
+      </Section>
+
+      <Section title="What the page never shows">
+        <p>
+          The project’s team or who is assigned to what, people’s contact details, comments, files, task descriptions, and
+          the company’s internal notes, including the notes taken during meetings.
+        </p>
+      </Section>
+
+      <Section title="Signing in">
+        <List
+          items={[
+            'The link in your invitation opens the page only after you enter a one-time code, which we email to the address the project was shared with. A code lasts 10 minutes, and only the newest one works.',
+            'Your device then stays signed in to this one page for 30 days, with a cookie used only for that. Choose “Sign out” on the page to end it sooner.',
+            'If the company sends you a new link or removes your access, the old link stops working and every device signed in with it is signed out. The page also closes if the project is archived or deleted.',
+          ]}
+        />
+      </Section>
+
+      <Section title="Your email address">
+        <p>
+          It is used only to send you the invitation, any new link, and your sign-in codes. The company can see your name,
+          your email address and when you last opened the page, and it keeps a record of the emails sent to you and of
+          each sign-in, with its time and your internet (IP) address.
+        </p>
+      </Section>
+
+      <Section title="Questions">
+        <p>Please contact the company that shared the project with you — the person named in your invitation email — about this page or your information.</p>
       </Section>
     </LegalLayout>
   );

@@ -26,6 +26,12 @@ describe('App routing', () => {
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
   });
 
+  it('the clients’ privacy notice opens without signing in, outside the staff app', async () => {
+    renderApp('/privacy/client');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Privacy notice for clients' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign in/i })).toBeNull();
+  });
+
   it('shows the dashboard inside the shell when signed in', () => {
     useAuthStore.getState().setSession({
       user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] },

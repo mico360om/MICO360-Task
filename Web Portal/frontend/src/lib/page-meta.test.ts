@@ -34,6 +34,7 @@ describe('pageMetaFor', () => {
       '/admin/audit': 'Audit Logs',
       '/admin/users': 'User Management',
       '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde': 'Shared project',
+      '/privacy/client': 'Privacy notice for clients',
     };
     for (const [path, title] of Object.entries(titles)) expect(pageMetaFor(path).title, path).toBe(title);
     // Every title is different, so browser tabs and history can be told apart.
