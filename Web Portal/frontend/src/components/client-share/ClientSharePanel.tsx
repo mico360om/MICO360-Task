@@ -129,7 +129,7 @@ export function ClientSharePanel({
               <p>A client follows this project on a private, read-only page. Their link opens only with a code we email to them.</p>
               <p>They see the project’s progress and timeline, and only what is marked “Show to client”:</p>
               <ul className="list-disc space-y-1 ps-5">
-                <li>milestones and tasks: the title, status and due date;</li>
+                <li>milestones and tasks: the title, status and due date, and “Late” once one is past its due date and not done;</li>
                 <li>approved meeting minutes: as written, without who owns each next step;</li>
                 <li>inspection reports: the results, the inspector’s notes on each item, and the signatures with the signers’ names — the inspector’s too.</li>
               </ul>

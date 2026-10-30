@@ -41,7 +41,7 @@ describe('Share with client', () => {
     show();
     const dialog = screen.getByRole('dialog', { name: 'Share with client' });
     expect(dialog).toHaveTextContent(/only what is marked “Show to client”/);
-    expect(dialog).toHaveTextContent(/milestones and tasks: the title, status and due date/);
+    expect(dialog).toHaveTextContent(/milestones and tasks: the title, status and due date, and “Late” once one is past its due date and not done/);
     expect(dialog).toHaveTextContent(/approved meeting minutes/);
     // Shared inspection reports carry the inspector's name and notes (by design): the panel says so.
     expect(dialog).toHaveTextContent(/inspection reports: the results, the inspector’s notes on each item, and the signatures with the signers’ names — the inspector’s too/);
