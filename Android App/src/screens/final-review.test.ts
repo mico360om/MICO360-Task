@@ -10,3 +10,12 @@ it('the delete mark on a saved view reads on its selected wash', () => {
 
 // Item 5: a chip's count is drawn at full strength (an opacity took it under 4.5:1).
 it('the chip count has no opacity', () => expect(src('components/ui/Chip.tsx')).not.toMatch(/count: \{[^}]*opacity/));
+
+// Item 6 (S3): my bubble's receipts — read in readOnBrand with the bold ticks, the rest white at 80%.
+it('read receipts on my bubble are told apart by colour and weight, as on the website', () => {
+  const parts = src('components/chat/MessageParts.tsx');
+  expect(parts).toMatch(/receipt\.read \? c\.readOnBrand : c\.onBrand/);
+  expect(parts).toMatch(/strokeWidth=\{receipt\.read \? 2\.6 : undefined\}/);
+  expect(parts).toMatch(/receipt\.read \? null : s\.quietReceipt/);
+  expect(parts).not.toMatch(/label\.startsWith\('Read'\)/);
+});

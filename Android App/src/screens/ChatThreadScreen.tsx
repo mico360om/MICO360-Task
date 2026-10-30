@@ -438,6 +438,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
           receiptLabel={receipt?.label}
           receiptTicks={receipt?.ticks}
           receiptSeenBy={receipt?.seenBy}
+          receiptRead={receipt?.read}
           highlighted={highlight === m.id}
           baseUrl={baseUrl}
           handlers={handlers}
