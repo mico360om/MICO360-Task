@@ -3,6 +3,7 @@
 ## New look
 - In the Android app, colours are the website's in light and dark mode, and grey and amber text is easier to read.
 - In the Android app, text uses the website's fonts (IBM Plex Sans and Archivo), and figures line up in columns.
+- In the Android app, buttons, badges, chips, fields and switches look like the website's.
 <!-- new-look lines above this line -->
 
 ## Dates and fixes

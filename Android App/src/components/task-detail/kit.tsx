@@ -107,23 +107,8 @@ export function IconButton({ glyph, label, onPress, disabled, tone = 'muted' }: 
   );
 }
 
-/** A selectable chip (status, priority, scope…) with an optional colour dot. */
-export function Chip({ label, selected, onPress, dot, disabled, a11yLabel }: { label: string; selected?: boolean; onPress?: () => void; dot?: string; disabled?: boolean; a11yLabel?: string }) {
-  const s = useKitStyles();
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled || !onPress}
-      accessibilityRole={onPress ? 'radio' : 'text'}
-      accessibilityLabel={a11yLabel ?? label}
-      accessibilityState={{ selected: !!selected, checked: !!selected, disabled: !!disabled }}
-      style={({ pressed }) => [s.chip, selected && s.chipOn, pressed && { opacity: 0.7 }]}
-    >
-      {dot ? <View style={[s.dot, { backgroundColor: dot }]} /> : null}
-      <Text style={[s.chipText, selected && s.chipTextOn]}>{label}</Text>
-    </Pressable>
-  );
-}
+/** The selectable chip is the app's shared one (status, priority, scope…, with an optional colour dot). */
+export { Chip } from '../ui';
 
 /** A small read-only label pill. */
 export function Tag({ label, color, tone }: { label: string; color?: string; tone?: 'danger' }) {
@@ -153,20 +138,6 @@ const makeStyles = (c: Palette) =>
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
     cardTitle: { flex: 1, fontSize: fontSize.xs, fontWeight: '800', color: c.ink2, textTransform: 'uppercase', letterSpacing: 0.8 },
     cardRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-    chip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-      minHeight: 40,
-      borderWidth: 1,
-      borderColor: c.line,
-      borderRadius: radius.pill,
-      paddingHorizontal: spacing.md,
-      backgroundColor: c.surface,
-    },
-    chipOn: { borderColor: c.brand, backgroundColor: c.brandWash },
-    chipText: { fontSize: fontSize.sm, color: c.ink, fontWeight: '600' },
-    chipTextOn: { color: c.brand },
     dot: { width: 9, height: 9, borderRadius: 5 },
     tag: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 },
     tagText: { fontSize: fontSize.xs, fontWeight: '700' },
