@@ -5,7 +5,7 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ApprovalChip } from './ApprovalChip';
 import { SendBackDialog } from './SendBackDialog';
-import { APPROVAL_HINT, isWaitingForApproval, waitingForText } from '../../lib/approvals';
+import { APPROVAL_HINT, APPROVAL_LOCKED, isWaitingForApproval, waitingForText } from '../../lib/approvals';
 import { relativeTime } from '../../lib/relative-time';
 
 export interface TaskApprovalProps {
@@ -21,10 +21,11 @@ export interface TaskApprovalProps {
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 /**
- * The task panel's "Approval" section: the "Needs approval" tick (anyone who can edit the task), and
- * — while the task waits — the badge, who finished it, and Approve / Send back for the people who run
- * its project (everyone else reads whose approval it waits for). Turning approval off while it waits
- * is only for them, and asks first: the task is then marked done.
+ * The task panel's "Approval" section: the "Needs approval" tick, and — while the task waits — the
+ * badge, who finished it, and Approve / Send back for the people who run its project (everyone else
+ * reads whose approval it waits for). Anyone who can edit the task may turn it on; only the people who
+ * run the project (and admins) may turn it off (owner, 30 Oct) — for anyone else it stays on, saying
+ * why. Turning it off while it waits asks first: the task is then marked done.
  */
 export function TaskApproval({ task, onSetNeedsApproval, onApprove, onSendBack }: TaskApprovalProps) {
   const id = useId();
@@ -37,7 +38,8 @@ export function TaskApproval({ task, onSetNeedsApproval, onApprove, onSendBack }
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
-  const lockedOn = waiting && !canApprove;
+  // On, for someone who doesn't run the project: it stays on (the server refuses to turn it off).
+  const lockedOn = needs && !canApprove;
 
   /** Runs an action; false when it failed (the reason is shown). */
   async function run(kind: 'tick' | 'approve', action: () => Promise<void>, fallback: string): Promise<boolean> {
@@ -111,12 +113,16 @@ export function TaskApproval({ task, onSetNeedsApproval, onApprove, onSendBack }
           <p id={`${id}-hint`} className="text-xs text-ink-2">
             {APPROVAL_HINT}
           </p>
-          {lockedOn && onSetNeedsApproval ? <p className="mt-0.5 text-xs text-ink-3">Only a project manager can turn this off while it waits.</p> : null}
+          {lockedOn && onSetNeedsApproval ? (
+            <p id={`${id}-locked`} className="mt-0.5 text-xs text-ink-2">
+              {APPROVAL_LOCKED}
+            </p>
+          ) : null}
         </div>
         <Toggle
           on={needs}
           label="Needs approval"
-          describedBy={`${id}-hint`}
+          describedBy={lockedOn && onSetNeedsApproval ? `${id}-hint ${id}-locked` : `${id}-hint`}
           disabled={!onSetNeedsApproval || lockedOn || busy !== null}
           onChange={() => {
             if (needs && waiting) setConfirmOff(true);

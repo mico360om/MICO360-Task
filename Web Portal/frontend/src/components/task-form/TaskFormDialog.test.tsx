@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { TaskFormDialog } from './TaskFormDialog';
 import type { ApiTask } from '../../api/tasks';
+import { useAuthStore } from '../../stores/auth-store';
 
 // Files go up after the task is created; the test decides how each upload goes.
 const uploads: Array<{ taskId: string; name: string; type: string }> = [];
@@ -161,17 +162,49 @@ describe('New task form', () => {
     expect(posts()[0]!.body).toMatchObject({ title: 'Client datasheet', needsApproval: true });
   });
 
-  it('a project whose new tasks need approval starts the box ticked; unticked, the task says so', async () => {
-    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, newTasksNeedApproval: true } : p)) }) : undefined);
+  it('a project whose new tasks need approval starts the box ticked; its manager may untick it, and the task says so', async () => {
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, newTasksNeedApproval: true, canManage: true } : p)) }) : undefined);
     renderDialog();
     await ready();
     const box = await screen.findByRole('checkbox', { name: /needs approval/i });
     await waitFor(() => expect(box).toBeChecked());
+    expect(box).toBeEnabled();
+    expect(screen.queryByText('Only the project’s managers can turn this off.')).toBeNull();
     await userEvent.type(screen.getByLabelText(/^task title/i), 'Quick note');
     await userEvent.click(box);
     await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(posts()[0]!.body).toMatchObject({ needsApproval: false });
+  });
+
+  it('in a project whose new tasks need approval, someone who doesn’t run it gets the box locked on, and hears why (owner, 30 Oct)', async () => {
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, newTasksNeedApproval: true, canManage: false } : p)) }) : undefined);
+    renderDialog();
+    await ready();
+    const box = await screen.findByRole('checkbox', { name: /needs approval/i });
+    await waitFor(() => expect(box).toBeChecked());
+    expect(box).toBeDisabled();
+    expect(box).toHaveAccessibleDescription('A project manager must approve it before it counts as done. Only the project’s managers can turn this off.');
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Quick note');
+    await userEvent.click(box);
+    expect(box).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]!.body).toMatchObject({ needsApproval: true });
+  });
+
+  it('ticked and unticked in a project that doesn’t tick its tasks, then moved to one that does: locked on there for someone who doesn’t run it', async () => {
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p2' ? { ...p, newTasksNeedApproval: true, canManage: false } : p)) }) : undefined);
+    renderDialog();
+    await ready();
+    const box = screen.getByRole('checkbox', { name: /needs approval/i });
+    await userEvent.click(box);
+    await userEvent.click(box);
+    expect(box).not.toBeChecked();
+    expect(box).toBeEnabled();
+    await pick('Project', /Ops Board/);
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /needs approval/i })).toBeChecked());
+    expect(screen.getByRole('checkbox', { name: /needs approval/i })).toBeDisabled();
   });
 
   it('marks a new task as a milestone of its project', async () => {
@@ -566,7 +599,50 @@ describe('Edit task form', () => {
     renderDialog({ task: waiting });
     await screen.findByRole('button', { name: 'Remove Omar A' });
     expect(screen.getByRole('checkbox', { name: /needs approval/i })).toBeDisabled();
-    expect(screen.getByText('Only a project manager can turn this off while it waits.')).toBeInTheDocument();
+    expect(screen.getByText('Only the project’s managers can turn this off.')).toBeInTheDocument();
+  });
+
+  it('a ticked task (not waiting), for someone who doesn’t run the project: shown ticked, can’t be unticked, says why (owner, 30 Oct)', async () => {
+    const { onSaved } = renderDialog({ task: { ...TASK, needsApproval: true, approval: { canApprove: false, requestedBy: null, approvedBy: null, approverName: null } } });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    const box = screen.getByRole('checkbox', { name: /needs approval/i });
+    expect(box).toBeChecked();
+    expect(box).toBeDisabled();
+    expect(box).toHaveAccessibleDescription('A project manager must approve it before it counts as done. Only the project’s managers can turn this off.');
+    await userEvent.clear(screen.getByLabelText(/^task title/i));
+    await userEvent.type(screen.getByLabelText(/^task title/i), 'Vendor sheet');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Vendor sheet', expectedVersion: 7 });
+  });
+
+  it('a ticked task, for whoever runs the project: it can be unticked', async () => {
+    const { onSaved } = renderDialog({ task: { ...TASK, needsApproval: true, approval: { canApprove: true, requestedBy: null, approvedBy: null, approverName: null } } });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    const box = screen.getByRole('checkbox', { name: /needs approval/i });
+    expect(box).toBeEnabled();
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ needsApproval: false, expectedVersion: 7 });
+  });
+
+  it('a ticked task opened without its approval details: the project’s canManage decides', async () => {
+    override = (u) => (u.endsWith('/projects') ? json({ data: PROJECTS.map((p) => (p.id === 'p1' ? { ...p, canManage: true } : p)) }) : undefined);
+    renderDialog({ task: { ...TASK, needsApproval: true } });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /needs approval/i })).toBeEnabled());
+  });
+
+  it('an administrator can untick it, whatever the project says', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    try {
+      renderDialog({ task: { ...TASK, needsApproval: true } });
+      await screen.findByRole('button', { name: 'Remove Omar A' });
+      expect(screen.getByRole('checkbox', { name: /needs approval/i })).toBeEnabled();
+    } finally {
+      useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+    }
   });
 
   it('turns a task into a milestone, and back', async () => {

@@ -8,6 +8,13 @@
 /** The tick's one-line hint (task form and task panel). */
 export const APPROVAL_HINT = 'A project manager must approve it before it counts as done.';
 
+/**
+ * Why the tick can't be taken off: turning "Needs approval" off is only for the project's managers and
+ * administrators (owner, 30 Oct — the server refuses anyone else), so for everyone else a tick that is
+ * on stays on.
+ */
+export const APPROVAL_LOCKED = 'Only the project’s managers can turn this off.';
+
 /** True while the task waits for approval (it is not done yet). */
 export function isWaitingForApproval(t: { approvalRequestedAt?: string | null } | null | undefined): boolean {
   return Boolean(t?.approvalRequestedAt);

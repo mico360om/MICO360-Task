@@ -46,7 +46,37 @@ describe('the task panel’s approval section', () => {
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Send back' })).toBeNull();
     expect(screen.getByRole('switch', { name: 'Needs approval' })).toBeDisabled();
-    expect(screen.getByText('Only a project manager can turn this off while it waits.')).toBeInTheDocument();
+    expect(screen.getByText('Only the project’s managers can turn this off.')).toBeInTheDocument();
+  });
+
+  it('ticked (not waiting) for someone who doesn’t run the project: shown on, can’t be turned off, and says why — to a screen reader too (owner, 30 Oct)', async () => {
+    const onSet = vi.fn(async () => {});
+    render(<TaskApproval task={{ ...base, needsApproval: true, approval: { canApprove: false, requestedBy: null, approvedBy: null, approverName: 'Omar Ahmed' } }} onSetNeedsApproval={onSet} />);
+    const tick = screen.getByRole('switch', { name: 'Needs approval' });
+    expect(tick).toHaveAttribute('aria-checked', 'true');
+    expect(tick).toBeDisabled();
+    expect(tick).toHaveAccessibleDescription('A project manager must approve it before it counts as done. Only the project’s managers can turn this off.');
+    await userEvent.click(tick);
+    expect(onSet).not.toHaveBeenCalled();
+  });
+
+  it('ticked (not waiting) for whoever runs the project: they can turn it off, with no warning line', async () => {
+    const onSet = vi.fn(async () => {});
+    render(<TaskApproval task={{ ...base, needsApproval: true, approval: { canApprove: true, requestedBy: null, approvedBy: null, approverName: 'Omar Ahmed' } }} onSetNeedsApproval={onSet} />);
+    const tick = screen.getByRole('switch', { name: 'Needs approval' });
+    expect(tick).toBeEnabled();
+    expect(screen.queryByText('Only the project’s managers can turn this off.')).toBeNull();
+    await userEvent.click(tick);
+    expect(onSet).toHaveBeenCalledWith(false);
+  });
+
+  it('not ticked, for someone who doesn’t run the project: they can still turn it on', async () => {
+    const onSet = vi.fn(async () => {});
+    render(<TaskApproval task={{ ...base, approval: { canApprove: false, requestedBy: null, approvedBy: null, approverName: null } }} onSetNeedsApproval={onSet} />);
+    const tick = screen.getByRole('switch', { name: 'Needs approval' });
+    expect(tick).toBeEnabled();
+    await userEvent.click(tick);
+    expect(onSet).toHaveBeenCalledWith(true);
   });
 
   it('several people run the project: "a project manager’s approval"', () => {
@@ -98,13 +128,13 @@ describe('the task panel’s approval section', () => {
 
   it('turning approval off that fails keeps the question open and says why', async () => {
     const onSet = vi.fn(async () => {
-      throw new Error('Only the people who run this project can turn off approval while the task is waiting.');
+      throw new Error('Only the project’s managers can turn off approval for this task.');
     });
     render(<TaskApproval task={waiting} onApprove={vi.fn()} onSendBack={vi.fn()} onSetNeedsApproval={onSet} />);
     await userEvent.click(screen.getByRole('switch', { name: 'Needs approval' }));
     await userEvent.click(screen.getByRole('button', { name: 'Turn off and mark done' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Turn off approval?' });
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Only the people who run this project');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Only the project’s managers');
   });
 
   it('approved: says who approved it', () => {

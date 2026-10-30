@@ -34,7 +34,8 @@ import { pastedFiles } from '../../lib/clipboard-files';
 import { isTypingTarget } from '../../lib/shortcuts';
 import { MilestoneIcon } from '../TaskCard';
 import { WaitingIcon } from '../approvals/ApprovalChip';
-import { APPROVAL_HINT } from '../../lib/approvals';
+import { APPROVAL_HINT, APPROVAL_LOCKED } from '../../lib/approvals';
+import { useAuthStore } from '../../stores/auth-store';
 import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
 import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
@@ -147,7 +148,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
 
   const start = (): Draft =>
     task
@@ -251,12 +252,18 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // "New tasks in this project need approval" ticks a new task's box (until you choose yourself).
   const approvalChosen = useRef(false);
   const projectWantsApproval = !!project?.newTasksNeedApproval;
+  // Turning "Needs approval" off is for the people who run the project and admins only (owner, 30 Oct;
+  // the server refuses anyone else): for everyone else the tick stays on once it is on — a saved task's
+  // tick, or the one the project gives its new tasks. Ticking it on is anyone's.
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const canManageProject = isAdmin || project?.canManage === true || (editing && task?.approval?.canApprove === true);
+  const approvalLocked = !canManageProject && (editing ? !!task?.needsApproval : projectWantsApproval);
   useEffect(() => {
-    if (editing || !project || approvalChosen.current) return;
+    if (editing || !project) return;
+    // Your own choice stands — unless the project's tick is locked on for you.
+    if (approvalChosen.current && !approvalLocked) return;
     settle({ approval: projectWantsApproval });
-  }, [editing, project?.id, projectWantsApproval]);
-  // Waiting for approval: only someone who may approve it can take the tick off (the server says the same).
-  const approvalLocked = editing && !!task?.approvalRequestedAt && !task?.approval?.canApprove;
+  }, [editing, project?.id, projectWantsApproval, approvalLocked]);
   const noProjects = !projectFixed && projectsQ.isSuccess && openProjects.length === 0;
 
   useEffect(() => {
@@ -774,12 +781,12 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 </span>
               </label>
 
-              <label className={`flex items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors ${approvalLocked ? 'opacity-70' : 'cursor-pointer hover:border-brand/40'}`}>
+              <label className={`flex items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors ${approvalLocked ? 'bg-ground/60' : 'cursor-pointer hover:border-brand/40'}`}>
                 <input
                   type="checkbox"
                   checked={draft.approval}
                   disabled={approvalLocked}
-                  aria-describedby={ids.approvalHint}
+                  aria-describedby={approvalLocked ? `${ids.approvalHint} ${ids.approvalLocked}` : ids.approvalHint}
                   onChange={(e) => {
                     approvalChosen.current = true;
                     set({ approval: e.target.checked });
@@ -789,7 +796,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 <span>
                   <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-warning"><WaitingIcon size={14} /></span>Needs approval</span>
                   <span id={ids.approvalHint} className="block text-xs text-ink-2">{APPROVAL_HINT}</span>
-                  {approvalLocked ? <span className="block text-xs text-ink-3">Only a project manager can turn this off while it waits.</span> : null}
+                  {approvalLocked ? <span id={ids.approvalLocked} className="block text-xs text-ink-2">{APPROVAL_LOCKED}</span> : null}
                   {editing && task?.approvalRequestedAt && !approvalLocked ? <span className="block text-xs text-ink-3">It is waiting for approval: turning this off marks it done.</span> : null}
                 </span>
               </label>
