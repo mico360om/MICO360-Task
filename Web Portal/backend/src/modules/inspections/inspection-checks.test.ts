@@ -43,6 +43,16 @@ describe('a check’s state, in the company time zone', () => {
   });
 });
 
+describe('a check waiting for approval (owner, 30 Oct; ruling 45)', () => {
+  it('is due, never late or missing, while it waits; sent back, it is late again', () => {
+    const after = new Date('2026-10-30T08:00:00Z');
+    expect(checkState(check({ approvalRequestedAt: new Date('2026-10-28T08:00:00Z'), columnCategory: 'REVIEW' }), TZ, after)).toBe('DUE');
+    expect(daysLate(check({ approvalRequestedAt: '2026-10-28T08:00:00.000Z' }), TZ, after)).toBe(0);
+    expect(checkState(check({ approvalRequestedAt: null }), TZ, after)).toBe('LATE');
+    expect(daysLate(check({ approvalRequestedAt: null }), TZ, after)).toBe(3);
+  });
+});
+
 describe('how late', () => {
   const now = new Date('2026-10-29T08:00:00Z'); // the 29th in Muscat
   it('an open check counts the days since its due day', () => {

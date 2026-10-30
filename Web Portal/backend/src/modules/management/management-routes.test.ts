@@ -175,6 +175,10 @@ describe('Management routes', () => {
     expect(text.indexOf('Rig Inspection Portal (RIG)', text.indexOf('In all: 3 tasks'))).toBeLessThan(text.indexOf('MICO360 Platform (MICO)', text.indexOf('In all: 3 tasks')));
     expect(text.indexOf('Project health')).toBeLessThan(text.indexOf('In all: 3 tasks'));
     expect(text.indexOf('In all: 3 tasks')).toBeLessThan(text.indexOf('Inspections'));
+    // The waiting milestone isn't late (ruling 45): no "late" reason, and its line says it waits.
+    expect(text).not.toContain('Milestone “Handover” is 3 days late');
+    expect(text).toContain('(waiting for approval)');
+    expect(text).not.toMatch(/Handover[^\n]*days late/);
     // None waiting: the section says so.
     const calm = await (await makeApp()).inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers: await auth('admin', ['ADMIN']) });
     expect(inspectPdf(calm.rawPayload).pages.flat().join('\n')).toContain('Nothing is waiting for approval.');

@@ -39,7 +39,7 @@ export interface ProjectTaskFigures {
   /** Finished: a Done column or a completion time. */
   done: number;
   open: number;
-  /** Open, due before today. */
+  /** Open, due before today, and not waiting for approval (owner, 30 Oct). */
   late: number;
   lastTaskUpdate: Date | null;
 }
@@ -50,6 +50,8 @@ export interface OpenMilestone {
   title: string;
   projectId: string;
   dueDate: Date | null;
+  /** Waiting for approval (task approvals): never late while it waits (owner, 30 Oct). */
+  waiting?: boolean;
 }
 
 /** A finished inspection in a period, with its passed and failed items (from its answers). */
@@ -88,6 +90,8 @@ export interface TaskLine {
   isMilestone: boolean;
   /** Assignees' names. */
   assignees: string[];
+  /** Waiting for approval (task approvals): never "days late" while it waits (owner, 30 Oct). */
+  waiting?: boolean;
 }
 
 export interface ActionLine {

@@ -6,7 +6,7 @@
  * - a **check** is a non-deleted task with `inspectionFormId` set;
  * - **done**: the task is finished (a Done column or a completion time — `isTaskDone`);
  * - **done late**: done, and `completedOnTime(due, completedAt, tz) === false`;
- * - **missing** (late, open): not done and `isOverdue(due, tz, now)`;
+ * - **missing** (late, open): not done, not waiting for approval, and `isOverdue(due, tz, now)`;
  * - **closed without a report**: done, with no finished inspection linked to the task.
  *
  * The state rules themselves live in inspections/inspection-checks.ts (the scheduled-inspections
@@ -26,6 +26,8 @@ export interface CheckRow {
   projectId: string;
   /** A finished (not deleted) inspection is linked to the task. */
   hasReport: boolean;
+  /** Waiting for approval since then (task approvals): handed in, so never missing while it waits. */
+  approvalRequestedAt?: Date | null;
 }
 
 export interface CheckCounts {

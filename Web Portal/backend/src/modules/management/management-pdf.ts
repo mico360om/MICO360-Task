@@ -86,7 +86,7 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     `${p.completionPct}%`,
     String(p.late),
     p.nextMilestone
-      ? `${p.nextMilestone.title} · ${p.nextMilestone.due ? formatDay(p.nextMilestone.due) : 'no date'}${p.nextMilestone.daysLeft !== null && p.nextMilestone.daysLeft < 0 ? ` (${plural(-p.nextMilestone.daysLeft, 'day')} late)` : ''}`
+      ? `${p.nextMilestone.title} · ${p.nextMilestone.due ? formatDay(p.nextMilestone.due) : 'no date'}${p.nextMilestone.waiting ? ' (waiting for approval)' : p.nextMilestone.daysLeft !== null && p.nextMilestone.daysLeft < 0 ? ` (${plural(-p.nextMilestone.daysLeft, 'day')} late)` : ''}`
       : '—',
     formatDay(zonedDayKey(new Date(p.lastActivityAt), o.timeZone)),
     p.reasons.map((r) => r.text).join('; '),

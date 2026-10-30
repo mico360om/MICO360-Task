@@ -21,6 +21,8 @@ const num = (v: unknown) => Number(v ?? 0);
 const OPEN_ACTION = ['OPEN', 'IN_PROGRESS', 'PENDING'] as const;
 /** The shared "open" rule (not in a Done column, no completion time), for a task `t` joined to its column `c`. */
 const OPEN = Prisma.sql`t.completedAt IS NULL AND c.category <> 'DONE'`;
+/** Open and not waiting for approval: a task handed in for a manager's OK is never late while it waits (owner, 30 Oct). */
+const OPEN_NOT_WAITING = Prisma.sql`${OPEN} AND t.approvalRequestedAt IS NULL`;
 const inList = (ids: string[]) => Prisma.join(ids);
 
 /**
@@ -47,6 +49,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
         dueDate: true,
         completedAt: true,
         isMilestone: true,
+        approvalRequestedAt: true,
         column: { select: { category: true } },
         assignees: { select: { user: { select: personFields } } },
       },
@@ -64,6 +67,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
           columnCategory: t.column.category,
           isMilestone: t.isMilestone,
           assignees: t.assignees.map((a) => toPerson(a.user).name).sort((a, b) => a.localeCompare(b)),
+          waiting: t.approvalRequestedAt !== null,
         },
       ]),
     );
@@ -96,7 +100,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
         SELECT t.projectId AS projectId,
                COUNT(*) AS total,
                CAST(SUM(CASE WHEN c.category = 'DONE' OR t.completedAt IS NOT NULL THEN 1 ELSE 0 END) AS SIGNED) AS done,
-               CAST(SUM(CASE WHEN ${OPEN} AND ${dueBefore(tDue, today, timeZone)} THEN 1 ELSE 0 END) AS SIGNED) AS late,
+               CAST(SUM(CASE WHEN ${OPEN_NOT_WAITING} AND ${dueBefore(tDue, today, timeZone)} THEN 1 ELSE 0 END) AS SIGNED) AS late,
                MAX(t.updatedAt) AS lastTaskUpdate
           FROM tasks t JOIN kanban_columns c ON c.id = t.columnId
          WHERE t.deletedAt IS NULL AND t.projectId IN (${inList(projectIds)})
@@ -106,24 +110,25 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
 
     async openMilestones(projectIds) {
       if (projectIds.length === 0) return [];
-      return prisma.task.findMany({
+      const rows = await prisma.task.findMany({
         where: { projectId: { in: projectIds }, deletedAt: null, isMilestone: true, completedAt: null, column: { category: { not: 'DONE' } } },
-        select: { id: true, key: true, title: true, projectId: true, dueDate: true },
+        select: { id: true, key: true, title: true, projectId: true, dueDate: true, approvalRequestedAt: true },
         orderBy: [{ dueDate: 'asc' }, { title: 'asc' }],
       });
+      return rows.map(({ approvalRequestedAt, ...m }) => ({ ...m, waiting: approvalRequestedAt !== null }));
     },
 
     async checks(projectIds, w) {
       if (projectIds.length === 0) return [];
       const doneWindow = w.doneFrom && w.doneTo ? Prisma.sql` OR (t.completedAt >= ${w.doneFrom} AND t.completedAt < ${w.doneTo})` : Prisma.empty;
-      const rows = await prisma.$queryRaw<Array<{ id: string; projectId: string; dueDate: Date | null; completedAt: Date | null; columnCategory: string; hasReport: unknown }>>`
-        SELECT t.id AS id, t.projectId AS projectId, t.dueDate AS dueDate, t.completedAt AS completedAt, c.category AS columnCategory,
+      const rows = await prisma.$queryRaw<Array<{ id: string; projectId: string; dueDate: Date | null; completedAt: Date | null; columnCategory: string; hasReport: unknown; approvalRequestedAt: Date | null }>>`
+        SELECT t.id AS id, t.projectId AS projectId, t.dueDate AS dueDate, t.completedAt AS completedAt, c.category AS columnCategory, t.approvalRequestedAt AS approvalRequestedAt,
                EXISTS (SELECT 1 FROM inspections i WHERE i.taskId = t.id AND i.status = 'FINISHED' AND i.deletedAt IS NULL) AS hasReport
           FROM tasks t JOIN kanban_columns c ON c.id = t.columnId
          WHERE t.deletedAt IS NULL AND t.inspectionFormId IS NOT NULL AND t.projectId IN (${inList(projectIds)})
            AND ((t.dueDate >= ${w.dueFrom} AND t.dueDate < ${w.dueTo})
                 OR (${OPEN} AND t.dueDate < ${w.openBefore})${doneWindow})`;
-      return rows.map((r) => ({ id: r.id, projectId: r.projectId, dueDate: r.dueDate, completedAt: r.completedAt, columnCategory: r.columnCategory, hasReport: num(r.hasReport) === 1 }));
+      return rows.map((r) => ({ id: r.id, projectId: r.projectId, dueDate: r.dueDate, completedAt: r.completedAt, columnCategory: r.columnCategory, hasReport: num(r.hasReport) === 1, approvalRequestedAt: r.approvalRequestedAt ?? null }));
     },
 
     async finishedInspections(projectIds, from, to) {
@@ -178,7 +183,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
           JOIN tasks t ON t.id = ta.taskId
           JOIN kanban_columns c ON c.id = t.columnId
           JOIN users u ON u.id = ta.userId
-         WHERE t.deletedAt IS NULL AND ${OPEN} AND ${dueBefore(tDue, today, timeZone)} AND t.projectId IN (${inList(projectIds)})
+         WHERE t.deletedAt IS NULL AND ${OPEN_NOT_WAITING} AND ${dueBefore(tDue, today, timeZone)} AND t.projectId IN (${inList(projectIds)})
            AND u.deletedAt IS NULL AND u.status = 'ACTIVE'
          GROUP BY ta.userId`;
       return rows.map((r) => ({ userId: r.userId, count: num(r.n) }));
@@ -207,13 +212,15 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
       const sums = buckets.flatMap((b, i) => [
         Prisma.sql`CAST(SUM(x.createdAt >= ${b.from} AND x.createdAt < ${b.to}) AS SIGNED) AS ${Prisma.raw(`c${i}`)}`,
         Prisma.sql`CAST(SUM(x.doneAt >= ${b.from} AND x.doneAt < ${b.to}) AS SIGNED) AS ${Prisma.raw(`d${i}`)}`,
-        Prisma.sql`CAST(SUM(x.createdAt < ${b.lateAt} AND (x.doneAt IS NULL OR x.doneAt >= ${b.lateAt}) AND ${dueBefore(x, b.lateDay, timeZone)}) AS SIGNED) AS ${Prisma.raw(`l${i}`)}`,
+        // Late at the week's judging moment, unless it was waiting for approval by then (only its
+        // current wait is known: an earlier wait that ended still counts in its weeks).
+        Prisma.sql`CAST(SUM(x.createdAt < ${b.lateAt} AND (x.doneAt IS NULL OR x.doneAt >= ${b.lateAt}) AND (x.waitingSince IS NULL OR x.waitingSince >= ${b.lateAt}) AND ${dueBefore(x, b.lateDay, timeZone)}) AS SIGNED) AS ${Prisma.raw(`l${i}`)}`,
       ]);
       // When a task counts as done: its completion time, or — sitting in a Done column without one
       // (older rows) — its last change, as the Reports page's trend counts it.
       const [row] = await prisma.$queryRaw<Array<Record<string, unknown>>>`
         SELECT ${Prisma.join(sums)}
-          FROM (SELECT t.createdAt AS createdAt, t.dueDate AS dueDate,
+          FROM (SELECT t.createdAt AS createdAt, t.dueDate AS dueDate, t.approvalRequestedAt AS waitingSince,
                        COALESCE(t.completedAt, CASE WHEN c.category = 'DONE' THEN t.updatedAt END) AS doneAt
                   FROM tasks t JOIN kanban_columns c ON c.id = t.columnId
                  WHERE t.deletedAt IS NULL AND t.projectId IN (${inList(projectIds)})) x`;
@@ -225,7 +232,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
       if (projectIds.length === 0) return { total: 0, rows: [] };
       const who = personId ? Prisma.sql` AND EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.taskId = t.id AND ta.userId = ${personId})` : Prisma.empty;
       const marks = milestonesOnly ? Prisma.sql` AND t.isMilestone = 1` : Prisma.empty;
-      const where = Prisma.sql`t.deletedAt IS NULL AND ${OPEN} AND ${dueBefore(tDue, today, timeZone)} AND t.projectId IN (${inList(projectIds)})${who}${marks}`;
+      const where = Prisma.sql`t.deletedAt IS NULL AND ${OPEN_NOT_WAITING} AND ${dueBefore(tDue, today, timeZone)} AND t.projectId IN (${inList(projectIds)})${who}${marks}`;
       const [count, ids] = await Promise.all([
         prisma.$queryRaw<Array<{ n: bigint }>>`SELECT COUNT(*) AS n FROM tasks t JOIN kanban_columns c ON c.id = t.columnId WHERE ${where}`,
         prisma.$queryRaw<Array<{ id: string }>>`SELECT t.id AS id FROM tasks t JOIN kanban_columns c ON c.id = t.columnId WHERE ${where} ORDER BY t.dueDate ASC, t.\`key\` ASC LIMIT ${limit}`,

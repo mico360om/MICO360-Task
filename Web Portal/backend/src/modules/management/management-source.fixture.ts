@@ -52,7 +52,8 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
   const tasks = d.tasks.filter((t) => !t.deleted && live.some((p) => p.id === t.projectId));
   const isOpen = (t: FakeManagementData['tasks'][number]) => !t.completedAt;
   const due = (t: FakeManagementData['tasks'][number]) => (t.due ? at(t.due) : null);
-  const lateOn = (t: FakeManagementData['tasks'][number], today: string) => isOpen(t) && (dueDayKey(due(t), TZ) ?? '9999') < today;
+  // Late: open, past its due day, and not waiting for approval (owner, 30 Oct).
+  const lateOn = (t: FakeManagementData['tasks'][number], today: string) => isOpen(t) && !t.waitingSince && (dueDayKey(due(t), TZ) ?? '9999') < today;
   const nameOf = (id: string) => d.users.find((u) => u.id === id)?.name ?? id;
   const runs = (p: (typeof live)[number], userId: string) => p.ownerId === userId || p.managerId === userId || (p.managers ?? []).includes(userId);
   const toProject = (p: (typeof live)[number]): MgmtProject => ({
@@ -77,6 +78,7 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
     columnCategory: t.completedAt ? 'DONE' : 'TODO',
     isMilestone: !!t.milestone,
     assignees: (t.assignees ?? []).map(nameOf),
+    waiting: !!t.waitingSince,
   });
   const byDue = (a: TaskLine, b: TaskLine) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0) || a.key.localeCompare(b.key);
   const finished = (ids: string[], from: Date, to: Date) => d.inspections.filter((i) => ids.includes(i.projectId) && at(i.finishedAt) >= from && at(i.finishedAt) < to);
@@ -111,7 +113,7 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
         .filter((f) => f.total > 0);
     },
     async openMilestones(ids) {
-      return tasks.filter((t) => ids.includes(t.projectId) && t.milestone && isOpen(t)).map((t) => ({ id: t.id, key: t.id.toUpperCase(), title: t.title ?? t.id, projectId: t.projectId, dueDate: due(t) }));
+      return tasks.filter((t) => ids.includes(t.projectId) && t.milestone && isOpen(t)).map((t) => ({ id: t.id, key: t.id.toUpperCase(), title: t.title ?? t.id, projectId: t.projectId, dueDate: due(t), waiting: !!t.waitingSince }));
     },
     async checks(ids, w) {
       return tasks
@@ -121,7 +123,7 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
           const done = t.completedAt ? at(t.completedAt) : null;
           return (dd && dd >= w.dueFrom && dd < w.dueTo) || (isOpen(t) && dd && dd < w.openBefore) || (done && w.doneFrom && w.doneTo && done >= w.doneFrom && done < w.doneTo);
         })
-        .map((t) => ({ id: t.id, projectId: t.projectId, dueDate: due(t), completedAt: t.completedAt ? at(t.completedAt) : null, columnCategory: t.completedAt ? 'DONE' : 'TODO', hasReport: !!t.report }));
+        .map((t) => ({ id: t.id, projectId: t.projectId, dueDate: due(t), completedAt: t.completedAt ? at(t.completedAt) : null, columnCategory: t.completedAt ? 'DONE' : 'TODO', hasReport: !!t.report, approvalRequestedAt: t.waitingSince ? at(t.waitingSince) : null }));
     },
     async finishedInspections(ids, from, to) {
       return finished(ids, from, to).map((i) => ({ id: i.id, projectId: i.projectId, formId: i.formId, title: i.title, place: i.place ?? null, taskId: null, finishedAt: at(i.finishedAt), passed: i.passed, failed: i.failed }));
@@ -172,7 +174,13 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
       const completed = buckets.map((b) => mine.filter((t) => t.completedAt && at(t.completedAt) >= b.from && at(t.completedAt) < b.to).length);
       const late = buckets.map(
         (b) =>
-          mine.filter((t) => (!t.createdAt || at(t.createdAt) < b.lateAt) && !(t.completedAt && at(t.completedAt) < b.lateAt) && (dueDayKey(due(t), TZ) ?? '9999') < b.lateDay).length,
+          mine.filter(
+            (t) =>
+              (!t.createdAt || at(t.createdAt) < b.lateAt) &&
+              !(t.completedAt && at(t.completedAt) < b.lateAt) &&
+              !(t.waitingSince && at(t.waitingSince) < b.lateAt) &&
+              (dueDayKey(due(t), TZ) ?? '9999') < b.lateDay,
+          ).length,
       );
       return { created, completed, late };
     },

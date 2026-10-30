@@ -41,6 +41,8 @@ export interface CheckRow {
   inspectionPlace: string | null;
   form: FormRef;
   assignees: Person[];
+  /** Waiting for approval since then (task approvals): due, not late, while it waits. */
+  approvalRequestedAt?: Date | null;
 }
 
 /** One series' figures, counted in the database over the copies that name it (`recurrenceParentId`). */

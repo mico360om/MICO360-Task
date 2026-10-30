@@ -81,8 +81,8 @@ export interface HealthRow extends OptionProject {
   open: number;
   late: number;
   completionPct: number;
-  /** The earliest milestone not reached (a late one first); daysLeft < 0 when late. */
-  nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null } | null;
+  /** The earliest milestone not reached (a late one first); daysLeft < 0 when past its day — late, unless it is waiting for approval. */
+  nextMilestone: { id: string; key: string; title: string; due: string | null; daysLeft: number | null; waiting: boolean } | null;
   lateMilestones: number;
   lastActivityAt: string;
   missingChecks: number;
@@ -360,7 +360,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
           .filter((m) => m.projectId === p.id)
           .map((m) => ({ m, day: dueDayKey(m.dueDate, tz), daysLeft: daysUntilDue(m.dueDate, tz, ctx.at) }))
           .sort((a, b) => (a.day ?? '9999').localeCompare(b.day ?? '9999') || collator.compare(a.m.title, b.m.title));
-        const lateMarks = marks.filter((x) => x.daysLeft !== null && x.daysLeft < 0);
+        // A milestone waiting for approval is handed in: never late while it waits (owner, 30 Oct).
+        const lateMarks = marks.filter((x) => !x.m.waiting && x.daysLeft !== null && x.daysLeft < 0);
         const next = marks[0] ?? null;
         const lastActivityAt = f.lastTaskUpdate && f.lastTaskUpdate > p.updatedAt ? f.lastTaskUpdate : p.updatedAt;
         const c = summary.byProject.get(p.id) ?? emptyCounts();
@@ -377,7 +378,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
           open: f.open,
           late: f.late,
           completionPct: completionPct(f.done, f.total),
-          nextMilestone: next ? { id: next.m.id, key: next.m.key, title: next.m.title, due: next.day, daysLeft: next.daysLeft } : null,
+          nextMilestone: next ? { id: next.m.id, key: next.m.key, title: next.m.title, due: next.day, daysLeft: next.daysLeft, waiting: !!next.m.waiting } : null,
           lateMilestones: lateMarks.length,
           lastActivityAt: lastActivityAt.toISOString(),
           missingChecks: c.missing,
@@ -576,7 +577,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
         key: t.key,
         project: projectOf.get(t.projectId) ?? null,
         due: dueDayKey(t.dueDate, tz),
-        daysLate: !isTaskDone(t) && left !== null && left < 0 ? -left : null,
+        daysLate: !isTaskDone(t) && !t.waiting && left !== null && left < 0 ? -left : null,
         people: t.assignees,
         ...extra,
       };

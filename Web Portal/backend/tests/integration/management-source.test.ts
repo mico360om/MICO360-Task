@@ -219,6 +219,36 @@ describe('Management source (integration)', () => {
     }
   });
 
+  it('a task waiting for approval is not late while it waits (owner, 30 Oct): figures, people, lists, the trend, milestones and checks', async () => {
+    // late1 (Bilal), the Handover milestone and the missing check chMissing (Zara) are handed in and wait.
+    const waitAt = new Date('2026-10-25T10:00:00.000Z');
+    await prisma.task.updateMany({ where: { id: { in: [ids.late1!, ids.milestone!, ids.chMissing!] } }, data: { approvalRequestedAt: waitAt } });
+    try {
+      const rig = (await source.taskFigures(RIG_MICO(), TODAY)).find((f) => f.projectId === ids.rig)!;
+      expect(rig).toMatchObject({ total: 16, done: 7, open: 9, late: 2 }); // still open; only "late" changes
+      const late = new Map((await source.lateByPerson(RIG_MICO(), TODAY)).map((l) => [l.userId, l.count]));
+      expect(late.get(ids.bilal!)).toBe(1); // mLate
+      expect(late.get(ids.zara!)).toBe(2); // bandLate, chOld
+      const list = await source.lateTasks({ projectIds: [ids.rig!], today: TODAY, limit: 10 });
+      expect([list.total, list.rows.map((r) => r.title)]).toEqual([2, ['chOld', 'bandLate']]);
+      expect((await source.lateTasks({ projectIds: RIG_MICO(), today: TODAY, milestonesOnly: true, limit: 10 })).total).toBe(0);
+      // The current week judges now (waiting): not late. Judged before the wait began, they were.
+      const t = await source.trend(RIG_MICO(), [
+        { from: new Date('2026-10-17T20:00:00.000Z'), to: new Date('2026-10-24T20:00:00.000Z'), lateDay: '2026-10-24', lateAt: new Date('2026-10-24T20:00:00.000Z') },
+        { from: new Date('2026-10-24T20:00:00.000Z'), to: new Date('2026-10-31T20:00:00.000Z'), lateDay: TODAY, lateAt: NOW },
+      ]);
+      expect(t.late).toEqual([3, 3]); // last week as before; now: bandLate, chOld, mLate
+      expect(await source.openMilestones([ids.rig!])).toEqual([expect.objectContaining({ title: 'Handover', waiting: true })]);
+      const checks = await source.checks([ids.rig!], { dueFrom: day('2026-10-03'), dueTo: day('2026-10-29'), openBefore: day('2026-10-28') });
+      expect(checks.find((r) => r.id === ids.chMissing)!.approvalRequestedAt?.toISOString()).toBe(waitAt.toISOString());
+      expect(checks.find((r) => r.id === ids.chOld)!.approvalRequestedAt).toBeNull();
+      const [line] = await source.tasksByIds([ids.late1!]);
+      expect(line).toMatchObject({ title: 'late1', waiting: true });
+    } finally {
+      await prisma.task.updateMany({ where: { id: { in: [ids.late1!, ids.milestone!, ids.chMissing!] } }, data: { approvalRequestedAt: null } });
+    }
+  });
+
   it('open follow-ups (their task open and live, the inspection live)', async () => {
     expect(await source.openFollowUps(RIG_MICO())).toEqual([{ projectId: ids.rig, count: 1 }]);
     const list = await source.followUpTasks({ projectIds: [ids.rig!], limit: 10 });

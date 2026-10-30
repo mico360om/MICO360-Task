@@ -42,6 +42,8 @@ export interface CheckTask {
   /** Set on the newest copy of a repeating series only. */
   recurrenceRule?: unknown;
   deletedAt?: When;
+  /** Waiting for approval since then (task approvals): handed in, so not late while it waits (owner, 30 Oct). */
+  approvalRequestedAt?: When;
 }
 
 export function isCheck(t: CheckTask): boolean {
@@ -58,6 +60,8 @@ export function isCheckDone(t: CheckTask): boolean {
 
 export function checkState(t: CheckTask, timeZone: string, now: Date = new Date()): CheckState {
   if (isCheckDone(t)) return completedOnTime(t.dueDate, t.completedAt, timeZone) === false ? 'DONE_LATE' : 'DONE';
+  // Handed in and waiting for approval: due, never late while it waits (sent back, it can be again).
+  if (t.approvalRequestedAt) return 'DUE';
   return isOverdue(t.dueDate, timeZone, now) ? 'LATE' : 'DUE';
 }
 
@@ -70,6 +74,7 @@ export function daysLate(t: CheckTask, timeZone: string, now: Date = new Date())
     const doneDay = zonedDayKey(new Date(t.completedAt as Date | string), timeZone);
     return Math.round((noon(doneDay) - noon(due)) / 86_400_000);
   }
+  if (t.approvalRequestedAt) return 0;
   const days = daysUntilDue(t.dueDate, timeZone, now);
   return days !== null && days < 0 ? -days : 0;
 }

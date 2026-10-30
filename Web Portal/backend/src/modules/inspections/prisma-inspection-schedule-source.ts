@@ -16,6 +16,7 @@ const checkSelect = {
   recurrenceRule: true,
   recurrenceParentId: true,
   inspectionPlace: true,
+  approvalRequestedAt: true,
   column: { select: { category: true } },
   inspectionForm: { select: { id: true, title: true, deletedAt: true } },
   assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
@@ -38,6 +39,7 @@ const toCheck = (t: Row): CheckRow => ({
   inspectionPlace: t.inspectionPlace,
   form: { id: t.inspectionForm!.id, title: t.inspectionForm!.title, deleted: t.inspectionForm!.deletedAt !== null },
   assignees: t.assignees.map((a) => ({ id: a.user.id, name: displayName(a.user) })),
+  approvalRequestedAt: t.approvalRequestedAt,
 });
 
 /** Open: not completed and not in a Done column (inspection-checks' "done", in the query). */
@@ -63,7 +65,8 @@ export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts:
       const live = { ...members, deletedAt: null } satisfies Prisma.TaskWhereInput;
       const [open, late, done, made] = await Promise.all([
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere }, _count: { _all: true } }),
-        prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere, dueDate: { lt: dueBefore } }, _count: { _all: true } }),
+        // Late: open, past its day, and not waiting for approval (handed in: never late while it waits).
+        prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, ...openWhere, approvalRequestedAt: null, dueDate: { lt: dueBefore } }, _count: { _all: true } }),
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: { ...live, completedAt: { not: null } }, _max: { completedAt: true } }),
         // Every copy made, deleted ones too — as the repeat itself counts them (countInstances).
         prisma.task.groupBy({ by: ['recurrenceParentId'], where: members, _count: { _all: true } }),

@@ -151,7 +151,7 @@ describe('the overview', () => {
     const rig = o.projects[0]!;
     expect(rig).toMatchObject({ id: 'rig', rag: 'RED', total: 13, done: 5, open: 8, late: 4, completionPct: 38, missingChecks: 3, lateMilestones: 1, openFollowUps: 1, checksDue: 7, checksDone: 3 });
     expect(rig.reasons.map((r) => r.text)).toEqual(['Milestone “Handover” is 3 days late', '4 of 8 open tasks are late', '3 missing checks']);
-    expect(rig.nextMilestone).toEqual({ id: 'r1', key: 'R1', title: 'Handover', due: '2026-10-24', daysLeft: -3 });
+    expect(rig.nextMilestone).toEqual({ id: 'r1', key: 'R1', title: 'Handover', due: '2026-10-24', daysLeft: -3, waiting: false });
     const mico = o.projects[1]!;
     expect(mico).toMatchObject({ id: 'mico', rag: 'AMBER', late: 1, completionPct: 17, owner: { id: 'omar', name: 'Omar Ahmed' } });
     expect(mico.reasons.map((r) => r.text)).toEqual(['1 late task']);
@@ -371,6 +371,59 @@ describe('tasks waiting for approval', () => {
     expect(rig).toMatchObject({ title: 'Waiting for approval · Rig Inspection Portal', total: 1 });
     // A runner never sees another project’s waiting tasks.
     expect((await svc.items(SARA, filters(), { metric: 'awaiting-approval' })).rows.map((r) => r.id)).toEqual(['r3']);
+  });
+});
+
+describe('a task waiting for approval is not late while it waits (owner, 30 Oct; ruling 45)', () => {
+  // RIG's late milestone r1, MICO's late task m1 and RIG's late check c3 are handed in and wait.
+  const LATE_WAITING: FakeManagementData = {
+    ...DATA,
+    tasks: DATA.tasks.map((t) => (['r1', 'm1', 'c3'].includes(t.id) ? { ...t, waitingSince: '2026-10-26T08:00:00.000Z' } : t)),
+  };
+
+  it('leaves them out of the projects’ late tasks, late milestones and missing checks, and of the marks and reasons', async () => {
+    const o = await service(LATE_WAITING).svc.overview(ADMIN, filters());
+    const rig = o.projects.find((p) => p.id === 'rig')!;
+    // Still open (not done): only "late" changes.
+    expect(rig).toMatchObject({ open: 8, late: 2, lateMilestones: 0, missingChecks: 2, rag: 'AMBER' });
+    expect(rig.reasons.map((r) => r.code)).not.toContain('MILESTONE_LATE');
+    expect(rig.reasons.map((r) => r.text)).toEqual(['2 late tasks', '2 missing checks']);
+    // The next milestone says it waits (the page and the PDF say so instead of "3 days late").
+    expect(rig.nextMilestone).toEqual({ id: 'r1', key: 'R1', title: 'Handover', due: '2026-10-24', daysLeft: -3, waiting: true });
+    const mico = o.projects.find((p) => p.id === 'mico')!;
+    expect(mico).toMatchObject({ late: 0, rag: 'GREEN' });
+    expect(o.tiles).toMatchObject({ lateTasks: 2, missingChecks: 2 });
+    expect(o.inspections).toMatchObject({ missing: 2 });
+  });
+
+  it('“most late work”, the trend’s late figure and the lists behind the numbers leave them out', async () => {
+    const { svc } = service(LATE_WAITING);
+    const o = await svc.overview(ADMIN, filters({ weeks: 4 }));
+    expect(o.people.find((p) => p.id === 'zara')).toMatchObject({ lateTasks: 2 });
+    expect(o.people.find((p) => p.id === 'bilal')).toMatchObject({ lateTasks: 0 });
+    expect(o.trends.at(-1)).toMatchObject({ late: 2, current: true });
+    const late = await svc.items(ADMIN, filters(), { metric: 'late-tasks' });
+    expect(late.total).toBe(2);
+    expect(late.rows.map((r) => r.id)).toEqual(['c4', 'c5']);
+    expect((await svc.items(ADMIN, filters(), { metric: 'late-milestones' })).total).toBe(0);
+    expect((await svc.items(ADMIN, filters(), { metric: 'missing-checks' })).rows.map((r) => r.id)).toEqual(['c4', 'c5']);
+    // The waiting list shows them as waiting, never "N days late".
+    const waiting = await svc.items(ADMIN, filters(), { metric: 'awaiting-approval' });
+    expect(waiting.rows.map((r) => [r.id, r.daysLate]).sort()).toEqual([['c3', null], ['m1', null], ['r1', null]]);
+  });
+
+  it('the weekly summary counts the same', async () => {
+    const d = (await service(LATE_WAITING).svc.digest(ADMIN))!;
+    expect(d.lateTasks).toBe(2);
+    expect(d.missingChecks).toBe(2);
+    expect(d.mostLate).toEqual([{ id: 'zara', name: 'Zara Ahmed', lateTasks: 2 }]);
+    expect(d.worst.find((p) => p.id === 'rig')?.reasons.map((r) => r.code)).not.toContain('MILESTONE_LATE');
+  });
+
+  it('sent back (no longer waiting), they are late again', async () => {
+    const back: FakeManagementData = { ...DATA, tasks: LATE_WAITING.tasks.map((t) => ({ ...t, waitingSince: null })) };
+    const o = await service(back).svc.overview(ADMIN, filters());
+    expect(o.tiles).toMatchObject({ lateTasks: 5, missingChecks: 3 });
   });
 });
 
