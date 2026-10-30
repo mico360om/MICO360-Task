@@ -36,7 +36,8 @@ export { personInitials };
 export function cardFacts(task, { timeZone = DEFAULT_TIME_ZONE, now = new Date() } = {}) {
   const done = isDone(task);
   const due = formatDueDay(task.dueDate, timeZone);
-  const overdue = !done && !!due && isOverdue(task.dueDate, timeZone, now);
+  // Never overdue while it waits for approval: its badge says so instead (the web's card, 30 Oct).
+  const overdue = !done && !!due && !isWaitingForApproval(task) && isOverdue(task.dueDate, timeZone, now);
   const c = task.counts || {};
   const counts = [];
   if (c.checklistTotal > 0) counts.push({ kind: 'checklist', label: 'Subtasks done', value: `${c.checklistDone || 0}/${c.checklistTotal}` });

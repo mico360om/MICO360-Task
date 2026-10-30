@@ -39,6 +39,10 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
     const f = cardFacts(task({ columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-21T05:00:00Z' }), { timeZone: TZ, now: NOW });
     expect(f.awaitingApproval).toBe(true);
     expect(cardLabel(task(), f)).toContain(', waiting for approval,');
+    // Past its due day, but never overdue while it waits (the web's card, 30 Oct).
+    expect(f.overdue).toBe(false);
+    expect(f.dueText).not.toMatch(/overdue/i);
+    expect(cardLabel(task(), f)).not.toContain('overdue');
     expect(cardFacts(task(), { timeZone: TZ, now: NOW }).awaitingApproval).toBe(false);
   });
 

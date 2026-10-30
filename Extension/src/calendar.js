@@ -6,6 +6,7 @@
  * reader hears. src/calendar.test.js runs these and the web's over the same inputs. Pure (no DOM).
  */
 import { dueDayKey, zonedDayKey, zonedStartOfDay, shiftDayKey } from './due-date.js';
+import { isWaitingForApproval } from './approvals.js';
 
 // ---- days -----------------------------------------------------------------------------------
 
@@ -127,10 +128,10 @@ export function timeNote(settings) {
 
 const isTaskDone = (t) => t.columnCategory === 'DONE' || !!t.completedAt;
 
-/** A task's status on its day: done; overdue (red only for this); blocked; in progress; to do. */
+/** A task's status on its day: done; overdue (red only for this — never while it waits for approval); blocked; in progress; to do. */
 export function statusOf(task, day, today) {
   if (isTaskDone(task)) return 'done';
-  if (day < today) return 'overdue';
+  if (day < today && !isWaitingForApproval(task)) return 'overdue';
   if (task.columnCategory === 'BLOCKED') return 'blocked';
   if (task.columnCategory === 'IN_PROGRESS' || task.columnCategory === 'REVIEW') return 'in-progress';
   return 'todo';

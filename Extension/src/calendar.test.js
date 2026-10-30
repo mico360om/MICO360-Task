@@ -170,6 +170,9 @@ describe.skipIf(!webCal || !webModel || !webMeet || !webDue)('the calendar match
       task('a', { dueDate: '2026-10-19T00:00:00.000Z' }), task('b', { columnCategory: 'REVIEW', priority: 'HIGH' }),
       task('c', { completedAt: '2026-10-20T08:00:00Z' }), task('d', { columnCategory: 'BLOCKED', projectId: 'p2', assignees: [{ id: 'me' }] }),
       task('e', { dueDate: '2026-10-21T21:30:00.000Z', priority: 'URGENT' }), task('f', { dueDate: null }),
+      // Past their day and waiting for approval: never overdue while they wait (the web's rule, 30 Oct).
+      task('w', { dueDate: '2026-10-19T00:00:00.000Z', columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-20T08:00:00Z' }),
+      task('w2', { dueDate: '2026-10-18T00:00:00.000Z', columnCategory: 'TODO', approvalRequestedAt: '2026-10-20T08:00:00Z' }),
     ];
     const data = { tasks, occurrences: [{ taskId: 'r1', seriesId: 'r1', date: '2026-10-28' }, { taskId: 'zz', seriesId: 'zz', date: '2026-10-29' }], series: [task('r1', { recurrenceRule: { freq: 'DAILY' } })] };
     for (const timeZone of ['Asia/Muscat', 'UTC', 'America/Los_Angeles']) {
