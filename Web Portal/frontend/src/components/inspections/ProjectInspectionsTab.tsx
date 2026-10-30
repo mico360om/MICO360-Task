@@ -131,7 +131,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
   return (
     <ModalPortal>
       <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={startM.isPending ? undefined : onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={startM.isPending ? undefined : onClose} aria-hidden="true" />
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={ids.title} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
           <div className="border-b border-line px-5 pb-3 pt-4">
             <div className="flex items-start justify-between gap-2">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -11,23 +11,24 @@ import { reportsApi, type ReportFilters, type ReportFormat, type ReportKind } fr
 import { projectsApi } from '../api/projects';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { isBackwards, isWholeDate } from '../lib/date-box';
+import { dayText } from '../lib/day-words';
 import { todayKey as companyTodayKey, shiftDayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { namedProjectOption } from '../components/project-option';
 
 // ── Date-range helpers: 'YYYY-MM-DD' day keys, where "today" is the company's today ──
 const DAY_MS = 86_400_000;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const shiftKey = shiftDayKey;
-/** "2000-01-05" → "Jan 5" (timezone-safe, no Date parsing). */
-const shortDay = (key: string) => {
-  const [, m, d] = key.split('-');
-  return `${MONTHS[Number(m) - 1]} ${Number(d)}`;
-};
+/** "2000-01-05" → "5 Jan" (the day itself, day before month). */
+const shortDay = (key: string) => dayText(key, { year: false });
 const cumulative = (vals: number[]) => {
   let sum = 0;
   return vals.map((v) => (sum += v));
 };
+/** A date box changed within this long of a key press was typed (else picked from the calendar). */
+const TYPED_WITHIN_MS = 1000;
+/** A typed date counts as finished after this long without another key. */
+const TYPING_PAUSE_MS = 600;
 const RANGE_PRESETS: { label: string; days: number }[] = [
   { label: '7d', days: 7 },
   { label: '30d', days: 30 },
@@ -105,26 +106,62 @@ export function ReportsPage() {
   const [from, setFrom] = useState(() => shiftKey(todayKey(), -29));
   // What the two date boxes show. A box may hold an unfinished date while it is being typed (the
   // browser reports that as empty, and it must stay empty or the next digits land in the wrong
-  // place); the report follows `from`/`to`, which change only for two whole dates in order.
+  // place); the report follows `from`/`to`, which change only for a finished range: two whole dates
+  // in order, ending today at the latest.
   const [fromBox, setFromBox] = useState(from);
   const [toBox, setToBox] = useState(to);
-  const rangeBackwards = isBackwards(fromBox, toBox);
+  const boxes = useRef({ from, to });
+  // The boxes as they were when last finished: what the message under them speaks of. While a date
+  // is being typed it passes through dates never meant (typing 21/10 goes by 02/10 and 21/01), so a
+  // typed date counts once it is finished: on Enter, on leaving the box, or after a short pause.
+  // A date picked from the calendar counts at once.
+  const [finished, setFinished] = useState({ from, to });
+  const rangeProblem = isBackwards(finished.from, finished.to) ? 'backwards' : isWholeDate(finished.to) && finished.to > todayKey() ? 'future' : null;
+  const typedAt = useRef(0);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (pending.current) clearTimeout(pending.current);
+  }, []);
 
   function showRange(nextFrom: string, nextTo: string) {
+    if (pending.current) clearTimeout(pending.current);
+    boxes.current = { from: nextFrom, to: nextTo };
     setFrom(nextFrom);
     setTo(nextTo);
     setFromBox(nextFrom);
     setToBox(nextTo);
+    setFinished({ from: nextFrom, to: nextTo });
+  }
+  /** The boxes are finished: show their range if it is one (else the message says why not). */
+  function finishRange() {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = null;
+    const { from: f, to: t } = boxes.current;
+    setFinished({ from: f, to: t });
+    if (isWholeDate(f) && isWholeDate(t) && f <= t && t <= todayKey()) {
+      setFrom(f);
+      setTo(t);
+    }
   }
   function editRange(nextFrom: string, nextTo: string) {
     rangeTouched.current = true;
+    boxes.current = { from: nextFrom, to: nextTo };
     setFromBox(nextFrom);
     setToBox(nextTo);
-    if (isWholeDate(nextFrom) && isWholeDate(nextTo) && nextFrom <= nextTo) {
-      setFrom(nextFrom);
-      setTo(nextTo);
-    }
+    if (pending.current) clearTimeout(pending.current);
+    // A key pressed just now: typed, so wait for the pause. Else a calendar pick: at once.
+    if (Date.now() - typedAt.current < TYPED_WITHIN_MS) pending.current = setTimeout(finishRange, TYPING_PAUSE_MS);
+    else finishRange();
   }
+  const dateBoxKeys = {
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+      typedAt.current = Date.now();
+      if (e.key === 'Enter') finishRange();
+    },
+    onBlur: () => {
+      if (pending.current) finishRange();
+    },
+  };
 
   // If the company zone arrives after first render and the user hasn't picked a range, re-anchor "today".
   const rangeTouched = useRef(false);
@@ -368,15 +405,19 @@ export function ReportsPage() {
                     );
                   })}
                 </div>
-                <input type="date" aria-label="From date" value={fromBox} max={isWholeDate(toBox) ? toBox : undefined} aria-invalid={rangeBackwards || undefined} onChange={(e) => editRange(e.target.value, toBox)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
+                <input type="date" aria-label="From date" value={fromBox} max={isWholeDate(toBox) ? toBox : undefined} aria-invalid={rangeProblem === 'backwards' || undefined} aria-describedby={rangeProblem ? 'reports-range-problem' : undefined} onChange={(e) => editRange(e.target.value, toBox)} {...dateBoxKeys} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
                 <span className="text-xs text-ink-3">to</span>
-                <input type="date" aria-label="To date" value={toBox} min={isWholeDate(fromBox) ? fromBox : undefined} max={todayKey()} aria-invalid={rangeBackwards || undefined} onChange={(e) => editRange(fromBox, e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
+                <input type="date" aria-label="To date" value={toBox} min={isWholeDate(fromBox) ? fromBox : undefined} max={todayKey()} aria-invalid={rangeProblem !== null || undefined} aria-describedby={rangeProblem ? 'reports-range-problem' : undefined} onChange={(e) => editRange(fromBox, e.target.value)} {...dateBoxKeys} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand" />
               </div>
             </div>
 
-            {rangeBackwards ? (
-              <p role="alert" className="mt-3 text-xs font-medium text-danger">
-                The start date must be on or before the end date. Still showing {shortDay(from)} – {shortDay(to)}.
+            {rangeProblem ? (
+              <p id="reports-range-problem" role="alert" className="mt-3 text-xs font-medium text-danger">
+                {rangeProblem === 'backwards' ? (
+                  <>The start date must be on or before the end date. Still showing {shortDay(from)} – {shortDay(to)}.</>
+                ) : (
+                  <>The end date can’t be after today. Still showing {shortDay(from)} – {shortDay(to)}.</>
+                )}
               </p>
             ) : null}
 

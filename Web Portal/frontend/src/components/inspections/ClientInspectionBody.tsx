@@ -1,3 +1,4 @@
+import { dateTimeText } from '../../lib/day-words';
 import type { ClientInspection, ClientInspectionSummary } from '../../api/inspections';
 import { highlightNames } from '../../lib/name-highlight';
 
@@ -18,10 +19,7 @@ function Marked({ text, names }: { text: string; names: string[] }) {
   );
 }
 
-const when = (iso: string) => {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-};
+const when = (iso: string) => dateTimeText(iso);
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** "2026-10-27" → "27 Oct 2026" (the day as given, never shifted by the device's zone). */

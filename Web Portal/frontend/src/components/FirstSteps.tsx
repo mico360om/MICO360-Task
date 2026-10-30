@@ -30,17 +30,17 @@ export const FirstStepsIcon = (
 
 /**
  * The first steps, as an empty state's action: "Create a project" (anyone may) and, for an
- * administrator, "Add your team". They go to the pages where each is done.
+ * administrator, "Add your team". Each goes to its page with the New form already open (?new=1).
  */
 export function FirstStepsActions() {
   const isAdmin = useAuthStore((s) => s.isAdmin());
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
-      <Link to="/projects" className={buttonClass('primary', 'md', TOUCH_TALL)}>
+      <Link to="/projects?new=1" className={buttonClass('primary', 'md', TOUCH_TALL)}>
         Create a project
       </Link>
       {isAdmin ? (
-        <Link to="/admin/users" className={buttonClass('secondary', 'md', TOUCH_TALL)}>
+        <Link to="/admin/users?new=1" className={buttonClass('secondary', 'md', TOUCH_TALL)}>
           Add your team
         </Link>
       ) : null}

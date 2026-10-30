@@ -26,14 +26,24 @@ describe('chart scale (5c), as the website’s line chart', () => {
   it('rounds the top of the scale up to a clean number', () => {
     expect(niceCeil(0)).toBe(1);
     expect(niceCeil(1)).toBe(1);
-    expect(niceCeil(7)).toBe(7);
+    expect(niceCeil(3)).toBe(3);
+    expect(niceCeil(7)).toBe(8);
     expect(niceCeil(38)).toBe(40);
-    expect(niceCeil(101)).toBe(200);
-    expect(niceCeil(1234)).toBe(2000);
+    expect(niceCeil(101)).toBe(150);
+    expect(niceCeil(1234)).toBe(1500);
   });
-  it('draws five grid lines, 0 to the top', () => {
+  it('draws the grid in whole-number steps, 0 to the top, never repeating a label', () => {
+    expect(gridValues(1)).toEqual([0, 1]);
+    expect(gridValues(3)).toEqual([0, 1, 2, 3]);
+    expect(gridValues(8)).toEqual([0, 2, 4, 6, 8]);
     expect(gridValues(40)).toEqual([0, 10, 20, 30, 40]);
-    expect(gridValues(7)).toEqual([0, 2, 4, 5, 7]);
+    expect(gridValues(100)).toEqual([0, 25, 50, 75, 100]);
+    for (let v = 1; v <= 500; v++) {
+      const grid = gridValues(niceCeil(v));
+      expect(new Set(grid).size, String(v)).toBe(grid.length);
+      expect(grid.length, String(v)).toBeLessThanOrEqual(5);
+      expect(grid.at(-1)!, String(v)).toBeGreaterThanOrEqual(v);
+    }
   });
   it('labels about six days, always the last', () => {
     expect(tickIndexes(30)).toEqual([0, 5, 10, 15, 20, 25, 29]);
@@ -136,9 +146,10 @@ const webReports = resolve(__dirname, '../../../Web Portal/frontend/src/pages/Re
 describe.skipIf(![webLine, webBar, webReports].every(existsSync))('the same as the website', () => {
   it('rounds the scale, draws the grid and thins the day labels alike', () => {
     const src = readFileSync(webLine, 'utf8');
-    expect(src).toContain('if (v <= 1) return 1;');
-    expect(src).toContain('Math.ceil(v / step) * step');
-    expect(src).toContain('[0, 0.25, 0.5, 0.75, 1].map((f) => ({ v: Math.round(top * f)');
+    expect(src).toContain('for (const m of [1, 2, 2.5, 5]) {');
+    expect(src).toContain('if (Number.isInteger(step) && step * 4 >= max) return step;');
+    expect(src).toContain('const top = Math.ceil(rawMax / step) * step;');
+    expect(src).toContain('Array.from({ length: top / step + 1 }, (_, k) => ({ v: k * step');
     expect(src).toContain('Math.max(1, Math.ceil(n / maxTicks))');
     expect(src).toContain('i % tickEvery === 0 || i === n - 1');
     expect(src).toContain('maxTicks = 6');

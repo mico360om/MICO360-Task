@@ -12,6 +12,7 @@ import { isOverdue } from '../lib/due-date';
 import { formatDueDay, isTaskDone } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { formatMeetingDay } from '../lib/meetingFormat';
+import { useMediaQuery } from '../lib/useMediaQuery';
 import { Icon } from './meeting/kit';
 import type { MentionPerson } from '../lib/mentions';
 import { InlineDescription, InlineTitle } from './task-drawer/inline-text';
@@ -23,6 +24,9 @@ import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } fro
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
+
+/** Below 768px (the md width, in em as the layout's widths are). */
+const PHONE_QUERY = '(max-width: 47.9375em)';
 
 export type { DrawerAssignee, DrawerStatusColumn, DrawerChecklistItem, DrawerComment, DrawerActivity, DrawerAttachment, DrawerDependencies, DrawerTaskRef };
 
@@ -261,8 +265,24 @@ export function TaskDrawer({
   const dueText = formatDueDay(task.dueDate, timeZone);
   const carried = task.carryForwardLog && task.carryForwardLog.length > 0 ? task.carryForwardLog : null;
 
-  // One column on a phone; on a wide screen the details, files and links sit beside the work and
-  // the discussion. The document order is the phone's order, so reading and Tab follow it everywhere.
+  // Client view, "Needs approval" (while the task isn't waiting), an inspection to start, files and
+  // blockers: beside the work on a wide screen and under the details on a tablet; on a phone after
+  // the checklist and comments, which come first.
+  const phone = useMediaQuery(PHONE_QUERY);
+  const sideParts = (
+    <>
+      {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
+      {task.approvalRequestedAt ? null : approval}
+      {task.inspectionFormId ? null : inspections}
+      <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
+      {dependencies ? (
+        <DependenciesSection taskId={task.id} dependencies={dependencies} availableTasks={availableTasks} onAdd={onAddDependency} onRemove={onRemoveDependency} />
+      ) : null}
+    </>
+  );
+
+  // One column on a phone and a tablet; on a wide screen the details, files and links sit beside the
+  // work and the discussion. The document order is what is seen, so reading and Tab follow it everywhere.
   return (
     <div ref={rootRef} data-shortcut-refresh role="dialog" aria-modal="true" aria-label={`Task ${task.key}`} className="keyboard-flow flex h-full w-full flex-col border-s border-line bg-surface shadow-lg">
       {/* A plain div, not <header>: inside a dialog that would be a second page "banner" landmark. */}
@@ -391,7 +411,9 @@ export function TaskDrawer({
           </section>
           {/* The details sit right after the description in reading (and Tab) order — beside the
               work on a wide screen (spanning every row; the last row soaks up any extra height),
-              under the description on a phone. */}
+              under the description on a tablet or phone. On a phone (below 768px) Client view, files
+              and blockers wait until after the checklist and comments: they are placed there in the
+              page itself (not moved by CSS), so Tab and a screen reader follow what is seen. */}
           <div className="flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-span-5 lg:row-start-1">
             <PropertiesPanel
               task={task}
@@ -409,13 +431,7 @@ export function TaskDrawer({
               scope={scope}
               onScope={setScope}
             />
-            {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
-            {task.approvalRequestedAt ? null : approval}
-            {task.inspectionFormId ? null : inspections}
-            <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
-            {dependencies ? (
-              <DependenciesSection taskId={task.id} dependencies={dependencies} availableTasks={availableTasks} onAdd={onAddDependency} onRemove={onRemoveDependency} />
-            ) : null}
+            {phone ? null : sideParts}
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
             <ChecklistSection
@@ -431,6 +447,7 @@ export function TaskDrawer({
           <div className="min-w-0 lg:col-start-1 lg:row-start-3">
             <CommentsSection comments={comments} people={mentionable} onAdd={onAddComment} onEdit={onEditComment} onDelete={onDeleteComment} />
           </div>
+          {phone ? <div className="flex min-w-0 flex-col gap-5">{sideParts}</div> : null}
           {activity.length > 0 ? (
             <div className="min-w-0 lg:col-start-1 lg:row-start-4">
               <ActivityTimeline activity={activity} />

@@ -1,4 +1,6 @@
-/** "5m ago", "3h ago", "2d ago" — and the date for anything a week or more old. Empty for a missing time. */
+import { instantDayText } from './day-words';
+
+/** "5m ago", "3h ago", "2d ago" — and the day for anything a week or more old ("4 Sep 2026"). Empty for a missing time. */
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const then = new Date(iso).getTime();
   if (!iso || Number.isNaN(then)) return '';
@@ -10,5 +12,5 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.round(h / 24);
   if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return instantDayText(iso);
 }

@@ -9,6 +9,7 @@ import { usePageName } from '../lib/page-meta';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { Button } from '../components/ui/Button';
 import { fieldClass } from '../components/ui/Field';
+import { askedTooSoon, codeStepMemory, linkTag, NEW_CODE_SENT, RESEND_AFTER_MS, waitFromAnswer, type CodeStepMemory } from '../lib/login-code-step';
 
 /**
  * The client page: someone outside the company follows one shared project, read-only, with no
@@ -29,7 +30,8 @@ export function ClientViewPage() {
 type Stage =
   | { kind: 'loading' }
   | { kind: 'email' }
-  | { kind: 'code'; email: string }
+  /** `resendAt`: when another code may be asked for (a step remembered over a reload). */
+  | { kind: 'code'; email: string; resendAt?: number }
   | { kind: 'ready'; view: ClientView }
   | { kind: 'ended' }
   | { kind: 'failed' };
@@ -41,12 +43,15 @@ function dayText(key: string | null): string {
   return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : '';
 }
 
-const RESEND_WAIT_SECONDS = 60;
 /** Each line (paragraph) of a text takes its own direction and starts on its own side. */
 const OWN_LINES = '[unicode-bidi:plaintext] text-start';
 
 export function ClientViewScreen({ api }: { api: ClientViewApi }) {
   const [stage, setStage] = useState<Stage>({ kind: 'loading' });
+  // The code step, remembered for this browser tab and this link only (as the staff sign-in page
+  // does), so a reload comes back to it. Tagged by the link, never storing the link itself.
+  const { token = '' } = useParams();
+  const memory = useMemo(() => codeStepMemory(`mico360.clientCode.${linkTag(token)}`), [token]);
   usePageName(stage.kind === 'ready' ? stage.view.project.name : null);
 
   // The page's address is its private link: never send it on as a referrer.
@@ -62,11 +67,13 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
     try {
       setStage({ kind: 'ready', view: await api.view() });
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'CLIENT_SIGN_IN') setStage({ kind: 'email' });
-      else if (err instanceof ApiError && err.code === 'CLIENT_LINK_ENDED') setStage({ kind: 'ended' });
+      if (err instanceof ApiError && err.code === 'CLIENT_SIGN_IN') {
+        const step = memory.recall();
+        setStage(step ? { kind: 'code', email: step.identifier, resendAt: step.resendAt } : { kind: 'email' });
+      } else if (err instanceof ApiError && err.code === 'CLIENT_LINK_ENDED') setStage({ kind: 'ended' });
       else setStage({ kind: 'failed' });
     }
-  }, [api]);
+  }, [api, memory]);
 
   useEffect(() => {
     void load();
@@ -91,10 +98,18 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
         ) : stage.kind === 'email' || stage.kind === 'code' ? (
           <SignIn
             api={api}
+            memory={memory}
             email={stage.kind === 'code' ? stage.email : null}
+            resendAt={stage.kind === 'code' ? stage.resendAt ?? null : null}
             onCodeSent={(email) => setStage({ kind: 'code', email })}
-            onDifferentEmail={() => setStage({ kind: 'email' })}
-            onSignedIn={() => void load()}
+            onDifferentEmail={() => {
+              memory.forget();
+              setStage({ kind: 'email' });
+            }}
+            onSignedIn={() => {
+              memory.forget();
+              void load();
+            }}
           />
         ) : stage.kind === 'ended' ? (
           // One message for every ended link: replaced, removed, or the project archived or deleted.
@@ -139,13 +154,18 @@ function Notice({ title, children }: { title: string; children: ReactNode }) {
 /** Email first, then the code we emailed — worded so it never says whether the address is on the list. */
 function SignIn({
   api,
+  memory,
   email,
+  resendAt: remembered,
   onCodeSent,
   onDifferentEmail,
   onSignedIn,
 }: {
   api: ClientViewApi;
+  memory: CodeStepMemory;
   email: string | null;
+  /** When another code may be asked for, on a code step remembered over a reload. */
+  resendAt: number | null;
   onCodeSent: (email: string) => void;
   onDifferentEmail: () => void;
   onSignedIn: () => void;
@@ -155,7 +175,9 @@ function SignIn({
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [resendAt, setResendAt] = useState<number | null>(null);
+  // What the code step says once a code was asked for again: a new one went, or none (asked too soon).
+  const [info, setInfo] = useState<string | null>(null);
+  const [resendAt, setResendAt] = useState<number | null>(remembered);
   const [now, setNow] = useState(() => Date.now());
   const codeRef = useRef<HTMLInputElement>(null);
 
@@ -179,10 +201,15 @@ function SignIn({
     setBusy(true);
     setProblem(null);
     try {
-      await api.requestCode(typed);
-      setResendAt(Date.now() + RESEND_WAIT_SECONDS * 1000);
+      const wait = waitFromAnswer(await api.requestCode(typed));
+      // Asked too soon: nothing was sent — say so and wait as long as the server asks (the code sent
+      // before still works). Else a new code replaces the one before it.
+      const at = Date.now() + (wait === null ? RESEND_AFTER_MS : wait * 1000);
+      setResendAt(at);
       setNow(Date.now());
-      setCode('');
+      setInfo(wait !== null ? askedTooSoon(wait) : email ? NEW_CODE_SENT : null);
+      if (wait === null) setCode('');
+      memory.remember({ identifier: typed, resendAt: at });
       onCodeSent(typed);
     } catch (err) {
       setProblem(failure(err, 'Couldn’t send a code. Please try again.'));
@@ -211,6 +238,11 @@ function SignIn({
   const alert = problem ? (
     <p id={`${id}-problem`} role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
       {problem}
+    </p>
+  ) : null;
+  const note = !problem && info ? (
+    <p role="status" className="rounded-lg bg-brand/5 px-3 py-2 text-sm text-ink-2">
+      {info}
     </p>
   ) : null;
 
@@ -267,6 +299,7 @@ function SignIn({
             />
           </div>
           {alert}
+          {note}
           <Button type="submit" loading={busy} disabled={code.trim().length < 6}>Open the project</Button>
           <div className="flex flex-wrap justify-between gap-2 text-sm">
             <button type="button" onClick={onDifferentEmail} className="min-h-[2.75rem] font-semibold text-brand underline-offset-2 hover:underline">
@@ -278,7 +311,7 @@ function SignIn({
               onClick={() => void send()}
               className="min-h-[2.75rem] font-semibold text-brand underline-offset-2 hover:underline disabled:text-ink-2 disabled:no-underline"
             >
-              {waitLeft > 0 ? `Send a new code in ${waitLeft} s` : 'Send a new code'}
+              {waitLeft > 0 ? `Send a new code in ${waitLeft}\u00a0s` : 'Send a new code'}
             </button>
           </div>
         </form>

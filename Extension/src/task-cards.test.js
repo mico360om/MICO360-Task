@@ -10,9 +10,9 @@ const task = (over = {}) => ({ id: 't1', key: 'RIG-7', title: 'Inspect the valve
 
 describe('what a board card shows (as the web’s TaskCard)', () => {
   it('its due day in company time, and “Overdue” once that day has passed — never for finished work', () => {
-    expect(cardFacts(task(), { timeZone: TZ, now: NOW })).toMatchObject({ overdue: true, due: 'Oct 20, 2026', dueText: 'Overdue · Oct 20, 2026' });
-    expect(cardFacts(task({ dueDate: '2026-10-21T00:00:00.000Z' }), { timeZone: TZ, now: NOW })).toMatchObject({ overdue: false, dueText: 'Oct 21, 2026' });
-    expect(cardFacts(task({ columnCategory: 'DONE' }), { timeZone: TZ, now: NOW })).toMatchObject({ done: true, overdue: false, dueText: 'Oct 20, 2026' });
+    expect(cardFacts(task(), { timeZone: TZ, now: NOW })).toMatchObject({ overdue: true, due: '20 Oct 2026', dueText: 'Overdue · 20 Oct 2026' });
+    expect(cardFacts(task({ dueDate: '2026-10-21T00:00:00.000Z' }), { timeZone: TZ, now: NOW })).toMatchObject({ overdue: false, dueText: '21 Oct 2026' });
+    expect(cardFacts(task({ columnCategory: 'DONE' }), { timeZone: TZ, now: NOW })).toMatchObject({ done: true, overdue: false, dueText: '20 Oct 2026' });
     expect(cardFacts(task({ completedAt: '2026-10-20T09:00:00Z' }), { timeZone: TZ, now: NOW }).overdue).toBe(false);
     expect(cardFacts(task({ dueDate: null }), { timeZone: TZ, now: NOW })).toMatchObject({ due: '', dueText: '' });
   });
@@ -46,7 +46,7 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
     const f = cardFacts(task({ isMilestone: true, columnCategory: 'BLOCKED', recurrenceRule: { freq: 'WEEKLY', interval: 1 }, counts: { comments: 1, attachments: 2, checklistDone: 0, checklistTotal: 3 }, assignees: [{ id: 'u1', name: 'Omar Ahmed' }, { id: 'u2', name: 'Aisha Khan' }] }), { timeZone: TZ, now: NOW });
     expect(f).toMatchObject({ milestone: true, blocked: true, recurring: true });
     expect(cardLabel(task({ isMilestone: true, columnCategory: 'BLOCKED', recurrenceRule: { freq: 'WEEKLY', interval: 1 } }), f)).toBe(
-      'Inspect the valve, RIG-7, High priority, milestone, blocked, overdue, due Oct 20, 2026, repeats, 0 of 3 subtasks done, 1 comment, 2 attachments, assigned to Omar Ahmed and Aisha Khan',
+      'Inspect the valve, RIG-7, High priority, milestone, blocked, overdue, due 20 Oct 2026, repeats, 0 of 3 subtasks done, 1 comment, 2 attachments, assigned to Omar Ahmed and Aisha Khan',
     );
   });
 

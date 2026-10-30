@@ -62,6 +62,13 @@ describe('ActivityPage', () => {
     expect(screen.getByText(/→ Nadia Ahmed/)).toBeInTheDocument();
   });
 
+  it('heads an older day with its weekday, day and month, day before month', async () => {
+    const older = { ...activity[0]!, id: 'old', createdAt: '2026-10-16T09:00:00.000Z' };
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [...activity, older] })));
+    renderPage();
+    expect(await screen.findByText('Friday 16 October 2026')).toBeInTheDocument();
+  });
+
   it('filters the feed by action type', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('MICO-7')).toBeInTheDocument());
@@ -149,7 +156,7 @@ describe('ActivityPage', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={qc}><MemoryRouter><ActivityPage /></MemoryRouter></QueryClientProvider>);
-    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
   });
 
   it('keeps the feed at a readable width on a wide screen (centred, about 56rem)', async () => {

@@ -1,3 +1,5 @@
+import { instantDayText } from './day-words';
+
 /**
  * Human "last active" label for a user, given their last-active timestamp and live online state.
  * "Active now" when online; "Offline" when never seen; otherwise a relative or dated "Last active …".
@@ -14,5 +16,5 @@ export function lastActiveLabel(lastActiveAt: string | null, online: boolean, no
   if (h < 24) return `Last active ${h}h ago`;
   const d = Math.round(h / 24);
   if (d < 7) return `Last active ${d}d ago`;
-  return `Last active on ${new Date(lastActiveAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+  return `Last active on ${instantDayText(lastActiveAt, undefined, { year: false })}`;
 }

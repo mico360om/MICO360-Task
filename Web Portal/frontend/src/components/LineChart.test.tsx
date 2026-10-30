@@ -97,3 +97,27 @@ describe('LineChart: edges and gaps', () => {
     expect(screen.getByText(/no data/i)).toBeInTheDocument();
   });
 });
+
+describe('LineChart: y-axis labels', () => {
+  const yLabels = (name: string) =>
+    [...screen.getByRole('img', { name }).querySelectorAll('text[text-anchor="end"]')]
+      .filter((t) => t.getAttribute('x') === '34')
+      .map((t) => t.textContent);
+
+  it.each([
+    [1, ['0', '1']],
+    [2, ['0', '1', '2']],
+    [3, ['0', '1', '2', '3']],
+    [5, ['0', '2', '4', '6']],
+    [13, ['0', '5', '10', '15']],
+    [100, ['0', '25', '50', '75', '100']],
+  ])('steps in whole numbers, never repeating a label, when the highest value is %i', (max, expected) => {
+    render(<LineChart ariaLabel={`Max ${max}`} labels={['a', 'b', 'c']} series={[{ name: 'Late', color: 'rgb(1,1,1)', values: [0, max, 1] }]} />);
+    expect(yLabels(`Max ${max}`)).toEqual(expected);
+  });
+
+  it('keeps the unit on each whole-number label', () => {
+    render(<LineChart ariaLabel="Rate" labels={['a', 'b']} series={[{ name: 'Pass rate', color: 'rgb(1,1,1)', values: [80, 100] }]} unit="%" />);
+    expect(yLabels('Rate')).toEqual(['0%', '25%', '50%', '75%', '100%']);
+  });
+});

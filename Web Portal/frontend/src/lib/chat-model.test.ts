@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildTimeline,
+  dayLabel,
   inboxSections,
   receiptState,
   mergeMessages,
@@ -44,6 +45,18 @@ describe('buildTimeline', () => {
     const list = [msg({ id: 'a', userId: 'me', createdAt: '2026-10-10T08:00:00.000Z' })];
     expect(buildTimeline(list, { myId: 'me', unreadAfter: '2026-10-10T07:00:00.000Z', timeZone: 'UTC' }).some((i) => i.type === 'unread')).toBe(false);
     expect(buildTimeline([msg({ id: 'b' })], { myId: 'me', unreadAfter: null, timeZone: 'UTC' }).some((i) => i.type === 'unread')).toBe(false);
+  });
+});
+
+describe('day separators', () => {
+  const now = new Date('2026-10-21T09:00:00.000Z');
+  it('say Today and Yesterday, else the day before the month (with the year when it is another year)', () => {
+    expect(dayLabel('2026-10-21T06:00:00.000Z', now, 'UTC')).toBe('Today');
+    expect(dayLabel('2026-10-20T06:00:00.000Z', now, 'UTC')).toBe('Yesterday');
+    expect(dayLabel('2026-10-09T06:00:00.000Z', now, 'UTC')).toBe('Fri 9 Oct');
+    expect(dayLabel('2025-09-04T06:00:00.000Z', now, 'UTC')).toBe('Thu 4 Sep 2025');
+    // The day in the zone given: 22:00 UTC is already the next day in Muscat.
+    expect(dayLabel('2026-10-08T22:00:00.000Z', now, 'Asia/Muscat')).toBe('Fri 9 Oct');
   });
 });
 

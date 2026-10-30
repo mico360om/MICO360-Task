@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { UsersPage } from './UsersPage';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -30,11 +31,20 @@ afterEach(() => {
   useAuthStore.getState().logout();
 });
 
-function renderPage() {
+function Where() {
+  const loc = useLocation();
+  return <p data-testid="where">{loc.pathname + loc.search}</p>;
+}
+
+function renderPage(at = '/admin/users') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <UsersPage />
+      <MemoryRouter initialEntries={[at]}>
+        <Routes>
+          <Route path="/admin/users" element={<><UsersPage /><Where /></>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -184,3 +194,97 @@ describe('UsersPage (admin management)', () => {
     );
   });
 });
+
+describe('UsersPage: New user from the address', () => {
+  it('opens the New user form on arrival at /admin/users?new=1 (the first steps’ “Add your team”), then drops it from the address', async () => {
+    renderPage('/admin/users?new=1');
+    expect(await screen.findByRole('dialog', { name: /new user/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/admin/users'));
+  });
+
+  it('opens nothing without it', async () => {
+    renderPage();
+    await screen.findByText('omar');
+    expect(screen.queryByRole('dialog', { name: /new user/i })).toBeNull();
+  });
+});
+
+describe('UsersPage on a phone (below 768px): one card per person', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('max-width: 47.9375em'), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const people = [
+    { id: 'u9', email: 'omar@x.co', username: 'omar', firstName: 'Omar', lastName: 'A', status: 'ACTIVE', roles: ['EMPLOYEE'], lastLoginAt: '2026-10-24T05:12:00.000Z' },
+    { id: 'u8', email: 'sara@x.co', username: 'sara', firstName: 'Sara', lastName: 'B', status: 'SUSPENDED', roles: ['EMPLOYEE', 'MANAGER'], locked: true, lastLoginAt: null },
+  ];
+  const serve = () =>
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      calls.push({ url: String(url), method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (String(url).endsWith('/unlock') || String(url).includes('/status')) return json({ data: {} });
+      if (String(url).endsWith('/config')) return json({ data: { emailEnabled: true } });
+      if (method === 'DELETE') return new Response(null, { status: 204 });
+      return json({ data: people });
+    });
+
+  it('shows a card per person instead of the table that needed sideways swiping', async () => {
+    vi.stubGlobal('fetch', serve());
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Users' });
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByText(/swipe the table sideways/i)).toBeNull();
+    const cards = within(list).getAllByRole('listitem');
+    expect(cards).toHaveLength(2);
+    // The full name with @username under it, as the table shows; the email, roles, status and last sign-in.
+    const omar = cards[0]!;
+    expect(within(omar).getByText('Omar A').tagName).toBe('BDI');
+    expect(omar).toHaveTextContent('Omar A@omar');
+    expect(omar).toHaveTextContent('omar@x.co');
+    expect(omar).toHaveTextContent('EMPLOYEE');
+    expect(omar).toHaveTextContent('ACTIVE');
+    expect(omar).toHaveTextContent('24 Oct 2026');
+    const sara = cards[1]!;
+    expect(sara).toHaveTextContent('EMPLOYEE, MANAGER');
+    expect(sara).toHaveTextContent('SUSPENDED');
+    expect(sara).toHaveTextContent('Locked');
+    expect(sara).toHaveTextContent('Never signed in');
+  });
+
+  it('keeps every action the table row has: select, welcome email, unlock, edit, status and delete', async () => {
+    vi.stubGlobal('fetch', serve());
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Users' });
+    const [omar, sara] = within(list).getAllByRole('listitem');
+    expect(within(omar!).getByRole('checkbox', { name: 'Select omar' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select everyone shown' })).toBeInTheDocument();
+    expect(within(omar!).getByRole('button', { name: 'Send welcome email to omar' })).toHaveTextContent('Send welcome email');
+    expect(within(omar!).getByRole('button', { name: 'Edit omar' })).toBeInTheDocument();
+    expect(within(omar!).queryByRole('button', { name: /unlock/i })).toBeNull();
+
+    await userEvent.click(within(sara!).getByRole('button', { name: 'Unlock sara' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u8/unlock') && c.method === 'POST')).toBe(true));
+
+    await userEvent.selectOptions(within(omar!).getByRole('combobox', { name: 'Status for omar' }), 'INACTIVE');
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9/status') && c.body?.status === 'INACTIVE')).toBe(true));
+
+    await userEvent.click(within(omar!).getByRole('checkbox', { name: 'Select omar' }));
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+
+    await userEvent.click(within(omar!).getByRole('button', { name: 'Delete omar' }));
+    await userEvent.click(within(omar!).getByRole('button', { name: 'Confirm deleting omar' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/users/u9') && c.method === 'DELETE')).toBe(true));
+
+    await userEvent.click(within(omar!).getByRole('button', { name: 'Edit omar' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('gives each card’s controls a finger-sized target on a touch screen', async () => {
+    vi.stubGlobal('fetch', serve());
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Users' });
+    const omar = within(list).getAllByRole('listitem')[0]!;
+    for (const b of [...within(omar).getAllByRole('button'), within(omar).getByRole('combobox')]) expect(b.className, b.textContent ?? '').toMatch(/\[@media\(pointer:coarse\)\]:min-h-11/);
+  });
+});
+

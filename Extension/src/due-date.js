@@ -9,6 +9,8 @@
  * is never overdue.
  */
 
+import { dayText } from './day-words.js';
+
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isDayKey(value) {
@@ -87,16 +89,10 @@ export function isDueToday(due, timeZone, now = new Date()) {
   return daysUntilDue(due, timeZone, now) === 0;
 }
 
-/** Human label for a day key, e.g. "Wed, Sep 30" (add the year with `{ year: true }`). */
+/** Human label for a day key, day before month: "Wed 30 Sep" (add the year with `{ year: true }`). */
 export function formatDayKey(key, { weekday = true, year = false } = {}) {
   if (!isDayKey(key)) return '';
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: 'UTC',
-    ...(weekday ? { weekday: 'short' } : {}),
-    month: 'short',
-    day: 'numeric',
-    ...(year ? { year: 'numeric' } : {}),
-  }).format(new Date(`${key}T12:00:00.000Z`));
+  return dayText(key, { weekday: weekday ? 'short' : undefined, year });
 }
 
 /** "Today" / "Yesterday" / "Tomorrow" relative to `today`, or ''. */

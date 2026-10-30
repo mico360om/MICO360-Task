@@ -266,14 +266,26 @@ describe('MeetingNotifyService — time zones and resilience (MTG-01/03)', () =>
     const { svc, email } = makeService({ meetingRow: meeting({ timeZone: null, startAt: new Date('2026-10-05T06:00:00Z'), endAt: new Date('2026-10-05T07:00:00Z') }) });
     await svc.sendInvites('m1');
     const params = email.sendMeetingInvite.mock.calls[0]![1] as { whenLabel: string };
-    expect(params.whenLabel).toContain('10:00 AM – 11:00 AM');
-    expect(params.whenLabel).toMatch(/GMT\+4/);
+    // Day before month and the 24-hour clock, as the minutes PDF writes them.
+    expect(params.whenLabel).toBe('Monday 5 October 2026, 10:00 – 11:00 (GMT+4)');
+  });
+
+  it('writes the emails’ “when” day before month, on the 24-hour clock (invitation, minutes and its preview)', async () => {
+    const row = meeting({ timeZone: 'Asia/Muscat', startAt: new Date('2026-10-01T09:30:00Z'), endAt: new Date('2026-10-01T11:00:00Z') });
+    const { svc, email } = makeService({ meetingRow: row });
+    await svc.sendInvites('m1');
+    await svc.sendMinutes('m1', Buffer.from('%PDF'));
+    const preview = await svc.previewMinutes('m1');
+    const labels = [email.sendMeetingInvite, email.sendMeetingMinutes].map((f) => (f.mock.calls[0]![1] as { whenLabel: string }).whenLabel);
+    expect(labels).toEqual(['Thursday 1 October 2026, 13:30 – 15:00 (GMT+4)', 'Thursday 1 October 2026, 13:30 – 15:00 (GMT+4)']);
+    expect(preview.text).toContain('Thursday 1 October 2026, 13:30 – 15:00 (GMT+4)');
+    expect(preview.text).not.toMatch(/\b(AM|PM)\b|Oct 1/);
   });
 
   it('falls back to the company zone for an invalid stored zone instead of failing', async () => {
     const { svc, email } = makeService({ meetingRow: meeting({ timeZone: 'Muscat', startAt: new Date('2026-10-05T06:00:00Z'), endAt: null }) });
     await expect(svc.sendInvites('m1')).resolves.toMatchObject({ sent: 1, failed: 0 });
-    expect((email.sendMeetingInvite.mock.calls[0]![1] as { whenLabel: string }).whenLabel).toContain('10:00 AM');
+    expect((email.sendMeetingInvite.mock.calls[0]![1] as { whenLabel: string }).whenLabel).toBe('Monday 5 October 2026, 10:00 (GMT+4)');
   });
 
   it('keeps sweeping other meetings when one meeting fails', async () => {

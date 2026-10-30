@@ -32,7 +32,7 @@ function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolea
   const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
   return (
     <div className="fixed inset-0 z-50 md:hidden">
-      <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
       <div
         ref={dialogRef}
         role="dialog"

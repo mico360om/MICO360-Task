@@ -537,6 +537,35 @@
       linear-gradient(rgb(var(--c-ink) / 0.14), rgb(var(--c-ink) / 0)) top / 100% 0.6rem no-repeat scroll,
       linear-gradient(rgb(var(--c-ink) / 0), rgb(var(--c-ink) / 0.14)) bottom / 100% 0.6rem no-repeat scroll;
   }
+  /* A row that scrolls sideways on a phone (the Projects page's status tabs): a soft fade at the edge
+     where more is hidden (data-more, set by lib/scroll-row), focus and "scroll into view" kept clear
+     of it, and no scrollbar on a touch screen (a mouse in a narrow window keeps the slim one). */
+  @media (max-width: 47.9375em) {
+    .scroll-row {
+      scroll-padding-inline: 2rem;
+      overscroll-behavior-x: contain;
+    }
+    .scroll-row[data-more='end'] {
+      -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+      mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+    }
+    .scroll-row[data-more='start'] {
+      -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 2rem), transparent);
+      mask-image: linear-gradient(to left, #000 calc(100% - 2rem), transparent);
+    }
+    .scroll-row[data-more='both'] {
+      -webkit-mask-image: linear-gradient(to right, transparent, #000 2rem, #000 calc(100% - 2rem), transparent);
+      mask-image: linear-gradient(to right, transparent, #000 2rem, #000 calc(100% - 2rem), transparent);
+    }
+  }
+  @media (max-width: 47.9375em) and (pointer: coarse) {
+    .scroll-row {
+      scrollbar-width: none;
+    }
+    .scroll-row::-webkit-scrollbar {
+      display: none;
+    }
+  }
   /* Frosted top bar (theme-aware). */
   .glass {
     background-color: rgb(var(--c-surface) / 0.78);

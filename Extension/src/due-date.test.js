@@ -45,8 +45,10 @@ describe('due-date helpers (XP-03)', () => {
     expect(relativeDayHint('2026-09-25', '2026-09-26')).toBe('Yesterday');
     expect(relativeDayHint('2026-09-27', '2026-09-26')).toBe('Tomorrow');
     expect(relativeDayHint('2026-09-20', '2026-09-26')).toBe('');
-    expect(formatDayKey('2026-09-30')).toMatch(/30/);
-    expect(formatDayKey('2026-09-30', { year: true })).toMatch(/2026/);
+    // Day before month, as the website writes it, whatever the browser's language.
+    expect(formatDayKey('2026-09-30')).toBe('Wed 30 Sep');
+    expect(formatDayKey('2026-09-30', { year: true })).toBe('Wed 30 Sep 2026');
+    expect(formatDayKey('2026-09-30', { weekday: false })).toBe('30 Sep');
     expect(formatDayKey('bad')).toBe('');
     expect(isDayKey('2026-09-30')).toBe(true);
     expect(isDayKey('2026-9-30')).toBe(false);

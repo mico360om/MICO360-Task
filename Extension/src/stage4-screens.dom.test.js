@@ -169,7 +169,7 @@ describe('Board cards: people, counts, due day and milestone, as on the web', ()
     ] }));
     const card = (id) => [...root.querySelectorAll('.tcard')].find((c) => c.dataset.taskId === id);
     const late = card('t1');
-    expect(late.querySelector('.tdue').textContent).toBe('Overdue · Jan 5, 2020');
+    expect(late.querySelector('.tdue').textContent).toBe('Overdue · 5 Jan 2020');
     expect(late.querySelector('.tdue').classList.contains('overdue')).toBe(true);
     expect(late.classList.contains('overdue')).toBe(true);
     expect(late.querySelector('[aria-label="Subtasks done"]').textContent).toBe('2/5');
@@ -179,9 +179,9 @@ describe('Board cards: people, counts, due day and milestone, as on the web', ()
     expect(late.querySelector('.tmore').textContent).toBe('+1');
     expect(late.querySelector('[aria-label="Milestone"]')).toBeTruthy();
     expect(late.querySelector('.tblocked').textContent).toBe('Blocked');
-    expect(late.getAttribute('aria-label')).toBe('Inspect the valve, OPS-1, High priority, milestone, blocked, overdue, due Jan 5, 2020, 2 of 5 subtasks done, 3 comments, 1 attachment, assigned to Mariam Al Hinai, Omar Ahmed, Aisha Khan and Bilal');
+    expect(late.getAttribute('aria-label')).toBe('Inspect the valve, OPS-1, High priority, milestone, blocked, overdue, due 5 Jan 2020, 2 of 5 subtasks done, 3 comments, 1 attachment, assigned to Mariam Al Hinai, Omar Ahmed, Aisha Khan and Bilal');
     const later = card('t2');
-    expect(later.querySelector('.tdue').textContent).toBe('Mar 1, 2099');
+    expect(later.querySelector('.tdue').textContent).toBe('1 Mar 2099');
     expect(later.querySelector('.tdue').classList.contains('overdue')).toBe(false);
     expect(later.querySelector('.tperson').textContent).toBe('Omar Ahmed'); // one person: their name
     expect(later.querySelector('[aria-label="Comments"]')).toBeNull();

@@ -111,9 +111,11 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
     >
       {/* Fitted: the board is as tall as the room it is given and each column scrolls by itself.
           Otherwise the columns reach the bottom of the window (lanes to drop into, and the page doesn't
-          jump when the board replaces its placeholder); a longer column makes the page scroll. */}
+          jump when the board replaces its placeholder); a longer column makes the page scroll. On a
+          phone (below md) each column keeps its own height: an empty one is only as tall as its hint,
+          not a screenful. */}
       <div
-        className={`kanban-scroll flex gap-3 overflow-x-auto pb-3 ${fit ? 'h-full min-h-0' : 'min-h-[calc(100dvh-12rem)]'}`}
+        className={`kanban-scroll flex gap-3 overflow-x-auto pb-3 max-md:items-start ${fit ? 'h-full min-h-0' : 'min-h-[calc(100dvh-12rem)]'}`}
         tabIndex={0}
         role="region"
         aria-label="Board columns"

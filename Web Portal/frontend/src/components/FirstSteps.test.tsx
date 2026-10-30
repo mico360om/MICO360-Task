@@ -28,17 +28,18 @@ afterEach(() => {
 });
 
 describe('FirstStepsActions', () => {
-  it('an administrator is pointed to the two first steps: create a project, then add the team', () => {
+  it('an administrator is pointed to the two first steps, each straight to its form: create a project, then add the team', () => {
     signIn(['ADMIN']);
     render(<FirstStepsActions />, { wrapper });
-    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
-    expect(screen.getByRole('link', { name: 'Add your team' })).toHaveAttribute('href', '/admin/users');
+    // Each opens its form on arrival (the page then drops ?new=1 from the address).
+    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
+    expect(screen.getByRole('link', { name: 'Add your team' })).toHaveAttribute('href', '/admin/users?new=1');
   });
 
   it('anyone else can create a project, but adding people is an administrator’s job', () => {
     signIn([]);
     render(<FirstStepsActions />, { wrapper });
-    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
     expect(screen.queryByRole('link', { name: 'Add your team' })).not.toBeInTheDocument();
   });
 

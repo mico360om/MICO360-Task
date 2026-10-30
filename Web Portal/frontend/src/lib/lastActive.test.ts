@@ -20,6 +20,8 @@ describe('lastActiveLabel', () => {
   });
   it('falls back to a date for activity older than a week', () => {
     const label = lastActiveLabel(ago(10 * DAY), false, now);
-    expect(label.startsWith('Last active on ')).toBe(true);
+    // Day before month, whatever the browser's language.
+    expect(label).toMatch(/^Last active on \d{1,2} [A-Z][a-z]{2}$/);
+    expect(lastActiveLabel('2026-09-04T12:00:00Z', false, new Date('2026-10-03T12:00:00Z'))).toBe('Last active on 4 Sep');
   });
 });

@@ -6,16 +6,30 @@
  * (TalkBack): a summary of each line and a table of the numbers. Pure, so it is tested here.
  */
 
-/** Round a largest value up to a clean top for the scale (the website's niceCeil). */
-export function niceCeil(v: number): number {
-  if (v <= 1) return 1;
-  const step = Math.pow(10, Math.floor(Math.log10(v)));
-  return Math.ceil(v / step) * step;
+/**
+ * A whole-number grid step (the website's axisStep): the smallest of 1, 2, 5, 10, 20, 25, 50, 100, …
+ * that reaches the largest value in at most four steps, so a scale up to 3 reads 0, 1, 2, 3.
+ */
+export function axisStep(max: number): number {
+  for (let p = 1; ; p *= 10) {
+    for (const m of [1, 2, 2.5, 5]) {
+      const step = m * p;
+      if (Number.isInteger(step) && step * 4 >= max) return step;
+    }
+  }
 }
 
-/** The five grid lines' values, 0 to the top. */
+/** Round a largest value up to a whole step: the top of the scale. */
+export function niceCeil(v: number): number {
+  const max = Math.max(1, v);
+  const step = axisStep(max);
+  return Math.ceil(max / step) * step;
+}
+
+/** The grid lines' values: 0 to the top in whole-number steps (at most four). */
 export function gridValues(top: number): number[] {
-  return [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(top * f));
+  const step = axisStep(top);
+  return Array.from({ length: Math.floor(top / step) + 1 }, (_, k) => k * step);
 }
 
 /** Which days get a label under the chart: about `maxTicks` of them, always the last. */

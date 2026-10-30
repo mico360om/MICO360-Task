@@ -1,6 +1,7 @@
 import type { BadgeTone } from '../components/ui/Badge';
 import type { MeetingStatus, AttendanceStatus, MeetingNoteType, ActionItemStatus } from '../api/meetings';
 import { dueDayKey, isOverdue } from './due-date';
+import { clockText, dayKeyIn, dayText } from './day-words';
 
 export function actionStatusTone(status: ActionItemStatus): BadgeTone {
   switch (status) {
@@ -19,14 +20,14 @@ export function actionStatusTone(status: ActionItemStatus): BadgeTone {
 }
 
 /**
- * Short due-date label, e.g. "Oct 5" (or '' when missing). Due dates are calendar days, so the
+ * Short due-date label, e.g. "5 Oct" (or '' when missing). Due dates are calendar days, so the
  * label is built from the stored day itself and never shifted by the viewer's time zone.
  */
 export function formatDueDate(iso: string | null, timeZone = 'Asia/Muscat'): string {
   if (!iso) return '';
   const key = dueDayKey(iso, timeZone);
   if (!key) return '';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${key}T00:00:00Z`));
+  return dayText(key, { year: false });
 }
 
 /** An action item is overdue once its due day is before today in the company time zone, while still open. */
@@ -91,30 +92,17 @@ export function attendanceTone(status: AttendanceStatus): BadgeTone {
 }
 
 // ── Date/time in the company time zone ──────────────────────────────────────
+// Day before month and the 24-hour clock (lib/day-words), as the minutes PDF and the meeting emails.
 
-const fmtCache = new Map<string, Intl.DateTimeFormat>();
-function fmt(kind: 'date' | 'time' | 'day', timeZone?: string): Intl.DateTimeFormat {
-  const cacheKey = `${kind}|${timeZone ?? ''}`;
-  let f = fmtCache.get(cacheKey);
-  if (!f) {
-    const opts: Intl.DateTimeFormatOptions =
-      kind === 'date'
-        ? { weekday: 'short', month: 'short', day: 'numeric' }
-        : kind === 'time'
-          ? { hour: 'numeric', minute: '2-digit' }
-          : { year: 'numeric', month: '2-digit', day: '2-digit' };
-    try {
-      f = new Intl.DateTimeFormat(kind === 'day' ? 'en-CA' : undefined, timeZone ? { ...opts, timeZone } : opts);
-    } catch {
-      f = new Intl.DateTimeFormat(kind === 'day' ? 'en-CA' : undefined, opts); // unknown zone → device zone
-    }
-    fmtCache.set(cacheKey, f);
-  }
-  return f;
+/** The format behind each part: the day ("Tue 1 Oct"), the time ("09:00") and the day's key. */
+function fmt(kind: 'date' | 'time' | 'day', timeZone?: string): { format: (d: Date) => string } {
+  if (kind === 'day') return { format: (d) => dayKeyIn(d, timeZone) };
+  if (kind === 'time') return { format: (d) => clockText(d, timeZone) };
+  return { format: (d) => dayText(dayKeyIn(d, timeZone), { weekday: 'short', year: false }) };
 }
 
 /**
- * "Tue, Oct 1 · 9:00 AM – 10:30 AM" (or without end time), shown in `timeZone` — pass the company
+ * "Tue 1 Oct · 09:00 – 10:30" (or without end time), shown in `timeZone` — pass the company
  * zone so everyone sees the same wall-clock time. Falls back gracefully on bad input.
  */
 export function formatMeetingRange(startAt: string, endAt: string | null, timeZone?: string): string {
@@ -130,13 +118,13 @@ export function formatMeetingRange(startAt: string, endAt: string | null, timeZo
   return sameDay ? `${day} · ${startTime} – ${endTime}` : `${day} ${startTime} – ${fmt('date', timeZone).format(end)} ${endTime}`;
 }
 
-/** "Thu, Oct 1" — the meeting's day in `timeZone`. */
+/** "Thu 1 Oct" — the meeting's day in `timeZone`. */
 export function formatMeetingDay(startAt: string, timeZone?: string): string {
   const d = new Date(startAt);
   return Number.isNaN(d.getTime()) ? '' : fmt('date', timeZone).format(d);
 }
 
-/** "10:00 AM – 11:30 AM" in `timeZone` (the end day is named when the meeting runs past midnight). */
+/** "10:00 – 11:30" in `timeZone` (the end day is named when the meeting runs past midnight). */
 export function formatMeetingTimes(startAt: string, endAt: string | null, timeZone?: string): string {
   const start = new Date(startAt);
   if (Number.isNaN(start.getTime())) return '';
@@ -148,7 +136,7 @@ export function formatMeetingTimes(startAt: string, endAt: string | null, timeZo
   return sameDay ? `${startTime} – ${endTime}` : `${startTime} – ${fmt('date', timeZone).format(end)} ${endTime}`;
 }
 
-/** Short clock time for a note/event timestamp, e.g. "9:14 AM", in `timeZone` when given. */
+/** Short clock time for a note/event timestamp, e.g. "09:14", in `timeZone` when given. */
 export function formatClockTime(iso: string, timeZone?: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : fmt('time', timeZone).format(d);

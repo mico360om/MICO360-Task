@@ -65,6 +65,9 @@ async function errorOf(res: Response): Promise<ApiError> {
   return new ApiError(res.status, code, message);
 }
 
+/** The answer to "email me a code". */
+export type CodeRequestAnswer = { sent: true } | { sent: false; retryAfterSeconds: number };
+
 export function clientViewApi(link: string, opts: { baseUrl?: string; fetch?: typeof fetch } = {}) {
   const base = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
   const doFetch = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
@@ -85,8 +88,11 @@ export function clientViewApi(link: string, opts: { baseUrl?: string; fetch?: ty
 
   return {
     view: async (): Promise<ClientView> => ((await (await send('/view')).json()) as { data: ClientView }).data,
-    requestCode: async (email: string): Promise<void> => {
-      await send('/code', { method: 'POST', body: { email } });
+    /** `sent: false` (with the seconds to wait) when the same address asked less than a minute ago. */
+    requestCode: async (email: string): Promise<CodeRequestAnswer> => {
+      const res = await send('/code', { method: 'POST', body: { email } });
+      const data = ((await res.json().catch(() => null)) as { data?: { sent?: unknown; retryAfterSeconds?: unknown } } | null)?.data;
+      return data?.sent === false && typeof data.retryAfterSeconds === 'number' ? { sent: false, retryAfterSeconds: data.retryAfterSeconds } : { sent: true };
     },
     verify: async (email: string, code: string): Promise<void> => {
       await send('/verify', { method: 'POST', body: { email, code } });

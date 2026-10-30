@@ -1,3 +1,4 @@
+import { dateTimeText, instantDayText } from '../../lib/day-words';
 import { useRef, useState } from 'react';
 import { Avatar } from '../ui/Avatar';
 import type { MentionPerson } from '../../lib/mentions';
@@ -29,7 +30,7 @@ export function relativeTime(iso: string): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.round(h / 24);
   if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return instantDayText(iso);
 }
 
 /** Only the task's project members (and admins) can be mentioned in its comments. */
@@ -85,7 +86,7 @@ function CommentItem({
             {author}
           </span>
           {c.createdAt ? (
-            <time dateTime={c.createdAt} className="text-xs text-ink-3" title={new Date(c.createdAt).toLocaleString()}>
+            <time dateTime={c.createdAt} className="text-xs text-ink-3" title={dateTimeText(c.createdAt)}>
               {relativeTime(c.createdAt)}
             </time>
           ) : null}

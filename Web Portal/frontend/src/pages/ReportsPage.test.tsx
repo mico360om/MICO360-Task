@@ -135,6 +135,87 @@ describe('ReportsPage date range typed by hand', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  describe('with the keyboard', () => {
+    // "Today" is 21 Oct 2026: the page opens on 22 Sep – 21 Oct.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-21T08:00:00Z'));
+      onTestFinished(() => { vi.useRealTimers(); });
+    });
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    /** One keystroke in a date box: the key, then the value the browser reports for it. */
+    const key = (box: HTMLElement, value: string, k = '1') => {
+      fireEvent.keyDown(box, { key: k });
+      fireEvent.change(box, { target: { value } });
+    };
+    const asked = (part: string) => trendCalls().some((u) => u.includes(part));
+
+    it('applies a typed date only once it is finished (a short pause), never the dates it passes through', async () => {
+      renderPage();
+      const to = await screen.findByLabelText('To date');
+      await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+      // To picked from the calendar: applied at once.
+      fireEvent.change(to, { target: { value: '2026-10-11' } });
+      await waitFor(() => expect(asked('to=2026-10-11')).toBe(true));
+
+      // From typed as 21/10/2026: the box reports 2 Oct, 21 Oct, 21 Jan, then 21 Oct.
+      const from = screen.getByLabelText('From date');
+      for (const v of ['2026-10-02', '2026-10-21', '2026-01-21', '2026-10-21']) key(from, v);
+      expect(from).toHaveValue('2026-10-21');
+      // Nothing yet while typing: no request, and no message flashing up mid-date.
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      await pause(800);
+      expect(asked('from=2026-10-02')).toBe(false);
+      expect(asked('from=2026-01-21')).toBe(false);
+      expect(asked('from=2026-10-21')).toBe(false);
+      // Finished, and after the end: still the last range the person actually chose.
+      expect(screen.getByRole('alert')).toHaveTextContent('The start date must be on or before the end date. Still showing 22 Sep – 11 Oct.');
+      expect(from).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    it('a typed date applies at once on Enter, and on leaving the box', async () => {
+      renderPage();
+      const from = await screen.findByLabelText('From date');
+      await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+      key(from, '2026-10-05');
+      fireEvent.keyDown(from, { key: 'Enter' });
+      await waitFor(() => expect(asked('from=2026-10-05')).toBe(true), { timeout: 300 });
+
+      key(from, '2026-10-07');
+      fireEvent.blur(from);
+      await waitFor(() => expect(asked('from=2026-10-07')).toBe(true), { timeout: 300 });
+    });
+
+    it('refuses a typed end date after today, says so, and keeps showing the last range', async () => {
+      renderPage();
+      const to = await screen.findByLabelText('To date');
+      await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+      key(to, '2026-12-29');
+      fireEvent.blur(to);
+      expect(await screen.findByRole('alert')).toHaveTextContent('The end date can’t be after today. Still showing 22 Sep – 21 Oct.');
+      expect(to).toHaveAttribute('aria-invalid', 'true');
+      await pause(30);
+      expect(asked('to=2026-12-29')).toBe(false);
+      // Putting it right clears the message.
+      key(to, '2026-10-20');
+      fireEvent.blur(to);
+      await waitFor(() => expect(asked('to=2026-10-20')).toBe(true));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('an export while a date is half-typed uses the last range applied', async () => {
+      renderPage();
+      const from = await screen.findByLabelText('From date');
+      await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
+      key(from, '2026-01-21');
+      await userEvent.click(screen.getByRole('button', { name: /^Excel$/ }));
+      await waitFor(() => expect(urls.some((u) => /\/reports\/export\.xlsx/.test(u))).toBe(true));
+      const exported = urls.find((u) => /\/reports\/export\.xlsx/.test(u))!;
+      expect(exported).toContain('from=2026-09-22');
+      expect(exported).not.toContain('from=2026-01-21');
+    });
+  });
+
   it('marks the chosen period for assistive tech, not by colour alone', async () => {
     renderPage();
     await screen.findByLabelText('From date');

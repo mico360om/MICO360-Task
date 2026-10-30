@@ -374,6 +374,70 @@ describe('ProjectsPage', () => {
   });
 });
 
+describe('ProjectsPage status tabs on a phone (below 768px)', () => {
+  /** Lays the tab row out as a phone would: 300px showing part of 700px of tabs, each 110px wide. */
+  function layOut(list: HTMLElement) {
+    const metrics = { scrollLeft: 0 };
+    Object.defineProperty(list, 'clientWidth', { configurable: true, get: () => 300 });
+    Object.defineProperty(list, 'scrollWidth', { configurable: true, get: () => 700 });
+    Object.defineProperty(list, 'scrollLeft', { configurable: true, get: () => metrics.scrollLeft, set: (v: number) => { metrics.scrollLeft = v; } });
+    list.scrollTo = ((o: ScrollToOptions) => { metrics.scrollLeft = o.left ?? 0; list.dispatchEvent(new Event('scroll')); }) as typeof list.scrollTo;
+    within(list).getAllByRole('tab').forEach((t, i) => {
+      Object.defineProperty(t, 'offsetLeft', { configurable: true, get: () => 4 + i * 116 });
+      Object.defineProperty(t, 'offsetWidth', { configurable: true, get: () => 110 });
+    });
+    list.dispatchEvent(new Event('scroll'));
+    return metrics;
+  }
+
+  it('sit in one row that scrolls sideways, each tab whole; they wrap from 768px as before', async () => {
+    renderPage();
+    await loaded();
+    const list = screen.getByRole('tablist', { name: 'Project status' });
+    expect(list.className).toMatch(/(^|\s)overflow-x-auto(\s|$)/);
+    expect(list.className).toMatch(/(^|\s)md:flex-wrap(\s|$)/);
+    expect(list.className).toMatch(/(^|\s)md:overflow-visible(\s|$)/);
+    expect(list.className).toMatch(/(^|\s)scroll-row(\s|$)/);
+    for (const t of within(list).getAllByRole('tab')) expect(t.className).toMatch(/(^|\s)shrink-0(\s|$)/);
+  });
+
+  it('fade at the edge where more tabs are hidden', async () => {
+    renderPage();
+    await loaded();
+    const list = screen.getByRole('tablist', { name: 'Project status' });
+    const m = layOut(list);
+    await waitFor(() => expect(list).toHaveAttribute('data-more', 'end'));
+    m.scrollLeft = 200;
+    list.dispatchEvent(new Event('scroll'));
+    await waitFor(() => expect(list).toHaveAttribute('data-more', 'both'));
+    m.scrollLeft = 400;
+    list.dispatchEvent(new Event('scroll'));
+    await waitFor(() => expect(list).toHaveAttribute('data-more', 'start'));
+  });
+
+  it('a tab chosen before (a reload, a shared link) is scrolled into view once the list has loaded and the tabs have their counts', async () => {
+    renderPage('/projects?status=archived');
+    // Laid out before the list arrives: the counts that come with it can move the tabs.
+    const m = layOut(screen.getByRole('tablist', { name: 'Project status' }));
+    await loaded().catch(() => undefined);
+    await waitFor(() => expect(m.scrollLeft).toBe(584 + 110 + 32 - 300));
+  });
+
+  it('scroll the chosen tab into view (from the keyboard too), clear of the fade', async () => {
+    renderPage();
+    await loaded();
+    const list = screen.getByRole('tablist', { name: 'Project status' });
+    const m = layOut(list);
+    tab(/^All/).focus();
+    await userEvent.keyboard('{End}');
+    expect(tab(/^Archived/)).toHaveAttribute('aria-selected', 'true');
+    // Archived starts at 584 and is 110 wide: its end and the fade's 32px must be in view.
+    await waitFor(() => expect(m.scrollLeft).toBe(584 + 110 + 32 - 300));
+    await userEvent.keyboard('{Home}');
+    await waitFor(() => expect(m.scrollLeft).toBe(0));
+  });
+});
+
 describe('ProjectsPage for an administrator', () => {
   beforeEach(() => signIn(['ADMIN']));
 

@@ -1,3 +1,4 @@
+import { dateTimeText } from '../../lib/day-words';
 import { useEffect, useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { meetingsApi, type FinalMinutes, type FinalMinutesContent } from '../../api/meetings';
@@ -298,7 +299,7 @@ function FinalView({
   onReopen: () => void;
 }) {
   const when = minutes.approvedAt
-    ? new Intl.DateTimeFormat(undefined, { timeZone, day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(minutes.approvedAt))
+    ? dateTimeText(minutes.approvedAt, timeZone)
     : null;
   const list = (title: string, items: string[]) =>
     items.length ? (

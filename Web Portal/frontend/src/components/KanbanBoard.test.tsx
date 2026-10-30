@@ -86,6 +86,17 @@ describe('KanbanBoard — adding a task from a column', () => {
     expect(onAddTask).toHaveBeenCalledWith('c3');
   });
 
+  it('on a phone (below 768px) an empty column is only as tall as its “No tasks · Add a task” hint, not the screen', () => {
+    render(<KanbanBoard columns={withEmpty} onAddTask={vi.fn()} />);
+    const lanes = screen.getByRole('region', { name: 'Board columns' });
+    // Below md the columns keep their own height (they don't stretch to the row's screen-tall minimum);
+    // from md up they reach the bottom of the window as before.
+    expect(lanes.className).toMatch(/(^|\s)max-md:items-start(\s|$)/);
+    expect(lanes.className).toMatch(/min-h-\[calc\(100dvh-12rem\)\]/);
+    const box = within(screen.getByRole('region', { name: 'Review' })).getByRole('button', { name: /no tasks.*add a task/i });
+    expect(box.className).toMatch(/(^|\s)max-md:flex-none(\s|$)/);
+  });
+
   it('a collapsed column keeps its "Add a task" button', async () => {
     const onAddTask = vi.fn();
     render(<KanbanBoard columns={withEmpty} onAddTask={onAddTask} />);

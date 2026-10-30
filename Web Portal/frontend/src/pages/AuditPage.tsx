@@ -1,3 +1,4 @@
+import { dateTimeText } from '../lib/day-words';
 import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -156,15 +157,8 @@ export function AuditPage() {
     { value: '', label: 'Anyone' },
     ...directory.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` })),
   ];
-  const when = (iso: string) => {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '—';
-    try {
-      return d.toLocaleString(undefined, { timeZone, dateStyle: 'medium', timeStyle: 'short' });
-    } catch {
-      return d.toLocaleString();
-    }
-  };
+  // "15 Jun 2026, 16:00" in the company zone (day before month, 24-hour).
+  const when = (iso: string) => dateTimeText(iso, timeZone) || '—';
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
   return (

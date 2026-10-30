@@ -73,7 +73,7 @@ describe('RecurrenceEditor', () => {
 
   it('previews the next dates from the due date', () => {
     render(<RecurrenceEditor value={{ freq: 'WEEKLY', interval: 1, weekdays: [0, 4] }} dueDate="2026-10-01" onChange={vi.fn()} />);
-    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Sun, Oct 4 · Thu, Oct 8 · Sun, Oct 11');
+    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Sun 4 Oct · Thu 8 Oct · Sun 11 Oct');
   });
 
   it('sets a day of month for a monthly rule', () => {

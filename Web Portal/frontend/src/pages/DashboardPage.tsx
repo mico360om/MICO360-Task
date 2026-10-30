@@ -1,3 +1,4 @@
+import { dayText, instantDayText } from '../lib/day-words';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -24,6 +25,8 @@ import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { Icon } from '../components/meeting/kit';
 import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
 import { ApprovalsCard } from '../components/approvals/ApprovalsCard';
+import { myDueCounts } from '../lib/dashboard-tiles';
+import { useCompanyWeekStart } from '../lib/useDatePrefs';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -48,6 +51,7 @@ const icon = {
   folder: <path d="M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
   layers: <path d="M12 2l9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5" />,
   alert: <><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></>,
+  week: <><rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M16 2.5v4M8 2.5v4M3 10h18M8 14.5h3" /></>,
 };
 
 function StatIcon({ children }: { children: ReactNode }) {
@@ -127,6 +131,11 @@ export function DashboardPage() {
     [allTasksQ.data],
   );
   const openTasks = useMemo(() => (myTasksQ.data ?? []).filter((t) => !isTaskDone(t)), [myTasksQ.data]);
+  // Everyone else's Overdue and Due this week: their own tasks (already loaded for "Your open tasks"),
+  // in company days and the company's week (its week start; Sunday until an administrator sets one).
+  const companyWeekStart = useCompanyWeekStart();
+  const mine = useMemo(() => myDueCounts(myTasksQ.data ?? [], { timeZone, weekStart: companyWeekStart }), [myTasksQ.data, timeZone, companyWeekStart]);
+  const weekHint = mine.weekEnd === mine.today ? 'Today, the week’s last day' : `Today – ${dayText(mine.weekEnd, { weekday: 'short', year: false })}`;
   const recent = (activityQ.data ?? []).slice(0, 6);
   // A company's (or a newcomer's) first day: no project and no task yet, as the server says (never
   // while loading or after a failed load). Empty charts and "nothing due" would say nothing useful:
@@ -135,13 +144,8 @@ export function DashboardPage() {
   const firstDay =
     noProjectsYet && myTasksQ.isSuccess && (myTasksQ.data ?? []).length === 0 && allTasksQ.isSuccess && (allTasksQ.data ?? []).length === 0;
 
-  const today = (() => {
-    try {
-      return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone });
-    } catch {
-      return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-    }
-  })();
+  // "Friday 30 October", in the company zone.
+  const today = instantDayText(new Date(), timeZone, { weekday: 'long', month: 'long', year: false });
 
   return (
     <div className="flex flex-col gap-6">
@@ -175,14 +179,16 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* Stat tiles — each links to the relevant page. Four in a row for an administrator; the two
-          everyone else sees share the row (in a four-column grid they left half of it empty). Two to
-          a row on a phone too: one per row took a screenful for two or four numbers. */}
-      <div data-testid="stat-tiles" data-count={isAdmin ? 4 : 2} className={`grid grid-cols-2 gap-3 ${isAdmin ? 'lg:grid-cols-4' : ''}`}>
+      {/* Stat tiles — each links to the relevant page. Four in a row on a wide screen: an administrator's
+          are the company's totals, everyone else's their own overdue work and what is due this week.
+          Two to a row on a phone: one per row took a screenful for four numbers. */}
+      <div data-testid="stat-tiles" data-count={4} className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Reveal delay={1} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="My tasks" value={myTasksQ.data?.length ?? '—'} tone="brand" icon={<StatIcon>{icon.tasks}</StatIcon>} hint="Assigned to you" /></Link></Reveal>
         <Reveal delay={2} className="h-full"><Link to="/projects" className={TILE_LINK}><StatTile label="Projects" value={projectsQ.data?.length ?? '—'} tone="info" icon={<StatIcon>{icon.folder}</StatIcon>} hint="Active workspaces" /></Link></Reveal>
         {isAdmin ? <Reveal delay={3} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="All tasks" value={perfQ.data ? totals.total : '—'} tone="success" icon={<StatIcon>{icon.layers}</StatIcon>} hint={perfQ.data ? `${totals.completed} completed` : undefined} /></Link></Reveal> : null}
         {isAdmin ? <Reveal delay={4} className="h-full"><Link to="/reports" className={TILE_LINK}><StatTile label="Overdue" value={perfQ.data ? totals.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={perfQ.data ? (totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet') : undefined} /></Link></Reveal> : null}
+        {!isAdmin ? <Reveal delay={3} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Overdue" value={myTasksQ.data ? mine.overdue : '—'} tone="danger" icon={<StatIcon>{icon.alert}</StatIcon>} hint={myTasksQ.data ? (mine.overdue ? 'Past their due day' : 'Nothing late') : undefined} /></Link></Reveal> : null}
+        {!isAdmin ? <Reveal delay={4} className="h-full"><Link to="/my-tasks" className={TILE_LINK}><StatTile label="Due this week" value={myTasksQ.data ? mine.dueThisWeek : '—'} tone="warning" icon={<StatIcon>{icon.week}</StatIcon>} hint={myTasksQ.data ? weekHint : undefined} /></Link></Reveal> : null}
       </div>
 
       {firstDay ? (

@@ -1,3 +1,4 @@
+import { dateTimeText, instantDayText } from '../lib/day-words';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
@@ -63,7 +64,7 @@ function dayHeader(iso: string): string {
   const key = d.toDateString();
   if (key === new Date().toDateString()) return 'Today';
   if (key === new Date(Date.now() - 864e5).toDateString()) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  return instantDayText(d, undefined, { weekday: 'long', month: 'long' });
 }
 
 /** The task's title — for a line on no task (the old project's "moved out" line), the one it recorded. */
@@ -208,7 +209,7 @@ export function ActivityPage() {
                           {a.project ? <span className="text-ink-3">{titleOf(a) || detailOf(a) ? ' · ' : ''}<bdi>{a.project.name}</bdi></span> : null}
                         </p>
                       </div>
-                      <time className="flex-none text-xs text-ink-3" title={new Date(a.createdAt).toLocaleString()} dateTime={a.createdAt}>
+                      <time className="flex-none text-xs text-ink-3" title={dateTimeText(a.createdAt)} dateTime={a.createdAt}>
                         {relativeTime(a.createdAt)}
                       </time>
                     </div>

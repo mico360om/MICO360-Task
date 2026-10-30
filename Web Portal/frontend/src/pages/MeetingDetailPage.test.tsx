@@ -148,6 +148,36 @@ describe('MeetingDetailPage — header and actions', () => {
     expect(aside.className).toMatch(/xl:flex/);
   });
 
+  describe('the order of the work', () => {
+    const order = () =>
+      screen
+        .getAllByRole('region')
+        .map((r) => r.getAttribute('aria-labelledby') ? document.getElementById(r.getAttribute('aria-labelledby')!)?.textContent ?? '' : r.getAttribute('aria-label') ?? '')
+        .map((name) => ['Final MOM', 'Action items', 'Agenda', 'Live notes'].find((t) => name.startsWith(t)))
+        .filter(Boolean);
+    const headings = () => screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent ?? '').map((t) => ['Final MOM', 'Action items', 'Agenda', 'Live notes'].find((x) => t.startsWith(x))).filter(Boolean);
+
+    it.each(['DRAFT', 'SCHEDULED', 'IN_PROGRESS'])('while it is %s: the agenda and live notes first, then action items and the Final MOM', async (status) => {
+      meetingData = meeting({ status });
+      renderPage();
+      await screen.findByRole('heading', { level: 1, name: 'Weekly sync' });
+      await screen.findByRole('region', { name: /final mom/i });
+      expect(order()).toEqual(['Agenda', 'Live notes', 'Action items', 'Final MOM']);
+      expect(headings()).toEqual(['Agenda', 'Live notes', 'Action items', 'Final MOM']);
+    });
+
+    it('once finished: the Final MOM and action items first, above the agenda and live notes — on screen, for the keyboard and for a screen reader alike', async () => {
+      meetingData = meeting({ status: 'COMPLETED' });
+      renderPage();
+      await screen.findByRole('heading', { level: 1, name: 'Weekly sync' });
+      await screen.findByRole('region', { name: /final mom/i });
+      expect(order()).toEqual(['Final MOM', 'Action items', 'Agenda', 'Live notes']);
+      expect(headings()).toEqual(['Final MOM', 'Action items', 'Agenda', 'Live notes']);
+      // The order is the page's own (no CSS reordering), so Tab and the reading order follow it.
+      for (const r of screen.getAllByRole('region')) expect(r.className).not.toMatch(/(^|\s)order-/);
+    });
+  });
+
   it('has a Final MOM card; the one minutes PDF carries it once final (no second PDF)', async () => {
     const done = { summary: 'Done.', discussion: [], decisions: [], risks: [], nextSteps: [] };
     override = (u, method) =>

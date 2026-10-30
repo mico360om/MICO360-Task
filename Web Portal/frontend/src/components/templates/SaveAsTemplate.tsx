@@ -32,7 +32,7 @@ function Shell({ title, onClose, busy, children, footer }: { title: string; onCl
   return (
     <ModalPortal>
       <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"

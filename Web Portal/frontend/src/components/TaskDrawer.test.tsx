@@ -129,7 +129,7 @@ describe('TaskDrawer', () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Thu, Oct 8 · Thu, Oct 15 · Thu, Oct 22');
+    expect(screen.getByText(/^Next:/)).toHaveTextContent('Next: Thu 8 Oct · Thu 15 Oct · Thu 22 Oct');
   });
 
   it('toggles a checklist item via its checkbox', async () => {
@@ -488,7 +488,7 @@ describe('TaskDrawer', () => {
     try {
       const { unmount } = render(<TaskDrawer task={{ ...task, dueDate: '2026-09-30T00:00:00.000Z', columnCategory: 'TODO', completedAt: null }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />);
       expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument(); // due today, not overdue at 14:00 Muscat
-      expect(within(screen.getByTestId('task-header')).getByText('Sep 30, 2026')).toBeInTheDocument();
+      expect(within(screen.getByTestId('task-header')).getByText('30 Sep 2026')).toBeInTheDocument();
       unmount();
       render(<TaskDrawer task={{ ...task, dueDate: '2026-09-01T00:00:00.000Z', columnCategory: 'DONE', completedAt: '2026-09-02T00:00:00.000Z' }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />);
       expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
@@ -652,7 +652,7 @@ describe('TaskDrawer — the meeting a task was created from', () => {
     const link = within(screen.getByTestId('task-header')).getByRole('link', { name: /from meeting: weekly review/i });
     expect(link).toHaveAttribute('href', '/meetings/m1');
     expect(link).toHaveTextContent(/Mon/);
-    expect(link).toHaveTextContent(/\b12\b.*Oct|Oct.*\b12\b/); // "Mon 12 Oct" or "Mon, Oct 12", by locale
+    expect(link).toHaveTextContent(/Mon 12 Oct/); // day before month, whatever the browser's language
   });
 
   it('says only that there is a meeting when the viewer may not see it', () => {
