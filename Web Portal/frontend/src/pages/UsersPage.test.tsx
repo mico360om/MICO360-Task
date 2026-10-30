@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { UsersPage } from './UsersPage';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -30,11 +31,20 @@ afterEach(() => {
   useAuthStore.getState().logout();
 });
 
-function renderPage() {
+function Where() {
+  const loc = useLocation();
+  return <p data-testid="where">{loc.pathname + loc.search}</p>;
+}
+
+function renderPage(at = '/admin/users') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <UsersPage />
+      <MemoryRouter initialEntries={[at]}>
+        <Routes>
+          <Route path="/admin/users" element={<><UsersPage /><Where /></>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -182,5 +192,19 @@ describe('UsersPage (admin management)', () => {
         calls.some((c) => c.url.endsWith('/users/u9/password') && c.method === 'POST' && c.body?.password === 'FreshPass1!'),
       ).toBe(true),
     );
+  });
+});
+
+describe('UsersPage: New user from the address', () => {
+  it('opens the New user form on arrival at /admin/users?new=1 (the first steps’ “Add your team”), then drops it from the address', async () => {
+    renderPage('/admin/users?new=1');
+    expect(await screen.findByRole('dialog', { name: /new user/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/admin/users'));
+  });
+
+  it('opens nothing without it', async () => {
+    renderPage();
+    await screen.findByText('omar');
+    expect(screen.queryByRole('dialog', { name: /new user/i })).toBeNull();
   });
 });

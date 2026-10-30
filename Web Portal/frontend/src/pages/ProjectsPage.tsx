@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
 import { PROJECTS_OVERVIEW_KEY, projectsApi, type ApiProject, type ProjectOverview, type ProjectStatus } from '../api/projects';
 import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
@@ -30,6 +29,7 @@ import {
   type StatusTab,
 } from '../lib/project-list';
 import { useProjectListState } from '../lib/useProjectListState';
+import { useNewFromAddress } from '../lib/useNewFromAddress';
 
 const OVERVIEW_KEY = PROJECTS_OVERVIEW_KEY;
 
@@ -81,20 +81,7 @@ export function ProjectsPage() {
   const refocusList = useRef(false);
   useShortcut('new', () => setForm('new'));
   // /projects?new=1 (e.g. "New project" where there is no project yet) opens the form on arrival.
-  const [params, setParams] = useSearchParams();
-  const askedNew = params.get('new') === '1';
-  useEffect(() => {
-    if (!askedNew) return;
-    setForm('new');
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete('new');
-        return next;
-      },
-      { replace: true },
-    );
-  }, [askedNew]);
+  useNewFromAddress(() => setForm('new'));
 
   const query = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => projectsApi(apiClient).overview() });
   const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);

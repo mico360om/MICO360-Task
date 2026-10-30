@@ -168,8 +168,8 @@ describe('DashboardPage', () => {
     renderPage();
     expect(await screen.findByRole('heading', { level: 2, name: /set up your workspace/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: /^welcome, admin/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
-    expect(screen.getByRole('link', { name: 'Add your team' })).toHaveAttribute('href', '/admin/users');
+    expect(screen.getByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
+    expect(screen.getByRole('link', { name: 'Add your team' })).toHaveAttribute('href', '/admin/users?new=1');
     expect(screen.queryByText(/no data to chart yet/i)).not.toBeInTheDocument();
     // The band's "Open board" / "View my tasks" lead to empty pages on day one: the steps replace them.
     expect(screen.queryByRole('link', { name: 'Open board' })).not.toBeInTheDocument();

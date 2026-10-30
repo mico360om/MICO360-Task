@@ -56,7 +56,7 @@ describe('NotificationsPage', () => {
   it('on a company’s first day (no projects), points to the first step', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
     renderWithQuery(<MemoryRouter><NotificationsPage /></MemoryRouter>);
-    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
     expect(screen.getByText('No notifications yet')).toBeInTheDocument();
   });
 

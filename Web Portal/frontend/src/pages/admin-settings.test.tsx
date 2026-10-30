@@ -24,7 +24,7 @@ describe('UsersPage (admin)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{ id: 'u1', email: 'ada@x.co', username: 'ada', firstName: 'Ada', lastName: 'L', status: 'ACTIVE', roles: ['EMPLOYEE'] }] })));
   });
   it('lists users from the API', async () => {
-    withQuery(<UsersPage />);
+    withQuery(<MemoryRouter><UsersPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText('ada')).toBeInTheDocument());
     expect(screen.getByText('ada@x.co')).toBeInTheDocument();
   });

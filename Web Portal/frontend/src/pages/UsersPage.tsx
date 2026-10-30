@@ -27,6 +27,7 @@ import {
 } from '../lib/user-sign-in';
 import { useAuthStore } from '../stores/auth-store';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
+import { useNewFromAddress } from '../lib/useNewFromAddress';
 
 const STATUS_TONE: Record<UserStatus, string> = {
   ACTIVE: 'bg-success-soft text-success',
@@ -89,6 +90,8 @@ export function UsersPage() {
   const meId = useAuthStore((s) => s.user?.id);
   const [creating, setCreating] = useState(false);
   useShortcut('new', () => setCreating(true));
+  // /admin/users?new=1 (the first steps' "Add your team") opens the New user form on arrival.
+  useNewFromAddress(() => setCreating(true));
   const [editing, setEditing] = useState<ApiUser | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);

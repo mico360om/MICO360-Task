@@ -149,7 +149,7 @@ describe('ActivityPage', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [] })));
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={qc}><MemoryRouter><ActivityPage /></MemoryRouter></QueryClientProvider>);
-    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
   });
 
   it('keeps the feed at a readable width on a wide screen (centred, about 56rem)', async () => {

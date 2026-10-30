@@ -341,7 +341,7 @@ describe('MyTasksPage: nothing assigned yet', () => {
 
   it('on a company’s first day (no projects yet), points to the first step instead', async () => {
     renderEmpty([]);
-    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects');
+    expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
     expect(screen.getByText('No tasks yet')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open the board' })).not.toBeInTheDocument();
   });
