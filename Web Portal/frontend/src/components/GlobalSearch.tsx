@@ -11,6 +11,7 @@ import { assigneesApi } from '../api/assignees';
 import { matchNavCommands, parseCommand } from '../lib/commands';
 import { useManagementAccess } from '../lib/useManagementAccess';
 import { invalidateTaskQueries } from '../lib/task-cache';
+import { approvalNotice } from '../lib/approvals';
 import { useAuthStore } from '../stores/auth-store';
 import { useShortcut, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { ariaKeyshortcuts, shortcutLabel } from '../lib/shortcuts';
@@ -117,10 +118,11 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       const cols = await columnsApi(apiClient).list(task.projectId);
       const done = cols.find((c) => c.category === 'DONE' && c.enabled) ?? cols.find((c) => c.category === 'DONE');
       if (!done) throw new Error(`${task.key}: this project has no “Done” column.`);
-      await tasksApi(apiClient).move(task.id, done.id);
+      const moved = await tasksApi(apiClient).move(task.id, done.id);
       // Targeted refresh — every task view, but not the entire cache (audit, chat…).
       void invalidateTaskQueries(qc);
-      return `Completed ${task.key} ✓`;
+      // A task that needs approval waits for a project manager instead of completing.
+      return approvalNotice(done.id, moved) ?? `Completed ${task.key} ✓`;
     });
   const assignCmd = (key: string, name: string) =>
     withStatus(`Assigning ${key}`, async () => {

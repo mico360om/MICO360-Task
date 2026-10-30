@@ -120,6 +120,8 @@ export interface InspectionDetail extends InspectionListItem {
   taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
   /** After a finish: the check it was for, completed automatically (a task that carries a form). */
   taskCompleted?: { id: string; key: string; title: string } | null;
+  /** After a finish: the check it was for, when it needs approval — waiting for a project manager's OK (not done yet). */
+  taskWaiting?: { id: string; key: string; title: string } | null;
 }
 
 /** A form as a check names it: deleted since means the check can still be done, but nothing new uses it. */

@@ -94,6 +94,8 @@ export interface ManagementOverview {
     overloadedPeople: number;
   };
   projects: HealthRow[];
+  /** Tasks waiting for approval: in all, and per project (most first). Older servers leave it out. */
+  approvals?: { total: number; projects: { id: string; code: string; name: string; count: number }[] };
   inspections: {
     due: number;
     done: number;
@@ -129,7 +131,8 @@ export type ItemMetric =
   | 'overdue-actions'
   | 'failed-form'
   | 'projects'
-  | 'people-overloaded';
+  | 'people-overloaded'
+  | 'awaiting-approval';
 
 /** Which list behind a number to show. */
 export interface ItemQuery {

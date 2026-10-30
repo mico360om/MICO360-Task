@@ -9,6 +9,7 @@ import { ClientEyeIcon } from '../TaskCard';
 import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyState } from '../ui/EmptyState';
 import { Button } from '../ui/Button';
+import { ApprovalChip } from '../approvals/ApprovalChip';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -45,6 +46,7 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
           <span className="h-2 w-2 rounded-full" style={{ background: statusColor }} aria-hidden />
           {statusName}
         </span>
+        {task.approvalRequestedAt ? <ApprovalChip /> : null}
         <PriorityBadge priority={task.priority} />
         <span className="flex w-20 items-center gap-1.5" title={`${progress}% done`}>
           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ground" aria-hidden="true">

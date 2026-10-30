@@ -5,6 +5,7 @@ import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { TaskKeyConflictError, type TaskRecord } from './task-repository';
 import { TaskChangedConflictError, TaskMovedConflictError, type MovableTask, type MoveColumn, type MovePerson, type MoveProject, type ProjectMoveWrite, type TaskMoveRepository } from './task-move-repository';
 import { matchingColumn, notOnTeamMessage } from './task-move';
+import { isAwaitingApproval, type ApprovalEvent } from './task-approval';
 
 /** What happens to people assigned to a task who aren't on the new project's team. */
 export type AssigneeChoice = 'ADD_TO_TEAM' | 'UNASSIGN';
@@ -110,8 +111,11 @@ export interface TaskMoveServiceDeps {
   checklistPercent?: (taskId: string) => Promise<number>;
   /** After each move: notifications (live boards are told by the routes). */
   onMoved?: (move: MoveResult & { actorId: string }) => void | Promise<void>;
-  /** After a move that completed or re-opened the task: what a status change does (next repeat copy, action items, timeline). */
-  onStatusChanged?: (task: TaskRecord, prevColumnId: string, actorId: string) => void | Promise<void>;
+  /**
+   * After a move that completed or re-opened the task: what a status change does (next repeat copy,
+   * action items, timeline). `extra` (only when there is one): the move approved a task that needs approval.
+   */
+  onStatusChanged?: (task: TaskRecord, prevColumnId: string, actorId: string, extra?: { approval: ApprovalEvent; requestedById: string | null }) => void | Promise<void>;
   /** A failure after a task already moved (a hook), or an unexpected one while moving several. */
   onError?: (err: unknown, taskId: string) => void;
 }
@@ -292,6 +296,16 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
       // Completion follows the column, as when a card is moved between columns.
       ...(await columnEntryChange(task, column.category, { at, todayAnchor: boardDateFromKey(boardDateKey(at, timeZone)), reopenedProgress: deps.checklistPercent })),
     };
+    // Approvals (task-approval): the mover runs both projects, so they may approve. A task that needs
+    // approval moved into a Done column is approved by them; a waiting task moved to an open column keeps
+    // waiting (the new project's managers see it); one re-opened (out of Done) loses its approval.
+    let approval: ApprovalEvent | null = null;
+    if (column.category === 'DONE' && !task.completedAt && task.needsApproval) {
+      Object.assign(patch, { approvedAt: at, approvedById: actor.id, approvalRequestedAt: null, approvalRequestedById: null });
+      approval = isAwaitingApproval(task) ? 'APPROVED' : 'APPROVED_ON_FINISH';
+    } else if (column.category !== 'DONE' && task.completedAt && task.approvedAt) {
+      Object.assign(patch, { approvedAt: null, approvedById: null });
+    }
 
     // A task created or moved into the project at the same moment can take the number: each try
     // reads the next one afresh.
@@ -332,7 +346,8 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     };
     // The move is saved: what follows it never turns it into a failure.
     try {
-      if (result.statusChange) await deps.onStatusChanged?.(moved, task.columnId, actor.id);
+      if (result.statusChange && approval) await deps.onStatusChanged?.(moved, task.columnId, actor.id, { approval, requestedById: task.approvalRequestedById ?? null });
+      else if (result.statusChange) await deps.onStatusChanged?.(moved, task.columnId, actor.id);
       await deps.onMoved?.({ ...result, actorId: actor.id });
     } catch (err) {
       deps.onError?.(err, taskId);

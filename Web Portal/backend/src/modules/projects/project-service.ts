@@ -94,6 +94,7 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
       code,
       carryForward: data.carryForward ?? PROJECT_TASK_DEFAULTS.carryForward,
       defaultDueToday: data.defaultDueToday ?? PROJECT_TASK_DEFAULTS.defaultDueToday,
+      newTasksNeedApproval: data.newTasksNeedApproval ?? PROJECT_TASK_DEFAULTS.newTasksNeedApproval,
       ...(team.length ? { members: team } : {}),
     });
     return { ...created, team };

@@ -212,4 +212,13 @@ describe('targetColumnFor (where a card dropped on a status lands in its own pro
     const all = composeAllProjectsBoard(marked.map((t) => ({ ...t, columnCategory: t.columnId === 'c1' ? 'TODO' : 'DONE' })), [project]);
     expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.inspection).toBe(true);
   });
+
+  it('marks the cards of tasks waiting for approval (the combined board too)', () => {
+    const marked = tasks.map((t, i) => ({ ...t, approvalRequestedAt: i === 0 ? '2026-10-30T08:00:00Z' : null }));
+    expect(composeBoard(columns, marked)[0]!.tasks[0]!.awaitingApproval).toBe(true);
+    expect(composeBoard(columns, marked)[1]!.tasks[0]!.awaitingApproval).toBe(false);
+    const project = { id: 'p1', code: 'MICO', name: 'MICO', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null } as unknown as ApiProject;
+    const all = composeAllProjectsBoard(marked.map((t) => ({ ...t, columnCategory: t.columnId === 'c1' ? 'TODO' : 'DONE' })), [project]);
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.awaitingApproval).toBe(true);
+  });
 });

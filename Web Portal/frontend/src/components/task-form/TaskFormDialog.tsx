@@ -34,6 +34,9 @@ import { attachmentsApi } from '../../api/attachments';
 import { pastedFiles } from '../../lib/clipboard-files';
 import { isTypingTarget } from '../../lib/shortcuts';
 import { MilestoneIcon } from '../TaskCard';
+import { WaitingIcon } from '../approvals/ApprovalChip';
+import { APPROVAL_HINT, APPROVAL_LOCKED } from '../../lib/approvals';
+import { useAuthStore } from '../../stores/auth-store';
 import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
 import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
@@ -80,6 +83,8 @@ interface Draft {
   /** The inspection form the task is carried out with ('' = none), and where. */
   formId: string;
   place: string;
+  /** Needs approval: a project manager must approve it before it counts as done. */
+  approval: boolean;
 }
 
 export const TITLE_MAX = 191;
@@ -144,7 +149,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const editing = !!task;
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
-  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId() };
+  const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
 
   const start = (): Draft =>
     task
@@ -162,8 +167,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           checklistPending: '',
           formId: task.inspectionFormId ?? '',
           place: task.inspectionPlace ?? '',
+          approval: !!task.needsApproval,
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '', formId: '', place: '' };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '', formId: '', place: '', approval: false };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -244,6 +250,21 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const openProjects = useMemo(() => allProjects.filter((p) => p.status !== 'ARCHIVED'), [allProjects]);
   const project = allProjects.find((p) => p.id === draft.projectId) ?? null;
   const projectFixed = editing || !!fixedProjectId;
+  // "New tasks in this project need approval" ticks a new task's box (until you choose yourself).
+  const approvalChosen = useRef(false);
+  const projectWantsApproval = !!project?.newTasksNeedApproval;
+  // Turning "Needs approval" off is for the people who run the project and admins only (owner, 30 Oct;
+  // the server refuses anyone else): for everyone else the tick stays on once it is on — a saved task's
+  // tick, or the one the project gives its new tasks. Ticking it on is anyone's.
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const canManageProject = isAdmin || project?.canManage === true || (editing && task?.approval?.canApprove === true);
+  const approvalLocked = !canManageProject && (editing ? !!task?.needsApproval : projectWantsApproval);
+  useEffect(() => {
+    if (editing || !project) return;
+    // Your own choice stands — unless the project's tick is locked on for you.
+    if (approvalChosen.current && !approvalLocked) return;
+    settle({ approval: projectWantsApproval });
+  }, [editing, project?.id, projectWantsApproval, approvalLocked]);
   const noProjects = !projectFixed && projectsQ.isSuccess && openProjects.length === 0;
 
   useEffect(() => {
@@ -387,6 +408,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(draft.dueDate ? { dueDate: draft.dueDate } : {}),
       ...(draft.rule ? { recurrenceRule: draft.rule } : {}),
       ...(draft.milestone ? { isMilestone: true } : {}),
+      // Ticked: needs approval. Unticked where the project ticks new tasks: says it doesn't.
+      ...(draft.approval ? { needsApproval: true } : projectWantsApproval ? { needsApproval: false } : {}),
       // With anything typed in "Add an item" and not added yet.
       ...(checklistTexts(draft.checklist, draft.checklistPending).length ? { checklist: checklistTexts(draft.checklist, draft.checklistPending) } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
@@ -466,6 +489,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (draft.priority !== done.priority) fields.priority = draft.priority;
       if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
       if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
+      if (draft.approval !== done.approval) fields.needsApproval = draft.approval;
+      // The tick and a new status in one request, so the server judges them together (an approver
+      // unticking a waiting task and moving it elsewhere moves it — it isn't completed first).
+      const moveWithTick = draft.approval !== done.approval && draft.columnId !== done.columnId;
+      if (moveWithTick) fields.columnId = draft.columnId;
       if (draft.formId !== done.formId) fields.inspectionFormId = draft.formId || null;
       // Without a form there is no place; with one, the place as typed (blank: none).
       const placeNow = draft.formId ? draft.place.trim() || null : null;
@@ -475,7 +503,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       if (Object.keys(fields).length) {
         latest = await tasksApi(apiClient).update(t.id, { ...fields, ...(version.current != null ? { expectedVersion: version.current } : {}), ...(series ? { scope: 'series' } : {}) });
         version.current = latest.version ?? version.current;
-        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, formId: draft.formId, place: draft.formId ? draft.place : '', ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
+        keep({ title: draft.title, description: draft.description, priority: draft.priority, dueDate: draft.dueDate, milestone: draft.milestone, approval: draft.approval, formId: draft.formId, place: draft.formId ? draft.place : '', ...(moveWithTick ? { columnId: draft.columnId } : {}), ...(ruleChanged && !series ? { rule: draft.rule } : {}) });
       }
       // The repeat rule lives on the series' newest copy only: it is never sent "for the whole series".
       if (ruleChanged && series) {
@@ -754,6 +782,26 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 <span>
                   <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-brand"><MilestoneIcon /></span>Milestone</span>
                   <span className="block text-xs text-ink-2">A key date or deliverable of the project — listed on its dashboard.</span>
+                </span>
+              </label>
+
+              <label className={`flex items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors ${approvalLocked ? 'bg-ground/60' : 'cursor-pointer hover:border-brand/40'}`}>
+                <input
+                  type="checkbox"
+                  checked={draft.approval}
+                  disabled={approvalLocked}
+                  aria-describedby={approvalLocked ? `${ids.approvalHint} ${ids.approvalLocked}` : ids.approvalHint}
+                  onChange={(e) => {
+                    approvalChosen.current = true;
+                    set({ approval: e.target.checked });
+                  }}
+                  className="mt-0.5 h-4 w-4 accent-brand"
+                />
+                <span>
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-warning"><WaitingIcon size={14} /></span>Needs approval</span>
+                  <span id={ids.approvalHint} className="block text-xs text-ink-2">{APPROVAL_HINT}</span>
+                  {approvalLocked ? <span id={ids.approvalLocked} className="block text-xs text-ink-2">{APPROVAL_LOCKED}</span> : null}
+                  {editing && task?.approvalRequestedAt && !approvalLocked ? <span className="block text-xs text-ink-3">It is waiting for approval: turning this off marks it done.</span> : null}
                 </span>
               </label>
 

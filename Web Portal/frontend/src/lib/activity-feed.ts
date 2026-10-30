@@ -53,6 +53,8 @@ const KIND_OF: Record<string, TimelineKind> = {
   'task.moved': 'moved',
   COMPLETED: 'completed',
   'task.completed': 'completed',
+  // Task approvals: an approval completes the task (the request, a send-back and a withdrawal are lines of their own).
+  APPROVED: 'completed',
   REOPENED: 'reopened',
   'task.reopened': 'reopened',
   ASSIGNED: 'assigned',
@@ -198,6 +200,8 @@ function changeText(c: Change): string | null {
       if (!from && to) return 'gave it an inspection form';
       if (from && !to) return 'took off its inspection form';
       return 'changed its inspection form';
+    case 'needsApproval':
+      return c.to ? 'turned on Needs approval' : 'turned off Needs approval';
     case 'inspectionPlace':
       if (!from && to) return `set the place to ${quote(to)}`;
       if (from && !to) return 'removed the place';
@@ -233,6 +237,13 @@ function statusPath(chronological: FeedEntry[]): string[] | undefined {
   return path.length > 0 ? path : undefined;
 }
 
+/** A status line's words: "moved this task", "approved this task", "completed this task (approved)". */
+function moveText(kind: TimelineKind, newest: FeedEntry): string {
+  if (newest.action === 'APPROVED') return 'approved this task';
+  if (kind === 'completed' && newest.meta?.approved === true) return 'completed this task (approved)';
+  return `${kind === 'moved' ? 'moved' : kind} this task`;
+}
+
 function toItem(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
   const item = lineOf(kind, entries);
   return item && viaMicoAi(entries[0]!) ? { ...item, text: `${item.text} via MICO AI` } : item;
@@ -248,7 +259,7 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
     case 'moved':
     case 'completed':
     case 'reopened':
-      return { ...base, text: `${kind === 'moved' ? 'moved' : kind} this task`, path: statusPath(chronological) };
+      return { ...base, text: moveText(kind, newest), path: statusPath(chronological) };
     case 'assigned':
     case 'unassigned': {
       const names = chronological.map((e) => str(e.meta?.assignee)).filter((n): n is string => Boolean(n));
@@ -304,6 +315,13 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
       if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };
       if (newest.action === 'INSPECTION_FOLLOW_UP') return { ...base, text: followUpText(newest) };
+      // Task approvals: asked for, sent back (with why), the request withdrawn.
+      if (newest.action === 'APPROVAL_REQUESTED') return { ...base, text: 'finished this task and asked for approval', path: statusPath([newest]) };
+      if (newest.action === 'SENT_BACK') {
+        const reason = str(newest.meta?.reason);
+        return { ...base, text: reason ? `sent this task back: ${quote(reason)}` : 'sent this task back', path: statusPath([newest]) };
+      }
+      if (newest.action === 'APPROVAL_WITHDRAWN') return { ...base, text: 'withdrew the approval request', path: statusPath([newest]) };
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }

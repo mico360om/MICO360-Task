@@ -117,6 +117,12 @@ describe('the Activity filters (5c)', () => {
     expect(filterActivity(rows, 'COMPLETED').map((r) => r.id)).toEqual(['3', '4']);
     expect(filterActivity(rows, 'ASSIGNED').map((r) => r.id)).toEqual(['5']);
   });
+  it('Completed keeps approved tasks too (an approval is when a task that needed it became done)', () => {
+    const withApproval = [...rows, row('7', 'APPROVED', '2026-10-21T04:00:00.000Z'), row('8', 'SENT_BACK', '2026-10-21T03:00:00.000Z')];
+    expect(filterActivity(withApproval, 'COMPLETED').map((r) => r.id)).toEqual(['3', '4', '7']);
+    expect(activityVerb('APPROVED')).toBe('approved');
+    expect(activityDetail(row('a', 'SENT_BACK', '', { meta: { reason: 'Add the readings' } }))).toBe('“Add the readings”');
+  });
   it('say why the list is empty: nothing of this kind (with a way back), or nothing yet', () => {
     expect(activityEmpty('MOVED')).toEqual({ title: 'No moved activity', showAll: true });
     expect(activityEmpty('')).toEqual({ title: 'No activity yet', subtitle: 'Task creations, moves, completions and assignments will show up here.', showAll: false });

@@ -133,6 +133,11 @@ export interface InspectionDetail extends InspectionListItem {
    * (a task that carries a form is completed automatically). Null otherwise.
    */
   taskCompleted?: { id: string; key: string; title: string } | null;
+  /**
+   * After a finish (or a repeat of it): the check this inspection was for, when it needs approval —
+   * finishing made it wait for a project manager's OK (it isn't done yet). Null otherwise.
+   */
+  taskWaiting?: { id: string; key: string; title: string } | null;
 }
 
 export const personOf = (id: string, names: Map<string, string>): Person => ({ id, name: names.get(id) ?? 'Former staff member' });

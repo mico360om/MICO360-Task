@@ -23,6 +23,7 @@ import { LoadError } from '../components/ui/LoadError';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { Icon } from '../components/meeting/kit';
 import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
+import { ApprovalsCard } from '../components/approvals/ApprovalsCard';
 
 // Category colours reference the shared design tokens (rgb(var(--…))) so the
 // charts adapt to light/dark theme instead of being pinned to light-mode hex.
@@ -59,10 +60,12 @@ function StatIcon({ children }: { children: ReactNode }) {
 
 const ACTION_LABEL: Record<string, string> = {
   CREATED: 'created', MOVED: 'moved', COMPLETED: 'completed', REOPENED: 'reopened', ASSIGNED: 'assigned',
+  // Task approvals.
+  APPROVAL_REQUESTED: 'asked for approval on', APPROVED: 'approved', SENT_BACK: 'sent back', APPROVAL_WITHDRAWN: 'withdrew the approval request on',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? (a || '').toLowerCase().replace(/_/g, ' ');
 const actionTone = (a: string): string =>
-  a === 'COMPLETED' ? 'text-success' : a === 'MOVED' ? 'text-info' : a === 'CREATED' ? 'text-brand' : a === 'REOPENED' ? 'text-warning' : 'text-ink-2';
+  a === 'COMPLETED' || a === 'APPROVED' ? 'text-success' : a === 'SENT_BACK' ? 'text-warning' : a === 'MOVED' ? 'text-info' : a === 'CREATED' ? 'text-brand' : a === 'REOPENED' ? 'text-warning' : 'text-ink-2';
 
 function timeAgo(iso: string): string {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
@@ -266,6 +269,8 @@ export function DashboardPage() {
 
         {/* Right rail */}
         <div className="flex flex-col gap-4">
+          {/* For the people who can approve tasks (they run a project, or are an admin). */}
+          <ApprovalsCard onOpenTask={openTask} />
           <Reveal delay={1}>
             <section className="card p-5">
               <div className="mb-3 flex items-center justify-between">

@@ -157,6 +157,8 @@ export interface ManagementOverview {
     overloadedPeople: number;
   };
   projects: HealthRow[];
+  /** Tasks waiting for approval (task approvals): in all, and per project (most first). */
+  approvals: { total: number; projects: { id: string; code: string; name: string; count: number }[] };
   inspections: CheckCounts & { finished: number; passed: number; failed: number; passRate: number | null; openFollowUps: number; topItems: TopItem[]; topForms: TopForm[] };
   people: PersonRow[];
   workload: { week: string; limit: number; workingDays: number[] };
@@ -180,6 +182,7 @@ export const ITEM_METRICS = [
   'failed-form',
   'projects',
   'people-overloaded',
+  'awaiting-approval',
 ] as const;
 export type ItemMetric = (typeof ITEM_METRICS)[number];
 
@@ -282,6 +285,16 @@ function itemLabel(structure: unknown, itemId: string): string | null {
     }
   }
   return null;
+}
+
+/** Tasks waiting for approval per project shown (most first, then by name), and in all. */
+function approvalsOf(projects: MgmtProject[], counts: { projectId: string; count: number }[]): ManagementOverview['approvals'] {
+  const byId = new Map(counts.map((c) => [c.projectId, c.count]));
+  const rows = projects
+    .filter((p) => (byId.get(p.id) ?? 0) > 0)
+    .map((p) => ({ id: p.id, code: p.code, name: p.name, count: byId.get(p.id)! }))
+    .sort((a, b) => b.count - a.count || collator.compare(a.name, b.name));
+  return { total: rows.reduce((n, r) => n + r.count, 0), projects: rows };
 }
 
 export function createManagementService(deps: ManagementServiceDeps) {
@@ -429,7 +442,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
     const ids = s.projects.map((p) => p.id);
     const from = ctx.trend[0]!.from;
     const to = ctx.trend.at(-1)!.to;
-    const [health, finished, failed, lateBy, actions, trend, overloaded, ownerPeople] = await Promise.all([
+    const [health, finished, failed, lateBy, actions, trend, overloaded, ownerPeople, waiting] = await Promise.all([
       healthOf(s.projects, ctx),
       source.finishedInspections(ids, from, to),
       source.failedItems(ids, from, to, TOP_ITEMS),
@@ -438,6 +451,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
       source.trend(ids, ctx.trend.map((w) => ({ from: w.from, to: w.to, lateDay: w.lateOn, lateAt: w.lateAt }))),
       overloadedOf(viewer, ids, ctx),
       source.people(unique(s.runnable.map((p) => p.ownerId))),
+      source.awaitingApproval(ids),
     ]);
     const structures = new Map((failed.length ? await source.structures(unique(failed.map((f) => f.sampleId))) : []).map((x) => [x.id, x]));
 
@@ -494,6 +508,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
         overloadedPeople: overloaded.people.filter((p) => p.days.length > 0).length,
       },
       projects: health.rows,
+      approvals: approvalsOf(s.projects, waiting),
       inspections: {
         ...sum,
         ...ins,
@@ -592,6 +607,10 @@ export function createManagementService(deps: ManagementServiceDeps) {
       case 'late-tasks': {
         const r = await source.lateTasks({ projectIds: ids, today: ctx.today, ...(q.personId ? { personId: q.personId } : {}), limit: LIST_LIMIT });
         return list('Late tasks', r.total, r.rows.map((t) => taskRow(t, { tone: 'danger' })));
+      }
+      case 'awaiting-approval': {
+        const r = await source.awaitingApprovalTasks({ projectIds: ids, limit: LIST_LIMIT });
+        return list('Waiting for approval', r.total, r.rows.map((t) => taskRow(t, { tone: 'warning', detail: 'Waiting for approval' })));
       }
       case 'late-milestones': {
         const r = await source.lateTasks({ projectIds: ids, today: ctx.today, milestonesOnly: true, limit: LIST_LIMIT });

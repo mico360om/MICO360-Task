@@ -34,6 +34,7 @@ const UNIT: Record<ItemMetric, [string, string]> = {
   'overdue-actions': ['action item', 'action items'],
   projects: ['project', 'projects'],
   'people-overloaded': ['person', 'people'],
+  'awaiting-approval': ['task', 'tasks'],
 };
 
 /** "Finished Wed 21 Oct, 12:00" in the company time zone. */

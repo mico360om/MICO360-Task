@@ -28,6 +28,11 @@ export const ACTION_VERB: Record<string, string> = {
   ASSIGNED: 'assigned',
   PROJECT_CHANGED: 'moved',
   PROJECT_MOVED_OUT: 'moved',
+  // Task approvals.
+  APPROVAL_REQUESTED: 'asked for approval on',
+  APPROVED: 'approved',
+  SENT_BACK: 'sent back',
+  APPROVAL_WITHDRAWN: 'withdrew the approval request on',
 };
 
 /** Each action's colour, as the website's (text-info, text-success …). */
@@ -39,6 +44,10 @@ export const ACTION_TONE: Record<string, Tone> = {
   ASSIGNED: 'brand',
   PROJECT_CHANGED: 'neutral',
   PROJECT_MOVED_OUT: 'neutral',
+  APPROVAL_REQUESTED: 'brand',
+  APPROVED: 'success',
+  SENT_BACK: 'warning',
+  APPROVAL_WITHDRAWN: 'neutral',
 };
 
 export const ACTIVITY_FILTERS: readonly { value: string; label: string }[] = [
@@ -70,6 +79,10 @@ export function activityDetail(a: Pick<ApiActivityRow, 'action' | 'meta'>): stri
       return to ? `marked complete in ${to}` : 'marked complete';
     case 'REOPENED':
       return to ? `re-opened in ${to}` : 're-opened';
+    case 'APPROVED':
+      return to ? `done in ${to}` : '';
+    case 'SENT_BACK':
+      return str(m.reason) ? `“${str(m.reason)}”` : '';
     case 'ASSIGNED':
       return str(m.assignee) ? `→ ${str(m.assignee)}` : '';
     case 'PROJECT_CHANGED': {
@@ -116,7 +129,7 @@ export function activityRowLabel(a: ApiActivityRow, now: number = Date.now(), ti
 
 /** The rows of one filter; "Completed" keeps re-opened tasks too (the website's rule). */
 export function filterActivity<T extends Pick<ApiActivityRow, 'action'>>(rows: readonly T[], filter: string): T[] {
-  return rows.filter((a) => !filter || a.action === filter || (filter === 'COMPLETED' && a.action === 'REOPENED'));
+  return rows.filter((a) => !filter || a.action === filter || (filter === 'COMPLETED' && (a.action === 'REOPENED' || a.action === 'APPROVED')));
 }
 
 /** Why the list is empty: none of this kind (with "Show all activity"), or nothing yet. */

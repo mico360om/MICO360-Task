@@ -23,6 +23,8 @@ export interface FakeManagementData {
     report?: boolean;
     /** A follow-up task made from a failed item. */
     followUp?: boolean;
+    /** Waits for approval since this moment (task approvals). */
+    waitingSince?: string | null;
     assignees?: string[];
     deleted?: boolean;
   }[];
@@ -183,6 +185,18 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
     },
     async tasksByIds(ids) {
       return tasks.filter((t) => ids.includes(t.id)).map(line);
+    },
+    async awaitingApproval(projectIds) {
+      const counts = new Map<string, number>();
+      for (const t of tasks) if (t.waitingSince && projectIds.includes(t.projectId)) counts.set(t.projectId, (counts.get(t.projectId) ?? 0) + 1);
+      return [...counts].map(([projectId, count]) => ({ projectId, count }));
+    },
+    async awaitingApprovalTasks({ projectIds, limit }) {
+      const rows = tasks
+        .filter((t) => t.waitingSince && projectIds.includes(t.projectId))
+        .sort((a, b) => at(a.waitingSince!).getTime() - at(b.waitingSince!).getTime())
+        .map(line);
+      return { total: rows.length, rows: rows.slice(0, limit) };
     },
     async followUpTasks({ projectIds, limit }) {
       const rows = tasks.filter((t) => projectIds.includes(t.projectId) && t.followUp && isOpen(t)).map(line).sort(byDue);

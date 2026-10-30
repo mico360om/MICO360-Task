@@ -657,6 +657,20 @@ describe('scheduled checks: a task that carries a form', () => {
     expect(f.completions).toEqual([{ taskId: task.id, actorId: inspector }]);
   });
 
+  it('a check that needs approval: finishing its inspection makes it wait, says so, and offers nothing', async () => {
+    const { form, task } = await aCheck();
+    task.needsApproval = true;
+    const { insp, done } = await finishFor(task.id, form.id);
+    expect(done.taskCompleted).toBeNull();
+    expect(done.taskWaiting).toEqual({ id: task.id, key: task.key, title: task.title });
+    expect(done.taskOffer).toBeNull();
+    expect(task).toMatchObject({ done: false, waiting: true });
+    // Sent again (the outbox): still waiting, still no offer, nothing asked twice.
+    const again = await f.service.finish(as(inspector), insp.id, await finishBody(insp.id));
+    expect(again).toMatchObject({ taskCompleted: null, taskWaiting: { id: task.id }, taskOffer: null });
+    expect(f.completions).toHaveLength(1);
+  });
+
   it('a finish sent again (a lost reply, the offline outbox) completes it once, and says so again', async () => {
     const { form, task } = await aCheck();
     const { insp } = await finishFor(task.id, form.id);

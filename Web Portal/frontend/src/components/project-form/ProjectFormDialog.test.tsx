@@ -364,6 +364,30 @@ describe('Project task settings', () => {
     expect(requests.find((r) => r.method === 'PUT')!.body).toEqual({ defaultDueToday: true });
   });
 
+  it('"New tasks in this project need approval": off at first, sent when switched on, saved alone when changed', async () => {
+    const created = renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    const approval = within(dialog).getByRole('switch', { name: 'New tasks in this project need approval' });
+    expect(approval).toHaveAttribute('aria-checked', 'false');
+    expect(approval).toHaveAccessibleDescription(/a project manager must approve each one before it counts as done/);
+    await userEvent.type(within(dialog).getByLabelText(/^name/i), 'Rig Inspection Portal');
+    await userEvent.click(approval);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(created.onSaved).toHaveBeenCalled());
+    expect(posts(/\/projects$/)[0]!.body).toMatchObject({ newTasksNeedApproval: true });
+  });
+
+  it('turns the approval setting off on an existing project (only that is sent)', async () => {
+    const { onSaved } = renderForm({ project: { ...existing, newTasksNeedApproval: true } });
+    const dialog = screen.getByRole('dialog', { name: 'Edit project' });
+    const approval = within(dialog).getByRole('switch', { name: 'New tasks in this project need approval' });
+    expect(approval).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(approval);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(requests.find((r) => r.method === 'PUT')!.body).toEqual({ newTasksNeedApproval: false });
+  });
+
   it('a project saved before the settings existed shows what it does (carry forward on, due today off)', async () => {
     const { onClose } = renderForm({ project: existing });
     const dialog = screen.getByRole('dialog', { name: 'Edit project' });

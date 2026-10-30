@@ -9,10 +9,15 @@ export interface ProjectTaskSettings {
   carryForward: boolean;
   /** A task added to the project without a due date gets today's date. Dates people choose are kept. */
   defaultDueToday: boolean;
+  /**
+   * "New tasks in this project need approval": a task created in it without saying whether it needs
+   * approval gets the tick (the web form shows it ticked; each task can still be changed).
+   */
+  newTasksNeedApproval: boolean;
 }
 
 /** What every project starts with — and what every project had before the settings existed. */
-export const PROJECT_TASK_DEFAULTS: ProjectTaskSettings = { carryForward: true, defaultDueToday: false };
+export const PROJECT_TASK_DEFAULTS: ProjectTaskSettings = { carryForward: true, defaultDueToday: false, newTasksNeedApproval: false };
 
 /**
  * The one rule for "New tasks are due today": the due date a task gets as it enters a project —

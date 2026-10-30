@@ -147,6 +147,8 @@ interface Draft {
   finishedOffer?: InspectionDetail['taskOffer'] | null;
   /** A finish sent from here completed its check (a task that carries a form): said once, then forgotten. */
   finishedCompleted?: InspectionDetail['taskCompleted'] | null;
+  /** A finish sent from here made its check wait for approval (it needs a project manager's OK): said once. */
+  finishedWaiting?: InspectionDetail['taskWaiting'] | null;
   /** What became of the follow-up tasks asked for here, item by item (until the page has said so). */
   followUpReport?: FollowUpOutcome[] | null;
   savedAt: string;
@@ -183,6 +185,7 @@ export interface DraftView {
   lastFailure: TransientState | null;
   finishedOffer: InspectionDetail['taskOffer'] | null;
   finishedCompleted: InspectionDetail['taskCompleted'] | null;
+  finishedWaiting: InspectionDetail['taskWaiting'] | null;
   followUpReport: FollowUpOutcome[] | null;
   savedAt: string;
   sentAt: string | null;
@@ -237,6 +240,7 @@ export function detailView(detail: InspectionDetail): DraftView {
     lastFailure: null,
     finishedOffer: null,
     finishedCompleted: null,
+    finishedWaiting: null,
     followUpReport: null,
     savedAt: '',
     sentAt: null,
@@ -277,7 +281,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
 
   const hasWork = (d: Draft) => Object.keys(d.answers).length > 0 || d.finish !== null || Object.keys(d.followUps).length > 0;
   /** Something the person still has to see or answer (a problem, the task offer, a follow-up report). */
-  const hasNews = (d: Draft) => !!d.problem || !!d.finishedOffer || !!d.finishedCompleted || !!d.followUpReport?.length;
+  const hasNews = (d: Draft) => !!d.problem || !!d.finishedOffer || !!d.finishedCompleted || !!d.finishedWaiting || !!d.followUpReport?.length;
 
   /** Other records of this person with nothing waiting: kept only so an inspection opens without signal. */
   function makeRoom(ownerId: string, keep: string): void {
@@ -376,6 +380,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       lastFailure: d.lastFailure ?? null,
       finishedOffer: d.finishedOffer ?? null,
       finishedCompleted: d.finishedCompleted ?? null,
+      finishedWaiting: d.finishedWaiting ?? null,
       followUpReport: d.followUpReport?.length ? d.followUpReport : null,
       savedAt: d.savedAt,
       sentAt: d.sentAt,
@@ -512,9 +517,11 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
     after.finish = null;
     // A check (a task that carries a form) is completed by the finish itself: said, not offered.
     after.finishedCompleted = done.taskCompleted ?? null;
-    after.finishedOffer = after.finishedCompleted ? null : (done.taskOffer ?? null);
+    // A check that needs approval waits for a project manager instead: said, not offered.
+    after.finishedWaiting = done.taskWaiting ?? null;
+    after.finishedOffer = after.finishedCompleted || after.finishedWaiting ? null : (done.taskOffer ?? null);
     succeeded(after);
-    if (!after.finishedOffer && !after.finishedCompleted && !hasWork(after) && !after.problem) {
+    if (!after.finishedOffer && !after.finishedCompleted && !after.finishedWaiting && !hasWork(after) && !after.problem) {
       remove(ownerId, inspectionId);
       notify();
     } else save(after);
@@ -662,6 +669,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
       if (!d) return;
       d.finishedOffer = null;
       d.finishedCompleted = null;
+      d.finishedWaiting = null;
       if (d.snapshot.status === 'FINISHED' && !hasWork(d) && !hasNews(d)) {
         remove(ownerId, inspectionId);
         notify();

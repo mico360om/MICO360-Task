@@ -41,6 +41,15 @@ export interface TaskRecord {
   inspectionFormId?: string | null;
   /** Where the check is done ("Rig 3"); given to the inspection when it starts. */
   inspectionPlace?: string | null;
+  /** It needs the OK of whoever runs its project before it counts as done (task-approval). */
+  needsApproval?: boolean;
+  /** Set while it waits for approval: it is not done. */
+  approvalRequestedAt?: Date | null;
+  /** Who finished it (asked for approval). */
+  approvalRequestedById?: string | null;
+  /** Its last approval (cleared when it is re-opened). */
+  approvedAt?: Date | null;
+  approvedById?: string | null;
   /**
    * Keys the task had before it moved to another project, oldest first (set by findById): "RIG-4"
    * for a task that is OPS-17 now. Looking up an old key still finds the task.
@@ -84,6 +93,12 @@ export interface CreateTaskData {
   /** The inspection form it is carried out with, and where (a scheduled check). */
   inspectionFormId?: string | null;
   inspectionPlace?: string | null;
+  /** Needs approval, and — created straight into a Done column — its approval state. */
+  needsApproval?: boolean;
+  approvalRequestedAt?: Date | null;
+  approvalRequestedById?: string | null;
+  approvedAt?: Date | null;
+  approvedById?: string | null;
   /** Normalised tag names to attach (find-or-create) in the same write as the task. */
   tagNames?: string[];
   /** Users to assign in the same write as the task (already validated). */
@@ -135,6 +150,12 @@ export interface UpdateTaskData {
   /** The inspection form (null clears it) and where the check is done. */
   inspectionFormId?: string | null;
   inspectionPlace?: string | null;
+  /** Needs approval, and its approval state (task-approval). */
+  needsApproval?: boolean;
+  approvalRequestedAt?: Date | null;
+  approvalRequestedById?: string | null;
+  approvedAt?: Date | null;
+  approvedById?: string | null;
 }
 
 export interface TaskListFilter {
@@ -154,6 +175,8 @@ export interface TaskListFilter {
   dueAfter?: Date;
   /** Only tasks that carry a repeat rule (the newest copy of each series). */
   recurring?: boolean;
+  /** Only tasks waiting for approval (task-approval). */
+  awaitingApproval?: boolean;
 }
 
 export interface SeriesUpdateOptions {
@@ -198,6 +221,9 @@ export interface TaskRepository {
 /** Minimal project lookup the task service needs (to build task keys and validate the project). */
 export interface ProjectLookup {
   getCodeById(projectId: string): Promise<string | null>;
-  /** The project's "New tasks are due today" setting; null when there is no such live project. */
-  getTaskSettings(projectId: string): Promise<Pick<ProjectTaskSettings, 'defaultDueToday'> | null>;
+  /**
+   * The project's "New tasks are due today" and "New tasks need approval" settings; null when there is
+   * no such live project. (A lookup that leaves out the approval setting means it is off.)
+   */
+  getTaskSettings(projectId: string): Promise<(Pick<ProjectTaskSettings, 'defaultDueToday'> & Partial<Pick<ProjectTaskSettings, 'newTasksNeedApproval'>>) | null>;
 }

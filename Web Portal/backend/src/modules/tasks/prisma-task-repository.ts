@@ -59,6 +59,11 @@ function toRecord(t: EnrichedTask): TaskRecord {
     meetingId: t.meetingId ?? null,
     inspectionFormId: t.inspectionFormId ?? null,
     inspectionPlace: t.inspectionPlace ?? null,
+    needsApproval: t.needsApproval ?? false,
+    approvalRequestedAt: t.approvalRequestedAt ?? null,
+    approvalRequestedById: t.approvalRequestedById ?? null,
+    approvedAt: t.approvedAt ?? null,
+    approvedById: t.approvedById ?? null,
     version: t.version,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -130,6 +135,7 @@ const listScalars = {
   priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true,
   clientVisible: true, createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
+  needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true, approvedById: true,
 } as const;
 
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
@@ -167,6 +173,11 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
             meetingId: data.meetingId ?? undefined,
             inspectionFormId: data.inspectionFormId ?? undefined,
             inspectionPlace: data.inspectionPlace ?? undefined,
+            needsApproval: data.needsApproval ?? undefined,
+            approvalRequestedAt: data.approvalRequestedAt ?? undefined,
+            approvalRequestedById: data.approvalRequestedById ?? undefined,
+            approvedAt: data.approvedAt ?? undefined,
+            approvedById: data.approvedById ?? undefined,
             ...(tagNames.length
               ? {
                   tags: {
@@ -212,6 +223,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       if (filter.dueBefore) and.push({ dueDate: { lte: filter.dueBefore } });
       if (filter.dueAfter) and.push({ dueDate: { gte: filter.dueAfter } });
       if (filter.recurring) and.push({ recurrenceRule: { not: Prisma.DbNull } });
+      if (filter.awaitingApproval) and.push({ approvalRequestedAt: { not: null } });
       const ts = await prisma.task.findMany({
         where: { ...liveTaskWhere, AND: and },
         // Enrich list rows for card display: assignees + lightweight aggregate counts. `_count`
@@ -340,7 +352,7 @@ export function createPrismaProjectLookup(prisma: PrismaClient): ProjectLookup {
       return p?.code ?? null;
     },
     async getTaskSettings(id) {
-      return prisma.project.findFirst({ where: { id, deletedAt: null }, select: { defaultDueToday: true } });
+      return prisma.project.findFirst({ where: { id, deletedAt: null }, select: { defaultDueToday: true, newTasksNeedApproval: true } });
     },
   };
 }

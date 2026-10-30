@@ -252,3 +252,34 @@ describe('inspections in a task’s history', () => {
     expect(items.every((i) => i.kind === 'other')).toBe(true);
   });
 });
+
+describe('approvals in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Sara Ali', 1, meta)])[0]!;
+  it('asked for approval, approved, sent back with the reason, the request withdrawn', () => {
+    expect(line('APPROVAL_REQUESTED', { from: 'In Progress', to: 'Review' })).toMatchObject({ kind: 'other', text: 'finished this task and asked for approval', path: ['In Progress', 'Review'] });
+    expect(line('APPROVED', { from: 'Review', to: 'Done' })).toMatchObject({ kind: 'completed', text: 'approved this task', path: ['Review', 'Done'] });
+    expect(line('SENT_BACK', { from: 'Review', to: 'In Progress', reason: 'Add the gauge readings' })).toMatchObject({
+      kind: 'other',
+      text: 'sent this task back: “Add the gauge readings”',
+      path: ['Review', 'In Progress'],
+    });
+    expect(line('SENT_BACK', {}).text).toBe('sent this task back');
+    expect(line('APPROVAL_WITHDRAWN', { from: 'Review', to: 'In Progress' })).toMatchObject({ kind: 'other', text: 'withdrew the approval request' });
+  });
+  it('an approver finishing it themselves: completed (approved)', () => {
+    expect(line('COMPLETED', { from: 'In Progress', to: 'Done', approved: true })).toMatchObject({ kind: 'completed', text: 'completed this task (approved)' });
+    expect(line('COMPLETED', { from: 'In Progress', to: 'Done' }).text).toBe('completed this task');
+  });
+  it('the tick turned on or off', () => {
+    expect(line('UPDATED', { changes: [{ field: 'needsApproval', from: false, to: true }] }).text).toBe('turned on Needs approval');
+    expect(line('UPDATED', { changes: [{ field: 'needsApproval', from: true, to: false }] }).text).toBe('turned off Needs approval');
+  });
+  it('a request, a send-back and the next request stay lines of their own', () => {
+    const items = buildTimeline([
+      e('a3', 'APPROVAL_REQUESTED', 'Sara Ali', 1, { from: 'In Progress', to: 'Review' }),
+      e('a2', 'SENT_BACK', 'Omar Ahmed', 2, { from: 'Review', to: 'In Progress', reason: 'Redo' }),
+      e('a1', 'APPROVAL_REQUESTED', 'Sara Ali', 3, { from: 'In Progress', to: 'Review' }),
+    ]);
+    expect(items.map((i) => i.text)).toEqual(['finished this task and asked for approval', 'sent this task back: “Redo”', 'finished this task and asked for approval']);
+  });
+});

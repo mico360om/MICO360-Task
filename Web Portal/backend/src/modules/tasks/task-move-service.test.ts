@@ -359,6 +359,20 @@ describe('Moving one task', () => {
     expect(w.onStatusChanged).toHaveBeenCalledWith(expect.objectContaining({ id: 't7' }), 'o-done', 'aisha');
   });
 
+  it('needs approval: the mover runs both projects — into a Done column it is approved by them; to an open column it keeps waiting', async () => {
+    const w = world();
+    Object.assign(w.find('RIG-3'), { needsApproval: true, approvalRequestedAt: NOW, approvalRequestedById: 'sara' });
+    const kept = await w.service.moveTask(aisha, 't3', { projectId: 'ops', columnId: 'o-doing' });
+    expect(kept.task).toMatchObject({ needsApproval: true, approvalRequestedAt: NOW, approvalRequestedById: 'sara', completedAt: null });
+    expect(w.onStatusChanged).not.toHaveBeenCalled();
+    const approved = await w.service.moveTask(aisha, 't3', { projectId: 'rig', columnId: 'r-done' });
+    expect(approved.task).toMatchObject({ completedAt: NOW, approvedAt: NOW, approvedById: 'aisha', approvalRequestedAt: null, approvalRequestedById: null });
+    expect(approved.statusChange).toBe('COMPLETED');
+    expect(w.onStatusChanged).toHaveBeenLastCalledWith(expect.objectContaining({ id: 't3' }), 'o-doing', 'aisha', { approval: 'APPROVED', requestedById: 'sara' });
+    const reopened = await w.service.moveTask(aisha, 't3', { projectId: 'ops', columnId: 'o-todo' });
+    expect(reopened.task).toMatchObject({ completedAt: null, approvedAt: null, approvedById: null });
+  });
+
   it('tells onMoved about the move, with who made it', async () => {
     const w = world();
     const r = await w.service.moveTask(aisha, 't1', { projectId: 'ops' });

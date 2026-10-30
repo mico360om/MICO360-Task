@@ -28,6 +28,8 @@ import { projectsApi } from '../api/projects';
 import { clientSharesApi } from '../api/client-shares';
 import { TaskInspections } from './inspections/TaskInspections';
 import { moveAvailability, movedText } from '../lib/task-move';
+import { TaskApproval } from './approvals/TaskApproval';
+import { approvalNotice } from '../lib/approvals';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -145,6 +147,22 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     mutationFn: (columnId: string) => tasksApi(apiClient).move(taskId, columnId),
     onSuccess: refreshTaskViews,
   });
+
+  // Task approvals: the tick, Approve and Send back — each from the version on screen.
+  const afterApproval = (t: { id: string }) => {
+    queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, ...t } : t));
+    void queryClient.invalidateQueries({ queryKey: ['comments', taskId] }); // a send-back's reason is a comment
+    refreshTaskViews();
+  };
+  // A refusal (changed meanwhile, approved by someone else) reloads the task, so a retry is from what is there now.
+  const reloadTask = () => void queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+  const tickM = useMutation({
+    mutationFn: (on: boolean) => tasksApi(apiClient).update(taskId, { needsApproval: on, expectedVersion: taskQ.data?.version }),
+    onSuccess: afterApproval,
+    onError: reloadTask,
+  });
+  const approveM = useMutation({ mutationFn: () => tasksApi(apiClient).approve(taskId, taskQ.data?.version), onSuccess: afterApproval, onError: reloadTask });
+  const sendBackM = useMutation({ mutationFn: (reason: string) => tasksApi(apiClient).sendBack(taskId, reason, taskQ.data?.version), onSuccess: afterApproval, onError: reloadTask });
 
   const invalidateAttachments = () => {
     queryClient.invalidateQueries({ queryKey: ['attachments', taskId] });
@@ -370,7 +388,13 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             onRemoveDependency={(id) => attempt(() => removeDepM.mutateAsync(id), 'Couldn’t remove the blocker.').then(() => undefined)}
             onSetRecurrence={(rule) => attempt(() => recurrenceM.mutateAsync(rule), 'Couldn’t save the repeat rule.').then(() => undefined)}
             statusColumns={columns.map((c) => ({ id: c.id, name: c.name, category: c.category }))}
-            onChangeStatus={(columnId) => attempt(() => moveM.mutateAsync(columnId), 'Couldn’t change the status.').then(() => undefined)}
+            onChangeStatus={(columnId) =>
+              attempt(() => moveM.mutateAsync(columnId), 'Couldn’t change the status.').then((t) => {
+                // A task that needs approval, finished by someone who can't approve, waits instead.
+                const notice = approvalNotice(columnId, t);
+                if (notice) setToast(notice);
+              })
+            }
             activity={(Array.isArray(activityQ.data) ? activityQ.data : []).map((a) => ({
               id: a.id,
               action: a.action,
@@ -404,6 +428,14 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
                     refreshTaskViews();
                   }
                 : undefined
+            }
+            approval={
+              <TaskApproval
+                task={taskQ.data!}
+                onSetNeedsApproval={(on) => attempt(() => tickM.mutateAsync(on), 'Couldn’t change “Needs approval”.').then(() => undefined)}
+                onApprove={() => attempt(() => approveM.mutateAsync(), 'Couldn’t approve it.').then(() => undefined)}
+                onSendBack={(reason) => attempt(() => sendBackM.mutateAsync(reason), 'Couldn’t send it back.').then(() => undefined)}
+              />
             }
             inspections={
               projectId ? (

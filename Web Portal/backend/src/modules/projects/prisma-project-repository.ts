@@ -23,6 +23,7 @@ function toRecord(p: Project): ProjectRecord {
     notes: p.notes,
     carryForward: p.carryForward,
     defaultDueToday: p.defaultDueToday,
+    newTasksNeedApproval: p.newTasksNeedApproval,
     createdById: p.createdById,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -60,6 +61,7 @@ function projectFields(data: CreateProjectData) {
     notes: data.notes ?? undefined,
     carryForward: data.carryForward ?? undefined,
     defaultDueToday: data.defaultDueToday ?? undefined,
+    newTasksNeedApproval: data.newTasksNeedApproval ?? undefined,
   };
 }
 
@@ -82,7 +84,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
                 include: { columns: { orderBy: { position: 'asc' }, select: { id: true, category: true } } },
               });
               const column = p.columns[start.startColumn] ?? p.columns[0]!;
-              await writeStartingTasks(tx, { id: p.id, code: p.code, ownerId: p.ownerId, createdById: p.createdById }, column, start);
+              await writeStartingTasks(tx, { id: p.id, code: p.code, ownerId: p.ownerId, createdById: p.createdById, newTasksNeedApproval: p.newTasksNeedApproval }, column, start);
               return toRecord(p);
             },
             { timeout: 60_000, maxWait: 10_000 },

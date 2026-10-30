@@ -94,4 +94,15 @@ describe('ColumnService', () => {
     await expect(svc.removeColumn(c.id)).rejects.toMatchObject({ code: 'COLUMN_NOT_EMPTY' });
     expect(await svc.listColumns('p1')).toHaveLength(1);
   });
+
+  it('refuses (409) to make a column a Done column while tasks in it wait for approval (they would count as done)', async () => {
+    const waiting = new Map<string, number>();
+    const guarded = createColumnService({ columns: inMemory(), waitingTasksIn: async (id) => waiting.get(id) ?? 0 });
+    const c = await guarded.addColumn('p1', { name: 'Review', category: 'REVIEW' });
+    waiting.set(c.id, 2);
+    await expect(guarded.updateColumn(c.id, { category: 'DONE' })).rejects.toMatchObject({ code: 'TASKS_WAITING', status: 409 });
+    expect((await guarded.updateColumn(c.id, { name: 'Checked' })).name).toBe('Checked');
+    waiting.set(c.id, 0);
+    expect((await guarded.updateColumn(c.id, { category: 'DONE' })).category).toBe('DONE');
+  });
 });

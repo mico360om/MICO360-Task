@@ -106,6 +106,8 @@ export interface TaskDrawerProps {
   onSetClientVisible?: (visible: boolean) => Promise<void> | void;
   /** The task's inspections (carried out for it, or the one it follows up), beside its details. */
   inspections?: ReactNode;
+  /** The "Approval" section (needs approval; Approve / Send back while it waits) — first while it waits. */
+  approval?: ReactNode;
   onClose: () => void;
 }
 
@@ -233,6 +235,7 @@ export function TaskDrawer({
   onSaveAsTemplate,
   onSetClientVisible,
   inspections,
+  approval,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -376,6 +379,8 @@ export function TaskDrawer({
         ) : null}
 
         {/* A check (a task that carries a form) is done by carrying out its inspection: that comes first. */}
+        {/* Waiting for approval: the approver's buttons (or whose approval it waits for) come first. */}
+        {task.approvalRequestedAt && approval ? <div className="mb-6">{approval}</div> : null}
         {task.inspectionFormId && inspections ? <div className="mb-6">{inspections}</div> : null}
         <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:grid-rows-[auto_auto_auto_auto_1fr] lg:items-start lg:gap-x-8 lg:gap-y-7">
           <section aria-labelledby="task-desc-heading" className="lg:col-start-1 lg:row-start-1">
@@ -405,6 +410,7 @@ export function TaskDrawer({
               onScope={setScope}
             />
             {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
+            {task.approvalRequestedAt ? null : approval}
             {task.inspectionFormId ? null : inspections}
             <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
             {dependencies ? (

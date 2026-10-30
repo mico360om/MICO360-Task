@@ -235,6 +235,26 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
 
     tasksByIds: lines,
 
+    async awaitingApproval(projectIds) {
+      if (projectIds.length === 0) return [];
+      const rows = await prisma.task.groupBy({
+        by: ['projectId'],
+        where: { projectId: { in: projectIds }, deletedAt: null, approvalRequestedAt: { not: null } },
+        _count: { _all: true },
+      });
+      return rows.map((r) => ({ projectId: r.projectId, count: r._count._all }));
+    },
+
+    async awaitingApprovalTasks({ projectIds, limit }) {
+      if (projectIds.length === 0) return { total: 0, rows: [] };
+      const where = { projectId: { in: projectIds }, deletedAt: null, approvalRequestedAt: { not: null } };
+      const [total, ids] = await Promise.all([
+        prisma.task.count({ where }),
+        prisma.task.findMany({ where, select: { id: true }, orderBy: [{ approvalRequestedAt: 'asc' }, { key: 'asc' }], take: limit }),
+      ]);
+      return { total, rows: await lines(ids.map((r) => r.id)) };
+    },
+
     async followUpTasks({ projectIds, limit }) {
       if (projectIds.length === 0) return { total: 0, rows: [] };
       const from = Prisma.sql`FROM inspection_follow_ups f

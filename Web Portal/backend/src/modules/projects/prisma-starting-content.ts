@@ -17,7 +17,7 @@ const displayName = (u: { firstName: string; lastName: string; username: string 
  */
 export async function writeStartingTasks(
   tx: Prisma.TransactionClient,
-  project: { id: string; code: string; ownerId: string | null; createdById: string },
+  project: { id: string; code: string; ownerId: string | null; createdById: string; newTasksNeedApproval?: boolean },
   column: { id: string; category: string },
   start: StartingContent,
 ): Promise<number> {
@@ -43,6 +43,8 @@ export async function writeStartingTasks(
     dueDate: t.dueDate,
     boardDate: start.boardDate,
     createdById: project.createdById,
+    // "New tasks in this project need approval": the template's tasks are new tasks too.
+    needsApproval: project.newTasksNeedApproval ?? false,
     ...done,
   } }));
   await inChunks(tasks, (chunk) => tx.task.createMany({ data: chunk.map((t) => ({ id: t.id, ...t.row })) }));

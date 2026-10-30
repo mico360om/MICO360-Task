@@ -24,7 +24,8 @@ export interface PrismaRecurrencePortOptions {
  * a second copy of the same task — completing it twice, or from two apps at once, makes one.
  *
  * The next occurrence is a normal task: it sits on today's board, starts now, keeps the
- * series' assignees, watchers, tags, (unticked) checklist and inspection form and place, and gets a
+ * series' assignees, watchers, tags, (unticked) checklist, inspection form and place and "Needs
+ * approval" tick, and gets a
  * CREATED activity row —
  * all in one transaction with clearing the source's rule.
  */
@@ -95,6 +96,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 // A scheduled check: every copy is carried out with the same form, at the same place.
                 inspectionFormId: source.inspectionFormId ?? undefined,
                 inspectionPlace: source.inspectionPlace ?? undefined,
+                // Needs approval: every copy does too (each starts fresh — not waiting, not approved).
+                needsApproval: source.needsApproval,
                 estimatedHours: source.estimatedHours ?? undefined,
                 startDate: at,
                 dueDate: nextDueDate,

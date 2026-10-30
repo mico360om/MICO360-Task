@@ -24,6 +24,8 @@ export interface DailyEmailServiceDeps {
   tasks: {
     pending(userId: string): Promise<DailyTask[]>;
     completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]>;
+    /** How many tasks wait for this person's approval (task approvals): a line in the pending email. */
+    awaitingApproval?(userId: string): Promise<number>;
   };
   /**
    * Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked after a
@@ -277,8 +279,10 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date): Promise<{ count: number; content: EmailContent | null }> {
     const timeZone = zoneOf(person);
     if (kind === 'PENDING') {
-      const tasks = await deps.tasks.pending(person.id);
-      return { count: tasks.length, content: tasks.length ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl }) : null };
+      const [tasks, awaitingApproval] = await Promise.all([deps.tasks.pending(person.id), deps.tasks.awaitingApproval?.(person.id) ?? Promise.resolve(0)]);
+      // Sent when they have pending tasks of their own, or tasks waiting for their approval.
+      const content = tasks.length || awaitingApproval ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl, awaitingApproval }) : null;
+      return { count: tasks.length, content };
     }
     const yesterday = shiftDayKey(day, -1);
     const tasks = await deps.tasks.completedBetween(person.id, zonedStartOfDay(yesterday, timeZone), zonedStartOfDay(day, timeZone));

@@ -260,6 +260,32 @@ describe('ManagementPage', () => {
     await waitFor(() => expect(where).toContain('owner=omar'));
   });
 
+  it('tasks waiting for approval: in all and per project, each number opening the list of them', async () => {
+    data = overview({ approvals: { total: 3, projects: [{ id: 'rig', code: 'RIG', name: 'Rig Inspection Portal', count: 2 }, { id: 'arab', code: 'ARB', name: 'مشروع الحفر', count: 1 }] } });
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Waiting for approval' });
+    expect(within(section).getByText('مشروع الحفر').tagName).toBe('BDI');
+    const user = userEvent.setup();
+    await user.click(within(section).getByRole('button', { name: '2 tasks waiting for approval in Rig Inspection Portal: show the list' }));
+    await screen.findByRole('dialog');
+    expect(calls.some((c) => c.includes('/management/items?') && c.includes('metric=awaiting-approval') && c.includes('projectId=rig'))).toBe(true);
+    await user.keyboard('{Escape}');
+    await user.click(within(section).getByRole('button', { name: '3 tasks waiting for approval: show the list' }));
+    await waitFor(() => expect(calls.filter((c) => c.includes('metric=awaiting-approval'))).toHaveLength(2));
+  });
+
+  it('nothing waiting for approval: says so (an older server without the figures: no section)', async () => {
+    data = overview({ approvals: { total: 0, projects: [] } });
+    const { unmount } = renderPage();
+    const section = await screen.findByRole('region', { name: 'Waiting for approval' });
+    expect(within(section).getByText('Nothing is waiting')).toBeInTheDocument();
+    unmount();
+    data = overview();
+    renderPage();
+    await screen.findByRole('region', { name: 'Project health' });
+    expect(screen.queryByRole('region', { name: 'Waiting for approval' })).toBeNull();
+  });
+
   it('opens the list behind a number in a side sheet; a row opens its task; Escape closes it', async () => {
     renderPage();
     const health = await screen.findByRole('region', { name: 'Project health' });

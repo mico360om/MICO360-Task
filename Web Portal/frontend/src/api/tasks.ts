@@ -15,6 +15,30 @@ export interface TaskMeetingLink {
   canView: boolean;
 }
 
+/** A person named on a task's approval. */
+export interface ApprovalPerson {
+  id: string;
+  name: string;
+}
+
+/** A task's approval as its details show it to the signed-in person (single-task responses). */
+export interface TaskApprovalInfo {
+  /** They may approve it or send it back (they run the project, or are an administrator). */
+  canApprove: boolean;
+  /** Who finished it (asked for approval). */
+  requestedBy: ApprovalPerson | null;
+  /** Who approved it last. */
+  approvedBy: ApprovalPerson | null;
+  /** The one person who runs the project; null when several do (or none). */
+  approverName: string | null;
+}
+
+/** A task waiting for the signed-in person's approval (GET /tasks/approvals). */
+export interface ApprovalTask extends ApiTask {
+  project: { id: string; code: string; name: string; color: string | null; icon: string | null; imageUrl: string | null };
+  requestedBy: ApprovalPerson | null;
+}
+
 export interface ApiTask {
   id: string;
   key: string;
@@ -61,6 +85,16 @@ export interface ApiTask {
   inspectionPlace?: string | null;
   /** That form (single-task responses): its title, and whether it was deleted since (it can still be done). */
   inspectionForm?: { id: string; title: string; deleted: boolean } | null;
+  /** It needs the OK of whoever runs its project before it counts as done (older servers leave it out). */
+  needsApproval?: boolean;
+  /** Set while it waits for approval: finished, but not done yet. */
+  approvalRequestedAt?: string | null;
+  approvalRequestedById?: string | null;
+  /** Its last approval. */
+  approvedAt?: string | null;
+  approvedById?: string | null;
+  /** Its approval as the signed-in person sees it (single-task responses). */
+  approval?: TaskApprovalInfo;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
   /** Aggregate counts for card badges (present on list responses). */
@@ -88,6 +122,8 @@ export interface NewTaskInput {
   /** The inspection form it is carried out with, and where (a check). */
   inspectionFormId?: string | null;
   inspectionPlace?: string | null;
+  /** Needs approval; left out, the project's "New tasks in this project need approval" decides. */
+  needsApproval?: boolean;
 }
 
 export interface CreateTaskOptions {
@@ -236,6 +272,14 @@ export function tasksApi(client: ApiClient) {
     /** Move several tasks to another project: a result for each. */
     moveManyToProject: (taskIds: string[], input: MoveInput) =>
       client.post<{ data: BulkMoveResult }>('/tasks/move-to-project', { taskIds, ...input }).then((r) => r.data),
+    /** The tasks waiting for the signed-in person's approval, and whether they approve any project's tasks. */
+    approvals: () => client.get<{ data: { canApprove: boolean; tasks: ApprovalTask[] } }>('/tasks/approvals').then((r) => r.data),
+    /** Approve a waiting task: it is done now. */
+    approve: (id: string, expectedVersion?: number) =>
+      client.post<{ data: ApiTask }>(`/tasks/${id}/approve`, expectedVersion !== undefined ? { expectedVersion } : {}).then((r) => r.data),
+    /** Send a waiting task back with a reason: it is in progress again. */
+    sendBack: (id: string, reason: string, expectedVersion?: number) =>
+      client.post<{ data: ApiTask }>(`/tasks/${id}/send-back`, { reason, ...(expectedVersion !== undefined ? { expectedVersion } : {}) }).then((r) => r.data),
     /** Re-sequence a column's tasks (intra-column drag reordering). */
     reorder: (columnId: string, orderedIds: string[]) =>
       client.put<{ data: { ok: boolean } }>(`/columns/${columnId}/tasks/reorder`, { orderedIds }).then((r) => r.data),

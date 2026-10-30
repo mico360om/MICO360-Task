@@ -57,6 +57,8 @@ export interface MicoAiActionsPortDeps {
 const NO_PROJECT = 'You do not have access to this project.';
 const NO_TASK = 'You do not have permission to do that.';
 const NO_MEETING = 'Only the organizer, the project manager or an admin can change this meeting.';
+/** A task that needs approval, finished by someone who can't approve, waits (task-approval). */
+export const WAITING_FOR_APPROVAL = 'It needs approval, so it is waiting for a project manager.';
 const day = (key: string | null | undefined) => (key ? new Date(`${key}T00:00:00.000Z`) : null);
 const nameOf = (u: { firstName: string; lastName: string; username: string } | null | undefined) => (u ? [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username : 'Someone');
 const isConflict = (err: unknown) => (err as { status?: unknown })?.status === 409 || (err as { code?: unknown })?.code === 'VERSION_CONFLICT';
@@ -237,6 +239,8 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
       try {
         const task = await taskService.updateTask(taskId, patch, expectedVersion, 'one', viewer.userId);
         announce(task.projectId, 'task:updated', task);
+        // Asked to finish a task that needs approval (task-approval): it waits for a manager instead.
+        if (change.columnId !== undefined && task.columnId !== change.columnId && task.approvalRequestedAt) warning = WAITING_FOR_APPROVAL;
       } catch (err) {
         const now0 = isConflict(err) ? null : await taskState(taskId);
         if (!now0 || now0.version !== expectedVersion + 1) throw err;

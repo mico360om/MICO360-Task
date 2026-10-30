@@ -320,6 +320,40 @@ describe('the lists behind the numbers (always inside the caller’s scope)', ()
   });
 });
 
+describe('tasks waiting for approval', () => {
+  // Two finished tasks waiting for the OK of whoever runs their project (task approvals).
+  const WAITING: FakeManagementData = {
+    ...DATA,
+    tasks: DATA.tasks.map((t) => (t.id === 'r3' ? { ...t, waitingSince: '2026-10-26T08:00:00.000Z' } : t.id === 'm2' ? { ...t, waitingSince: '2026-10-25T08:00:00.000Z' } : t)),
+  };
+
+  it('how many wait in each project and in all, in the caller’s own scope', async () => {
+    const { svc } = service(WAITING);
+    const all = await svc.overview(ADMIN, filters());
+    expect(all.approvals).toEqual({
+      total: 2,
+      projects: [
+        { id: 'mico', code: 'MICO', name: 'MICO360 Platform', count: 1 },
+        { id: 'rig', code: 'RIG', name: 'Rig Inspection Portal', count: 1 },
+      ],
+    });
+    expect((await svc.overview(SARA, filters())).approvals).toEqual({ total: 1, projects: [{ id: 'rig', code: 'RIG', name: 'Rig Inspection Portal', count: 1 }] });
+    expect((await service().svc.overview(ADMIN, filters())).approvals).toEqual({ total: 0, projects: [] });
+  });
+
+  it('the list behind the number: the waiting tasks, the longest waiting first (of one project when asked)', async () => {
+    const { svc } = service(WAITING);
+    const list = await svc.items(ADMIN, filters(), { metric: 'awaiting-approval' });
+    expect(list).toMatchObject({ metric: 'awaiting-approval', title: 'Waiting for approval', total: 2 });
+    expect(list.rows.map((r) => r.id)).toEqual(['m2', 'r3']);
+    expect(list.rows[0]).toMatchObject({ kind: 'task', project: { id: 'mico' }, detail: 'Waiting for approval', tone: 'warning' });
+    const rig = await svc.items(ADMIN, filters(), { metric: 'awaiting-approval', projectId: 'rig' });
+    expect(rig).toMatchObject({ title: 'Waiting for approval · Rig Inspection Portal', total: 1 });
+    // A runner never sees another project’s waiting tasks.
+    expect((await svc.items(SARA, filters(), { metric: 'awaiting-approval' })).rows.map((r) => r.id)).toEqual(['r3']);
+  });
+});
+
 describe('the weekly summary’s figures (each person’s own scope)', () => {
   it('red and amber counts with the worst projects, late tasks, missing checks, last week’s checks and pass rate, and who has the most late work', async () => {
     const { svc } = service();

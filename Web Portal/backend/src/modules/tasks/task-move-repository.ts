@@ -45,6 +45,11 @@ export interface MovableTask {
   completedAt: Date | null;
   /** Its version when read: the move is saved only if nobody changed it since. */
   version: number;
+  /** Needs approval, and its approval state (task-approval): moved into Done it is approved by the mover. */
+  needsApproval?: boolean;
+  approvalRequestedAt?: Date | null;
+  approvalRequestedById?: string | null;
+  approvedAt?: Date | null;
   /** Carries the repeat rule: the newest copy of its series, whose next copies follow it. */
   repeats: boolean;
   /** One of the copies of a repeating series (the newest or an earlier one). */
@@ -65,7 +70,18 @@ export interface ProjectMoveWrite {
   to: { projectId: string; name: string; code: string };
   columnId: string;
   /** Field changes that go with the move: milestone cleared, due date set, completion following the column. */
-  patch: { isMilestone?: boolean; clientVisible?: boolean; dueDate?: Date; completedAt?: Date | null; progress?: number; boardDate?: Date };
+  patch: {
+    isMilestone?: boolean;
+    clientVisible?: boolean;
+    dueDate?: Date;
+    completedAt?: Date | null;
+    progress?: number;
+    boardDate?: Date;
+    approvedAt?: Date | null;
+    approvedById?: string | null;
+    approvalRequestedAt?: Date | null;
+    approvalRequestedById?: string | null;
+  };
   /** People added to the new project's team (as members). */
   addToTeam: string[];
   /** Assignees taken off the task (each gets an UNASSIGNED line). */

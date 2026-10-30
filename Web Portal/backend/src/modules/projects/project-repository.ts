@@ -24,6 +24,8 @@ export interface ProjectRecord {
   carryForward: boolean;
   /** A task added without a due date gets today's date (see ProjectTaskSettings). */
   defaultDueToday: boolean;
+  /** "New tasks in this project need approval" (see ProjectTaskSettings); absent = off. */
+  newTasksNeedApproval?: boolean;
   createdById: string;
   createdAt: Date;
   updatedAt: Date;
@@ -46,6 +48,7 @@ export interface CreateProjectData {
   notes?: string | null;
   carryForward?: boolean;
   defaultDueToday?: boolean;
+  newTasksNeedApproval?: boolean;
   createdById: string;
   /** Its team from the start, written with the project in one go (one row per person). */
   members?: NewProjectMember[];
@@ -102,6 +105,7 @@ export interface UpdateProjectData {
   /** Absent = unchanged (older apps send updates without the task settings). */
   carryForward?: boolean;
   defaultDueToday?: boolean;
+  newTasksNeedApproval?: boolean;
 }
 
 /** The board every new project starts with (positions 0..n, in this order). */

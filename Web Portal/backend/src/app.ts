@@ -16,6 +16,8 @@ import { registerProjectRoutes } from './modules/projects/project-routes';
 import type { ProjectOverviewSource } from './modules/projects/project-overview';
 import type { ProjectService } from './modules/projects/project-service';
 import { registerTaskRoutes, type TaskMeetingLookup } from './modules/tasks/task-routes';
+import { registerTaskApprovalRoutes, type ApprovalSource, type ApprovalViewer, type TaskApprovalDetails } from './modules/tasks/task-approval-routes';
+import type { TaskRecord } from './modules/tasks/task-repository';
 import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
 import type { TaskMoveService } from './modules/tasks/task-move-service';
@@ -107,6 +109,10 @@ export interface AppDeps extends AuthRouteDeps {
   taskMeeting?: TaskMeetingLookup;
   /** The inspection form a task carries, for its details: its title, and whether it was deleted. */
   taskInspectionForm?: (formId: string) => Promise<{ id: string; title: string; deleted: boolean } | null>;
+  /** Task approvals: the To approve list (and Approve / Send back through the task service). */
+  approvalSource?: ApprovalSource;
+  /** A task's approval as its details show it to one person. */
+  taskApprovalDetails?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
   /** Write a line to a task's activity timeline — checklist, comment, file and blocker changes. */
   recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
@@ -536,9 +542,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           countSeries: deps.seriesInstanceCount,
           taskMeeting: deps.taskMeeting ?? taskMeetingFrom(deps),
           taskInspectionForm: deps.taskInspectionForm,
+          taskApproval: deps.taskApprovalDetails,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
+        });
+      }
+      if (deps.taskService && deps.approvalSource) {
+        await registerTaskApprovalRoutes(api, {
+          taskService: deps.taskService,
+          source: deps.approvalSource,
+          guard,
+          broadcast: deps.onTaskEvent,
+          canViewTask,
+          audit: deps.auditService,
+          logger: deps.logger,
         });
       }
       if (deps.taskMoveService) {

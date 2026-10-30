@@ -10,6 +10,8 @@ import { boardDateFromKey } from './board-date';
 import { calendarDay, dateInput, hours, idString, inspectionPlace, longText, queryBoolean, requiredText, VARCHAR_MAX } from './validation';
 import { projectOccurrences } from './calendar-projection';
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
+import type { TaskRecord } from './task-repository';
+import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -86,6 +88,8 @@ const createSchema = z.object({
   inspectionFormId: idString.nullable().optional(),
   /** Where the check is done ("Rig 3"): trimmed, blank means none. */
   inspectionPlace: inspectionPlace.nullable().optional(),
+  /** Needs the OK of whoever runs the project before it counts as done; left out, the project's setting decides. */
+  needsApproval: z.boolean().optional(),
 });
 
 const updateSchema = z.object({
@@ -109,6 +113,8 @@ const updateSchema = z.object({
   /** Changing the form only affects inspections started afterwards; null clears it. */
   inspectionFormId: idString.nullable().optional(),
   inspectionPlace: inspectionPlace.nullable().optional(),
+  /** Turning it off while the task waits for approval: only for the people who can approve it. */
+  needsApproval: z.boolean().optional(),
 });
 
 const moveSchema = z.object({ columnId: idString, position: z.number().int().min(0).optional() });
@@ -154,6 +160,8 @@ export interface TaskRouteDeps {
   taskMeeting?: TaskMeetingLookup;
   /** When provided, a task’s details name the inspection form it carries (and whether it was deleted). */
   taskInspectionForm?: (formId: string) => Promise<{ id: string; title: string; deleted: boolean } | null>;
+  /** When provided, a task’s details say who may approve it, who finished it and who approved it. */
+  taskApproval?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -276,7 +284,8 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     }
     const task = await taskService.getTask(id);
     const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm } };
+    const approval = deps.taskApproval ? { approval: await deps.taskApproval({ id: req.user!.id, roles: req.user!.roles ?? [] }, task) } : {};
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval } };
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
