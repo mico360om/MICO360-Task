@@ -39,6 +39,12 @@ describe('gatherAgendaSources', () => {
     ]);
   });
 
+  it('a task waiting for approval is not overdue on the agenda (owner, 30 Oct; ruling 45)', async () => {
+    const { store, deps } = setup();
+    vi.mocked(store.openTasks).mockResolvedValueOnce([{ key: 'PUMP-4', title: 'Handed in', dueDate: new Date('2026-10-18T00:00:00Z'), blocked: false, waiting: true }]);
+    expect((await gatherAgendaSources(deps, { requester: me, projectId: 'p1', startAt: START })).tasks).toEqual([{ key: 'PUMP-4', title: 'Handed in', reason: 'due' }]);
+  });
+
   it('takes leftovers from the previous meeting of the series, else the project’s last meeting', async () => {
     const series = setup({ previous: 'm4', last: 'm2' });
     expect((await gatherAgendaSources(series.deps, { requester: me, projectId: 'p1', startAt: START, meetingId: 'm5' })).leftovers).toEqual([{ title: 'Open point from m4', kind: 'action' }]);

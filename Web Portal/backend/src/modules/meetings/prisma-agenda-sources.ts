@@ -13,11 +13,11 @@ export function createPrismaAgendaSources(prisma: PrismaClient): AgendaSourceSto
           completedAt: null,
           AND: [{ column: { category: { not: 'DONE' } } }, { OR: [{ column: { category: 'BLOCKED' } }, { dueDate: { lte: dueBy } }] }],
         },
-        select: { key: true, title: true, dueDate: true, column: { select: { category: true } } },
+        select: { key: true, title: true, dueDate: true, approvalRequestedAt: true, column: { select: { category: true } } },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
         take: 100,
       });
-      return rows.map((r) => ({ key: r.key, title: r.title, dueDate: r.dueDate, blocked: r.column.category === 'BLOCKED' }));
+      return rows.map((r) => ({ key: r.key, title: r.title, dueDate: r.dueDate, blocked: r.column.category === 'BLOCKED', waiting: r.approvalRequestedAt !== null }));
     },
 
     async previousInSeries(meetingId) {

@@ -124,6 +124,22 @@ describe('MICO AI tools: tasks', () => {
   });
 });
 
+describe('MICO AI tools: a task waiting for approval is not overdue while it waits (owner, 30 Oct; ruling 45)', () => {
+  const waiting = () => {
+    const d = company();
+    d.tasks = d.tasks.map((t) => (t.id === 't9' ? { ...t, category: 'REVIEW', columnName: 'Review', approvalRequestedAt: new Date('2026-10-21T08:00:00Z') } : t));
+    return d;
+  };
+
+  it('leaves it out of the overdue tasks and the overdue counts; its row has no days overdue', async () => {
+    const data = waiting();
+    expect(keys((await run(OMAR, 'search_tasks', { project: 'Rig Inspection', status: 'overdue' }, data)).rows)).toEqual(['RIG-14', 'RIG-21']);
+    const all = await run(OMAR, 'search_tasks', { project: 'Rig Inspection' }, data);
+    expect(all.rows.find((x) => x.values.key === 'RIG-9')!.values.overdueDays).toBeNull();
+    expect((await run(OMAR, 'list_projects', {}, data)).rows[0]!.values).toMatchObject({ overdue: 2, open: 4 });
+  });
+});
+
 describe('MICO AI tools: projects and activity', () => {
   it('lists only the projects the person can see, with progress', async () => {
     const r = await run(OMAR, 'list_projects');

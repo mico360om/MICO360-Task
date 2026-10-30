@@ -1,7 +1,7 @@
 import { z, type ZodTypeAny } from 'zod';
-import { dueDayKey, daysUntilDue, isOverdue, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
+import { dueDayKey, daysUntilDue, shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { CATEGORY_ORDER, categoryLabel, priorityLabel, wallClock } from '../../lib/export-format';
-import { isTaskDone } from '../tasks/task-status';
+import { isTaskDone, isTaskLate } from '../tasks/task-status';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
 import { buildTimeline } from '../activity/activity-feed';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
@@ -259,7 +259,8 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         priority: priorityLabel(t.priority),
         assignees: assigneesText(s, t.assigneeIds),
         due: dueDayKey(t.dueDate, timeZone),
-        overdueDays: !done && until !== null && until < 0 ? -until : null,
+        // Never "days overdue" while it waits for approval (owner, 30 Oct).
+        overdueDays: !done && !t.approvalRequestedAt && until !== null && until < 0 ? -until : null,
         completed: done && t.completedAt ? zonedDayKey(t.completedAt, timeZone) : null,
         progress: done ? 100 : Math.max(0, Math.min(100, t.progress)),
       },
@@ -283,6 +284,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     dueDate: t.dueDate,
     completedAt: t.completedAt,
     assigneeIds: t.assigneeIds,
+    approvalRequestedAt: t.approvalRequestedAt ?? null,
   });
   const dueWithin = (t: AiTaskRec, from?: string, to?: string) => {
     if (!from && !to) return true;
@@ -349,7 +351,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           const done = isTaskDone({ columnCategory: t.category, completedAt: t.completedAt });
           if (status === 'open' && done) return false;
           if (status === 'done' && !done) return false;
-          if (status === 'overdue' && (done || !isOverdue(t.dueDate, timeZone, now()))) return false;
+          if (status === 'overdue' && !isTaskLate({ columnCategory: t.category, completedAt: t.completedAt, dueDate: t.dueDate, approvalRequestedAt: t.approvalRequestedAt }, timeZone, now())) return false;
           const cat: Record<string, string> = { blocked: 'BLOCKED', in_progress: 'IN_PROGRESS', todo: 'TODO', review: 'REVIEW', backlog: 'BACKLOG' };
           if (cat[status] && (done || t.category !== cat[status])) return false;
           if (a.priority && t.priority !== a.priority) return false;

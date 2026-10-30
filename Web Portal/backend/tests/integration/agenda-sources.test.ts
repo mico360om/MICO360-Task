@@ -55,7 +55,7 @@ describe('Prisma agenda sources (integration)', () => {
     await task(blocked, { deletedAt: new Date() }); // 8: deleted
     const out = await store.openTasks(projectId, new Date('2026-11-02T00:00:00Z'));
     expect(out.map((t) => t.key).sort()).toEqual(['ASRC-1', 'ASRC-2', 'ASRC-3']);
-    expect(out.find((t) => t.key === 'ASRC-2')).toEqual({ key: 'ASRC-2', title: 'Task 2', dueDate: null, blocked: true });
+    expect(out.find((t) => t.key === 'ASRC-2')).toEqual({ key: 'ASRC-2', title: 'Task 2', dueDate: null, blocked: true, waiting: false });
   });
 
   it('the previous meeting of a series, and the project’s last meeting before a time', async () => {

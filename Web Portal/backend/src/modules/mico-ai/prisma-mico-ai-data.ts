@@ -59,6 +59,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     progress: t.progress,
     isMilestone: t.isMilestone,
     assigneeIds: t.assignees.map((a) => a.userId),
+    approvalRequestedAt: t.approvalRequestedAt,
   });
   const link = (t: { id: string; key: string; title: string; projectId: string; column: { category: string; name: string } }): AiTaskLink => ({
     id: t.id,

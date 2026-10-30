@@ -43,6 +43,8 @@ export interface AiTaskRec {
   progress: number;
   isMilestone: boolean;
   assigneeIds: string[];
+  /** Waiting for approval since then (task approvals): not overdue while it waits (owner, 30 Oct). */
+  approvalRequestedAt?: Date | null;
 }
 
 export interface AiTaskLink {

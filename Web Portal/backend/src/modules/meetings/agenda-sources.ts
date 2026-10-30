@@ -15,8 +15,11 @@ export interface AgendaLeftover {
 
 /** Where Draft agenda's tasks and leftovers are read from (see prisma-agenda-sources.ts). */
 export interface AgendaSourceStore {
-  /** The project's open (not done) tasks that are blocked, or due by `dueBy` — overdue ones included. */
-  openTasks(projectId: string, dueBy: Date): Promise<Array<{ key: string; title: string; dueDate: Date | null; blocked: boolean }>>;
+  /**
+   * The project's open (not done) tasks that are blocked, or due by `dueBy` — overdue ones included;
+   * `waiting`: it waits for approval (never overdue meanwhile; left out by older stores = no).
+   */
+  openTasks(projectId: string, dueBy: Date): Promise<Array<{ key: string; title: string; dueDate: Date | null; blocked: boolean; waiting?: boolean }>>;
   /** The meeting before this one in its series (not cancelled or deleted), or null. */
   previousInSeries(meetingId: string): Promise<string | null>;
   /** The project's last meeting before `before` (not cancelled or deleted, never `excludeId`), or null. */
@@ -56,7 +59,7 @@ export async function gatherAgendaSources(
 
   const tasks = project
     ? (await store.openTasks(project, new Date(input.startAt.getTime() + WEEK_MS)))
-        .map((t): AgendaTask => ({ key: t.key, title: t.title, reason: t.dueDate && isOverdue(t.dueDate, deps.timeZone, now) ? 'overdue' : t.blocked ? 'blocked' : 'due' }))
+        .map((t): AgendaTask => ({ key: t.key, title: t.title, reason: t.dueDate && !t.waiting && isOverdue(t.dueDate, deps.timeZone, now) ? 'overdue' : t.blocked ? 'blocked' : 'due' }))
         .sort((a, b) => ORDER[a.reason] - ORDER[b.reason])
         .slice(0, MAX_TASKS)
     : [];
