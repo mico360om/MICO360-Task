@@ -5,21 +5,10 @@ import { STATUS_LABEL, itemMeta, itemName, type CalItem, type CalStatus } from '
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { moveButton } from '../../lib/calendar-reschedule';
 import { font } from '../../lib/typography';
-import type { IconName } from '../../lib/icons';
 import { Icon } from '../Icon';
 
-/**
- * Each status's sign (with its words beside it — colour is never the only sign): the website's
- * calendar icons where the app has them; "To do" is the website's plain circle, drawn as a ring.
- */
-const STATUS_ICON: Record<CalStatus, IconName | null> = {
-  overdue: 'ui.alert',
-  blocked: 'kit.lock',
-  'in-progress': 'kit.clock',
-  todo: null,
-  done: 'kit.checkCircle',
-  projected: 'kit.repeat',
-};
+// Each status's sign is the website's calendar icon (lib/icons `cal.<status>`, from its calendar's
+// STATUS_META), with its words beside it — colour is never the only sign.
 
 /** The status's words and sign in its text tone (the dots keep the fills: MonthGrid statusColor). */
 function statusTextColor(c: Palette, s: CalStatus): string {
@@ -63,7 +52,6 @@ export function CalendarTaskRow({
   const projected = item.kind === 'projected';
   const meta = itemMeta(item, projectName);
   const tone = statusTextColor(c, item.status);
-  const sign = STATUS_ICON[item.status];
   const move = movable ? moveButton(item) : null;
   const actionLabel = move ? move.a11y : 'Why it can’t be moved';
   return (
@@ -82,7 +70,7 @@ export function CalendarTaskRow({
     >
       <View style={[s.edge, { backgroundColor: projectColor || c.line }]} />
       <View style={s.icon} importantForAccessibility="no-hide-descendants">
-        {sign ? <Icon name={sign} size={18} color={tone} /> : <View style={[s.ring, { borderColor: tone }]} />}
+        <Icon name={`cal.${item.status}`} size={18} color={tone} />
       </View>
       <View style={s.body}>
         <Text style={[s.title, item.status === 'done' && s.doneTitle, projected && s.projectedTitle]} numberOfLines={2}>
@@ -128,7 +116,6 @@ const makeStyles = (c: Palette) =>
     pressed: { opacity: 0.7 },
     edge: { alignSelf: 'stretch', width: 4, marginVertical: -spacing.sm },
     icon: { width: 22, alignItems: 'center', justifyContent: 'center' },
-    ring: { width: 15, height: 15, borderRadius: 8, borderWidth: 2 },
     body: { flex: 1, gap: 2 },
     // An Arabic title reads right to left on its own line (Android picks the direction from the text).
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink, textAlign: 'auto' },

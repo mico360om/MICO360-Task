@@ -6,6 +6,7 @@
  *   ui      — components/chat/icons.tsx (each its own stroke; the ticks are `Ticks`)
  *   project — lib/project-icons.tsx PROJECT_ICON_PATHS (stroke 1.9)
  *   misc    — single icons from the files named in `source`
+ *   cal     — components/calendar/calendar-ui.tsx STATUS_META (each calendar status; stroke 2.2)
  * Names are `<group>.<key>` (`nav.dashboard`, `project.rocket`, `misc.waiting`).
  */
 import type { ProjectIconKey } from './project-identity';
@@ -163,9 +164,21 @@ const MISC_DATA = {
 export type MiscKey = keyof typeof MISC_DATA;
 export const MISC_ICONS: Record<MiscKey, IconDef & { source: string }> = MISC_DATA;
 
-export type IconName = `nav.${NavKey}` | `kit.${KitKey}` | `ui.${UiKey}` | `project.${ProjectIconKey}` | `misc.${MiscKey}`;
+/** The calendar's status signs — calendar-ui.tsx STATUS_META, keyed by the calendar status (lib/calendar-model CalStatus). */
+const CAL_DATA = {
+  overdue: { strokeWidth: 2.2, shapes: [c(12, 12, 9), p('M12 7v6M12 16.5h.01')] },
+  blocked: { strokeWidth: 2.2, shapes: [c(12, 12, 9), p('m5.6 5.6 12.8 12.8')] },
+  'in-progress': { strokeWidth: 2.2, shapes: [c(12, 12, 9), p('M12 3a9 9 0 0 1 0 18z', { fill: true })] },
+  todo: { strokeWidth: 2.2, shapes: [c(12, 12, 9)] },
+  done: { strokeWidth: 2.2, shapes: [c(12, 12, 9), p('m8 12.5 2.5 2.5L16 9.5')] },
+  projected: { strokeWidth: 2.2, shapes: [p('M17 2l4 4-4 4'), p('M3 11v-1a4 4 0 0 1 4-4h14'), p('M7 22l-4-4 4-4'), p('M21 13v1a4 4 0 0 1-4 4H3')] },
+} satisfies Record<string, IconDef>;
+export type CalKey = keyof typeof CAL_DATA;
+export const CAL_ICONS: Record<CalKey, IconDef> = CAL_DATA;
 
-const GROUPS: Record<string, Record<string, IconDef>> = { nav: NAV_ICONS, kit: KIT_ICONS, ui: UI_ICONS, project: PROJECT_ICONS, misc: MISC_ICONS };
+export type IconName = `nav.${NavKey}` | `kit.${KitKey}` | `ui.${UiKey}` | `project.${ProjectIconKey}` | `misc.${MiscKey}` | `cal.${CalKey}`;
+
+const GROUPS: Record<string, Record<string, IconDef>> = { nav: NAV_ICONS, kit: KIT_ICONS, ui: UI_ICONS, project: PROJECT_ICONS, misc: MISC_ICONS, cal: CAL_ICONS };
 
 /** Every icon name, group by group. */
 export const ICON_NAMES: readonly IconName[] = Object.entries(GROUPS).flatMap(([group, icons]) => Object.keys(icons).map((key) => `${group}.${key}` as IconName));

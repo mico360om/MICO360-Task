@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CAL_ICONS,
   ICON_NAMES,
   KIT_ICONS,
   MISC_ICONS,
@@ -8,6 +9,7 @@ import {
   UI_ICONS,
   iconDef,
   isIconName,
+  type CalKey,
   type KitKey,
   type NavKey,
   type ProjectIconKey,
@@ -79,8 +81,28 @@ it('the project icons are the app’s project-icon keys, in the same order', () 
   expect(Object.keys(PROJECT_ICONS)).toEqual([...PROJECT_ICON_KEYS]);
 });
 
+describe.skipIf(!hasWeb('frontend/src/components/calendar/calendar-ui.tsx'))('the website’s calendar status icons', () => {
+  it('cal = calendar-ui.tsx STATUS_META icons, every status, same shapes and stroke', () => {
+    const meta = loadWebTsx('frontend/src/components/calendar/calendar-ui.tsx').STATUS_META as Record<string, { icon: unknown }>;
+    expect(Object.keys(CAL_ICONS)).toEqual(Object.keys(meta));
+    for (const k of Object.keys(meta)) {
+      const w = svgShapes(meta[k]!.icon);
+      expect(w.shapes.length, k).toBeGreaterThan(0);
+      expect(CAL_ICONS[k as CalKey], k).toMatchObject({ shapes: w.shapes, strokeWidth: w.strokeWidth });
+    }
+    expect(CAL_ICONS['in-progress'].shapes.some((sh) => sh.el === 'path' && sh.fill)).toBe(true); // the half-filled circle
+  });
+});
+
+it('the calendar draws each status with the website’s calendar icon', () => {
+  const row = src('components/calendar/CalendarTaskRow.tsx');
+  expect(row).toContain('<Icon name={`cal.${item.status}`}');
+  expect(row).not.toMatch(/kit\.lock|s\.ring/);
+  for (const k of ['overdue', 'blocked', 'in-progress', 'todo', 'done', 'projected']) expect(isIconName(`cal.${k}`), k).toBe(true);
+});
+
 it('every name resolves and nothing else does', () => {
-  expect(ICON_NAMES.length).toBe(Object.keys(NAV_ICONS).length + Object.keys(KIT_ICONS).length + Object.keys(UI_ICONS).length + Object.keys(PROJECT_ICONS).length + Object.keys(MISC_ICONS).length);
+  expect(ICON_NAMES.length).toBe(Object.keys(NAV_ICONS).length + Object.keys(KIT_ICONS).length + Object.keys(UI_ICONS).length + Object.keys(PROJECT_ICONS).length + Object.keys(MISC_ICONS).length + Object.keys(CAL_ICONS).length);
   for (const n of ICON_NAMES) expect(iconDef(n).shapes.length, n).toBeGreaterThan(0);
   expect(iconDef('kit.chat')).toBe(KIT_ICONS.chat);
   expect(isIconName('nav.dashboard')).toBe(true);
