@@ -15,15 +15,20 @@ export function isInside(child: string, parent: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
+/** The warning for a backup folder inside the app folder (refused in production, warned about elsewhere). */
+export const INSIDE_APP_PROBLEM = 'The backup folder is inside the app folder, which a new deployment replaces. Set BACKUP_DIR (or UPLOAD_DIR) to a private folder outside the app.';
+
 /**
  * Why the backup folder can't be used, or null. Copies hold everything (password hashes included),
- * so they must never sit in a folder the website serves.
+ * so they must never sit in a folder the website serves — nor, in production, inside the app folder:
+ * a deployment replaces it, and on a developer's PC that folder is the repository.
  */
-export function backupDirProblem(dir: string, where: { uploadDir: string; webRoot: string | null; assetsDir: string }): string | null {
+export function backupDirProblem(dir: string, where: { uploadDir: string; webRoot: string | null; assetsDir: string; appDir?: string; production?: boolean }): string | null {
   const advice = 'Set BACKUP_DIR to a private folder outside it.';
   if (isInside(dir, where.uploadDir)) return `The backup folder is inside the uploads folder, which the website serves. ${advice}`;
   if (where.webRoot && isInside(dir, where.webRoot)) return `The backup folder is inside the web app folder, which the website serves. ${advice}`;
   if (isInside(dir, where.assetsDir)) return `The backup folder is inside the email pictures folder, which the website serves. ${advice}`;
+  if (where.production && where.appDir && isInside(dir, where.appDir)) return INSIDE_APP_PROBLEM;
   return null;
 }
 

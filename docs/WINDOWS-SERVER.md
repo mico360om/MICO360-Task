@@ -91,8 +91,9 @@ provider keys can't be read afterwards. Keep this file private.
 The data folder holds everything: `mysql\` (the database), `uploads\` (attachments and pictures),
 `backups\`, `logs\` and `config\`.
 
-**Nightly backups**: every night from 02:00 (and whenever an administrator presses **Back up now** in
-System Settings → Backups) the server writes one file to `backups\` holding the whole database **and**
+**Nightly backups** (on by themselves: the server always runs with `NODE_ENV=production`;
+`BACKUP_NIGHTLY=false` in the settings turns them off): every night from 02:00 (and whenever an
+administrator presses **Back up now** in System Settings → Backups) the server writes one file to `backups\` holding the whole database **and**
 the uploaded files. It keeps the last 7 nights, one a week for the 4 weeks before, and the 3 newest
 "Back up now" copies; administrators can download them from System Settings. If the computer is off at
 02:00, the copy is made when the server next runs that day. Copy `backups\` to another disk or a USB drive

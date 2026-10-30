@@ -390,9 +390,10 @@ function buildHostinger() {
   const stage = path.join(STAGE, 'hostinger');
   const pkg = path.join(stage, name);
   clean(stage);
-  // Never shipped: installed/built output, local secrets, and the demo seed (it wipes the database
-  // and creates test accounts — development only).
-  const skip = /\/(node_modules|dist|uploads|coverage|\.vite|\.turbo)(\/|$)|\/\.env(?!\.example$)[^/]*$|\.log$|tsconfig\.tsbuildinfo$|\/prisma\/seed\.ts$/;
+  // Never shipped: installed/built output, local secrets, the demo seed (it wipes the database and
+  // creates test accounts — development only), and backup copies a local server made (the whole
+  // database; `backups` only at the backend root — src/modules/backups is source code).
+  const skip = /\/(node_modules|dist|uploads|coverage|\.vite|\.turbo)(\/|$)|^\/backups(\/|$)|\/\.work-[^/]*(\/|$)|\.tar\.gz(\.enc)?(\.partial)?$|\/\.env(?!\.example$)[^/]*$|\.log$|tsconfig\.tsbuildinfo$|\/prisma\/seed\.ts$/;
   copy(BACKEND, path.join(pkg, 'backend'), (f) => !skip.test(f.slice(BACKEND.replace(/\\/g, '/').length)));
   // The server is built on the host (deploy.sh); that build writes the version history from this.
   fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(pkg, 'backend', 'CHANGELOG.md'));

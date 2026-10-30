@@ -79,11 +79,13 @@ const EnvSchema = z.object({
   // without it no encrypted copy can ever be restored. Spaces around it are not part of it (the
   // restore tool reads it the same way).
   BACKUP_ENCRYPTION_KEY: z.string().trim().optional().default(''),
-  // 'false' turns the nightly copy off (e.g. on a test server); "Back up now" still works.
+  // The nightly copy. Blank = on in production (the Hostinger site and the Windows server both run
+  // with NODE_ENV=production), off on development, QA and test servers — whose copies would land in
+  // the repository. 'true' / 'false' says otherwise. "Back up now" works either way.
   BACKUP_NIGHTLY: z
     .string()
-    .default('true')
-    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+    .optional()
+    .transform((v) => (v === undefined || v.trim() === '' ? null : !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase()))),
   // Google Drive copies of the backups: the OAuth client made once in Google Cloud (docs/BACKUPS.md).
   // Blank = no Google Drive. The redirect address defaults to API_BASE_URL/api/v1/backups/google/callback.
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
@@ -94,7 +96,7 @@ const EnvSchema = z.object({
   // Per-user AI request budget.
   AI_USER_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   AI_USER_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(200),
-});
+}).transform((env) => ({ ...env, BACKUP_NIGHTLY: env.BACKUP_NIGHTLY ?? env.NODE_ENV === 'production' }));
 
 export type Env = z.infer<typeof EnvSchema>;
 

@@ -27,6 +27,17 @@ describe('where backups are kept (BACKUP_DIR)', () => {
     expect(backupDirProblem('/data/backups', { ...where, webRoot: null })).toBeNull();
   });
 
+  it('in production, refuses a folder inside the app folder (a deployment replaces it; on a dev PC it is the repository)', () => {
+    const where = { uploadDir: '/srv/app/backend/uploads', webRoot: null, assetsDir: '/srv/app/backend/assets', appDir: '/srv/app' };
+    expect(backupDirProblem('/srv/app/backend/backups', { ...where, production: true })).toBe(
+      'The backup folder is inside the app folder, which a new deployment replaces. Set BACKUP_DIR (or UPLOAD_DIR) to a private folder outside the app.',
+    );
+    expect(backupDirProblem('/home/u/mico360-data/backups', { ...where, production: true })).toBeNull();
+    // Elsewhere it is only warned about (System Settings shows it).
+    expect(backupDirProblem('/srv/app/backend/backups', { ...where, production: false })).toBeNull();
+    expect(backupDirProblem('/srv/app/backend/backups', where)).toBeNull();
+  });
+
   it('isInside compares whole folder names (uploads-old is not inside uploads)', () => {
     expect(isInside('/data/uploads/a', '/data/uploads')).toBe(true);
     expect(isInside('/data/uploads-old', '/data/uploads')).toBe(false);

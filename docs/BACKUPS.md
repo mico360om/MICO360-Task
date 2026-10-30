@@ -26,6 +26,9 @@ Not in a copy:
 
 - **Every night from 02:00, company time** (Oman time unless `COMPANY_TIMEZONE` says otherwise). If the
   server was off at 02:00, the copy is made as soon as it is running again that day.
+- The nightly copy is on for both real servers — the Hostinger site and the Windows server run with
+  `NODE_ENV=production` — and off on development, QA and test servers (their copies would land in the
+  repository). `BACKUP_NIGHTLY=true` / `false` says otherwise.
 - If a nightly copy fails, it is tried again an hour later, three tries a night. When the third fails, every
   administrator gets an email (if email is set up) and System Settings shows the reason. A copy that
   works is quiet.
@@ -57,8 +60,10 @@ In a private folder on the server, **never** one the website serves:
 | Windows server | `backups` in the data folder (default `%LOCALAPPDATA%\MICO360 Tasks Server\backups`) |
 
 The folder is `BACKUP_DIR` when that setting is filled in; otherwise it is a `backups` folder beside the
-uploads folder. The server refuses to put copies inside the uploads folder or the web app, and System
-Settings warns if the folder is inside the app folder (a new deployment may remove it). Copies are named
+uploads folder. The server refuses to put copies inside the uploads folder or the web app, and — on a
+real server (`NODE_ENV=production`) — inside the app folder, which a new deployment replaces: each copy
+then fails with that reason in System Settings (and the nightly failure email). Set `BACKUP_DIR`, or an
+absolute `UPLOAD_DIR` outside the app, to fix it. On other servers System Settings only warns. Copies are named
 `mico360-tasks-backup-<date>-<time>-<code>.tar.gz` (`.tar.gz.enc` when encrypted). Only files with
 these names are ever deleted — the Windows tray's own `mico360-….sql` dumps are left alone.
 
@@ -231,7 +236,7 @@ stop). Prefer the side-by-side way above.
 | --- | --- |
 | `BACKUP_DIR` | Where copies are kept. Blank = `backups` beside `UPLOAD_DIR`. Must be private, outside the app. |
 | `BACKUP_ENCRYPTION_KEY` | Optional passphrase (16+ characters) that encrypts every copy. See the warning above. |
-| `BACKUP_NIGHTLY` | `false` turns the nightly copy off (for a test server). Back up now still works. |
+| `BACKUP_NIGHTLY` | Blank = on when `NODE_ENV=production` (the Hostinger site, the Windows server), off on other servers. `true` / `false` says otherwise. Back up now works either way. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | The Google sign-in made in "Google Drive (one-time setup)". Blank = no Google Drive. |
 | `GOOGLE_REDIRECT_URI` | Only when it differs from `API_BASE_URL` + `/api/v1/backups/google/callback` (the Windows server). |
 

@@ -32,6 +32,17 @@ Thumbs.db
 # Runtime user uploads
 uploads/
 
+# Backup copies a development / QA / test server made (docs/BACKUPS.md): they hold the whole
+# database, password hashes included — never commit them. The folder is anchored on purpose:
+# src/modules/backups/ is source code.
+/Web Portal/backend/backups/
+/backups/
+*.tar.gz
+*.tar.gz.enc
+*.tar.gz.partial
+*.tar.gz.enc.partial
+.work-*
+
 # Generated archives / zips
 *.zip
 

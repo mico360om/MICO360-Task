@@ -16,6 +16,7 @@ import { prismaSqlRunner } from './sql-runner';
 
 type BackupEnv = Pick<
   Env,
+  | 'NODE_ENV'
   | 'BACKUP_DIR'
   | 'UPLOAD_DIR'
   | 'WEB_ROOT'
@@ -55,6 +56,7 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
   const backupDir = resolveBackupDir(env, cwd);
   const uploadDir = resolve(cwd, env.UPLOAD_DIR);
   const webRoot = env.WEB_ROOT ? resolve(cwd, env.WEB_ROOT) : null;
+  const appDir = appFolder(cwd);
   const sql = prismaSqlRunner(prisma);
 
   const google =
@@ -79,8 +81,9 @@ export function createBackupsFromPrisma(prisma: PrismaClient, opts: BackupWiring
     writeArchive: (o) =>
       writeBackupArchive({ ...o, sql, uploadDir, appVersion: opts.appVersion, encryptionKey: env.BACKUP_ENCRYPTION_KEY || undefined, pauseMs: 5, excludeDirs: [backupDir] }),
     backupDir,
-    dirProblem: backupDirProblem(backupDir, { uploadDir, webRoot, assetsDir: resolve(cwd, 'assets') }),
-    dirInsideApp: isInside(backupDir, appFolder(cwd)),
+    // In production a folder inside the app is refused (a deployment replaces it); elsewhere it is warned about.
+    dirProblem: backupDirProblem(backupDir, { uploadDir, webRoot, assetsDir: resolve(cwd, 'assets'), appDir, production: env.NODE_ENV === 'production' }),
+    dirInsideApp: isInside(backupDir, appDir),
     encryptionKey: env.BACKUP_ENCRYPTION_KEY,
     nightlyEnabled: env.BACKUP_NIGHTLY,
     timeZone: opts.timeZone,
