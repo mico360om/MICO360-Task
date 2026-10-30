@@ -165,6 +165,31 @@ describe('a client opens the link and enters the emailed code', () => {
     expect(codes).toEqual([]);
   });
 
+  it('asked again within a minute: says no new code was sent and how long to wait — the same for an address not on the list', async () => {
+    const link = await shareWithFatma();
+    expect(await svc.requestCode(link, 'fatma@client.example', {})).toEqual({ sent: true });
+    await settle();
+    clock += 18_000;
+    expect(await svc.requestCode(link, ' FATMA@client.example', {})).toEqual({ sent: false, retryAfterSeconds: 42 });
+    // Another address: answered by what was asked for it alone, so nobody learns who is on the list.
+    expect(await svc.requestCode(link, 'someone.else@client.example', {})).toEqual({ sent: true });
+    expect(await svc.requestCode(link, 'someone.else@client.example', {})).toEqual({ sent: false, retryAfterSeconds: 60 });
+    await settle();
+    expect(codes).toHaveLength(1); // the code sent first still works
+    clock += 43_000; // a minute and a second after the first: a new code goes
+    expect(await svc.requestCode(link, 'fatma@client.example', {})).toEqual({ sent: true });
+    await settle();
+    expect(codes).toHaveLength(2);
+  });
+
+  it('the wait is for this link only: the same address on another project’s link asks freely', async () => {
+    const link = await shareWithFatma();
+    await svc.share({ projectId: 'p2', name: 'Fatma', email: 'fatma@client.example', actorId: 'u-omar' });
+    const other = lastLink();
+    expect(await svc.requestCode(link, 'fatma@client.example', {})).toEqual({ sent: true });
+    expect(await svc.requestCode(other, 'fatma@client.example', {})).toEqual({ sent: true });
+  });
+
   it('codes are kept only as a hash', async () => {
     const link = await shareWithFatma();
     await svc.requestCode(link, 'fatma@client.example', {});

@@ -7,6 +7,7 @@ import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore }
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
 import { buildClientMinutesPdf } from './client-minutes-pdf';
+import { createRepeatGuard } from '../../lib/repeat-requests';
 import type { ClientInspection, ClientInspectionSummary } from '../inspections/inspection-client-copy';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from '../inspections/inspection-report-pdf';
 import { clientMinutesContent } from './client-minutes-content';
@@ -118,6 +119,9 @@ export function createClientAccessService(deps: ClientAccessDeps) {
   // Shares with a code being issued right now: a burst of requests is throttled here, before the
   // database count (which can't see a code that hasn't been stored yet).
   const issuing = new Set<string>();
+  // The same address asked again on the same link within the minute is told so, with the wait — by
+  // what was asked for that address alone, whether or not it is the shared one (as the staff sign-in).
+  const askedAgain = createRepeatGuard(limits.codesPerMinute);
 
   async function audit(entry: Omit<CreateAuditData, 'module'>): Promise<void> {
     try {
@@ -304,15 +308,20 @@ export function createClientAccessService(deps: ClientAccessDeps) {
 
     /**
      * Emails a code when the address is the one the link was shared with. The answer is the same,
-     * and as fast, whatever address is typed: nobody learns who is on the list.
+     * and as fast, whatever address is typed: nobody learns who is on the list. The same address
+     * asked again within the minute gets `sent: false` with the seconds to wait (the code sent
+     * before still works); the request still goes to issueCode, whose own limits drop it and note
+     * a burst in the audit log.
      */
-    async requestCode(link: unknown, email: unknown, meta: Meta): Promise<{ sent: true }> {
+    async requestCode(link: unknown, email: unknown, meta: Meta): Promise<{ sent: true } | { sent: false; retryAfterSeconds: number }> {
       const { share, project } = await openLink(link);
       if (!mailer.isConfigured()) throw new ClientEmailUnavailableError();
-      if (typeof email === 'string' && sameText(normalizeEmail(email), share.email)) {
+      const typed = typeof email === 'string' ? normalizeEmail(email) : '';
+      const wait = askedAgain(`${share.id} ${typed}`, now().getTime());
+      if (typeof email === 'string' && sameText(typed, share.email)) {
         runInBackground(() => issueCode(share, project.name, meta.ip ?? null));
       }
-      return { sent: true };
+      return wait === null ? { sent: true } : { sent: false, retryAfterSeconds: wait };
     },
 
     /** The shared address and its newest code sign this device in to this page (30 days). */

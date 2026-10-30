@@ -382,6 +382,17 @@ describe('the client’s own routes', () => {
     expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
   });
 
+  it('asked again within a minute, answers sent:false with the seconds to wait', async () => {
+    const { link } = await shareP1(f);
+    const ask = () => f.app.inject({ method: 'POST', url: '/api/v1/client/code', headers: { 'x-client-link': link }, payload: { email: 'fatma@client.example' } });
+    expect((await ask()).json()).toEqual({ data: { sent: true } });
+    const again = await ask();
+    expect(again.statusCode).toBe(202);
+    expect(again.json().data.sent).toBe(false);
+    expect(again.json().data.retryAfterSeconds).toBeGreaterThan(55);
+    expect(again.json().data.retryAfterSeconds).toBeLessThanOrEqual(60);
+  });
+
   it('a forwarded link with another address gets no code and can’t sign in — and is told the same as anyone', async () => {
     const { link } = await shareP1(f);
     const asked = await f.app.inject({ method: 'POST', url: '/api/v1/client/code', headers: { 'x-client-link': link }, payload: { email: 'colleague@other.example' } });
