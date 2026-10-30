@@ -96,7 +96,9 @@ const RULES: Rule[] = [
   {
     id: 'R4',
     says: 'no fontWeight — the weight is the face: font(…) / typeStyle(…)',
-    applies: (f) => f.endsWith('.tsx'),
+    // .ts and .tsx; lib/typography.ts is font() and typeStyle() themselves — they name the weight
+    // only for the phone's own fonts, when the brand faces didn't load (core/fonts' gate).
+    applies: (f) => f !== 'lib/typography.ts',
     breaks: (_f, text) => matchesOf(/fontWeight\s*:/, text),
   },
   {
@@ -118,6 +120,15 @@ const RULES: Rule[] = [
     breaks: (_f, text) => matchesOf(/\bradius\.(?:sm|md|lg)\b/, text),
   },
 ];
+
+// Final review L11: R4 reads .ts files too (a style made in lib/ is still a style).
+it('R4 covers .ts as well as .tsx files, all but lib/typography.ts', () => {
+  const r4 = RULES.find((r) => r.id === 'R4')!;
+  expect(r4.applies('lib/chat-ui.ts')).toBe(true);
+  expect(r4.applies('components/ui/Text.tsx')).toBe(true);
+  expect(r4.applies('lib/typography.ts')).toBe(false);
+  expect(r4.breaks('lib/x.ts', "export const s = { fontWeight: '700' };")).toEqual(['fontWeight:']);
+});
 
 describe('the style guard', () => {
   for (const rule of RULES) {

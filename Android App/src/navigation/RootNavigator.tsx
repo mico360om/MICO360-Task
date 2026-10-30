@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { Text } from 'react-native';
+import { Text, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   NavigationContainer,
@@ -32,7 +32,7 @@ import { targetToAction, requiresSession, chatScreenId, meetingScreenId, taskScr
 import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, holdUntilSignedIn, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
-import { TAB_ITEMS, TAB_LABEL_MAX_SCALE, type TabName } from './tabs';
+import { TAB_ITEMS, tabLabelMaxScale, type TabName } from './tabs';
 import { AppDrawer } from '../components/AppDrawer';
 import { AppTopBar } from '../components/AppTopBar';
 import { Icon } from '../components/Icon';
@@ -168,6 +168,9 @@ function MainTabs() {
   const { colors } = useTheme();
   // Unread chat messages (3a): without muted conversations or the one being read.
   const unread = useChatBadge();
+  // How far a label may grow with the phone's font size: as far as all five still fit this width.
+  const { width } = useWindowDimensions();
+  const labelScale = tabLabelMaxScale(width);
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
@@ -178,7 +181,7 @@ function MainTabs() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, borderTopWidth: 1 },
         tabBarIcon: ({ color }) => <Icon name={TAB_ICON[route.name]} size={22} color={color} />,
         tabBarLabel: ({ color }) => (
-          <Text style={[typeStyle('tab'), { color }]} maxFontSizeMultiplier={TAB_LABEL_MAX_SCALE} numberOfLines={1}>
+          <Text style={[typeStyle('tab'), { color }]} maxFontSizeMultiplier={labelScale} numberOfLines={1} adjustsFontSizeToFit>
             {TAB_TITLE[route.name]}
           </Text>
         ),
