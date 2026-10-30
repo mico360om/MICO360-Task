@@ -341,6 +341,19 @@ describe('tasks waiting for approval', () => {
     expect((await service().svc.overview(ADMIN, filters())).approvals).toEqual({ total: 0, projects: [] });
   });
 
+  it('the weekly summary carries them too: in all and per project, in the person’s own scope (owner, 30 Oct)', async () => {
+    const { svc } = service(WAITING);
+    expect((await svc.digest(ADMIN))!.approvals).toEqual({
+      total: 2,
+      projects: [
+        { id: 'mico', code: 'MICO', name: 'MICO360 Platform', count: 1 },
+        { id: 'rig', code: 'RIG', name: 'Rig Inspection Portal', count: 1 },
+      ],
+    });
+    expect((await svc.digest(SARA))!.approvals).toEqual({ total: 1, projects: [{ id: 'rig', code: 'RIG', name: 'Rig Inspection Portal', count: 1 }] });
+    expect((await service().svc.digest(SARA))!.approvals).toEqual({ total: 0, projects: [] });
+  });
+
   it('the list behind the number: the waiting tasks, the longest waiting first (of one project when asked)', async () => {
     const { svc } = service(WAITING);
     const list = await svc.items(ADMIN, filters(), { metric: 'awaiting-approval' });

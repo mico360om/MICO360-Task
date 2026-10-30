@@ -47,3 +47,17 @@ describe('planEscalations', () => {
     expect(planEscalations(t, { now, overdueDays: 3 })[0]!.reason).toBe('blocked');
   });
 });
+
+describe('planEscalations: tasks waiting for approval (owner, 30 Oct)', () => {
+  it('a waiting task never escalates — overdue or not; its managers already have it under To approve', () => {
+    const waiting: EscalationTask[] = [
+      { ...base, id: 'w1', key: 'MICO-9', title: 'Waiting, 4 days late', dueDate: d('2026-03-06T00:00:00Z'), columnCategory: 'REVIEW', approvalRequestedAt: d('2026-03-09T08:00:00Z') },
+      { ...base, id: 'w2', key: 'MICO-10', title: 'Waiting where it was (Blocked)', dueDate: null, columnCategory: 'BLOCKED', approvalRequestedAt: d('2026-03-09T08:00:00Z') },
+    ];
+    expect(planEscalations(waiting, { now, overdueDays: 3 })).toEqual([]);
+  });
+  it('sent back, it escalates again', () => {
+    const back: EscalationTask = { ...base, id: 'w1', key: 'MICO-9', title: 'Back in progress', dueDate: d('2026-03-06T00:00:00Z'), columnCategory: 'IN_PROGRESS', approvalRequestedAt: null };
+    expect(planEscalations([back], { now, overdueDays: 3 }).map((p) => p.key)).toEqual(['MICO-9']);
+  });
+});

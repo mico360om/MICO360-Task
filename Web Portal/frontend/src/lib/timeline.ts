@@ -442,17 +442,18 @@ export function taskWhen(t: { start: string | null; due: string }, today: string
 
 /** What a screen reader hears for a task row: "MOB-11 Login screen, 12 → 20 Oct, overdue, assigned to Sara Ahmed". */
 export function taskLabel(
-  t: { key: string; title: string; start: string | null; due: string; done: boolean; overdue: boolean; assignees?: { id: string; name: string }[] },
+  t: { key: string; title: string; start: string | null; due: string; done: boolean; overdue: boolean; waiting?: boolean; assignees?: { id: string; name: string }[] },
   today: string,
 ): string {
   const names = (t.assignees ?? []).map((a) => a.name);
   const who = names.length ? `, assigned to ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}` : '';
-  return `${t.key} ${t.title}, ${taskWhen(t, today)}${t.done ? ', done' : t.overdue ? ', overdue' : ''}${who}`;
+  const state = t.done ? ', done' : `${t.overdue ? ', overdue' : ''}${t.waiting ? ', waiting for approval' : ''}`;
+  return `${t.key} ${t.title}, ${taskWhen(t, today)}${state}${who}`;
 }
 
 /** A task on a phone: "due 20 Oct · overdue", "due 22 Oct · ✓ done". */
-export function phoneTaskLine(t: { due: string; done: boolean; overdue: boolean }, today: string): string {
-  return `due ${shortDay(t.due, today)}${t.done ? ' · ✓ done' : t.overdue ? ' · overdue' : ''}`;
+export function phoneTaskLine(t: { due: string; done: boolean; overdue: boolean; waiting?: boolean }, today: string): string {
+  return `due ${shortDay(t.due, today)}${t.done ? ' · ✓ done' : `${t.overdue ? ' · overdue' : ''}${t.waiting ? ' · waiting for approval' : ''}`}`;
 }
 
 export type TaskShape =

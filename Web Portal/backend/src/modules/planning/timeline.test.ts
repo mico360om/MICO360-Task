@@ -367,6 +367,13 @@ describe('buildTimelineTasks (a project’s task lane)', () => {
     expect(data.matched).toBe(1);
   });
 
+  it('says which tasks wait for approval (finished, not yet approved) — the lane marks them (owner, 30 Oct)', () => {
+    const waiting = r('w', '2026-10-27', { waiting: true });
+    const late = r('lw', '2026-10-20', { waiting: true });
+    const data = buildTimelineTasks('mob', lane({ overdue: [late], openInRange: [waiting, r('o', '2026-10-28')], inRangeDays: days([waiting]), overdueDays: days([late]), open: 3 }), q);
+    expect(data.tasks.map((t) => [t.id, t.waiting])).toEqual([['lw', true], ['w', true], ['o', false]]);
+  });
+
   it('draws a task whose start comes after its due date as a marker on its due date', () => {
     const odd = r('odd', '2026-10-25', { startDate: day('2026-10-28') });
     const [t] = buildTimelineTasks('mob', lane({ openInRange: [odd], inRangeDays: days([odd]), open: 1 }), q).tasks;

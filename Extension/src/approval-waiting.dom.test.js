@@ -2,9 +2,11 @@
 /**
  * Task approvals (server 1.19): a task that needs approval, finished by someone who can't approve it,
  * waits instead of being done — the server answers the move with the task where it waits. My Tasks
- * and the board say so and show it there (not as done until the next read).
+ * and the board say so and show it there (not as done until the next read). Someone who can approve
+ * it (the server's To approve list says which) gets Approve and Send back, as on the website.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ApiError } from './errors.js';
 import { BoardScreen } from '../app/screens/board.js';
 import { MyTasksScreen } from '../app/screens/my-tasks.js';
 import { fakeStorage } from './test-helpers.js';
@@ -39,7 +41,13 @@ function mineCtx(over = {}) {
     timeZone: TZ,
     isOnline: () => true,
     api: {
-      tasks: { mine: vi.fn(async () => ({ data: (over.tasks ?? MINE).map((t) => ({ ...t })) })) },
+      tasks: {
+        mine: vi.fn(async () => ({ data: (over.tasks ?? MINE).map((t) => ({ ...t })) })),
+        // The To approve list: who may approve which waiting tasks (none, unless the test says).
+        approvals: vi.fn(async () => over.approvals ?? { canApprove: false, tasks: [] }),
+        approve: over.approve ?? vi.fn(async (id) => ({ ...MINE.find((t) => t.id === id), columnId: 'r9', columnCategory: 'DONE', completedAt: WAITED, approvalRequestedAt: null, approvedById: 'me', progress: 100, version: 5 })),
+        sendBack: over.sendBack ?? vi.fn(async (id) => ({ ...MINE.find((t) => t.id === id), columnId: 'r1', columnCategory: 'TODO', approvalRequestedAt: null, version: 5 })),
+      },
       projects: { list: vi.fn(async () => ({ data: [{ id: 'p1', code: 'RIG', name: 'Rig Inspection' }] })), columns: vi.fn(async () => ({ data: RIG_COLUMNS })) },
     },
     openTask: vi.fn(),
@@ -92,6 +100,113 @@ describe('My Tasks: “Mark done” on a task that needs approval', () => {
   });
 });
 
+describe('My Tasks: Approve and Send back, for someone who can approve (owner, 30 Oct)', () => {
+  const approver = (over = {}) => mineCtx({ approvals: { canApprove: true, tasks: [{ id: 'm2', key: 'RIG-2' }] }, ...over });
+  const dialog = () => document.querySelector('[role="dialog"]');
+
+  it('a waiting task they can approve shows “Waiting for approval” with Approve and Send back; one they can’t, the label only', async () => {
+    const ctx = approver();
+    const root = await openMine(ctx);
+    const wrap = wrapOf(root, 'm2');
+    expect(wrap.querySelector('.waiting-approval').textContent).toBe('Waiting for approval');
+    expect(byLabel(root, 'Approve RIG-2').tagName).toBe('BUTTON');
+    expect(byLabel(root, 'Send RIG-2 back').tagName).toBe('BUTTON');
+    // Non-approver: no buttons.
+    const other = await openMine(mineCtx());
+    expect(other.querySelector('[aria-label="Approve RIG-2"]')).toBeNull();
+    expect(ctx.api.tasks.approvals).toHaveBeenCalled();
+  });
+
+  it('no waiting task in the list: the To approve list isn’t even asked for', async () => {
+    const ctx = approver({ tasks: [MINE[0]] });
+    await openMine(ctx);
+    expect(ctx.api.tasks.approvals).not.toHaveBeenCalled();
+  });
+
+  it('Approve: sent with the version seen; the task is done, says so, and focus stays on its row', async () => {
+    const ctx = approver();
+    const root = await openMine(ctx);
+    const btn = byLabel(root, 'Approve RIG-2');
+    btn.focus();
+    btn.click();
+    await settle();
+    expect(ctx.api.tasks.approve).toHaveBeenCalledWith('m2', 4);
+    expect(section(root, 'Completed').textContent).toContain('Pressure report');
+    expect(root.querySelector('.sr-only[role="status"]').textContent).toBe('Approved RIG-2.');
+    expect(byLabel(root, 'Approve RIG-2')).toBeNull();
+    expect(document.activeElement.dataset.taskId).toBe('m2');
+    expect(ctx.afterMutation).toHaveBeenCalled();
+  });
+
+  it('Approve refused (approved by someone else meanwhile): the server’s words, and the list is read again', async () => {
+    const ctx = approver({ approve: vi.fn(async () => { throw new ApiError(409, 'This task isn’t waiting for approval any more.', 'NOT_WAITING'); }) });
+    const root = await openMine(ctx);
+    byLabel(root, 'Approve RIG-2').click();
+    await settle();
+    expect(root.querySelector('[role="alert"]').textContent).toBe('This task isn’t waiting for approval any more.');
+    expect(ctx.api.tasks.mine).toHaveBeenCalledTimes(2);
+  });
+
+  it('Send back asks why (required) in a dialog; Escape keeps things as they are', async () => {
+    const ctx = approver();
+    const root = await openMine(ctx);
+    const opener = byLabel(root, 'Send RIG-2 back');
+    opener.focus();
+    opener.click();
+    await settle();
+    const d = dialog();
+    expect(d.getAttribute('aria-modal')).toBe('true');
+    expect(d.querySelector('h2').textContent).toBe('Send RIG-2 back?');
+    expect(d.textContent).toContain('Pressure report goes back to In progress. Your reason is added as a comment and sent to the people on it.');
+    const box = d.querySelector('textarea');
+    expect(document.activeElement).toBe(box);
+    expect(d.querySelector(`label[for="${box.id}"]`).textContent).toBe('Why are you sending it back?');
+    expect(box.getAttribute('maxlength')).toBe('2000');
+    byText(d, 'button', 'Send back').click();
+    await settle();
+    expect(ctx.api.tasks.sendBack).not.toHaveBeenCalled();
+    expect(d.textContent).toContain('Write a reason first.');
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(box);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    expect(dialog()).toBeNull();
+    expect(ctx.api.tasks.sendBack).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(byLabel(root, 'Send RIG-2 back'));
+  });
+
+  it('Send back with a reason (Ctrl+Enter or the button): sent with the version seen; it is in progress again with “Mark done”', async () => {
+    const ctx = approver();
+    const root = await openMine(ctx);
+    byLabel(root, 'Send RIG-2 back').click();
+    await settle();
+    const box = dialog().querySelector('textarea');
+    box.value = '  Add the gauge readings ';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    expect(ctx.api.tasks.sendBack).toHaveBeenCalledWith('m2', 'Add the gauge readings', 4);
+    expect(dialog()).toBeNull();
+    expect(root.querySelector('.sr-only[role="status"]').textContent).toBe('Sent RIG-2 back.');
+    expect(wrapOf(root, 'm2').querySelector('.waiting-approval')).toBeNull();
+    expect(byLabel(root, 'Mark done: “Pressure report”')).toBeTruthy();
+  });
+
+  it('a send-back that fails keeps the dialog open with the reason, saying why', async () => {
+    const ctx = approver({ sendBack: vi.fn(async () => { throw new ApiError(403, 'Only the project’s managers can approve or send back its tasks.', 'FORBIDDEN'); }) });
+    const root = await openMine(ctx);
+    byLabel(root, 'Send RIG-2 back').click();
+    await settle();
+    const box = dialog().querySelector('textarea');
+    box.value = 'Redo';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    byText(dialog(), 'button', 'Send back').click();
+    await settle();
+    expect(dialog().querySelector('[role="alert"]').textContent).toBe('Only the project’s managers can approve or send back its tasks.');
+    expect(dialog().querySelector('textarea').value).toBe('Redo');
+  });
+});
+
 const COLUMNS = [
   { id: 'c1', name: 'To do', category: 'TODO', enabled: true, position: 0 },
   { id: 'c5', name: 'Review', category: 'REVIEW', enabled: true, position: 1 },
@@ -113,7 +228,13 @@ function boardCtx(over = {}) {
         progress: async () => ({ data: null }),
         members: async () => ({ data: [] }),
       },
-      tasks: { list: vi.fn(async () => ({ data: over.tasks ?? [{ id: 't1', key: 'OPS-1', title: 'Survey report', columnId: 'c1', columnCategory: 'TODO', priority: 'NORMAL', needsApproval: true, version: 2 }] })) },
+      tasks: {
+        // Copies, as from the server: a screen changing its tasks never changes the test's own.
+        list: vi.fn(async () => ({ data: (over.tasks ?? [{ id: 't1', key: 'OPS-1', title: 'Survey report', columnId: 'c1', columnCategory: 'TODO', priority: 'NORMAL', needsApproval: true, version: 2 }]).map((t) => ({ ...t })) })),
+        approvals: vi.fn(async () => over.approvals ?? { canApprove: false, tasks: [] }),
+        approve: vi.fn(async (id) => ({ id, key: 'OPS-7', columnId: 'c9', columnCategory: 'DONE', completedAt: WAITED, approvalRequestedAt: null, progress: 100, version: 6 })),
+        sendBack: vi.fn(async (id) => ({ id, key: 'OPS-7', columnId: 'c1', columnCategory: 'TODO', completedAt: null, approvalRequestedAt: null, version: 6 })),
+      },
     },
     navigate: vi.fn(),
     openTask: vi.fn(),
@@ -162,5 +283,50 @@ describe('Board: a card finished into waiting for approval', () => {
     await settle();
     expect(columnOf(root, 't1')).toBe('Done');
     expect(root.querySelector('.infobar')).toBeNull();
+  });
+});
+
+describe('Board: the “Waiting for approval” badge, and Approve / Send back for someone who can approve (owner, 30 Oct)', () => {
+  const WAITING_CARD = { id: 't7', key: 'OPS-7', title: 'Valve datasheet', columnId: 'c5', columnCategory: 'REVIEW', priority: 'NORMAL', needsApproval: true, approvalRequestedAt: WAITED, version: 5 };
+  const cardOf = (root, id) => [...root.querySelectorAll('.tcard')].find((c) => c.dataset.taskId === id);
+
+  it('a waiting card shows the badge and says it in its name; someone who can’t approve gets no buttons', async () => {
+    const root = await openBoard(boardCtx({ tasks: [WAITING_CARD] }));
+    const card = cardOf(root, 't7');
+    expect(card.querySelector('.twaiting').textContent).toBe('Waiting for approval');
+    expect(card.getAttribute('aria-label')).toContain('waiting for approval');
+    expect(root.querySelector('[aria-label="Approve OPS-7"]')).toBeNull();
+  });
+
+  it('for an approver: Approve and Send back beside the card (not inside it); Approve draws it in Done at once', async () => {
+    const ctx = boardCtx({ tasks: [WAITING_CARD], approvals: { canApprove: true, tasks: [{ id: 't7' }] } });
+    const root = await openBoard(ctx);
+    const approve = byLabel(root, 'Approve OPS-7');
+    expect(cardOf(root, 't7').contains(approve)).toBe(false); // two controls, not one inside the other
+    approve.click();
+    await settle();
+    expect(ctx.api.tasks.approve).toHaveBeenCalledWith('t7', 5);
+    expect(columnOf(root, 't7')).toBe('Done');
+    expect(cardOf(root, 't7').querySelector('.twaiting')).toBeNull();
+    expect(root.querySelector('.sr-only[role="status"]').textContent).toBe('Approved OPS-7.');
+    expect(ctx.afterMutation).toHaveBeenCalled();
+  });
+
+  it('Send back from the board asks why, then draws it where the server put it', async () => {
+    const ctx = boardCtx({ tasks: [WAITING_CARD], approvals: { canApprove: true, tasks: [{ id: 't7' }] } });
+    const root = await openBoard(ctx);
+    byLabel(root, 'Send OPS-7 back').click();
+    await settle();
+    const d = document.querySelector('[role="dialog"]');
+    expect(d.querySelector('h2').textContent).toBe('Send OPS-7 back?');
+    const box = d.querySelector('textarea');
+    box.value = 'Wrong revision';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    byText(d, 'button', 'Send back').click();
+    await settle();
+    expect(ctx.api.tasks.sendBack).toHaveBeenCalledWith('t7', 'Wrong revision', 5);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(columnOf(root, 't7')).toBe('To do');
+    expect(root.querySelector('.sr-only[role="status"]').textContent).toBe('Sent OPS-7 back.');
   });
 });

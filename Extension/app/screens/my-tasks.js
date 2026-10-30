@@ -5,7 +5,8 @@ import { taskRow, PRIORITY_LABEL, writeErrorMessage, SAVED_ON_DEVICE } from '../
 import { SORT_OPTIONS, sortTasks, projectFilterOptions, doneColumnOf } from '../../src/task-cards.js';
 import { isRecurring } from '../../src/recurrence.js';
 import { isTempId } from '../../src/pending-overlay.js';
-import { isWaitingForApproval } from '../../src/approvals.js';
+import { DECISION_WORDS, approveLabel, approvedNotice, isWaitingForApproval, sendBackLabel, sentBackNotice } from '../../src/approvals.js';
+import { openSendBackDialog } from '../send-back-dialog.js';
 
 /**
  * My Tasks — every task assigned to me, with a keyword search, priority chips, a project filter
@@ -15,7 +16,8 @@ import { isWaitingForApproval } from '../../src/approvals.js';
  * completes a task moved there), sent now or kept on this device like a move on the board. Reads
  * work offline via the read-through cache. A task that needs approval, finished by someone who can't
  * approve it, waits instead (the server says so in its answer): it shows "Waiting for approval" in
- * place of "Mark done" (src/approvals.js).
+ * place of "Mark done" (src/approvals.js) — and, for someone who can approve it (the server's To
+ * approve list says which), Approve and Send back, as on the website.
  *
  * `root.refresh()` reads the list again in place (coming back to the tab, and every minute in the
  * side panel — Stage 7): the search, filters and focus stay. `view: 'today'` is the side panel's
@@ -43,6 +45,7 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
   let filterOptions = ''; // the project filter's options as drawn
   const activePriorities = new Set();
   const marking = new Set(); // tasks being marked done (their button waits)
+  let approvable = new Set(); // waiting tasks this person may approve (the server's To approve list)
 
   const root = el('div');
 
@@ -95,13 +98,19 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
         ctx.api.projects && ctx.api.projects.list ? ctx.api.projects.list().catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
       if (n !== reads || marked !== marks || marking.size) return; // a newer read, or a task marked done meanwhile
-      owed = false;
       const found = mine.data ?? [];
+      // Tasks waiting for approval: which of them this person may approve (asked only when some wait;
+      // fresh, never a saved copy — offline, no Approve is offered).
+      const canDecide = found.some(isWaitingForApproval) ? await approvableIds() : new Set();
+      if (n !== reads || marked !== marks || marking.size) return;
+      owed = false;
       const foundProjects = Array.isArray(list && list.data) ? list.data : [];
       const day = todayKey(ctx.timeZone, new Date());
       const same = shown === 'list' && day === shownDay && !!mine.stale === shownStale
-        && JSON.stringify(found) === JSON.stringify(allTasks) && JSON.stringify(foundProjects) === JSON.stringify(projects);
+        && JSON.stringify(found) === JSON.stringify(allTasks) && JSON.stringify(foundProjects) === JSON.stringify(projects)
+        && [...canDecide].join() === [...approvable].join();
       if (same) return;
+      approvable = canDecide;
       allTasks = found;
       projects = foundProjects;
       shownDay = day;
@@ -116,6 +125,17 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
       if (n !== reads || (quiet && shown)) return; // keep what is on screen
       mount(root, ErrorState('Could not load your tasks.', () => load()));
       shown = 'error';
+    }
+  }
+
+  /** The ids of the waiting tasks this person may approve; none when the list can't be read. */
+  async function approvableIds() {
+    if (!ctx.api.tasks.approvals) return new Set();
+    try {
+      const a = await ctx.api.tasks.approvals();
+      return new Set(((a && a.tasks) || []).map((x) => x.id));
+    } catch {
+      return new Set();
     }
   }
 
@@ -250,10 +270,16 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
   function row(t) {
     const line = taskRow(t, () => ctx.openTask(t.id), { timeZone: ctx.timeZone });
     if (isDone(t)) return line;
-    // Waiting for approval: marking it done again would change nothing, so it says so instead.
+    // Waiting for approval: marking it done again would change nothing, so it says so instead — with
+    // Approve and Send back for someone who can approve it.
     if (isWaitingForApproval(t)) {
+      const label = el('span', { class: 'waiting-approval', title: 'A project manager must approve it before it counts as done.' }, DECISION_WORDS.waiting);
+      if (!approvable.has(t.id)) return el('div', { class: 'task-row-wrap' }, line, label);
+      const deciding = marking.has(t.id) ? 'true' : null;
       return el('div', { class: 'task-row-wrap' }, line,
-        el('span', { class: 'waiting-approval', title: 'A project manager must approve it before it counts as done.' }, 'Waiting for approval'));
+        el('div', { class: 'approval-actions' }, label,
+          el('button', { class: 'btn sm primary', type: 'button', 'aria-label': approveLabel(t.key), 'aria-disabled': deciding, dataset: { approve: t.id }, onClick: () => { if (!marking.has(t.id)) void approve(t); } }, DECISION_WORDS.approve),
+          el('button', { class: 'btn sm', type: 'button', 'aria-label': sendBackLabel(t.key), 'aria-disabled': deciding, dataset: { sendBack: t.id }, onClick: () => { if (!marking.has(t.id)) sendBack(t); } }, DECISION_WORDS.sendBack)));
     }
     const busy = marking.has(t.id);
     return el('div', { class: 'task-row-wrap' }, line,
@@ -292,6 +318,65 @@ export function MyTasksScreen(ctx, { view = 'all' } = {}) {
     } finally {
       if (!marking.size && owed) void load({ quiet: true });
     }
+  }
+
+  /**
+   * Approve a waiting task (online only, from the version seen): it is done then. Refused because it
+   * changed meanwhile (approved or sent back by someone else), the list is read again.
+   */
+  async function approve(t) {
+    err = '';
+    note = '';
+    marking.add(t.id);
+    marks += 1;
+    const btn = [...resultsEl.querySelectorAll('[data-approve]')].find((b) => b.dataset.approve === t.id);
+    if (btn) btn.setAttribute('aria-disabled', 'true');
+    const repeats = isRecurring(t); // approved, its next copy is made on the server
+    try {
+      const data = await ctx.api.tasks.approve(t.id, t.version);
+      marking.delete(t.id);
+      if (data && data.id === t.id) Object.assign(t, data);
+      approvable.delete(t.id);
+      focusWant = { id: t.id, part: 'row' }; // done: no buttons any more, so its row
+      live.textContent = approvedNotice(t.key);
+      if (repeats) owed = true;
+      renderResults();
+      ctx.afterMutation();
+    } catch (e) {
+      marking.delete(t.id);
+      fail(writeErrorMessage(e, 'Couldn’t approve it. Please try again.'), null);
+      if (e && e.status === 409) void load({ quiet: true });
+    } finally {
+      if (!marking.size && owed) void load({ quiet: true });
+    }
+  }
+
+  /** Send a waiting task back: the dialog asks why (required), then it is in progress again. */
+  function sendBack(t) {
+    const find = (sel, key) => [...resultsEl.querySelectorAll(sel)].find((b) => b.dataset[key] === t.id);
+    openSendBackDialog({
+      taskKey: t.key,
+      taskTitle: t.title,
+      errorText: (e) => writeErrorMessage(e, 'Couldn’t send it back. Please try again.'),
+      onSend: async (reason) => {
+        err = '';
+        note = '';
+        marking.add(t.id);
+        marks += 1;
+        try {
+          const data = await ctx.api.tasks.sendBack(t.id, reason, t.version);
+          if (data && data.id === t.id) Object.assign(t, data);
+          approvable.delete(t.id);
+          live.textContent = sentBackNotice(t.key);
+        } finally {
+          marking.delete(t.id);
+        }
+        renderResults();
+        ctx.afterMutation();
+      },
+      // Back to its "Send back" (cancelled), else to its "Mark done" or its row (sent back).
+      focusBack: () => find('[data-send-back]', 'sendBack') || find('.mark-done', 'markDone') || find('.task-row', 'taskId'),
+    });
   }
 
   async function moveToDone(t) {

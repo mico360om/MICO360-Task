@@ -2,9 +2,10 @@ import { useId, useRef, useState } from 'react';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
+import { DECISION_WORDS, REASON_MAX as MAX } from '../../lib/approvals';
 
 /** The longest reason the server keeps (it becomes a comment). */
-export const REASON_MAX = 2000;
+export const REASON_MAX = MAX;
 
 export interface SendBackDialogProps {
   /** The task, named in the title ("Send RIG-4 back?"). */
@@ -54,7 +55,7 @@ export function SendBackDialog({ taskKey, taskTitle, busy = false, error, onSend
             <bdi className="font-medium text-ink">{taskTitle}</bdi> goes back to In progress. Your reason is added as a comment and sent to the people on it.
           </p>
           <label htmlFor={`${id}-reason`} className="mt-4 block text-sm font-semibold text-ink">
-            Why are you sending it back?
+            {DECISION_WORDS.reasonLabel}
           </label>
           <textarea
             ref={box}
@@ -72,12 +73,12 @@ export function SendBackDialog({ taskKey, taskTitle, busy = false, error, onSend
             }}
             aria-invalid={tried && blank ? true : undefined}
             aria-describedby={tried && blank ? `${id}-need` : undefined}
-            placeholder="For example: the pressure readings are missing."
+            placeholder={DECISION_WORDS.reasonPlaceholder}
             className="mt-1.5 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
           />
           {tried && blank ? (
             <p id={`${id}-need`} className="mt-1 text-xs font-medium text-danger">
-              Write a reason first.
+              {DECISION_WORDS.reasonMissing}
             </p>
           ) : null}
           {error ? (

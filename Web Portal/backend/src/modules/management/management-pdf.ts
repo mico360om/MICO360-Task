@@ -1,7 +1,8 @@
 /**
  * The Management overview as a branded PDF for meetings: the company logo, the title, the filters in
  * words and when it was made (company time), the headline numbers, the project-health table (each
- * mark as a word and a dot, with its reasons), the inspections summary with the most-failed items,
+ * mark as a word and a dot, with its reasons), the tasks waiting for approval (in all and per project,
+ * as on the page), the inspections summary with the most-failed items,
  * the people table and the trends (a chart and the same figures as a table). Page N of M.
  */
 import { PdfDocument, type RGB, type TableColumn } from '../../lib/pdf-document';
@@ -99,6 +100,18 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
       // Not bold: a balanced table measures body cells at the normal weight, and the mark must stay on one line.
       cellColor: (r, c) => (c === 0 ? RAG_COLOR[o.projects[r]!.rag] : c === 4 && o.projects[r]!.late > 0 ? DANGER : null),
     });
+
+  // ── Waiting for approval (as the page's section: in all, then each project, most first) ──
+  const ap = o.approvals;
+  const apCols: TableColumn[] = [{ header: 'Project' }, { header: 'Waiting', align: 'right', nowrap: true }];
+  const apRows = ap.projects.map((p) => [`${p.name} (${p.code})`, String(p.count)]);
+  doc.heading('Waiting for approval', { size: 13, topGap: 16, keepWith: apRows.length ? doc.tableHeight(apCols, apRows.slice(0, 3), { size: 8.5 }) + 30 : 40 });
+  note('Tasks finished but not approved yet by whoever runs the project. They don’t count as done until then.');
+  if (apRows.length === 0) note('Nothing is waiting for approval.');
+  else {
+    note(`In all: ${plural(ap.total, 'task')}`);
+    doc.table(apCols, apRows, { size: 8.5, fit: {} });
+  }
 
   // ── Inspections ──
   const ins = o.inspections;

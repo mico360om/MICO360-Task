@@ -5,6 +5,7 @@ import { apiClient } from '../../api/client';
 import { planningApi, timelineTasksKey, type TimelineTask, type TimelineTasksData } from '../../api/planning';
 import { phoneTaskLine, shortDay, taskLabel, taskShape } from '../../lib/timeline';
 import { Glyph, ICONS, Initials, ROW } from './parts';
+import { WaitingIcon } from '../approvals/ApprovalChip';
 
 /**
  * One project's task lane for the shown weeks, read when its row is opened, and again as tasks or
@@ -135,6 +136,12 @@ export function ChartTaskRows({
                   {t.done ? <Glyph size={13} className="text-success" data-icon="done">{ICONS.check}</Glyph> : null}
                   {t.overdue ? <Glyph size={13} data-icon="overdue">{ICONS.warning}</Glyph> : null}
                   {t.isMilestone ? <Glyph size={12} data-icon="milestone">{ICONS.diamond}</Glyph> : null}
+                  {/* Waiting for approval: an hourglass (its words are in the row's name, and on hover). */}
+                  {t.waiting && !t.done ? (
+                    <span data-icon="waiting" title="Waiting for approval" className="flex-none text-warning">
+                      <WaitingIcon size={12} />
+                    </span>
+                  ) : null}
                   <span className="min-w-0 truncate">{t.title}</span>
                 </button>
                 {/* Above the stretched button, so their names show on hover; the button's name says them too. */}

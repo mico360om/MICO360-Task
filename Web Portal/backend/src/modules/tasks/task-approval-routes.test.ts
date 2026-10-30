@@ -92,7 +92,7 @@ describe('POST /tasks/:id/approve', () => {
   it('someone who can’t approve: 403 in plain words, nothing changes', async () => {
     const res = await app.inject({ method: 'POST', url: `/api/v1/tasks/${waitingId}/approve`, headers: await bearer('sara'), payload: {} });
     expect(res.statusCode).toBe(403);
-    expect(res.json().error.message).toBe('Only the people who run this project can approve its tasks or send them back.');
+    expect(res.json().error.message).toBe('Only the project’s managers can approve or send back its tasks.');
     expect(isAwaitingApproval(world.rows.get(waitingId)!)).toBe(true);
     expect(audits).toEqual([]);
   });

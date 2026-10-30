@@ -24,9 +24,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   with a reason, which goes to the people on it as a comment. A manager finishing their own task is
   done at once.
 - Managers see what waits for them in My Tasks ("To approve"), on the Dashboard, on the Management
-  page and in the morning email, and get a notice each time a task starts waiting.
+  page, its PDF and the weekly management email, and in the morning email, and get a notice each
+  time a task starts waiting.
+- While a task waits for approval, the people on it get no overdue reminders or escalations, and
+  their morning email lists it on its own "Waiting for approval" line instead of as overdue. Sent
+  back, the reminders start again.
+- The Calendar and the Timeline mark a task waiting for approval with an hourglass, as the board
+  and lists do.
 - Chrome extension: marking such a task done (My Tasks or the board) says it is waiting for
-  approval and shows it where it waits, instead of as done.
+  approval and shows it where it waits, instead of as done. Board cards show the "Waiting for
+  approval" badge, and the project's managers can Approve or Send back (with a reason) from My
+  Tasks and the board.
 
 ## [1.18.2] - 2026-10-30
 

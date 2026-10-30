@@ -729,7 +729,7 @@ async function main(): Promise<void> {
     // Tasks of deleted projects are gone for everyone — no more reminders for them.
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, title: true, dueDate: true, completedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     // Each user's reminder lead time comes from their notification preferences (default window otherwise).
     const { users, activeIds, adminIds } = await sweepAudience();
@@ -744,6 +744,8 @@ async function main(): Promise<void> {
         title: t.title,
         dueDate: t.dueDate,
         completedAt: t.completedAt,
+        // Waiting for approval: no reminders until it is sent back (owner, 30 Oct).
+        approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Watchers get due/overdue reminders too (deduped with assignees) — while they can still see the task.
         assigneeIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds }),
@@ -1085,12 +1087,12 @@ async function main(): Promise<void> {
     if (hour < DIGEST_HOUR) return; // wait until the morning; a later sweep sends it
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     const { users, activeIds, adminIds } = await sweepAudience();
     const digests = buildDigests(
       tasks.map((t) => ({
-        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt,
+        id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Someone who has left the project no longer gets its tasks in their digest.
         recipientIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds }),
@@ -1121,10 +1123,10 @@ async function main(): Promise<void> {
     const { day } = companyDayHour();
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, project: { is: { deletedAt: null } } },
-      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, projectId: true, column: { select: { category: true } } },
+      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, projectId: true, column: { select: { category: true } } },
     });
     const plans = planEscalations(
-      tasks.map((t) => ({ id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, projectId: t.projectId, columnCategory: t.column?.category ?? null })),
+      tasks.map((t) => ({ id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt, projectId: t.projectId, columnCategory: t.column?.category ?? null })),
       { timeZone: companyTz },
     );
     if (plans.length === 0) return;

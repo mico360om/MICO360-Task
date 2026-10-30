@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { isWaitingForApproval, approvalNotice } from './approvals.js';
+import { isWaitingForApproval, approvalNotice, DECISION_WORDS, REASON_MAX, approveLabel, approvedNotice, sendBackLabel, sendBackNote, sendBackTitle, sentBackNotice } from './approvals.js';
 
 describe('task approvals: what the extension says about a task that waits', () => {
   it('a task waits while it has an approval request (it is not done yet)', () => {
@@ -44,5 +44,16 @@ describe.skipIf(!web)('src/approvals.js matches the web (lib/approvals.ts)', () 
     for (const asked of ['c2', 'c3']) {
       for (const t of TASKS) expect(approvalNotice(asked, t), `${asked} ${JSON.stringify(t)}`).toBe(web.approvalNotice(asked, t));
     }
+  });
+  it('the same words for Approve and Send back (buttons, the dialog, what is said once done)', () => {
+    expect(DECISION_WORDS).toEqual({ ...web.DECISION_WORDS });
+    expect(REASON_MAX).toBe(web.REASON_MAX);
+    for (const key of ['RIG-4', 'رگ-5']) {
+      for (const f of ['approveLabel', 'sendBackLabel', 'sendBackTitle', 'approvedNotice', 'sentBackNotice']) {
+        const mine = { approveLabel, sendBackLabel, sendBackTitle, approvedNotice, sentBackNotice }[f];
+        expect(mine(key), `${f} ${key}`).toBe(web[f](key));
+      }
+    }
+    expect(sendBackNote('Pressure test report')).toBe(web.sendBackNote('Pressure test report'));
   });
 });

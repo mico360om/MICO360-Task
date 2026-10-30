@@ -76,6 +76,7 @@ const digestOf = (id: string): WeeklyDigest | null =>
         doneLateLastWeek: 1,
         passRateLastWeek: 80,
         mostLate: [],
+        approvals: { total: 0, projects: [] },
       };
 
 function setup(o: { people?: WeeklyRecipient[]; weekStart?: 0 | 1 | 6; enabled?: boolean; configured?: boolean; fail?: (to: string) => boolean } = {}) {

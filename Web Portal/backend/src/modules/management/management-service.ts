@@ -251,6 +251,8 @@ export interface WeeklyDigest {
   passRateLastWeek: number | null;
   /** The three people with the most late work. */
   mostLate: { id: string; name: string; lateTasks: number }[];
+  /** Tasks waiting for approval, in all and per project (most first) — as the Management page shows them. */
+  approvals: ManagementOverview['approvals'];
 }
 
 /** Lists behind a number show at most this many rows (with the full count). */
@@ -774,7 +776,12 @@ export function createManagementService(deps: ManagementServiceDeps) {
       ? { start: shiftDayKey(week, -7), end: shiftDayKey(week, -1), from: zonedStartOfDay(shiftDayKey(week, -7), tz), to: zonedStartOfDay(week, tz) }
       : ctx.trend[0]!;
     const ids = s.projects.map((p) => p.id);
-    const [health, finished, lateBy] = await Promise.all([healthOf(s.projects, ctx, last), source.finishedInspections(ids, last.from, last.to), source.lateByPerson(ids, ctx.today)]);
+    const [health, finished, lateBy, waiting] = await Promise.all([
+      healthOf(s.projects, ctx, last),
+      source.finishedInspections(ids, last.from, last.to),
+      source.lateByPerson(ids, ctx.today),
+      source.awaitingApproval(ids),
+    ]);
     const top = lateBy.filter((l) => l.count > 0).sort((a, b) => b.count - a.count).slice(0, MOST_LATE * 2);
     const names = new Map((top.length ? await source.people(top.map((l) => l.userId)) : []).map((p) => [p.id, p.name]));
     const count = (rag: Rag) => health.rows.filter((r) => r.rag === rag).length;
@@ -795,6 +802,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
         .sort((a, b) => b.count - a.count || collator.compare(names.get(a.userId)!, names.get(b.userId)!))
         .slice(0, MOST_LATE)
         .map((l) => ({ id: l.userId, name: names.get(l.userId)!, lateTasks: l.count })),
+      approvals: approvalsOf(s.projects, waiting),
     };
   }
 

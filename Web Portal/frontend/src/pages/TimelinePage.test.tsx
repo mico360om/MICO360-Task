@@ -90,6 +90,7 @@ const MOB_TASKS: TimelineTasksData = {
     { id: 'k1', key: 'MOB-11', title: 'Login screen', start: '2026-10-12', due: '2026-10-20', done: false, overdue: true, priority: 'HIGH', isMilestone: false, assignees: [{ id: 'u1', name: 'Sara Ahmed' }] },
     { id: 'k2', key: 'MOB-12', title: 'Push alerts', start: null, due: '2026-10-22', done: true, overdue: false, priority: 'NORMAL', isMilestone: false, assignees: [] },
     { id: 'k3', key: 'MOB-13', title: 'Beta build', start: null, due: '2026-11-06', done: false, overdue: false, priority: 'NORMAL', isMilestone: true, assignees: [{ id: 'u2', name: 'Omar Said' }, { id: 'u1', name: 'Sara Ahmed' }] },
+    { id: 'k4', key: 'MOB-14', title: 'Store listing', start: null, due: '2026-11-02', done: false, overdue: false, waiting: true, priority: 'NORMAL', isMilestone: false, assignees: [] },
   ],
 };
 
@@ -403,11 +404,26 @@ describe('TimelinePage', () => {
     expect(items[2]).toHaveTextContent('OSSA');
     expect(within(items[2]!).getByRole('button', { name: 'MOB-13 Beta build, due 6 Nov, assigned to Omar Said and Sara Ahmed' })).toBeInTheDocument();
     // Rows were cut: how many show, and the project's open tasks on its own page.
-    expect(tasks).toHaveTextContent('3 of 33 shown');
+    expect(tasks).toHaveTextContent('4 of 33 shown');
     expect(within(tasks).getByRole('link', { name: 'Show all 12 open tasks' })).toHaveAttribute('href', '/projects/mob?tab=tasks');
     expect(tasks).toHaveTextContent('3 open tasks have no due date');
     await userEvent.click(login);
     expect(screen.getByRole('dialog', { name: 'Task details panel' })).toHaveTextContent('open k1');
+  });
+
+  it('marks a task waiting for approval: an hourglass with a tooltip, and the words in its name (owner, 30 Oct)', async () => {
+    renderPage();
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: 'Tasks of Mobile App (Phase 2)' }));
+    const tasks = await screen.findByRole('list', { name: 'Tasks of Mobile App (Phase 2)' });
+    const row = within(tasks).getByRole('button', { name: 'MOB-14 Store listing, due 2 Nov, waiting for approval' });
+    const mark = row.querySelector('[data-icon="waiting"]');
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute('title', 'Waiting for approval');
+    // The others carry no such mark.
+    expect(within(tasks).getByRole('button', { name: /MOB-13 Beta build/ }).querySelector('[data-icon="waiting"]')).toBeNull();
+    // The legend explains the hourglass.
+    expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Waiting for approval')).toBeInTheDocument();
   });
 
   it('opens and closes every project’s tasks at once', async () => {

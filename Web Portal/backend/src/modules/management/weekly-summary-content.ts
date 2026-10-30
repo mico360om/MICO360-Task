@@ -14,13 +14,15 @@ const WORD = { RED: 'Red', AMBER: 'Amber', GREEN: 'Green' } as const;
 /**
  * The weekly management summary (the daily emails' card design): how the person's projects are doing
  * — red and amber counts with the worst projects and why, late tasks, missing checks, last week's
- * checks done late and pass rate, the people with the most late work — and a button to the dashboard.
+ * checks done late and pass rate, the people with the most late work, the tasks waiting for approval
+ * (in all and per project, with a button to the To approve list) — and a button to the dashboard.
  */
 export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week: string; appUrl: string }, opts: TemplateOptions = {}): EmailContent {
   const d = p.digest;
   const app = base(p.appUrl);
   // The red and amber projects the email doesn't name (it names the worst few): counted, never dropped silently.
   const more = Math.max(0, d.red + d.amber - d.worst.length);
+  const approvals = d.approvals ?? { total: 0, projects: [] };
   const chips: EmailChip[] = [
     ...(d.red ? [{ text: `${d.red} red`, tone: 'danger' as const }] : []),
     ...(d.amber ? [{ text: `${d.amber} amber`, tone: 'warning' as const }] : []),
@@ -40,12 +42,20 @@ export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week
         ['Missing checks', String(d.missingChecks)],
         [`Checks done late last week (${shortDate(d.lastWeek.start)} – ${shortDate(d.lastWeek.end)})`, String(d.doneLateLastWeek)],
         ['Pass rate last week', d.passRateLastWeek === null ? 'No inspections finished' : `${d.passRateLastWeek}%`],
+        ['Waiting for approval', String(approvals.total)],
       ],
     },
     ...(d.mostLate.length
       ? [
           { kind: 'text' as const, text: 'Most late work:' },
           { kind: 'list' as const, items: d.mostLate.map((m) => `${m.name}: ${plural(m.lateTasks, 'late task')}`) },
+        ]
+      : []),
+    ...(approvals.projects.length
+      ? [
+          { kind: 'text' as const, text: 'Waiting for approval, by project:' },
+          { kind: 'list' as const, items: approvals.projects.map((a) => `${a.name} (${a.code}): ${plural(a.count, 'task')}`) },
+          { kind: 'button' as const, label: 'Review them', href: `${app}/my-tasks#to-approve` },
         ]
       : []),
     { kind: 'button', label: 'Open the dashboard', href: `${app}/management` },

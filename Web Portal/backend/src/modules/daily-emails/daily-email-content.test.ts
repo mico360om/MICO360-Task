@@ -223,3 +223,43 @@ describe('completedEmail (their tasks finished yesterday)', () => {
     expect(html).toContain('href="https://task.example/my-tasks?task=rig-7"');
   });
 });
+
+describe('pendingEmail: the person’s own tasks waiting for approval (owner, 30 Oct)', () => {
+  const base = { name: 'Ada', timeZone: TZ, now: NOW, appUrl: APP };
+  const waited = new Date('2026-10-20T08:00:00Z');
+  const tasks = [
+    task('RIG-2', { dueDate: day('2026-10-19'), statusLabel: 'Review', waitingSince: waited }), // 2 days late, but handed in
+    task('RIG-4', { dueDate: day('2026-10-21') }),
+    task('RIG-3'),
+  ];
+
+  it('a waiting task isn’t overdue: not in the subject, the day at a glance or its project’s counts', () => {
+    const e = pendingEmail({ ...base, tasks });
+    expect(e.subject).toBe('Your pending tasks: 2');
+    expect(e.text).not.toContain('overdue');
+    expect(e.text).toContain('You have 2 tasks that aren’t done yet.');
+    expect(e.text).toContain('1 due today · 1 with no due date · 1 waiting for approval');
+    expect(e.text).toContain('2 tasks for you');
+  });
+
+  it('it is listed under its own small "Waiting for approval" line, after the project sections, with its link', () => {
+    const e = pendingEmail({ ...base, tasks });
+    expect(e.text).toContain('Waiting for approval (1): a project manager must approve it before it counts as done.');
+    expect(e.text).toContain('  - RIG-2 · Task RIG-2: https://task.example/my-tasks?task=rig-2');
+    expect(e.text.indexOf('Waiting for approval (1)')).toBeGreaterThan(e.text.indexOf('RIG-3'));
+    expect(e.html).toContain('Waiting for approval (1)');
+  });
+
+  it('only waiting tasks of their own: said so in the subject, nothing to do, the line', () => {
+    const two = [task('RIG-2', { dueDate: day('2026-10-19'), waitingSince: waited }), task('RIG-5', { waitingSince: waited })];
+    const e = pendingEmail({ ...base, tasks: two });
+    expect(e.subject).toBe('2 tasks of yours waiting for approval');
+    expect(e.text).toContain('You have no other pending tasks.');
+    expect(e.text).toContain('Waiting for approval (2): a project manager must approve them before they count as done.');
+    expect(e.text).not.toContain('overdue');
+    // With approvals of their own to give too, that comes first.
+    const both = pendingEmail({ ...base, tasks: two, awaitingApproval: 3 });
+    expect(both.subject).toBe('3 tasks waiting for your approval');
+    expect(both.text).toContain('Waiting for approval (2)');
+  });
+});

@@ -4,6 +4,8 @@ import { useDismiss } from '../../lib/useDismiss';
 import type { Priority } from '../../api/tasks';
 import type { CalItem, CalStatus } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
+import { WaitingIcon } from '../approvals/ApprovalChip';
+import { isWaitingForApproval } from '../../lib/approvals';
 
 /**
  * 'Sat 10 Oct' for a 'YYYY-MM-DD' day (formatted as that day, whatever the device's zone): the
@@ -125,6 +127,12 @@ export function LegendButton({ timeNote }: { timeNote: string }) {
               {MEETING_ICON}
               <span>Meeting</span>
             </li>
+            <li className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink">
+              <span className="text-warning">
+                <WaitingIcon size={14} />
+              </span>
+              <span>Waiting for approval</span>
+            </li>
           </ul>
           <p className="mt-2.5 text-[11px] leading-snug text-ink-2">The coloured edge is the project’s colour.</p>
           <p className="mt-1 border-t border-line pt-2 text-xs text-ink-2">{timeNote}</p>
@@ -162,6 +170,9 @@ export function MeetingChip({ meeting: m, color, meta, lines = 1 }: { meeting: C
   );
 }
 
+/** A task finished but waiting for approval (never a projected copy, never a done one). */
+const waits = (item: CalItem) => item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(item.task);
+
 /** The words a screen reader hears for a task on the calendar. */
 export function itemName(item: CalItem): string {
   const t = item.task;
@@ -169,6 +180,7 @@ export function itemName(item: CalItem): string {
   if (item.kind === 'projected') parts.push(`repeat, not created yet, ${dayLabel(item.date)}`);
   else parts.push(STATUS_META[item.status].label.toLowerCase());
   if (item.kind === 'task' && item.recurring) parts.push('repeats');
+  if (waits(item)) parts.push('waiting for approval');
   if (t.priority === 'URGENT' || t.priority === 'HIGH') parts.push(`${PRIORITY_LABEL[t.priority].toLowerCase()} priority`);
   return parts.join(', ');
 }
@@ -221,6 +233,12 @@ export function TaskChip({
         <span dir="auto" className={`font-medium ${lines === 1 ? 'block truncate' : 'line-clamp-2 [overflow-wrap:anywhere]'}`}>{item.task.title}</span>
         {meta ? <span className="mt-0.5 block truncate text-[11px] font-normal">{meta}</span> : null}
       </span>
+      {/* Waiting for approval: an hourglass, as on the board (its words are in the chip's name, and on hover). */}
+      {waits(item) ? (
+        <span data-mark="waiting" className="mt-px flex-none [&_svg]:!text-warning" title="Waiting for approval">
+          <WaitingIcon size={13} />
+        </span>
+      ) : null}
       {item.kind === 'task' && item.recurring ? (
         <span className="mt-px opacity-70" title="Repeats">{STATUS_META.projected.icon}</span>
       ) : null}

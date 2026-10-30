@@ -11,6 +11,8 @@ export interface ReminderTask {
   columnCategory?: string | null;
   /** A completed task is never reminded, whatever column it sits in. */
   completedAt?: Date | null;
+  /** Waiting for approval since (task approvals): no deadline reminders meanwhile (owner, 30 Oct). */
+  approvalRequestedAt?: Date | null;
   /** Users to remind (its assignees). */
   assigneeIds: string[];
 }
@@ -35,7 +37,9 @@ const leadDays = (ms: number): number => Math.max(0, Math.ceil(ms / DAY_MS));
  * Decide which reminder notifications to create for a set of tasks. Due dates are calendar days
  * in the company time zone: a task is overdue only once its due day is before today, and "due
  * soon" once the due day is within the user's lead time (in whole days; the default is due today
- * or tomorrow). Pure + deterministic so it can be unit-tested; the caller handles de-duplication.
+ * or tomorrow). A task waiting for approval gets neither: the work is handed in and its approver sees
+ * it under To approve; sent back, the reminders start again (owner, 30 Oct). Pure + deterministic so
+ * it can be unit-tested; the caller handles de-duplication.
  */
 export function planReminders(tasks: ReminderTask[], opts: PlanRemindersOptions = {}): CreateNotificationData[] {
   const now = opts.now ?? new Date();
@@ -44,7 +48,7 @@ export function planReminders(tasks: ReminderTask[], opts: PlanRemindersOptions 
   const out: CreateNotificationData[] = [];
 
   for (const task of tasks) {
-    if (isTaskDone(task)) continue;
+    if (isTaskDone(task) || task.approvalRequestedAt) continue;
     const days = daysUntilDue(task.dueDate, timeZone, now);
     if (days === null) continue;
 

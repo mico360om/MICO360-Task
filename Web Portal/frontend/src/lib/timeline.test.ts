@@ -355,6 +355,10 @@ describe('task rows', () => {
     expect(phoneTaskLine(t('2026-10-12', '2026-10-20', { overdue: true }), TODAY)).toBe('due 20 Oct · overdue');
     expect(phoneTaskLine(t(null, '2026-10-22', { done: true }), TODAY)).toBe('due 22 Oct · ✓ done');
     expect(phoneTaskLine(t(null, '2027-02-03'), TODAY)).toBe('due 3 Feb 2027');
+    // Waiting for approval (owner, 30 Oct): said in words, after overdue.
+    expect(taskLabel({ ...t('2026-10-12', '2026-10-20', { overdue: true }), waiting: true }, TODAY)).toBe('MOB-11 Login screen, 12 → 20 Oct, overdue, waiting for approval');
+    expect(taskLabel({ ...t(null, '2026-10-22'), waiting: true }, TODAY)).toBe('MOB-11 Login screen, due 22 Oct, waiting for approval');
+    expect(phoneTaskLine({ ...t(null, '2026-10-22'), waiting: true }, TODAY)).toBe('due 22 Oct · waiting for approval');
     expect(initialsOf('Sara Ahmed')).toBe('SA');
     expect(initialsOf(' omar  bin said ')).toBe('OB');
     expect(initialsOf('Layla')).toBe('L');

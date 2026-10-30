@@ -8,6 +8,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { Button } from '../ui/Button';
 import { SendBackDialog } from './SendBackDialog';
 import { WaitingIcon } from './ApprovalChip';
+import { approveLabel, approvedNotice, sendBackLabel, sentBackNotice } from '../../lib/approvals';
 
 /** The query behind the To approve list and the Dashboard card. */
 export const APPROVALS_KEY = ['approvals'] as const;
@@ -52,7 +53,7 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
     setProblem(null);
     try {
       await tasksApi(apiClient).approve(t.id, t.version);
-      await decided(`Approved ${t.key}.`);
+      await decided(approvedNotice(t.key));
     } catch (e) {
       setProblem({ id: t.id, text: messageOf(e, 'Couldn’t approve it. Please try again.') });
       void qc.invalidateQueries({ queryKey: APPROVALS_KEY });
@@ -107,13 +108,13 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
                   ) : null}
                 </div>
                 <div className="flex flex-none gap-2">
-                  <Button size="sm" aria-label={`Approve ${t.key}`} loading={busy === t.id} disabled={busy !== null} onClick={() => void approve(t)} className="[@media(pointer:coarse)]:!min-h-11">
+                  <Button size="sm" aria-label={approveLabel(t.key)} loading={busy === t.id} disabled={busy !== null} onClick={() => void approve(t)} className="[@media(pointer:coarse)]:!min-h-11">
                     Approve
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
-                    aria-label={`Send ${t.key} back`}
+                    aria-label={sendBackLabel(t.key)}
                     disabled={busy !== null}
                     onClick={() => {
                       setSendError(null);
@@ -144,7 +145,7 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
               .sendBack(t.id, reason, t.version)
               .then(async () => {
                 setSending(null);
-                await decided(`Sent ${t.key} back.`);
+                await decided(sentBackNotice(t.key));
               })
               .catch((e: unknown) => setSendError(messageOf(e, 'Couldn’t send it back. Please try again.')))
               .finally(() => setBusy(null));

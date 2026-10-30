@@ -32,6 +32,7 @@ const taskSelect = {
   priority: true,
   dueDate: true,
   completedAt: true,
+  approvalRequestedAt: true,
   project: {
     select: {
       id: true,
@@ -70,6 +71,7 @@ const toTask = (t: TaskRow): DailyTask => ({
   dueDate: t.dueDate,
   statusLabel: t.column.name,
   completedAt: t.completedAt,
+  waitingSince: t.approvalRequestedAt,
 });
 
 /** Who gets the morning emails, and their tasks — always only tasks assigned to that person. */

@@ -59,3 +59,18 @@ describe('buildDigests', () => {
     expect(buildDigests([done], { now })).toEqual([]);
   });
 });
+
+describe('buildDigests: tasks waiting for approval (owner, 30 Oct)', () => {
+  it('a waiting task is neither overdue nor due today in the digest', () => {
+    const waited = d('2026-03-09T08:00:00Z');
+    const out = buildDigests(
+      [
+        { id: 'w1', key: 'MICO-7', title: 'Waiting, late', dueDate: d('2026-03-08T00:00:00Z'), columnCategory: 'REVIEW', approvalRequestedAt: waited, recipientIds: ['u1'] },
+        { id: 'w2', key: 'MICO-8', title: 'Waiting, due today', dueDate: d('2026-03-10T00:00:00Z'), columnCategory: 'REVIEW', approvalRequestedAt: waited, recipientIds: ['u1'] },
+        { id: 'o1', key: 'MICO-9', title: 'Open, late', dueDate: d('2026-03-08T00:00:00Z'), columnCategory: 'TODO', approvalRequestedAt: null, recipientIds: ['u1'] },
+      ],
+      { now },
+    );
+    expect(out).toEqual([{ userId: 'u1', overdue: [{ key: 'MICO-9', title: 'Open, late', dueDate: '2026-03-08' }], dueToday: [] }]);
+  });
+});
