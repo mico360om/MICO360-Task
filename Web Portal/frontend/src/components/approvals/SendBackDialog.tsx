@@ -40,7 +40,7 @@ export function SendBackDialog({ taskKey, taskTitle, busy = false, error, onSend
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-[60] grid place-items-center p-4">
-        <div className="absolute inset-0 bg-ink/40 animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-note`} className="card relative w-full max-w-md animate-scale-in p-5">
         <form
           onSubmit={(e) => {
