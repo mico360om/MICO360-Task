@@ -169,7 +169,7 @@ describe('ReportsPage date range typed by hand', () => {
       expect(asked('from=2026-01-21')).toBe(false);
       expect(asked('from=2026-10-21')).toBe(false);
       // Finished, and after the end: still the last range the person actually chose.
-      expect(screen.getByRole('alert')).toHaveTextContent('The start date must be on or before the end date. Still showing Sep 22 – Oct 11.');
+      expect(screen.getByRole('alert')).toHaveTextContent('The start date must be on or before the end date. Still showing 22 Sep – 11 Oct.');
       expect(from).toHaveAttribute('aria-invalid', 'true');
     });
 
@@ -192,7 +192,7 @@ describe('ReportsPage date range typed by hand', () => {
       await waitFor(() => expect(trendCalls().length).toBeGreaterThan(0));
       key(to, '2026-12-29');
       fireEvent.blur(to);
-      expect(await screen.findByRole('alert')).toHaveTextContent('The end date can’t be after today. Still showing Sep 22 – Oct 21.');
+      expect(await screen.findByRole('alert')).toHaveTextContent('The end date can’t be after today. Still showing 22 Sep – 21 Oct.');
       expect(to).toHaveAttribute('aria-invalid', 'true');
       await pause(30);
       expect(asked('to=2026-12-29')).toBe(false);

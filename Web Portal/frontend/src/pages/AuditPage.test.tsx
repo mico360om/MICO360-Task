@@ -52,6 +52,12 @@ describe('AuditPage', () => {
     await waitFor(() => expect(screen.getByText('USER_CREATED')).toBeInTheDocument());
   });
 
+  it('says when, day before month and on the 24-hour clock, in the company zone', async () => {
+    renderPage();
+    // 12:00 UTC is 16:00 in Muscat.
+    expect(await screen.findByText('15 Jun 2026, 16:00')).toBeInTheDocument();
+  });
+
   it('shows who did it, their IP and what changed (WEB-15)', async () => {
     pages = () => [entry({ action: 'USER_UPDATED', oldValue: { status: 'ACTIVE', passwordHash: 'x1' }, newValue: { status: 'SUSPENDED', passwordHash: 'x2' } })];
     renderPage();

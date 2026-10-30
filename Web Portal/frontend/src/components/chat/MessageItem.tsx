@@ -1,3 +1,4 @@
+import { clockText, dateTimeText } from '../../lib/day-words';
 import { memo, useRef, useState } from 'react';
 import { fileUrl, type ApiChatAttachment } from '../../api/chat';
 import { Avatar } from '../ui/Avatar';
@@ -51,12 +52,14 @@ export interface MessageItemProps {
   actions: MessageActions;
 }
 
+/** "14:05" (the 24-hour clock, as everywhere in the app). */
 export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return clockText(iso);
 }
 
+/** "Friday 30 October 2026, 14:05". */
 function fullTime(iso: string): string {
-  return new Date(iso).toLocaleString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return dateTimeText(iso, undefined, { weekday: 'long', month: 'long' });
 }
 
 /** Trailing punctuation that belongs to the sentence, not to a web address in it. */

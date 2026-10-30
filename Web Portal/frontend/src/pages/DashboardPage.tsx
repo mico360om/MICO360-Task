@@ -1,3 +1,4 @@
+import { instantDayText } from '../lib/day-words';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -132,13 +133,8 @@ export function DashboardPage() {
   const firstDay =
     noProjectsYet && myTasksQ.isSuccess && (myTasksQ.data ?? []).length === 0 && allTasksQ.isSuccess && (allTasksQ.data ?? []).length === 0;
 
-  const today = (() => {
-    try {
-      return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone });
-    } catch {
-      return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-    }
-  })();
+  // "Friday 30 October", in the company zone.
+  const today = instantDayText(new Date(), timeZone, { weekday: 'long', month: 'long', year: false });
 
   return (
     <div className="flex flex-col gap-6">

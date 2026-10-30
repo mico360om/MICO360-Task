@@ -40,7 +40,7 @@ describe('TaskDrawer header', () => {
     expect(within(header).getByText('MICO-1')).toBeInTheDocument();
     expect(within(header).getByText('To Do')).toBeInTheDocument();
     expect(within(header).getByText('High')).toBeInTheDocument();
-    expect(within(header).getByText('Jan 15, 2099')).toBeInTheDocument();
+    expect(within(header).getByText('15 Jan 2099')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Prepare monthly report' })).toBeInTheDocument();
   });
 

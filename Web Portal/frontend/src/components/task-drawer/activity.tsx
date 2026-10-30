@@ -1,3 +1,4 @@
+import { dateTimeText } from '../../lib/day-words';
 import { useMemo, useState } from 'react';
 import { buildTimeline, type FeedEntry, type TimelineKind } from '../../lib/activity-feed';
 import { relativeTime } from './comments';
@@ -58,7 +59,7 @@ export function ActivityTimeline({ activity }: { activity: DrawerActivity[] }) {
               </>
             ) : null}
             {item.createdAt ? (
-              <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()} className="ms-1.5 whitespace-nowrap text-[11px] text-ink-3">
+              <time dateTime={item.createdAt} title={dateTimeText(item.createdAt)} className="ms-1.5 whitespace-nowrap text-[11px] text-ink-3">
                 · {relativeTime(item.createdAt)}
               </time>
             ) : null}

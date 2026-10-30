@@ -62,6 +62,13 @@ describe('ActivityPage', () => {
     expect(screen.getByText(/→ Nadia Ahmed/)).toBeInTheDocument();
   });
 
+  it('heads an older day with its weekday, day and month, day before month', async () => {
+    const older = { ...activity[0]!, id: 'old', createdAt: '2026-10-16T09:00:00.000Z' };
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [...activity, older] })));
+    renderPage();
+    expect(await screen.findByText('Friday 16 October 2026')).toBeInTheDocument();
+  });
+
   it('filters the feed by action type', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('MICO-7')).toBeInTheDocument());

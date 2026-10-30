@@ -1,8 +1,12 @@
 import { dueDayKey, type DateInput } from './due-date';
+import { dayText } from './day-words';
 
 /**
  * Display a due date as its calendar day (the day the user picked), never shifted by the device's
- * time zone. E.g. formatDueDay('2026-09-30T00:00:00.000Z', tz) → "Sep 30, 2026".
+ * time zone, day before month as the minutes PDF and the daily emails write it.
+ * E.g. formatDueDay('2026-09-30T00:00:00.000Z', tz) → "30 Sep 2026"; with { weekday: 'short',
+ * month: 'short', day: 'numeric' } → "Wed 30 Sep". Of the options, the weekday, the month's length
+ * and whether there is a year are used.
  */
 export function formatDueDay(
   due: DateInput,
@@ -11,7 +15,8 @@ export function formatDueDay(
 ): string {
   const key = dueDayKey(due, timeZone);
   if (!key) return '';
-  return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).format(new Date(`${key}T12:00:00.000Z`));
+  const weekday = opts.weekday === 'long' ? 'long' : opts.weekday ? 'short' : undefined;
+  return dayText(key, { weekday, month: opts.month === 'long' ? 'long' : 'short', year: opts.year !== undefined });
 }
 
 /** 'YYYY-MM-DD' for a date `<input type="date">` from a stored due date (its calendar day). */

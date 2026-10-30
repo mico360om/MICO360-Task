@@ -11,19 +11,16 @@ import { reportsApi, type ReportFilters, type ReportFormat, type ReportKind } fr
 import { projectsApi } from '../api/projects';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { isBackwards, isWholeDate } from '../lib/date-box';
+import { dayText } from '../lib/day-words';
 import { todayKey as companyTodayKey, shiftDayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { namedProjectOption } from '../components/project-option';
 
 // ── Date-range helpers: 'YYYY-MM-DD' day keys, where "today" is the company's today ──
 const DAY_MS = 86_400_000;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const shiftKey = shiftDayKey;
-/** "2000-01-05" → "Jan 5" (timezone-safe, no Date parsing). */
-const shortDay = (key: string) => {
-  const [, m, d] = key.split('-');
-  return `${MONTHS[Number(m) - 1]} ${Number(d)}`;
-};
+/** "2000-01-05" → "5 Jan" (the day itself, day before month). */
+const shortDay = (key: string) => dayText(key, { year: false });
 const cumulative = (vals: number[]) => {
   let sum = 0;
   return vals.map((v) => (sum += v));

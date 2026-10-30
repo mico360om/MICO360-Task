@@ -1,3 +1,4 @@
+import { clockText, instantDayText, weekdayText } from '../../lib/day-words';
 import { useRef, useState, type ReactNode } from 'react';
 import type { ApiMessage, ConversationPrefs } from '../../api/chat';
 import { SearchableSelect, type SelectOption } from '../ui/SearchableSelect';
@@ -46,12 +47,12 @@ export interface ChatSidebarProps {
 function when(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return clockText(d);
   const y = new Date(now);
   y.setDate(now.getDate() - 1);
   if (d.toDateString() === y.toDateString()) return 'Yesterday';
-  if (now.getTime() - d.getTime() < 6 * 864e5) return d.toLocaleDateString([], { weekday: 'short' });
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  if (now.getTime() - d.getTime() < 6 * 864e5) return weekdayText(d);
+  return instantDayText(d, undefined, { year: false });
 }
 
 function Row({ row, active, opening, myId, nameOf, avatarOf, isOnline, projectOf, onOpen, onPrefs }: {

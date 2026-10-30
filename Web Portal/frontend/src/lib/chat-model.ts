@@ -4,6 +4,7 @@
  * how messages still on their way are shown next to the server's, which files can be attached, and
  * each conversation's unsent draft.
  */
+import { dayText } from './day-words';
 import type { ApiMessage, ApiParticipant, ConversationPrefs, ConversationSummary, ReplyQuote } from '../api/chat';
 
 /** Consecutive messages from one person within this window form one group (one name, one avatar). */
@@ -50,7 +51,7 @@ export function dayLabel(iso: string, now = new Date(), timeZone?: string): stri
   if (key === dayKey(now.toISOString(), timeZone)) return 'Today';
   if (key === dayKey(new Date(now.getTime() - 864e5).toISOString(), timeZone)) return 'Yesterday';
   const sameYear = key.slice(0, 4) === dayKey(now.toISOString(), timeZone).slice(0, 4);
-  return new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), ...(timeZone ? { timeZone } : {}) }).format(new Date(iso));
+  return dayText(key, { weekday: 'short', year: !sameYear });
 }
 
 /**

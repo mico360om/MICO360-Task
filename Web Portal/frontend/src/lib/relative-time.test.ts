@@ -13,7 +13,9 @@ describe('relativeTime', () => {
   });
 
   it('gives the date for anything a week or more old, and nothing for a missing time', () => {
-    expect(relativeTime(ago(30 * 86_400_000), now)).toBe(new Date(ago(30 * 86_400_000)).toLocaleDateString());
+    // Day before month ("3 Sep 2026"), whatever the browser's language.
+    expect(relativeTime(ago(30 * 86_400_000), now)).toMatch(/^\d{1,2} Sep 2026$/);
+    expect(relativeTime('2026-09-04T12:00:00Z', now)).toBe('4 Sep 2026');
     expect(relativeTime('', now)).toBe('');
     expect(relativeTime('not a date', now)).toBe('');
   });
