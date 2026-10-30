@@ -77,7 +77,7 @@ export interface MoveExtra {
 
 /** Plain words for the approval refusals. */
 export const APPROVAL_WORDS = {
-  notApprover: 'Only the people who run this project can approve its tasks or send them back.',
+  notApprover: 'Only the project’s managers can approve or send back its tasks.',
   /** Turning "Needs approval" off, waiting or not: only the project's managers and admins (owner, 30 Oct). */
   switchOff: 'Only the project’s managers can turn off approval for this task.',
   notWaiting: 'This task isn’t waiting for approval any more.',
