@@ -107,7 +107,9 @@ Environment variables (hPanel → the Node.js app → Environment variables):
   If the password has special characters such as `@ : / # %`, write them URL-encoded, for example
   `@` as `%40`;
 - `UPLOAD_DIR=/home/<your hPanel user>/mico360-data/uploads`, a folder outside the app, so
-  uploaded files survive each redeploy;
+  uploaded files survive each redeploy. The nightly backups go beside it, to
+  `/home/<your hPanel user>/mico360-data/backups` (see `docs/BACKUPS.md`, which also has the one-time
+  Google Drive setup: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`);
 - don't set `PORT`: Hostinger sets it. `WEB_ROOT` isn't needed: `server.mjs` serves the built web
   app.
 

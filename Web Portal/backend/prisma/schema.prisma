@@ -1486,3 +1486,57 @@ model InspectionFollowUp {
   @@unique([inspectionId, itemId])
   @@map("inspection_follow_ups")
 }
+
+// ─────────────────────────────── Backups ───────────────────────────────
+// docs/BACKUPS.md. The copies are files in BACKUP_DIR; this table says how each one went. Retention
+// deletes a copy's file and its row together.
+
+enum BackupTrigger {
+  NIGHTLY
+  MANUAL
+}
+
+enum BackupStatus {
+  RUNNING
+  OK
+  FAILED
+}
+
+enum BackupDriveStatus {
+  UPLOADED
+  FAILED
+  SKIPPED
+}
+
+/// One backup copy (or a try at one): the nightly copy, or "Back up now" in System Settings.
+model BackupRun {
+  id            String             @id @default(cuid())
+  trigger       BackupTrigger
+  status        BackupStatus       @default(RUNNING)
+  /// The company date it was made on ('YYYY-MM-DD').
+  localDate     String             @db.VarChar(10)
+  startedAt     DateTime           @default(now())
+  finishedAt    DateTime?
+  /// The copy's file name in BACKUP_DIR (once made).
+  fileName      String?            @db.VarChar(191)
+  sizeBytes     BigInt?
+  sha256        String?            @db.Char(64)
+  encrypted     Boolean            @default(false)
+  tableCount    Int?
+  rowCount      Int?
+  fileCount     Int?
+  /// Why it failed, in plain words.
+  error         String?            @db.Text
+  /// The Google Drive copy: null when Drive isn't connected.
+  driveStatus   BackupDriveStatus?
+  driveFileId   String?            @db.VarChar(191)
+  driveError    String?            @db.Text
+  /// Who pressed "Back up now" (a plain id, so the row outlives the person).
+  requestedById String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([status, startedAt])
+  @@index([localDate])
+  @@map("backup_runs")
+}

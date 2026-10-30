@@ -72,4 +72,46 @@ describe('loadEnv', () => {
       } as NodeJS.ProcessEnv),
     ).not.toThrow();
   });
+  it('backups: kept beside the uploads, not encrypted, Google Drive off until set up', () => {
+    const env = loadEnv({ ...base, NODE_ENV: 'development' } as NodeJS.ProcessEnv);
+    expect(env).toMatchObject({ BACKUP_DIR: '', BACKUP_ENCRYPTION_KEY: '', GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', GOOGLE_REDIRECT_URI: '' });
+  });
+
+  it('BACKUP_WARN_GB: the size of the kept copies that brings a warning, 5 GB unless set', () => {
+    const warnGb = (v?: string) => loadEnv({ ...base, ...(v === undefined ? {} : { BACKUP_WARN_GB: v }) } as NodeJS.ProcessEnv).BACKUP_WARN_GB;
+    expect(warnGb()).toBe(5);
+    expect(warnGb('')).toBe(5);
+    expect(warnGb(' 12 ')).toBe(12);
+    expect(warnGb('0.5')).toBe(0.5);
+    expect(() => warnGb('lots')).toThrow(/BACKUP_WARN_GB/);
+    expect(() => warnGb('0')).toThrow(/BACKUP_WARN_GB/);
+  });
+
+  it('the nightly copy is on by default only in production (both server packages); off on development and test servers', () => {
+    const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: 'A'.repeat(40), JWT_REFRESH_SECRET: 'B'.repeat(40) };
+    const nightly = (extra: Record<string, string>) => loadEnv({ ...base, ...extra } as NodeJS.ProcessEnv).BACKUP_NIGHTLY;
+    expect(nightly({ NODE_ENV: 'development' })).toBe(false);
+    expect(nightly({ NODE_ENV: 'test' })).toBe(false);
+    expect(nightly({})).toBe(false);
+    expect(nightly({ NODE_ENV: 'development', BACKUP_NIGHTLY: '' })).toBe(false);
+    expect(loadEnv(prod as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(true);
+    expect(loadEnv({ ...prod, BACKUP_NIGHTLY: ' ' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(true);
+    // Said outright, it wins either way.
+    expect(loadEnv({ ...prod, BACKUP_NIGHTLY: 'false' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(false);
+    expect(loadEnv({ ...prod, BACKUP_NIGHTLY: 'no' } as NodeJS.ProcessEnv).BACKUP_NIGHTLY).toBe(false);
+    expect(nightly({ NODE_ENV: 'development', BACKUP_NIGHTLY: 'TRUE' })).toBe(true);
+    expect(nightly({ NODE_ENV: 'development', BACKUP_NIGHTLY: 'yes' })).toBe(true);
+  });
+
+  it('the backup key is read without spaces or a line end around it (as the restore tool reads it)', () => {
+    expect(loadEnv({ ...base, BACKUP_ENCRYPTION_KEY: '  a long enough backup key \r\n' } as NodeJS.ProcessEnv).BACKUP_ENCRYPTION_KEY).toBe('a long enough backup key');
+    expect(loadEnv({ ...base, BACKUP_ENCRYPTION_KEY: '   ' } as NodeJS.ProcessEnv).BACKUP_ENCRYPTION_KEY).toBe('');
+  });
+
+  it('the stand-in Google address for tests is ignored in production', () => {
+    const strong = (c: string) => c.repeat(40);
+    const prod = { ...base, NODE_ENV: 'production', JWT_ACCESS_SECRET: strong('a'), JWT_REFRESH_SECRET: strong('b'), BACKUP_GOOGLE_TEST_BASE_URL: 'http://127.0.0.1:9999' };
+    expect(loadEnv(prod as NodeJS.ProcessEnv).BACKUP_GOOGLE_TEST_BASE_URL).toBe('');
+    expect(loadEnv({ ...base, BACKUP_GOOGLE_TEST_BASE_URL: 'http://127.0.0.1:9999' } as NodeJS.ProcessEnv).BACKUP_GOOGLE_TEST_BASE_URL).toBe('http://127.0.0.1:9999');
+  });
 });

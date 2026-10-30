@@ -72,10 +72,34 @@ const EnvSchema = z.object({
     .string()
     .default('false')
     .transform((v) => ['true', '1', 'yes'].includes(v.trim().toLowerCase())),
+  // Nightly backups (docs/BACKUPS.md). Where the copies are kept: a private folder, never one the
+  // website serves; blank = `backups` beside UPLOAD_DIR, outside the app folder, so deploys keep it.
+  BACKUP_DIR: z.string().optional().default(''),
+  // When set (16+ characters), every copy is encrypted with it. Keep it somewhere safe OFF this server:
+  // without it no encrypted copy can ever be restored. Spaces around it are not part of it (the
+  // restore tool reads it the same way).
+  BACKUP_ENCRYPTION_KEY: z.string().trim().optional().default(''),
+  // The nightly copy. Blank = on in production (the Hostinger site and the Windows server both run
+  // with NODE_ENV=production), off on development, QA and test servers — whose copies would land in
+  // the repository. 'true' / 'false' says otherwise. "Back up now" works either way.
+  BACKUP_NIGHTLY: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v.trim() === '' ? null : !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase()))),
+  // System Settings (and one email) warn when the backup copies kept on the server take more than
+  // this many GB in all. Blank = 5.
+  BACKUP_WARN_GB: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().positive().max(1_000_000).default(5)),
+  // Google Drive copies of the backups: the OAuth client made once in Google Cloud (docs/BACKUPS.md).
+  // Blank = no Google Drive. The redirect address defaults to API_BASE_URL/api/v1/backups/google/callback.
+  GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  GOOGLE_REDIRECT_URI: z.string().optional().default(''),
+  /** Development and tests only: a stand-in for Google's servers (ignored in production). */
+  BACKUP_GOOGLE_TEST_BASE_URL: z.string().optional().default(''),
   // Per-user AI request budget.
   AI_USER_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   AI_USER_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(200),
-});
+}).transform((env) => ({ ...env, BACKUP_NIGHTLY: env.BACKUP_NIGHTLY ?? env.NODE_ENV === 'production' }));
 
 export type Env = z.infer<typeof EnvSchema>;
 
@@ -99,6 +123,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     const issues = parsed.error.issues.map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
+  // A stand-in for Google's servers is for development and tests only.
+  if (parsed.data.NODE_ENV === 'production') parsed.data.BACKUP_GOOGLE_TEST_BASE_URL = '';
   // Production secret hardening: fail fast on weak / placeholder / re-used JWT secrets so a
   // deployment can't ship with dev defaults after a key rotation (T19 security).
   if (parsed.data.NODE_ENV === 'production') {

@@ -319,6 +319,9 @@ Phones:     in the MICO360 Tasks app, tap "Server: … · Change" on the sign-in
 Extension:  in the Chrome extension's sign-in screen choose "Advanced: change server" and enter
             http://localhost:<port> (or the office-network address).
 Email:      add Mailjet keys to config\\server.env to turn on sign-in codes and password-reset emails.
+Backups:    every night at 02:00 the server copies the database and the uploaded files to backups\\ in
+            the data folder (about five weeks are kept; System Settings → Backups). Copy that folder
+            to another disk now and then. Restoring a copy: BACKUPS.md in this folder.
 Uninstall:  Windows Settings → Apps, or Start menu → "Uninstall MICO360 Tasks Server".
             Your data folder is kept unless you choose to delete it.
 
@@ -326,6 +329,8 @@ Included third-party software: Node.js (MIT), MySQL Community Server 8.0 (GPLv2)
 Microsoft Visual C++ runtime — licenses in the "licenses" folder.
 `,
   );
+  // How backups work and how to restore one, beside README.txt in the program folder.
+  fs.copyFileSync(path.join(ROOT, 'docs', 'BACKUPS.md'), path.join(payload, 'BACKUPS.md'));
   fs.writeFileSync(
     path.join(licenses, 'Microsoft-VC-Runtime.txt'),
     'msvcp140.dll, vcruntime140.dll and vcruntime140_1.dll are redistributable files of the Microsoft Visual C++ Redistributable, deployed app-locally next to MySQL.\n',
@@ -385,9 +390,10 @@ function buildHostinger() {
   const stage = path.join(STAGE, 'hostinger');
   const pkg = path.join(stage, name);
   clean(stage);
-  // Never shipped: installed/built output, local secrets, and the demo seed (it wipes the database
-  // and creates test accounts — development only).
-  const skip = /\/(node_modules|dist|uploads|coverage|\.vite|\.turbo)(\/|$)|\/\.env(?!\.example$)[^/]*$|\.log$|tsconfig\.tsbuildinfo$|\/prisma\/seed\.ts$/;
+  // Never shipped: installed/built output, local secrets, the demo seed (it wipes the database and
+  // creates test accounts — development only), and backup copies a local server made (the whole
+  // database; `backups` only at the backend root — src/modules/backups is source code).
+  const skip = /\/(node_modules|dist|uploads|coverage|\.vite|\.turbo)(\/|$)|^\/backups(\/|$)|\/\.work-[^/]*(\/|$)|\.tar\.gz(\.enc)?(\.partial)?$|\/\.env(?!\.example$)[^/]*$|\.log$|tsconfig\.tsbuildinfo$|\/prisma\/seed\.ts$/;
   copy(BACKEND, path.join(pkg, 'backend'), (f) => !skip.test(f.slice(BACKEND.replace(/\\/g, '/').length)));
   // The server is built on the host (deploy.sh); that build writes the version history from this.
   fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(pkg, 'backend', 'CHANGELOG.md'));
@@ -404,7 +410,7 @@ function buildHostinger() {
   }
   copy(path.join(ROOT, 'deploy'), path.join(pkg, 'deploy'));
   fs.mkdirSync(path.join(pkg, 'docs'));
-  for (const doc of ['DEPLOY-HOSTINGER.md', 'DEPLOYMENT.md', 'EMAIL.md']) fs.copyFileSync(path.join(ROOT, 'docs', doc), path.join(pkg, 'docs', doc));
+  for (const doc of ['DEPLOY-HOSTINGER.md', 'DEPLOYMENT.md', 'EMAIL.md', 'BACKUPS.md']) fs.copyFileSync(path.join(ROOT, 'docs', doc), path.join(pkg, 'docs', doc));
 
   // The backend's standalone lockfile (deploy.sh runs `npm ci` with it) — refreshed from the tested
   // monorepo lockfile, then shipped with the backend source.
@@ -430,14 +436,19 @@ public_html/  The web app. Upload its contents (including .well-known/ and downl
               new build later, replace that one file (same name); the address never changes. Until the
               file is there the button says "Not available yet".
 deploy/       Reference nginx config and security headers.
-docs/         Deployment, email and Hostinger runbooks.
+docs/         Deployment, email, backups and Hostinger runbooks.
 
 The settings file already has TRUST_PROXY=loopback, the JWT secrets, SECRETS_ENCRYPTION_KEY and
 MAILJET_WEBHOOK_TOKEN. Still to add before email works: the rotated Mailjet keys
 (docs/DEPLOY-HOSTINGER.md lists every setting).
 
-Then add an hPanel cron job, every 15 minutes, so recurring tasks, reminders and the nightly
-carry-forward keep running even when nobody has the site open (Hostinger may stop an idle app):
+Backups: every night at 02:00 the server copies the database and the uploaded files to
+~/mico360-data/backups (beside UPLOAD_DIR) and keeps about five weeks of copies; administrators download
+them from System Settings → Backups. Google Drive copies and restoring: docs/BACKUPS.md.
+
+Then add an hPanel cron job, every 15 minutes, so recurring tasks, reminders, the nightly
+carry-forward and the nightly backup keep running even when nobody has the site open (Hostinger may
+stop an idle app):
   curl -fsS -o /dev/null https://task.mico360.com/api/v1/health
 `,
   );

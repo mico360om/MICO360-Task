@@ -35,6 +35,27 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   approval and shows it where it waits, instead of as done. Board cards show the "Waiting for
   approval" badge, and the project's managers can Approve or Send back (with a reason) from My
   Tasks and the board.
+- Nightly backups: every night at 02:00 the server saves a copy of everything — all the data and every
+  uploaded file. It keeps the last 7 nights and one copy a week for the 4 weeks before; older copies
+  are deleted by themselves.
+- System Settings → Backups (administrators): when the last copy was made, how much room the kept
+  copies take, a clear warning if one failed, "Back up now", and a Download button for each copy kept.
+- The copies can also go to your own Google Drive, into a "MICO360 Tasks backups" folder, once Google
+  Drive is connected in System Settings (a one-time setup).
+- If a nightly copy fails (also when the server was stopped part-way through it), or can't reach Google
+  Drive, the administrators get an email — and once if no new copy has been made for a day and a half.
+- A size warning in System Settings (and one email) when the copies kept on the server take more than
+  5 GB in all (BACKUP_WARN_GB), or the free disk space is less than about twice the newest copy, with
+  what to do.
+
+### Security
+- Backups are kept in a private server folder the website never shows; only administrators can see or
+  download them, and every download (and every download link asked for) is recorded in the Audit Logs.
+  Development and test servers make no nightly copies, so none can end up in the source code. Google Drive access is limited to
+  the files the app makes. Copies can be locked with a backup key (BACKUP_ENCRYPTION_KEY); on a live
+  server without one, System Settings says the copies aren't locked and the administrators get one
+  email. BACKUPS.md shows how to make a strong key; keep it in a password manager, away from the
+  server and from Google Drive, because no locked copy opens without it.
 
 ## [1.18.2] - 2026-10-30
 

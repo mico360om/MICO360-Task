@@ -30,6 +30,13 @@ function renderPage() {
   );
 }
 
+describe('SystemSettingsPage — backups', () => {
+  it('has the Backups section', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Backups' })).toBeInTheDocument();
+  });
+});
+
 describe('SystemSettingsPage — meeting hours', () => {
   it('has the meeting hours card', async () => {
     renderPage();

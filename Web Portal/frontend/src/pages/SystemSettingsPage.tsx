@@ -9,6 +9,7 @@ import { tasksApi } from '../api/tasks';
 import { LoadError } from '../components/ui/LoadError';
 import { DailyEmailLog } from '../components/admin/DailyEmailLog';
 import { MeetingHoursSettings, workingHoursText } from '../components/admin/MeetingHoursSettings';
+import { BackupSettings } from '../components/admin/BackupSettings';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -241,6 +242,9 @@ export function SystemSettingsPage() {
 
         {/* The morning task emails: who got which, and how it went. */}
         <DailyEmailLog />
+
+        {/* Nightly backups: the copies, Back up now, downloads and Google Drive. */}
+        <BackupSettings />
       </div>
     </div>
   );
