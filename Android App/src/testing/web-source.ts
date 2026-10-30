@@ -145,3 +145,23 @@ export function appSources(): Array<[rel: string, text: string]> {
 export function sha256(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
+
+/** A file's text with Windows line ends (CRLF) as plain LF, so a copy compares equal on any checkout. */
+export function normalise(text: string): string {
+  return text.replace(/\r\n/g, '\n');
+}
+
+const VERBS: Record<string, string> = { get: 'GET', post: 'POST', put: 'PUT', patch: 'PATCH', del: 'DELETE' };
+
+/**
+ * Every call of a calls file (the website's `api/*.ts`, the app's copies) as `name → 'VERB /path'`:
+ * `name: (…) =>` followed, across spaces and line breaks, by `client.get|post|put|patch|del<…>(` and
+ * a `` `path` `` or `'path'`. Each `${…}` becomes `:p` (so `${seg(id)}`, `${encodeURIComponent(id)}`
+ * and `${id}` compare equal); a query string is kept. A name that isn't such a call is left out.
+ */
+export function apiRoutes(text: string): Record<string, string> {
+  const call = /(\w+):\s*\((?:[^()]|\([^()]*\))*\)\s*(?::[^=]*?)?=>\s*(?:\w+\()?client\.(get|post|put|patch|del)(?:<[^]*?>)?\(\s*([`'])([^`']*)\3/g;
+  const out: Record<string, string> = {};
+  for (const m of normalise(text).matchAll(call)) out[m[1]!] = `${VERBS[m[2]!]} ${m[4]!.replace(/\$\{[^}]*\}/g, ':p')}`;
+  return out;
+}

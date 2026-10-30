@@ -62,6 +62,8 @@ export type AppStackParamList = {
   Users: { q?: string } | undefined;
   /** New user (no id) or Manage account — administrators (6b). */
   UserForm: { userId?: string } | undefined;
+  /** An inspection: answered, signed and finished on the phone, with or without signal (Stage 4). */
+  Inspection: { inspectionId: string; title?: string };
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;

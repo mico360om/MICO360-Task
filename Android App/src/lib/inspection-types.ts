@@ -1,0 +1,244 @@
+import type { FormStructure, InspectionStatus, ItemResult, SignatureRole, SignatureRule } from './inspection-rules';
+import type { RecurrenceRule } from './recurrence';
+
+/**
+ * The website’s inspection types (`Web Portal/frontend/src/api/inspections.ts`, from `Person` up to
+ * its calls), word for word: forms, a project’s inspections, answers, signing, follow-ups, schedules,
+ * due checks and the client’s report. `inspection-copies.test.ts` fails when they drift.
+ */
+
+export interface Person {
+  id: string;
+  name: string;
+}
+
+export interface InspectionForm {
+  id: string;
+  title: string;
+  description: string | null;
+  structure: FormStructure;
+  version: number;
+  sectionCount: number;
+  itemCount: number;
+  createdBy: Person | null;
+  updatedAt: string;
+  /** The person asking may edit and delete it (its creator, or an administrator). */
+  canEdit: boolean;
+}
+
+/** A form as the forms manager sends it (new sections and items have no id yet). */
+export interface FormInput {
+  title: string;
+  description: string | null;
+  clientSignature: SignatureRule;
+  supervisorSignature: SignatureRule;
+  sections: Array<{
+    id?: string;
+    title: string;
+    items: Array<
+      | { id?: string; kind: 'CHECK'; label: string; help?: string | null }
+      | { id?: string; kind: 'READING'; label: string; help?: string | null; unit?: string | null; min?: number | null; max?: number | null }
+    >;
+  }>;
+}
+
+export interface InspectionCounts {
+  total: number;
+  answered: number;
+  passed: number;
+  failed: number;
+  na: number;
+}
+
+export interface InspectionListItem {
+  id: string;
+  projectId: string;
+  title: string;
+  status: InspectionStatus;
+  place: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  inspector: Person;
+  counts: InspectionCounts;
+  /** "Passed", "2 failed", "All N/A"; while in progress "12 of 40 answered". */
+  result: string;
+  clientVisible: boolean;
+  /** `lateDays`: a finished check (a task that carries a form) done N days after its due day (0 on time). */
+  task: { id: string; key: string; title: string; done: boolean; lateDays?: number | null } | null;
+}
+
+export interface AnswerView {
+  itemId: string;
+  result: ItemResult | null;
+  reading: string | null;
+  note: string | null;
+  editedAt: string;
+}
+
+export interface SignatureView {
+  role: SignatureRole;
+  name: string;
+  method: 'DRAWN' | 'TYPED';
+  image: string | null;
+  signedAt: string;
+}
+
+export interface FollowUpView {
+  itemId: string;
+  task: { id: string; key: string; title: string; deleted: boolean; done: boolean } | null;
+  pending: boolean;
+  /** Its task was moved to a project the reader can't see (so it isn't named). */
+  moved?: boolean;
+}
+
+export interface InspectionPermissions {
+  canAnswer: boolean;
+  canFinish: boolean;
+  canReopen: boolean;
+  canTakeOver: boolean;
+  canDelete: boolean;
+  canShowToClient: boolean;
+  canMakeFollowUps: boolean;
+}
+
+export interface InspectionDetail extends InspectionListItem {
+  description: string | null;
+  formId: string | null;
+  formVersion: number;
+  structure: FormStructure;
+  startedBy: Person;
+  answers: AnswerView[];
+  signatures: SignatureView[];
+  followUps: FollowUpView[];
+  permissions: InspectionPermissions;
+  signatureRoles: { allowed: SignatureRole[]; required: SignatureRole[] };
+  /** Goes up with each reopen: a finish sends the revision its signers saw. */
+  revision: number;
+  /** Its project is archived: read-only (a report shown to the client can still be taken off). */
+  projectArchived?: boolean;
+  /** The last reopen (null: never reopened). */
+  reopened?: { at: string; by: Person } | null;
+  /** Earlier signed revisions (a reopen took their signatures off), oldest first; numbered from 1. */
+  earlierRevisions?: EarlierRevision[];
+  taskOffer?: { id: string; key: string; title: string; doneColumnId: string } | null;
+  /** After a finish: the check it was for, completed automatically (a task that carries a form). */
+  taskCompleted?: { id: string; key: string; title: string } | null;
+  /** After a finish: the check it was for, when it needs approval — waiting for a project manager's OK (not done yet). */
+  taskWaiting?: { id: string; key: string; title: string } | null;
+}
+
+/** A form as a check names it: deleted since means the check can still be done, but nothing new uses it. */
+export interface FormRef {
+  id: string;
+  title: string;
+  deleted: boolean;
+}
+
+/** A repeating check on a project (its newest copy carries the repeat). */
+export interface InspectionSchedule {
+  taskId: string;
+  key: string;
+  /** The newest copy's version: an edit or stop sends it (a list that is out of date is refused, 409). */
+  version: number;
+  title: string;
+  form: FormRef;
+  place: string | null;
+  assignees: Person[];
+  rule: RecurrenceRule;
+  /** "Every working day", "Repeats every week on Mon". */
+  repeat: string;
+  /** Made on each date, done or not (false: an older series that waits for each check, said in `repeat`). */
+  onSchedule: boolean;
+  paused: boolean;
+  /** 'YYYY-MM-DD'; null when paused or ended. */
+  nextDue: string | null;
+  lastDone: string | null;
+  openChecks: number;
+  lateChecks: number;
+}
+
+/** An open check (a task that carries a form): late ones first. */
+export interface DueCheck {
+  taskId: string;
+  key: string;
+  title: string;
+  /** 'YYYY-MM-DD' */
+  dueDate: string | null;
+  state: 'DUE' | 'LATE';
+  daysLate: number;
+  scheduled: boolean;
+  form: FormRef;
+  place: string | null;
+  assignees: Person[];
+  inProgress: { inspectionId: string; inspector: Person } | null;
+}
+
+export interface EarlierRevision {
+  /** As people count them: the first signing is 1. */
+  number: number;
+  /** When a reopen took these signatures off. */
+  reopenedAt: string;
+  signatures: Array<{ role: SignatureRole; name: string; method: 'DRAWN' | 'TYPED'; signedAt: string }>;
+}
+
+/** One answer as a device sends it: the time it was changed there decides which edit wins. */
+export interface AnswerWrite {
+  itemId: string;
+  result: ItemResult | null;
+  reading: string | null;
+  note: string | null;
+  editedAt: string;
+}
+
+export interface AnswerOutcome {
+  itemId: string;
+  status: 'applied' | 'stale' | 'same';
+  answer: AnswerView;
+}
+
+export interface SignatureInput {
+  role: SignatureRole;
+  name: string;
+  method: 'DRAWN' | 'TYPED';
+  /** A PNG data URL, for a drawn signature. */
+  image?: string | null;
+  signedAt: string;
+}
+
+export interface FinishInput {
+  /** The device's id for this finish: sending it again is a no-op. */
+  finishId: string;
+  /** The inspection's revision when it was signed: a reopen since then makes the server refuse it. */
+  revision: number;
+  /** The answers the signers saw (each one's edit time). */
+  seen: Array<{ itemId: string; editedAt: string }>;
+  signatures: SignatureInput[];
+}
+
+export interface FollowUpResult {
+  itemId: string;
+  status: 'created' | 'exists' | 'pending' | 'not-failed';
+  task: { id: string; key: string; title: string } | null;
+}
+
+/** A shown report as the client's page lists it (the rest is read when it is opened). */
+export interface ClientInspectionSummary {
+  id: string;
+  title: string;
+  /** The day it was finished ('YYYY-MM-DD', company time zone). */
+  date: string;
+  place: string | null;
+  counts: { total: number; passed: number; failed: number; na: number };
+  result: string;
+  /** Which signing this is, counted from 1 (a reopen and a new signing make it 2). */
+  revisionNumber: number;
+  /** The day it was last reopened ('YYYY-MM-DD'); null if never. */
+  reopenedOn: string | null;
+}
+
+export interface ClientInspection extends ClientInspectionSummary {
+  sections: Array<{ title: string; items: Array<{ label: string; kind: 'CHECK' | 'READING'; result: string | null; reading: string | null; limits: string | null; note: string | null }> }>;
+  /** `signedOn`: when, in words, in the company's time zone (as the PDF says it). */
+  signatures: Array<{ role: string; name: string; signedAt: string; signedOn: string; image: string | null; typed: boolean }>;
+  unsigned: string[];
+}

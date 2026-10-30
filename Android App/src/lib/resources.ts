@@ -72,6 +72,7 @@ import type { ApiActivityRow } from './activity-page';
 import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
+import { inspectionsApi } from './inspections-api';
 
 type NewUserBody = ReturnType<typeof newUserBody>;
 type UserPatchBody = ReturnType<typeof userPatch>;
@@ -180,6 +181,8 @@ export function resourcesApi(client: ApiClient) {
   const seriesQuery = (scope: SeriesScope) => (scope === 'series' ? '?scope=series' : '');
 
   return {
+    /** Inspections: a project's, a task's, answering, signing, follow-ups, schedules, the report (Stage 4). */
+    inspections: inspectionsApi(client),
     projects: {
       list: () => data(client.get<Envelope<ApiProject[]>>('/projects')),
       get: (id: string) => data(client.get<Envelope<ApiProject>>(`/projects/${seg(id)}`)),
