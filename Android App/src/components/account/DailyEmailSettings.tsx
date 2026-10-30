@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, Switch, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useServerConfig } from '../../core/queries';
 import { useSavePreferences, useSendDailyEmailTest } from '../../core/account-queries';
-import { Card, SectionTitle, Muted, Button, TextField } from '../ui';
+import { Card, SectionTitle, Muted, Button, TextField, Toggle } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
 import {
   DAILY_EMAIL_ITEMS,
@@ -86,18 +86,9 @@ export function DailyEmailSettings({ prefs }: { prefs: NotificationPreferences }
           </Text>
         ) : null}
         {DAILY_EMAIL_ITEMS.map((item) => (
-          <View key={item.key} style={[s.row, s.divided]}>
-            <View style={s.rowText}>
-              <Text style={s.rowTitle}>{item.label}</Text>
-              <Muted>{item.description}</Muted>
-            </View>
-            <Switch
-              value={daily[item.key]}
-              onValueChange={(on) => change({ [item.key]: on })}
-              accessibilityLabel={item.a11y}
-              trackColor={{ true: c.brand, false: c.line }}
-              thumbColor={c.surface}
-            />
+          <View key={item.key} style={s.divided}>
+            <Toggle label={item.label} on={daily[item.key]} onChange={(on) => change({ [item.key]: on })} />
+            <Muted>{item.description}</Muted>
           </View>
         ))}
         {/* The time with its Save stays above the keyboard while typing. */}
@@ -148,7 +139,7 @@ const makeStyles = (c: Palette) =>
     rowText: { flex: 1 },
     rowTitle: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     divided: { borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.md, marginTop: spacing.md },
-    warning: { backgroundColor: c.warningSoft, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
+    warning: { backgroundColor: c.warningSoft, borderRadius: radius.input, padding: spacing.md, marginTop: spacing.md },
     warningText: { color: c.warningText, fontSize: fontSize.sm },
     error: { fontSize: fontSize.sm, color: c.dangerText, ...font('600'), marginTop: spacing.sm },
     timeNote: { marginTop: -spacing.sm },

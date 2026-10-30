@@ -66,28 +66,6 @@ const PENDING: Partial<Record<'task16' | 'task17' | 'task18' | 'task19' | 'task2
     'screens/UserFormScreen.tsx',
     'screens/UsersScreen.tsx',
   ],
-  // Task 20 — chat, notifications, account, sign-in and the rest (lane B)
-  task20: [
-    'adapters/push.ts',
-    'components/ErrorBoundary.tsx',
-    'components/LockGate.tsx',
-    'components/SyncStatus.tsx',
-    'components/UpdateBanner.tsx',
-    'components/account/ChangePasswordCard.tsx',
-    'components/account/DailyEmailSettings.tsx',
-    'components/chat/ChatSheets.tsx',
-    'components/chat/MessageParts.tsx',
-    'lib/chat-ui.ts',
-    'screens/AboutScreen.tsx',
-    'screens/ActivityScreen.tsx',
-    'screens/ChatScreen.tsx',
-    'screens/ChatThreadScreen.tsx',
-    'screens/NotificationsScreen.tsx',
-    'screens/ProfileScreen.tsx',
-    'screens/SearchScreen.tsx',
-    'screens/SettingsScreen.tsx',
-    'screens/auth/LoginScreen.tsx',
-  ],
 };
 
 /** UI glyphs: emoji and the arrows, ticks, stars, boxes and pluses that stood in for icons. */

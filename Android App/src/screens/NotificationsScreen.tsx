@@ -9,7 +9,7 @@ import { targetToAction } from '../navigation/nav-actions';
 import { applyNavAction } from '../navigation/apply-action';
 import { useServices } from '../core/providers';
 import { useColors } from '../core/theme';
-import { Loader, EmptyState, ErrorNote, Button } from '../components/ui';
+import { SkeletonList, EmptyState, ErrorNote, Button } from '../components/ui';
 import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { dismissNotificationsAbout } from '../adapters/push';
 import { ALERTS_REFRESH, allReadUpTo, markAllProblem, newestShown } from '../lib/alerts';
@@ -112,7 +112,7 @@ export function NotificationsScreen({ navigation }: AppScreenProps<'Notification
     [s, now, open],
   );
 
-  if (q.isLoading) return <Loader />;
+  if (q.isLoading) return <SkeletonList />;
 
   const header = (
     <View style={s.header}>
@@ -134,7 +134,7 @@ export function NotificationsScreen({ navigation }: AppScreenProps<'Notification
     q.isError && !q.data ? (
       <ErrorNote message="Couldn’t load notifications." onRetry={() => void q.refetch()} retrying={q.isRefetching} />
     ) : (
-      <EmptyState title="You’re all caught up" subtitle="Mentions, assignments and task updates will appear here." />
+      <EmptyState icon="nav.notifications" title="You’re all caught up" subtitle="Mentions, assignments and task updates will appear here." />
     );
 
   return (
@@ -163,7 +163,7 @@ const makeStyles = (c: Palette) =>
       flexDirection: 'row',
       gap: spacing.sm,
       backgroundColor: c.surface,
-      borderRadius: radius.md,
+      borderRadius: radius.input,
       borderWidth: 1,
       borderColor: c.line,
       padding: spacing.md,

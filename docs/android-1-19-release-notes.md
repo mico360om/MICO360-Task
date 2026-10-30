@@ -21,4 +21,5 @@
 
 ## New look — meetings, chat, account
 - In the Android app, Meetings use the new look.
+- In the Android app, Chat, Notifications, Activity, Search, Settings, Profile, About and the sign-in screens use the new look.
 <!-- meetings-chat-account lines above this line -->

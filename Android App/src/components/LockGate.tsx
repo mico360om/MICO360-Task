@@ -3,12 +3,13 @@ import { View, Text, StyleSheet, AppState, Modal } from 'react-native';
 import { useServices, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Button } from './ui';
+import { Icon } from './Icon';
 import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
 import { createAppStateCover, lockView, readLockSetting, screenPrivate } from '../lib/lock-view';
 import { setScreenPrivacy } from '../adapters/screen-capture';
 import { setAppCovered } from '../lib/chat-viewing';
-import { spacing, fontSize, type Palette } from '../lib/theme';
+import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import { font } from '../lib/typography';
 
 /**
@@ -133,9 +134,9 @@ export function LockGate({ children }: { children: React.ReactNode }) {
       {/* A Modal so it also covers any open sheet or drawer (they are Modals too). Back is ignored. */}
       <Modal visible={showLock} animationType="none" transparent={false} statusBarTranslucent onRequestClose={() => {}}>
         <View style={styles.overlay} accessibilityViewIsModal>
-          <Text style={styles.emoji} importantForAccessibility="no">
-            🔒
-          </Text>
+          <View style={styles.lockBubble}>
+            <Icon name="kit.lock" size={32} color={c.brandText} />
+          </View>
           <Text style={styles.title} accessibilityRole="header">
             MICO360 Tasks is locked
           </Text>
@@ -163,7 +164,7 @@ const makeStyles = (c: Palette) =>
       gap: spacing.md,
       backgroundColor: c.ground,
     },
-    emoji: { fontSize: 44 },
+    lockBubble: { width: 64, height: 64, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: c.brandWash },
     title: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'center' },
     sub: { fontSize: fontSize.md, color: c.ink2, textAlign: 'center', marginBottom: spacing.md },
     btn: { alignSelf: 'stretch' },

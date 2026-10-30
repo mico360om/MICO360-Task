@@ -76,6 +76,6 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
   title: { fontSize: fontSize.xl, ...font('800'), textAlign: 'center' },
   msg: { fontSize: fontSize.md, textAlign: 'center' },
-  btn: { minHeight: 48, minWidth: 160, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
+  btn: { minHeight: 48, minWidth: 160, borderRadius: radius.input, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
   btnText: { fontSize: fontSize.md, ...font('700') },
 });

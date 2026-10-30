@@ -169,13 +169,19 @@ const RECEIPT_LABEL: Record<ReceiptStatus, string> = {
   read: 'Read',
 };
 
-/** Where my message stands, in the website's words (for TalkBack) and as ticks. */
-export function receiptText(r: { status: ReceiptStatus | string; seenBy?: number }): { label: string; ticks: string } {
+/** The drawn ticks of a receipt (lib/icons): one when sent, two once delivered or read. */
+export type ReceiptTicks = 'ui.tick' | 'ui.tickDouble';
+
+/**
+ * Where my message stands, in the website's words (for TalkBack) and as drawn ticks; `seenBy` is the
+ * number shown as text beside them (a group conversation: how many have seen it).
+ */
+export function receiptText(r: { status: ReceiptStatus | string; seenBy?: number }): { label: string; ticks: ReceiptTicks | null; seenBy?: number } {
   const status = r.status as ReceiptStatus;
   const label = status === 'read' && r.seenBy ? `Seen by ${r.seenBy}` : RECEIPT_LABEL[status] ?? '';
-  if (status === 'sent') return { label, ticks: '✓' };
-  if (status === 'delivered' || status === 'read') return { label, ticks: r.seenBy ? `✓✓ ${r.seenBy}` : '✓✓' };
-  return { label, ticks: '' };
+  if (status === 'sent') return { label, ticks: 'ui.tick' };
+  if (status === 'delivered' || status === 'read') return { label, ticks: 'ui.tickDouble', ...(r.seenBy ? { seenBy: r.seenBy } : {}) };
+  return { label, ticks: null };
 }
 
 /**

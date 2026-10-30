@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Switch, Pressable, StyleSheet, Alert, AppState, Linking, AccessibilityInfo, findNodeHandle, type LayoutChangeEvent, type ScrollView } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, AppState, Linking, AccessibilityInfo, findNodeHandle, type LayoutChangeEvent, type ScrollView } from 'react-native';
 import { reopenNote, type ReopenNote } from '../lib/reopen-note';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useServices, useSession } from '../core/providers';
 import { useTheme, type ThemeMode } from '../core/theme';
-import { Card, SectionTitle, Button, Muted } from '../components/ui';
+import { Card, SectionTitle, Button, Muted, Toggle } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { DailyEmailSettings } from '../components/account/DailyEmailSettings';
@@ -239,19 +239,9 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
               <Muted>Your choices can’t be loaded right now.</Muted>
             ) : (
               NOTIFICATION_TYPES.map((n, i) => (
-                <View key={n.type} style={[styles.row, i > 0 && styles.divided]}>
-                  <View style={styles.rowText}>
-                    <Text style={styles.rowTitle}>{n.label}</Text>
-                    <Muted>{n.description}</Muted>
-                  </View>
-                  <Switch
-                    value={isTypeOn(prefs, n.type)}
-                    disabled={!prefs}
-                    onValueChange={() => save(toggleType(prefs, n.type))}
-                    accessibilityLabel={n.label}
-                    trackColor={{ true: c.brand, false: c.line }}
-                    thumbColor={c.surface}
-                  />
+                <View key={n.type} style={i > 0 ? styles.divided : null}>
+                  <Toggle label={n.label} on={isTypeOn(prefs, n.type)} disabled={!prefs} onChange={() => save(toggleType(prefs, n.type))} />
+                  <Muted>{n.description}</Muted>
                 </View>
               ))
             )}
@@ -290,19 +280,14 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
         <View style={styles.section}>
           <SectionTitle>Security</SectionTitle>
           <Card>
-            <View style={styles.row}>
-              <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>Biometric unlock</Text>
-                <Muted>Ask for your fingerprint when the app opens or returns after a few minutes away.</Muted>
-              </View>
-              <Switch
-                value={bioOn}
+            <View>
+              <Toggle
+                label="Biometric unlock"
+                on={bioOn}
                 disabled={bioBusy}
-                onValueChange={(v) => void toggleBiometric(v)}
-                accessibilityLabel="Biometric unlock"
-                trackColor={{ true: c.brand, false: c.line }}
-                thumbColor={c.surface}
+                onChange={(v) => void toggleBiometric(v)}
               />
+              <Muted>Ask for your fingerprint when the app opens or returns after a few minutes away.</Muted>
             </View>
             {fingerprintSetting({ lockOn: bioOn, keyArmed }) === 'sign-in-off' ? (
               <View style={styles.divided}>
@@ -363,8 +348,8 @@ const makeStyles = (c: Palette) =>
     rowBtn: { marginTop: spacing.md },
     name: { fontSize: fontSize.lg, ...font('700'), color: c.ink },
     mono: { fontSize: fontSize.sm, color: c.ink, marginTop: 2 },
-    segment: { flexDirection: 'row', backgroundColor: c.ground, borderRadius: radius.md, padding: 3, gap: 3 },
-    segmentItem: { flex: 1, minHeight: 44, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
+    segment: { flexDirection: 'row', backgroundColor: c.ground, borderRadius: radius.input, padding: 3, gap: 3 },
+    segmentItem: { flex: 1, minHeight: 44, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: radius.badge },
     segmentItemActive: { backgroundColor: c.brand },
     segmentText: { fontSize: fontSize.sm, ...font('600'), color: c.ink2 },
     segmentTextActive: { color: c.onBrand },
