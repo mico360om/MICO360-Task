@@ -26,6 +26,58 @@ export function readWeb(rel: string): string {
 }
 
 /**
+ * The member names of `export interface <name> { … }` in a TypeScript file's text, in order: its
+ * own top-level members only (not those of nested object types, not inherited ones), `?` left
+ * off. Comments and string literals are skipped, so a brace or a `;` in them changes nothing.
+ * Empty when the file has no such interface.
+ */
+export function interfaceFields(text: string, name: string): string[] {
+  const head = new RegExp(`export interface ${name}\\b[^{]*\\{`).exec(text);
+  if (!head) return [];
+  // The body at its own level: nested brackets kept as empty pairs, comments and strings dropped.
+  let top = '';
+  let depth = 0;
+  for (let i = head.index + head[0].length; i < text.length; i++) {
+    const ch = text[i]!;
+    const next = text[i + 1];
+    if (ch === '/' && next === '/') {
+      const end = text.indexOf('\n', i);
+      if (end < 0) break;
+      i = end - 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2);
+      i = end < 0 ? text.length : end + 1;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== ch) j += text[j] === '\\' ? 2 : 1;
+      if (depth === 0) top += `${ch}${ch}`;
+      i = j;
+      continue;
+    }
+    if (ch === '{' || ch === '(' || ch === '[') {
+      if (depth === 0) top += ch;
+      depth += 1;
+      continue;
+    }
+    if (ch === '}' || ch === ')' || ch === ']') {
+      if (depth === 0) break; // the interface's own closing brace
+      depth -= 1;
+      if (depth === 0) top += ch;
+      continue;
+    }
+    if (depth === 0) top += ch;
+  }
+  return top
+    .split(/[;,\n]/)
+    .map((member) => /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*\??\s*[:(<]/.exec(member)?.[1])
+    .filter((n): n is string => n !== undefined);
+}
+
+/**
  * Run a website TypeScript module and return its exports, without its dependencies: a relative
  * import named in `imports` (specifier → website path) is loaded the same way; any other import
  * comes back as an empty object.

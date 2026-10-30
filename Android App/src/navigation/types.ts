@@ -62,6 +62,17 @@ export type AppStackParamList = {
   Users: { q?: string } | undefined;
   /** New user (no id) or Manage account — administrators (6b). */
   UserForm: { userId?: string } | undefined;
+  /** The website's Timeline: every project's dates, health and milestones (Stage 3). */
+  Timeline: undefined;
+  /** The website's Workload: each person's tasks per day of a week (Stage 3). */
+  Workload: undefined;
+  /** The website's Management page: for administrators and whoever runs a project (Stage 3). */
+  Management: undefined;
+  /**
+   * MICO AI (Stage 3). `ask`: a question to send once, as a new chat; `askId` makes each Search
+   * pick unique. Only Search sets them — never a link (linking APP_ONLY_PARAMS).
+   */
+  MicoAi: { ask?: string; askId?: string } | undefined;
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;

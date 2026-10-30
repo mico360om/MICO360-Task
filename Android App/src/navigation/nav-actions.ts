@@ -25,6 +25,11 @@ export type NavAction =
   | { type: 'stack'; screen: 'Search' }
   | { type: 'stack'; screen: 'About' }
   | { type: 'stack'; screen: 'Users'; params?: AppStackParamList['Users'] }
+  /** Stage 3: the website's planning, Management and MICO AI pages as the app's own screens. */
+  | { type: 'stack'; screen: 'Timeline' }
+  | { type: 'stack'; screen: 'Workload' }
+  | { type: 'stack'; screen: 'Management' }
+  | { type: 'stack'; screen: 'MicoAi'; params?: AppStackParamList['MicoAi'] }
   /** The bell's list (a stack screen since the top bar has the bell). */
   | { type: 'stack'; screen: 'Notifications' }
   /** A website page the app doesn't have (6b): whoever offers it opens it in the browser (lib/website). */

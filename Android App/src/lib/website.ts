@@ -6,7 +6,8 @@
  * office-network server, the rule every request follows). Pure TypeScript.
  *
  * The app's own App Links never claim these paths (app.json), so the browser opens them and never
- * hands them back to the app.
+ * hands them back to the app. During Stage 3 the Timeline, Workload, Management and MICO AI screens
+ * are claimed while their shells still offer the website; Stage 3 Task 17 takes them off this list.
  */
 import { isAllowedUrl, sitePageUrl } from './server-address';
 

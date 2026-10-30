@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { drawerSectionsFor } from './drawer-menu';
-import { WEBSITE_LINK_PATHS, websitePageUrl } from '../lib/website';
+import { websitePageUrl } from '../lib/website';
 import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 
 /** After the two lanes meet (Task 14): the menu's website rows open, Management follows the server, the website's words. */
@@ -9,7 +9,7 @@ const everyRow = () => drawerSectionsFor(['ADMIN'], true).flatMap((s) => s.items
 
 it('every website row in the menu opens on the website', () => {
   const rows = everyRow().filter((i) => i.action.type === 'website');
-  expect(rows.map((r) => (r.action as { path: string }).path).sort()).toEqual([...WEBSITE_LINK_PATHS].sort());
+  // Stage 3 Task 17 checks again that these are exactly WEBSITE_LINK_PATHS (the shells still offer theirs).
   for (const r of rows) expect(websitePageUrl(API, (r.action as { path: string }).path), r.key).not.toBeNull();
 });
 

@@ -28,8 +28,8 @@ const results = (over: Partial<SearchResults> = {}): SearchResults => ({
 const ctx = { isAdmin: false, canLead: false, myId: 'me' };
 const groups = (items: { group: string }[]) => [...new Set(items.map((i) => i.group))];
 
-it('Timeline, Workload, Templates and MICO AI found by Search open on the website', () => {
-  for (const [q, path] of [['timeline', '/timeline'], ['workload', '/workload'], ['templates', '/templates'], ['mico ai', '/mico-ai']] as const) {
+it('Templates found by Search opens on the website', () => {
+  for (const [q, path] of [['templates', '/templates']] as const) {
     const item = searchItems({ raw: q, results: undefined, isAdmin: false, canLead: false, myId: 'u1' }).find((i) => i.target.kind === 'website');
     expect(item?.target, q).toEqual({ kind: 'website', path });
     expect(websitePageUrl('https://task.mico360.com/api/v1', path), q).not.toBeNull();
@@ -40,8 +40,8 @@ it('Management is offered to whoever runs a project, not only administrators', (
   const has = (canLead: boolean) => searchItems({ raw: 'management', results: undefined, isAdmin: false, canLead, myId: 'u1' }).some((i) => i.primary === 'Management');
   expect(has(false)).toBe(false);
   expect(has(true)).toBe(true);
-  // "go to management" too, and it opens on the website.
-  expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: true, myId: 'u1' })[0]).toMatchObject({ group: 'Command', target: { kind: 'website', path: '/management' } });
+  // "go to management" too, and it opens the app's Management screen (Stage 3).
+  expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: true, myId: 'u1' })[0]).toMatchObject({ group: 'Command', target: { kind: 'screen', action: { type: 'stack', screen: 'Management' } } });
   expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: false, myId: 'u1' }).some((i) => i.group === 'Command')).toBe(false);
 });
 

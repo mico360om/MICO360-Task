@@ -72,13 +72,14 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   profile: { target: { kind: 'screen', action: { type: 'stack', screen: 'Profile' } } },
   about: { target: { kind: 'screen', action: { type: 'stack', screen: 'About' } } },
   'admin-users': { target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } },
-  // Website pages the app has no screen for yet (planning, templates, MICO AI): they open on the website.
-  timeline: { target: { kind: 'website', path: '/timeline' } },
-  workload: { target: { kind: 'website', path: '/workload' } },
-  // For administrators and whoever runs a project (GET /management/access): on the website.
-  management: { target: { kind: 'website', path: '/management' } },
+  // The website's planning pages and MICO AI, as the app's own screens (Stage 3).
+  timeline: { target: { kind: 'screen', action: { type: 'stack', screen: 'Timeline' } } },
+  workload: { target: { kind: 'screen', action: { type: 'stack', screen: 'Workload' } } },
+  // For administrators and whoever runs a project (GET /management/access).
+  management: { target: { kind: 'screen', action: { type: 'stack', screen: 'Management' } } },
+  'mico-ai': { target: { kind: 'screen', action: { type: 'stack', screen: 'MicoAi' } } },
+  // A website page the app has no screen for yet (Stage 4): it opens on the website.
   templates: { target: { kind: 'website', path: '/templates' } },
-  'mico-ai': { target: { kind: 'website', path: '/mico-ai' } },
   'admin-ai': { target: { kind: 'website', path: '/admin/ai' } },
   'admin-settings': { target: { kind: 'website', path: '/admin/settings' } },
   'admin-audit': { target: { kind: 'website', path: '/admin/audit' } },
