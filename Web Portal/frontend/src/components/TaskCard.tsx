@@ -83,8 +83,9 @@ function CountBadge({ label, value, children }: { label: string; value: string; 
 }
 
 export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interactive = true, menuSpace = false }: TaskCardProps) {
-  // Calendar-day rule in the company zone; finished work is never flagged overdue.
-  const overdue = !task.done && isOverdue(task.dueDate, timeZone);
+  // Calendar-day rule in the company zone; finished work is never flagged overdue, nor work waiting
+  // for approval (its badge says so instead: owner, 30 Oct).
+  const overdue = !task.done && !task.awaitingApproval && isOverdue(task.dueDate, timeZone);
   const dueText = formatDueDay(task.dueDate, timeZone) || 'No due date';
   const hasDue = Boolean(task.dueDate);
   const c = task.counts;

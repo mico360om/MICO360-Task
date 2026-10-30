@@ -119,7 +119,8 @@ export function MyTasksPage() {
       const cat = task.columnCategory ?? 'TODO';
       const done = isTaskDone(task);
       const dueKey = dueDayKey(task.dueDate, timeZone);
-      const overdue = !!dueKey && dueKey < tKey && !done;
+      // Never overdue while it waits for approval: its badge says so instead (owner, 30 Oct).
+      const overdue = !!dueKey && dueKey < tKey && !done && !task.approvalRequestedAt;
       const dueToday = !!dueKey && dueKey === tKey;
       const dueLabel = formatDueDay(task.dueDate, timeZone, { month: 'short', day: 'numeric' });
       return { task, cat, done, overdue, dueToday, dueKey, dueLabel, projectName: projectById.get(task.projectId)?.name ?? null, project: projectById.get(task.projectId) ?? null };

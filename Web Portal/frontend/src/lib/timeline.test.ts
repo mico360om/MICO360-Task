@@ -299,6 +299,12 @@ describe('wording', () => {
     expect(nextLine(tp('a'), TODAY)).toBe('No milestones');
   });
 
+  it('a next milestone past its day that waits for approval says so, never "overdue" (owner, 30 Oct; ruling 45)', () => {
+    const handover = { id: 'ms', key: 'A-9', title: 'Handover', date: '2026-10-20', done: false, waiting: true };
+    expect(nextLine(tp('a', { nextMilestone: handover, milestones: [handover] }), TODAY)).toBe('◆ Handover, 20 Oct (waiting for approval)');
+    expect(nextLine(tp('a', { nextMilestone: { ...handover, waiting: false }, milestones: [handover] }), TODAY)).toBe('◆ Handover, 20 Oct (overdue)');
+  });
+
   it('gives a phone row its next milestone', () => {
     expect(milestoneLine(tp('a', { nextMilestone: beta, milestones: [beta] }), TODAY)).toBe('Next ◆ Beta build · 6 Nov');
     expect(milestoneLine(tp('a'), TODAY)).toBe('No milestones');
@@ -356,7 +362,9 @@ describe('task rows', () => {
     expect(phoneTaskLine(t(null, '2026-10-22', { done: true }), TODAY)).toBe('due 22 Oct · ✓ done');
     expect(phoneTaskLine(t(null, '2027-02-03'), TODAY)).toBe('due 3 Feb 2027');
     // Waiting for approval (owner, 30 Oct): said in words, after overdue.
-    expect(taskLabel({ ...t('2026-10-12', '2026-10-20', { overdue: true }), waiting: true }, TODAY)).toBe('MOB-11 Login screen, 12 → 20 Oct, overdue, waiting for approval');
+    // Waiting is never overdue (ruling 45): the words say it waits, even if a row said both.
+    expect(taskLabel({ ...t('2026-10-12', '2026-10-20', { overdue: true }), waiting: true }, TODAY)).toBe('MOB-11 Login screen, 12 → 20 Oct, waiting for approval');
+    expect(phoneTaskLine({ ...t(null, '2026-10-20', { overdue: true }), waiting: true }, TODAY)).toBe('due 20 Oct · waiting for approval');
     expect(taskLabel({ ...t(null, '2026-10-22'), waiting: true }, TODAY)).toBe('MOB-11 Login screen, due 22 Oct, waiting for approval');
     expect(phoneTaskLine({ ...t(null, '2026-10-22'), waiting: true }, TODAY)).toBe('due 22 Oct · waiting for approval');
     expect(initialsOf('Sara Ahmed')).toBe('SA');

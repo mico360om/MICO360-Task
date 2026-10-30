@@ -8,8 +8,7 @@ import { Toggle } from './ui/Toggle';
 import { ProjectAvatar, type ProjectLook } from './ProjectAvatar';
 import { recurrenceSummary } from '../lib/recurrence-summary';
 import { statusMeta } from '../lib/taskStatus';
-import { isOverdue } from '../lib/due-date';
-import { formatDueDay, isTaskDone } from '../lib/due-display';
+import { formatDueDay, isTaskLate } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { formatMeetingDay } from '../lib/meetingFormat';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -260,8 +259,8 @@ export function TaskDrawer({
   const [scope, setScope] = useState<'one' | 'series'>('one');
   const saveField = onSaveEdit ? (patch: FieldPatch) => onSaveEdit(patch, inSeries && scope === 'series' ? 'series' : undefined) : undefined;
 
-  // Calendar-day rule in the company zone; a finished task is never overdue.
-  const overdue = !isTaskDone(task) && isOverdue(task.dueDate, timeZone);
+  // Calendar-day rule in the company zone; a finished task is never overdue, nor one waiting for approval.
+  const overdue = isTaskLate(task, timeZone);
   const dueText = formatDueDay(task.dueDate, timeZone);
   const carried = task.carryForwardLog && task.carryForwardLog.length > 0 ? task.carryForwardLog : null;
 

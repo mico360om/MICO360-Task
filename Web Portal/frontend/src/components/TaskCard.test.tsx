@@ -91,6 +91,12 @@ describe('TaskCard', () => {
     expect(screen.getByText(/overdue/i)).toBeInTheDocument();
   });
 
+  it('a task waiting for approval past its due day shows the badge, not "Overdue" (owner, 30 Oct; ruling 45)', () => {
+    render(<TaskCard task={{ ...task, dueDate: '2000-01-01', awaitingApproval: true }} />);
+    expect(screen.getByTestId('approval-chip')).toHaveTextContent('Waiting for approval');
+    expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+  });
+
   it('never flags a finished task as overdue', () => {
     render(<TaskCard task={{ ...task, dueDate: '2000-01-01', done: true }} />);
     expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();

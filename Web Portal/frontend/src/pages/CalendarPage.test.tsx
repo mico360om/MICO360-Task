@@ -225,6 +225,19 @@ describe('CalendarPage — how tasks look', () => {
     expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Waiting for approval')).toBeInTheDocument();
   });
 
+  it('a task waiting for approval past its due day is not overdue: no red, its hourglass, and the preview shows the badge (owner, 30 Oct; ruling 45)', async () => {
+    tasks = [task({ id: 't7', title: 'Pressure test report', columnCategory: 'REVIEW', needsApproval: true, approvalRequestedAt: '2026-10-08T08:00:00.000Z', dueDate: '2026-10-07T00:00:00.000Z' })];
+    renderPage();
+    const c = await chip(/Pressure test report/);
+    expect(c).not.toHaveAccessibleName(/overdue/i);
+    expect(c).toHaveAccessibleName(/waiting for approval/);
+    expect(c.className).not.toMatch(/danger/);
+    await userEvent.click(c);
+    const preview = await screen.findByRole('dialog', { name: /Pressure test report/ });
+    expect(within(preview).getByTestId('approval-chip')).toHaveTextContent('Waiting for approval');
+    expect(within(preview).queryByText(/^Overdue$/)).not.toBeInTheDocument();
+  });
+
   it('never shows a completed task as overdue', async () => {
     tasks = [task({ id: 't9', title: 'Shipped report', columnCategory: 'DONE', dueDate: '2026-10-02T00:00:00.000Z' })];
     renderPage();

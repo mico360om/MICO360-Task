@@ -1,5 +1,6 @@
-import { dueDayKey, type DateInput } from './due-date';
+import { dueDayKey, isOverdue, type DateInput } from './due-date';
 import { dayText } from './day-words';
+import { isWaitingForApproval } from './approvals';
 
 /**
  * Display a due date as its calendar day (the day the user picked), never shifted by the device's
@@ -27,4 +28,18 @@ export function dueInputValue(due: DateInput, timeZone: string): string {
 /** A task counts as finished when it sits in a DONE column or has a completion time. */
 export function isTaskDone(t: { columnCategory?: string | null; completedAt?: string | null }): boolean {
   return t.columnCategory === 'DONE' || !!t.completedAt;
+}
+
+/**
+ * Late (overdue): not done and past its due day in the company time zone — but never while it waits
+ * for approval: the work is handed in, and the page shows the "Waiting for approval" badge instead
+ * (owner, 30 Oct; approvals ruling 45). Sent back, it no longer waits and is late again. The server's
+ * rule is the same (tasks/task-status `isTaskLate`).
+ */
+export function isTaskLate(
+  t: { dueDate?: DateInput; columnCategory?: string | null; completedAt?: string | null; approvalRequestedAt?: string | null },
+  timeZone: string,
+  now: Date = new Date(),
+): boolean {
+  return !isTaskDone(t) && !isWaitingForApproval(t) && isOverdue(t.dueDate, timeZone, now);
 }

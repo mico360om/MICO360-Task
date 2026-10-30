@@ -122,6 +122,44 @@ describe('MyTasksPage', () => {
     }
   });
 
+  it('a task waiting for approval past its due day shows its badge, not "Overdue", and isn’t counted or listed as overdue (owner, 30 Oct)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-30T10:00:00Z')); // 14:00 Muscat
+    try {
+      const t = (id: string, extra: Record<string, unknown>) => ({ id, key: id.toUpperCase(), title: `Task ${id}`, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra });
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+        if (u.includes('/tasks/mine')) return json({ data: [
+          t('waiting', { dueDate: '2026-09-20T00:00:00.000Z', columnCategory: 'REVIEW', approvalRequestedAt: '2026-09-21T08:00:00.000Z' }),
+          t('late', { dueDate: '2026-09-21T00:00:00.000Z', columnCategory: 'IN_PROGRESS' }),
+        ] });
+        return json({ data: [] });
+      }));
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <MyTasksPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const card = (await screen.findByText('Task waiting')).closest('[data-task-key]')!;
+      expect(card).toHaveTextContent('Waiting for approval');
+      expect(card).not.toHaveTextContent(/overdue/i);
+      expect(card.className).not.toMatch(/border-l-danger/);
+      expect(screen.getByText('Task late').closest('[data-task-key]')!).toHaveTextContent(/Overdue ·/);
+      // The Overdue chip counts the late one only, and its filter keeps only that one.
+      const chip = screen.getByRole('button', { name: /overdue/i, pressed: false });
+      expect(chip).toHaveTextContent('1');
+      fireEvent.click(chip);
+      await waitFor(() => expect(screen.queryByText('Task waiting')).not.toBeInTheDocument());
+      expect(screen.getByText('Task late')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('list view says each task’s status in words, not only with a coloured dot', async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

@@ -36,7 +36,8 @@ function reasonList(code: RagReason['code'], projectId: string): ItemQuery | nul
 function Milestone({ row, onOpen, onOpenTask }: { row: HealthRow; onOpen: OpenList; onOpenTask: (id: string) => void }) {
   const m = row.nextMilestone;
   if (!m) return <span className="text-ink-3">—</span>;
-  const late = m.daysLeft !== null && m.daysLeft < 0;
+  // Waiting for approval: never late while it waits (owner, 30 Oct) — milestoneText says it waits.
+  const late = !m.waiting && m.daysLeft !== null && m.daysLeft < 0;
   return (
     <span className="block min-w-0">
       <button type="button" onClick={() => onOpenTask(m.id)} className={`block min-w-0 max-w-full text-start hover:underline ${TOUCH}`}>

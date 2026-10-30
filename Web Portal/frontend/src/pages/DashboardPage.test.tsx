@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DashboardPage } from './DashboardPage';
 import { useAuthStore } from '../stores/auth-store';
@@ -189,6 +189,36 @@ describe('DashboardPage', () => {
       expect(screen.getByRole('link', { name: /Due this week/ })).toHaveAttribute('href', '/my-tasks');
       // Counted from the tasks the page already loads: nothing new is asked of the server.
       expect(asked.some((u) => /\/reports\//.test(u))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a task waiting for approval is not overdue: not in the Overdue tile, and Due soon shows its badge instead of "Nd overdue" (owner, 30 Oct)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-28T06:00:00Z')); // Wednesday 28 Oct, 10:00 in Muscat
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'e@b.c', username: 'emp', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+    const task = (id: string, dueDate: string | null, extra: Record<string, unknown> = {}) => ({
+      id, key: id.toUpperCase(), title: id, description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0, priority: 'NORMAL', startDate: null, dueDate, progress: 0, completedAt: null, createdAt: '', updatedAt: '', ...extra,
+    });
+    const mine = [task('handed-in', '2026-10-26', { columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-27T08:00:00.000Z' }), task('late', '2026-10-25')];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', weekStart: 0, productName: '', companyName: '', serverTime: new Date().toISOString() } });
+      if (u.endsWith('/tasks/mine') || /\/tasks(\?|$)/.test(u)) return json({ data: mine });
+      if (u.includes('/projects')) return json({ data: [{ id: 'p1' }] });
+      return json({ data: [] });
+    }));
+    try {
+      renderPage();
+      const tile = (label: string) => screen.getByText(label, { selector: '*' }).closest('a')!;
+      await waitFor(() => expect(tile('Overdue')).toHaveTextContent(/^1\s*Overdue/));
+      const dueSoon = screen.getByRole('heading', { name: 'Due soon' }).closest('section')!;
+      await waitFor(() => expect(within(dueSoon).getByText('handed-in')).toBeInTheDocument());
+      const row = within(dueSoon).getByText('handed-in').closest('button')!;
+      expect(row).toHaveTextContent('Waiting for approval');
+      expect(row).not.toHaveTextContent(/overdue/i);
+      expect(within(dueSoon).getByText('late').closest('button')!).toHaveTextContent('3d overdue');
     } finally {
       vi.useRealTimers();
     }

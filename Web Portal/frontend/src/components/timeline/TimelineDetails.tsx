@@ -80,7 +80,7 @@ export function TimelineDetails({
     );
   } else if (detail.kind === 'milestones') {
     const list = project.milestones.filter((m) => m.date !== null && m.date >= detail.first && m.date <= detail.last);
-    const stateOf = (m: (typeof list)[number]) => (m.done ? 'reached' : m.date! < today ? 'overdue, not reached' : 'not reached yet');
+    const stateOf = (m: (typeof list)[number]) => (m.done ? 'reached' : m.waiting ? 'waiting for approval' : m.date! < today ? 'overdue, not reached' : 'not reached yet');
     const single = list.length === 1 ? list[0]! : null;
     body = single ? (
       <>

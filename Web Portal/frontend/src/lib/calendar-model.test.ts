@@ -20,6 +20,14 @@ const task = (over: Partial<ApiTask>): ApiTask => ({
 
 const ctx = { today: '2026-10-10', timeZone: 'Asia/Muscat', projectStatus: (id: string) => (id === 'old' ? 'ARCHIVED' : id === 'shipped' ? 'COMPLETED' : 'ACTIVE') };
 
+describe('statusOf — a task waiting for approval is not overdue while it waits (owner, 30 Oct; ruling 45)', () => {
+  it('past its day and waiting: its column’s status (it keeps its hourglass); sent back: overdue again', () => {
+    expect(statusOf(task({ columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-01T08:00:00.000Z' }), '2026-10-09', '2026-10-10')).toBe('in-progress');
+    expect(statusOf(task({ columnCategory: 'TODO', approvalRequestedAt: '2026-10-01T08:00:00.000Z' }), '2026-10-09', '2026-10-10')).toBe('todo');
+    expect(statusOf(task({ columnCategory: 'IN_PROGRESS', approvalRequestedAt: null }), '2026-10-09', '2026-10-10')).toBe('overdue');
+  });
+});
+
 describe('statusOf — one status per task, red only for overdue', () => {
   it('finished tasks are done, never overdue', () => {
     expect(statusOf(task({ columnCategory: 'DONE' }), '2026-10-01', '2026-10-10')).toBe('done');

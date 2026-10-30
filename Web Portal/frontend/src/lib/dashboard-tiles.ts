@@ -1,9 +1,10 @@
 import { dueDayKey, todayKey, type DateInput } from './due-date';
 import { isTaskDone } from './due-display';
+import { isWaitingForApproval } from './approvals';
 import { weekDays, type WeekStart } from './calendar';
 
 export interface MyDueCounts {
-  /** Open tasks whose due day is before today. */
+  /** Open tasks whose due day is before today (never one waiting for approval). */
   overdue: number;
   /** Open tasks due from today to the last day of this week. */
   dueThisWeek: number;
@@ -18,7 +19,7 @@ export interface MyDueCounts {
  * Sunday until an administrator sets one). Finished work never counts.
  */
 export function myDueCounts(
-  tasks: readonly { dueDate?: DateInput; columnCategory?: string | null; completedAt?: string | null }[],
+  tasks: readonly { dueDate?: DateInput; columnCategory?: string | null; completedAt?: string | null; approvalRequestedAt?: string | null }[],
   { timeZone, weekStart, now = new Date() }: { timeZone: string; weekStart: WeekStart; now?: Date },
 ): MyDueCounts {
   const today = todayKey(timeZone, now);
@@ -29,7 +30,8 @@ export function myDueCounts(
     if (isTaskDone(t)) continue;
     const day = dueDayKey(t.dueDate, timeZone);
     if (!day) continue;
-    if (day < today) overdue += 1;
+    // Waiting for approval: handed in, never overdue while it waits (owner, 30 Oct).
+    if (day < today) overdue += isWaitingForApproval(t) ? 0 : 1;
     else if (day <= weekEnd) dueThisWeek += 1;
   }
   return { overdue, dueThisWeek, today, weekEnd };

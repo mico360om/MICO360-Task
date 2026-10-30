@@ -14,6 +14,8 @@ export interface TimelineMilestone {
   date: string | null;
   /** Reached: its task is done. */
   done: boolean;
+  /** Finished but waiting for approval: never overdue while it waits (an older server sends none). */
+  waiting?: boolean;
 }
 
 export interface TimelineMeeting {

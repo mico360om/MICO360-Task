@@ -5,6 +5,7 @@
  */
 import type { ApiTask, Priority } from '../api/tasks';
 import { dueDayKey } from './due-date';
+import { isWaitingForApproval } from './approvals';
 
 export type TaskPhase = 'completed' | 'overdue' | 'ongoing' | 'pending';
 
@@ -17,11 +18,14 @@ const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T
 
 export const isFinished = (t: ApiTask) => t.columnCategory === 'DONE' || !!t.completedAt;
 
-/** Completed; overdue (open and past its due day); ongoing (being worked on); or pending (not started). */
+/**
+ * Completed; overdue (open and past its due day — never while it waits for approval: owner, 30 Oct);
+ * ongoing (being worked on); or pending (not started).
+ */
 export function taskPhase(t: ApiTask, today: string, timeZone = 'UTC'): TaskPhase {
   if (isFinished(t)) return 'completed';
   const due = dueDay(t.dueDate, timeZone);
-  if (due && due < today) return 'overdue';
+  if (due && due < today && !isWaitingForApproval(t)) return 'overdue';
   return ONGOING.has(t.columnCategory ?? '') ? 'ongoing' : 'pending';
 }
 
@@ -47,7 +51,8 @@ export function taskStats(tasks: ApiTask[], today: string, timeZone = 'UTC') {
   };
 }
 
-export type MilestoneState = 'done' | 'overdue' | 'upcoming' | 'undated';
+/** `waiting`: finished and waiting for approval — never late while it waits. */
+export type MilestoneState = 'done' | 'waiting' | 'overdue' | 'upcoming' | 'undated';
 
 /** The project's milestones by date (undated last), with where each stands. */
 export function milestones(tasks: ApiTask[], today: string, timeZone = 'UTC') {
@@ -55,17 +60,17 @@ export function milestones(tasks: ApiTask[], today: string, timeZone = 'UTC') {
     .filter((t) => t.isMilestone)
     .map((t) => {
       const due = dueDay(t.dueDate, timeZone);
-      const state: MilestoneState = isFinished(t) ? 'done' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
+      const state: MilestoneState = isFinished(t) ? 'done' : isWaitingForApproval(t) ? 'waiting' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
       return { task: t, due, state, daysLeft: due && state !== 'done' ? daysBetween(today, due) : null };
     })
     .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.task.title.localeCompare(b.task.title));
 }
 
-/** Open tasks due within `withinDays` (and every overdue one), soonest first. */
+/** Open tasks due within `withinDays` (and every overdue one), soonest first; `waiting`: it waits for approval (never late meanwhile). */
 export function deadlines(tasks: ApiTask[], today: string, withinDays = 14, timeZone = 'UTC') {
   return tasks
     .filter((t) => !isFinished(t) && dueDay(t.dueDate, timeZone))
-    .map((t) => ({ task: t, due: dueDay(t.dueDate, timeZone)!, daysLeft: daysBetween(today, dueDay(t.dueDate, timeZone)!) }))
+    .map((t) => ({ task: t, due: dueDay(t.dueDate, timeZone)!, daysLeft: daysBetween(today, dueDay(t.dueDate, timeZone)!), waiting: isWaitingForApproval(t) }))
     .filter((d) => d.daysLeft <= withinDays)
     .sort((a, b) => a.daysLeft - b.daysLeft || a.task.title.localeCompare(b.task.title));
 }

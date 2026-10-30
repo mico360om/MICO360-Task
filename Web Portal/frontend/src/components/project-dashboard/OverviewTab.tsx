@@ -7,6 +7,7 @@ import { Badge, type BadgeTone } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { AiSummaryCard } from '../AiSummaryCard';
+import { ApprovalChip } from '../approvals/ApprovalChip';
 import { deadlines, milestones, projectTimeline, taskStats, workload, type MilestoneState } from '../../lib/project-dashboard';
 import { formatMeetingDay, formatMeetingTimes } from '../../lib/meetingFormat';
 import { TOUCH_TALL } from '../../lib/touch';
@@ -18,6 +19,7 @@ const words = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace('_',
 
 const MILESTONE_LOOK: Record<MilestoneState, string> = {
   done: 'text-success',
+  waiting: 'text-warning',
   overdue: 'text-danger',
   upcoming: 'text-brand',
   undated: 'text-ink-3',
@@ -25,6 +27,8 @@ const MILESTONE_LOOK: Record<MilestoneState, string> = {
 
 function milestoneNote(state: MilestoneState, daysLeft: number | null): string {
   if (state === 'done') return 'Reached';
+  // Finished, waiting for approval: never late while it waits (owner, 30 Oct).
+  if (state === 'waiting') return 'Waiting for approval';
   if (state === 'undated') return 'No date set';
   if (daysLeft === null) return '';
   if (state === 'overdue') return `Late by ${-daysLeft} ${daysLeft === -1 ? 'day' : 'days'}`;
@@ -174,9 +178,14 @@ export function OverviewTab(p: OverviewProps) {
                       <span dir="auto" className="block truncate text-sm font-medium text-ink group-hover:text-brand">{d.task.title}</span>
                       <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
                         <span className="font-mono text-[11px] text-ink-3">{d.task.key}</span>
-                        <span className={`tabular-nums ${d.daysLeft < 0 ? 'font-semibold text-danger' : d.daysLeft <= 2 ? 'font-semibold text-warning' : 'text-ink-2'}`}>
-                          {d.daysLeft < 0 ? `Late · ${dayText(d.due)}` : relativeDays(d.daysLeft)}
-                        </span>
+                        {d.waiting && d.daysLeft < 0 ? (
+                          // Past its day but waiting for approval: its badge, never "Late" (owner, 30 Oct).
+                          <ApprovalChip />
+                        ) : (
+                          <span className={`tabular-nums ${d.daysLeft < 0 ? 'font-semibold text-danger' : d.daysLeft <= 2 ? 'font-semibold text-warning' : 'text-ink-2'}`}>
+                            {d.daysLeft < 0 ? `Late · ${dayText(d.due)}` : relativeDays(d.daysLeft)}
+                          </span>
+                        )}
                       </span>
                     </button>
                   </li>

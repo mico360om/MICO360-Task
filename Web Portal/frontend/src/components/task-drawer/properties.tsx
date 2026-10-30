@@ -1,8 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { ApiTask, Priority, RecurrenceRule } from '../../api/tasks';
 import { statusMeta } from '../../lib/taskStatus';
-import { dueInputValue, formatDueDay, isTaskDone } from '../../lib/due-display';
-import { isOverdue } from '../../lib/due-date';
+import { dueInputValue, formatDueDay, isTaskLate } from '../../lib/due-display';
 import { RecurrenceEditor } from '../RecurrenceEditor';
 import { Avatar } from '../ui/Avatar';
 import { PriorityBadge } from '../ui/PriorityBadge';
@@ -246,7 +245,7 @@ function DueDateField({ task, timeZone, onSave }: { task: ApiTask; timeZone: str
   const stored = dueInputValue(task.dueDate, timeZone);
   const [value, setValue] = useState(stored);
   useEffect(() => setValue(stored), [stored]);
-  const overdue = !isTaskDone(task) && isOverdue(task.dueDate, timeZone);
+  const overdue = isTaskLate(task, timeZone);
 
   async function apply(next: string) {
     setValue(next);

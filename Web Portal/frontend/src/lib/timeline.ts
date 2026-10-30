@@ -253,7 +253,7 @@ export const HEALTH_LABEL: Record<ProjectHealth, string> = { 'on-track': 'On tra
 function milestoneWords(p: TimelineProject, today: string): string {
   const m = p.nextMilestone;
   if (!m) return p.milestoneCount ? 'every milestone reached' : 'no milestones';
-  const when = !m.date ? 'no date' : m.date < today ? 'overdue' : shortDay(m.date, today);
+  const when = !m.date ? 'no date' : m.waiting ? 'waiting for approval' : m.date < today ? 'overdue' : shortDay(m.date, today);
   return `next ◆ ${m.title} · ${when}`;
 }
 
@@ -350,7 +350,8 @@ export function nextLine(p: TimelineProject, today: string): string {
   const m = p.nextMilestone;
   if (!m) return p.milestoneCount ? 'Every milestone reached' : 'No milestones';
   if (!m.date) return `◆ ${m.title}, no date`;
-  return `◆ ${m.title}, ${shortDay(m.date, today)}${m.date < today ? ' (overdue)' : ''}`;
+  // Waiting for approval: never overdue while it waits (owner, 30 Oct).
+  return `◆ ${m.title}, ${shortDay(m.date, today)}${m.waiting ? ' (waiting for approval)' : m.date < today ? ' (overdue)' : ''}`;
 }
 
 /** A phone row's target: "Target 10 Dec", "Target 21 Oct · 3 days late", "No target date". */
@@ -447,13 +448,14 @@ export function taskLabel(
 ): string {
   const names = (t.assignees ?? []).map((a) => a.name);
   const who = names.length ? `, assigned to ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}` : '';
-  const state = t.done ? ', done' : `${t.overdue ? ', overdue' : ''}${t.waiting ? ', waiting for approval' : ''}`;
+  // Waiting for approval is never overdue (ruling 45): it says it waits.
+  const state = t.done ? ', done' : t.waiting ? ', waiting for approval' : t.overdue ? ', overdue' : '';
   return `${t.key} ${t.title}, ${taskWhen(t, today)}${state}${who}`;
 }
 
 /** A task on a phone: "due 20 Oct · overdue", "due 22 Oct · ✓ done". */
 export function phoneTaskLine(t: { due: string; done: boolean; overdue: boolean; waiting?: boolean }, today: string): string {
-  return `due ${shortDay(t.due, today)}${t.done ? ' · ✓ done' : `${t.overdue ? ' · overdue' : ''}${t.waiting ? ' · waiting for approval' : ''}`}`;
+  return `due ${shortDay(t.due, today)}${t.done ? ' · ✓ done' : t.waiting ? ' · waiting for approval' : t.overdue ? ' · overdue' : ''}`;
 }
 
 export type TaskShape =

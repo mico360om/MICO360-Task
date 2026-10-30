@@ -34,6 +34,21 @@ describe('project dashboard: tasks', () => {
     expect(s.byPriority).toEqual({ URGENT: 1, HIGH: 1, NORMAL: 1, LOW: 0 }); // open tasks only
   });
 
+  it('a task waiting for approval is not overdue while it waits — counts, people and deadlines (owner, 30 Oct; ruling 45)', () => {
+    const waiting = task({ id: 'w', columnCategory: 'REVIEW', dueDate: day('2026-10-10'), approvalRequestedAt: '2026-10-01T08:00:00.000Z', assignees: [{ id: 'u1', name: 'Ada' }] });
+    const back = task({ id: 'b', columnCategory: 'IN_PROGRESS', dueDate: day('2026-10-10'), approvalRequestedAt: null, assignees: [{ id: 'u1', name: 'Ada' }] });
+    expect(taskPhase(waiting, TODAY)).toBe('ongoing');
+    expect(taskPhase(back, TODAY)).toBe('overdue');
+    expect(taskStats([waiting, back], TODAY)).toMatchObject({ overdue: 1, ongoing: 1 });
+    expect(workload([waiting, back], TODAY)).toEqual([{ id: 'u1', name: 'Ada', open: 2, overdue: 1, completed: 0 }]);
+    expect(deadlines([waiting, back], TODAY).map((d) => [d.task.id, d.waiting])).toEqual([['w', true], ['b', false]]);
+  });
+
+  it('a milestone waiting for approval says so instead of being late', () => {
+    const marks = milestones([task({ id: 'm', isMilestone: true, columnCategory: 'REVIEW', dueDate: day('2026-10-10'), approvalRequestedAt: '2026-10-01T08:00:00.000Z' })], TODAY);
+    expect(marks.map((m) => [m.task.id, m.state, m.daysLeft])).toEqual([['m', 'waiting', -6]]);
+  });
+
   it('reads a due date given as a time on its company-time day', () => {
     // 20:00 UTC on the 16th is the 17th in Muscat: due today on the 17th, not overdue.
     const t = task({ dueDate: '2026-10-16T20:00:00.000Z' });

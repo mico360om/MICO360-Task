@@ -41,6 +41,8 @@ describe('words for the table', () => {
     expect(milestoneText({ due: '2026-10-28', daysLeft: 1 })).toBe('Due tomorrow');
     expect(milestoneText({ due: '2026-11-15', daysLeft: 19 })).toBe('In 19 days');
     expect(milestoneText({ due: null, daysLeft: null })).toBe('No date');
+    // Waiting for approval: never "late" while it waits (owner, 30 Oct; ruling 45).
+    expect(milestoneText({ due: '2026-10-24', daysLeft: -3, waiting: true })).toBe('Waiting for approval');
   });
 
   it('how long since the last activity', () => {

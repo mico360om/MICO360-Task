@@ -497,6 +497,12 @@ describe('TaskDrawer', () => {
     }
   });
 
+  it('a task waiting for approval past its due day is not shown overdue (owner, 30 Oct; ruling 45)', () => {
+    render(<TaskDrawer task={{ ...task, dueDate: '2020-01-15T00:00:00.000Z', columnCategory: 'REVIEW', completedAt: null, approvalRequestedAt: '2020-01-14T08:00:00.000Z' }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onSaveEdit={vi.fn(async () => {})} onClose={vi.fn()} />);
+    expect(screen.queryByText(/overdue/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Due date')).not.toHaveAttribute('aria-invalid');
+  });
+
   it('marks user text (title, description, comments) dir="auto" for Arabic', () => {
     render(
       <TaskDrawer

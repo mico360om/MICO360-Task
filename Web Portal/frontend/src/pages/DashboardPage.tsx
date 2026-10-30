@@ -25,6 +25,8 @@ import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { Icon } from '../components/meeting/kit';
 import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../components/FirstSteps';
 import { ApprovalsCard } from '../components/approvals/ApprovalsCard';
+import { ApprovalChip } from '../components/approvals/ApprovalChip';
+import { isWaitingForApproval } from '../lib/approvals';
 import { myDueCounts } from '../lib/dashboard-tiles';
 import { useCompanyWeekStart } from '../lib/useDatePrefs';
 
@@ -334,7 +336,10 @@ export function DashboardPage() {
  * letters between the key and the badge.
  */
 function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; onOpen: () => void; showDue?: boolean; timeZone: string; stacked?: boolean }) {
-  const due = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone) : null;
+  const meta = showDue && task.dueDate ? dueMeta(task.dueDate, timeZone) : null;
+  // Past its day but waiting for approval: never "overdue" — its badge says it waits (owner, 30 Oct).
+  const waitingLate = !!meta?.overdue && isWaitingForApproval(task);
+  const due = waitingLate ? null : meta;
   return (
     <li>
       <button
@@ -343,7 +348,9 @@ function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; 
       >
         <span className="rounded-md bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
         <span dir="auto" title={task.title} className={`order-first min-w-0 flex-1 basis-full truncate text-start text-ink sm:order-none sm:basis-0 ${stacked ? 'lg:order-first lg:basis-full 2xl:order-none 2xl:basis-0' : ''}`}>{task.title}</span>
-        {due ? (
+        {waitingLate ? (
+          <span className="ms-auto flex flex-none"><ApprovalChip /></span>
+        ) : due ? (
           <span className={`ms-auto whitespace-nowrap text-xs font-medium ${due.overdue ? 'text-danger' : 'text-ink-2'}`}>{due.label}</span>
         ) : (
           <span className="ms-auto flex flex-none"><PriorityBadge priority={task.priority} /></span>

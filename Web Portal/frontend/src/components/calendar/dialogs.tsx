@@ -7,6 +7,8 @@ import type { MoveScope } from '../../lib/calendar-reschedule';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { MeetingChip, PRIORITY_LABEL, STATUS_META, TaskChip, dayLabel, fullDayLabel } from './calendar-ui';
 import { ProjectAvatar, type ProjectLook } from '../ProjectAvatar';
+import { ApprovalChip } from '../approvals/ApprovalChip';
+import { isWaitingForApproval } from '../../lib/approvals';
 
 function Shell({ label, onClose, children, wide = false }: { label: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useDialog(onClose, { initialFocus: 'container' });
@@ -202,9 +204,13 @@ export function TaskPreview({
         ) : null}
         <dl className="divide-y divide-line">
           <Row label="Status">
-            <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${s.chip}`}>
-              {s.icon}
-              <span>{s.label}</span>
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold ${s.chip}`}>
+                {s.icon}
+                <span>{s.label}</span>
+              </span>
+              {/* Finished, waiting for approval: never overdue while it waits (owner, 30 Oct). */}
+              {item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(t) ? <ApprovalChip /> : null}
             </span>
           </Row>
           <Row label="Due">

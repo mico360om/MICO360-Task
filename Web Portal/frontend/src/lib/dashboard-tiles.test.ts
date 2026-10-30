@@ -22,6 +22,11 @@ describe('the Dashboard’s own-task tiles', () => {
     expect(myDueCounts(tasks, { timeZone: MUSCAT, weekStart: 0, now: NOW }).overdue).toBe(1);
   });
 
+  it('a task waiting for approval is not overdue while it waits (owner, 30 Oct); sent back, it is', () => {
+    const waiting = [task('2026-10-26', { columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-01T08:00:00.000Z' }), task('2026-10-25', { approvalRequestedAt: null })];
+    expect(myDueCounts(waiting, { timeZone: MUSCAT, weekStart: 0, now: NOW }).overdue).toBe(1);
+  });
+
   it('counts what is due from today to the end of the company’s week — Sunday to Saturday', () => {
     expect(myDueCounts(tasks, { timeZone: MUSCAT, weekStart: 0, now: NOW })).toMatchObject({ dueThisWeek: 3, today: '2026-10-28', weekEnd: '2026-10-31' });
   });
