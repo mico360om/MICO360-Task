@@ -20,7 +20,7 @@ it('message ticks are drawn icons', () => {
 });
 
 it('the profile shows the shared avatar and settings use Toggles', () => {
-  expect(src('screens/ProfileScreen.tsx')).toMatch(/<Avatar [^>]*size="lg"/);
+  expect(src('screens/ProfileScreen.tsx')).toMatch(/<Avatar [^>]*size="xl"/); // the website's Profile size (final review 17)
   expect(src('screens/SettingsScreen.tsx')).not.toMatch(/\bSwitch\b/);
 });
 

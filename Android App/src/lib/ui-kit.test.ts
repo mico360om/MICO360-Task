@@ -3,7 +3,8 @@ import { AVATAR_SIZES, PROJECT_AVATAR_SIZES, buttonLook, chipLook, clampPercent,
 import { contrastRatio, darkColors, lightColors } from './theme';
 
 it('avatar and project-avatar sizes are the website’s', () => {
-  expect(AVATAR_SIZES).toEqual({ sm: { box: 24, text: 10 }, md: { box: 32, text: 12 }, lg: { box: 64, text: 18 } });
+  // xl: the website's Profile photo (h-28 w-28 = 112 px, initials text-3xl = 30 px).
+  expect(AVATAR_SIZES).toEqual({ sm: { box: 24, text: 10 }, md: { box: 32, text: 12 }, lg: { box: 64, text: 18 }, xl: { box: 112, text: 30 } });
   expect(PROJECT_AVATAR_SIZES.md).toEqual({ box: 32, text: 12, icon: 18, radius: 8 });
   expect(PROJECT_AVATAR_SIZES['2xl']).toEqual({ box: 96, text: 30, icon: 46, radius: 24 });
   expect(PROJECT_AVATAR_SIZES).toEqual({

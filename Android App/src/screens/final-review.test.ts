@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { appSource as src } from '../testing/web-source';
+import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 
 /** Fixes from the final review of Stage 1 that are checked in the source. */
 
@@ -90,4 +90,21 @@ it('marks a row already speaks are hidden from TalkBack inside it', () => {
   ];
   const bare = wrapped.filter(([file, inner]) => !new RegExp(HIDDEN + inner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(src(file)));
   expect(bare.map(([f, i]) => `${f}: ${i}`)).toEqual([]);
+});
+
+// Item 17 (S11): the Profile photo is the website's size (h-28 = 112) with its gradient initials, and
+// TalkBack says "Your profile photo" / "No profile photo" again (as before the new look).
+it('the Profile photo is the website’s xl avatar and says what it shows', () => {
+  const avatar = src('components/ui/Avatar.tsx');
+  expect(avatar).toMatch(/label\?: boolean \| string \| AvatarLabels/);
+  expect(avatar).toMatch(/<LinearGradient colors=\{BRAND_GRADIENT\.colors\}/);
+  expect(avatar).toMatch(/size === 'xl'/);
+  expect(avatar).toMatch(/xlText: \{ \.\.\.font\('700'\)/);
+  const profile = src('screens/ProfileScreen.tsx');
+  expect(profile).toMatch(/<Avatar[^>]*size="xl"[^>]*label=\{\{ photo: 'Your profile photo', initials: 'No profile photo' \}\}/);
+  if (hasWeb('frontend/src/pages/ProfilePage.tsx')) {
+    const web = readWeb('frontend/src/pages/ProfilePage.tsx');
+    expect(web).toMatch(/className="h-28 w-28 rounded-full border border-line object-cover shadow-soft"/);
+    expect(web).toMatch(/className="grid h-28 w-28 place-items-center rounded-full bg-brand-gradient text-3xl font-bold text-white shadow-brand"/);
+  }
 });

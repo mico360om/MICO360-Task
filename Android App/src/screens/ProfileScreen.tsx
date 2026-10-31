@@ -113,8 +113,8 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
       <KeyboardAwareScrollView contentContainerStyle={s.scroll}>
         {/* Identity: photo, name, username, role */}
         <View style={s.header}>
-          {/* The shared Avatar: the photo from this server, else the initials (a photo that fails shows them). */}
-          <Avatar name={fullName === '—' ? '' : fullName} src={photoOf(me, user)} size="lg" />
+          {/* The shared Avatar at the website's Profile size: the photo from this server, else the gradient initials (a photo that fails shows them). */}
+          <Avatar name={fullName === '—' ? '' : fullName} src={photoOf(me, user)} size="xl" label={{ photo: 'Your profile photo', initials: 'No profile photo' }} />
           <Text style={s.name} accessibilityRole="header">
             {fullName}
           </Text>
