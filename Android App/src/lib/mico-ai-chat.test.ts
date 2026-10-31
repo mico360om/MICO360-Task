@@ -11,6 +11,8 @@ import {
   announce,
   createActionGate,
   errorText,
+  goneCopy,
+  isGoneError,
   linkTarget,
   micoAiChatKey,
   micoAiChatsKey,
@@ -144,4 +146,14 @@ describe('where the conversation scrolls (the website’s rule)', () => {
     expect(scrollWant(seen({ pendingId: 'm4', step: 'Reading…' }), seen({ pendingId: 'm4', step: 'Writing…' }), 4, false)).toBeNull();
     expect(scrollWant(seen(), seen(), 4, true)).toBeNull();
   });
+});
+
+it('a chat deleted elsewhere: a 404, and the answer it was writing stops (final review A2)', () => {
+  expect(isGoneError(new ApiError(404, 'NOT_FOUND', 'Chat not found'))).toBe(true);
+  expect(isGoneError(new ApiError(403, 'FORBIDDEN', 'x'))).toBe(false);
+  expect(isGoneError(new NetworkError('x'))).toBe(false);
+  expect(isGoneError(null)).toBe(false);
+  const copy = goneCopy(PENDING);
+  expect(copy).toEqual({ ...PENDING, status: 'stopped', step: null });
+  expect(pendingAnswer([QUESTION, copy])).toBeNull();
 });

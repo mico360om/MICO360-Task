@@ -72,9 +72,15 @@ export function earlierWithMessage(page: EarlierPage | undefined, m: MicoAiMessa
   return { ...page, messages: page.messages.map((x, i) => (i === at ? m : x)) };
 }
 
+/** The chat was deleted elsewhere (another phone or the website): the server no longer has it. */
+export const isGoneError = (err: unknown): boolean => err instanceof ApiError && err.status === 404;
+
+/** The answer a deleted chat was writing, as stopped: nothing follows it any more. */
+export const goneCopy = (m: MicoAiMessage): MicoAiMessage => ({ ...m, status: 'stopped', step: null });
+
 /** A poll tries a lost answer twice more; a deleted chat (404) stops it at once. */
 export function pollRetry(failureCount: number, error: unknown): boolean {
-  return !(error instanceof ApiError && error.status === 404) && failureCount < 2;
+  return !isGoneError(error) && failureCount < 2;
 }
 
 /**

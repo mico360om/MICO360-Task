@@ -11,7 +11,7 @@ import { useDirectory, useProjects } from '../core/queries';
 import { useAnswerPoll, useEarlierMessages, useMicoAiActions, useMicoAiChat, useMicoAiChats, useMicoAiStatus } from '../core/mico-ai-queries';
 import { chatTitle, suggestedQuestions } from '../lib/mico-ai';
 import type { MicoAiMessage } from '../lib/mico-ai-api';
-import { announce, CHAT_TITLE_MAX, errorText, pendingAnswer, scrollWant, withEarlier, type ScrollSeen, type ScrollWant } from '../lib/mico-ai-chat';
+import { announce, CHAT_TITLE_MAX, errorText, isGoneError, pendingAnswer, scrollWant, withEarlier, type ScrollSeen, type ScrollWant } from '../lib/mico-ai-chat';
 import { radius, spacing, type Palette } from '../lib/theme';
 import { font, typeStyle } from '../lib/typography';
 import type { AppScreenProps } from '../navigation/types';
@@ -77,8 +77,12 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
   const hasMore = earlier ? earlier.hasMore : !!chatQ.data?.hasMore;
   // The list is read again after every question, so its entry has the name the first question gave the chat.
   const chat = chats.find((x) => x.id === chatId) ?? chatQ.data?.chat ?? null;
-  const pending = pendingAnswer(messages);
-  const { gone } = useAnswerPoll(chatId, pending);
+  const answering = pendingAnswer(messages);
+  const { gone: pollGone } = useAnswerPoll(chatId, answering);
+  // Deleted elsewhere: the poll or the chat's own read says so (a 404).
+  const gone = pollGone || isGoneError(chatQ.error);
+  // A chat that is gone follows no answer: the box is free again, and the next question starts a new chat.
+  const pending = gone ? null : answering;
   const firstName = (Array.isArray(dirQ.data) ? dirQ.data : []).find((u) => u.id === myId)?.firstName?.trim();
   const projectName = useMemo(() => {
     const list = Array.isArray(projectsQ.data) ? projectsQ.data : [];
@@ -293,7 +297,7 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
             </View>
           ) : null}
           {hasMore ? <Button title={loadingEarlier ? 'Loading…' : 'Load earlier messages'} variant="secondary" size="sm" disabled={loadingEarlier} onPress={() => void loadEarlier()} style={s.center} /> : null}
-          {chatId && chatQ.isError ? <ErrorNote message={errorText(chatQ.error)} onRetry={() => void chatQ.refetch()} retrying={chatQ.isFetching} /> : null}
+          {chatId && chatQ.isError && !gone ? <ErrorNote message={errorText(chatQ.error)} onRetry={() => void chatQ.refetch()} retrying={chatQ.isFetching} /> : null}
           {welcome ? (
             <View style={s.welcome}>
               <MicoAiMark size={48} />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { skipToken, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { useDebouncedValue } from './useDebounced';
-import { ApiError, sessionChangedError, type CallOpts } from '../lib/api-client';
+import { sessionChangedError, type CallOpts } from '../lib/api-client';
 import type { ChatView, ConfirmBody, MicoAiMessage } from '../lib/mico-ai-api';
 import {
   CARD_POLL_MS,
@@ -14,6 +14,8 @@ import {
   createActionGate,
   earlierWithMessage,
   errorText,
+  goneCopy,
+  isGoneError,
   micoAiChatKey,
   micoAiChatsKey,
   micoAiChatsRoot,
@@ -136,10 +138,13 @@ export function useAnswerPoll(chatId: string | null, pending: MicoAiMessage | nu
     retry: pollRetry,
   });
   useEffect(() => {
-    if (chatId && userId && q.error instanceof ApiError && q.error.status === 404) {
+    if (chatId && userId && isGoneError(q.error)) {
       setGoneChat(chatId);
+      // The answer it was writing stops on screen: no dots left turning for a chat that is gone.
+      if (pending) putMessage(qc, userId, chatId, goneCopy(pending));
       void qc.invalidateQueries({ queryKey: micoAiChatsRoot(userId) });
     }
+    // Only a new failure counts: pending is the answer that was followed when it came.
   }, [q.error, chatId, userId, qc]);
   const m = q.data;
   useEffect(() => {

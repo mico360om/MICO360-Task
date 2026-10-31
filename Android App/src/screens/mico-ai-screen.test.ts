@@ -18,8 +18,8 @@ it('answers: tables with Excel, sources that open screens, the PDF report, Copy 
 it('the answer is announced as it arrives', () => expect(screen).toMatch(/accessibilityLiveRegion="polite"[^]*announce\(/));
 
 it('the screen follows the answer being written and says when the chat was deleted', () => {
-  expect(screen).toMatch(/const pending = pendingAnswer\(messages\)/);
-  expect(screen).toMatch(/useAnswerPoll\(chatId, pending\)/);
+  expect(screen).toMatch(/const answering = pendingAnswer\(messages\)/);
+  expect(screen).toMatch(/useAnswerPoll\(chatId, answering\)/);
   expect(screen).toContain('This chat was deleted.');
   // A chat deleted elsewhere can't take a question: the next one starts a new chat.
   expect(screen).toMatch(/newChat: !!o\.newChat \|\| gone/);
@@ -102,4 +102,11 @@ it('the conversation scrolls only as the website’s rule says: never on growth 
   expect(screen).toMatch(/onLayout=\{onViewLayout\}/);
   expect(screen).toMatch(/onScrollBeginDrag=\{\(\) => \{\s+want\.current = null;/);
   expect(screen).not.toMatch(/if \(atEnd\.current\) scroller\.current\?\.scrollToEnd\(\{ animated: false \}\);\s+\}\}\s+maintainVisibleContentPosition/);
+});
+
+it('a chat deleted elsewhere frees the box: no endless dots, no Try again, the next question starts a new chat (final review A2)', () => {
+  expect(screen).toMatch(/const gone = pollGone \|\| isGoneError\(chatQ\.error\)/);
+  expect(screen).toMatch(/const pending = gone \? null : answering/);
+  expect(screen).toMatch(/chatId && chatQ\.isError && !gone \?/);
+  expect(src('core/mico-ai-queries.ts')).toMatch(/function useAnswerPoll[^]*isGoneError\(q\.error\)[^]*if \(pending\) putMessage\(qc, userId, chatId, goneCopy\(pending\)\)/);
 });
