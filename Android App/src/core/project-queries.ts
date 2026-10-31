@@ -1,19 +1,18 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
+import { owned } from './queries';
 import { useDebouncedValue } from './useDebounced';
-import { appTimeZone } from '../lib/due-date';
-import { PROJECT_FIGURES_COPY } from '../lib/offline-copy';
-import { projectCardFigures, type ProjectFigures } from '../lib/project-list';
-import { PROJECT_FIGURES_KEY } from '../lib/refresh';
+import { PROJECTS_OVERVIEW_COPY } from '../lib/offline-copy';
+import { PROJECTS_OVERVIEW_KEY } from '../lib/refresh';
 import { codeProblem } from '../lib/project-identity';
 import { saveProject, type SaveOutcome } from '../lib/project-form';
-import { statusChangeRequest } from '../lib/project-list';
-import type { ApiMember, ApiProject } from '../lib/types';
+import { changeProjectStatus, type StatusChangeOutcome } from '../lib/project-status';
+import type { ApiMember, ApiProject, ProjectOverview } from '../lib/types';
 
 /**
- * Projects and their dashboard (5b): the cards' progress, the project form's code check and save,
- * an administrator's status and owner changes, the team's changes and Home's all-projects totals.
+ * Projects and their dashboard (5b): the Projects page's overview list, the project form's code
+ * check and save, status and owner changes, the team's changes and the Dashboard's all-projects totals.
  * Every change needs a connection, as on the website (nothing is kept for later); the reads go
  * through the offline copy.
  */
@@ -21,20 +20,18 @@ import type { ApiMember, ApiProject } from '../lib/types';
 const membersKey = (projectId: string) => ['project', projectId, 'members'];
 const detailsKey = (projectId: string) => ['project', projectId, 'details'];
 
-/** How long the cards' figures count as fresh (a task change marks them out of date at once). */
-const FIGURES_FRESH_MS = 60_000;
-
 /**
- * Every card's figures on the Projects list from ONE request (5b review): the tasks you can see,
- * as the website's Projects page reads them (tasks/all), counted per project here. Only the small
- * figures are kept offline, not the tasks.
+ * The Projects page's list (GET /projects/overview): every project you can see with its card's
+ * figures — open, overdue (the server's, never a task waiting for approval), next due, progress,
+ * team, owner — from ONE request, as the website's page reads it. Through the offline copy.
  */
-export function useProjectCardFigures() {
+export function useProjectsOverview() {
   const { resources, reads } = useServices();
-  return useQuery<Record<string, ProjectFigures>>({
-    queryKey: PROJECT_FIGURES_KEY,
-    queryFn: ({ queryKey }) => reads.read(queryKey, PROJECT_FIGURES_COPY, async () => projectCardFigures(await resources.tasks.list(), new Date(), appTimeZone())),
-    staleTime: FIGURES_FRESH_MS,
+  return useQuery<ProjectOverview[]>({
+    queryKey: PROJECTS_OVERVIEW_KEY,
+    queryFn: ({ queryKey }) => reads.read(queryKey, PROJECTS_OVERVIEW_COPY, () => resources.projects.overview()),
+    // Fresh for a minute; a task or project change marks it out of date at once (lib/refresh, the status change).
+    staleTime: 60_000,
   });
 }
 
@@ -89,15 +86,21 @@ export function useSaveProject() {
   );
 }
 
-/** An administrator's status change (Archived through the archive action). */
-export function useProjectStatus() {
-  const { resources } = useServices();
-  const refreshed = useProjectRefresh();
-  return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      statusChangeRequest(status) === 'archive' ? resources.projects.archive(id) : resources.projects.update(id, { status }),
-    onSuccess: refreshed,
-  });
+/**
+ * A status change from the Projects page, for whoever may change the project (changeProjectStatus):
+ * shown at once, sent as the signed-in person (Archived through the archive action), put back with
+ * the reason when it didn't go through; the list is read again either way. Online only.
+ */
+export function useProjectStatus(): (project: Pick<ProjectOverview, 'id' | 'name'>, status: string) => Promise<StatusChangeOutcome> {
+  const services = useServices();
+  const qc = useQueryClient();
+  return useCallback(
+    (project, status) => {
+      const projects = owned(services).resources.projects;
+      return changeProjectStatus(qc, { update: (id, s) => projects.update(id, { status: s }), archive: (id) => projects.archive(id) }, project, status);
+    },
+    [services, qc],
+  );
 }
 
 /** An administrator's change of owner, from the project's Overview. */

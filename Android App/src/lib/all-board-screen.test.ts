@@ -8,13 +8,15 @@ const src = (p: string) => (existsSync(path(p)) ? readFileSync(path(p), 'utf8') 
 describe('the All projects board screen (4c)', () => {
   const screen = src('screens/AllBoardScreen.tsx');
 
-  it('exists, and is registered and reachable from the Projects tab (with more than one project, as on the website)', () => {
+  // Stage 2: the website's Projects page has no all-projects link (its menu's Kanban Board does, and
+  // each card's ⋯ has Open board); on the phone the menu's Kanban Board and the Dashboard's Open board.
+  it('exists, and is registered and reachable from the menu’s Kanban Board and the Dashboard', () => {
     expect(screen).not.toBe('');
     expect(src('navigation/types.ts')).toMatch(/AllBoard: undefined;/);
     expect(src('navigation/RootNavigator.tsx')).toMatch(/name="AllBoard" component=\{AllBoardScreen\} options=\{\{ title: ALL_PROJECTS_TEXT\.title \}\}/);
-    const projects = src('screens/ProjectsScreen.tsx');
-    expect(projects).toMatch(/boardProjects\(list\)\.length > 1 \?/);
-    expect(projects).toMatch(/navigation\.navigate\('AllBoard'\)/);
+    expect(src('navigation/drawer-menu.ts')).toMatch(/\{ key: 'AllBoard', label: 'Kanban Board', icon: 'nav\.board', action: ALL_PROJECTS_BOARD \}/);
+    expect(src('screens/DashboardScreen.tsx')).toMatch(/navigation\.navigate\('AllBoard'\)/);
+    expect(src('screens/ProjectsScreen.tsx')).not.toMatch(/Board: all projects/);
   });
 
   it('shows every shown project’s tasks for the day under the six statuses, as virtualized lists', () => {

@@ -1,5 +1,5 @@
 /**
- * New project and Edit project on the phone (5b, administrators), with the website's form rules
+ * New project and Edit project on the phone (5b), with the website's form rules
  * (frontend components/project-form/ProjectFormDialog.tsx): the code is suggested from the name
  * until it is typed in, checked as it is typed and can't change once the project exists; an edit
  * sends only what changed; the picture is saved after the details, and when only it fails the
@@ -9,7 +9,8 @@
 import { ApiError, isNetworkError } from './api-client';
 import { uploadMimeType } from './attachments';
 import { DEFAULT_PROJECT_COLOR, PROJECT_STATUSES, codeProblem, projectPriorityLabel, projectStatusLabel, suggestCode } from './project-identity';
-import type { ApiProject } from './types';
+import type { PersonOption } from './task-form';
+import { displayName, type ApiDirectoryUser, type ApiProject } from './types';
 
 /** The server keeps up to 191 characters of a name or client, 20 000 of a description, 40 of a number. */
 export const NAME_MAX = 191;
@@ -29,6 +30,48 @@ export interface ProjectDraft {
   ownerId: string;
   color: string;
   icon: string | null;
+  /** How the project's tasks behave (the form's Tasks switches). */
+  carryForward: boolean;
+  defaultDueToday: boolean;
+  newTasksNeedApproval: boolean;
+  /** A new project's team (picked when creating it; afterwards the project's Team tab). */
+  memberIds: string[];
+}
+
+/** What every project does unless it is told otherwise (also a project saved before these existed). */
+export const PROJECT_TASK_DEFAULTS = { carryForward: true, defaultDueToday: false, newTasksNeedApproval: false } as const;
+
+/** The Tasks switches' words (website ProjectFormDialog's "Tasks" fieldset). */
+export const PROJECT_TASK_TEXT = {
+  legend: 'Tasks',
+  carryForward: { label: 'Carry unfinished tasks forward', hint: 'Each night, unfinished tasks on past days move to today’s board.' },
+  defaultDueToday: { label: 'New tasks are due today', hint: 'A task added without a due date gets today’s date. Dates people choose are kept.' },
+  newTasksNeedApproval: {
+    label: 'New tasks in this project need approval',
+    hint: 'Ticks “Needs approval” on new tasks: a project manager must approve each one before it counts as done. It can be changed on any task.',
+  },
+} as const;
+
+/** A new project's team picker, in the website's words, and the note under it for the role. */
+export const TEAM_TEXT = {
+  label: 'Team (optional)',
+  add: 'Add people to the team',
+  none: 'There’s no one else to add yet',
+  all: 'Everyone is on the team.',
+  adminNote: 'The owner joins the team too. You can add or remove people later on the Team tab.',
+  otherNote: 'You’ll be on the team as a manager, so you can keep running it. The owner joins the team too.',
+} as const;
+
+/** Everyone who can be put on a team: the directory's active people, by name, with their pictures. */
+export function activePeople(directory: readonly ApiDirectoryUser[] | null | undefined): PersonOption[] {
+  return (Array.isArray(directory) ? directory : [])
+    .filter((u) => u.active !== false)
+    .map((u) => ({ id: u.id, name: displayName(u), username: u.username, avatarUrl: u.avatarUrl ?? null }));
+}
+
+/** The team picker's people: everyone — except an employee themself, who joins as a manager anyway. */
+export function teamPool(people: readonly PersonOption[], me: { id: string; isAdmin: boolean }): PersonOption[] {
+  return people.filter((p) => me.isAdmin || p.id !== me.id);
 }
 
 /** What the server takes for a new project (and, partly, for an edit). */
@@ -43,9 +86,14 @@ export interface ProjectInput {
   ownerId?: string | null;
   color?: string;
   icon?: string | null;
+  carryForward?: boolean;
+  defaultDueToday?: boolean;
+  newTasksNeedApproval?: boolean;
+  /** A new project's team (the owner and, for an employee, its creator join it anyway). */
+  memberIds?: string[];
 }
 
-export type ProjectPatch = Partial<Omit<ProjectInput, 'code'>>;
+export type ProjectPatch = Partial<Omit<ProjectInput, 'code' | 'memberIds'>>;
 
 /** Is a code well formed and free? (GET /projects/code-check) */
 export interface CodeCheck {
@@ -72,6 +120,10 @@ export function draftOf(p?: ApiProject | null): ProjectDraft {
     ownerId: p?.ownerId ?? '',
     color: p?.color ?? DEFAULT_PROJECT_COLOR,
     icon: p?.icon ?? null,
+    carryForward: p?.carryForward ?? PROJECT_TASK_DEFAULTS.carryForward,
+    defaultDueToday: p?.defaultDueToday ?? PROJECT_TASK_DEFAULTS.defaultDueToday,
+    newTasksNeedApproval: p?.newTasksNeedApproval ?? PROJECT_TASK_DEFAULTS.newTasksNeedApproval,
+    memberIds: [],
   };
 }
 
@@ -126,7 +178,7 @@ export function checkDraft(d: ProjectDraft, opts: { editing: boolean; check: Cod
   return problems;
 }
 
-/** A new project's details; what is empty is left out. */
+/** A new project's details; what is empty is left out, and a Tasks switch only when it differs from how every project starts. */
 export function createBody(d: ProjectDraft): ProjectInput {
   return {
     code: d.code,
@@ -137,8 +189,12 @@ export function createBody(d: ProjectDraft): ProjectInput {
     status: d.status,
     priority: d.priority,
     ownerId: d.ownerId || null,
+    ...(d.memberIds.length ? { memberIds: d.memberIds } : {}),
     icon: d.icon,
     color: d.color,
+    ...(d.carryForward === PROJECT_TASK_DEFAULTS.carryForward ? {} : { carryForward: d.carryForward }),
+    ...(d.defaultDueToday === PROJECT_TASK_DEFAULTS.defaultDueToday ? {} : { defaultDueToday: d.defaultDueToday }),
+    ...(d.newTasksNeedApproval === PROJECT_TASK_DEFAULTS.newTasksNeedApproval ? {} : { newTasksNeedApproval: d.newTasksNeedApproval }),
   };
 }
 
@@ -154,6 +210,9 @@ export function projectChanges(before: ProjectDraft, after: ProjectDraft): Proje
   if (after.ownerId !== before.ownerId) patch.ownerId = after.ownerId || null;
   if (after.color.toUpperCase() !== before.color.toUpperCase()) patch.color = after.color;
   if (after.icon !== before.icon) patch.icon = after.icon;
+  if (after.carryForward !== before.carryForward) patch.carryForward = after.carryForward;
+  if (after.defaultDueToday !== before.defaultDueToday) patch.defaultDueToday = after.defaultDueToday;
+  if (after.newTasksNeedApproval !== before.newTasksNeedApproval) patch.newTasksNeedApproval = after.newTasksNeedApproval;
   return patch;
 }
 

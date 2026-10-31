@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { ApiError, NetworkError } from './api-client';
 import {
   PROJECT_FORM_TEXT,
+  PROJECT_TASK_DEFAULTS,
+  PROJECT_TASK_TEXT,
+  TEAM_TEXT,
+  activePeople,
   afterCreateTry,
   tryBody,
   PICTURE_MAX_BYTES,
@@ -20,10 +24,13 @@ import {
   projectChanges,
   saveProject,
   statusOptions,
+  teamPool,
   typedCode,
   type ProjectSaveApi,
 } from './project-form';
+import type { PersonOption } from './task-form';
 import type { ApiProject } from './types';
+import { hasWeb, readWeb } from '../testing/web-source';
 
 const project = (patch: Partial<ApiProject> = {}): ApiProject => ({
   id: 'p1',
@@ -45,11 +52,12 @@ const project = (patch: Partial<ApiProject> = {}): ApiProject => ({
 
 describe('the form’s starting point', () => {
   it('is empty for a new project, in the website’s defaults', () => {
-    expect(draftOf(null)).toEqual({ name: '', code: '', number: '', clientName: '', description: '', status: 'PLANNING', priority: 'NORMAL', ownerId: '', color: '#8B1E1E', icon: null });
+    expect(draftOf(null)).toEqual({ name: '', code: '', number: '', clientName: '', description: '', status: 'PLANNING', priority: 'NORMAL', ownerId: '', color: '#8B1E1E', icon: null, carryForward: true, defaultDueToday: false, newTasksNeedApproval: false, memberIds: [] });
   });
 
   it('is the project as it is for an edit', () => {
-    expect(draftOf(project())).toEqual({ name: 'Rig Inspection', code: 'RIG', number: '', clientName: 'PDO', description: '', status: 'ACTIVE', priority: 'HIGH', ownerId: 'u1', color: '#2E7D53', icon: 'truck' });
+    expect(draftOf(project())).toEqual({ name: 'Rig Inspection', code: 'RIG', number: '', clientName: 'PDO', description: '', status: 'ACTIVE', priority: 'HIGH', ownerId: 'u1', color: '#2E7D53', icon: 'truck', carryForward: true, defaultDueToday: false, newTasksNeedApproval: false, memberIds: [] });
+    expect(draftOf(project({ carryForward: false, defaultDueToday: true, newTasksNeedApproval: true }))).toMatchObject({ carryForward: false, defaultDueToday: true, newTasksNeedApproval: true, memberIds: [] });
   });
 
   it('offers Archived only for a project that already is', () => {
@@ -318,5 +326,65 @@ describe('a New project try whose answer was lost (5b review #4)', () => {
     expect(afterCreateTry({ kind: 'failed', message: 'x', retryable: true })).toEqual({ keepKey: true, lock: true });
     expect(afterCreateTry({ kind: 'failed', message: 'x', retryable: false })).toEqual({ keepKey: false, lock: false });
     expect(afterCreateTry({ kind: 'code-taken', message: 'x', retryable: false })).toEqual({ keepKey: false, lock: false });
+  });
+});
+
+// ── Stage 2 Task 11: the Tasks switches and the team on create ──────────────
+/** A person who can be picked for the team. */
+const p = (id: string): PersonOption => ({ id, name: `Person ${id}`, username: id, avatarUrl: null });
+
+describe('the project’s Tasks switches and a new project’s team', () => {
+  it('a new project sends the Tasks switches only when they differ from the defaults, and its team', () => {
+    const d = { ...draftOf(null), name: 'Rig', code: 'RIG' };
+    const plain = createBody(d);
+    for (const k of ['carryForward', 'defaultDueToday', 'newTasksNeedApproval', 'memberIds']) expect(plain, k).not.toHaveProperty(k);
+    expect(createBody({ ...d, carryForward: false, defaultDueToday: true, newTasksNeedApproval: true, memberIds: ['u1'] })).toMatchObject({ carryForward: false, defaultDueToday: true, newTasksNeedApproval: true, memberIds: ['u1'] });
+  });
+
+  it('an edit sends a changed switch, never the team', () => {
+    const before = draftOf({ ...project(), newTasksNeedApproval: false });
+    const after = { ...before, newTasksNeedApproval: true, memberIds: ['u9'] };
+    expect(projectChanges(before, after)).toEqual({ newTasksNeedApproval: true });
+    expect(projectChanges(before, { ...before, carryForward: false, defaultDueToday: true })).toEqual({ carryForward: false, defaultDueToday: true });
+    expect(draftOf({ ...project() })).toMatchObject(PROJECT_TASK_DEFAULTS);
+    expect(PROJECT_TASK_DEFAULTS).toEqual({ carryForward: true, defaultDueToday: false, newTasksNeedApproval: false });
+  });
+
+  it('a team picked, or a switch changed, is something leaving would lose', () => {
+    const d = draftOf(null);
+    expect(isDirty(d, { ...d, memberIds: ['u2'] }, { kind: 'keep' })).toBe(true);
+    expect(isDirty(d, { ...d, defaultDueToday: true }, { kind: 'keep' })).toBe(true);
+    // A try kept after a lost answer carries the team: a team changed since then isn't sent under it.
+    expect(tryBody({ ...d, name: 'Rig', code: 'RIG', memberIds: ['u2'] })).not.toBe(tryBody({ ...d, name: 'Rig', code: 'RIG' }));
+  });
+
+  it('an employee isn’t offered to themself for the team', () => {
+    const people = [p('u1'), p('u2')];
+    expect(teamPool(people, { id: 'u1', isAdmin: false }).map((x) => x.id)).toEqual(['u2']);
+    expect(teamPool(people, { id: 'u1', isAdmin: true })).toHaveLength(2);
+  });
+
+  it('the team is picked from everyone active, by name, with their pictures', () => {
+    const dir = [
+      { id: 'u1', username: 'ann', firstName: 'Ann', lastName: 'Lee', avatarUrl: '/uploads/a.png' },
+      { id: 'u2', username: 'omar', firstName: 'Omar', lastName: 'Said', active: false },
+      { id: 'u3', username: 'sara', firstName: '', lastName: '' },
+    ];
+    expect(activePeople(dir)).toEqual([
+      { id: 'u1', name: 'Ann Lee', username: 'ann', avatarUrl: '/uploads/a.png' },
+      { id: 'u3', name: 'sara', username: 'sara', avatarUrl: null },
+    ]);
+    expect(activePeople(undefined)).toEqual([]);
+  });
+});
+
+describe.skipIf(!hasWeb('frontend/src/components/project-form/ProjectFormDialog.tsx'))('the website’s words', () => {
+  it('Tasks switches and the team', () => {
+    const w = readWeb('frontend/src/components/project-form/ProjectFormDialog.tsx');
+    const { label, ...team } = TEAM_TEXT;
+    for (const t of [PROJECT_TASK_TEXT.legend, ...(['carryForward', 'defaultDueToday', 'newTasksNeedApproval'] as const).flatMap((k) => Object.values(PROJECT_TASK_TEXT[k])), ...Object.values(team)]) expect(w, t).toContain(t);
+    // The website sets "(optional)" apart in a smaller span: "Team <span…>(optional)</span>".
+    expect(label).toBe('Team (optional)');
+    expect(w).toMatch(/Team <span[^>]*>\(optional\)<\/span>/);
   });
 });

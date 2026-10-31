@@ -38,6 +38,9 @@
 - In the Android app, board cards show "Visible to client" and "Inspection", and on a phone an empty column is only as tall as its "No tasks".
 <!-- daily-work-tasks lines above this line -->
 
+- In the Android app, the Dashboard is the website's: the welcome band, the four tiles (your own, or the company's for administrators), tasks waiting for your approval, Due soon, Recent activity, and first steps for a new company.
+- In the Android app, Projects is the website's page: status tabs with counts, search, owner, sort and "Only my projects" for administrators, the website's project cards (Open, Overdue, Next due, team, owner, target), a status menu and Archive.
+- In the Android app, the project form has the website's Tasks switches — carry unfinished tasks forward, new tasks due today, new tasks need approval — and a new project's team can be picked when creating it.
 <!-- daily-work-pages lines above this line -->
 
 <!-- daily-work-meetings-people lines above this line -->
