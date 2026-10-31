@@ -310,9 +310,20 @@ function velocityBars(series: TimeSeries | null | undefined): { label: string; v
   return (series?.velocity ?? []).map((w) => ({ label: `Week of ${reportDay(w.weekStart)}`, value: w.completed || 0 }));
 }
 
-/** What the on-time bar means. */
-export function onTimeText(c: CompletionStats): string {
-  return `${c.onTimeRate}% of completed tasks with a due date were delivered on time.`;
+/**
+ * The on-time rate as Reports shows it (tile, bar and sentence), as the website: "—" with "Nothing
+ * delivered yet" until a task with a due date is finished; no hint while nothing is loaded.
+ */
+export function onTimeFigure(c: CompletionStats | null | undefined): { value: string; hint: string | undefined; text: string; width: number } {
+  // Rated once a task with a due date is finished (the website's ReportsPage `rated`): until then
+  // a 0% would say every task was late.
+  const rated = !!c && c.onTime + c.late > 0;
+  return {
+    value: rated ? `${c.onTimeRate}%` : '—',
+    hint: rated ? `${c.onTime} on time · ${c.late} late` : c ? 'Nothing delivered yet' : undefined,
+    text: rated ? `${c.onTimeRate}% of completed tasks with a due date were delivered on time.` : 'No completed tasks with a due date yet.',
+    width: rated ? Math.min(100, Math.max(0, c.onTimeRate)) : 0,
+  };
 }
 
 /** Each team member's assigned tasks, most first (narrowed to the chosen member). */
