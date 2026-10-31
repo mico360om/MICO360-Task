@@ -96,3 +96,12 @@ it('B9: tiles that couldn’t load say so, with a Retry under them', () => {
   // One Retry for the totals: the charts below no longer repeat it.
   expect(src('components/AdminTotals.tsx')).not.toMatch(/<ErrorNote/);
 });
+
+// Stage 2 fix pass B11: the old Dashboard's buckets (lib/tasks-summary summarizeTasks) had no caller
+// left — the Dashboard counts with myDueCounts — so they are gone, not left to drift.
+it('B11: the old Dashboard’s task buckets are gone', async () => {
+  const { existsSync } = await import('node:fs');
+  const { appPath } = await import('../testing/web-source');
+  expect(existsSync(appPath('src/lib/tasks-summary.ts'))).toBe(false);
+  expect(src('screens/DashboardScreen.tsx')).not.toMatch(/summarizeTasks/);
+});

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button } from '../ui';
 import { Icon } from '../Icon';
@@ -9,7 +9,7 @@ import { NOTHING_TEXT } from '../../lib/meeting-list';
 
 /**
  * In the "Up next" place when nothing is scheduled, as on the website (NothingComingUp.tsx): says so,
- * names the last meeting (tap it to open it) and offers to schedule the next one, so a quiet week
+ * names the last meeting (a row of its own to tap, 44 dp — fix pass B10) and offers to schedule the next one, so a quiet week
  * doesn't look like an empty or broken page.
  */
 export function NothingComingUp({ last, onSchedule, onOpen }: { last: { title: string; when: string } | null; onSchedule: () => void; onOpen: () => void }) {
@@ -27,13 +27,17 @@ export function NothingComingUp({ last, onSchedule, onOpen }: { last: { title: s
             {NOTHING_TEXT.title}
           </Text>
           {last ? (
-            <Text style={s.line}>
-              Last meeting:{' '}
-              <Text style={s.link} onPress={onOpen} accessibilityRole="link" accessibilityHint="Opens the meeting" suppressHighlighting={false}>
-                {last.title}
+            <Pressable
+              onPress={onOpen}
+              accessibilityRole="button"
+              accessibilityLabel={`Last meeting: ${last.title}, ${last.when}`}
+              accessibilityHint="Opens the meeting"
+              style={({ pressed }) => [s.lastRow, pressed ? s.pressed : null]}
+            >
+              <Text style={s.line}>
+                Last meeting: <Text style={s.link}>{last.title}</Text>, {last.when}.
               </Text>
-              , {last.when}.
-            </Text>
+            </Pressable>
           ) : (
             <Text style={s.line}>{NOTHING_TEXT.none}</Text>
           )}
@@ -53,6 +57,8 @@ const makeStyles = (c: Palette) =>
     eyebrow: { ...typeStyle('eyebrow'), ...font('700'), color: c.ink2 },
     title: { ...typeStyle('heading'), ...font('700', 'display'), color: c.ink },
     line: { ...typeStyle('body'), color: c.ink2, marginTop: 2 },
+    lastRow: { minHeight: 44, justifyContent: 'center' },
+    pressed: { opacity: 0.7 },
     link: { ...font('500'), color: c.ink, textDecorationLine: 'underline' },
     button: { minHeight: 44 },
   });
