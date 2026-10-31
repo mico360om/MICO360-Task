@@ -1,10 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useColors } from '../../core/theme';
 import { applyNavAction } from '../../navigation/apply-action';
 import { appTimeZone, calendarTimeZone, companyTodayKey, zonedDayKey } from '../../lib/due-date';
 import type { CreateTaskChange, MeetingChange, MicoAiNamed, MinutesChange, ProposalChange, UpdateTaskChange } from '../../lib/mico-ai-api';
 import { linkTarget } from '../../lib/mico-ai-chat';
+import { changeLabelWidth } from '../../lib/mico-ai-layout';
 import { lengthLabel, meetingWhen, shortDay } from '../../lib/mico-ai-proposal';
 import { PRIORITY_LABELS } from '../../lib/meeting-parts';
 import { radius, spacing, type Palette } from '../../lib/theme';
@@ -53,9 +54,10 @@ function People({ people, label }: { people: MicoAiNamed[]; label: string }) {
 /** "before → after": read as "to". */
 function Change({ label, from, to }: { label: string; from: string; to: string }) {
   const s = useStyles();
+  const { fontScale } = useWindowDimensions();
   return (
     <View style={s.change} accessible accessibilityLabel={`${label}: ${from} to ${to}`}>
-      <Text style={s.changeLabel}>{label}</Text>
+      <Text style={[s.changeLabel, { width: changeLabelWidth(fontScale) }]}>{label}</Text>
       <Text style={s.flex}>
         <Text style={s.from}>{from}</Text>
         <Text style={s.quiet}>{'  →  '}</Text>
@@ -280,7 +282,7 @@ const makeStyles = (c: Palette) =>
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, flexShrink: 1 },
     person: { ...typeStyle('caption'), color: c.ink, borderWidth: 1, borderColor: c.line, backgroundColor: c.ground, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, overflow: 'hidden', maxWidth: 220 },
     change: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
-    changeLabel: { ...typeStyle('caption'), ...font('600'), color: c.ink2, width: 64 },
+    changeLabel: { ...typeStyle('caption'), ...font('600'), color: c.ink2 },
     from: { ...typeStyle('body'), color: c.ink2, textDecorationLine: 'line-through' },
     to: { ...typeStyle('label'), color: c.ink },
     key: { ...typeStyle('caption'), fontFamily: 'monospace', color: c.ink2, backgroundColor: c.ground },

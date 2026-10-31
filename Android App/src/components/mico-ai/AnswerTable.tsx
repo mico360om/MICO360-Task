@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useColors } from '../../core/theme';
 import { cellDisplay } from '../../lib/mico-ai';
 import type { CellKind, MicoAiTable } from '../../lib/mico-ai-api';
+import { answerColumnWidth } from '../../lib/mico-ai-layout';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { Button } from '../ui';
@@ -11,16 +12,6 @@ import { Button } from '../ui';
 const NUMERIC = new Set<CellKind | undefined>(['number', 'percent', 'days']);
 /** The rows shown at first; the rest behind "Show all N rows". */
 const FIRST_ROWS = 25;
-
-/**
- * A column's width from what it holds (the website lets the browser size its table): short phrases
- * stay on one line, longer text gets a readable width and wraps.
- */
-function columnWidth(table: MicoAiTable, col: number): number {
-  const kind = table.columns[col]?.kind;
-  const longest = Math.max(table.columns[col]?.label.length ?? 0, ...table.rows.map((r) => cellDisplay(kind, r.cells[col] ?? null).length));
-  return Math.round(Math.min(Math.max(longest * 7.5 + 28, 72), 260));
-}
 
 /**
  * A table copied by the server from the data (its figures are the data's, never the AI's), as the
@@ -33,7 +24,9 @@ export function AnswerTable({ table, onExcel, preparing = false, busy = false }:
   const s = useMemo(() => makeStyles(c), [c]);
   const [all, setAll] = useState(false);
   const rows = all ? table.rows : table.rows.slice(0, FIRST_ROWS);
-  const widths = useMemo(() => table.columns.map((_, j) => columnWidth(table, j)), [table]);
+  // Wider with a larger font, so big text wraps in its column instead of being cut off.
+  const { fontScale } = useWindowDimensions();
+  const widths = useMemo(() => table.columns.map((_, j) => answerColumnWidth(table, j, fontScale)), [table, fontScale]);
   return (
     <View style={s.wrap}>
       <View style={s.box}>
