@@ -72,6 +72,13 @@ describe('SettingsPage — notification switches', () => {
     expect(screen.getByText('When a task waits for your approval, or yours is approved or sent back')).toBeInTheDocument();
   });
 
+  it('lets people switch off meeting reminders (on until they do)', async () => {
+    renderPage();
+    const sw = await screen.findByRole('switch', { name: 'Notify me: Meeting reminders' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Before each meeting you organize or are invited to')).toBeInTheDocument();
+  });
+
   it('says so when a switch could not be saved (it used to flip back without a word)', async () => {
     saveAnswer = () => json({ error: { code: 'INTERNAL', message: 'boom' } }, 500);
     renderPage();

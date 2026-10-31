@@ -4,6 +4,7 @@ import { Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { Sidebar, SidebarBody } from './Sidebar';
 import { useManagementLink } from '../lib/useManagementLink';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
+import { MeetingReminderPopup } from './MeetingReminderPopup';
 import { GlobalSearch } from './GlobalSearch';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { SystemClock } from './SystemClock';
@@ -120,6 +121,8 @@ export function AppShell() {
     <CurrentProjectProvider>
     <div className="flex min-h-screen">
       <ChatSoundNotifier />
+      {/* A meeting reminder pops up in the corner of every page; every new notification refreshes the bell. */}
+      <MeetingReminderPopup />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-brand focus:px-3 focus:py-2 focus:text-sm focus:text-white"

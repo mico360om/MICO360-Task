@@ -9,6 +9,8 @@ import { tasksApi } from '../api/tasks';
 import { LoadError } from '../components/ui/LoadError';
 import { DailyEmailLog } from '../components/admin/DailyEmailLog';
 import { MeetingHoursSettings, workingHoursText } from '../components/admin/MeetingHoursSettings';
+import { MeetingReminderSettings } from '../components/admin/MeetingReminderSettings';
+import { isMeetingReminders, reminderSummary } from '../components/admin/meeting-reminder-words';
 import { BackupSettings } from '../components/admin/BackupSettings';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
@@ -53,6 +55,7 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
         : null;
     },
   },
+  { key: 'meetings.reminders', label: 'Meeting reminders', format: (v) => (isMeetingReminders(v) ? reminderSummary(v) : null) },
 ];
 /** The company week (the Management page's weeks and the weekly summary's day). */
 const WEEK_STARTS: { value: 0 | 1 | 6; label: string }[] = [
@@ -239,6 +242,9 @@ export function SystemSettingsPage() {
 
         {/* The working hours meeting free times are suggested in. */}
         <MeetingHoursSettings />
+
+        {/* When meetings are reminded of, and whether by email too. */}
+        <MeetingReminderSettings />
 
         {/* The morning task emails: who got which, and how it went. */}
         <DailyEmailLog />
