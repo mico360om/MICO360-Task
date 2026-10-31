@@ -279,7 +279,7 @@ export function useMicoAiActions(chatId: string | null) {
     async function downloadTable(m: MicoAiMessage, n: number, title: string): Promise<string | null> {
       if (!chatId) return notOpen;
       try {
-        await exporter.exportFile(resources.micoAi.tablePath(chatId, m.id, n, 'xlsx'), `mico-ai-table-${n}.xlsx`, title);
+        await exporter.exportFile(resources.micoAi.tablePath(chatId, m.id, n, 'xlsx'), `mico-ai-table-${n}-${m.id}.xlsx`, title);
         return null;
       } catch (err) {
         return errorText(err);
@@ -290,7 +290,7 @@ export function useMicoAiActions(chatId: string | null) {
     async function downloadReport(m: MicoAiMessage): Promise<string | null> {
       if (!chatId) return notOpen;
       try {
-        await exporter.exportFile(resources.micoAi.reportPath(chatId, m.id), 'mico-ai-answer.pdf', 'MICO AI answer');
+        await exporter.exportFile(resources.micoAi.reportPath(chatId, m.id), `mico-ai-answer-${m.id}.pdf`, 'MICO AI answer');
         return null;
       } catch (err) {
         return errorText(err);

@@ -25,9 +25,10 @@ function columnWidth(table: MicoAiTable, col: number): number {
 /**
  * A table copied by the server from the data (its figures are the data's, never the AI's), as the
  * website's AnswerTable: its title, a box that scrolls sideways when it is wider than the phone,
- * the first 25 rows, and its Excel download once the answer is written.
+ * the first 25 rows, and its Excel download once the answer is written ("Preparing Excel…" while
+ * it is made; `busy`: another download of the answer is on its way).
  */
-export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: () => void }) {
+export function AnswerTable({ table, onExcel, preparing = false, busy = false }: { table: MicoAiTable; onExcel?: () => void; preparing?: boolean; busy?: boolean }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [all, setAll] = useState(false);
@@ -69,7 +70,18 @@ export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: 
         </ScrollView>
       </View>
       <View style={s.footer}>
-        {onExcel ? <Button title="Excel" icon="ui.download" variant="secondary" size="sm" onPress={onExcel} accessibilityLabel={`Download ${table.title} as Excel`} /> : null}
+        {onExcel ? (
+          <Button
+            title={preparing ? 'Preparing Excel…' : 'Excel'}
+            icon="ui.download"
+            variant="secondary"
+            size="sm"
+            onPress={onExcel}
+            disabled={busy}
+            accessibilityLabel={`Download ${table.title} as Excel`}
+            accessibilityHint={preparing ? 'Preparing Excel…' : undefined}
+          />
+        ) : null}
         {table.total !== undefined && table.total > table.rows.length ? <Text style={s.note}>{`Showing ${table.rows.length} of ${table.total}`}</Text> : null}
         {table.rows.length > FIRST_ROWS ? (
           <Pressable onPress={() => setAll((v) => !v)} accessibilityRole="button" hitSlop={8} style={s.more}>

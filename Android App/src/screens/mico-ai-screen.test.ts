@@ -110,3 +110,18 @@ it('a chat deleted elsewhere frees the box: no endless dots, no Try again, the n
   expect(screen).toMatch(/chatId && chatQ\.isError && !gone \?/);
   expect(src('core/mico-ai-queries.ts')).toMatch(/function useAnswerPoll[^]*isGoneError\(q\.error\)[^]*if \(pending\) putMessage\(qc, userId, chatId, goneCopy\(pending\)\)/);
 });
+
+it('a download shows it is being prepared, a second tap does nothing, and each file has its own name (final review A4)', () => {
+  expect(screen).toMatch(/if \(downloadsRef\.current\.has\(m\.id\)\) return;/);
+  expect(screen).toMatch(/downloading=\{downloads\[m\.id\]\}/);
+  expect(view).toMatch(/downloading === 'pdf' \? 'Preparing PDF…' : 'PDF report'/);
+  expect(view).toMatch(/preparing=\{downloading === `table-\$\{i \+ 1\}`\}/);
+  expect(table).toMatch(/preparing \? 'Preparing Excel…' : 'Excel'/);
+  expect(table).toMatch(/disabled=\{busy\}/);
+  const q = src('core/mico-ai-queries.ts');
+  expect(q).toMatch(/`mico-ai-table-\$\{n\}-\$\{m\.id\}\.xlsx`/);
+  expect(q).toMatch(/`mico-ai-answer-\$\{m\.id\}\.pdf`/);
+  // The app's other exports say the same while they are prepared.
+  expect(src('components/task-detail/HeaderCard.tsx')).toContain('Preparing Excel…');
+  expect(src('components/task-detail/HeaderCard.tsx')).toContain('Preparing PDF…');
+});

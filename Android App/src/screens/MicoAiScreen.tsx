@@ -164,6 +164,25 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
     setLoadingEarlier(false);
   };
 
+  // One download of an answer at a time ("Preparing Excel…"): a second tap while it is made does nothing.
+  const [downloads, setDownloads] = useState<Record<string, string>>({});
+  const downloadsRef = useRef(new Set<string>());
+  const download = useCallback((m: MicoAiMessage, what: string, run: () => Promise<string | null>) => {
+    if (downloadsRef.current.has(m.id)) return;
+    downloadsRef.current.add(m.id);
+    setDownloads((d) => ({ ...d, [m.id]: what }));
+    void run()
+      .then((e) => e && setError(e))
+      .finally(() => {
+        downloadsRef.current.delete(m.id);
+        setDownloads((d) => {
+          const next = { ...d };
+          delete next[m.id];
+          return next;
+        });
+      });
+  }, []);
+
   const messageActions = useMemo<MessageActions>(
     () => ({
       ask: (t) => void send(t),
@@ -172,10 +191,10 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
         const question = [...messages.slice(0, Math.max(0, i))].reverse().find((x) => x.role === 'user')?.text ?? '';
         void send(question, { retryOf: m.id });
       },
-      downloadTable: (m, n, title) => void actions.downloadTable(m, n, title).then((e) => e && setError(e)),
-      downloadReport: (m) => void actions.downloadReport(m).then((e) => e && setError(e)),
+      downloadTable: (m, n, title) => download(m, `table-${n}`, () => actions.downloadTable(m, n, title)),
+      downloadReport: (m) => download(m, 'pdf', () => actions.downloadReport(m)),
     }),
-    [send, messages, actions],
+    [send, messages, actions, download],
   );
 
   // Where the conversation scrolls, as the website decides it (lib/mico-ai-chat scrollWant): a wish is
@@ -325,7 +344,7 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
         </View>
         {messages.map((m) => (
           <View key={m.id} onLayout={(e) => onMessageLayout(m.id, e.nativeEvent.layout)}>
-            <MessageView chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} />
+            <MessageView chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} downloading={downloads[m.id]} />
           </View>
         ))}
       </ScrollView>

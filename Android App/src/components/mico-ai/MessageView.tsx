@@ -137,7 +137,22 @@ function Pill({ text, canAsk, onAsk, s }: { text: string; canAsk: boolean; onAsk
  * One message, as on the website: your question in a bubble on the right; MICO AI's answer beside
  * its mark, with its card of proposed changes, tables, sources and buttons.
  */
-export function MessageView({ chatId, message, latest, canAsk, actions }: { chatId: string | null; message: MicoAiMessage; latest: boolean; canAsk: boolean; actions: MessageActions }) {
+export function MessageView({
+  chatId,
+  message,
+  latest,
+  canAsk,
+  actions,
+  downloading,
+}: {
+  chatId: string | null;
+  message: MicoAiMessage;
+  latest: boolean;
+  canAsk: boolean;
+  actions: MessageActions;
+  /** What of this answer is being downloaded ('pdf', 'table-2'), if anything: one at a time. */
+  downloading?: string;
+}) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [copied, setCopied] = useState(false);
@@ -193,13 +208,24 @@ export function MessageView({ chatId, message, latest, canAsk, actions }: { chat
             ))}
           </View>
         ) : null}
-        {a?.tables.map((t, i) => <AnswerTable key={i} table={t} onExcel={done ? () => actions.downloadTable(message, i + 1, t.title) : undefined} />)}
+        {a?.tables.map((t, i) => (
+          <AnswerTable key={i} table={t} onExcel={done ? () => actions.downloadTable(message, i + 1, t.title) : undefined} preparing={downloading === `table-${i + 1}`} busy={!!downloading} />
+        ))}
         {a ? <SourceChips sources={a.sources} s={s} /> : null}
         {message.status !== 'pending' ? (
           <View style={s.actions}>
             {/* The whole answer as one report: its words, every table and its sources (text-only answers too). */}
             {a && done && a.kind === 'answer' && (message.text.trim() || a.tables.length) ? (
-              <Button title="PDF report" icon="ui.download" variant="secondary" size="sm" onPress={() => actions.downloadReport(message)} accessibilityLabel="Download this answer as a PDF report" />
+              <Button
+                title={downloading === 'pdf' ? 'Preparing PDF…' : 'PDF report'}
+                icon="ui.download"
+                variant="secondary"
+                size="sm"
+                onPress={() => actions.downloadReport(message)}
+                disabled={!!downloading}
+                accessibilityLabel="Download this answer as a PDF report"
+                accessibilityHint={downloading === 'pdf' ? 'Preparing PDF…' : undefined}
+              />
             ) : null}
             {a && done ? (
               <Button
