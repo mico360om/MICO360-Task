@@ -382,9 +382,33 @@ describe.skipIf(!hasWeb('frontend/src/components/project-form/ProjectFormDialog.
   it('Tasks switches and the team', () => {
     const w = readWeb('frontend/src/components/project-form/ProjectFormDialog.tsx');
     const { label, ...team } = TEAM_TEXT;
-    for (const t of [PROJECT_TASK_TEXT.legend, ...(['carryForward', 'defaultDueToday', 'newTasksNeedApproval'] as const).flatMap((k) => Object.values(PROJECT_TASK_TEXT[k])), ...Object.values(team)]) expect(w, t).toContain(t);
+    // `failed` is the phone's own (the website's list of people comes with its page).
+    const { failed, ...webTeam } = team;
+    expect(failed).toBe('Couldn’t load the people — you can still create the project, and add people from its Team tab later.');
+    for (const t of [PROJECT_TASK_TEXT.legend, ...(['carryForward', 'defaultDueToday', 'newTasksNeedApproval'] as const).flatMap((k) => Object.values(PROJECT_TASK_TEXT[k])), ...Object.values(webTeam)]) expect(w, t).toContain(t);
     // The website sets "(optional)" apart in a smaller span: "Team <span…>(optional)</span>".
     expect(label).toBe('Team (optional)');
     expect(w).toMatch(/Team <span[^>]*>\(optional\)<\/span>/);
+  });
+});
+
+// Stage 2 fix pass B3: as the website's form, a new project is owned by the person creating it unless
+// they pick someone else — an administrator too; "No owner" only for an administrator or an edit.
+describe('B3: a new project’s owner', () => {
+  it('an employee owns it by default, and sends themself as its owner', () => {
+    const d = { ...draftOf(null, 'u7'), name: 'Rig', code: 'RIG' };
+    expect(d.ownerId).toBe('u7');
+    expect(createBody(d).ownerId).toBe('u7');
+  });
+
+  it('an administrator owns it by default too, and may still leave it without an owner', () => {
+    const d = { ...draftOf(null, 'admin1'), name: 'Rig', code: 'RIG' };
+    expect(d.ownerId).toBe('admin1');
+    expect(createBody({ ...d, ownerId: '' }).ownerId).toBeNull();
+  });
+
+  it('an existing project keeps its own owner, or none', () => {
+    expect(draftOf(project({ ownerId: 'u1' }), 'u7').ownerId).toBe('u1');
+    expect(draftOf(project({ ownerId: null }), 'u7').ownerId).toBe('');
   });
 });

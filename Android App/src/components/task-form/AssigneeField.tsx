@@ -25,6 +25,7 @@ export function AssigneeField({
   addLabel = 'Add people',
   emptyText = 'No one is on this project yet',
   allChosenText = 'Everyone on this project is assigned.',
+  failedText = 'Couldn’t load the project’s people — you can still create the task, and assign people from it later.',
 }: {
   people: readonly PersonOption[];
   value: string[];
@@ -43,6 +44,8 @@ export function AssigneeField({
   emptyText?: string;
   /** In the list once everyone is picked. */
   allChosenText?: string;
+  /** Under it when the people couldn't be loaded (`status` 'failed'). */
+  failedText?: string;
 }) {
   const c = useColors();
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -85,7 +88,7 @@ export function AssigneeField({
         emptyText={allChosenText}
         disabled={disabled || people.length === 0}
       />
-      {status === 'failed' ? <Text style={[styles.note, { color: c.ink2 }]}>Couldn’t load the project’s people — you can still create the task, and assign people from it later.</Text> : null}
+      {status === 'failed' ? <Text style={[styles.note, { color: c.ink2 }]}>{failedText}</Text> : null}
       {note ? <Text style={[styles.note, { color: c.ink2 }]}>{note}</Text> : null}
     </View>
   );

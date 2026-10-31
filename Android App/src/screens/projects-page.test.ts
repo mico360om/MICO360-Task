@@ -68,3 +68,47 @@ it('the status sheet ticks the current status; Archived asks first', () => {
   expect(src('components/projects/ArchiveProjectSheet.tsx')).toMatch(/ARCHIVE_TEXT\.title\(project\.name\)/);
   expect(src('components/projects/ArchiveProjectSheet.tsx')).toMatch(/confirm=\{ARCHIVE_TEXT\.confirm\}/);
 });
+
+// Stage 2 fix pass B1: a failing list was read again in a loop (the focus effect re-ran on every
+// isFetching flip). It is read once per coming into view, only when shown, stale and not loading.
+it('B1: the list is read again once each time the tab comes into view, never in a loop', () => {
+  const s = src('screens/ProjectsScreen.tsx');
+  expect(s).toMatch(/useRefetchOnFocus\(query\);/);
+  expect(s).not.toMatch(/useFocusEffect/);
+});
+
+it('B1: no screen’s focus effect re-runs on isStale or isFetching', async () => {
+  const { appSources } = await import('../testing/web-source');
+  const looping = appSources()
+    .filter(([, text]) => text.includes('useFocusEffect('))
+    .flatMap(([file, text]) => [...text.matchAll(/useFocusEffect\(\s*useCallback\([^]*?\},\s*\[([^\]]*)\]/g)].filter((m) => /\b(isStale|isFetching)\b/.test(m[1]!)).map(() => file));
+  expect(looping).toEqual([]);
+});
+
+// Stage 2 fix pass B6: a list the offline copy answered is out of date at once (as every list's
+// default, lib/query-client), not fresh for a minute — so it is read again when the signal is back.
+it('B6: the overview is fresh for a minute only when the server answered it', () => {
+  expect(src('core/project-queries.ts')).toMatch(/queryKey: PROJECTS_OVERVIEW_KEY,[^]*?staleTime: \(q\) => \(reads\.answeredFromCopy\(q\) \? 0 : 60_000\)/);
+});
+
+// Stage 2 fix pass B7: the list header is scrolled away under a long list — a failed status change
+// also says so where it is seen (Android's toast, which TalkBack reads), and stays in the header.
+it('B7: a status change that didn’t go through also shows a toast', () => {
+  const s = src('screens/ProjectsScreen.tsx');
+  expect(s).toMatch(/import \{ notice \} from '\.\.\/components\/notice';/);
+  expect(s).toMatch(/if \(out\.ok\)[^]*?else \{\s*setProblem\(out\.message\);\s*notice\(out\.message\);\s*\}/);
+});
+
+// Stage 2 fix pass B4: as the website's card (its title link is stretched over the card), a tap
+// anywhere on the card opens the project; the status and ⋯ buttons sit on it and keep their own
+// taps; TalkBack keeps the name as the card's one way in (the body itself is not a stop).
+it('B4: a tap anywhere on the card opens the project', () => {
+  const s = src('components/projects/ProjectCard.tsx');
+  const body = s.search(/<Pressable\s+onPress=\{\(\) => onOpen\(p\)\}\s+accessible=\{false\}/);
+  expect(body).toBeGreaterThan(-1);
+  expect(s.indexOf('accessibilityLabel={p.name}')).toBeGreaterThan(body);
+  expect(s.indexOf('icon="misc.dots"')).toBeGreaterThan(body);
+  expect(s.indexOf('onStatus(p)')).toBeGreaterThan(body);
+  // The ⋯ menu's sheet is not inside the card's tap area.
+  expect(s.indexOf('<Sheet visible={menu}')).toBeGreaterThan(s.lastIndexOf('</Pressable>'));
+});

@@ -95,8 +95,9 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   // After "create" succeeds but its picture doesn't, the form carries on editing the new project.
   const [saved, setSaved] = useState<ApiProject | null>(project);
   const editing = !!saved;
-  const [initial, setInitial] = useState<ProjectDraft>(() => draftOf(project));
-  const [draft, setDraft] = useState<ProjectDraft>(() => draftOf(project));
+  // A new project is owned by the person creating it unless they pick someone else (both roles, as the website).
+  const [initial, setInitial] = useState<ProjectDraft>(() => draftOf(project, user?.id ?? ''));
+  const [draft, setDraft] = useState<ProjectDraft>(() => draftOf(project, user?.id ?? ''));
   const [picture, setPicture] = useState<PictureChoice>({ kind: 'keep' });
   const [codeTouched, setCodeTouched] = useState(editing);
   const [errors, setErrors] = useState<{ name?: string; code?: string }>({});
@@ -134,7 +135,10 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     if (!frozen) setDraft((d) => ({ ...d, ...patch }));
   };
   const clients = useMemo(() => clientSuggestions(projectsQ.data ?? [], draft.clientName), [projectsQ.data, draft.clientName]);
-  const owners = useMemo(() => ownerOptions(dirQ.data ?? [], draft.ownerId), [dirQ.data, draft.ownerId]);
+  // "No owner" for an administrator, or on an edit (an employee's new project always has an owner).
+  const owners = useMemo(() => ownerOptions(dirQ.data ?? [], draft.ownerId, { allowNone: isAdmin || editing }), [dirQ.data, draft.ownerId, isAdmin, editing]);
+  // The team's people still loading, or couldn't be loaded with nothing kept: the field says so (fix pass B8).
+  const teamStatus = dirQ.isLoading ? 'loading' : dirQ.isError && !dirQ.data ? 'failed' : null;
   // A new project's team: everyone active — except an employee themself, who joins as a manager anyway.
   const teamPeople = useMemo(() => teamPool(activePeople(dirQ.data), { id: user?.id ?? '', isAdmin }), [dirQ.data, user?.id, isAdmin]);
   const look = {
@@ -407,6 +411,8 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
             value={draft.memberIds}
             onChange={(ids) => set({ memberIds: ids })}
             note={isAdmin ? TEAM_TEXT.adminNote : TEAM_TEXT.otherNote}
+            status={teamStatus}
+            failedText={TEAM_TEXT.failed}
             disabled={frozen}
           />
         ) : null}
