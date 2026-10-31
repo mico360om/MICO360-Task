@@ -7,6 +7,7 @@ import { InlinePicker } from '../components/meeting/sheet-kit';
 import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { TimelineRow } from '../components/timeline/TimelineRow';
 import { useTimeline } from '../core/planning-queries';
+import { useRefetchOnFocus } from '../core/focus-refetch';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useColors } from '../core/theme';
 import { weekDays, weekStartOf } from '../lib/calendar';
@@ -53,6 +54,8 @@ export function TimelineScreen({ navigation }: AppScreenProps<'Timeline'>) {
   const anchor = state.at ?? thisWeek;
   const range = rangeFor(state.view, anchor);
   const q = useTimeline({ ...range, weekStart });
+  // Back from a task opened here, changed there: the figures are read again (final review P1).
+  useRefetchOnFocus(q);
   const pull = usePullRefresh(q.refetch);
 
   const data = q.data;

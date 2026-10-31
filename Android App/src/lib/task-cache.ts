@@ -3,6 +3,17 @@ import type { ApiTask } from './types';
 import { refresh, type Refresh } from './refresh';
 
 /**
+ * The figures that count tasks on the Stage 3 screens — Timeline and Workload (['planning', …]) and
+ * Management (['management', …]) — after any task change: marked out of date and read again when
+ * next shown (those screens read again as they come back into view: core/focus-refetch), as the
+ * website's TASK_FIGURE_KEYS / invalidateTaskQueries. Who may open Management is another key.
+ */
+export const TASK_FIGURE_VIEWS: Refresh[] = [
+  { queryKey: ['planning'], later: true },
+  { queryKey: ['management'], later: true },
+];
+
+/**
  * What a saved edit changes besides the task itself: its activity (the timeline notes the edit) and
  * the lists that show it. A new due date or column also changes the project's progress figures
  * (overdue and done counts). An edit to a whole series changes the other copies too: every list and
@@ -14,6 +25,7 @@ export function editRefreshes(taskId: string, patch: object): Refresh[] {
   // A new day or repeat may put the task (or its copies to come) on a calendar range that didn't hold it (5a).
   if ('dueDate' in patch || 'recurrenceRule' in patch) targets.push({ queryKey: ['tasks', 'calendar'] });
   if ((patch as { scope?: unknown }).scope === 'series') targets.push({ queryKey: ['tasks'] }, { taskDetails: 'all' });
+  targets.push(...TASK_FIGURE_VIEWS);
   return targets;
 }
 
@@ -35,6 +47,7 @@ export function createdTaskRefreshes(projectId: string): Refresh[] {
     { queryKey: ['tasks', 'mine'] },
     { queryKey: ['project', projectId, 'progress'], exact: true },
     { queryKey: ['tasks', 'calendar'] },
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -49,6 +62,7 @@ export function assignmentRefreshes(taskId: string): Refresh[] {
     { queryKey: ['task', taskId, 'activity'], exact: true },
     { queryKey: ['tasks', 'mine'] },
     { listsHolding: taskId },
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -67,6 +81,7 @@ export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
     { listsHolding: taskId },
     { queryKey: ['project', projectId, 'progress'], exact: true },
     MY_ACTION_ITEMS,
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -112,6 +127,7 @@ export function afterTaskDeleted(qc: QueryClient, taskId: string, scope?: 'serie
   if (scope === 'series') {
     targets.push({ queryKey: projectId ? ['tasks', 'project', projectId] : ['tasks'] }, { queryKey: ['tasks', 'mine'] }, { taskDetails: 'all' });
   }
+  targets.push(...TASK_FIGURE_VIEWS);
   // Its own data goes first, so the deleted task is never asked for again.
   qc.removeQueries({ queryKey: ['task', taskId] });
   refresh(qc, targets);

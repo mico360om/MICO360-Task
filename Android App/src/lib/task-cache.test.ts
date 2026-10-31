@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
+import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, TASK_FIGURE_VIEWS } from './task-cache';
 import { refresh } from './refresh';
 import type { ApiTask } from './types';
 
@@ -111,7 +111,7 @@ describe('afterTaskSaved (an edit refreshes what it changed, not the whole task 
 
 describe('editRefreshes', () => {
   it('names the activity and the lists holding the task', () => {
-    expect(editRefreshes('t1', { title: 'x' })).toEqual([{ queryKey: ['task', 't1', 'activity'], exact: true }, { listsHolding: 't1' }]);
+    expect(editRefreshes('t1', { title: 'x' })).toEqual([{ queryKey: ['task', 't1', 'activity'], exact: true }, { listsHolding: 't1' }, ...TASK_FIGURE_VIEWS]);
   });
 
   it('adds the project progress for a due date or a column change', () => {
@@ -134,7 +134,33 @@ describe('createdTaskRefreshes', () => {
       { queryKey: ['tasks', 'mine'] },
       { queryKey: ['project', 'p1', 'progress'], exact: true },
       { queryKey: ['tasks', 'calendar'] },
+      ...TASK_FIGURE_VIEWS,
     ]);
+  });
+});
+
+// Stage 3 final review P1: a task changed on a screen opened from Timeline, Workload or Management
+// (a day's task, a project's task row) leaves their figures out of date — marked so and read again
+// when they are next shown, as the website's TASK_FIGURE_KEYS / invalidateTaskQueries.
+describe('Timeline, Workload and Management after a task change', () => {
+  it('are named by every task change: an edit, a new task, its people, a move and a delete', () => {
+    expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }]);
+    for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1')]) {
+      for (const v of TASK_FIGURE_VIEWS) expect(list).toContainEqual(v);
+    }
+  });
+
+  it('are marked out of date, not fetched at once; who may open Management is left alone', () => {
+    const qc = seeded();
+    qc.setQueryData(['planning', 'u1', 'timeline', 'a', 'b', 1, '2026-10-31'], { projects: [] });
+    qc.setQueryData(['planning', 'u1', 'workload', '2026-10-25', '', '2026-10-31'], { people: [] });
+    qc.setQueryData(['management', 'u1', 'overview', 'weeks=12'], { tiles: {} });
+    qc.setQueryData(['management-access', 'u1'], { allowed: true });
+    afterTaskDeleted(qc, 't1');
+    const keys = refreshedKeys(qc);
+    for (const k of ['["planning","u1","timeline","a","b",1,"2026-10-31"]', '["planning","u1","workload","2026-10-25","","2026-10-31"]', '["management","u1","overview","weeks=12"]']) expect(keys).toContain(k);
+    expect(keys).not.toContain('["management-access","u1"]');
+    expect(qc.getQueryCache().findAll({ queryKey: ['planning'] }).every((q) => q.state.fetchStatus === 'idle')).toBe(true);
   });
 });
 

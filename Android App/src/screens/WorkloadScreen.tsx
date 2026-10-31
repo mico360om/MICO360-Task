@@ -8,6 +8,7 @@ import { useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { DaySheet } from '../components/workload/DaySheet';
 import { Hatch, PersonCard } from '../components/workload/PersonCard';
 import { useApplySuggestion, useSetDailyLimit, useWorkload } from '../core/planning-queries';
+import { useRefetchOnFocus } from '../core/focus-refetch';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useColors } from '../core/theme';
 import { shiftDayKey, weekDays, weekStartOf } from '../lib/calendar';
@@ -48,6 +49,8 @@ export function WorkloadScreen(_props: AppScreenProps<'Workload'>) {
   const [projectId, setProjectId] = useState('');
   const [q, setQ] = useState('');
   const query = useWorkload(week, projectId);
+  // Back from a task opened here, changed there: the numbers are read again (final review P1).
+  useRefetchOnFocus(query);
   const pull = usePullRefresh(query.refetch);
   const data = query.data;
   const people = useMemo(() => sortPeople(data?.people ?? []), [data]);

@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { useManagementAccess, useManagementOverview } from '../core/management-queries';
+import { useRefetchOnFocus } from '../core/focus-refetch';
 import { Button, Card, ErrorNote, Muted, Skeleton, StatTile } from '../components/ui';
 import { ManagementFilters } from '../components/management/ManagementFilters';
 import { ItemsSheet } from '../components/management/ItemsSheet';
@@ -62,6 +63,8 @@ export function ManagementScreen({ navigation }: AppScreenProps<'Management'>) {
   const access = useManagementAccess();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const q = useManagementOverview(filters);
+  // Back from a task opened here, changed there: the figures are read again — only while allowed (final review P1).
+  useRefetchOnFocus(q, access.allowed);
   const data = q.data;
 
   // Someone who had the page here and lost it is told why, not moved away — the person who had it.
