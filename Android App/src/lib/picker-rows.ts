@@ -19,3 +19,11 @@ export function pickerRows<T extends { label: string; hint?: string }>(options: 
 export function moreRowsText(hidden: number): string | null {
   return hidden > 0 ? `Type to find more (${hidden} not shown).` : null;
 }
+
+/**
+ * What TalkBack calls a picker: "<name>: <what it shows>" — or just what it shows when that already
+ * starts with the name (Management's "Owner: Anyone", the website's words), so it is said once.
+ */
+export function pickerA11yLabel(name: string, shown: string): string {
+  return shown.toLowerCase().startsWith(`${name.toLowerCase()}:`) ? shown : `${name}: ${shown}`;
+}

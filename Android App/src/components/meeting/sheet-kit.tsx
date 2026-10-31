@@ -6,7 +6,7 @@ import { KeyboardAwareScrollView } from '../KeyboardAware';
 import { Button, TextField } from '../ui';
 import { Icon } from '../Icon';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
-import { PICKER_LIMIT, moreRowsText, pickerRows } from '../../lib/picker-rows';
+import { PICKER_LIMIT, moreRowsText, pickerA11yLabel, pickerRows } from '../../lib/picker-rows';
 import { font } from '../../lib/typography';
 
 /**
@@ -268,7 +268,7 @@ export function InlinePicker({
         onPress={() => setOpen((v) => !v)}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel={`${a11yName ?? label}: ${chosen?.label ?? placeholder}`}
+        accessibilityLabel={pickerA11yLabel(a11yName ?? label, chosen?.label ?? placeholder)}
         accessibilityHint={open ? 'Closes the list' : 'Opens the list to choose from'}
         accessibilityState={{ expanded: open, disabled: !!disabled }}
         style={({ pressed }) => [s.pickerRow, pressed && s.pressed, disabled && s.disabled]}
