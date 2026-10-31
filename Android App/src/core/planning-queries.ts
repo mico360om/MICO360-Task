@@ -96,11 +96,16 @@ export function useApplySuggestion(): { apply(task: WorkloadTask, person: Worklo
       } catch (err) {
         return { ok: false, text: applyProblem(err, { key: task.key, suggestion: s, from: person.name }) };
       } finally {
+        // Either way the numbers are read again, so they show what really happened — and "Saving…"
+        // lasts until they are (the website's apply.isPending). A failed re-read changes nothing.
+        refresh(qc, [{ queryKey: ['tasks'] }, { queryKey: ['task', task.id] }]);
+        try {
+          await qc.invalidateQueries({ queryKey: planningRoot(userId) });
+        } catch {
+          // The numbers stay as they were; a pull reads them again.
+        }
         busy.current = false;
         setBusyTaskId(null);
-        // Either way the numbers are read again, so they show what really happened.
-        void qc.invalidateQueries({ queryKey: planningRoot(userId) });
-        refresh(qc, [{ queryKey: ['tasks'] }, { queryKey: ['task', task.id] }]);
       }
     },
     [resources, qc, userId],

@@ -69,6 +69,15 @@ it('a suggestion made on an old copy of the task says what the server said, plai
   expect(s).toMatch(/expectedVersion: task\.version/); expect(s).not.toMatch(/queueOnOffline|enqueue/);
   expect(s).toMatch(/finally[^]*invalidateQueries\(\{ queryKey: planningRoot\(userId\) \}\)/);
 });
+it('“Saving…” lasts until the numbers are read again, as the website’s apply.isPending (final review P2)', () => {
+  const s = src('core/planning-queries.ts');
+  const hook = s.slice(s.indexOf('export function useApplySuggestion'), s.indexOf('export function useSetDailyLimit'));
+  const fin = hook.slice(hook.indexOf('} finally {'));
+  // The re-read is awaited (a failed one changes nothing), and only then is the day free again.
+  expect(fin).toMatch(/try \{\s*await qc\.invalidateQueries\(\{ queryKey: planningRoot\(userId\) \}\);\s*\} catch/);
+  expect(fin.indexOf('await qc.invalidateQueries')).toBeLessThan(fin.indexOf('busy.current = false'));
+  expect(fin.indexOf('await qc.invalidateQueries')).toBeLessThan(fin.indexOf('setBusyTaskId(null)'));
+});
 it('a day lists what the website lists, counted by the server (Review Focus 5)', () => {
   const tasks = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, key: `K-${i}`, title: 't', projectId: 'p', priority: 'NORMAL', version: 1, suggestion: null }) as const);
   expect(popoverTasks({ date: '2026-10-28', count: 8, limit: 5, over: 3, tasks: [...tasks] })).toMatchObject({ more: 5 });
