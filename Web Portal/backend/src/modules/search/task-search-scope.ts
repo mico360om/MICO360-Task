@@ -29,11 +29,12 @@ export type TaskSearchScopeResolver = ReturnType<typeof createTaskSearchScope>;
 
 /**
  * The SQL condition for "a task this person may find", over tasks `t` and projects `p`: a live task
- * in a live project the scope allows — in an archived project only when `includeArchived`.
+ * in a live project the scope allows — in an archived project only when `includeArchived`, or when
+ * `archivedWhen` holds for the task (its exact number was searched for).
  */
-export function visibleTasksSql(scope: TaskSearchScope, { includeArchived = false }: { includeArchived?: boolean } = {}): Prisma.Sql {
+export function visibleTasksSql(scope: TaskSearchScope, { includeArchived = false, archivedWhen }: { includeArchived?: boolean; archivedWhen?: Prisma.Sql } = {}): Prisma.Sql {
   const parts: Prisma.Sql[] = [Prisma.sql`t.deletedAt IS NULL`, Prisma.sql`p.deletedAt IS NULL`];
-  if (!includeArchived) parts.push(Prisma.sql`p.status <> 'ARCHIVED'`);
+  if (!includeArchived) parts.push(archivedWhen ? Prisma.sql`(p.status <> 'ARCHIVED' OR ${archivedWhen})` : Prisma.sql`p.status <> 'ARCHIVED'`);
   if (scope.projectIds) parts.push(scope.projectIds.length ? Prisma.sql`t.projectId IN (${Prisma.join(scope.projectIds)})` : Prisma.sql`FALSE`);
   return Prisma.join(parts, ' AND ');
 }

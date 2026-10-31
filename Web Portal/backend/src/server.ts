@@ -151,6 +151,7 @@ import { createSearchService, createCachedSearchDataSource } from './modules/sea
 import { createPrismaSearchDataSource } from './modules/search/prisma-search-data-source';
 import { createTaskSearchIndex } from './modules/search/task-search-index';
 import { createTaskSearchEngine } from './modules/search/task-search-engine';
+import { startTaskSearchSweeps } from './modules/search/task-search-sweeps';
 import { createPrismaMeetingRepository } from './modules/meetings/prisma-meeting-repository';
 import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
@@ -1688,22 +1689,10 @@ async function main(): Promise<void> {
   recurrenceTimer.unref?.();
 
   // Task search heals what changed without a refresh: every minute the tasks with no entry (made in
-  // bulk, a restored backup) or edited since they were read; at startup and every six hours every
-  // task whose words changed any other way (a removed comment, a renamed tag) — and an index built
-  // with an older version is rebuilt. One instance at a time; a failure waits for the next run.
-  const healTaskSearch = (name: string, heal: () => Promise<number>) =>
-    runExclusive(jobLock, name, SWEEP_LEASE_MS, () => new Date(), async () => {
-      const healed = await heal();
-      if (healed > 0) logger.info('task search: tasks re-indexed', { sweep: name, count: healed });
-    }).catch((err) => {
-      logger.error('task search: the index sweep failed', { err, sweep: name });
-      return false;
-    });
-  void healTaskSearch('search-index-heal-all', taskSearchIndex.healAll);
-  const searchHealTimer = setInterval(() => void healTaskSearch('search-index-heal-recent', taskSearchIndex.healRecent), 60 * 1000);
-  searchHealTimer.unref?.();
-  const searchFullHealTimer = setInterval(() => void healTaskSearch('search-index-heal-all', taskSearchIndex.healAll), 6 * 60 * 60 * 1000);
-  searchFullHealTimer.unref?.();
+  // bulk — a project from a template, a restored backup) or edited since they were read; at startup
+  // and every six hours every task whose words changed any other way (a removed comment, a renamed
+  // tag) — and an index built with an older version is rebuilt (task-search-sweeps).
+  startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

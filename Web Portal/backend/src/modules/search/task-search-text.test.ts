@@ -120,3 +120,24 @@ describe('snippetAround — about 140 characters around the first match', () => 
     expect(ranges).toEqual([]);
   });
 });
+
+describe('snippetAround — never cuts a character in two', () => {
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  it('keeps emoji whole at both cuts', () => {
+    for (const pad of [99, 100, 101]) {
+      const shown = `${'😀'.repeat(pad)} scaffold ${'😀'.repeat(pad)}`;
+      const { snippet, ranges } = snippetAround(shown, findRanges(shown, ['scaffold']));
+      expect(lone.test(snippet), `pad ${pad}`).toBe(false);
+      expect(snippet.slice(ranges[0]!.start, ranges[0]!.end)).toBe('scaffold');
+    }
+  });
+
+  it('keeps a letter with its marks', () => {
+    const shown = `${'مُدِيرٌ '.repeat(30)}scaffold ${'مُدِيرٌ '.repeat(30)}`;
+    for (const width of [139, 140, 141, 142]) {
+      const { snippet } = snippetAround(shown, findRanges(shown, ['scaffold']), width);
+      expect(/^…\p{M}/u.test(snippet), `width ${width}`).toBe(false);
+    }
+  });
+});

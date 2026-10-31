@@ -98,8 +98,15 @@ export function createTaskSearchIndex({ prisma, logger, now = () => new Date() }
 
   async function write(rows: Prisma.Sql[]): Promise<void> {
     if (rows.length === 0) return;
+    // The newer read wins: a sweep that read a task before a quicker refresh wrote it never puts the
+    // older text back. (Columns are assigned left to right: indexedAt, which the others compare, last.)
     await prisma.$executeRaw`INSERT INTO task_search_index (taskId, head, doc, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
-      ON DUPLICATE KEY UPDATE head = VALUES(head), doc = VALUES(doc), stamp = VALUES(stamp), version = VALUES(version), indexedAt = VALUES(indexedAt)`;
+      ON DUPLICATE KEY UPDATE
+        head = IF(VALUES(indexedAt) >= indexedAt, VALUES(head), head),
+        doc = IF(VALUES(indexedAt) >= indexedAt, VALUES(doc), doc),
+        stamp = IF(VALUES(indexedAt) >= indexedAt, VALUES(stamp), stamp),
+        version = IF(VALUES(indexedAt) >= indexedAt, VALUES(version), version),
+        indexedAt = GREATEST(indexedAt, VALUES(indexedAt))`;
   }
 
   /** Re-index these tasks from what they hold now (a deleted or missing one leaves the index). Returns how many were written. */

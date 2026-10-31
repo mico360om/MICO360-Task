@@ -44,8 +44,8 @@ describe('parseTaskQuery — what a task search looks for', () => {
 });
 
 describe('escapeLike', () => {
-  it('escapes the LIKE wildcards and the escape character itself', () => {
-    expect(escapeLike('50%_a\\b')).toBe('50\\%\\_a\\\\b');
+  it('escapes the LIKE wildcards and the escape character itself with "!" (no backslash, whatever the SQL mode)', () => {
+    expect(escapeLike('50%_a!b\\c')).toBe('50!%!_a!!b\\c'); // a backslash is a plain letter
     expect(escapeLike('plain')).toBe('plain');
   });
 });

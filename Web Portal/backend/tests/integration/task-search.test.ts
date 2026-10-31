@@ -138,6 +138,13 @@ describe('Task search on MySQL (integration)', () => {
     expect(hit?.project.archived).toBe(true);
   });
 
+  it('a task’s exact number finds it even in an archived project ("open SRCARC-12")', async () => {
+    const key = (await prisma.task.findUnique({ where: { id: t.archived! } }))!.key;
+    expect((await run(key)).hits.map((h) => h.title)).toEqual(['Scaffold in an archived project']);
+    expect((await run(key.toLowerCase(), { scope: { projectIds: [p.a] } })).hits).toEqual([]); // still only where you may look
+    expect((await run(`${key} scaffold`)).hits).toEqual([]); // more than the number: archived stays out
+  });
+
   it('matches part of a word, in any case', async () => {
     expect((await run('SCAFF')).hits.length).toBeGreaterThanOrEqual(4);
     expect((await run('affol')).hits.map((h) => h.title)).toContain('Weekly walk');

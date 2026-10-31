@@ -69,7 +69,10 @@ function findClose(text: string, from: number, close: string): number {
   return -1;
 }
 
-/** A value for `LIKE '%…%'`: the wildcards and the escape character matched as themselves. */
+/** The escape character of the search's LIKE patterns (`ESCAPE '!'`): not a backslash, so no SQL mode changes it. */
+export const LIKE_ESCAPE = '!';
+
+/** A value for `LIKE … ESCAPE '!'`: the wildcards and the escape character matched as themselves. */
 export function escapeLike(text: string): string {
-  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
+  return text.replace(/[!%_]/g, (c) => `${LIKE_ESCAPE}${c}`);
 }

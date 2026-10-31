@@ -96,6 +96,18 @@ describe('Task search index on MySQL (integration)', () => {
     expect((await row())!.head).toContain('second change');
   });
 
+  it('an older read never overwrites a newer one (a slow sweep after a quick refresh)', async () => {
+    await prisma.task.update({ where: { id: taskId }, data: { title: 'first title' } });
+    await index.refresh([taskId]);
+    // A sweep that read the task a minute ago writes after the refresh above: it loses.
+    const slow = createTaskSearchIndex({ prisma, now: () => new Date(Date.now() - 60_000) });
+    await prisma.task.update({ where: { id: taskId }, data: { title: 'second title' } });
+    await slow.refresh([taskId]);
+    expect((await row())!.head).toContain('first title');
+    await index.refresh([taskId]);
+    expect((await row())!.head).toContain('second title');
+  });
+
   it('a deleted task leaves the index', async () => {
     await index.refresh([taskId]);
     await prisma.task.update({ where: { id: taskId }, data: { deletedAt: new Date() } });

@@ -86,7 +86,11 @@ export function createTaskSearchEngine({
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
     if (terms.length === 0 || (input.scope.projectIds && input.scope.projectIds.length === 0)) return { hits: [], nextOffset: null, ...(input.withTotal ? { total: 0, totalCapped: false } : {}) };
 
-    const where: Prisma.Sql[] = [visibleTasksSql(input.scope, { includeArchived: input.includeArchived }), ...terms.map((term) => Prisma.sql`si.doc LIKE ${like(term)}`)];
+    // A task's exact number finds it, in an archived project too ("open RIG-4"); otherwise archived
+    // projects' tasks are found only when asked for.
+    const exactKey = whole && !/\s/.test(whole) ? Prisma.sql`si.head LIKE ${Buffer.from(`%\n${escapeLike(whole)}\n%`, 'utf8')} ESCAPE '!'` : null;
+    const visible = visibleTasksSql(input.scope, { includeArchived: input.includeArchived, ...(exactKey ? { archivedWhen: exactKey } : {}) });
+    const where: Prisma.Sql[] = [visible, ...terms.map((term) => Prisma.sql`si.doc LIKE ${like(term)} ESCAPE '!'`)];
     if (input.projectId) where.push(Prisma.sql`t.projectId = ${input.projectId}`);
     if (input.statuses?.length) where.push(Prisma.sql`c.category IN (${Prisma.join(input.statuses)})`);
     if (input.assigneeId) where.push(Prisma.sql`EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id AND a.userId = ${input.assigneeId})`);
@@ -97,12 +101,11 @@ export function createTaskSearchEngine({
       JOIN projects p ON p.id = t.projectId
       JOIN kanban_columns c ON c.id = t.columnId
       WHERE ${Prisma.join(where, ' AND ')}`;
-    const exactKey = whole && !/\s/.test(whole) ? Prisma.sql`si.head LIKE ${Buffer.from(`%\n${escapeLike(whole)}\n%`, 'utf8')}` : Prisma.sql`FALSE`;
-    const inHead = Prisma.join(terms.map((term) => Prisma.sql`si.head LIKE ${like(term)}`), ' AND ');
+    const inHead = Prisma.join(terms.map((term) => Prisma.sql`si.head LIKE ${like(term)} ESCAPE '!'`), ' AND ');
 
     const [rows, counted] = await Promise.all([
       prisma.$queryRaw<{ id: string }[]>`SELECT t.id AS id ${from}
-        ORDER BY (${exactKey}) DESC, (t.completedAt IS NOT NULL OR c.category = 'DONE') ASC, (${inHead}) DESC, t.updatedAt DESC, t.id DESC
+        ORDER BY (${exactKey ?? Prisma.sql`FALSE`}) DESC, (t.completedAt IS NOT NULL OR c.category = 'DONE') ASC, (${inHead}) DESC, t.updatedAt DESC, t.id DESC
         LIMIT ${limit + 1} OFFSET ${offset}`,
       input.withTotal ? prisma.$queryRaw<{ n: bigint | number }[]>`SELECT COUNT(*) AS n FROM (SELECT 1 AS one ${from} LIMIT ${TOTAL_CAP + 1}) x` : Promise.resolve(null),
     ]);

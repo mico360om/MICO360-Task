@@ -130,6 +130,12 @@ export function hasAllTerms(text: string | null | undefined, terms: string[]): b
   return terms.every((t) => n.includes(t));
 }
 
+const isLowSurrogate = (s: string, i: number) => {
+  const c = s.charCodeAt(i);
+  return c >= 0xdc00 && c <= 0xdfff;
+};
+const isMark = (s: string, i: number) => /\p{M}/u.test(s[i] ?? '');
+
 /** How close to a word's end a cut may move to avoid splitting it. */
 const WORD_SLACK = 16;
 
@@ -154,6 +160,9 @@ export function snippetAround(shown: string, ranges: TextRange[], width = 140): 
     const space = shown.lastIndexOf(' ', end);
     if (space > start && end - space < WORD_SLACK && (!first || space >= first.end)) end = space;
   }
+  // Never cut a character in two: not inside an emoji's pair of halves, not between a letter and its marks.
+  while (start > 0 && start < end && (isLowSurrogate(shown, start) || isMark(shown, start))) start += 1;
+  while (end < shown.length && end > start && (isLowSurrogate(shown, end) || isMark(shown, end))) end -= 1;
   const lead = start > 0 ? '…' : '';
   const snippet = `${lead}${shown.slice(start, end).trim()}${end < shown.length ? '…' : ''}`;
   const trimmedLead = shown.slice(start, end).length - shown.slice(start, end).trimStart().length;
