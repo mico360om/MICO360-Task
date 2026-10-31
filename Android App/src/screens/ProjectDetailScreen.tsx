@@ -14,6 +14,7 @@ import { ProgressBar, StatTiles, Tabs, EmptyNote } from '../components/project/p
 import { OverviewTab } from '../components/project/OverviewTab';
 import { MeetingsTab } from '../components/project/MeetingsTab';
 import { TeamTab } from '../components/project/TeamTab';
+import { InspectionsTab } from '../components/project/InspectionsTab';
 import { TaskGroupHeading, TasksTabBar, TasksTabRow, tasksTabItems, type TasksTabItem } from '../components/project/TasksTab';
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
@@ -37,7 +38,7 @@ import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
 
-type Tab = 'overview' | 'tasks' | 'meetings' | 'team';
+type Tab = 'overview' | 'tasks' | 'meetings' | 'inspections' | 'team';
 
 /**
  * A project's dashboard (5b), as the website's: its picture, name, status and owner; the stat
@@ -66,7 +67,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
     navigation.navigate('Tabs', { screen: 'Projects' });
   });
 
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>(route.params.tab ?? 'overview');
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [query, setQuery] = useState('');
   // The project's channel: at once when the inbox knows it (offline too), read as it opens (3a).
@@ -182,6 +183,7 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           { value: 'overview', label: 'Overview' },
           { value: 'tasks', label: 'Tasks', count: stats.total },
           { value: 'meetings', label: 'Meetings', count: meetingsQ.data?.stats.upcoming ?? 0 },
+          { value: 'inspections', label: 'Inspections' },
           { value: 'team', label: 'Team', count: members.length },
         ]}
       />
@@ -240,6 +242,10 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
           onOpen={openMeeting}
           onSchedule={canSchedule ? () => navigation.navigate('MeetingForm', { projectId }) : undefined}
         />
+      ) : null}
+
+      {tab === 'inspections' ? (
+        <InspectionsTab projectId={projectId} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} onOpenTask={(taskId) => navigation.navigate('TaskDetail', { taskId })} />
       ) : null}
 
       {tab === 'team' ? (

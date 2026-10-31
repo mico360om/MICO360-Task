@@ -26,7 +26,8 @@ export type AppStackParamList = {
   AllBoard: undefined;
   /** Manage columns (4b): for an administrator or a manager of the project. */
   BoardColumns: { projectId: string; projectName?: string };
-  ProjectDetail: { projectId: string; projectName?: string };
+  /** `tab`: open on that tab (an inspection that was deleted goes back to the Inspections tab — Stage 4). */
+  ProjectDetail: { projectId: string; projectName?: string; tab?: 'inspections' };
   TaskDetail: { taskId: string; title?: string };
   /**
    * New task (4a): in a fixed project (a board, a project; with the board’s column and day), or

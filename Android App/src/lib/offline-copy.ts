@@ -68,6 +68,17 @@ const PROGRESS = /^progress\.[^.]+$/;
 /** The Projects list's card figures (one small copy, from one task list). */
 export const PROJECT_FIGURES_COPY = 'projects.figures';
 
+// ── Inspections (Stage 4) ────────────────────────────────────────────────────
+/** A project's inspections, its due checks and a task's inspections kept offline (the most recently opened). */
+export const INSPECTION_COPIES_KEPT = 50;
+/** A project's inspections list (the Inspections tab). */
+export const inspectionListCopyKey = (projectId: string): string => `inspections.list.${projectId}`;
+/** A project's open checks: the kept due-checks list, so the tab opens with no signal (decision 5). */
+export const dueChecksCopyKey = (projectId: string): string => `inspections.checks.${projectId}`;
+/** The inspections of a task (its Inspections card). */
+export const taskInspectionsCopyKey = (taskId: string): string => `inspections.task.${taskId}`;
+const INSPECTION_COPY = /^inspections\.(list|checks|task)\.[^.]+$/;
+
 /** The copies that pile up, each capped on its own: board days, chat threads, channel members, boards' progress. */
 export function offlineCopyCaps(): RollingGroup[] {
   return [
@@ -75,5 +86,6 @@ export function offlineCopyCaps(): RollingGroup[] {
     { name: 'chat', matches: (key) => CHAT_THREAD.test(key), keep: CHAT_THREADS_KEPT },
     { name: 'chat-members', matches: (key) => CHAT_MEMBERS.test(key), keep: CHAT_THREADS_KEPT },
     { name: 'progress', matches: (key) => PROGRESS.test(key), keep: PROGRESS_KEPT },
+    { name: 'inspections', matches: (key) => INSPECTION_COPY.test(key), keep: INSPECTION_COPIES_KEPT },
   ];
 }

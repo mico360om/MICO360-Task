@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BOARD_DAYS_KEPT, allTasksCopyKey, isBoardDayCopy, projectTasksCopyKey, withoutOldDone } from './offline-copy';
+import { BOARD_DAYS_KEPT, INSPECTION_COPIES_KEPT, allTasksCopyKey, dueChecksCopyKey, inspectionListCopyKey, isBoardDayCopy, offlineCopyCaps, projectTasksCopyKey, taskInspectionsCopyKey, withoutOldDone } from './offline-copy';
 import type { ApiTask } from './types';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
@@ -91,5 +91,19 @@ describe('the All projects board kept offline (4c)', () => {
   it('is kept per board day, among the board days (and capped with them)', () => {
     expect(allTasksCopyKey('2026-10-21')).toBe('tasks.all.2026-10-21');
     expect(isBoardDayCopy(allTasksCopyKey('2026-10-21'))).toBe(true);
+  });
+});
+
+describe('inspections kept offline (Stage 4)', () => {
+  it('keeps the project’s inspections and due checks for offline, capped, and not past a sign-out', () => {
+    expect(dueChecksCopyKey('pr1')).toBe('inspections.checks.pr1');
+    expect(inspectionListCopyKey('pr1')).toBe('inspections.list.pr1');
+    expect(taskInspectionsCopyKey('t1')).toBe('inspections.task.t1');
+    const g = offlineCopyCaps().find((x) => x.name === 'inspections')!;
+    expect(g.keep).toBe(INSPECTION_COPIES_KEPT);
+    expect(INSPECTION_COPIES_KEPT).toBe(50);
+    expect(['inspections.list.pr1', 'inspections.checks.pr1', 'inspections.task.t1'].every((k) => g.matches(k))).toBe(true);
+    expect(g.matches('inspections.schedules.pr1')).toBe(false);
+    expect(g.matches('inspections.list.pr1.x')).toBe(false);
   });
 });

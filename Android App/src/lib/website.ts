@@ -15,9 +15,16 @@ import { isAllowedUrl, sitePageUrl } from './server-address';
 /** Every website page the app opens in the browser: Search and the menu offer these, and nothing else. */
 export const WEBSITE_LINK_PATHS = ['/admin/ai', '/admin/settings', '/admin/audit', '/timeline', '/workload', '/management', '/templates', '/mico-ai'] as const;
 
-/** The full address of one of those pages on this server's website, or null for anything else. */
+/**
+ * Tabs of those pages that a screen links to (Stage 4): the inspection forms ("Manage forms",
+ * "Make an inspection form") and the task templates. A separate list, so Search and the menu still
+ * offer only WEBSITE_LINK_PATHS.
+ */
+export const WEBSITE_TAB_LINKS = ['/templates?tab=inspections', '/templates?tab=tasks'] as const;
+
+/** The full address of one of those pages (or tabs) on this server's website, or null for anything else. */
 export function websitePageUrl(apiBase: string, path: string): string | null {
-  if (!(WEBSITE_LINK_PATHS as readonly string[]).includes(path)) return null;
+  if (!(WEBSITE_LINK_PATHS as readonly string[]).includes(path) && !(WEBSITE_TAB_LINKS as readonly string[]).includes(path)) return null;
   let base: URL;
   try {
     base = new URL(apiBase);

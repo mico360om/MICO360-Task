@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { WEBSITE_LINK_PATHS, websiteLinkLabel, websiteOpenFailed, websitePageUrl } from './website';
+import { WEBSITE_LINK_PATHS, WEBSITE_TAB_LINKS, websiteLinkLabel, websiteOpenFailed, websitePageUrl } from './website';
 
 it('the website pages Search and the menu offer open on the connected server', () => {
   expect([...WEBSITE_LINK_PATHS]).toEqual(['/admin/ai', '/admin/settings', '/admin/audit', '/timeline', '/workload', '/management', '/templates', '/mico-ai']);
@@ -38,4 +38,10 @@ describe('Open on the website (6b): the admin pages the app doesn’t have', () 
       message: 'Open this address in your browser:\nhttps://task.mico360.com/admin/ai',
     });
   });
+});
+
+it('the forms and task templates tabs open on the website (Stage 4)', () => {
+  for (const p of WEBSITE_TAB_LINKS) expect(websitePageUrl('https://task.mico360.com/api/v1', p)).toBe(`https://task.mico360.com${p}`);
+  expect(websitePageUrl('https://task.mico360.com/api/v1', '/templates?tab=x')).toBeNull();
+  expect(WEBSITE_LINK_PATHS as readonly string[]).not.toContain('/templates?tab=inspections');
 });
