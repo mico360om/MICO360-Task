@@ -338,4 +338,6 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // Full task search (merged from feat/android-1-19): its permissions are built in
   // search/task-search-scope.ts, where the picked companies go (MC1 Task 13).
   'GET /search/tasks': 'list',
+  // Lane P (MC1 Task 9): people for pickers inside projects.
+  'GET /people/candidates': 'people',
 };

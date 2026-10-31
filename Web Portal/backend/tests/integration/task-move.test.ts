@@ -9,6 +9,7 @@ import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recur
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -77,6 +78,7 @@ beforeEach(async () => {
       { projectId: rig.id, userId: outsiderId },
     ],
   });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 });
 
 const newTask = (title: string, extra: Partial<Parameters<typeof taskService.createTask>[0]> = {}) =>

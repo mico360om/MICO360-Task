@@ -120,6 +120,11 @@ export interface TaskMoveRepository {
   listColumns(projectId: string): Promise<MoveColumn[]>;
   /** Of `userIds`, those on the project's team: its owner, manager, creator and members — and admins. */
   teamIds(projectId: string, userIds: string[]): Promise<string[]>;
+  /**
+   * companies: of `userIds`, those who may join the project's team — admins, and people in one of its
+   * active companies. Absent: everyone may (one company).
+   */
+  joinableIds?(projectId: string, userIds: string[]): Promise<string[]>;
   /** The number the project's next key gets: the highest it has used (old keys included) + 1. */
   nextKeyNumber(projectId: string): Promise<number>;
   /**

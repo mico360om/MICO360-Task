@@ -4,6 +4,7 @@ import { TaskKeyConflictError } from './task-repository';
 import { TaskChangedConflictError, TaskMovedConflictError, type TaskMoveRepository } from './task-move-repository';
 import { moveHistory } from './task-move-history';
 import { managedProjectsWhere } from '../projects/project-managers';
+import { sharesProjectCompanyWhere } from '../companies/company-access';
 
 const projectSelect = { id: true, code: true, name: true, status: true, defaultDueToday: true, color: true, icon: true, imageUrl: true } as const;
 const displayName = (u: { username: string; firstName: string | null; lastName: string | null }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
@@ -72,6 +73,16 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
       return prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, name: true, category: true, position: true, enabled: true }, orderBy: { position: 'asc' } });
     },
 
+    async joinableIds(projectId, userIds) {
+      // companies: admins, and people in one of the project's active companies, may join its team.
+      if (userIds.length === 0) return [];
+      const rows = await prisma.user.findMany({
+        where: { id: { in: userIds }, OR: [{ roles: { some: { role: { name: 'ADMIN' } } } }, sharesProjectCompanyWhere(projectId)] },
+        select: { id: true },
+      });
+      const may = new Set(rows.map((r) => r.id));
+      return userIds.filter((id) => may.has(id));
+    },
     async teamIds(projectId, userIds) {
       if (userIds.length === 0) return [];
       const [project, admins] = await Promise.all([

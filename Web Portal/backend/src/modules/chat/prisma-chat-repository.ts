@@ -238,5 +238,19 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
       }
       return team;
     },
+    async colleagues(userId, otherId) {
+      // companies: administrators are everyone's colleagues; anyone else shares an active company.
+      if ((await prisma.userRole.count({ where: { userId: { in: [userId, otherId] }, role: { name: 'ADMIN' } } })) > 0) return true;
+      const shared = await prisma.company.count({
+        where: { status: 'ACTIVE', AND: [{ members: { some: { userId } } }, { members: { some: { userId: otherId } } }] },
+      });
+      return shared > 0;
+    },
+    async people(userIds) {
+      const ids = [...new Set(userIds)];
+      if (ids.length === 0) return [];
+      // Whatever their status: a name shows wherever someone wrote something the reader can see.
+      return prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } });
+    },
   };
 }

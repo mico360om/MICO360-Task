@@ -179,10 +179,10 @@ describe('What a move will change (preview)', () => {
         milestoneCleared: true,
         dueDate: null,
         repeat: null,
-        outsiders: [SARA],
+        outsiders: [{ ...SARA, canJoin: true }],
       },
     ]);
-    expect(p.outsiders).toEqual([SARA]);
+    expect(p.outsiders).toEqual([{ ...SARA, canJoin: true }]);
     // A preview changes nothing.
     expect(w.find('RIG-4')).toMatchObject({ key: 'RIG-4', projectId: 'rig' });
   });
@@ -216,7 +216,7 @@ describe('What a move will change (preview)', () => {
       ['', false, null, 'Task not found.'],
       ['RIG-8', true, 'OPS-19', null],
     ]);
-    expect(p.outsiders).toEqual([SARA, ZAID]);
+    expect(p.outsiders).toEqual([{ ...SARA, canJoin: true }, { ...ZAID, canJoin: true }]);
   });
 
   it('a project that isn’t open, isn’t found or isn’t theirs to move into is refused for every task', async () => {
@@ -479,5 +479,30 @@ describe('Numbering, history and changes made meanwhile — as the database does
     const service = createTaskMoveService({ repo: changing, timeZone: TZ, now: () => NOW });
     expect(await refusal(service.moveTask(aisha, 't1', { projectId: 'ops' }))).toMatchObject({ status: 409, code: 'VERSION_CONFLICT', message: 'This task changed while you were moving it. Reload it and try again.' });
     expect(w.find('RIG-1')).toMatchObject({ key: 'RIG-1', projectId: 'rig', columnId: 'r-done' });
+  });
+});
+
+describe('Moving a task: the new team stays inside its project’s companies', () => {
+  it('the preview says who can’t join the new team; adding them is refused, unassigning them works', async () => {
+    const w = world();
+    w.state.joinable = new Map([['ops', new Set(['omar', 'zaid'])]]); // Sara isn't in any of Operations' companies
+    const p = await w.service.preview(aisha, ['t8'], 'ops');
+    expect(p.outsiders).toEqual([{ ...SARA, canJoin: false }, { ...ZAID, canJoin: true }]);
+    expect(p.tasks[0]!.outsiders).toEqual([{ ...SARA, canJoin: false }, { ...ZAID, canJoin: true }]);
+    expect(p.tasks[0]!.canMove).toBe(true); // "Unassign them" is still a way
+    expect(await refusal(w.service.moveTask(aisha, 't8', { projectId: 'ops', assignees: 'ADD_TO_TEAM' }))).toMatchObject({
+      status: 409,
+      code: 'CANT_JOIN_TEAM',
+      message: 'Sara Al Balushi can’t join the Operations team: they aren’t in any of its companies. Unassign them instead.',
+      details: { people: [SARA] },
+    });
+    expect(w.find('RIG-8')).toMatchObject({ projectId: 'rig' }); // nothing moved
+    const moved = await w.service.moveTask(aisha, 't8', { projectId: 'ops', assignees: 'UNASSIGN' });
+    expect(moved.unassigned).toEqual([SARA, ZAID]);
+  });
+
+  it('without the companies rule everyone can join, as before', async () => {
+    const w = world();
+    expect((await w.service.preview(aisha, ['t8'], 'ops')).outsiders).toEqual([{ ...SARA, canJoin: true }, { ...ZAID, canJoin: true }]);
   });
 });

@@ -20,6 +20,8 @@ export interface MemoryMoveState {
   /** userId → project ids they manage. */
   managers: Map<string, Set<string>>;
   admins: Set<string>;
+  /** companies: projectId → who may join its team (in one of its companies). Unset: everyone may. */
+  joinable?: Map<string, Set<string>>;
   /** Activity lines written by moves. */
   activity: { taskId: string | null; projectId: string; userId: string; action: string; meta: Record<string, unknown> }[];
 }
@@ -78,6 +80,10 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
     async teamIds(projectId, userIds) {
       const team = state.teams.get(projectId) ?? new Set();
       return userIds.filter((id) => team.has(id) || state.admins.has(id));
+    },
+    async joinableIds(projectId, userIds) {
+      const may = state.joinable?.get(projectId);
+      return may ? userIds.filter((id) => may.has(id) || state.admins.has(id)) : userIds;
     },
     async nextKeyNumber(projectId) {
       return nextKeyNumber(projectId);

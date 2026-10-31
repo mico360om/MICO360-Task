@@ -104,6 +104,8 @@ import { registerManagementRoutes, type ManagementRouteDeps } from './modules/ma
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import type { CompanyAccess } from './modules/companies/company-access';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
+import { registerPeopleRoutes } from './modules/companies/people-routes';
+import type { PersonOptions } from './modules/companies/person-options';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -290,6 +292,8 @@ export interface AppDeps extends AuthRouteDeps {
    * project and people query is built from), and the company a request picked (X-Company-Id).
    */
   companyAccess?: CompanyAccess;
+  /** companies: people as pickers show them (team candidates, meeting invitations) — names and pictures only. */
+  personOptions?: PersonOptions;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -691,6 +695,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           exportData: deps.dataExporter,
           timeZone: deps.appConfig?.timeZone,
           welcome: deps.welcomeService,
+          // companies: the directory lists the people the caller knows (MC1 Task 9).
+          knownPeople: deps.companyAccess ? (viewer) => deps.companyAccess!.knownPeople(viewer) : undefined,
         });
       }
       if (deps.notificationService) {
@@ -802,6 +808,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.backups) {
         await registerBackupRoutes(api, { ...deps.backups, guard, audit: deps.auditService });
+      }
+      // companies: people for pickers inside projects — GET /people/candidates (MC1 Task 9).
+      if (deps.companyAccess && deps.personOptions) {
+        await registerPeopleRoutes(api, { guard, companyAccess: deps.companyAccess, personOptions: deps.personOptions });
       }
     },
     { prefix: '/api/v1' },

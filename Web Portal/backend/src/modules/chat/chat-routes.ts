@@ -67,11 +67,12 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
   app.get('/projects/:id/chat', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
     const conversation = await chat.getOrCreateProjectConversation(id, req.user!.id);
-    const { messages } = await chat.listMessages(conversation.id, req.user!.id, {});
-    return { data: { conversation, messages } };
+    const { messages, authors } = await chat.listMessages(conversation.id, req.user!.id, {});
+    return { data: { conversation, messages, authors } };
   });
 
-  // Get-or-create a 1:1 direct conversation with another user.
+  // Get-or-create a 1:1 direct conversation with another user (companies: a new one only with a
+  // colleague; an existing one comes back, with `readOnly` when they no longer share a company).
   app.post('/conversations/direct', { preHandler: guard.authenticate }, async (req, reply) => {
     const { userId } = directSchema.parse(req.body);
     const conversation = await chat.getOrCreateDirectConversation(req.user!.id, userId);
@@ -82,8 +83,9 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
   app.get('/conversations/:id/messages', { preHandler: guard.authenticate }, async (req) => {
     const { id } = req.params as { id: string };
     const { before, limit } = historyQuery.parse(req.query);
-    const { messages } = await chat.listMessages(id, req.user!.id, { before, limit });
-    return { data: messages };
+    const { messages, authors } = await chat.listMessages(id, req.user!.id, { before, limit });
+    // companies: `authors` names everyone on the page, also people the reader doesn't otherwise know.
+    return { data: messages, authors };
   });
 
   // Send. A retry with the same clientId gets the first message back (200) — never a duplicate.

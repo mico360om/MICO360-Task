@@ -32,6 +32,7 @@ import { createPrismaTemplateRepository } from './modules/templates/prisma-templ
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess } from './modules/companies/company-access';
+import { createPrismaPersonOptions, keepKnownPeople } from './modules/companies/person-options';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -243,6 +244,8 @@ async function main(): Promise<void> {
     projects: createPrismaProjectExistsLookup(prisma),
     people: peopleLookup,
     onMemberRemoved: (projectId, userId) => onMemberRemoved(projectId, userId),
+    // companies: the Team tab marks who can no longer see the project (hasAccess: false).
+    whoCanSee: (projectId, userIds) => companyAccess.whoCanSeeProject(projectId, userIds),
   });
 
   const projectAuthz = createProjectAuthz({ managers: createPrismaProjectManagerLookup(prisma) });
@@ -941,14 +944,17 @@ async function main(): Promise<void> {
     repo: aiConfigRepository,
     // "Describe it in plain English" may suggest one of the projects the person can see.
     listProjectsFor: (user) => projectService.listVisibleProjects(user),
-    // Describing a meeting may invite active users (only their names and usernames reach the AI).
-    listPeople: () =>
-      prisma.user.findMany({
+    // Describing a meeting may invite active users (only their names and usernames reach the AI) —
+    // companies: only the people the requester knows (MC1 Task 9).
+    listPeople: async (requester) => {
+      const people = await prisma.user.findMany({
         where: { deletedAt: null, status: 'ACTIVE' },
         select: { id: true, firstName: true, lastName: true, username: true },
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
         take: 1000,
-      }),
+      });
+      return requester ? keepKnownPeople(companyAccess, { id: requester.userId, roles: requester.roles ?? [] }, people) : people;
+    },
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
@@ -1492,6 +1498,8 @@ async function main(): Promise<void> {
     workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
     companyAccess,
+    // companies: people for pickers inside projects (team candidates, meeting invitations).
+    personOptions: createPrismaPersonOptions(prisma),
     columnService,
     memberService,
     projectAuthz,

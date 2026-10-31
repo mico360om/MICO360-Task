@@ -140,6 +140,15 @@ export interface ChatAttachmentRepository {
   deleteByMessage(messageId: string): Promise<void>;
 }
 
+/** A person as a page of messages names them. */
+export interface ChatPerson {
+  id: string;
+  firstName: string;
+  lastName: string;
+  username: string;
+  avatarUrl: string | null;
+}
+
 /**
  * Facts about project visibility and users the chat service needs but doesn't own. A project's
  * channel follows project visibility: its owner, manager, creator and members — and any admin.
@@ -159,4 +168,11 @@ export interface ChatMemberLookup {
    * open without being on its team (an administrator) is absent and never counts as unread.
    */
   teamSince?(userId: string): Promise<Map<string, Date>>;
+  /**
+   * companies: do these two share an active company (always true when either is an administrator)?
+   * A new direct chat needs it, and a direct chat without it is read-only. Absent: always true.
+   */
+  colleagues?(userId: string, otherId: string): Promise<boolean>;
+  /** companies: names and pictures of these people (whatever their status), so every author on a page of messages has a name. */
+  people?(userIds: string[]): Promise<ChatPerson[]>;
 }

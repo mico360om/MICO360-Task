@@ -73,6 +73,11 @@ export interface UserRouteDeps {
   timeZone?: string;
   /** Welcome emails ("Set your password" links); when absent, they aren't offered. */
   welcome?: WelcomeService;
+  /**
+   * companies: the people a person knows (colleagues sharing a company, teammates, chat partners);
+   * 'everyone' for admins. When absent (one company, no companies module) everyone is a colleague.
+   */
+  knownPeople?: (viewer: { id: string; roles: string[] }) => Promise<Map<string, { colleague: boolean }> | 'everyone'>;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -100,11 +105,23 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   // A minimal, non-sensitive people directory (id + display name) for any signed-in user —
   // powers chat author names, @mention autocomplete and the DM people picker.
-  app.get('/users/directory', { preHandler: guard.authenticate }, async () => {
-    const users = await userService.listUsers();
+  // companies: only the people the caller knows — colleagues (`colleague: true`, who share a company
+  // with them), teammates on projects they see and chat partners (`colleague: false`), administrators
+  // (everyone's colleagues) and themselves. Pickers outside projects offer the colleagues only.
+  app.get('/users/directory', { preHandler: guard.authenticate }, async (req) => {
+    const me = req.user!.id;
+    const [users, known] = await Promise.all([userService.listUsers(), deps.knownPeople ? deps.knownPeople({ id: me, roles: req.user!.roles ?? [] }) : Promise.resolve('everyone' as const)]);
+    const colleagueOf = (u: (typeof users)[number]): boolean | null => {
+      if (known === 'everyone' || u.id === me || u.roles.includes('ADMIN')) return true;
+      return known.get(u.id)?.colleague ?? null; // null: a stranger, left out
+    };
     return {
       // `active`: inactive and suspended people keep their names in history, but pickers leave them out.
-      data: users.map((u) => ({ id: u.id, username: u.username, firstName: u.firstName, lastName: u.lastName, avatarUrl: u.avatarUrl, lastActiveAt: u.lastActiveAt ?? null, active: u.status === 'ACTIVE' })),
+      data: users.flatMap((u) => {
+        const colleague = colleagueOf(u);
+        if (colleague === null) return [];
+        return [{ id: u.id, username: u.username, firstName: u.firstName, lastName: u.lastName, avatarUrl: u.avatarUrl, lastActiveAt: u.lastActiveAt ?? null, active: u.status === 'ACTIVE', colleague }];
+      }),
     };
   });
 

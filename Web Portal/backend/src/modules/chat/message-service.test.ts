@@ -640,3 +640,90 @@ describe('parseMentions (NTF-03)', () => {
     expect(parseMentions('@ada, @ben!')).toEqual(['ada', 'ben']);
   });
 });
+
+describe('direct chats need a shared company (companies)', () => {
+  // u1 and u2 share a company; u3 shares none with them (an old DM u1–u3 dates from before).
+  const shared = new Set(['u1|u2', 'u2|u1']);
+  const names: Record<string, { firstName: string; lastName: string; username: string; avatarUrl: string | null }> = {
+    u1: { firstName: 'Ana', lastName: 'Alpha', username: 'ana', avatarUrl: null },
+    u2: { firstName: 'Amy', lastName: '', username: 'amy', avatarUrl: '/uploads/amy.png' },
+    u3: { firstName: '', lastName: '', username: 'ben.b', avatarUrl: null },
+  };
+  function companySvc() {
+    const r = makeRepos();
+    const members = {
+      ...r.members,
+      colleagues: async (a: string, b: string) => shared.has(`${a}|${b}`),
+      people: async (ids: string[]) => ids.filter((id) => names[id]).map((id) => ({ id, ...names[id]! })),
+    };
+    return { r, s: createMessageService({ ...r, members }) };
+  }
+  async function oldDm(r: ReturnType<typeof makeRepos>, a: string, b: string) {
+    const c = await r.conversations.createDirect();
+    await r.participants.add(c.id, a);
+    await r.participants.add(c.id, b);
+    await r.messages.create(c.id, b, 'from before');
+    return c;
+  }
+
+  it('a new direct chat only with a colleague; an existing one is still returned', async () => {
+    const { r, s } = companySvc();
+    await expect(s.getOrCreateDirectConversation('u1', 'u3')).rejects.toMatchObject({ status: 403, code: 'NOT_A_COLLEAGUE', message: 'You can only message people who share a company with you.' });
+    const old = await oldDm(r, 'u1', 'u3');
+    expect(await s.getOrCreateDirectConversation('u1', 'u3')).toMatchObject({ id: old.id, readOnly: { message: 'You no longer share a company with ben.b.' } });
+    expect((await s.getOrCreateDirectConversation('u1', 'u2')).readOnly).toBeNull();
+  });
+
+  it('a chat with someone you no longer share a company with is read-only: no send, file, reaction or edit', async () => {
+    const { r, s } = companySvc();
+    const old = await oldDm(r, 'u3', 'u1'); // u1 wrote the message in it
+    const mine = (await r.messages.list(old.id, { limit: 5 }))[0]!;
+    const refused = { status: 403, code: 'DM_READ_ONLY', message: 'You no longer share a company with ben.b.' };
+    await expect(s.postMessage(old.id, 'u1', { body: 'hi' })).rejects.toMatchObject(refused);
+    await expect(s.assertCanPost(old.id, 'u1')).rejects.toMatchObject(refused);
+    await expect(s.editMessage(mine.id, 'u1', 'changed')).rejects.toMatchObject(refused);
+    await expect(s.addReaction(mine.id, 'u1', '👍')).rejects.toMatchObject(refused);
+    await expect(s.removeReaction(mine.id, 'u1', '👍')).rejects.toMatchObject(refused);
+    await expect(s.postMessage(old.id, 'u3', { body: 'hi' })).rejects.toMatchObject({ code: 'DM_READ_ONLY', message: 'You no longer share a company with Ana.' });
+    expect(await s.canWriteDirect(old.id, 'u1')).toEqual({ ok: false, message: 'You no longer share a company with ben.b.' });
+    // Reading, read and delivered marks, settings and deleting your own message still work.
+    expect((await s.listMessages(old.id, 'u1')).messages).toHaveLength(1);
+    await s.markRead(old.id, 'u1');
+    await s.markDelivered(old.id, 'u1');
+    expect((await s.setPreferences(old.id, 'u1', { muted: true })).muted).toBe(true);
+    expect((await s.deleteMessage(mine.id, 'u1', false)).deletedAt).not.toBeNull();
+  });
+
+  it('the inbox says which chats are read-only; project channels and colleagues’ chats never are', async () => {
+    const { r, s } = companySvc();
+    const old = await oldDm(r, 'u1', 'u3');
+    const ok = await s.getOrCreateDirectConversation('u1', 'u2');
+    const channel = await s.getOrCreateProjectConversation('p1', 'u1');
+    const inbox = new Map((await s.listConversations('u1')).map((c) => [c.conversation.id, c.readOnly]));
+    expect(inbox.get(old.id)).toEqual({ message: 'You no longer share a company with ben.b.' });
+    expect(inbox.get(ok.id)).toBeNull();
+    expect(inbox.get(channel.id)).toBeNull();
+    expect(await s.canWriteDirect(ok.id, 'u1')).toEqual({ ok: true });
+  });
+
+  it('a page of messages names every author on it (and whoever a reply quotes)', async () => {
+    const { s } = companySvc();
+    const dm = await s.getOrCreateDirectConversation('u1', 'u2');
+    const q = await s.postMessage(dm.id, 'u2', { body: 'question' });
+    await s.postMessage(dm.id, 'u1', { body: 'answer', replyToId: q.message.id });
+    const page = await s.listMessages(dm.id, 'u1', { limit: 1 }); // only the answer, quoting u2
+    expect(page.messages.map((m) => m.userId)).toEqual(['u1']);
+    expect(page.authors).toEqual([
+      { id: 'u1', name: 'Ana Alpha', avatarUrl: null },
+      { id: 'u2', name: 'Amy', avatarUrl: '/uploads/amy.png' },
+    ]);
+  });
+
+  it('without the companies lookups nothing changes: no read-only chats, authors from nowhere', async () => {
+    const dm = await svc.getOrCreateDirectConversation('u1', 'u4');
+    expect(dm.readOnly).toBeNull();
+    await svc.postMessage(dm.id, 'u1', { body: 'hello' });
+    expect((await svc.listConversations('u1'))[0]!.readOnly).toBeNull();
+    expect((await svc.listMessages(dm.id, 'u1')).authors).toEqual([]);
+  });
+});

@@ -456,6 +456,26 @@ describe('AiFeatureService: filling the meeting form from a sentence', () => {
   });
 });
 
+describe('AiFeatureService: the people a sentence may invite (companies)', () => {
+  it('asks for the people the requester knows: listPeople gets who is asking', async () => {
+    const asked: unknown[] = [];
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: 'Sync', people: [{ said: 'Sara', ids: ['u2'] }] }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const svc = createAiFeatureService({
+      repo: createMemoryAiConfigRepository(config),
+      fetchImpl,
+      listPeople: async (requester) => {
+        asked.push(requester);
+        return [{ id: 'u1', firstName: 'Ana', lastName: 'A', username: 'ana' }];
+      },
+    });
+    const me = { userId: 'u1', roles: ['EMPLOYEE'] };
+    const out = await svc.parseMeeting({ text: 'Sync with Sara', today: '2026-10-21' }, me);
+    expect(asked).toEqual([me]);
+    expect(out.people.found).toEqual([]); // u2 isn't someone Ana knows: never matched
+  });
+});
+
 describe('AiFeatureService: drafting a meeting’s agenda and description', () => {
   function answering(answer: unknown) {
     const prompts: string[] = [];

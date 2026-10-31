@@ -370,3 +370,48 @@ describe('Chat routes — attachments (SEC-14)', () => {
     expect(storage.saved).toHaveLength(0);
   });
 });
+
+describe('Chat routes — every author has a name, read-only direct chats (companies)', () => {
+  async function companyApp() {
+    const repos = makeRepos();
+    const chatService = createMessageService({
+      ...repos,
+      members: {
+        ...repos.members,
+        colleagues: async (a, b) => !(a === 'u3' || b === 'u3'), // u3 shares no company with anyone
+        people: async (ids) => ids.map((id) => ({ id, firstName: id.toUpperCase(), lastName: 'Person', username: id, avatarUrl: null })),
+      },
+    });
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    return { app: await buildApp({ authService, tokenService, chatService }), repos };
+  }
+
+  it('a page of messages carries `authors` beside its messages', async () => {
+    const { app: a } = await companyApp();
+    const headers = await auth('u1');
+    const convId = (await a.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.conversation.id;
+    await a.inject({ method: 'POST', url: `/api/v1/conversations/${convId}/messages`, headers: await auth('u2'), payload: { body: 'hello' } });
+    const page = await a.inject({ method: 'GET', url: `/api/v1/conversations/${convId}/messages`, headers });
+    expect(page.json().data).toHaveLength(1);
+    expect(page.json().authors).toEqual([{ id: 'u2', name: 'U2 Person', avatarUrl: null }]);
+    expect((await a.inject({ method: 'GET', url: '/api/v1/projects/p1/chat', headers })).json().data.authors).toEqual([{ id: 'u2', name: 'U2 Person', avatarUrl: null }]);
+  });
+
+  it('starting a chat with someone who isn’t a colleague is refused; an old one comes back read-only', async () => {
+    const { app: a, repos } = await companyApp();
+    const refused = await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers: await auth('u1'), payload: { userId: 'u3' } });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error).toEqual({ code: 'NOT_A_COLLEAGUE', message: 'You can only message people who share a company with you.' });
+    const old = await repos.conversations.createDirect();
+    await repos.participants.add(old.id, 'u1');
+    await repos.participants.add(old.id, 'u3');
+    const back = await a.inject({ method: 'POST', url: '/api/v1/conversations/direct', headers: await auth('u1'), payload: { userId: 'u3' } });
+    expect(back.json().data).toMatchObject({ id: old.id, readOnly: { message: 'You no longer share a company with U3.' } });
+    const send = await a.inject({ method: 'POST', url: `/api/v1/conversations/${old.id}/messages`, headers: await auth('u1'), payload: { body: 'hi' } });
+    expect(send.statusCode).toBe(403);
+    expect(send.json().error.code).toBe('DM_READ_ONLY');
+  });
+});

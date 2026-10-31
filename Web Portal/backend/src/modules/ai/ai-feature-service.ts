@@ -26,7 +26,7 @@ export interface AiFeatureServiceDeps {
    * The active portal users a described meeting may invite (first name, last name and username
    * only go in the prompt). Without it, nobody is matched.
    */
-  listPeople?: () => Promise<MeetingCandidate[]>;
+  listPeople?: (requester?: AiRequester) => Promise<MeetingCandidate[]>;
   repo: AiConfigRepository;
   fetchImpl?: typeof fetch;
   /** Per-user request budget. Default 10 a minute, 200 a day. */
@@ -210,7 +210,8 @@ export function createAiFeatureService({
     const today = input.today ?? todayKey(timeZone, now());
     const { projects, projectList } = await promptProjects(requester);
     // Everyone active is checked for shared names; the first 300 (by name) are listed for the model.
-    const everyone = (listPeople ? await listPeople() : [])
+    // companies: only the people the requester knows (colleagues, teammates, chat partners).
+    const everyone = (listPeople ? await listPeople(requester) : [])
       .map((p) => ({ ...p, name: `${p.firstName} ${p.lastName}`.trim() || p.username }))
       .sort((a, b) => a.name.localeCompare(b.name));
     const people = everyone.slice(0, MAX_PROMPT_PEOPLE);
