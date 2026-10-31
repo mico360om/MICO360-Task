@@ -24,8 +24,8 @@ export interface PrismaRecurrencePortOptions {
  * a second copy of the same task — completing it twice, or from two apps at once, makes one.
  *
  * The next occurrence is a normal task: it sits on today's board, starts now, keeps the
- * series' assignees, watchers, tags, (unticked) checklist, inspection form and place and "Needs
- * approval" tick, and gets a
+ * series' assignees, watchers, tags, (unticked) checklist, external contacts (copied), inspection
+ * form and place and "Needs approval" tick, and gets a
  * CREATED activity row —
  * all in one transaction with clearing the source's rule.
  */
@@ -43,6 +43,7 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
           watchers: { select: { userId: true } },
           tags: { select: { tagId: true } },
           checklist: { select: { text: true, position: true }, orderBy: { position: 'asc' } },
+          externalContacts: { orderBy: { position: 'asc' } },
           inspectionForm: { select: { deletedAt: true } },
         },
       });
@@ -110,6 +111,19 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 watchers: { create: watcherIds.map((userId) => ({ userId })) },
                 tags: { create: source.tags.map((t) => ({ tagId: t.tagId })) },
                 checklist: { create: source.checklist.map((c) => ({ text: c.text, position: c.position })) },
+                // Its external contacts: copies, so a change on one copy leaves the others as they are.
+                externalContacts: {
+                  create: (source.externalContacts ?? []).map((c) => ({
+                    name: c.name,
+                    company: c.company,
+                    designation: c.designation,
+                    email: c.email,
+                    phone: c.phone,
+                    remarks: c.remarks,
+                    position: c.position,
+                    createdById: c.createdById,
+                  })),
+                },
               },
               select: { id: true, projectId: true, title: true },
             });

@@ -7,6 +7,8 @@ export interface SearchableTask {
   projectId: string;
   /** Keys it had before it moved to another project ("RIG-4" for OPS-17): searching one finds it. */
   formerKeys?: string[];
+  /** Its external contacts' names and companies: searching one finds it. */
+  external?: string[];
 }
 export interface SearchableProject {
   id: string;
@@ -76,9 +78,9 @@ function snippetAround(text: string, q: string, radius = 70): string {
   return `${start > 0 ? '…' : ''}${clean.slice(start, end).trim()}${end < clean.length ? '…' : ''}`;
 }
 
-/** Does a task match an (already normalised) query — its title, key or an old key? Shared by the in-memory and database paths. */
-export function taskMatches(task: Pick<SearchableTask, 'title' | 'key' | 'formerKeys'>, normalizedQuery: string): boolean {
-  return matchesNormalized(normalizedQuery, task.title, task.key, ...(task.formerKeys ?? []));
+/** Does a task match an (already normalised) query — its title, key, an old key, or an external contact's name or company? Shared by the in-memory and database paths. */
+export function taskMatches(task: Pick<SearchableTask, 'title' | 'key' | 'formerKeys' | 'external'>, normalizedQuery: string): boolean {
+  return matchesNormalized(normalizedQuery, task.title, task.key, ...(task.formerKeys ?? []), ...(task.external ?? []));
 }
 
 /** Is the task's key, or one of its old keys, exactly the (normalised) query? Such a task is listed first. */

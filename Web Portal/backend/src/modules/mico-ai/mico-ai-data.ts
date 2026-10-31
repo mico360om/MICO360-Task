@@ -4,6 +4,7 @@
  * see (project ids from the same project-access rule as the rest of the app; null for an admin),
  * and the tools check the results again before using them.
  */
+import type { ExternalContactFields } from '../tasks/external-contacts';
 
 export interface Viewer {
   userId: string;
@@ -70,6 +71,8 @@ export interface AiActivityRec {
 export interface AiTaskExtras {
   description: string | null;
   checklist: Array<{ text: string; done: boolean }>;
+  /** The people outside the company responsible for it, in order (MICO AI may read them, never change them). */
+  externalContacts: ExternalContactFields[];
   comments: Array<{ userId: string; body: string; createdAt: Date }>;
   /** Newest first. */
   activity: AiActivityRec[];

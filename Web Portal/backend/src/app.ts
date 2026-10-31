@@ -31,6 +31,8 @@ import { registerTagRoutes } from './modules/tasks/tag-routes';
 import type { TagService } from './modules/tasks/tag-service';
 import { registerChecklistRoutes } from './modules/tasks/checklist-routes';
 import type { ChecklistService } from './modules/tasks/checklist-service';
+import { registerExternalContactRoutes } from './modules/tasks/external-contact-routes';
+import type { ExternalContactService } from './modules/tasks/external-contact-service';
 import { registerCommentRoutes } from './modules/tasks/comment-routes';
 import type { CommentService } from './modules/tasks/comment-service';
 import { registerChatRoutes } from './modules/chat/chat-routes';
@@ -158,6 +160,8 @@ export interface AppDeps extends AuthRouteDeps {
   watcherService?: WatcherService;
   tagService?: TagService;
   checklistService?: ChecklistService;
+  /** External contacts on tasks: the people outside the company responsible for a task. */
+  externalContactService?: ExternalContactService;
   commentService?: CommentService;
   chatService?: MessageService;
   /** Deliver a chat event to one user across their sockets (their DMs). */
@@ -607,6 +611,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             ? async (taskId) => (await deps.taskService!.getTask(taskId)).projectId
             : undefined,
           canViewTask,
+          recordActivity: deps.recordTaskActivity,
+        });
+      }
+      if (deps.externalContactService) {
+        await registerExternalContactRoutes(api, {
+          service: deps.externalContactService,
+          guard,
+          canViewTask,
+          // The task's own edit rule (as PUT /tasks/:id): whoever can see the task may change it.
+          canEditTask: canViewTask,
+          canViewProject,
+          broadcast: deps.onTaskEvent,
+          taskOf: deps.taskService ? (taskId) => deps.taskService!.getTask(taskId) : undefined,
           recordActivity: deps.recordTaskActivity,
         });
       }

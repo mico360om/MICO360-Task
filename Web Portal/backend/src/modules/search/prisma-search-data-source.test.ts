@@ -9,17 +9,22 @@ describe('taskSearchWhere', () => {
     expect(taskSearchWhere('report', null)).not.toHaveProperty('projectId');
   });
 
-  it('pre-filters titles by every term, or keys — the current one or an old one — by the query', () => {
+  it('pre-filters titles by every term, or keys — the current one or an old one — by the query, or an external contact’s name or company by every term', () => {
     expect(taskSearchWhere('Fix bug', null).OR).toEqual([
       { AND: [{ title: { contains: 'fix' } }, { title: { contains: 'bug' } }] },
       { key: { contains: 'fix bug' } },
       { keyAliases: { some: { key: { contains: 'fix bug' } } } },
+      {
+        externalContacts: {
+          some: { OR: [{ AND: [{ name: { contains: 'fix' } }, { name: { contains: 'bug' } }] }, { AND: [{ company: { contains: 'fix' } }, { company: { contains: 'bug' } }] }] },
+        },
+      },
     ]);
   });
 });
 
 describe('createPrismaSearchDataSource.searchTasks', () => {
-  function fake(rows: { id: string; key: string; title: string; projectId: string; keyAliases?: { key: string }[] }[]) {
+  function fake(rows: { id: string; key: string; title: string; projectId: string; keyAliases?: { key: string }[]; externalContacts?: { name: string; company: string | null }[] }[]) {
     const findMany = vi.fn(async () => rows);
     return { source: createPrismaSearchDataSource({ task: { findMany } } as unknown as PrismaClient), findMany };
   }
@@ -48,6 +53,19 @@ describe('createPrismaSearchDataSource.searchTasks', () => {
     ]);
     const args = (findMany.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0];
     expect(args.select.keyAliases).toEqual({ select: { key: true }, orderBy: { createdAt: 'asc' } });
+  });
+
+  it('finds a task by the name or company of one of its external contacts, and says who they are', async () => {
+    const { source, findMany } = fake([
+      { id: 'a', key: 'RIG-1', title: 'Inspect the rig', projectId: 'p1', externalContacts: [{ name: 'Ahmed Al Said', company: 'Occidental Oman' }] },
+      { id: 'b', key: 'RIG-2', title: 'Other', projectId: 'p1', externalContacts: [] },
+    ]);
+    expect(await source.searchTasks!('occidental', null, 50)).toEqual([
+      { id: 'a', key: 'RIG-1', title: 'Inspect the rig', projectId: 'p1', formerKeys: [], external: ['Ahmed Al Said', 'Occidental Oman'] },
+    ]);
+    expect((await source.searchTasks!('ahmed', null, 50)).map((t) => t.id)).toEqual(['a']);
+    const args = (findMany.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0];
+    expect(args.select.externalContacts).toEqual({ select: { name: true, company: true } });
   });
 
   it('puts the task whose key (or old key) is exactly the query first', async () => {

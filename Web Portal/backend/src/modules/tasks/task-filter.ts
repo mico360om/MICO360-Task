@@ -1,6 +1,7 @@
 import type { TaskRecord } from './task-repository';
 import { defaultCompanyTimeZone, isTaskLate } from './task-status';
 import { matchesNormalized, normalizeForSearch } from '../search/text-normalize';
+import { hasExternalCompany } from './external-contacts';
 
 const PRIORITY_RANK: Record<string, number> = { LOW: 0, NORMAL: 1, HIGH: 2, URGENT: 3 };
 
@@ -9,8 +10,10 @@ export type SortField = (typeof SORT_FIELDS)[number];
 export type SortOrder = 'asc' | 'desc';
 
 export interface TaskFilterCriteria {
-  /** Keyword matched against title, description and key (case-insensitive, Arabic-variant aware). */
+  /** Keyword matched against title, description, key and external contacts' names and companies (case-insensitive, Arabic-variant aware). */
   q?: string;
+  /** Keep only tasks with an external contact from this company (case and extra spaces aside). */
+  externalCompany?: string;
   /** Keep only these priorities. */
   priorities?: string[];
   /** Keep only tasks whose column category is one of these (status). */
@@ -31,7 +34,8 @@ export interface TaskFilterCriteria {
 }
 
 function matches(t: TaskRecord, c: TaskFilterCriteria, q: string, now: Date, timeZone: string): boolean {
-  if (q && !matchesNormalized(q, t.title, t.description, t.key)) return false;
+  if (q && !matchesNormalized(q, t.title, t.description, t.key, ...(t.externalSummary?.names ?? []), ...(t.externalSummary?.companies ?? []))) return false;
+  if (c.externalCompany?.trim() && !hasExternalCompany(t.externalSummary, c.externalCompany)) return false;
   if (c.priorities?.length && !c.priorities.includes(t.priority)) return false;
   if (c.categories?.length) {
     const cat = t.columnCategory ?? null;

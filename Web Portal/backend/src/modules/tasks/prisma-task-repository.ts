@@ -13,6 +13,8 @@ import type { CarryForwardRepo } from './carry-forward-service';
 import type { CarryLogEntry } from './board-date';
 import { paletteColorFor } from './tag-repository';
 import { highestKeyNumberIn } from './task-keys';
+import { summarizeExternalContacts } from './external-contacts';
+import { toExternalContactRecord } from './prisma-external-contact-repository';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
@@ -26,6 +28,8 @@ type EnrichedTask = Omit<Task, 'carryForwardLog'> & {
   assignees?: AssigneeRelation[];
   checklist?: { done: boolean }[];
   _count?: { comments: number; attachments: number };
+  /** Its external contacts, in order: names and companies on list rows, every field for a single task. */
+  externalContacts?: { name: string; company: string | null }[];
 };
 const displayName = (u: AssigneeRelation['user']): string => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
@@ -78,6 +82,7 @@ function toRecord(t: EnrichedTask): TaskRecord {
           },
         }
       : {}),
+    ...(t.externalContacts ? { externalSummary: summarizeExternalContacts(t.externalContacts) } : {}),
   };
 }
 
@@ -141,12 +146,19 @@ const listScalars = {
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {
   // Always join the column's category (Kanban stage) and the task's tags so every
   // task payload carries them (used for status classification, tag filtering + display).
-  const withColumn = { column: { select: { category: true, enabled: true } }, tags: { include: { tag: true } } } as const;
+  const withColumn = {
+    column: { select: { category: true, enabled: true } },
+    tags: { include: { tag: true } },
+    // Its external contacts in short (the card line, search and the company filter).
+    externalContacts: { select: { name: true, company: true }, orderBy: { position: 'asc' } },
+  } as const;
+  const contactsInFull = { orderBy: { position: 'asc' } } as const;
   return {
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];
       const assigneeIds = [...new Set(data.assigneeIds ?? [])];
       const checklist = data.checklist ?? [];
+      const externalContacts = data.externalContacts ?? [];
       // A key a task had before it moved project still finds that task: never give it to another one.
       if (await isOldKey(prisma, data.key)) throw new TaskKeyConflictError(data.key);
       try {
@@ -189,6 +201,9 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
               : {}),
             ...(assigneeIds.length ? { assignees: { create: assigneeIds.map((userId) => ({ userId })) } } : {}),
             ...(checklist.length ? { checklist: { create: checklist.map((text, position) => ({ text, position })) } } : {}),
+            ...(externalContacts.length
+              ? { externalContacts: { create: externalContacts.map((c, position) => ({ ...c, position, createdById: data.createdById })) } }
+              : {}),
           },
         });
         return toRecord(t);
@@ -200,7 +215,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
     async findById(id) {
       const t = await prisma.task.findFirst({
         where: { id, ...liveTaskWhere },
-        include: { ...withColumn, keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } } },
+        include: { ...withColumn, externalContacts: contactsInFull, keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } } },
       });
       if (!t) return null;
       // Only a series member can have a next copy. Deleted copies count: a skipped one still means
@@ -208,7 +223,12 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
       const next = t.recurrenceParentId
         ? await prisma.task.findFirst({ where: { recurrenceSourceId: id }, select: { id: true } })
         : null;
-      return { ...toRecord(t), recurrenceNextId: next?.id ?? null, formerKeys: (t.keyAliases ?? []).map((a) => a.key) };
+      return {
+        ...toRecord(t),
+        recurrenceNextId: next?.id ?? null,
+        formerKeys: (t.keyAliases ?? []).map((a) => a.key),
+        externalContacts: (t.externalContacts ?? []).map(toExternalContactRecord),
+      };
     },
     async list(filter) {
       const and: Prisma.TaskWhereInput[] = [];

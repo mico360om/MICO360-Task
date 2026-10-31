@@ -126,6 +126,8 @@ model User {
   /// Tasks this person finished that are waiting for approval, and tasks they approved last.
   approvalsRequested Task[]         @relation("TaskApprovalRequester")
   approvalsGiven     Task[]         @relation("TaskApprover")
+  /// External contacts this person added to tasks (the contact belongs to its task).
+  externalContacts TaskExternalContact[] @relation("ExternalContactCreator")
   assignments      TaskAssignee[]
   watching         TaskWatcher[]
   comments         Comment[]
@@ -315,6 +317,8 @@ model Task {
   tags         TaskTag[]
   comments     Comment[]
   checklist    ChecklistItem[]
+  /// People outside the company responsible for this task (kept apart from its assignees).
+  externalContacts TaskExternalContact[]
   attachments  Attachment[]
   dependencies TaskDependency[] @relation("DependentTask")
   dependedOnBy TaskDependency[] @relation("BlockingTask")
@@ -436,6 +440,33 @@ model ChecklistItem {
 
   @@index([taskId])
   @@map("task_checklists")
+}
+
+/// A person outside the company who is responsible for a task — a client's engineer, a supplier's
+/// site lead — kept apart from the people it is assigned to. Each task keeps its own copy (there is
+/// no shared address book: picking an earlier contact copies its details), and a repeating task's
+/// next copy gets copies too. Never shown on the project's client page.
+model TaskExternalContact {
+  id          String   @id @default(cuid())
+  taskId      String
+  name        String   @db.VarChar(120)
+  company     String?  @db.VarChar(120)
+  designation String?  @db.VarChar(120)
+  email       String?  @db.VarChar(191)
+  phone       String?  @db.VarChar(40)
+  remarks     String?  @db.VarChar(1000)
+  /// Its place in the task's list (0 first).
+  position    Int      @default(0)
+  /// Who added it (null once that account is removed).
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("ExternalContactCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([taskId, position])
+  @@index([createdById])
+  @@map("task_external_contacts")
 }
 
 model TaskDependency {

@@ -35,6 +35,10 @@ const task = (over: Partial<TaskExportData> = {}): TaskExportData => ({
   overdue: false,
   isMilestone: false,
   meeting: null,
+  externalContacts: [
+    { name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Call before 10 am' },
+    { name: 'سالم الهنائي', company: null, designation: null, email: null, phone: null, remarks: null },
+  ],
   checklist: [
     { text: 'Collect figures', done: true },
     { text: 'Write the summary', done: false },
@@ -115,7 +119,7 @@ describe('describeActivity (the website’s activity wording)', () => {
 describe('taskSheets', () => {
   it('puts the details on the first sheet and each list on its own sheet', () => {
     const sheets = taskSheets(task(), ctx);
-    expect(sheets.map((s) => s.name)).toEqual(['Task', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity']);
+    expect(sheets.map((s) => s.name)).toEqual(['Task', 'External contacts', 'Checklist', 'Comments', 'Attachments', 'Dependencies', 'Activity']);
     const details = sheets[0]!;
     expect(details.title).toBe('MICO-42 · مراجعة تقرير المبيعات الشهري — monthly sales review');
     const field = (name: string) => details.rows.find((r) => r[0] === name)?.[1];
@@ -127,11 +131,21 @@ describe('taskSheets', () => {
     expect(field('Repeat')).toBe('Repeats every month on the last Friday');
     expect(field('Progress')).toBe('40%');
     expect(field('Description')).toContain('Compare with last month');
-    expect(sheets[1]!.rows).toEqual([['Done', 'Collect figures'], ['', 'Write the summary']]);
-    expect(sheets[2]!.rows[0]).toEqual([{ date: '2026-09-29 12:20' }, 'Omar Ahmed', 'Figures attached. أرقام سبتمبر جاهزة.']);
-    expect(sheets[3]!.rows[0]).toEqual(['sales-sep.xlsx', '47.1 KB', 'Omar Ahmed', { date: '2026-09-29 12:15' }]);
-    expect(sheets[4]!.rows[0]).toEqual(['Blocked by', 'MICO-40', 'Close the books', 'Done']);
-    expect(sheets[5]!.rows.map((r) => r[2])).toEqual(['Created this task', 'Assigned Omar Ahmed', 'Moved this task: To do → In progress']);
+    expect(sheets[2]!.rows).toEqual([['Done', 'Collect figures'], ['', 'Write the summary']]);
+    expect(sheets[3]!.rows[0]).toEqual([{ date: '2026-09-29 12:20' }, 'Omar Ahmed', 'Figures attached. أرقام سبتمبر جاهزة.']);
+    expect(sheets[4]!.rows[0]).toEqual(['sales-sep.xlsx', '47.1 KB', 'Omar Ahmed', { date: '2026-09-29 12:15' }]);
+    expect(sheets[5]!.rows[0]).toEqual(['Blocked by', 'MICO-40', 'Close the books', 'Done']);
+    expect(sheets[6]!.rows.map((r) => r[2])).toEqual(['Created this task', 'Assigned Omar Ahmed', 'Moved this task: To do → In progress']);
+  });
+
+  it('lists the external contacts with all six fields, apart from the people the task is assigned to', () => {
+    const sheet = taskSheets(task(), ctx)[1]!;
+    expect(sheet.columns.map((c) => c.header)).toEqual(['Name', 'Company', 'Designation', 'Email', 'Phone', 'Remarks']);
+    expect(sheet.rows).toEqual([
+      ['Ahmed Al Said', 'OXY', 'Site lead', 'ahmed@oxy.com', '+968 9912 3456', 'Call before 10 am'],
+      ['سالم الهنائي', '', '', '', '', ''],
+    ]);
+    expect(taskSheets(task({ externalContacts: [] }), ctx)[1]!.rows).toEqual([]);
   });
 });
 
@@ -245,6 +259,20 @@ describe('taskPdf: summary and details', () => {
     const text = textOf(taskPdf(task({ watchers: [], tags: [], estimatedHours: null, actualHours: 3 }), ctx));
     for (const t of ['Milestone', 'From meeting', 'Completed', 'Watchers', 'Tags']) expect(text, t).not.toContain(t);
     expect(text).toContain('3 h spent');
+  });
+});
+
+describe('taskPdf: external contacts', () => {
+  it('lists each external contact with all six fields', () => {
+    const text = textOf(taskPdf(task(), ctx));
+    const joined = text.join(' ');
+    expect(text).toContain('External contacts');
+    for (const value of ['Ahmed Al Said', 'OXY · Site lead', 'ahmed@oxy.com', '+968 9912 3456', 'Call before 10 am', 'سالم الهنائي']) expect(joined, value).toContain(value);
+    expect(text.indexOf('External contacts')).toBeLessThan(text.indexOf('Description'));
+  });
+
+  it('says when a task has none', () => {
+    expect(textOf(taskPdf(task({ externalContacts: [] }), ctx))).toContain('No external contacts.');
   });
 });
 

@@ -53,6 +53,8 @@ import { createTagService } from './modules/tasks/tag-service';
 import { createPrismaTagRepository } from './modules/tasks/prisma-tag-repository';
 import { createChecklistService, progressFromItems } from './modules/tasks/checklist-service';
 import { createPrismaChecklistRepository } from './modules/tasks/prisma-checklist-repository';
+import { createExternalContactService } from './modules/tasks/external-contact-service';
+import { createPrismaExternalContactRepository } from './modules/tasks/prisma-external-contact-repository';
 import { createCommentService } from './modules/tasks/comment-service';
 import { createPrismaCommentRepository } from './modules/tasks/prisma-comment-repository';
 import { createMessageService } from './modules/chat/message-service';
@@ -366,6 +368,13 @@ async function main(): Promise<void> {
     onProgress: async (taskId, percent) => {
       await prisma.task.updateMany({ where: { id: taskId, completedAt: null }, data: { progress: percent } });
     },
+  });
+
+  // External contacts on tasks: the people outside the company responsible for a task. Never
+  // emailed or notified — the task's history notes each change.
+  const externalContactService = createExternalContactService({
+    repo: createPrismaExternalContactRepository(prisma),
+    taskLookup: createPrismaTaskLookup(prisma),
   });
 
   // Late-bound so a comment @mention can notify the mentioned users once notifications exist (below).
@@ -1423,6 +1432,7 @@ async function main(): Promise<void> {
     watcherService,
     tagService,
     checklistService,
+    externalContactService,
     commentService,
     attachmentService,
     chatAttachmentStorage: attachmentStorage,

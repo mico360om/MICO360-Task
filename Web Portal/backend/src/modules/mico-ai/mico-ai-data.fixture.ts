@@ -84,7 +84,7 @@ export function createMemoryMicoAiData(d: MemoryData): MicoAiDataPort & { calls:
     async taskExtras(taskId) {
       calls.push('taskExtras');
       const e = d.extras?.[taskId] ?? {};
-      return { description: null, checklist: [], comments: [], activity: [], blockedBy: [], blocks: [], meeting: null, ...e };
+      return { description: null, checklist: [], externalContacts: [], comments: [], activity: [], blockedBy: [], blocks: [], meeting: null, ...e };
     },
     async activity(f) {
       calls.push('activity');
@@ -258,6 +258,7 @@ export function company(): MemoryData {
       t14: {
         description: 'Run the pressure test on rig 2 and write the report.',
         checklist: [{ text: 'Calibrate the gauge', done: true }, { text: 'Write the report', done: false }],
+        externalContacts: [{ name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Signs the test report' }],
         comments: [{ userId: 'u-sara', body: 'Vendor certificate is still missing.', createdAt: at('2026-10-20T09:00:00Z') }],
         blocks: [{ id: 't15', key: 'RIG-15', title: 'Pilot on rig 3', projectId: 'p-rig', category: 'BLOCKED', columnName: 'Blocked' }],
         blockedBy: [{ id: 'f1', key: 'FAL-1', title: 'Client contract (secret)', projectId: 'p-falcon', category: 'TODO', columnName: 'To do' }],

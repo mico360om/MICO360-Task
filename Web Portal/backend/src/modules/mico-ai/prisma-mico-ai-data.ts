@@ -160,9 +160,10 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
 
     async taskExtras(taskId) {
       const linkSelect = { id: true, key: true, title: true, projectId: true, deletedAt: true, column: { select: { category: true, name: true } } } as const;
-      const [task, checklist, comments, activity, blockedBy, blocks] = await Promise.all([
+      const [task, checklist, externalContacts, comments, activity, blockedBy, blocks] = await Promise.all([
         prisma.task.findUnique({ where: { id: taskId }, select: { description: true, meetingId: true } }),
         prisma.checklistItem.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { text: true, done: true } }),
+        prisma.taskExternalContact.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } }),
         prisma.comment.findMany({ where: { taskId, deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { userId: true, body: true, createdAt: true }, take: 200 }),
         prisma.activity.findMany({ where: { taskId }, orderBy: { createdAt: 'desc' }, take: 60, include: { task: { select: { id: true, key: true, title: true } } } }),
         prisma.taskDependency.findMany({ where: { taskId }, select: { dependsOn: { select: linkSelect } } }),
@@ -172,6 +173,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       return {
         description: task?.description ?? null,
         checklist,
+        externalContacts,
         comments,
         activity: activity.map((a): AiActivityRec => ({ id: a.id, taskId: a.taskId, projectId: a.projectId, userId: a.userId, action: a.action, meta: a.meta, createdAt: a.createdAt, task: a.task })),
         blockedBy: blockedBy.map((d) => d.dependsOn).filter((t) => !t.deletedAt).map(link),

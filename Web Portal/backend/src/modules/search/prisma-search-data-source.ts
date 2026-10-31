@@ -8,8 +8,9 @@ const TASK_CANDIDATES = 500;
 
 /**
  * The database side of a task search: live tasks in live projects the caller may see, whose title
- * contains every pre-filter term (a superset of the normalised match — see prefilterTerms) or
- * whose key — or a key it had before it moved project — contains the query. Exported for tests.
+ * contains every pre-filter term (a superset of the normalised match — see prefilterTerms), whose
+ * key — or a key it had before it moved project — contains the query, or one of whose external
+ * contacts has every term in their name or company. Exported for tests.
  */
 export function taskSearchWhere(query: string, allowedProjectIds: string[] | null): Prisma.TaskWhereInput {
   const terms = prefilterTerms(query);
@@ -18,7 +19,12 @@ export function taskSearchWhere(query: string, allowedProjectIds: string[] | nul
     deletedAt: null,
     project: { is: { deletedAt: null } },
     ...(allowedProjectIds ? { projectId: { in: allowedProjectIds } } : {}),
-    OR: [{ AND: terms.map((t) => ({ title: { contains: t } })) }, { key: { contains: keyTerm } }, { keyAliases: { some: { key: { contains: keyTerm } } } }],
+    OR: [
+      { AND: terms.map((t) => ({ title: { contains: t } })) },
+      { key: { contains: keyTerm } },
+      { keyAliases: { some: { key: { contains: keyTerm } } } },
+      { externalContacts: { some: { OR: [{ AND: terms.map((t) => ({ name: { contains: t } })) }, { AND: terms.map((t) => ({ company: { contains: t } })) }] } } },
+    ],
   };
 }
 
@@ -75,11 +81,22 @@ export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSo
       if (!q || (allowedProjectIds && allowedProjectIds.length === 0)) return [];
       const rows = await prisma.task.findMany({
         where: taskSearchWhere(query, allowedProjectIds),
-        select: { id: true, key: true, title: true, projectId: true, keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } } },
+        select: {
+          id: true,
+          key: true,
+          title: true,
+          projectId: true,
+          keyAliases: { select: { key: true }, orderBy: { createdAt: 'asc' } },
+          externalContacts: { select: { name: true, company: true } },
+        },
         orderBy: { updatedAt: 'desc' },
         take: TASK_CANDIDATES,
       });
-      const candidates = rows.map(({ keyAliases, ...t }) => ({ ...t, formerKeys: (keyAliases ?? []).map((a) => a.key) }));
+      const candidates = rows.map(({ keyAliases, externalContacts, ...t }) => {
+        // Its external contacts' names and companies: searching one finds the task.
+        const external = (externalContacts ?? []).flatMap((c) => [c.name, c.company]).filter((v): v is string => Boolean(v));
+        return { ...t, formerKeys: (keyAliases ?? []).map((a) => a.key), ...(external.length ? { external } : {}) };
+      });
       const hits = candidates.filter((t) => taskMatches(t, q));
       // The task a key names exactly comes first ("RIG-4" before RIG-40…RIG-49), so "open RIG-4" always
       // finds it — under the key it has now or one it had before it moved project.

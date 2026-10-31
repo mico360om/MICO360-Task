@@ -84,6 +84,16 @@ describe('client view in the database', () => {
     expect(JSON.stringify(items)).not.toContain('Waiting on Ahmed');
   });
 
+  it('never reads a marked task’s external contacts (they are internal)', async () => {
+    await task(a.id, a.todo, 'Marked with a contact', {
+      clientVisible: true,
+      externalContacts: { create: [{ name: 'Ahmed Al Said', company: 'OXY', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'INTERNAL remark' }] },
+    });
+    const items = await source.items(a.id);
+    expect(items.map((i) => i.title)).toEqual(['Marked with a contact']);
+    for (const secret of ['Ahmed', 'OXY', 'ahmed@oxy.com', '9912', 'INTERNAL']) expect(JSON.stringify(items)).not.toContain(secret);
+  });
+
   it('a marked task waiting for approval is read as such (the client page shows it in progress), and isn’t done', async () => {
     await task(a.id, a.todo, 'Marked and waiting', { clientVisible: true, needsApproval: true, approvalRequestedAt: new Date() });
     expect((await source.items(a.id)).find((i) => i.title === 'Marked and waiting')).toMatchObject({ completedAt: null, awaitingApproval: true });

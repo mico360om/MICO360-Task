@@ -189,7 +189,7 @@ describe('task PDF pictures', () => {
       key: 'MICO-7', title: 'Inspect the rig', description: null, projectName: 'Rig', projectCode: 'RIG', projectNumber: null, projectColor: null, projectIcon: null,
       status: 'To do', category: 'TODO', priority: 'NORMAL', startDate: null, dueDate: null, completedAt: null, createdAt: new Date(), updatedAt: new Date(),
       progress: 0, estimatedHours: null, actualHours: null, createdBy: 'Aisha', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false, meeting: null,
-      checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [],
+      externalContacts: [], checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [],
       attachments: [{ filename: 'site.jpg', mimeType: 'image/jpeg', sizeBytes: 9, storageKey: 'abc.jpg', uploadedBy: 'Omar', uploadedAt: new Date() }],
     };
     const app = await buildApp({
@@ -215,7 +215,7 @@ describe('task PDF pictures', () => {
       projectImageUrl: '/uploads/projects/rig.png',
       status: 'To do', category: 'TODO', priority: 'NORMAL', startDate: null, dueDate: null, completedAt: null, createdAt: new Date(), updatedAt: new Date(),
       progress: 0, estimatedHours: null, actualHours: null, createdBy: 'Aisha', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false, meeting: null,
-      checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [], attachments: [],
+      externalContacts: [], checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [], attachments: [],
     };
     const app = await buildApp({
       authService,
@@ -237,7 +237,7 @@ describe('task PDF pictures', () => {
       status: 'To do', category: 'TODO', priority: 'NORMAL', startDate: null, dueDate: null, completedAt: null, createdAt: new Date(), updatedAt: new Date(),
       progress: 0, estimatedHours: null, actualHours: null, createdBy: 'Aisha', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false,
       meeting: { id: 'm1', title: 'Board pay review', startAt: new Date('2026-09-27T06:00:00Z') },
-      checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [], attachments: [],
+      externalContacts: [], checklist: [], blockedBy: [], blocks: [], comments: [], mentionable: [], activity: [], attachments: [],
     };
     const asked: string[] = [];
     const app = await buildApp({

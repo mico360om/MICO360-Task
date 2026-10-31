@@ -104,12 +104,13 @@ describe('MICO AI tools: tasks', () => {
     expect(r.error).toMatch(/Several people match “Sara”: Sara Ahmed \(sara\), Sara Khan \(sarak\)/);
   });
 
-  it('a task in full: description, checklist, comments, history and blockers, hidden blockers left out', async () => {
+  it('a task in full: description, checklist, external contacts, comments, history and blockers, hidden blockers left out', async () => {
     const r = await run(OMAR, 'task_details', { task: 'rig-14' });
     expect(keys(r.rows)).toEqual(['RIG-14']);
     const d = r.details as Record<string, unknown>;
     expect(d.description).toBe('Run the pressure test on rig 2 and write the report.');
     expect(d.checklist).toEqual([{ item: 'Calibrate the gauge', done: true }, { item: 'Write the report', done: false }]);
+    expect(d.externalContacts).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: 'Site lead', email: 'ahmed@oxy.com', phone: '+968 9912 3456', remarks: 'Signs the test report' }]);
     expect(d.comments).toEqual([{ by: 'Sara Ahmed', at: '2026-10-20 13:00', text: 'Vendor certificate is still missing.' }]);
     expect(d.blocks).toEqual([{ ref: 'task:t15', key: 'RIG-15', title: 'Pilot on rig 3', status: 'Blocked' }]);
     expect(JSON.stringify(d)).not.toContain('FAL-1');

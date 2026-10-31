@@ -17,7 +17,7 @@ const data: TaskExportData = {
   status: 'To do', category: 'TODO', priority: 'NORMAL',
   startDate: null, dueDate: null, completedAt: null, createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt: new Date('2026-09-01T00:00:00Z'), progress: 0, estimatedHours: null, actualHours: null,
   createdBy: 'Aisha Khan', assignees: [], watchers: [], tags: [], repeat: null, overdue: false, isMilestone: false, meeting: null,
-  checklist: [], blockedBy: [], blocks: [], attachments: [], comments: [], mentionable: [], activity: [],
+  externalContacts: [], checklist: [], blockedBy: [], blocks: [], attachments: [], comments: [], mentionable: [], activity: [],
 };
 
 const withFiles: TaskExportData = {

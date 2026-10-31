@@ -1,6 +1,8 @@
 import type { RecurrenceRule } from './recurrence';
 import type { CarryLogEntry } from './board-date';
 import type { ProjectTaskSettings } from '../projects/project-task-settings';
+import type { ExternalContactFields, ExternalContactSummary } from './external-contacts';
+import type { ExternalContactRecord } from './external-contact-repository';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -68,6 +70,13 @@ export interface TaskRecord {
   assignees?: { id: string; name: string }[];
   /** Lightweight aggregate counts for card badges (present on list). */
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
+  /**
+   * Its external contacts in short — the first one's name and company, how many, every name and
+   * company — for cards, list rows, search and the company filter; null when it has none.
+   */
+  externalSummary?: ExternalContactSummary | null;
+  /** Its external contacts in full, in order (a single task). */
+  externalContacts?: ExternalContactRecord[];
 }
 
 export interface CreateTaskData {
@@ -105,6 +114,8 @@ export interface CreateTaskData {
   assigneeIds?: string[];
   /** Checklist items' text, in order, written in the same write as the task. */
   checklist?: string[];
+  /** External contacts (already checked), in order, written in the same write as the task. */
+  externalContacts?: ExternalContactFields[];
 }
 
 /** Thrown by `TaskRepository.create` when the generated key is already taken (a concurrent create). */

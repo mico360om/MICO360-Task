@@ -1,9 +1,9 @@
 /**
- * One task as a document: an Excel workbook (details, checklist, comments, attachments,
- * dependencies and activity, one sheet each) or a PDF of the whole task under its project's badge.
+ * One task as a document: an Excel workbook (details, external contacts, checklist, comments,
+ * attachments, dependencies and activity, one sheet each) or a PDF of the whole task under its project's badge.
  */
 import type { PrismaClient } from '@prisma/client';
-import { PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn } from '../../lib/pdf-document';
+import { PdfDocument, hexToRgb, type GridPicture, type RGB, type TableColumn, type TextOptions } from '../../lib/pdf-document';
 import { isolate, layoutText, lineBox, type StyledRun } from '../../lib/pdf-text';
 import { printableAsStored, printableImage } from '../../lib/pdf-image';
 import type { XlsxSheet } from '../../lib/xlsx-writer';
@@ -16,6 +16,7 @@ import { mentionTokens } from './mentions';
 import { recurrenceSummary } from './recurrence-summary';
 import type { RecurrenceRule } from './recurrence';
 import { isTaskDone } from './task-status';
+import type { ExternalContactFields } from './external-contacts';
 
 export interface TaskExportAttachment {
   filename: string;
@@ -92,6 +93,8 @@ export interface TaskExportData {
    * and start are null for a reader who may not see that meeting (the export route checks), as on the website.
    */
   meeting: { id: string; title: string | null; startAt: Date | null } | null;
+  /** The people outside the company responsible for it (all six fields), in order. */
+  externalContacts: ExternalContactFields[];
   checklist: { text: string; done: boolean }[];
   /** The tasks this one waits for, and those waiting for it (the export route keeps only those the reader may open). */
   blockedBy: TaskExportLink[];
@@ -186,6 +189,13 @@ export function taskSheets(t: TaskExportData, ctx: TaskExportContext): XlsxSheet
       notes,
       columns: [{ header: 'Field' }, { header: 'Value', wrap: true }],
       rows: [...detailRows(t, tz).filter(([, v]) => v !== ''), ['Description', t.description ?? '']],
+    },
+    {
+      name: 'External contacts',
+      title,
+      notes,
+      columns: [{ header: 'Name' }, { header: 'Company' }, { header: 'Designation' }, { header: 'Email' }, { header: 'Phone' }, { header: 'Remarks', wrap: true }],
+      rows: t.externalContacts.map((c) => [c.name, c.company ?? '', c.designation ?? '', c.email ?? '', c.phone ?? '', c.remarks ?? '']),
     },
     { name: 'Checklist', title, notes, columns: [{ header: 'Done' }, { header: 'Item', wrap: true }], rows: t.checklist.map((c) => [c.done ? 'Done' : '', c.text]) },
     { name: 'Comments', title, notes, columns: [{ header: 'When', kind: 'datetime' }, { header: 'Author' }, { header: 'Comment', wrap: true }], rows: t.comments.map((c) => [at(c.at), c.author, c.body]) },
@@ -376,6 +386,27 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
     { size: 9.5 },
   );
 
+  // External contacts: the people outside the company responsible for it, each with every detail
+  // given — name; company and designation; email and phone; remarks — kept on one page.
+  const contactLines = (c: ExternalContactFields): Array<TextOptions & { text: string }> => {
+    const role = [c.company, c.designation].filter((v): v is string => Boolean(v)).map(isolate).join(' · ');
+    const reach = [c.email ? `Email ${c.email}` : null, c.phone ? `Phone ${c.phone}` : null].filter(Boolean).join(' · ');
+    return [
+      { text: c.name, bold: true, size: 10 },
+      ...(role ? [{ text: role, size: 9.5 }] : []),
+      ...(reach ? [{ text: reach, size: 9.5, direction: 'ltr' as const }] : []),
+      ...(c.remarks ? [{ text: c.remarks, size: 9, color: MUTED }] : []),
+    ];
+  };
+  const contactHeight = (c: ExternalContactFields) => contactLines(c).reduce((h, { text, ...l }) => h + doc.textHeight(text, l), 0) + 6;
+  doc.heading('External contacts', { keepWith: t.externalContacts.length ? contactHeight(t.externalContacts[0]!) : 0 });
+  if (t.externalContacts.length === 0) none('No external contacts.');
+  for (const c of t.externalContacts) {
+    doc.keepTogether(contactHeight(c));
+    const lines = contactLines(c);
+    lines.forEach(({ text, ...l }, i) => doc.text(text, { ...l, gap: i === lines.length - 1 ? 6 : 0 }));
+  }
+
   // Description: each paragraph in its own direction.
   const description = t.description?.replace(/\r\n?/g, '\n').trim();
   const paragraphs = description ? description.split('\n') : [];
@@ -490,6 +521,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
           watchers: { include: { user: person } },
           tags: { include: { tag: { select: { name: true } } } },
           checklist: { orderBy: { position: 'asc' }, select: { text: true, done: true } },
+          externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
           // Linked tasks that are deleted, or in a deleted project, are left out.
           dependencies: { where: { dependsOn: live }, include: { dependsOn: { select: link } } },
           dependedOnBy: { where: { task: live }, include: { task: { select: link } } },
@@ -537,6 +569,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         overdue: !done && !t.approvalRequestedAt && isOverdue(t.dueDate, timeZone, now()),
         isMilestone: t.isMilestone,
         meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
+        externalContacts: t.externalContacts,
         checklist: t.checklist,
         blockedBy: t.dependencies.map((d) => linked(d.dependsOn)),
         blocks: t.dependedOnBy.map((d) => linked(d.task)),

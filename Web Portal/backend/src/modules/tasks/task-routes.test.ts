@@ -9,6 +9,7 @@ import { createAuthService } from '../auth/auth-service';
 import type { ColumnInfo, CreateTaskData, TaskRecord, TaskRepository, ProjectLookup } from './task-repository';
 import type { AssigneeRepository, AssigneeUser } from './assignee-repository';
 import { NotFoundError } from '../../lib/http-errors';
+import { summarizeExternalContacts } from './external-contacts';
 
 // c1/c2/done belong to p1, c3 to p2.
 const COLUMNS: Record<string, ColumnInfo> = {
@@ -23,6 +24,8 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
   const rows = new Map<string, TaskRecord>();
   /** Checklists written with a task on create (as the real nested write does). */
   const checklists = new Map<string, string[]>();
+  /** External contacts written with a task on create (as the real nested write does). */
+  const externalContacts = new Map<string, unknown[]>();
   let seq = 0;
   const assigneesOf = (id: string) => [...(stores.links ?? [])].filter((l) => l.startsWith(`${id}:`)).map((l) => l.split(':')[1]!);
   const view = (t: TaskRecord): TaskRecord => ({ ...t, columnCategory: COLUMNS[t.columnId]?.category ?? null });
@@ -65,6 +68,10 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
       }
       for (const userId of data.assigneeIds ?? []) stores.links?.add(`${rec.id}:${userId}`);
       if (data.checklist?.length) checklists.set(rec.id, [...data.checklist]);
+      if (data.externalContacts?.length) {
+        externalContacts.set(rec.id, [...data.externalContacts]);
+        rec.externalSummary = summarizeExternalContacts(data.externalContacts);
+      }
       return view(rec);
     },
     async findById(id) {
@@ -113,7 +120,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
     async getCodeById(id) { return id === 'p1' ? 'MICO' : id === 'p2' ? 'RIG' : null; },
     async getTaskSettings(id) { return id === 'p1' || id === 'p2' ? { defaultDueToday: stores.dueToday?.has(id) ?? false } : null; },
   };
-  return { tasks, projects, rows, checklists };
+  return { tasks, projects, rows, checklists, externalContacts };
 }
 
 const tokenService = createTokenService({
@@ -334,6 +341,36 @@ describe('Task routes', () => {
     expect(mem.rows.size).toBe(1);
   });
 
+  it('creates a task with its external contacts in one call, and refuses a bad one in plain words before creating anything', async () => {
+    const mem = inMemory();
+    const app2 = await buildApp({ authService, tokenService, taskService: createTaskService(mem) });
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const res = await app2.inject({
+      method: 'POST',
+      url: '/api/v1/tasks',
+      headers,
+      payload: { title: 'Site check', projectId: 'p1', columnId: 'c1', externalContacts: [{ name: ' Ahmed Al Said ', company: 'OXY', email: '' }] },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mem.externalContacts.get(res.json().data.id)).toEqual([{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    const bad = await app2.inject({
+      method: 'POST',
+      url: '/api/v1/tasks',
+      headers,
+      payload: { title: 'x', projectId: 'p1', columnId: 'c1', externalContacts: [{ name: 'Ahmed' }, { name: 'Sara', email: 'not-an-email' }] },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.message).toBe('External contact 2: Enter a valid email address, like name@company.com.');
+    const tooMany = await app2.inject({
+      method: 'POST',
+      url: '/api/v1/tasks',
+      headers,
+      payload: { title: 'x', projectId: 'p1', columnId: 'c1', externalContacts: Array.from({ length: 21 }, (_, i) => ({ name: `P${i}` })) },
+    });
+    expect(tooMany.statusCode).toBe(400);
+    expect(mem.rows.size).toBe(1);
+  });
+
   it('rejects invalid tags before creating the task', async () => {
     const { app: app2, mem } = await makeAppWithExtras();
     const res = await app2.inject({
@@ -375,6 +412,20 @@ describe('Task routes', () => {
     const id = ok.json().data.id;
     const move = await app.inject({ method: 'PATCH', url: `/api/v1/tasks/${id}/move`, headers, payload: { columnId: 'c2', position: 1.5 } });
     expect(move.statusCode).toBe(400);
+  });
+
+  it('finds tasks by an external contact’s name or company, and filters them by company', async () => {
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const post = (title: string, externalContacts: { name: string; company?: string }[]) =>
+      app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title, projectId: 'p1', columnId: 'c1', externalContacts } });
+    await post('Rig inspection', [{ name: 'Ahmed Al Said', company: 'OXY Oman' }]);
+    await post('Pipeline survey', [{ name: 'Sara Nasser', company: 'PDO' }, { name: 'Ali', company: 'oxy  oman' }]);
+    await post('Internal only', []);
+    const titles = async (qs: string) => (await app.inject({ method: 'GET', url: `/api/v1/tasks?${qs}`, headers })).json().data.map((t: { title: string }) => t.title);
+    expect(await titles('q=ahmed')).toEqual(['Rig inspection']);
+    expect(await titles('q=pdo')).toEqual(['Pipeline survey']);
+    expect(await titles(`externalCompany=${encodeURIComponent('OXY Oman')}`)).toEqual(['Rig inspection', 'Pipeline survey']);
+    expect(await titles('externalCompany=PDO')).toEqual(['Pipeline survey']);
   });
 
   it('reads overdue=false as false (not as "only overdue")', async () => {

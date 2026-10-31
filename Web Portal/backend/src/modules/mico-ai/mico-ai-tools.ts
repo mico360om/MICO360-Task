@@ -99,7 +99,7 @@ const CATALOGUE: Record<ToolName, Omit<ToolInfo, 'name'>> = {
     step: (a) => `Checking tasks${inProject(a)}…`,
   },
   task_details: {
-    purpose: 'One task in full: description, checklist, comments, history, blockers and its meeting.',
+    purpose: 'One task in full: description, checklist, external contacts, comments, history, blockers and its meeting.',
     args: '{"task": key (e.g. RIG-14) or id}',
     step: (a) => `Reading ${short(a.task, 30)}…`,
   },
@@ -402,6 +402,8 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
           milestone: t.isMilestone,
           start: dueDayKey(t.startDate, timeZone),
           checklist: x.checklist.slice(0, 25).map((c) => ({ item: clip(c.text, 150), done: c.done })),
+          // The people outside the company responsible for it (read only: MICO AI has no action that changes them).
+          externalContacts: x.externalContacts.map((c) => ({ ...c, remarks: c.remarks === null ? null : clip(c.remarks, 300) })),
           comments: x.comments.slice(-10).map((c) => ({ by: nameOf(s.person.get(c.userId)) || 'Someone', at: wallClock(c.createdAt, timeZone), text: clip(c.body, 300) })),
           history,
           blockedBy: blockedBy.map(link),

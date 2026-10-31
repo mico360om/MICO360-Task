@@ -4,6 +4,7 @@ import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
 import { boardDateFromKey, boardDateKey } from './board-date';
 import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { dueDateOnEntry } from '../projects/project-task-settings';
+import type { ExternalContactFields } from './external-contacts';
 import {
   approvalOnEntry,
   firstOpenColumn,
@@ -56,6 +57,8 @@ export interface NewTask {
   assigneeIds?: string[];
   /** Checklist items' text, in order, written in the same write as the task. */
   checklist?: string[];
+  /** External contacts (already checked), in order, written in the same write as the task. */
+  externalContacts?: ExternalContactFields[];
   /** Needs approval before it counts as done; left out, the project's "New tasks need approval" decides. */
   needsApproval?: boolean;
 }

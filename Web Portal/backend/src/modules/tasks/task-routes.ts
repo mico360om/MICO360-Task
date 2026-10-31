@@ -12,6 +12,8 @@ import { projectOccurrences } from './calendar-projection';
 import { dueDayKey, shiftDayKey, todayKey } from '../../lib/due-date';
 import type { TaskRecord } from './task-repository';
 import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
+import { checkNewTaskContacts } from './external-contact-service';
+import { externalContactSchema } from './external-contact-routes';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -33,6 +35,8 @@ const listQuerySchema = z.object({
   dueBefore: dateInput.optional(),
   dueAfter: dateInput.optional(),
   overdue: queryBoolean.optional(),
+  /** Only tasks with an external contact from this company (case and extra spaces aside). */
+  externalCompany: z.string().max(120).optional(),
   boardDate: calendarDay.optional(),
   sort: z.enum(SORT_FIELDS).optional(),
   order: z.enum(['asc', 'desc']).optional(),
@@ -84,6 +88,8 @@ const createSchema = z.object({
   assigneeIds: z.array(idString).max(100).optional(),
   /** Its checklist's items, in order (a task template fills them in), written with the task. */
   checklist: z.array(requiredText).max(100).optional(),
+  /** Its external contacts, in order, written with the task (checked by the shared rules; at most 20). */
+  externalContacts: z.array(externalContactSchema).max(100).optional(),
   /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
   inspectionFormId: idString.nullable().optional(),
   /** Where the check is done ("Rig 3"): trimmed, blank means none. */
@@ -186,6 +192,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       dueBefore: params.dueBefore,
       dueAfter: params.dueAfter,
       overdue: params.overdue,
+      externalCompany: params.externalCompany,
       sort: params.sort,
       order: params.order,
       timeZone: taskService.timeZone,
@@ -289,7 +296,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
-    const { tags, assigneeIds, boardDate, ...body } = createSchema.parse(req.body);
+    const { tags, assigneeIds, boardDate, externalContacts: contactDrafts, ...body } = createSchema.parse(req.body);
     // Object-level authorization: a non-admin may only create tasks in projects they belong to.
     const allowed = await scopeOf(req);
     if (allowed && !allowed.includes(body.projectId)) return reply.status(403).send(forbidden);
@@ -298,6 +305,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     // be active members of the project). An explicit list — even an empty one — is used as is;
     // only a request without `assigneeIds` falls back to the project owner.
     const tagNames = tags && tags.length > 0 ? normalizeTagNames(tags) : [];
+    const externalContacts = checkNewTaskContacts(contactDrafts);
     let assignees: string[] = [];
     if (assigneeIds !== undefined) {
       assignees = deps.assigneeService ? await deps.assigneeService.assertAssignable(body.projectId, assigneeIds) : [...new Set(assigneeIds)];
@@ -306,13 +314,14 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
       if (ownerId) assignees = await deps.assigneeService.eligibleAssignees(body.projectId, [ownerId]);
     }
 
-    // The task, its tags and its assignees are created in one write.
+    // The task, its tags, its assignees and its external contacts are created in one write.
     const created = await taskService.createTask({
       ...body,
       ...(boardDate ? { boardDate: boardDateFromKey(boardDate) } : {}),
       createdById: req.user!.id,
       tagNames,
       assigneeIds: assignees,
+      ...(externalContacts.length ? { externalContacts } : {}),
     });
     let appliedAssignees;
     if (deps.assigneeService && assignees.length > 0) {
