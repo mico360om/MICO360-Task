@@ -47,6 +47,18 @@ describe('TaskDrawer', () => {
     expect(within(screen.getByTestId('task-header')).getByText('Visible to client')).toBeInTheDocument();
   });
 
+  it('says since when a task was carried forward in day words, and each move in its tooltip', () => {
+    const carryForwardLog = [
+      { from: '2026-10-20', to: '2026-10-21', at: '2026-10-21T00:05:00Z' },
+      { from: '2026-10-21', to: '2026-10-22', at: '2026-10-22T00:05:00Z' },
+    ];
+    render(<TaskDrawer task={{ ...task, carryForwardLog }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    const chip = within(screen.getByTestId('task-header')).getByText(/Carried forward/);
+    expect(chip).toHaveTextContent('Carried forward 2× · since 20 Oct 2026');
+    expect(chip.textContent).not.toContain('2026-10-20');
+    expect(chip).toHaveAttribute('title', '20 Oct 2026 → 21 Oct 2026\n21 Oct 2026 → 22 Oct 2026');
+  });
+
   it('without the right to change it, only the mark shows (no switch)', () => {
     render(<TaskDrawer task={{ ...task, clientVisible: true }} checklist={[]} comments={[]} onClose={vi.fn()} />);
     expect(screen.queryByRole('switch', { name: 'Show to client' })).toBeNull();

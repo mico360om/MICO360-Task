@@ -11,6 +11,7 @@ import { statusMeta } from '../lib/taskStatus';
 import { formatDueDay, isTaskLate } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { formatMeetingDay } from '../lib/meetingFormat';
+import { dayText } from '../lib/day-words';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { Icon } from './meeting/kit';
 import type { MentionPerson } from '../lib/mentions';
@@ -23,6 +24,9 @@ import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } fro
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
+
+/** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
+const carriedDay = (key: string) => dayText(key) || key;
 
 /** Below 768px (the md width, in em as the layout's widths are). */
 const PHONE_QUERY = '(max-width: 47.9375em)';
@@ -377,8 +381,8 @@ export function TaskDrawer({
               <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2">{Icon.repeat}Part of a repeating series</span>
             ) : null}
             {carried ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2" title={carried.map((e) => `${e.from} → ${e.to}`).join('\n')}>
-                ↪ Carried forward {carried.length}× · since {carried[0]!.from}
+              <span className="inline-flex items-center gap-1 rounded-full bg-ground px-2 py-0.5 text-xs font-medium text-ink-2" title={carried.map((e) => `${carriedDay(e.from)} → ${carriedDay(e.to)}`).join('\n')}>
+                ↪ Carried forward {carried.length}× · since {carriedDay(carried[0]!.from)}
               </span>
             ) : null}
           </div>

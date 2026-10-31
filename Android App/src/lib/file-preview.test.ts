@@ -90,7 +90,10 @@ describe('carry-forward history (4d), as the website’s “Carried forward” c
 
   it('the website words it the same way, and the details show it', () => {
     const drawer = readFileSync(resolve(__dirname, '../../../Web Portal/frontend/src/components/TaskDrawer.tsx'), 'utf8');
-    expect(drawer).toContain('↪ Carried forward {carried.length}× · since {carried[0]!.from}');
+    expect(drawer).toContain('↪ Carried forward {carried.length}× · since {carriedDay(carried[0]!.from)}');
+    // Days in words on both (final pass, item 2): "since 20 Oct 2026", each move "20 Oct 2026 → 21 Oct 2026".
+    expect(drawer).toContain('const carriedDay = (key: string) => dayText(key) || key;');
+    expect(drawer).toContain('`${carriedDay(e.from)} → ${carriedDay(e.to)}`');
     const header = readFileSync(resolve(__dirname, '../components/task-detail/HeaderCard.tsx'), 'utf8');
     expect(header).toMatch(/carryForward\(task\.carryForwardLog\)/);
   });
