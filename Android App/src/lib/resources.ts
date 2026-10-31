@@ -70,7 +70,6 @@ import type {
   MoveResult,
   MoveTargets,
   ProjectOverview,
-  TaskTemplate,
 } from './types';
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
 import type { CalendarRange } from './calendar-data';
@@ -85,6 +84,7 @@ import type { DeployedVersion, ReleaseEntry } from './about';
 import { planningApi } from './planning-api';
 import { inspectionsApi } from './inspections-api';
 import { clientSharesApi } from './client-share';
+import { templatesApi } from './templates-api';
 
 type NewUserBody = ReturnType<typeof newUserBody>;
 type UserPatchBody = ReturnType<typeof userPatch>;
@@ -354,10 +354,11 @@ export function resourcesApi(client: ApiClient) {
       /** Move several tasks to another project: a result for each. */
       bulkMoveToProject: (taskIds: string[], input: MoveInput) => data(client.post<Envelope<BulkMoveResult>>('/tasks/move-to-project', { taskIds, ...input })),
     },
-    /** Task templates (Stage 2): New task can start from one; making and editing them stays on the website. */
-    templates: {
-      listTasks: () => data(client.get<Envelope<TaskTemplate[]>>('/templates/tasks')),
-    },
+    /**
+     * Templates (Stage 2, Stage 4): New task and New project can start from one, and a project or a
+     * task can be saved as one; making and editing them stays on the website.
+     */
+    templates: templatesApi(client),
     /**
      * Meetings: taking part in them — the list, one meeting and its parts, your answer to the
      * invitation and your action items (2a) — and running them (2b): scheduling and editing (one

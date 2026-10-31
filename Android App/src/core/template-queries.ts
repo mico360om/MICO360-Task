@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useServices } from './providers';
+import { TASK_TEMPLATES_KEY } from '../lib/templates-api';
 
-/** The task templates' cache key (the website's TASK_TEMPLATES_KEY). */
-export const TASK_TEMPLATES_KEY = ['templates', 'tasks'] as const;
+/** The task templates' cache key (the website's TASK_TEMPLATES_KEY; lib/templates-api holds both keys). */
+export { TASK_TEMPLATES_KEY };
 
 /**
  * The task templates New task can start from (GET /templates/tasks; making and editing them stays on
