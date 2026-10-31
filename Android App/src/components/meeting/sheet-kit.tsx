@@ -173,7 +173,7 @@ export function CheckRow({ label, checked, onChange, disabled }: { label: string
       accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled: !!disabled }}
-      style={({ pressed }) => [s.checkRow, pressed && s.pressed]}
+      style={({ pressed }) => [s.checkRow, disabled && s.disabled, pressed && s.pressed]}
     >
       <View style={[s.checkbox, checked && s.checkboxOn]}>{checked ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
       <Text style={s.checkText}>{label}</Text>
