@@ -34,8 +34,13 @@ export interface WeeklySummaryDeps {
   isConfigured(): boolean;
   /** The company-wide switch (System Settings). */
   enabled(): Promise<boolean>;
-  /** The company week's first day and the working days. */
-  calendar(): Promise<{ weekStart: WeekStart; workingDays: number[] }>;
+  /**
+   * The company week's first day and the working days — companies: a person's own are their primary
+   * company's (without a person: the site's).
+   */
+  calendar(person?: WeeklyRecipient): Promise<{ weekStart: WeekStart; workingDays: number[] }>;
+  /** Companies: every distinct calendar in use (the site's and each company's); absent: only `calendar()`. */
+  calendars?(): Promise<Array<{ weekStart: WeekStart; workingDays: number[] }>>;
   companyTimeZone: string;
   appUrl: string;
   now?: () => Date;
@@ -159,12 +164,18 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     warnedNotConfigured = false;
     if (!(await deps.enabled())) return tally;
     const at = now();
-    const cal = await deps.calendar();
+    // Companies: each company may start its week on another day; every calendar in use is checked.
+    const cals = deps.calendars ? await deps.calendars() : [await deps.calendar()];
     // Anyone's day is within a day of the company's: unless one of those three is a send day, nobody is
     // due (six days out of seven), and the people aren't read at all.
     const companyDay = zonedDayKey(at, deps.companyTimeZone);
-    const sendDayNear = [-1, 0, 1].map((n) => shiftDayKey(companyDay, n)).some((d) => firstWorkingDay(weekOf(d, cal.weekStart), cal.workingDays) === d);
-    const due = (sendDayNear ? await deps.people.list() : []).filter((p) => p.email && weeklySummaryOn(p.prefs) && canSee(p)).map((p) => ({ p, ...timing(p, at, cal) })).filter((x) => x.due);
+    const sendDayNear = [-1, 0, 1]
+      .map((n) => shiftDayKey(companyDay, n))
+      .some((d) => cals.some((cal) => firstWorkingDay(weekOf(d, cal.weekStart), cal.workingDays) === d));
+    const candidates = (sendDayNear ? await deps.people.list() : []).filter((p) => p.email && weeklySummaryOn(p.prefs) && canSee(p));
+    // Each person's week is their primary company's (one calendar for everyone without companies).
+    const timed = await Promise.all(candidates.map(async (p) => ({ p, ...timing(p, at, deps.calendars ? await deps.calendar(p) : cals[0]!) })));
+    const due = timed.filter((x) => x.due);
     if (due.length) {
       const had = new Set((await deps.repo.forWeeks([...new Set(due.map((x) => x.week))])).map((r) => `${r.userId}|${r.week}`));
       for (const { p, week } of due) {

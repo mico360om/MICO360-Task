@@ -290,3 +290,50 @@ describe('the weekly management summary sweep', () => {
     expect(t.repo.rows[0]).toMatchObject({ status: 'SKIPPED' });
   });
 });
+
+describe('the weekly summary: each person’s week is their primary company’s (companies)', () => {
+  function companies() {
+    let clock = new Date();
+    const sent: { to: string; week: string }[] = [];
+    const weeks: string[] = [];
+    // sara's primary company starts its week on Monday; aisha's is the site's (Sunday).
+    const MON = { weekStart: 1 as const, workingDays: [1, 2, 3, 4, 5] };
+    const SUN = { weekStart: 0 as const, workingDays: SUN_THU };
+    let lists = 0;
+    const svc = createWeeklySummaryService({
+      repo: memoryRepo(() => clock),
+      people: {
+        list: async () => (lists++, PEOPLE.slice(0, 2)),
+        find: async (id) => PEOPLE.find((p) => p.id === id) ?? null,
+      },
+      digest: async (viewer, week) => (weeks.push(`${viewer.id}:${week}`), digestOf(viewer.id)),
+      send: async (to, content) => void sent.push({ to, week: content.subject }),
+      isConfigured: () => true,
+      enabled: async () => true,
+      calendar: async (p?: WeeklyRecipient) => (p?.id === 'sara' ? MON : SUN),
+      calendars: async () => [SUN, MON],
+      companyTimeZone: TZ,
+      appUrl: 'https://task.mico360.com',
+      now: () => clock,
+    });
+    return { svc, sent, weeks, lists: () => lists, at: (iso: string) => (clock = new Date(iso)) };
+  }
+
+  it('sara (Monday company) gets hers on Monday, aisha (the site’s Sunday) on Sunday', async () => {
+    const t = companies();
+    t.at(SUN_0600);
+    await t.svc.runSweep();
+    expect(t.sent.map((s) => s.to)).toEqual(['aisha@mico360.test']);
+    t.at('2026-10-26T02:00:00.000Z'); // Monday 06:00 in Muscat
+    await t.svc.runSweep();
+    expect(t.sent.map((s) => s.to)).toEqual(['aisha@mico360.test', 'sara@mico360.test']);
+    expect(t.weeks).toEqual(['aisha:2026-10-25', 'sara:2026-10-26']);
+  });
+
+  it('no company’s send day is near: the people aren’t read at all', async () => {
+    const t = companies();
+    t.at('2026-10-28T02:00:00.000Z'); // Wednesday
+    await t.svc.runSweep();
+    expect(t.lists()).toBe(0);
+  });
+});

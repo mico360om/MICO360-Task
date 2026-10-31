@@ -46,9 +46,10 @@ export interface ManagementFilters {
 export const DEFAULT_FILTERS: ManagementFilters = { projectIds: [], ownerId: null, statuses: [...DEFAULT_STATUSES], weeks: 12 };
 
 export interface ManagementSettings {
-  companyWeekStart(): Promise<WeekStart>;
-  /** The company's working days (0 = Sunday … 6 = Saturday), as the Workload page uses them. */
-  workingHours(): Promise<{ days: number[] }>;
+  /** Companies: asked with the reader — their company's week (its own, else the site's). */
+  companyWeekStart(viewer?: ManagementViewer): Promise<WeekStart>;
+  /** The company's working days (0 = Sunday … 6 = Saturday), as the Workload page uses them; asked with the reader (companies). */
+  workingHours(viewer?: ManagementViewer): Promise<{ days: number[] }>;
   /** The Workload page's daily limit. */
   dailyLimit(): Promise<number>;
 }
@@ -322,9 +323,10 @@ export function createManagementService(deps: ManagementServiceDeps) {
     return { scope: (admin ? 'ALL' : 'RUN') as ManagementScope, runnable, projects };
   }
 
-  async function contextOf(weeks: number) {
+  /** The weeks and working days are the reader's company's (companies: asked with the reader). */
+  async function contextOf(weeks: number, viewer: ManagementViewer) {
     const at = now();
-    const [weekStart, hours, limit] = await Promise.all([settings.companyWeekStart(), settings.workingHours(), settings.dailyLimit()]);
+    const [weekStart, hours, limit] = await Promise.all([settings.companyWeekStart(viewer), settings.workingHours(viewer), settings.dailyLimit()]);
     const today = todayKey(tz, at);
     const trend = trendWeeks({ now: at, timeZone: tz, weekStart, weeks });
     return { at, weekStart, workingDays: hours.days, limit, today, trend, period: { from: trend[0]!.start, to: today, weeks } };
@@ -441,7 +443,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
 
   async function overview(viewer: ManagementViewer, filters: ManagementFilters): Promise<ManagementOverview> {
     const s = await scopeOf(viewer, filters);
-    const ctx = await contextOf(filters.weeks);
+    const ctx = await contextOf(filters.weeks, viewer);
     const ids = s.projects.map((p) => p.id);
     const from = ctx.trend[0]!.from;
     const to = ctx.trend.at(-1)!.to;
@@ -560,7 +562,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
     if (q.projectId && !s.projects.some((p) => p.id === q.projectId)) throw new NotFoundError('Project not found.');
     const projects = q.projectId ? s.projects.filter((p) => p.id === q.projectId) : s.projects;
     const ids = projects.map((p) => p.id);
-    const ctx = await contextOf(filters.weeks);
+    const ctx = await contextOf(filters.weeks, viewer);
     const projectOf = new Map(s.projects.map((p) => [p.id, { id: p.id, code: p.code, name: p.name }]));
     const person = q.personId ? (await source.people([q.personId]))[0] ?? null : null;
     /** A form's title when the list has no row to take it from. */
@@ -772,7 +774,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
       throw err;
     }
     if (s.projects.length === 0) return null;
-    const ctx = await contextOf(2);
+    const ctx = await contextOf(2, viewer);
     const last: Pick<TrendWeek, 'start' | 'end' | 'from' | 'to'> = week
       ? { start: shiftDayKey(week, -7), end: shiftDayKey(week, -1), from: zonedStartOfDay(shiftDayKey(week, -7), tz), to: zonedStartOfDay(week, tz) }
       : ctx.trend[0]!;

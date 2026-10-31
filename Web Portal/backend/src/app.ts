@@ -105,6 +105,7 @@ import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/ba
 import type { CompanyAccess } from './modules/companies/company-access';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
 import type { PdfBrands } from './modules/companies/company-branding';
+import type { CompanyTime } from './modules/companies/company-time';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -293,6 +294,8 @@ export interface AppDeps extends AuthRouteDeps {
   companyAccess?: CompanyAccess;
   /** Companies: each PDF's company brand — its name (2+ companies) and logo (MC1 Task 14). Absent: the site's. */
   pdfBranding?: PdfBrands;
+  /** Companies: each company's week start and working days and hours (MC1 Task 15). Absent: the site's. */
+  companyTime?: Pick<CompanyTime, 'hoursFor'>;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -533,6 +536,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           timeline: deps.timelineSource,
           workload: deps.workloadStore,
           settings: deps.settingsService,
+          // companies: the Workload's days off — the shown project's company, else the pick's, else the reader's (MC1 Task 15).
+          workingHoursFor: deps.companyTime
+            ? async (req, projectId) => deps.companyTime!.hoursFor({ projectId, viewer: { id: req.user!.id, roles: req.user!.roles ?? [] }, pick: await pickOf(req).catch(() => null) })
+            : undefined,
           timeZone: deps.appConfig?.timeZone ?? defaultCompanyTimeZone(),
           now: deps.planningNow,
         });

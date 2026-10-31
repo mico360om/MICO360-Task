@@ -141,9 +141,18 @@ export interface MeetingRouteDeps {
   isActiveUser?: (userId: string) => Promise<boolean>;
 }
 
+/** Companies: what a meeting's working hours are asked for — its project, company or the meeting itself, and who asks. */
+export interface FreeTimesHoursTarget {
+  projectId: string | null;
+  companyId: string | null;
+  meetingId: string | null;
+  viewer: { id: string; roles: string[] };
+}
+
 export interface FreeTimesDeps {
   busy: BusyMeetingsStore;
-  workingHours: () => Promise<WorkingHours>;
+  /** The meeting hours: its project's main company's, else its company's, else the asker's (companies); the site's without a target. */
+  workingHours: (target?: FreeTimesHoursTarget) => Promise<WorkingHours>;
   /** Display names for user ids (missing ones fall back to a neutral label). */
   userNames: (ids: string[]) => Promise<Map<string, string>>;
   /** Company time zone: working hours and days are in it. */
@@ -156,6 +165,9 @@ const freeTimesBody = z.object({
   minutes: z.number().int().min(5).max(720),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   excludeMeetingId: z.string().min(1).optional(),
+  // companies: the meeting's project or company (a new meeting), so its company's hours are used.
+  projectId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
+  companyId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
 });
 
 const DAY_MS = 86_400_000;
@@ -378,7 +390,8 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       ].filter((w, i) => i === 0 || !inSearch(w.from, w.to));
       const [reads, hours, names] = await Promise.all([
         Promise.all(windows.map((w) => ft.busy.busyBetween(userIds, w.from, w.to, body.excludeMeetingId))),
-        ft.workingHours(),
+        // companies: the hours of what the meeting belongs to (the server checks the asker may use it).
+        ft.workingHours({ projectId: body.projectId ?? null, companyId: body.companyId ?? null, meetingId: body.excludeMeetingId ?? null, viewer: actor(req) }),
         ft.userNames(userIds),
       ]);
       if (reads.some((r) => r.length >= BUSY_ROWS_LIMIT)) deps.logger?.warn?.('meeting free times: busy list cut short', { limit: BUSY_ROWS_LIMIT, userCount: userIds.length });

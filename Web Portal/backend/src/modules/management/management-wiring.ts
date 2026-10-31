@@ -2,12 +2,14 @@ import type { PrismaClient } from '@prisma/client';
 import { createPrismaWorkloadStore } from '../planning/prisma-workload-store';
 import type { SettingsService } from '../settings/settings-service';
 import type { EmailContent } from '../email/email-templates';
-import { createManagementService, type ManagementService } from './management-service';
+import { createManagementService, type ManagementService, type ManagementSettings } from './management-service';
+import type { CompanyCalendar } from '../companies/company-time';
 import { createPrismaManagementSource } from './prisma-management-source';
 import { createPrismaWeeklySummaryPeople, createPrismaWeeklySummaryRepository } from './prisma-weekly-summary';
 import { createWeeklySummaryService, type WeeklySummaryDeps } from './weekly-summary-service';
 
-type Settings = Pick<SettingsService, 'companyWeekStart' | 'workingHours' | 'dailyLimit' | 'weeklySummaryEnabled'>;
+/** System Settings — companies: the week start and working days may be asked with the reader (their company's). */
+type Settings = Pick<SettingsService, 'dailyLimit' | 'weeklySummaryEnabled'> & ManagementSettings;
 
 /** The Management page's service over the database (the server, and scripts that need it). */
 export function createManagementFromPrisma(prisma: PrismaClient, o: { settings: Settings; timeZone: string; now?: () => Date }): ManagementService {
@@ -32,6 +34,9 @@ export function createWeeklySummaryFromPrisma(
     appUrl: string;
     now?: () => Date;
     logger?: WeeklySummaryDeps['logger'];
+    /** Companies: a person's own week (their primary company's), and every calendar in use. */
+    calendarOf?: (userId: string) => Promise<CompanyCalendar>;
+    calendars?: () => Promise<CompanyCalendar[]>;
   },
 ) {
   return createWeeklySummaryService({
@@ -41,10 +46,12 @@ export function createWeeklySummaryFromPrisma(
     send: o.send,
     isConfigured: o.isConfigured,
     enabled: () => o.settings.weeklySummaryEnabled(),
-    calendar: async () => {
+    calendar: async (person) => {
+      if (person && o.calendarOf) return o.calendarOf(person.id);
       const [weekStart, hours] = await Promise.all([o.settings.companyWeekStart(), o.settings.workingHours()]);
       return { weekStart, workingDays: hours.days };
     },
+    ...(o.calendars ? { calendars: o.calendars } : {}),
     companyTimeZone: o.companyTimeZone,
     appUrl: o.appUrl,
     ...(o.now ? { now: o.now } : {}),

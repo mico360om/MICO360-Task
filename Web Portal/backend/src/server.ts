@@ -33,6 +33,7 @@ import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess } from './modules/companies/company-access';
 import { createCompanyBranding, createDocumentBrands } from './modules/companies/company-branding';
+import { createCompanyTime, usableHoursTarget } from './modules/companies/company-time';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -932,6 +933,15 @@ async function main(): Promise<void> {
     apiBaseUrl: env.API_BASE_URL,
   });
   const documentBrands = createDocumentBrands(companyBranding, prisma);
+  // companies: each company's week start and working days and hours (MC1 Task 15); System Settings' until set.
+  const companyTime = createCompanyTime(companyBranding, prisma);
+  // The Management page (and its weekly summary) runs on the reader's company's week and working days.
+  const managementSettings = {
+    companyWeekStart: (v?: { id: string; roles: string[] }) => (v ? companyTime.weekStartOfScope(v, null) : settingsService.companyWeekStart()),
+    workingHours: (v?: { id: string; roles: string[] }) => (v ? companyTime.hoursFor({ viewer: v }) : settingsService.workingHours()),
+    dailyLimit: () => settingsService.dailyLimit(),
+    weeklySummaryEnabled: () => settingsService.weeklySummaryEnabled(),
+  };
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
   const aiConfigRepository = createPrismaAiConfigRepository(prisma, { logger });
   const aiConfigService = createAiConfigService({ repo: aiConfigRepository, audit: auditService, allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS });
@@ -1296,15 +1306,18 @@ async function main(): Promise<void> {
   // goes on the first working morning of the company week, at each person's daily-email time, to
   // everyone who can see the page (their own projects only), once a week — the same lease-locked,
   // every-minute sweep and retries as the daily task emails, with a company-wide switch.
-  const managementService = createManagementFromPrisma(prisma, { settings: settingsService, timeZone: companyTz });
+  const managementService = createManagementFromPrisma(prisma, { settings: managementSettings, timeZone: companyTz }); // companies: the reader's week
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
-    settings: settingsService,
+    settings: managementSettings,
     send: (to, content, template) => emailService.sendPrepared(template, to, content),
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
     logger,
+    // companies: each person's summary goes on their primary company's first working day.
+    calendarOf: (userId) => companyTime.calendarOf(userId),
+    calendars: () => companyTime.calendars(),
   });
   const runWeeklySummary = () =>
     runExclusive(jobLock, 'weekly-management-summary', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
@@ -1517,6 +1530,7 @@ async function main(): Promise<void> {
     projectAccess,
     companyAccess,
     pdfBranding: documentBrands.pdf, // companies: each PDF's company name and logo
+    companyTime, // companies: each company's week start and working hours
     columnService,
     memberService,
     projectAuthz,
@@ -1589,7 +1603,18 @@ async function main(): Promise<void> {
     // Schedule meeting's free times: who is busy, inside the company's meeting hours.
     meetingFreeTimes: {
       busy: meetingRepository,
-      workingHours: () => settingsService.workingHours(),
+      // companies: the hours of the meeting's project / company / the meeting — only ones the asker may
+      // use (else theirs): a project they can see, one of their companies, a meeting they can open.
+      workingHours: async (target) =>
+        target
+          ? companyTime.hoursFor(
+              await usableHoursTarget(target, {
+                seeProject: (viewer, projectId) => companyAccess.canSeeProject(viewer, projectId),
+                companyIds: (userId) => companyAccess.activeCompanyIds(userId),
+                openMeeting: (viewer, meetingId) => meetingAccess.canViewMeeting(viewer.id, viewer.roles, meetingId),
+              }),
+            )
+          : settingsService.workingHours(),
       userNames: resolveUserNames,
       timeZone: companyTz,
     },
