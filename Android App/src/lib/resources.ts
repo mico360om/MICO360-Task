@@ -62,6 +62,14 @@ import type {
   Envelope,
   FreeTimesInput,
   FreeTimesReply,
+  ApprovalsAnswer,
+  BulkMoveResult,
+  MoveInput,
+  MovePreview,
+  MoveResult,
+  MoveTargets,
+  ProjectOverview,
+  TaskTemplate,
 } from './types';
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
 import type { CalendarRange } from './calendar-data';
@@ -69,7 +77,7 @@ import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
 import type { ApiActivityRow } from './activity-page';
-import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
+import type { ApiAdminUser, UserStatus, WelcomeBatchResult, WelcomeOutcome, newUserBody, userPatch } from './users-admin';
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
 
@@ -182,6 +190,8 @@ export function resourcesApi(client: ApiClient) {
   return {
     projects: {
       list: () => data(client.get<Envelope<ApiProject[]>>('/projects')),
+      /** Every project you may see, with its card figures, owner and team — the Projects page's list in one request. */
+      overview: () => data(client.get<Envelope<ProjectOverview[]>>('/projects/overview')),
       get: (id: string) => data(client.get<Envelope<ApiProject>>(`/projects/${seg(id)}`)),
       columns: (id: string) => data(client.get<Envelope<ApiColumn[]>>(`/projects/${seg(id)}/columns`)),
       /** Project members — the pool of users a task in this project can be assigned to. */
@@ -317,6 +327,27 @@ export function resourcesApi(client: ApiClient) {
       watch: (id: string) => data(client.post<Envelope<{ watching: boolean }>>(`/tasks/${seg(id)}/watch`)),
       unwatch: (id: string) => client.del<void>(`/tasks/${seg(id)}/watch`),
       watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${seg(id)}/watchers`)),
+      // ── Approvals and moving tasks to another project (Stage 2): online only, never kept for later ──
+      /** The tasks waiting for the signed-in person's approval (oldest first), and whether they approve any project's tasks. */
+      approvals: () => data(client.get<Envelope<ApprovalsAnswer>>('/tasks/approvals')),
+      /** Approve a waiting task: it is done now. */
+      approve: (id: string, expectedVersion?: number) =>
+        data(client.post<Envelope<ApiTask>>(`/tasks/${seg(id)}/approve`, expectedVersion !== undefined ? { expectedVersion } : {})),
+      /** Send a waiting task back with a reason: it is in progress again. */
+      sendBack: (id: string, reason: string, expectedVersion?: number) =>
+        data(client.post<Envelope<ApiTask>>(`/tasks/${seg(id)}/send-back`, { reason, ...(expectedVersion !== undefined ? { expectedVersion } : {}) })),
+      /** Where the signed-in person may move tasks to, and whose tasks they may move. */
+      moveTargets: () => data(client.get<Envelope<MoveTargets>>('/tasks/move-targets')),
+      /** What moving these tasks to `projectId` would change (nothing is moved). */
+      movePreview: (taskIds: string[], projectId: string) => data(client.post<Envelope<MovePreview>>('/tasks/move-preview', { taskIds, projectId })),
+      /** Move one task to another project. */
+      moveToProject: (id: string, input: MoveInput) => data(client.post<Envelope<MoveResult>>(`/tasks/${seg(id)}/move-to-project`, input)),
+      /** Move several tasks to another project: a result for each. */
+      bulkMoveToProject: (taskIds: string[], input: MoveInput) => data(client.post<Envelope<BulkMoveResult>>('/tasks/move-to-project', { taskIds, ...input })),
+    },
+    /** Task templates (Stage 2): New task can start from one; making and editing them stays on the website. */
+    templates: {
+      listTasks: () => data(client.get<Envelope<TaskTemplate[]>>('/templates/tasks')),
     },
     /**
      * Meetings: taking part in them — the list, one meeting and its parts, your answer to the
@@ -557,6 +588,10 @@ export function resourcesApi(client: ApiClient) {
       remove: (id: string) => client.del<void>(`/users/${seg(id)}`),
       /** Set a new password for someone (it also lifts a lock and ends their sessions). */
       resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${seg(id)}/password`, { password }),
+      /** Email one person a welcome (username + "Set your password" link). Refusals are errors with the reason. */
+      sendWelcome: (id: string) => data(client.post<Envelope<WelcomeOutcome>>(`/users/${seg(id)}/welcome-email`, {})),
+      /** Welcome emails for several people (up to 200); each one says whether it went. */
+      sendWelcomes: (userIds: string[]) => data(client.post<Envelope<WelcomeBatchResult>>('/users/welcome-emails', { userIds })),
     },
     /** Management (the website's page): may the signed-in person open it — an administrator, or someone who runs a project. */
     management: {

@@ -11,7 +11,8 @@ export type AuthStackParamList = {
 
 export type TabsParamList = {
   Dashboard: undefined;
-  MyTasks: undefined;
+  /** `show: 'to-approve'` opens it on its To approve section (the Dashboard's Approvals card). */
+  MyTasks: { show?: 'to-approve' } | undefined;
   Projects: undefined;
   Meetings: undefined;
   Chat: undefined;

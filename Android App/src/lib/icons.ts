@@ -160,6 +160,13 @@ const MISC_DATA = {
   info: { source: 'components/ProfileMenu.tsx', strokeWidth: 1.8, shapes: [c(12, 12, 9), p('M12 11v5M12 7.5v.01')] },
   signOut: { source: 'components/ProfileMenu.tsx', strokeWidth: 1.8, shapes: [p('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9')] },
   inbox: { source: 'components/ui/EmptyState.tsx', strokeWidth: 1.8, shapes: [p('M22 12h-6l-2 3h-4l-2-3H2'), p('M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z')] },
+  // The Dashboard's stat tiles (its `icon` map, drawn in StatIcon's svg) and First steps' flag.
+  tasks: { source: 'pages/DashboardPage.tsx', strokeWidth: 1.9, shapes: [p('M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11')] },
+  layers: { source: 'pages/DashboardPage.tsx', strokeWidth: 1.9, shapes: [p('M12 2l9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 17l9 5 9-5')] },
+  alertTriangle: { source: 'pages/DashboardPage.tsx', strokeWidth: 1.9, shapes: [p('M12 9v4M12 17h.01'), p('M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z')] },
+  week: { source: 'pages/DashboardPage.tsx', strokeWidth: 1.9, shapes: [r(3, 4.5, 18, 16, 2), p('M16 2.5v4M8 2.5v4M3 10h18M8 14.5h3')] },
+  flag: { source: 'components/FirstSteps.tsx', strokeWidth: 1.8, shapes: [p('M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z'), p('M4 22v-7')] },
+  inspection: { source: 'components/inspections/inspection-ui.tsx', strokeWidth: 2.2, shapes: [r(5, 4, 14, 17, 2), p('M9 4V3h6v1M9 12l2 2 4-4')] },
 } satisfies Record<string, IconDef & { source: string }>;
 export type MiscKey = keyof typeof MISC_DATA;
 export const MISC_ICONS: Record<MiscKey, IconDef & { source: string }> = MISC_DATA;

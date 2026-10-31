@@ -27,6 +27,30 @@ export interface ApiAdminUser {
   roles: string[];
   /** Sign-in is locked after too many failed attempts (an administrator can unlock it). */
   locked?: boolean;
+  /** Last sign-in (password, emailed code or fingerprint); null: never signed in. Admin list only. */
+  lastLoginAt?: string | null;
+  /** When an administrator last sent them a welcome email; null: never. Admin list only. */
+  welcomeSentAt?: string | null;
+}
+
+/** What happened for one person's welcome email (the website's api/users.ts). */
+export interface WelcomeOutcome {
+  userId: string;
+  username: string | null;
+  name: string | null;
+  email: string | null;
+  sent: boolean;
+  sentAt?: string;
+  /** Why it wasn't sent: the server's code (NOT_FOUND, ACCOUNT_SUSPENDED, TOO_SOON, …). */
+  reason?: string;
+  /** "the account is suspended": finishes "Not sent: …". */
+  why?: string;
+}
+
+export interface WelcomeBatchResult {
+  sent: number;
+  notSent: number;
+  results: WelcomeOutcome[];
 }
 
 export const USER_STATUSES: readonly UserStatus[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];

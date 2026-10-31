@@ -866,3 +866,33 @@ describe('resourcesApi.notifications.markAllRead (5c review #9)', () => {
     ]);
   });
 });
+
+describe('resourcesApi — Stage 2 daily work: approvals, moving tasks, Projects page, task templates, welcome emails', () => {
+  it('reads approvals and decides on a task', async () => {
+    const { client, calls } = fakeClient(); const api = resourcesApi(client);
+    await api.tasks.approvals(); await api.tasks.approve('t1', 3); await api.tasks.approve('t1'); await api.tasks.sendBack('t1', 'Readings missing', 3);
+    expect(calls).toEqual([
+      { method: 'GET', path: '/tasks/approvals' },
+      { method: 'POST', path: '/tasks/t1/approve', body: { expectedVersion: 3 } },
+      { method: 'POST', path: '/tasks/t1/approve', body: {} },
+      { method: 'POST', path: '/tasks/t1/send-back', body: { reason: 'Readings missing', expectedVersion: 3 } },
+    ]);
+  });
+  it('moves tasks to another project', async () => {
+    const { client, calls } = fakeClient(); const api = resourcesApi(client);
+    await api.tasks.moveTargets(); await api.tasks.movePreview(['t1'], 'p2');
+    await api.tasks.moveToProject('t1', { projectId: 'p2', assignees: 'ADD_TO_TEAM' }); await api.tasks.bulkMoveToProject(['t1', 't2'], { projectId: 'p2' });
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['GET', '/tasks/move-targets', undefined], ['POST', '/tasks/move-preview', { taskIds: ['t1'], projectId: 'p2' }],
+      ['POST', '/tasks/t1/move-to-project', { projectId: 'p2', assignees: 'ADD_TO_TEAM' }], ['POST', '/tasks/move-to-project', { taskIds: ['t1', 't2'], projectId: 'p2' }],
+    ]);
+  });
+  it('reads the Projects page list and the task templates; sends welcome emails', async () => {
+    const { client, calls } = fakeClient(); const api = resourcesApi(client);
+    await api.projects.overview(); await api.templates.listTasks(); await api.users.sendWelcome('u1'); await api.users.sendWelcomes(['u1', 'u2']);
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['GET', '/projects/overview', undefined], ['GET', '/templates/tasks', undefined],
+      ['POST', '/users/u1/welcome-email', {}], ['POST', '/users/welcome-emails', { userIds: ['u1', 'u2'] }],
+    ]);
+  });
+});
