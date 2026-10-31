@@ -712,3 +712,36 @@ describe('TaskDrawer — the meeting a task was created from', () => {
     expect(screen.getByText('Each check is made on its date, done or not.')).toBeInTheDocument();
   });
 });
+
+describe('TaskDrawer — a task the person may not delete', () => {
+  const REASON = 'Only the person who created this task, or the one person it’s assigned to, can delete it.';
+  const SERIES = 'Only the person who created this repeating task can delete the entire series.';
+
+  it('shows Delete task greyed out with the reason, and never asks', async () => {
+    const onDelete = vi.fn();
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onDelete={onDelete} deleteBlocked={REASON} onClose={vi.fn()} />);
+    const button = screen.getByRole('button', { name: /delete task/i });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveAccessibleDescription(REASON);
+    expect(screen.getByText(REASON)).toBeVisible();
+    await userEvent.click(button);
+    expect(screen.queryByRole('group', { name: 'Confirm delete' })).toBeNull();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('a repeating copy they may delete, but not its series: “Entire series” greyed out with why', async () => {
+    const onDelete = vi.fn();
+    render(
+      <TaskDrawer task={{ ...task, recurrenceRule: { freq: 'WEEKLY', interval: 1 } }} checklist={[]} comments={[]} onDelete={onDelete} seriesDeleteBlocked={SERIES} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
+    const series = screen.getByRole('button', { name: /entire series/i });
+    expect(series).toHaveAttribute('aria-disabled', 'true');
+    expect(series).toHaveAccessibleDescription(SERIES);
+    expect(screen.getByText(SERIES)).toBeVisible();
+    await userEvent.click(series);
+    expect(onDelete).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'This occurrence' }));
+    expect(onDelete).toHaveBeenCalledWith();
+  });
+});

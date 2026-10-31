@@ -30,6 +30,7 @@ import { TaskInspections } from './inspections/TaskInspections';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { TaskApproval } from './approvals/TaskApproval';
 import { approvalNotice } from '../lib/approvals';
+import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from '../lib/task-delete-rule';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -40,7 +41,8 @@ export interface TaskDrawerContainerProps {
 function failureText(e: unknown, fallback: string): string {
   if (e instanceof ApiError) {
     if (e.status === 413) return 'That file is too large to upload.';
-    if (e.status === 403) return 'You don’t have permission to do that.';
+    // A refusal under the delete rule says why (who may delete it); any other 403, the plain words.
+    if (e.status === 403 && e.code !== DELETE_NOT_ALLOWED_CODE) return 'You don’t have permission to do that.';
     if (e.code === 'VERSION_CONFLICT') return 'Someone else changed this task. Reload it and try again.';
     if (e.message) return e.message;
   }
@@ -116,7 +118,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   const project = (Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId);
   // Whoever runs the project (its owner, named manager or a manager on its team — the server says)
   // and admins may delete its tasks; an older server that doesn't say: MANAGER members.
-  const canDelete = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
+  const runsProject = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
   const moveTargets = useMoveTargets(Boolean(projectId));
   const canMove = projectId ? moveAvailability(projectId, moveTargets, project?.name) : null;
 
@@ -256,6 +258,11 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
   };
 
   const assigneesQ = useQuery({ queryKey: ['assignees', taskId], queryFn: () => assigneesApi(apiClient).list(taskId) });
+  // Which of them may delete this task: its creator, or the one person it's assigned to (and its
+  // entire series, its creator). The server says; one that doesn't: the same rule, worked out here.
+  const facts = { viewerId: myId ?? '', mayManage: runsProject, createdById: taskQ.data?.createdById ?? '' };
+  const canDeleteTask = taskQ.data?.canDelete ?? mayDeleteTask({ ...facts, assigneeIds: (assigneesQ.data ?? []).map((a) => a.id) });
+  const canDeleteSeries = taskQ.data?.canDeleteSeries ?? mayDeleteSeries({ ...facts, seriesCreatorId: facts.createdById });
   // Directory (non-admin accessible, with names + avatars) to attribute comment authors.
   const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
@@ -403,8 +410,11 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
               meta: a.meta ?? null,
             }))}
             onSaveEdit={(patch, scope) => attempt(() => editM.mutateAsync({ patch, scope }), 'Couldn’t save your changes.').then(() => undefined)}
-            // Only admins and this project's managers may delete — don't offer a button that can't work.
-            onDelete={canDelete ? (scope) => deleteTaskM.mutate(scope) : undefined}
+            // Only admins and this project's managers may delete tasks at all — the others get no button.
+            // Of those, someone else's task (not theirs alone) shows it greyed out, saying why.
+            onDelete={runsProject ? (scope) => deleteTaskM.mutate(scope) : undefined}
+            deleteBlocked={runsProject && !canDeleteTask ? DELETE_NOT_ALLOWED : null}
+            seriesDeleteBlocked={runsProject && !canDeleteSeries ? DELETE_SERIES_NOT_ALLOWED : null}
             watching={watchStatusQ.data ?? false}
             watcherCount={Array.isArray(watchersQ.data) ? watchersQ.data.length : 0}
             onToggleWatch={() => toggleWatchM.mutate()}
@@ -418,10 +428,10 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
             onMoveToProject={canMove ? () => setMoving(true) : undefined}
             moveUnavailable={canMove?.reason}
             // Save as template: whoever runs the project (the server checks too).
-            onSaveAsTemplate={canDelete ? () => setSavingTemplate(true) : undefined}
+            onSaveAsTemplate={runsProject ? () => setSavingTemplate(true) : undefined}
             // Show to client: whoever runs the project (the server checks too).
             onSetClientVisible={
-              canDelete
+              runsProject
                 ? async (visible) => {
                     const updated = await clientSharesApi(apiClient).setTaskVisible(taskId, visible);
                     queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, clientVisible: updated.clientVisible ?? visible } : old));
