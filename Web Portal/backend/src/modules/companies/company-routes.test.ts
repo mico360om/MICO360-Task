@@ -200,4 +200,23 @@ describe('Companies admin API', () => {
     expect(audit.records.slice(-2).map((r) => r.action)).toEqual(['company.people.add', 'company.people.remove']);
     expect((await as(admin).post(`/companies/${beta}/people`, { userIds: [] })).statusCode).toBe(400);
   });
+
+  it('with the membership rules wired, adding and removing people go through them (and a refusal is a 409 with its words)', async () => {
+    const reason = 'Ana Alpha must keep at least one company. Add another company first.';
+    const people = {
+      add: vi.fn(async () => ({ changed: 1, refused: [{ userId: 'gone', name: '', reason: 'User not found.' }] })),
+      remove: vi.fn(async () => ({ changed: 0, refused: [{ userId: 'ana', name: 'Ana Alpha', reason }] })),
+    };
+    const ruled = createCompanyService({ companies: mem.repo, site: async () => SITE, people, audit: { async record(d) { audit.records.push(d as unknown as Record<string, unknown>); return {} as never; } } });
+    app = await buildApp({ authService, tokenService, companyService: ruled });
+    const added = await as(admin).post(`/companies/${beta}/people`, { userIds: ['ana', 'gone'] });
+    expect(added.json().data).toEqual({ changed: 1, refused: [{ userId: 'gone', name: '', reason: 'User not found.' }] });
+    expect(people.add).toHaveBeenCalledWith(['ana', 'gone'], [beta], { id: 'admin', roles: ['ADMIN'] });
+    expect(audit.records.at(-1)).toMatchObject({ action: 'company.people.add', newValue: { userIds: ['ana'] } });
+    const refused = await as(admin).del(`/companies/${beta}/people/ana`);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toEqual({ code: 'LAST_COMPANY', message: reason });
+    expect(people.remove).toHaveBeenCalledWith(['ana'], [beta], { id: 'admin', roles: ['ADMIN'] });
+    expect(audit.records.at(-1)!.action).not.toBe('company.people.remove');
+  });
 });

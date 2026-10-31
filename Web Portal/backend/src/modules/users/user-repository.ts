@@ -19,6 +19,9 @@ export interface UserSummary {
   /** True while a password lockout is in force; it lifts by itself at `lockedUntil`. */
   locked?: boolean;
   lockedUntil?: Date | null;
+  /** companies: the companies they belong to (A–Z) and their primary company (their emails' branding). */
+  companies?: { id: string; name: string; code: string }[];
+  primaryCompanyId?: string | null;
 }
 
 export interface NewUser {
@@ -30,6 +33,9 @@ export interface NewUser {
   lastName: string;
   departmentId?: string | null;
   roleNames?: string[];
+  /** companies: the companies they join and their primary company (User Management's rules decide them). */
+  companyIds?: string[];
+  primaryCompanyId?: string | null;
 }
 
 export interface CreateUserData {
@@ -40,6 +46,14 @@ export interface CreateUserData {
   lastName: string;
   departmentId?: string | null;
   roleNames: string[];
+  /** companies: written with the person, in the same write. */
+  companyIds?: string[];
+  primaryCompanyId?: string | null;
+}
+
+/** companies: people in one company, or (`'none'`) people in no company. */
+export interface UserListFilter {
+  companyId?: string;
 }
 
 export interface UpdateUserData {
@@ -57,7 +71,7 @@ export interface UserRepository {
   findById(id: string): Promise<UserSummary | null>;
   /** A non-deleted user holding this email or username. */
   findByEmailOrUsername(email: string, username: string): Promise<UserSummary | null>;
-  list(): Promise<UserSummary[]>;
+  list(filter?: UserListFilter): Promise<UserSummary[]>;
   update(id: string, patch: UpdateUserData): Promise<UserSummary>;
   setStatus(id: string, status: UserStatus): Promise<UserSummary>;
   setAvatar(id: string, avatarUrl: string | null): Promise<UserSummary>;

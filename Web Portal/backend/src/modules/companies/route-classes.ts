@@ -353,4 +353,6 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /companies/:id/people': 'admin',
   'DELETE /companies/:id/people/:userId': 'admin',
   'GET /companies/:id/projects': 'admin',
+  // People's companies: User Management's bulk assign (MC1 Task 6).
+  'POST /users/companies': 'admin',
 };

@@ -1,11 +1,20 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { ValidationError } from '../../lib/http-errors';
 import { isLocked } from '../../lib/lockout';
-import type { CreateUserData, UserRepository, UserSummary } from './user-repository';
-import { onlyActiveCompanyId } from '../companies/company-access';
+import type { CreateUserData, UserListFilter, UserRepository, UserSummary } from './user-repository';
 
-type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: { include: { role: true } } } }>;
-const withRoles = { roles: { include: { role: true } } } as const;
+// companies: each person comes with their companies (the admin views show them).
+const withRoles = {
+  roles: { include: { role: true } },
+  companies: { select: { company: { select: { id: true, name: true, code: true } } } },
+} as const;
+type UserWithRoles = Prisma.UserGetPayload<{ include: typeof withRoles }>;
+
+/** companies: `GET /users?companyId=<id>|none`. */
+function companyFilter(filter: UserListFilter | undefined): Prisma.UserWhereInput {
+  if (!filter?.companyId) return {};
+  return filter.companyId === 'none' ? { companies: { none: {} } } : { companies: { some: { companyId: filter.companyId } } };
+}
 
 function toSummary(u: UserWithRoles): UserSummary {
   return {
@@ -23,6 +32,8 @@ function toSummary(u: UserWithRoles): UserSummary {
     roles: u.roles.map((r) => r.role.name),
     locked: isLocked(u.lockedUntil),
     lockedUntil: isLocked(u.lockedUntil) ? u.lockedUntil : null,
+    companies: u.companies.map((m) => m.company).sort((a, b) => a.name.localeCompare(b.name)),
+    primaryCompanyId: u.primaryCompanyId,
   };
 }
 
@@ -47,9 +58,6 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
   return {
     async create(data: CreateUserData) {
       const roles = await resolveRoles(data.roleNames);
-      // companies: on a site with one active company a new person joins it (their primary company),
-      // as everyone did before companies existed; with several, User Management names them.
-      const company = await onlyActiveCompanyId(prisma);
       const u = await prisma.user.create({
         data: {
           email: data.email,
@@ -59,7 +67,9 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
           lastName: data.lastName,
           departmentId: data.departmentId ?? undefined,
           roles: { create: roles.map((r) => ({ roleId: r.id })) },
-          ...(company ? { primaryCompanyId: company, companies: { create: { companyId: company } } } : {}),
+          // companies: their companies and primary company, as User Management's rules chose them.
+          ...(data.companyIds?.length ? { companies: { create: [...new Set(data.companyIds)].map((companyId) => ({ companyId })) } } : {}),
+          primaryCompanyId: data.primaryCompanyId ?? null,
         },
         include: withRoles,
       });
@@ -76,8 +86,8 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
       });
       return u ? toSummary(u) : null;
     },
-    async list() {
-      const us = await prisma.user.findMany({ where: { deletedAt: null }, include: withRoles, orderBy: { createdAt: 'desc' } });
+    async list(filter) {
+      const us = await prisma.user.findMany({ where: { deletedAt: null, ...companyFilter(filter) }, include: withRoles, orderBy: { createdAt: 'desc' } });
       return us.map(toSummary);
     },
     async update(id, patch) {

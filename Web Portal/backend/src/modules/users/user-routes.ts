@@ -8,6 +8,9 @@ import { zonedDayKey } from '../../lib/due-date';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ValidationError } from '../../lib/http-errors';
+import { idString } from '../tasks/validation';
+import type { CompanyMembership } from '../companies/company-membership';
+import type { PickOf } from '../companies/company-pick';
 import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeRefusal, type WelcomeService } from './welcome-service';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
@@ -25,6 +28,9 @@ const createSchema = z
     departmentId: z.string().optional(),
     roleNames: z.array(z.string()).min(1).optional(),
     sendWelcome: z.boolean().optional(),
+    // companies: their companies ([0] is the primary company unless one is named).
+    companyIds: z.array(idString).max(50).optional(),
+    primaryCompanyId: idString.nullable().optional(),
   })
   .superRefine((b, ctx) => {
     if (!b.sendWelcome && !b.password) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: 'Required' });
@@ -54,7 +60,20 @@ const updateSchema = z.object({
   username: name.optional(),
   departmentId: z.string().nullable().optional(),
   roleNames: z.array(z.string()).min(1).optional(),
+  // companies: exactly these companies (absent: unchanged) and the primary company.
+  companyIds: z.array(idString).max(50).optional(),
+  primaryCompanyId: idString.nullable().optional(),
 });
+/** companies: several people's companies at once (User Management's bulk assign). */
+const MAX_BULK_PEOPLE = 200;
+const bulkCompaniesSchema = z
+  .object({
+    userIds: z.array(idString).min(1).max(MAX_BULK_PEOPLE),
+    addCompanyIds: z.array(idString).max(50).optional(),
+    removeCompanyIds: z.array(idString).max(50).optional(),
+  })
+  .refine((b) => (b.addCompanyIds?.length ?? 0) + (b.removeCompanyIds?.length ?? 0) > 0, { message: 'Choose a company to add or remove.', path: ['addCompanyIds'] });
+const listQuery = z.object({ companyId: idString.optional() });
 const statusSchema = z.object({ status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']) });
 const adminPasswordSchema = z.object({ password });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: password });
@@ -73,6 +92,10 @@ export interface UserRouteDeps {
   timeZone?: string;
   /** Welcome emails ("Set your password" links); when absent, they aren't offered. */
   welcome?: WelcomeService;
+  /** companies: people's companies and primary company; when absent, accounts are made without them. */
+  membership?: CompanyMembership;
+  /** companies: the administrator's picked company (a new person's default company). */
+  pickOf?: PickOf;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -81,7 +104,11 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown) =>
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'users', action, entityId, newValue });
 
-  app.get('/users', adminOnly, async () => ({ data: await userService.listUsers() }));
+  // companies: `?companyId=<id>` the people in a company, `?companyId=none` those in none.
+  app.get('/users', adminOnly, async (req) => {
+    const { companyId } = listQuery.parse(req.query ?? {});
+    return { data: await userService.listUsers(companyId ? { companyId } : undefined) };
+  });
 
   // "Download my data" — everything held about the signed-in person, as a JSON file.
   if (deps.exportData) {
@@ -154,12 +181,20 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   };
 
   app.post('/users', adminOnly, async (req, reply) => {
-    const { sendWelcome, password, ...body } = createSchema.parse(req.body);
+    const { sendWelcome, password, companyIds, primaryCompanyId, ...body } = createSchema.parse(req.body);
     // Asked for a welcome email that can't be sent: say so before making an account no one can use.
     if (sendWelcome && !deps.welcome?.isConfigured()) throw new WelcomeEmailUnavailableError();
-    let created = await userService.createUser({ ...body, ...(password ? { password } : {}) });
+    // companies: the ones named, else the picked company, else the site's only one; an employee
+    // needs one (administrators may have none). Checked before the account is made.
+    let companies: { companyIds: string[]; primaryCompanyId: string | null } | undefined;
+    if (deps.membership) {
+      const isAdmin = (body.roleNames ?? []).includes('ADMIN');
+      const ids = await deps.membership.defaultsFor({ companyIds, isAdmin }, deps.pickOf ? await deps.pickOf(req) : null);
+      companies = { companyIds: ids, primaryCompanyId: deps.membership.primaryFor(ids, primaryCompanyId) };
+    }
+    let created = await userService.createUser({ ...body, ...(password ? { password } : {}), ...(companies ?? {}) });
     // Never log the password — only non-secret identifying fields.
-    await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles, ...(sendWelcome !== undefined ? { welcomeEmail: sendWelcome } : {}) });
+    await logAudit(req, 'user.create', created.id, { email: body.email, username: body.username, roleNames: created.roles, ...(companies ?? {}), ...(sendWelcome !== undefined ? { welcomeEmail: sendWelcome } : {}) });
     if (!sendWelcome || !deps.welcome) return reply.status(201).send({ data: created });
     // The account stands whatever happens to the email: the answer is always 201 and says whether it went.
     let welcome: WelcomeOutcome;
@@ -214,11 +249,31 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   app.put('/users/:id', adminOnly, async (req) => {
     const { id } = req.params as { id: string };
-    const body = updateSchema.parse(req.body);
-    const updated = await userService.updateUser(id, body);
-    await logAudit(req, 'user.update', id, body);
+    const { companyIds, primaryCompanyId, ...body } = updateSchema.parse(req.body);
+    // companies: a change to their companies (or roles) is checked first, so a refused one saves nothing.
+    const membership = deps.membership;
+    const companiesChange = companyIds !== undefined || primaryCompanyId !== undefined;
+    if (membership && (companiesChange || body.roleNames !== undefined)) await membership.check(id, companyIds, primaryCompanyId, { roles: body.roleNames });
+    let updated = await userService.updateUser(id, body);
+    if (membership && companiesChange) {
+      await membership.set(id, companyIds, primaryCompanyId, { id: req.user!.id, roles: req.user!.roles ?? [] }, req.ip ?? null);
+      updated = await userService.getUser(id);
+    }
+    await logAudit(req, 'user.update', id, companiesChange ? { ...body, companyIds, primaryCompanyId } : body);
     return { data: updated };
   });
+
+  // companies: User Management's bulk assign. Add companies to and take them from up to 200 people;
+  // says who couldn't be changed and why (an employee keeps at least one company).
+  const membership = deps.membership;
+  if (membership) {
+    app.post('/users/companies', adminOnly, async (req) => {
+      const { userIds, addCompanyIds = [], removeCompanyIds = [] } = bulkCompaniesSchema.parse(req.body);
+      const result = await membership.change(userIds, { add: addCompanyIds, remove: removeCompanyIds }, { id: req.user!.id, roles: req.user!.roles ?? [] });
+      await logAudit(req, 'user.companies.bulk', null, { userIds: [...new Set(userIds)], addCompanyIds, removeCompanyIds, changed: result.changed, refused: result.refused.map((r) => r.userId) });
+      return { data: result };
+    });
+  }
 
   // Admin-only: reset a user's password to a new value (never logs the password itself).
   // Also lifts any lockout and ends the user's sessions.

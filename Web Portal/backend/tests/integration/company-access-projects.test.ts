@@ -16,6 +16,7 @@ import { createPrismaWeeklySummaryPeople } from '../../src/modules/management/pr
 import { createPrismaManagementSource } from '../../src/modules/management/prisma-management-source';
 import { createPrismaUserRepository } from '../../src/modules/users/prisma-user-repository';
 import { DEFAULT_COMPANY } from '../../src/modules/companies/default-company';
+import { createCompanyMembership, createPrismaMembershipStore } from '../../src/modules/companies/company-membership';
 import { buildCompanyWorld, dropCompanyWorld, sorted, type CompanyWorld } from './company-world';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
@@ -158,7 +159,11 @@ describe('Project visibility follows companies (integration)', () => {
     await prisma.company.updateMany({ where: { id: { in: others } }, data: { status: 'ARCHIVED' } });
     const made: { users: string[]; projects: string[] } = { users: [], projects: [] };
     try {
-      const u = await createPrismaUserRepository(prisma).create({ email: `solo.${w.tag}@world.test`, username: `solo_${w.tag}`, passwordHash: 'x', firstName: 'Solo', lastName: 'One', roleNames: ['EMPLOYEE'] });
+      // People: User Management's rules give a new person the only active company (MC1 Task 6).
+      const membership = createCompanyMembership({ store: createPrismaMembershipStore(prisma) });
+      const companyIds = await membership.defaultsFor({ isAdmin: false }, null);
+      expect(companyIds).toEqual([DEFAULT_COMPANY.id]);
+      const u = await createPrismaUserRepository(prisma).create({ email: `solo.${w.tag}@world.test`, username: `solo_${w.tag}`, passwordHash: 'x', firstName: 'Solo', lastName: 'One', roleNames: ['EMPLOYEE'], companyIds, primaryCompanyId: membership.primaryFor(companyIds, undefined) });
       made.users.push(u.id);
       expect(await prisma.user.findUniqueOrThrow({ where: { id: u.id }, select: { primaryCompanyId: true, companies: { select: { companyId: true } } } })).toEqual({
         primaryCompanyId: DEFAULT_COMPANY.id,

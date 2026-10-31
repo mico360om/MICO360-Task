@@ -34,6 +34,7 @@ import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess } from './modules/companies/company-access';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
+import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -927,6 +928,13 @@ async function main(): Promise<void> {
   // Late-bound: the realtime server re-checks whose access changed (MC1 Task 12 binds it).
   // eslint-disable-next-line prefer-const -- companies: MC1 Task 12 assigns it once the realtime server exists
   let onCompanyAccessChanged: OnCompanyAccessChanged = () => {};
+  // companies: people's companies and primary company, with their rules (User Management and the
+  // Companies page's people both go through it).
+  const companyMembership = createCompanyMembership({
+    store: createPrismaMembershipStore(prisma),
+    audit: auditService,
+    onAccessChanged: (userIds) => onCompanyAccessChanged(userIds),
+  });
   const companyService = createCompanyService({
     companies: createPrismaCompanyRepository(prisma),
     site: async () => {
@@ -937,6 +945,7 @@ async function main(): Promise<void> {
     storage: attachmentStorage,
     shrink: (content, mimeType) => imageShrinker.shrink(content, mimeType, 512),
     onAccessChanged: (userIds, projectIds) => onCompanyAccessChanged(userIds, projectIds),
+    people: companyMembership,
   });
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
   const aiConfigRepository = createPrismaAiConfigRepository(prisma, { logger });
@@ -1512,6 +1521,7 @@ async function main(): Promise<void> {
     projectAccess,
     companyAccess,
     companyService,
+    companyMembership,
     columnService,
     memberService,
     projectAuthz,

@@ -106,6 +106,7 @@ import type { CompanyAccess } from './modules/companies/company-access';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
 import { registerCompanyRoutes } from './modules/companies/company-routes';
 import type { CompanyService } from './modules/companies/company-service';
+import type { CompanyMembership } from './modules/companies/company-membership';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -294,6 +295,8 @@ export interface AppDeps extends AuthRouteDeps {
   companyAccess?: CompanyAccess;
   /** companies: System → Companies (administrators) and each person's own companies (GET /me/companies). */
   companyService?: CompanyService;
+  /** companies: people's companies and primary company (User Management; the Companies page's people). */
+  companyMembership?: CompanyMembership;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -504,7 +507,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const canViewMeeting = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
       // companies: the request's picked company (X-Company-Id), checked once per request; it narrows
       // `list` routes only (see modules/companies/route-classes.ts). Without the module: no pick.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- companies: the list routes take it (MC1 Task 8)
       const pickOf: PickOf = deps.companyAccess ? createPickResolver(deps.companyAccess) : NO_PICK;
       const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[]) => mAccess.accessibleProjectIds(u, r) : undefined;
       if (deps.projectService) {
@@ -695,6 +697,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           exportData: deps.dataExporter,
           timeZone: deps.appConfig?.timeZone,
           welcome: deps.welcomeService,
+          // companies: people's companies, and the picked company as a new person's default.
+          membership: deps.companyMembership,
+          pickOf,
         });
       }
       if (deps.notificationService) {

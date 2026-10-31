@@ -3,7 +3,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-er
 import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
 import { WeakPasswordError } from '../auth/errors';
-import type { NewUser, UpdateUserData, UserRepository, UserStatus, UserSummary } from './user-repository';
+import type { NewUser, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
 
 export interface SessionTokens {
   accessToken: string;
@@ -103,11 +103,12 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
       lastName: input.lastName,
       departmentId: input.departmentId,
       roleNames,
+      ...(input.companyIds !== undefined ? { companyIds: input.companyIds, primaryCompanyId: input.primaryCompanyId ?? null } : {}),
     });
   }
 
-  async function listUsers(): Promise<UserSummary[]> {
-    return users.list();
+  async function listUsers(filter?: UserListFilter): Promise<UserSummary[]> {
+    return filter ? users.list(filter) : users.list();
   }
 
   async function getUser(id: string): Promise<UserSummary> {
