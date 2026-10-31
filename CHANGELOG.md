@@ -114,6 +114,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   preview of exactly what the client will see, with risks and open issues left out unless ticked.
 - In the Android app, a task can carry an inspection form (and a place): it shows an Inspection mark
   on cards and rows, and its screen offers Start inspection, Continue inspection or View report.
+- External contacts on tasks: record the people outside the company who are responsible for a task —
+  name, company, designation, email, phone and remarks — kept apart from the people it is assigned
+  to. A task can have up to 20. They show in the task's details on the website, the Android app and
+  the extension (tap to email or call), and anyone who can edit the task can add, change or remove
+  them. Typing a name suggests contacts used before on the project's tasks; picking one copies their
+  details.
+- New task and Edit task have an External contacts field, on the website and in the Android app.
+- Cards and task lists say who is responsible outside the company ("External: Ahmed Al Said (OXY)
+  and 2 more"); My Tasks and the board can be filtered by external company, and search finds a task
+  by a contact's name or company.
+- The task's PDF and Excel export list its external contacts with all their details, its history
+  says who added, changed or removed one, and a repeating task's next copy keeps them. They are never
+  emailed and never shown on the client page.
 
 ### Improvements
 - In the Android app, colours are the website's in light and dark mode, and grey and amber text is
