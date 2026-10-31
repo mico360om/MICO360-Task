@@ -45,3 +45,13 @@ it('final review A5: tapping Move without the team answer says so by the buttons
   expect(s).toMatch(/footer=\{\s*<View style=\{s\.footer\}>\s*\{choiceError \? <SheetMessage text=\{MOVE_TEXT\.chooseTeam\} \/> : null\}\s*<View style=\{s\.footerRow\}>\s*<SheetButtons/);
   expect(s.match(/MOVE_TEXT\.chooseTeam/g)).toHaveLength(1); // said once: by the buttons, not under the question scrolled out of view
 });
+
+it('final review A6: a choice card says a hint only when it has one; the team answers have none', () => {
+  const kit = src('components/meeting/sheet-kit.tsx');
+  expect(kit).toMatch(/options: \{ value: T; label: string; hint\?: string; disabled\?: boolean \}\[\]/);
+  expect(kit).toMatch(/accessibilityLabel=\{o\.hint \? `\$\{o\.label\}\. \$\{o\.hint\}` : o\.label\}/);
+  expect(kit).toMatch(/\{o\.hint \? <Text style=\{s\.cardHint\}>\{o\.hint\}<\/Text> : null\}/);
+  const sheet = src('components/move/MoveTaskSheet.tsx');
+  expect(sheet).not.toMatch(/hint: ''/);
+  expect(sheet).toMatch(/\{ value: 'ADD_TO_TEAM', label: labels\.add \}/);
+});

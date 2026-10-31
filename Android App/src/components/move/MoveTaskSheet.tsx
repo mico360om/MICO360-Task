@@ -193,12 +193,12 @@ export function MoveTaskSheet({
 
           {preview.outsiders.length > 0 && labels ? (
             <>
-              {/* One question for the whole group (the website's): the CardChoice's hint has no words of its own. */}
+              {/* One question for the whole group (the website's): two answers, no hint under them. */}
               <CardChoice<AssigneeChoice | ''>
                 legend={notOnTeamText(preview.outsiders, preview.project.name)}
                 options={[
-                  { value: 'ADD_TO_TEAM', label: labels.add, hint: '' },
-                  { value: 'UNASSIGN', label: labels.unassign, hint: '' },
+                  { value: 'ADD_TO_TEAM', label: labels.add },
+                  { value: 'UNASSIGN', label: labels.unassign },
                 ]}
                 value={choice}
                 onChange={(v) => {
