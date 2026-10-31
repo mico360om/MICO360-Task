@@ -5,7 +5,7 @@ import { useCardActions, useCardRefresh } from '../../core/mico-ai-queries';
 import { applyNavAction } from '../../navigation/apply-action';
 import type { MicoAiMessage, MicoAiProposal, ProposalChange } from '../../lib/mico-ai-api';
 import { linkTarget } from '../../lib/mico-ai-chat';
-import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, undoButtonText, undoLine, type Shown } from '../../lib/mico-ai-card';
+import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, timeProblem, undoButtonText, undoLine, type Shown } from '../../lib/mico-ai-card';
 import { cardHeading, changeLabel, confirmBody, initialTicks, remainingNeeds, resultSummary, undoLeft, undoSummary } from '../../lib/mico-ai-proposal';
 import { radius, shadow, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
@@ -67,6 +67,9 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
   const [shown, setShown] = useState<Record<string, Shown>>({});
   /** The changes whose editor is open. */
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  /** Meeting times as typed, per change: one that doesn't read as a time holds Confirm back. */
+  const [times, setTimes] = useState<Record<string, string>>({});
+  const badTime = timeProblem(times);
   const [invite, setInvite] = useState(proposal.sendInvites);
   const [acting, setActing] = useState<null | 'confirm' | 'cancel' | 'undo'>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +191,7 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
             {proposed && item.locked ? <Text style={s.problemText}>{`Can’t do: ${item.problem ?? 'this change can’t be made.'}`}</Text> : null}
             {needs.length ? <Text style={s.problemText}>{`Put right first: ${needs.map((n) => n.message).join(' ')}`}</Text> : null}
             {proposed && item.warning ? <Text style={s.warning}>{item.warning}</Text> : null}
-            {editing ? <ProposalEditor item={item} onEdit={(patch, show) => edit(original, patch, show)} /> : null}
+            {editing ? <ProposalEditor item={item} onEdit={(patch, show) => edit(original, patch, show)} draftTime={times[item.id]} onDraftTime={(t) => setTimes((x) => ({ ...x, [item.id]: t }))} /> : null}
             {!proposed && item.result ? <ResultLine result={item.result} gone={!!item.undo?.gone} s={s} /> : null}
             {item.undo ? <Text style={item.undo.status === 'undone' || item.undo.status === 'started' ? s.muted : s.notUndone}>{undoLine(item.undo)}</Text> : null}
           </View>
@@ -203,13 +206,14 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
               <Button
                 title={busy && acting === 'confirm' ? 'Making the changes…' : confirmLabel(ticked)}
                 onPress={() => void run('confirm', () => confirm(confirmBody(proposal.items, ticks, edits, invite)))}
-                disabled={busy || ticked === 0}
+                disabled={busy || ticked === 0 || !!badTime}
                 accessibilityLabel={busy ? undefined : confirmA11y(ticked)}
               />
             ) : null}
             {controls.cancel ? <Button title="Cancel" variant="secondary" onPress={() => void run('cancel', cancel)} disabled={busy} /> : null}
           </View>
         ) : null}
+        {proposed && badTime ? <Text style={s.problemText}>{badTime}</Text> : null}
         {proposed ? <Text style={s.quiet}>{FOOTER_NOTE}</Text> : null}
         {controls.footer ? <Text style={status === 'done' || status === 'undone' ? s.summary : s.muted}>{controls.footer}</Text> : null}
         {controls.undo ? (

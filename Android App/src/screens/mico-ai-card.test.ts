@@ -6,7 +6,7 @@ const s = src('components/mico-ai/ProposalCard.tsx');
 
 it('Confirm goes through the card’s one gate and follows the card’s status', () => {
   expect(s).toMatch(/useCardActions\(chatId, message\.id\)/); expect(s).toMatch(/cardControls\(proposal, left\)/); expect(s).toMatch(/useCardRefresh\(chatId, message\)/);
-  expect(s).toMatch(/disabled=\{busy \|\| ticked === 0\}/); expect(s).toMatch(/confirmBody\(proposal\.items, ticks, edits, invite\)/);
+  expect(s).toMatch(/disabled=\{busy \|\| ticked === 0 \|\| !!badTime\}/); expect(s).toMatch(/confirmBody\(proposal\.items, ticks, edits, invite\)/);
 });
 
 it('only the buttons the card’s status allows are shown', () => {
@@ -52,4 +52,15 @@ it('each kind’s summary shows everything Confirm will write', () => {
     const w = readWeb('frontend/src/components/mico-ai/proposal-rows.tsx');
     for (const t of ['Untitled task', 'No project', 'No due date', 'No one was named, so it goes to the project’s owner, as any new task does.', 'Saved as a draft for review on the meeting page — never final or emailed.', 'Untitled meeting', 'Invited', 'Risks and open questions', 'Assigned people', 'People invited']) expect(w, t).toContain(t);
   }
+});
+
+it('a meeting time typed wrong stays on the card and holds Confirm back (final review A3)', () => {
+  expect(s).toMatch(/const badTime = timeProblem\(times\)/);
+  expect(s).toMatch(/badTime \? <Text style=\{s\.problemText\}>\{badTime\}<\/Text> : null\}/);
+  expect(s).toMatch(/<ProposalEditor item=\{item\} onEdit=\{[^}]*\}[^>]*draftTime=\{times\[item\.id\]\} onDraftTime=\{/);
+  const e = src('components/mico-ai/ProposalEditor.tsx');
+  // Android's own keyboard with ":" (numbers-and-punctuation is iOS only); the HH:MM hint says how.
+  expect(e).not.toMatch(/numbers-and-punctuation/);
+  expect(e).toMatch(/function TimeField[^]*keyboardType="default"[^]*placeholder="HH:MM"/);
+  expect(e).toMatch(/value=\{draftTime \?\? value \?\? ''\}/);
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FIELD_MAX, FOOTER_NOTE, KIND_BADGE, LENGTH_CHOICES, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, lengthChoices, resultLine, undoButtonText, undoLine } from './mico-ai-card';
+import { FIELD_MAX, FOOTER_NOTE, KIND_BADGE, LENGTH_CHOICES, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, lengthChoices, resultLine, timeProblem, undoButtonText, undoLine } from './mico-ai-card';
 import type { MicoAiProposal, ProposalChange, ProposalStatus } from './mico-ai-api';
 import { resultSummary, undoSummary } from './mico-ai-proposal';
 import { PROPOSALS } from '../testing/mico-ai-fixtures';
@@ -96,4 +96,13 @@ describe.skipIf(!hasWeb('frontend/src/components/mico-ai/ProposalCard.tsx'))('th
     for (const p of PROPOSALS) for (const item of p.items) for (const [e, sh] of cases) expect(effectiveChange(item, e, sh), `${item.type} ${JSON.stringify(e)}`).toEqual(web(item, e, sh));
   });
   it('edits tick a change as the website’s edit does', () => { const w = readWeb('frontend/src/components/mico-ai/ProposalCard.tsx'); expect(w).toContain('const next = { ...edits[item.id], ...patch };'); expect(w).toContain('[item.id]: remainingNeeds(item, next).length === 0'); expect(readWeb('frontend/src/components/mico-ai/proposal-rows.tsx')).toContain('const LENGTHS = [15, 30, 45, 60, 90, 120];'); });
+});
+
+it('a meeting time typed wrong holds Confirm back, and says why (final review A3)', () => {
+  expect(timeProblem({})).toBeNull();
+  expect(timeProblem({ c4: '10:30', c5: '9.15' })).toBeNull();
+  expect(timeProblem({ c4: '25:00' })).toBe('Put the meeting time right first: enter it as HH:MM, e.g. 09:30.');
+  expect(timeProblem({ c4: '10:30', c5: 'ten' })).not.toBeNull();
+  // Emptied: the time it had would still be sent, so it holds Confirm back too.
+  expect(timeProblem({ c4: ' ' })).not.toBeNull();
 });
