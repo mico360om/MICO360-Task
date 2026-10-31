@@ -36,6 +36,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { font } from '../../lib/typography';
 import { Icon } from '../Icon';
 import type { IconName } from '../../lib/icons';
+import { MinutesClientSwitch } from '../client-share/MinutesClientSwitch';
 
 type NameOf = (userId: string) => string | null;
 
@@ -588,7 +589,20 @@ export interface MinutesActions {
 }
 
 /** The final minutes when they are final; otherwise how far they are (and, to their writer, what to do next). */
-export function MinutesRow({ minutes, timeZone, place, actions }: { minutes: ApiFinalMinutes; timeZone: string; place: RowPlace; actions?: MinutesActions }) {
+export function MinutesRow({
+  minutes,
+  timeZone,
+  place,
+  actions,
+  meetingId,
+}: {
+  minutes: ApiFinalMinutes;
+  timeZone: string;
+  place: RowPlace;
+  actions?: MinutesActions;
+  /** Given: final minutes of a project meeting offer "Show to client" (Stage 4). */
+  meetingId?: string;
+}) {
   const s = useDetailStyles();
   const note = finalMinutesNote(minutes);
   const content = minutes.content;
@@ -669,6 +683,7 @@ export function MinutesRow({ minutes, timeZone, place, actions }: { minutes: Api
             {minutes.canEdit && a.onReopen ? <Button title="Reopen" variant="ghost" onPress={a.onReopen} loading={a.reopening} style={s.more} /> : null}
           </View>
         ) : null}
+        {meetingId ? <MinutesClientSwitch meetingId={meetingId} minutes={minutes} /> : null}
       </View>
     </SectionRow>
   );

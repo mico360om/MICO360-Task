@@ -43,3 +43,9 @@ export function useTaskClientVisible(taskId: string) {
     },
   });
 }
+
+/** Whether a meeting's approved minutes are on the project's client page, and who may change it (the final minutes refresh it). */
+export function useMinutesClient(meetingId: string) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['meeting', meetingId, 'client-visibility'], queryFn: () => resources.clientShares.minutesVisibility(meetingId) });
+}

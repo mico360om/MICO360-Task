@@ -449,6 +449,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
             minutes={item.minutes}
             timeZone={timeZone}
             place={place}
+            meetingId={meetingId}
             actions={{
               onDraft: canEdit ? (source) => navigation.navigate('FinalMinutes', { meetingId, start: source }) : null,
               onContinue: canEdit ? () => navigation.navigate('FinalMinutes', { meetingId }) : null,

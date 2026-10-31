@@ -356,7 +356,8 @@ export function useFinalMinutesMutations(meetingId: string) {
   const settle = (next: ApiFinalMinutes) => {
     qc.setQueryData(key, next);
     // The lists' cards say how far the minutes are; the PDF and email open with final ones.
-    refresh(qc, [{ queryKey: ['meetings'], later: true }, { projectMeetingsOf: meetingId }]);
+    // Approved or reopened: whether the client sees them may have changed (reopening hides them — Stage 4).
+    refresh(qc, [{ queryKey: ['meetings'], later: true }, { projectMeetingsOf: meetingId }, { queryKey: ['meeting', meetingId, 'client-visibility'] }]);
   };
   /** A first draft to edit — by the AI (it may take up to three minutes) or from the notes. Not kept until saved. */
   const draft = useMutation({ mutationFn: (source: 'ai' | 'notes') => resources.meetings.draftFinalMinutes(meetingId, source) });
