@@ -76,4 +76,5 @@
 - In the Android app, the people who run a project can share it with a client (add, see when they last looked, Resend — which emails a new link, stops the old one and signs its devices out — and Remove); an archived project's sharing is read-only.
 - In the Android app, the people who run a project can show a task to its client (title, status and due date only); such tasks carry an eye mark on cards and in the project's task list.
 - In the Android app, approved minutes of a project meeting can be shown to the client — after a preview of exactly what the client will see, with risks and open issues left out unless ticked.
+- In the Android app, a task can carry an inspection form (and a place): it shows an Inspection mark on cards and rows, and its screen offers Start inspection, Continue inspection or View report.
 <!-- templates-client lines above this line -->

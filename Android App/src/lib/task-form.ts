@@ -20,6 +20,7 @@ import { dueDayKey } from './due-date';
 import { recurrenceSummary } from './recurrence-summary';
 import { APPROVAL_LOCKED } from './approvals';
 import { checklistRows, checklistTexts, type ChecklistRow } from './checklist-draft';
+import { INSPECTION_LIMITS } from './inspection-rules';
 import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule, type TaskTemplate } from './types';
 
 /** The website's limits for the title and description. */
@@ -88,11 +89,46 @@ export interface TaskDraft {
   checklistPending: string;
   /** Edit task only (4d): 'YYYY-MM-DD' (a company calendar day), or '' for none. New tasks start today (the server's). */
   startDate?: string;
+  /** The inspection form the task is carried out with (a check — Stage 4), or null; where it is done ('' none). */
+  inspectionFormId: string | null;
+  inspectionPlace: string;
 }
 
 /** A new task as it opens: in the project and column it was opened from, on the day chosen (the calendar's). */
 export function newTaskDraft(o: { projectId?: string; columnId?: string; dueDate?: string }): TaskDraft {
-  return { projectId: o.projectId ?? '', columnId: o.columnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: o.dueDate ?? '', rule: null, assigneeIds: [], milestone: false, needsApproval: false, checklist: [], checklistPending: '' };
+  return { projectId: o.projectId ?? '', columnId: o.columnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: o.dueDate ?? '', rule: null, assigneeIds: [], milestone: false, needsApproval: false, checklist: [], checklistPending: '', inspectionFormId: null, inspectionPlace: '' };
+}
+
+/** The most a check's place can hold (the server's INSPECTION_LIMITS.placeMax). */
+const PLACE_MAX = INSPECTION_LIMITS.placeMax;
+const PLACE_TOO_LONG = `A place can have at most ${PLACE_MAX} characters.`;
+
+/** A repeating task with an inspection form is a schedule: its checks are made on each date (the website's asCheck; the server does the same). */
+export function asCheck(d: TaskDraft): TaskDraft {
+  return d.inspectionFormId && d.rule && d.rule.createNext !== 'ON_SCHEDULE' ? { ...d, rule: { ...d.rule, createNext: 'ON_SCHEDULE' } } : d;
+}
+
+/** The "Inspection form" choice: No form, each form with its size, and a form the task still has that was deleted since. */
+export function inspectionFormOptions(
+  forms: ReadonlyArray<{ id: string; title: string; itemCount: number }>,
+  carried: { id: string; title: string; deleted: boolean } | null | undefined,
+): Array<{ value: string; label: string; hint?: string }> {
+  const opts: Array<{ value: string; label: string; hint?: string }> = [
+    { value: '', label: 'No form' },
+    ...forms.map((f) => ({ value: f.id, label: f.title, hint: `${f.itemCount} ${f.itemCount === 1 ? 'item' : 'items'}` })),
+  ];
+  if (carried && !forms.some((f) => f.id === carried.id)) opts.push({ value: carried.id, label: carried.deleted ? `${carried.title} (deleted)` : carried.title });
+  return opts;
+}
+
+/** Under the choice: what a form does to the task. */
+export function inspectionFormNote(chosen: boolean): string {
+  return chosen ? 'The task opens this checklist; finishing it completes the task.' : 'A check carried out with a checklist (optional).';
+}
+
+/** A check's place that is too long (only with a form: without one, no place is sent). */
+function placeProblem(d: TaskDraft): string | null {
+  return d.inspectionFormId && d.inspectionPlace.trim().length > PLACE_MAX ? PLACE_TOO_LONG : null;
 }
 
 // ── Where the task goes ──────────────────────────────────────────────────────
@@ -279,9 +315,12 @@ export interface NewTaskInput {
   needsApproval?: boolean;
   /** Its checklist's items, in order (e.g. from a task template), created with the task. */
   checklist?: string[];
+  /** A check (Stage 4): the inspection form it is carried out with, and where (only with a form). */
+  inspectionFormId?: string;
+  inspectionPlace?: string | null;
 }
 
-export type DraftCheck = { ok: true; input: NewTaskInput } | { ok: false; field: 'title' | 'repeat' | 'place'; message: string };
+export type DraftCheck = { ok: true; input: NewTaskInput } | { ok: false; field: 'title' | 'repeat' | 'place' | 'inspection'; message: string };
 
 export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?: string; project?: FormProject | null }): DraftCheck {
   const title = d.title.trim();
@@ -289,6 +328,8 @@ export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?:
   const until = untilProblem(d.rule, d.dueDate);
   if (until) return { ok: false, field: 'repeat', message: until };
   if (!d.projectId || !d.columnId) return { ok: false, field: 'place', message: o.noProjects ? 'Create a project first.' : 'Choose where the task goes: its project and column.' };
+  const place = placeProblem(d);
+  if (place) return { ok: false, field: 'inspection', message: place };
   const description = d.description.trim();
   const checklist = checklistTexts(d.checklist, d.checklistPending);
   return {
@@ -306,6 +347,7 @@ export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?:
       ...(o.boardDate ? { boardDate: o.boardDate } : {}),
       ...(d.needsApproval ? { needsApproval: true } : o.project?.newTasksNeedApproval ? { needsApproval: false } : {}),
       ...(checklist.length ? { checklist } : {}),
+      ...(d.inspectionFormId ? { inspectionFormId: d.inspectionFormId, inspectionPlace: d.inspectionPlace.trim() || null } : {}),
     },
   };
 }
@@ -471,6 +513,8 @@ export function editTaskDraft(task: ApiTask, assigneeIds: readonly string[], tim
     needsApproval: !!task.needsApproval,
     checklist: [],
     checklistPending: '',
+    inspectionFormId: task.inspectionFormId ?? null,
+    inspectionPlace: task.inspectionPlace ?? '',
   };
 }
 
@@ -490,12 +534,14 @@ export function editStartProblem(d: TaskDraft, saved: TaskDraft): string | null 
 }
 
 /** The Edit form's checks before Save changes (`saved`: the task as the form has it saved). */
-export function checkEditTask(d: TaskDraft, saved: TaskDraft): { ok: true } | { ok: false; field: 'title' | 'repeat' | 'start'; message: string } {
+export function checkEditTask(d: TaskDraft, saved: TaskDraft): { ok: true } | { ok: false; field: 'title' | 'repeat' | 'start' | 'inspection'; message: string } {
   if (!d.title.trim()) return { ok: false, field: 'title', message: 'Give the task a title.' };
   const until = untilProblem(d.rule, d.dueDate);
   if (until) return { ok: false, field: 'repeat', message: until };
   const start = editStartProblem(d, saved);
   if (start) return { ok: false, field: 'start', message: start };
+  const place = placeProblem(d);
+  if (place) return { ok: false, field: 'inspection', message: place };
   return { ok: true };
 }
 
@@ -573,6 +619,10 @@ export async function saveTaskEdit(deps: EditDeps, draft: TaskDraft, saved: Task
     // unticking a waiting task and moving it elsewhere moves it — it isn't completed first).
     const moveWithTick = tickChanged && draft.columnId !== done.columnId;
     if (moveWithTick) fields.columnId = draft.columnId;
+    // A check's form, and its place: without a form there is no place; with one, the place as typed (blank: none).
+    if ((draft.inspectionFormId ?? null) !== (done.inspectionFormId ?? null)) fields.inspectionFormId = draft.inspectionFormId ?? null;
+    const placeNow = draft.inspectionFormId ? draft.inspectionPlace.trim() || null : null;
+    if (placeNow !== (done.inspectionPlace.trim() || null)) fields.inspectionPlace = placeNow;
     const ruleChanged = o.canRepeat && !sameRule(draft.rule, done.rule);
     if (ruleChanged && !o.series) fields.recurrenceRule = draft.rule;
     if (Object.keys(fields).length) {
@@ -586,6 +636,8 @@ export async function saveTaskEdit(deps: EditDeps, draft: TaskDraft, saved: Task
           startDate: draft.startDate,
           milestone: draft.milestone,
           needsApproval: draft.needsApproval,
+          inspectionFormId: draft.inspectionFormId,
+          inspectionPlace: draft.inspectionPlace,
           ...(moveWithTick ? { columnId: draft.columnId } : {}),
           ...(ruleChanged && !o.series ? { rule: draft.rule } : {}),
         });

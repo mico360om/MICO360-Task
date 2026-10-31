@@ -21,6 +21,9 @@ import { DescribeTask } from '../components/task-form/DescribeTask';
 import { ChecklistField } from '../components/task-form/ChecklistField';
 import { TemplatePicker } from '../components/task-form/TemplatePicker';
 import { useTaskTemplates } from '../core/template-queries';
+import { useInspectionForms } from '../core/inspection-queries';
+import { INSPECTION_LIMITS } from '../lib/inspection-rules';
+import { TASK_CHECK_WORDS } from '../lib/task-checks';
 import { defaultDueDay, defaultDueNote } from '../lib/default-due';
 import { AssigneeField } from '../components/task-form/AssigneeField';
 import { DueDateField } from '../components/task-form/DueDateField';
@@ -44,6 +47,9 @@ import {
   approvalAfterProjectChange,
   approvalTickFor,
   applyTemplate,
+  asCheck,
+  inspectionFormNote,
+  inspectionFormOptions,
   templateFilledText,
   usableTemplates,
   createdWithoutFilesText,
@@ -132,6 +138,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const [titleError, setTitleError] = useState<string | null>(null);
   const [repeatError, setRepeatError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [placeError, setPlaceError] = useState<string | null>(null);
   // A repeating task's changes: to this task, or the entire series (the website asks the same).
   const [scope, setScope] = useState<'one' | 'series'>('one');
   const [banner, setBanner] = useState<string | null>(null);
@@ -159,14 +166,15 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   };
   const frozen = locked || !!created || saving;
 
+  // A repeating check (a task with an inspection form) makes its checks on schedule (the website's asCheck).
   const set = (patch: Partial<TaskDraft>) => {
     if (frozen) return;
-    setDraft((d) => ({ ...d, ...patch }));
+    setDraft((d) => asCheck({ ...d, ...patch }));
   };
   /** A value the form fills in itself (a default, data that loaded) — not a change of yours. */
   const settle = (patch: Partial<TaskDraft>) => {
-    setSaved((x) => ({ ...x, ...patch }));
-    setDraft((d) => ({ ...d, ...patch }));
+    setSaved((x) => asCheck({ ...x, ...patch }));
+    setDraft((d) => asCheck({ ...d, ...patch }));
   };
 
   // ── Where the task goes ──
@@ -212,6 +220,9 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
   // ── Start from a task template (new tasks): it fills in the title, description, priority and checklist ──
   const templatesQ = useTaskTemplates(!editing);
+  // The inspection forms a task can be carried out with (a check — Stage 4).
+  const formsQ = useInspectionForms();
+  const forms = useMemo(() => (Array.isArray(formsQ.data?.forms) ? formsQ.data.forms : []), [formsQ.data]);
   const templates = useMemo(() => usableTemplates(templatesQ.data), [templatesQ.data]);
   const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
   const pickTemplate = (t: TaskTemplate) => {
@@ -389,6 +400,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         setTitleError(check.message);
         titleRef.current?.focus();
       } else if (check.field === 'repeat') showRepeatProblem(check.message);
+      else if (check.field === 'inspection') setPlaceError(check.message);
       else setStartError(check.message);
       return;
     }
@@ -426,6 +438,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         setTitleError(check.message);
         titleRef.current?.focus();
       } else if (check.field === 'repeat') showRepeatProblem(check.message);
+      else if (check.field === 'inspection') setPlaceError(check.message);
       else setBanner(check.message);
       return;
     }
@@ -644,6 +657,36 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         />
         {!editing ? <ChecklistField rows={draft.checklist} pending={draft.checklistPending} onChange={(next) => set({ checklist: next.rows, checklistPending: next.pending })} disabled={frozen} /> : null}
 
+        {/* A check (Stage 4): the inspection form it is carried out with — anyone who can create or edit the task may set it. */}
+        <View>
+          <InlinePicker
+            label={`${TASK_CHECK_WORDS.formLabel} (optional)`}
+            options={inspectionFormOptions(forms, editTask?.inspectionForm)}
+            value={draft.inspectionFormId ?? ''}
+            onChange={(v) => {
+              set({ inspectionFormId: v || null });
+              setPlaceError(null);
+            }}
+            placeholder={formsQ.isLoading ? 'Loading…' : TASK_CHECK_WORDS.noForm}
+            disabled={frozen}
+          />
+          <Text style={s.hint}>{inspectionFormNote(!!draft.inspectionFormId)}</Text>
+        </View>
+        {draft.inspectionFormId ? (
+          <TextField
+            label={TASK_CHECK_WORDS.place}
+            value={draft.inspectionPlace}
+            onChangeText={(inspectionPlace) => {
+              set({ inspectionPlace });
+              setPlaceError(null);
+            }}
+            maxLength={INSPECTION_LIMITS.placeMax}
+            placeholder={TASK_CHECK_WORDS.placeExample}
+            error={placeError}
+            editable={!frozen}
+          />
+        ) : null}
+
         <ChipChoice<Priority> label="Priority" options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} value={draft.priority} onChange={(priority) => set({ priority })} disabled={frozen} />
         <DueDateField
           value={draft.dueDate}
@@ -688,6 +731,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           ) : null}
           {!canRepeat ? <Text style={s.hint}>{EDIT_TEXT.noRepeatHere}</Text> : null}
           {canRepeat ? <RecurrenceEditor
+            kind={draft.inspectionFormId ? 'check' : 'task'}
+            allowNone
             value={draft.rule}
             onChange={(rule) => {
               set({ rule });

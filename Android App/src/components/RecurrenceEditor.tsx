@@ -34,6 +34,7 @@ export function RecurrenceEditor({
   untilRef,
   hideFrequency = false,
   endsOnly = false,
+  allowNone = false,
 }: {
   value: RecurrenceRule | null;
   onChange: (rule: RecurrenceRule | null) => void;
@@ -47,6 +48,8 @@ export function RecurrenceEditor({
   hideFrequency?: boolean;
   /** Only how the repeat ends (a preset chose the rest). */
   endsOnly?: boolean;
+  /** A check that may also not repeat (a task with an inspection form — Stage 4): "No repeat" stays offered. */
+  allowNone?: boolean;
 }) {
   const meeting = kind === 'meeting';
   const check = kind === 'check';
@@ -108,7 +111,7 @@ export function RecurrenceEditor({
     <View style={styles.wrap}>
       {hideFrequency || endsOnly ? null : (
         <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Repeat">
-          {check ? null : chip('NONE', 'No repeat', !rule, () => pick(pickFreq(rule, 'NONE')), 'Does not repeat')}
+          {check && !allowNone ? null : chip('NONE', 'No repeat', !rule, () => pick(pickFreq(rule, 'NONE')), 'Does not repeat')}
           {FREQS.map((f) => chip(f, FREQ_LABEL[f], rule?.freq === f, () => pick(pickFreq(rule, f)), `Repeat ${FREQ_LABEL[f].toLowerCase()}`))}
         </View>
       )}

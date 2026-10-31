@@ -53,7 +53,27 @@ describe('Edit task (4d): New task’s form with what the task holds, as the web
       needsApproval: false,
       checklist: [],
       checklistPending: '',
+      inspectionFormId: null,
+      inspectionPlace: '',
     });
+  });
+
+  it('a check opens with its form and place, and an edit sends them only when they change (Stage 4)', async () => {
+    const check = editTaskDraft(task({ inspectionFormId: 'f1', inspectionPlace: 'Rig 3' }), [], TZ);
+    expect(check).toMatchObject({ inspectionFormId: 'f1', inspectionPlace: 'Rig 3' });
+    const place = deps();
+    await saveTaskEdit(place.d, { ...check, inspectionPlace: ' Rig 4 ' }, check, { series: false, canRepeat: true });
+    expect(place.calls).toEqual([['update', { inspectionPlace: 'Rig 4' }]]);
+    const off = deps();
+    await saveTaskEdit(off.d, { ...check, inspectionFormId: null }, check, { series: false, canRepeat: true });
+    expect(off.calls).toEqual([['update', { inspectionFormId: null, inspectionPlace: null }]]);
+    const on = deps();
+    await saveTaskEdit(on.d, { ...opened, inspectionFormId: 'f2' }, opened, { series: false, canRepeat: true });
+    expect(on.calls).toEqual([['update', { inspectionFormId: 'f2' }]]);
+    const same = deps();
+    await saveTaskEdit(same.d, { ...check }, check, { series: false, canRepeat: true });
+    expect(same.calls).toEqual([]);
+    expect(checkEditTask({ ...check, inspectionPlace: 'x'.repeat(201) }, check)).toEqual({ ok: false, field: 'inspection', message: 'A place can have at most 200 characters.' });
   });
 
   it('checks the title, the repeat’s end and that the start is on or before the due date (the server’s words)', () => {

@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { Icon } from '../Icon';
-import { ApprovalChip, Avatar, PriorityBadge, ProgressBar } from '../ui';
+import { ApprovalChip, Avatar, InspectionChip, PriorityBadge, ProgressBar } from '../ui';
 import { STATUS_NAME } from '../../lib/all-board';
 import { dueLabel, myTaskLabel, selectTaskLabel, type MyTaskRow } from '../../lib/my-tasks';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
@@ -54,6 +54,8 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
             <View style={[s.dot, { backgroundColor: categoryColorOf(c, row.cat) }]} />
             <Text style={s.statusText}>{STATUS_NAME[row.cat as ColumnCategory] ?? row.cat}</Text>
           </View>
+          {/* A check (a task carried out with an inspection form — Stage 4), as the website's My Tasks row. */}
+          {row.inspection ? <InspectionChip /> : null}
         </View>
         <Text style={[s.title, row.done && s.titleDone]} numberOfLines={2} importantForAccessibility="no">
           {t.title}

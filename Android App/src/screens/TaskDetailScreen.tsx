@@ -57,6 +57,7 @@ import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
 import { SaveTaskTemplateSheet } from '../components/templates/SaveTaskTemplateSheet';
 import { TaskClientCard } from '../components/client-share/TaskClientCard';
+import { TaskInspectionsCard } from '../components/inspections/TaskInspectionsCard';
 import { withTaskCards, type TaskPart } from '../lib/task-cards';
 import { DetailsCard, type TaskPatch } from '../components/task-detail/DetailsCard';
 import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '../components/task-detail/WorkCards';
@@ -391,10 +392,12 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   // Where each part goes: the website's order on a phone and beside the work on a wide screen.
   // Stage 4: Client view (whoever runs the project) where the website puts it (lib/task-cards).
   const runsProject = canDeleteTask(user, project, members);
-  const layout = withTaskCards(taskSections({ wide, waiting: isWaitingForApproval(task), approval: true }), { client: runsProject });
+  // A check (it carries a form) opens on its inspection; any other task's inspections sit with its details.
+  const layout = withTaskCards(taskSections({ wide, waiting: isWaitingForApproval(task), approval: true }), { client: runsProject, inspections: task.inspectionFormId ? 'check' : 'other' });
   const part: Record<TaskPart, React.ReactNode> = {
     approval: <TaskApproval task={task} />,
     client: <TaskClientCard task={task} canChange={canDeleteTask(user, project, members)} />,
+    inspections: <TaskInspectionsCard task={task} project={project} />,
     description,
     details,
     checklist: checklistCard,

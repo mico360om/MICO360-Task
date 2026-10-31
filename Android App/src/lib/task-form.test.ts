@@ -33,6 +33,9 @@ import {
   approvalAfterProjectChange,
   approvalTickFor,
   applyTemplate,
+  asCheck,
+  inspectionFormOptions,
+  inspectionFormNote,
   templateFilledText,
   templateHint,
   usableTemplates,
@@ -154,6 +157,8 @@ describe('checking and sending a new task', () => {
       needsApproval: false,
       checklist: [],
       checklistPending: '',
+      inspectionFormId: null,
+      inspectionPlace: '',
     });
   });
 
@@ -680,5 +685,35 @@ describe.skipIf(!hasWeb('frontend/src/components/task-form/TaskFormDialog.tsx'))
   it('label, placeholder, status line', () => {
     const w = readWeb('frontend/src/components/task-form/TaskFormDialog.tsx');
     for (const t of [TEMPLATE_TEXT.label, TEMPLATE_TEXT.placeholder, '— change anything before saving.', 'Filled in from “', ' checklist item']) expect(w, t).toContain(t);
+  });
+});
+
+describe('a check: the inspection form and its place in New and Edit task (Stage 4 Task 20)', () => {
+  it('New task sends the form and its place only with a form', () => {
+    const d = { ...newTaskDraft({ projectId: 'pr1', columnId: 'c1' }), title: 'Rig check', checklist: [] };
+    expect(d).toMatchObject({ inspectionFormId: null, inspectionPlace: '' });
+    expect(checkNewTask(d, { noProjects: false })).toMatchObject({ ok: true, input: expect.not.objectContaining({ inspectionFormId: expect.anything() }) });
+    expect(checkNewTask(d, { noProjects: false })).toMatchObject({ ok: true, input: expect.not.objectContaining({ inspectionPlace: expect.anything() }) });
+    expect(checkNewTask({ ...d, inspectionFormId: 'f1', inspectionPlace: ' Rig 3 ' }, { noProjects: false })).toMatchObject({ ok: true, input: { inspectionFormId: 'f1', inspectionPlace: 'Rig 3' } });
+    expect(checkNewTask({ ...d, inspectionFormId: 'f1', inspectionPlace: '  ' }, { noProjects: false })).toMatchObject({ ok: true, input: { inspectionFormId: 'f1', inspectionPlace: null } });
+    expect(checkNewTask({ ...d, inspectionFormId: 'f1', inspectionPlace: 'x'.repeat(201) }, { noProjects: false })).toEqual({ ok: false, field: 'inspection', message: 'A place can have at most 200 characters.' });
+    // No form: a place left from before isn't checked or sent.
+    expect(checkNewTask({ ...d, inspectionPlace: 'x'.repeat(201) }, { noProjects: false })).toMatchObject({ ok: true });
+  });
+
+  it('a repeating check makes its copies on schedule, as the website’s form (and the server) do', () => {
+    const d = { ...newTaskDraft({}), rule: { freq: 'WEEKLY' as const, interval: 1, weekdays: [0] } };
+    expect(asCheck({ ...d, inspectionFormId: 'f1' }).rule).toMatchObject({ createNext: 'ON_SCHEDULE' });
+    expect(asCheck(d).rule).not.toHaveProperty('createNext');
+    expect(asCheck({ ...d, rule: null, inspectionFormId: 'f1' }).rule).toBeNull();
+  });
+
+  it('the choice: No form, each form with its size, and a deleted form the task still has', () => {
+    const forms = [{ id: 'f1', title: 'Rig check', itemCount: 12 }, { id: 'f2', title: 'Fire drill', itemCount: 1 }];
+    expect(inspectionFormOptions(forms, null)).toEqual([{ value: '', label: 'No form' }, { value: 'f1', label: 'Rig check', hint: '12 items' }, { value: 'f2', label: 'Fire drill', hint: '1 item' }]);
+    expect(inspectionFormOptions(forms, { id: 'f9', title: 'Old check', deleted: true }).at(-1)).toEqual({ value: 'f9', label: 'Old check (deleted)' });
+    expect(inspectionFormOptions(forms, { id: 'f1', title: 'Rig check', deleted: false })).toHaveLength(3);
+    expect(inspectionFormNote(true)).toBe('The task opens this checklist; finishing it completes the task.');
+    expect(inspectionFormNote(false)).toBe('A check carried out with a checklist (optional).');
   });
 });

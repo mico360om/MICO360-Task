@@ -89,6 +89,8 @@ export interface MyTaskRow {
   /** The due day, short ("20 Oct", as the website's My Tasks); '' with none. */
   dueLabel: string;
   project: ApiProject | null;
+  /** Carried out with an inspection form (a check — Stage 4): the "Inspection" mark. */
+  inspection: boolean;
 }
 
 const P_RANK: Record<Priority, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
@@ -114,6 +116,7 @@ export function enrichMyTasks(tasks: readonly ApiTask[], projects: readonly ApiP
       dueKey,
       dueLabel: dueKey ? dayText(dueKey, { year: false }) : '',
       project: byId.get(task.projectId) ?? null,
+      inspection: !!task.inspectionFormId,
     };
   });
 }
@@ -249,6 +252,7 @@ export function myTaskLabel(r: MyTaskRow): string {
     `${STATUS_NAME[r.cat as ColumnCategory] ?? r.cat}.`,
     `${PRIORITY_WORD[r.task.priority] ?? r.task.priority} priority.`,
     r.waiting ? `${DECISION_WORDS.waiting}.` : null,
+    r.inspection ? 'Carried out with an inspection form.' : null,
     `${dueLabel(r)}.`,
     r.done ? 'Done.' : `${r.task.progress}% done.`,
     people.length ? `${people.join(', ')}.` : null,

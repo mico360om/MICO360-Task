@@ -93,6 +93,8 @@ export interface ApiTask {
   inspectionFormId?: string | null;
   /** Where the check is done ("Rig 3"). */
   inspectionPlace?: string | null;
+  /** The form a check carries, as GET /tasks/:id names it (still there when the form was deleted since — Stage 4). */
+  inspectionForm?: { id: string; title: string; deleted: boolean } | null;
 }
 
 /** A person named on a task's approval (the website's api/tasks.ts). */
