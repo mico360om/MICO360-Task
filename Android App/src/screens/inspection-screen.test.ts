@@ -46,3 +46,22 @@ it('reads the inspection without an offline copy of its own (the outbox’s reco
   expect(q).toMatch(/queryKey: \['inspection', id\]/);
   expect(q).toMatch(/retry: \(n, e\) => !isNetworkError\(e\) && n < 1/);
 });
+
+it('the pad draws with react-native-svg and PanResponder, keeps the page still while signing, and exports without the guide', () => {
+  const p = src('components/inspections/SignaturePad.tsx');
+  for (const m of ['PanResponder.create(', 'onPanResponderTerminationRequest: () => false', 'toDataURL(', 'pngDataUrl(', 'SIGNATURE_COLORS.paper', 'exportSize(']) expect(p, m).toContain(m);
+  expect(src('components/inspections/SignFinishSheet.tsx')).toContain('scrollEnabled={!signing}');
+  expect(src('components/inspections/SignFinishSheet.tsx')).toMatch(/signatureInputs\(/);
+});
+
+it('signing queues the finish on the phone, then sends', () => expect(s()).toMatch(/outbox\.queueFinish\(ownerId, inspectionId, [^)]+\)[^]*await send\(\)/));
+
+it('a finish that went through offers to mark its task done, once', () => {
+  expect(s()).toMatch(/view\.finishedOffer/);
+  expect(s()).toMatch(/Alert\.alert\(INSPECTION_WORDS\.markDoneTitle/);
+  expect(s()).toMatch(/resources\.tasks\.move\(offer\.id, offer\.doneColumnId\)/);
+  expect(s()).toMatch(/approvalNotice\(offer\.doneColumnId, moved\) \?\? INSPECTION_WORDS\.markedDone/);
+  expect(s()).toMatch(/ackFinished\(ownerId, inspectionId\)/);
+});
+
+it('the signed card can take the signatures back', () => expect(src('components/inspections/FinishCard.tsx')).toMatch(/INSPECTION_WORDS\.takeBack/));

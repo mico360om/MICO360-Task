@@ -202,6 +202,13 @@ export function resolveColors(scheme: 'light' | 'dark' | null | undefined): Pale
 /** Default (light) palette — kept for pure modules and the theme default. */
 export const colors = lightColors;
 
+/**
+ * The signature pad's paper, ink, guide line and hint (Stage 4) — the website's `INK`, `PAPER`,
+ * pad `GUIDE` and "Sign here" colour. The paper is white in both themes (a signature is drawn and
+ * stored on white), so these are not themed.
+ */
+export const SIGNATURE_COLORS = { ink: '#1C1A17', paper: '#FFFFFF', guide: '#C9C3BF', hint: '#8A817C' } as const;
+
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 /** The website's radii, by what the element is: rounded-md 6 badges, rounded-lg 8 fields, rounded-xl 14 buttons, rounded-2xl 18 cards, rounded-3xl 24 sheets. */
 export const radius = { badge: 6, input: 8, button: 14, card: 18, sheet: 24, pill: 999 } as const;

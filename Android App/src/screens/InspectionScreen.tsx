@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Alert, RefreshControl, StyleSheet, Text, View, type ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../core/theme';
+import { useServices } from '../core/providers';
 import { useInspectionDraft } from '../core/inspection-sync';
 import { useInspection } from '../core/inspection-queries';
 import { usePullRefresh } from '../components/meeting/live';
@@ -10,13 +11,17 @@ import { Badge, Button, Card, IconButton, SectionTitle, SkeletonList } from '../
 import { InspectionItemRow, type ItemAnswer } from '../components/inspections/InspectionItemRow';
 import { ProgressCard } from '../components/inspections/ProgressCard';
 import { SyncBanner } from '../components/inspections/SyncBanner';
+import { FinishCard } from '../components/inspections/FinishCard';
+import { SignFinishSheet } from '../components/inspections/SignFinishSheet';
+import { EarlierRevisionsCard, SignaturesCard } from '../components/inspections/SignaturesCard';
 import { ApiError, isNetworkError } from '../lib/api-client';
+import { approvalNotice } from '../lib/approvals';
 import { instantDayText } from '../lib/day-words';
 import { appTimeZone } from '../lib/due-date';
 import { detailView, type DraftView, type FlushState, type InspectionOutbox } from '../lib/inspection-outbox';
 import type { SyncState } from '../lib/inspection-outboxes';
-import type { InspectionDetail } from '../lib/inspection-types';
-import { INSPECTION_WORDS, inspectionChangeNote, problemText, startedLine } from '../lib/inspection-words';
+import type { InspectionDetail, SignatureInput } from '../lib/inspection-types';
+import { INSPECTION_WORDS, finishedNotice, inspectionChangeNote, problemText, startedLine } from '../lib/inspection-words';
 import { radius, spacing } from '../lib/theme';
 import { toneStyle, type Tone } from '../lib/tone';
 import { typeStyle } from '../lib/typography';
@@ -37,6 +42,7 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
   const q = useInspection(inspectionId);
   const pull = usePullRefresh(q.refetch);
   const [changeNote, setChangeNote] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   // The server's copy is kept on this phone (so it opens with no signal), under any changes waiting
   // here; a change someone else made since (taken over, reopened) is said once.
@@ -92,6 +98,7 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
   return (
     <SafeAreaView edges={['bottom']} style={[s.fill, { backgroundColor: c.ground }]}>
       <KeyboardAwareScrollView
+        ref={scrollRef}
         contentContainerStyle={s.page}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} colors={[c.brandText]} tintColor={c.brandText} />}
@@ -111,6 +118,7 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
           changeNote={changeNote}
           onDismissChange={() => setChangeNote(null)}
           navigation={navigation}
+          scrollRef={scrollRef}
         />
       </KeyboardAwareScrollView>
     </SafeAreaView>
@@ -144,6 +152,7 @@ function InspectionContent({
   changeNote,
   onDismissChange,
   navigation,
+  scrollRef,
 }: {
   /** What the screen shows: the record on this phone, or the inspection as read. */
   view: DraftView;
@@ -161,11 +170,17 @@ function InspectionContent({
   changeNote: string | null;
   onDismissChange: () => void;
   navigation: Nav;
+  scrollRef: React.RefObject<ScrollView>;
 }) {
   const c = useColors();
+  const { resources, queryClient: qc } = useServices();
   const timeZone = appTimeZone();
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [signing, setSigning] = useState(false);
+  const rows = useRef(new Map<string, View>());
+  /** What a finish just said (a completed check), so the send's own notice doesn't hide it. */
+  const completedNote = useRef<string | null>(null);
   const d = view.snapshot;
   const p = d.permissions;
   const finished = view.status === 'FINISHED';
@@ -186,6 +201,79 @@ function InspectionContent({
     }
   };
   const openTask = (taskId: string, taskTitle?: string) => navigation.navigate('TaskDetail', { taskId, title: taskTitle });
+  const refreshTask = useRef((taskId: string) => {
+    void qc.invalidateQueries({ queryKey: ['task', taskId] });
+    void qc.invalidateQueries({ queryKey: ['tasks'] });
+    void qc.invalidateQueries({ queryKey: ['task-inspections'] });
+  }).current;
+
+  // A finish (now, or sent later from this phone) that completed its check, or made it wait for
+  // approval, says so once.
+  const completed = view.finishedCompleted;
+  const waitingTask = view.finishedWaiting;
+  useEffect(() => {
+    const task = completed ?? waitingTask;
+    if (!task || !outbox || !ownerId) return;
+    completedNote.current = finishedNotice({ taskCompleted: completed, taskWaiting: completed ? null : waitingTask });
+    setNotice(completedNote.current);
+    outbox.ackFinished(ownerId, inspectionId);
+    refreshTask(task.id);
+  }, [completed, waitingTask, outbox, ownerId, inspectionId, refreshTask]);
+
+  // A finish sent from here that went through offers to mark its task done (until answered).
+  const offer = view.finishedOffer;
+  const offered = useRef<string | null>(null);
+  useEffect(() => {
+    if (!offer || !outbox || !ownerId || offered.current === offer.id) return;
+    offered.current = offer.id;
+    const ack = () => outbox.ackFinished(ownerId, inspectionId);
+    Alert.alert(INSPECTION_WORDS.markDoneTitle.replace('{key}', offer.key), INSPECTION_WORDS.markDoneBody.replace('{title}', offer.title), [
+      { text: INSPECTION_WORDS.notNow, style: 'cancel', onPress: ack },
+      {
+        text: INSPECTION_WORDS.markDone,
+        onPress: async () => {
+          try {
+            const moved = await resources.tasks.move(offer.id, offer.doneColumnId);
+            ack();
+            // A task that needs approval waits for a project manager instead of being done.
+            setNotice(approvalNotice(offer.doneColumnId, moved) ?? INSPECTION_WORDS.markedDone);
+            refreshTask(offer.id);
+          } catch (e) {
+            offered.current = null;
+            setProblem(problemText(e, INSPECTION_WORDS.markDoneFailed));
+          }
+        },
+      },
+    ]);
+  }, [offer, outbox, ownerId, inspectionId, resources, refreshTask]);
+
+  const sign = async (signatures: SignatureInput[]) => {
+    if (!outbox || !ownerId) return;
+    outbox.queueFinish(ownerId, inspectionId, signatures);
+    setSigning(false);
+    const state = await send();
+    if (state === 'sent') {
+      const after = outbox.view(ownerId, inspectionId);
+      setNotice(
+        after?.finishedCompleted || after?.finishedWaiting
+          ? finishedNotice({ taskCompleted: after.finishedCompleted, taskWaiting: after.finishedWaiting })
+          : (completedNote.current ?? finishedNotice({ taskCompleted: null, taskWaiting: null })),
+      );
+    } else if (state === 'offline' || state === 'signed-out' || state === 'retry') setNotice(INSPECTION_WORDS.signedOffline);
+  };
+
+  /** Scrolls to an item still to answer. */
+  const jumpTo = (itemId: string) => {
+    const row = rows.current.get(itemId);
+    const list = scrollRef.current;
+    const inner = list?.getInnerViewNode?.();
+    if (!row || !list || !inner) return;
+    row.measureLayout(
+      inner,
+      (_x, y) => list.scrollTo({ y: Math.max(0, y - spacing.lg), animated: true }),
+      () => undefined,
+    );
+  };
   const outcome = finished ? { label: d.result, tone: (view.counts.failed > 0 ? 'danger' : 'success') as Tone } : { label: INSPECTION_WORDS.inProgress, tone: 'info' as Tone };
 
   return (
@@ -251,8 +339,15 @@ function InspectionContent({
           {section.items.map((item) => {
             number += 1;
             return (
-              <InspectionItemRow
+              <View
                 key={item.id}
+                ref={(node) => {
+                  if (node) rows.current.set(item.id, node);
+                  else rows.current.delete(item.id);
+                }}
+                collapsable={false}
+              >
+              <InspectionItemRow
                 item={item}
                 number={number}
                 answer={answers.get(item.id)}
@@ -262,10 +357,28 @@ function InspectionContent({
                 canMakeFollowUp={false}
                 onOpenTask={(taskId) => openTask(taskId)}
               />
+              </View>
             );
           })}
         </Card>
       ))}
+
+      {!finished && p.canFinish && record ? (
+        <FinishCard view={view} canAnswer={canAnswer} onSign={() => setSigning(true)} onTakeBack={() => outbox && ownerId && outbox.cancelFinish(ownerId, inspectionId)} onJump={jumpTo} />
+      ) : null}
+      {finished ? <SignaturesCard detail={d} timeZone={timeZone} /> : null}
+      <EarlierRevisionsCard detail={d} timeZone={timeZone} />
+
+      {signing ? (
+        <SignFinishSheet
+          visible
+          roles={d.signatureRoles}
+          inspectorName={d.inspector.name}
+          online={online && sync !== 'offline'}
+          onCancel={() => setSigning(false)}
+          onSign={(sigs) => void sign(sigs)}
+        />
+      ) : null}
     </View>
   );
 }
