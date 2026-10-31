@@ -68,7 +68,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const { refetch: refetchMeetings } = meetingsQ;
   const pull = usePullRefresh(useCallback(() => refetchMeetings(), [refetchMeetings]));
 
-  const projects = useMemo(() => [...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [projectsQ.data]);
+  const projects = useMemo(() => [...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'en')), [projectsQ.data]);
   const ctx: ListContext = useMemo(() => {
     const projectNames = new Map(projects.map((p) => [p.id, p.name]));
     const people = new Map((dirQ.data ?? []).map((u) => [u.id, displayName(u)]));

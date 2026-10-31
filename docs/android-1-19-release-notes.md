@@ -78,3 +78,7 @@
 - In the Android app, approved minutes of a project meeting can be shown to the client — after a preview of exactly what the client will see, with risks and open issues left out unless ticked.
 - In the Android app, a task can carry an inspection form (and a place): it shows an Inspection mark on cards and rows, and its screen offers Start inspection, Continue inspection or View report.
 <!-- templates-client lines above this line -->
+
+## Final pass
+- In the Android app, search, filters and sorted lists work the same whatever language the phone is set to: on a phone in Turkish, "site" finds "SITE WALK" again, names sort in English order and a role typed in capitals is the same role.
+<!-- final-pass lines above this line -->

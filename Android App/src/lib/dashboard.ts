@@ -163,7 +163,7 @@ export interface DueSoonRow {
 export function dueSoonRows(tasks: readonly ApiTask[], now: Date, timeZone: string): DueSoonRow[] {
   return tasks
     .filter((t) => t.dueDate && !isTaskDone(t))
-    .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+    .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '', 'en'))
     .slice(0, 6)
     .map((task) => {
       const meta = dueMeta(task.dueDate!, now, timeZone);

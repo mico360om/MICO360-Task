@@ -110,7 +110,7 @@ export function projectInitials(name: string): string {
   const words = letters.length ? letters : numberWords(name);
   if (words.length === 0) return '?';
   const pick = words.length > 1 ? `${[...words[0]!][0]}${[...words[1]!][0]}` : [...words[0]!].slice(0, 2).join('');
-  return pick.toLocaleUpperCase();
+  return pick.toUpperCase();
 }
 
 /** Why a code can't be used (null when it can), in the website's words. */

@@ -99,7 +99,7 @@ export function chatGroups(chats: MicoAiChat[], now: Date, timeZone: string): Ch
     { label: 'Previous 7 days', chats: [] },
     { label: 'Older', chats: [] },
   ];
-  const sorted = [...chats].sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+  const sorted = [...chats].sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt, 'en'));
   for (const c of sorted) {
     const day = zonedDayKey(new Date(c.lastMessageAt), timeZone);
     const g = day >= today ? 0 : day === yesterday ? 1 : day >= weekAgo ? 2 : 3;

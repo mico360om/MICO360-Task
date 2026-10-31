@@ -58,7 +58,7 @@ export function invitableOptions(directory: ApiDirectoryUser[], organizerId: str
   return directory
     .filter((u) => u.id !== organizerId && u.active !== false && !chosen.has(`u:${u.id}`))
     .map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => a.label.localeCompare(b.label, 'en'));
 }
 
 export function addTeamMember(people: MeetingPerson[], directory: ApiDirectoryUser[], id: string): MeetingPerson[] {

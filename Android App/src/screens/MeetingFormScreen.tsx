@@ -275,7 +275,7 @@ function MeetingForm({ meeting, projectId, navigation }: { meeting: ApiMeeting |
   const projects = useMemo(
     () => [
       { value: '', label: 'No project (standalone)' },
-      ...[...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ value: p.id, label: p.name, hint: p.code })),
+      ...[...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'en')).map((p) => ({ value: p.id, label: p.name, hint: p.code })),
     ],
     [projectsQ.data],
   );

@@ -68,7 +68,13 @@ describe.skipIf(!hasWeb('frontend/src/api/templates.ts', 'frontend/src/component
     expect(PROJECT_TEMPLATES_KEY).toEqual(keys.PROJECT_TEMPLATES_KEY);
     expect(TASK_TEMPLATES_KEY).toEqual(keys.TASK_TEMPLATES_KEY);
   });
-  it('role-counts.ts is the website’s file', () => expect(normalise(src('lib/role-counts.ts'))).toBe(normalise(readWeb('frontend/src/components/templates/role-counts.ts'))));
+  // One edit (final pass, item 1): a role's name is lower-cased in English, not in the phone's language.
+  it('role-counts.ts is the website’s file, lower-casing in English', () => {
+    const web = normalise(readWeb('frontend/src/components/templates/role-counts.ts'));
+    const keyOf = 'const keyOf = (name: string) => name.trim().toLocaleLowerCase();';
+    expect(web.split(keyOf)).toHaveLength(2);
+    expect(normalise(src('lib/role-counts.ts'))).toBe(web.replace(keyOf, 'const keyOf = (name: string) => name.trim().toLowerCase();'));
+  });
   it('every word is the website’s', () => {
     const web = ['components/templates/TemplateStart.tsx', 'components/templates/SaveAsTemplate.tsx', 'components/project-form/ProjectFormDialog.tsx', 'components/task-drawer/menus.tsx', 'pages/ProjectDetailPage.tsx'].map((f) => readWeb(`frontend/src/${f}`));
     // websiteSays reads the text between tags; a word in an attribute (aria-label, title) is read as written.

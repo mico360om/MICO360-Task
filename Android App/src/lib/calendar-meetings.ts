@@ -53,12 +53,12 @@ export function meetingItems(meetings: ApiMeeting[], timeZone: string): CalMeeti
 /** The calendar's filters, for meetings: task-only filters (status, priority, person) hide them. */
 export function filterCalendarMeetings(items: CalMeeting[], f: CalendarFilters, ctx: { myId: string }): CalMeeting[] {
   if (!f.showMeetings || f.statuses.length || f.priorities.length || f.assigneeId) return [];
-  const q = f.q.trim().toLocaleLowerCase();
+  const q = f.q.trim().toLowerCase();
   return items.filter((m) => {
     if (f.projectId && m.projectId !== f.projectId) return false;
     if (f.mine && m.organizerId !== ctx.myId) return false;
     if (!f.showCompleted && m.status === 'COMPLETED') return false;
-    if (q && !m.title.toLocaleLowerCase().includes(q)) return false;
+    if (q && !m.title.toLowerCase().includes(q)) return false;
     return true;
   });
 }

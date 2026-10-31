@@ -75,9 +75,9 @@ export function composeAllProjectsBoard(tasks: readonly ApiTask[], projects: rea
       .filter((t) => shown.has(t.projectId) && !t.columnHidden && statusOfTask(t) === status)
       .sort(
         (a, b) =>
-          (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') ||
+          (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999', 'en') ||
           (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9) ||
-          a.key.localeCompare(b.key, undefined, { numeric: true }),
+          a.key.localeCompare(b.key, 'en', { numeric: true }),
       )
       .map((task) => ({ task, project: shown.get(task.projectId)! })),
   }));

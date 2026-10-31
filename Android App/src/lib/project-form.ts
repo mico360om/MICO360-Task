@@ -227,12 +227,12 @@ export function clientSuggestions(projects: { clientName?: string | null }[], ty
   const seen = new Map<string, string>();
   for (const p of projects) {
     const name = p.clientName?.trim();
-    if (name && !seen.has(name.toLocaleLowerCase())) seen.set(name.toLocaleLowerCase(), name);
+    if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
   }
-  const t = typed.trim().toLocaleLowerCase();
+  const t = typed.trim().toLowerCase();
   return [...seen.values()]
-    .filter((n) => !t || (n.toLocaleLowerCase().includes(t) && n.toLocaleLowerCase() !== t))
-    .sort((a, b) => a.localeCompare(b))
+    .filter((n) => !t || (n.toLowerCase().includes(t) && n.toLowerCase() !== t))
+    .sort((a, b) => a.localeCompare(b, 'en'))
     .slice(0, 6);
 }
 

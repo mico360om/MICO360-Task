@@ -230,7 +230,7 @@ export function CalendarScreen({ navigation, route }: AppScreenProps<'Calendar'>
   );
 
   const projectOptions = useMemo(
-    () => [{ value: '', label: 'All projects' }, ...[...projects].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ value: p.id, label: p.name }))],
+    () => [{ value: '', label: 'All projects' }, ...[...projects].sort((a, b) => a.name.localeCompare(b.name, 'en')).map((p) => ({ value: p.id, label: p.name }))],
     [projects],
   );
   const personOptions = useMemo(

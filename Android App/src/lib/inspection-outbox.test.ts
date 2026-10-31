@@ -4,7 +4,7 @@ import { DETAIL, SIG_DRAWN, fakeInspectionServer } from '../testing/inspection-f
 import { ApiError, NetworkError, sessionChangedError } from './api-client';
 import { createInspectionOutbox, memoryDraftStorage } from './inspection-outbox';
 
-/** The website's inspection outbox, copied into the app with three edits (Stage 4 Task 3). */
+/** The website's inspection outbox, copied into the app with four edits (Stage 4 Task 3; the fourth: final pass, item 1). */
 
 const CHANGED = 'the website changed this part of the outbox: update the copy and this test';
 
@@ -18,7 +18,8 @@ function once(text: string, find: string, from = 0): number {
 /**
  * The app's outbox made from the website's: (1) the types come from './inspection-types' and the
  * finish ids from './idempotency'; (2) no localStorage storage (the app's is draft-storage.ts);
- * (3) the default id without crypto.randomUUID (Hermes has none).
+ * (3) the default id without crypto.randomUUID (Hermes has none); (4) the waiting inspections sorted
+ * by title in English, not in the phone's language (final pass, item 1).
  */
 function appOutboxFromWeb(web: string): string {
   const types = "from '../api/inspections';";
@@ -32,11 +33,15 @@ function appOutboxFromWeb(web: string): string {
   const idStart = once(out, '  const newId =\n');
   const idEnd = out.indexOf('    });\n', idStart);
   if (idEnd < 0 || !out.slice(idStart, idEnd).includes('crypto.randomUUID()')) throw new Error(CHANGED);
-  return out.slice(0, idStart) + '  const newId = deps.newId ?? (() => newIdempotencyKey());\n' + out.slice(idEnd + '    });\n'.length);
+  out = out.slice(0, idStart) + '  const newId = deps.newId ?? (() => newIdempotencyKey());\n' + out.slice(idEnd + '    });\n'.length);
+
+  const byTitle = 'return out.sort((a, b) => a.title.localeCompare(b.title));';
+  once(out, byTitle);
+  return out.replace(byTitle, "return out.sort((a, b) => a.title.localeCompare(b.title, 'en'));");
 }
 
 describe.skipIf(!hasWeb('frontend/src/lib/inspection-outbox.ts'))('a copy of the website’s outbox', () => {
-  it('is the website’s file with only the three app edits', () =>
+  it('is the website’s file with only the four app edits', () =>
     expect(normalise(src('lib/inspection-outbox.ts'))).toBe(appOutboxFromWeb(normalise(readWeb('frontend/src/lib/inspection-outbox.ts')))));
 });
 

@@ -116,7 +116,7 @@ function inRange(day: string, range: DateRange, today: string): boolean {
 
 /** The meetings that match the search, project, status and date filters. */
 export function filterMeetings(list: ApiMeeting[], f: MeetingFilters, ctx: ListContext): ApiMeeting[] {
-  const q = f.q.trim().toLocaleLowerCase();
+  const q = f.q.trim().toLowerCase();
   const today = zonedDayKey(ctx.now, ctx.timeZone);
   return list.filter((m) => {
     if (f.status !== 'ALL' && m.status !== f.status) return false;
@@ -125,14 +125,14 @@ export function filterMeetings(list: ApiMeeting[], f: MeetingFilters, ctx: ListC
     if (f.focus && !inFocus(m, f.focus, ctx, today)) return false;
     if (!q) return true;
     const haystack = [m.title, m.location, m.category, m.projectId ? ctx.projectName(m.projectId) : null, ctx.organizerName(m.organizerId)];
-    return haystack.some((s) => s != null && s.toLocaleLowerCase().includes(q));
+    return haystack.some((s) => s != null && s.toLowerCase().includes(q));
   });
 }
 
 /** ISO instants sort as text; a plain comparison (localeCompare is slow on the phone). */
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const byStart = (a: ApiMeeting, b: ApiMeeting) => compare(a.startAt, b.startAt);
-const byTitle = (a: ApiMeeting, b: ApiMeeting) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+const byTitle = (a: ApiMeeting, b: ApiMeeting) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' });
 const byUpdated = (a: ApiMeeting, b: ApiMeeting) => compare(b.updatedAt ?? '', a.updatedAt ?? '');
 
 const GROUP_LABELS: Record<GroupKey, string> = { today: 'Today', next7: 'Next 7 days', later: 'Later', drafts: 'Drafts', past: 'Past' };

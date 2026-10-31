@@ -127,9 +127,9 @@ export function inboxSections(input: {
       activityAt: s.lastMessage ? new Date(s.lastMessage.createdAt).getTime() : new Date(s.conversation.createdAt || 0).getTime() || 0,
     });
   }
-  const q = input.query.trim().toLocaleLowerCase();
-  const shown = q ? rows.filter((r) => r.title.toLocaleLowerCase().includes(q)) : rows;
-  const recent = (a: InboxRow, b: InboxRow) => b.activityAt - a.activityAt || a.title.localeCompare(b.title);
+  const q = input.query.trim().toLowerCase();
+  const shown = q ? rows.filter((r) => r.title.toLowerCase().includes(q)) : rows;
+  const recent = (a: InboxRow, b: InboxRow) => b.activityAt - a.activityAt || a.title.localeCompare(b.title, 'en');
   const live = shown.filter((r) => !r.prefs.archived);
   const archived = shown.filter((r) => r.prefs.archived).sort(recent);
   return {
@@ -217,8 +217,8 @@ export function needsDeliveryAck(s: ApiConversationSummary, myId: string): boole
 
 /** The text cut into matching and non-matching runs (case-insensitive), for highlighting. */
 export function highlightParts(text: string, q: string): Array<{ text: string; match: boolean }> {
-  const needle = q.trim().toLocaleLowerCase();
-  const hay = text.toLocaleLowerCase();
+  const needle = q.trim().toLowerCase();
+  const hay = text.toLowerCase();
   // Lower-casing can change a string's length in a few scripts; then positions would not line up.
   if (!needle || hay.length !== text.length) return [{ text, match: false }];
   const parts: Array<{ text: string; match: boolean }> = [];
@@ -235,7 +235,7 @@ export function highlightParts(text: string, q: string): Array<{ text: string; m
 /** A long message cut down to about `radius` characters either side of the first match. */
 export function searchSnippet(body: string, q: string, radius = 60): string {
   const text = body.replace(/\s+/g, ' ').trim();
-  const at = text.toLocaleLowerCase().indexOf(q.trim().toLocaleLowerCase());
+  const at = text.toLowerCase().indexOf(q.trim().toLowerCase());
   if (text.length <= radius * 2 + q.length || at === -1) return text.length > radius * 3 ? `${text.slice(0, radius * 3)}…` : text;
   const start = Math.max(0, at - radius);
   const end = Math.min(text.length, at + q.trim().length + radius);

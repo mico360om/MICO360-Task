@@ -192,7 +192,7 @@ export function rolesSummary(c: RoleCounts): string {
   return `${lead}${c.unassigned ? `${count(c.unassigned, 'task')} will be unassigned (they go to the new project’s owner).` : ''}`.trim();
 }
 
-const roleTasks = (role: string, c: RoleCounts) => c.roles.find((r) => r.name.trim().toLocaleLowerCase() === role.trim().toLocaleLowerCase())?.tasks ?? 0;
+const roleTasks = (role: string, c: RoleCounts) => c.roles.find((r) => r.name.trim().toLowerCase() === role.trim().toLowerCase())?.tasks ?? 0;
 
 /** The typed role names no task (each of the person's tasks names another role first): said as a warning. */
 export function roleWontCount(role: string, c: RoleCounts): boolean {

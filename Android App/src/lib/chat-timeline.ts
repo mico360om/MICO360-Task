@@ -90,7 +90,7 @@ export function threadRows(input: {
       pending: u.state,
       upload: u,
     })),
-  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt, 'en'));
   const items = buildTimeline([...server, ...waiting], { myId: input.myId, unreadAfter: input.unreadAfter, now: input.now, timeZone: input.timeZone });
   return (items as ThreadRow[]).reverse();
 }

@@ -32,7 +32,7 @@ export function canCreateProject(user: User): boolean {
 
 /** Managers first, then everyone by name. */
 export function membersInOrder(members: ApiMember[]): ApiMember[] {
-  return [...members].sort((a, b) => (a.role === b.role ? displayName(a).localeCompare(displayName(b)) : a.role === 'MANAGER' ? -1 : 1));
+  return [...members].sort((a, b) => (a.role === b.role ? displayName(a).localeCompare(displayName(b), 'en') : a.role === 'MANAGER' ? -1 : 1));
 }
 
 /** The Overview's "Project manager": its managers' names, or the owner when none is named. */
@@ -57,7 +57,7 @@ export function addableUsers(
   return people
     .filter((p) => !on.has(p.id) && p.active !== false)
     .map((p) => ({ value: p.id, label: displayName({ firstName: p.firstName ?? '', lastName: p.lastName ?? '', username: p.username }), hint: `@${p.username}` }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => a.label.localeCompare(b.label, 'en'));
 }
 
 /** The other role for a member, as the website offers it. */

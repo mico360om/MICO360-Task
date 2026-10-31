@@ -29,7 +29,7 @@ export function projectMilestones(tasks: ApiTask[], today: string, timeZone: str
       const state: MilestoneState = isTaskFinished(t) ? 'done' : isWaitingForApproval(t) ? 'waiting' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
       return { task: t, due, state, daysLeft: due && state !== 'done' ? daysBetween(today, due) : null };
     })
-    .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.task.title.localeCompare(b.task.title));
+    .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999', 'en') || a.task.title.localeCompare(b.task.title, 'en'));
 }
 
 /** Open tasks due within `withinDays` (and every overdue one), soonest first; `waiting` = waiting for approval (never late). */
@@ -41,7 +41,7 @@ export function projectDeadlines(tasks: ApiTask[], today: string, withinDays = 1
     const daysLeft = daysBetween(today, due);
     if (daysLeft <= withinDays) list.push({ task: t, due, daysLeft, waiting: isWaitingForApproval(t) });
   }
-  return list.sort((a, b) => a.daysLeft - b.daysLeft || a.task.title.localeCompare(b.task.title));
+  return list.sort((a, b) => a.daysLeft - b.daysLeft || a.task.title.localeCompare(b.task.title, 'en'));
 }
 
 /** "Today", "Tomorrow", "In 5 days", "3 days late". */
@@ -152,7 +152,7 @@ export function workload(tasks: ApiTask[], today: string, timeZone: string = app
       people.set(a.id, p);
     }
   }
-  return [...people.values()].sort((a, b) => b.open - a.open || b.overdue - a.overdue || a.name.localeCompare(b.name));
+  return [...people.values()].sort((a, b) => b.open - a.open || b.overdue - a.overdue || a.name.localeCompare(b.name, 'en'));
 }
 
 // ── The project's dates ──────────────────────────────────────────────────────
@@ -274,10 +274,10 @@ export function filterCounts(tasks: ApiTask[], today: string, timeZone: string =
 
 /** The groups narrowed to a filter and to words in a task's title or key; empty groups are left out. */
 export function shownGroups(groups: TaskGroup[], filter: TaskFilter, query: string, today: string, timeZone: string = appTimeZone()): TaskGroup[] {
-  const words = query.trim().toLocaleLowerCase();
+  const words = query.trim().toLowerCase();
   const keep = (t: ApiTask) =>
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
-    (!words || t.title.toLocaleLowerCase().includes(words) || t.key.toLocaleLowerCase().includes(words));
+    (!words || t.title.toLowerCase().includes(words) || t.key.toLowerCase().includes(words));
   return groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 }
 

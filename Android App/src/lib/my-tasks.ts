@@ -156,7 +156,7 @@ export function sortMyTasks(rows: readonly MyTaskRow[], sort: string): MyTaskRow
   return [...rows].sort((a, b) => {
     if (sort === 'priority') return P_RANK[a.task.priority] - P_RANK[b.task.priority];
     if (sort === 'progress') return b.task.progress - a.task.progress;
-    if (sort === 'title') return a.task.title.localeCompare(b.task.title);
+    if (sort === 'title') return a.task.title.localeCompare(b.task.title, 'en');
     if (a.dueKey && b.dueKey) return a.dueKey < b.dueKey ? -1 : a.dueKey > b.dueKey ? 1 : 0;
     if (a.dueKey) return -1;
     if (b.dueKey) return 1;

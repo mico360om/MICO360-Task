@@ -4,6 +4,7 @@
  * making it the default of every Intl.DateTimeFormat made without a locale.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import ts from 'typescript';
 import { appSources } from '../testing/web-source';
 import type { ApiTask } from './types';
 
@@ -85,4 +86,48 @@ it('no code asks the phone for its language', () => {
 it('the formatter cache cannot be asked for the phone’s own language', async () => {
   const { appSource } = await import('../testing/web-source');
   expect(appSource('lib/intl-cache.ts')).toMatch(/export function dateFormat\(locale: string, /);
+});
+
+/**
+ * Final pass, item 1: text is compared, sorted and case-changed in English on every phone. A plain
+ * localeCompare(b), toLocaleLowerCase() or Intl.Collator() follows the phone's language (Turkish
+ * "SITE" lower-cases to "sıte"). Every such call in the code, found by TypeScript's own parser:
+ * localeCompare without a literal locale second, toLocaleLowerCase / toLocaleUpperCase without a
+ * literal locale (toLowerCase() is the English one) and Intl.Collator without a literal locale first.
+ */
+function phoneLanguageCalls(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const literal = (e: ts.Expression | undefined) => !!e && (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e));
+  const out: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if ((ts.isCallExpression(n) || ts.isNewExpression(n)) && n.expression) {
+      const callee = n.expression;
+      const name = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
+      const args = n.arguments ?? ts.factory.createNodeArray<ts.Expression>();
+      const collator = ts.isPropertyAccessExpression(callee) && name === 'Collator' && callee.expression.getText(sf) === 'Intl';
+      if (ts.isPropertyAccessExpression(callee) && name === 'localeCompare' && !literal(args[1])) out.push(n.getText(sf));
+      if (ts.isPropertyAccessExpression(callee) && (name === 'toLocaleLowerCase' || name === 'toLocaleUpperCase') && !literal(args[0])) out.push(n.getText(sf));
+      if (collator && !literal(args[0])) out.push(n.getText(sf));
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+it('the guard finds every comparison and case change in the phone’s language, and only those', () => {
+  const found = (code: string) => phoneLanguageCalls('x.ts', code);
+  expect(found('a.localeCompare(b);')).toEqual(['a.localeCompare(b)']);
+  expect(found('(a ?? "").localeCompare(b, undefined, { numeric: true });')).toHaveLength(1);
+  expect(found('q.trim().toLocaleLowerCase(); n.toLocaleUpperCase();')).toHaveLength(2);
+  expect(found('new Intl.Collator(); Intl.Collator(undefined, { numeric: true });')).toHaveLength(2);
+  expect(found("a.localeCompare(b, 'en'); a.localeCompare(b, 'en', { sensitivity: 'base' }); q.toLowerCase(); n.toUpperCase(); new Intl.Collator('en', { numeric: true }); s.toLocaleLowerCase('en');")).toEqual([]);
+});
+
+it('no code compares, sorts or changes the case of text in the phone’s language', () => {
+  const broken = appSources()
+    .map(([file, text]) => [file, phoneLanguageCalls(file, text)] as const)
+    .filter(([, calls]) => calls.length > 0)
+    .map(([file, calls]) => `${file}: ${calls.slice(0, 4).join(' · ')}`);
+  expect(broken).toEqual([]);
 });

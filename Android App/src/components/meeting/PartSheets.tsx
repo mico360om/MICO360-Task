@@ -52,7 +52,7 @@ type NameOf = (userId: string) => string | null;
 
 /** The team as choices: "Unassigned" (or "No presenter") first, then everyone by name. */
 export function peopleOptions(directory: ApiDirectoryUser[], emptyLabel?: string): PickOption[] {
-  const people = [...directory].sort((a, b) => displayName(a).localeCompare(displayName(b))).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }));
+  const people = [...directory].sort((a, b) => displayName(a).localeCompare(displayName(b), 'en')).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }));
   return emptyLabel ? [{ value: '', label: emptyLabel }, ...people] : people;
 }
 
@@ -407,7 +407,7 @@ export function NoteTaskSheet({
     setError(null);
     setCreated(null);
   }, [note?.id, meetingProjectId]);
-  const projects = useMemo(() => [...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ value: p.id, label: p.name, hint: p.code })), [projectsQ.data]);
+  const projects = useMemo(() => [...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'en')).map((p) => ({ value: p.id, label: p.name, hint: p.code })), [projectsQ.data]);
   const members = useMemo(() => [{ value: '', label: 'Unassigned' }, ...(projectId ? membersQ.data ?? [] : []).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` }))], [projectId, membersQ.data]);
   if (!note) return null;
 

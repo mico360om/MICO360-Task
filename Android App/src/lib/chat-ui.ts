@@ -16,12 +16,12 @@ const fullName = (u: Pick<ApiDirectoryUser, 'firstName' | 'lastName' | 'username
 
 /** The people a direct message can go to: active ones other than me, by name; a search keeps names or usernames that contain it. */
 export function dmCandidates(directory: readonly ApiDirectoryUser[], myId: string, query: string): { id: string; label: string; hint: string }[] {
-  const q = query.trim().toLocaleLowerCase();
+  const q = query.trim().toLowerCase();
   return directory
     .filter((u) => u.id !== myId && u.active !== false)
     .map((u) => ({ id: u.id, label: fullName(u), hint: `@${u.username}` }))
-    .filter((o) => !q || o.label.toLocaleLowerCase().includes(q) || o.hint.toLocaleLowerCase().includes(q))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .filter((o) => !q || o.label.toLowerCase().includes(q) || o.hint.toLowerCase().includes(q))
+    .sort((a, b) => a.label.localeCompare(b.label, 'en'));
 }
 
 /** The direct conversation with this person that already exists, or null (one is then started). */
@@ -68,7 +68,7 @@ export function memberRows(memberIds: readonly string[], directory: readonly Api
         me: id === myId,
       };
     })
-    .sort((a, b) => Number(b.me) - Number(a.me) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(b.me) - Number(a.me) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'en'));
 }
 
 /** The line under a conversation's name: when the other person was last active, or a channel's people. */
