@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { View, ActivityIndicator, StyleSheet, AppState } from 'react-native';
+import { AppState } from 'react-native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createServices, type Services } from './services';
-import { useColors } from './theme';
+import { FontSplash } from '../components/FontSplash';
 import { asyncStore } from '../adapters/async-storage';
 import { loadServerOverride, saveServerOverride } from '../lib/server-address';
 import { DATE_ZONES_KEY, parseDateZones } from '../lib/date-settings';
@@ -41,21 +41,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  if (server === undefined) return <Splash />;
+  // The logo splash until the first screen (device check N12): the same picture as while the fonts load.
+  if (server === undefined) return <FontSplash />;
   // Keyed by server: switching servers builds a fresh set of services (API client, caches, queue).
   return (
     <ServicesRoot key={server ?? 'default'} server={server} onServerChange={setServerState}>
       {children}
     </ServicesRoot>
-  );
-}
-
-function Splash() {
-  const colors = useColors();
-  return (
-    <View style={[styles.splash, { backgroundColor: colors.ground }]}>
-      <ActivityIndicator color={colors.brandText} size="large" />
-    </View>
   );
 }
 
@@ -137,7 +129,7 @@ function ServicesRoot({
     return () => clearInterval(timer);
   }, [services, hasPending]);
 
-  if (!ready) return <Splash />;
+  if (!ready) return <FontSplash />;
 
   return (
     <QueryClientProvider client={services.queryClient}>
@@ -195,7 +187,3 @@ export function useMyQueuedChanges(): { pending: QueuedMutation[]; failed: Queue
     return { pending: mine.filter((m) => m.status === 'pending'), failed: mine.filter((m) => m.status === 'failed') };
   }, [snapshot, userId]);
 }
-
-const styles = StyleSheet.create({
-  splash: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-});

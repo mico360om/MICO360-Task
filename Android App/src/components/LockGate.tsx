@@ -4,6 +4,7 @@ import { useServices, useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
 import { Button } from './ui';
 import { Icon } from './Icon';
+import { FontSplash } from './FontSplash';
 import { useDrawerStore } from '../lib/drawer-store';
 import { createLockPolicy } from '../lib/lock-policy';
 import { createAppStateCover, lockView, readLockSetting, screenPrivate } from '../lib/lock-view';
@@ -129,8 +130,13 @@ export function LockGate({ children }: { children: React.ReactNode }) {
       <View style={styles.fill} importantForAccessibility={view !== 'content' ? 'no-hide-descendants' : 'auto'}>
         {children}
       </View>
-      {/* Until the lock setting is known: a plain cover, so nothing shows before the lock. */}
-      {view === 'cover' ? <View style={styles.cover} /> : null}
+      {/* Until the lock setting is known (only at the start): the logo splash, so nothing shows before
+          the lock and the start runs on from the splash (device check N12). */}
+      {view === 'cover' ? (
+        <View style={StyleSheet.absoluteFill}>
+          <FontSplash />
+        </View>
+      ) : null}
       {/* A Modal so it also covers any open sheet or drawer (they are Modals too). Back is ignored. */}
       <Modal visible={showLock} animationType="none" transparent={false} statusBarTranslucent onRequestClose={() => {}}>
         <View style={styles.overlay} accessibilityViewIsModal>
@@ -155,7 +161,6 @@ export function LockGate({ children }: { children: React.ReactNode }) {
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     fill: { flex: 1 },
-    cover: { ...StyleSheet.absoluteFillObject, backgroundColor: c.ground },
     overlay: {
       flex: 1,
       alignItems: 'center',

@@ -90,4 +90,5 @@
 - In the Android app, the signer's name under an optional signature (the client's or a supervisor's) no longer shows a required star.
 - In the Android app, an inspection with changes still waiting on the phone (signed with no signal, say) doesn't offer Delete until they have been sent.
 - In the Android app, the bell keeps its number of unread alerts with no signal, even after the app is restarted.
+- In the Android app, starting the app shows the maroon MICO360 splash until the first screen is ready — no white or blank screen first, in light or dark mode.
 <!-- final-pass lines above this line -->

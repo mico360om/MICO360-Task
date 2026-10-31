@@ -16,6 +16,7 @@
     "android": {
       "package": "com.mico360.tasks",
       "versionCode": 17,
+      "backgroundColor": "#8B1E1E",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#8B1E1E"

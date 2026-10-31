@@ -1,4 +1,5 @@
 import React, { lazy, Suspense } from 'react';
+import { Platform, StatusBar } from 'react-native';
 import Constants from 'expo-constants';
 import { createConsoleReporter, pickCrashReporter } from './src/lib/error-reporter';
 import { resolveRuntimeConfig } from './src/lib/config';
@@ -22,6 +23,16 @@ function buildReporter() {
 }
 
 const reporter = buildReporter();
+
+// The status bar is see-through from the first frame, light on the splash's maroon (the window behind
+// the app is that maroon too: app.json android.backgroundColor). Turned see-through later, the app
+// moved up under it for a frame and the window showed through at the bottom (device check N12).
+// The navigator's StatusBar picks light or dark for the theme once it opens.
+if (Platform.OS === 'android') {
+  StatusBar.setTranslucent(true);
+  StatusBar.setBackgroundColor('transparent');
+  StatusBar.setBarStyle('light-content');
+}
 
 // The screens make text styles when their files load, so they load only once the faces are picked.
 const AppRoot = lazy(() => import('./src/AppRoot'));
