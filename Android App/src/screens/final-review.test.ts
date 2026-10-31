@@ -133,6 +133,15 @@ it('no radiogroup holds Chips', () => {
   expect(found).toEqual([]);
 });
 
+// Item 21 (S13): the website calls them notifications (its page "Notifications", "Mark all read"); the
+// Alerts tab is gone (the bell opens this screen).
+it('Mark all read says "notifications", as the website', () => {
+  const s = src('screens/NotificationsScreen.tsx');
+  expect(s).toContain("announceForAccessibility('All notifications marked as read.')");
+  expect(s).not.toMatch(/All alerts|Alerts tab|tab's number/);
+  if (hasWeb('frontend/src/pages/NotificationsPage.tsx')) expect(readWeb('frontend/src/pages/NotificationsPage.tsx')).toMatch(/title="Notifications"/);
+});
+
 // Item 20 (S12): while the totals load, TalkBack hears "All tasks: loading" (as before the new look),
 // not "All tasks: —"; the tile still shows the dash.
 it('the administrators’ totals say "loading" while they load', () => {
