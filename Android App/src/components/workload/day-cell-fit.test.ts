@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { DAY_COUNT_FONT_CAP, DAY_HEAD_FONT_CAP } from '../../lib/workload';
+import { DAY_COUNT_FONT_CAP, DAY_HEAD_FONT_CAP, WEEK_STRIP } from '../../lib/workload';
 import { textWidthEm } from '../../lib/font-metrics';
 import { appSource as src } from '../../testing/web-source';
 
@@ -30,7 +30,8 @@ function lines(text: string, size: number, room: number): number {
 it('the count fits its cell and the heading its two lines, at 200% as at 100%', () => {
   const card = src('components/workload/PersonCard.tsx');
   // The sizes measured are the card's own.
-  expect(card).toMatch(/day: \{ width: 64, minHeight: 56/);
+  expect(card).toMatch(/day: \{ width: WEEK_STRIP\.day, minHeight: 56/);
+  expect(WEEK_STRIP.day).toBe(64);
   expect(card).toMatch(/cell: \{ width: 48, minHeight: 44, borderRadius: radius\.input, borderWidth: 1/);
   expect(card).toMatch(/cellOver: \{ borderWidth: 2 \}/);
   expect(card).toMatch(/dayHead: \{ \.\.\.typeStyle\('caption'\), \.\.\.font\('600'\), fontSize: 11, lineHeight: 14/);

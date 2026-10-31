@@ -107,6 +107,27 @@ export function dayHeading(date: string, today: string): string {
   return date === today ? `${weekdayDay(date)} · Today` : weekdayDay(date);
 }
 
+/** A person's row of days on Workload (PersonCard): each day's column and the gap between them (dp). */
+export const WEEK_STRIP = { day: 64, gap: 6 } as const;
+
+const stripWidth = (days: number) => days * WEEK_STRIP.day + Math.max(0, days - 1) * WEEK_STRIP.gap;
+
+/**
+ * How far a person's row of days opens scrolled (dp) in a `viewport` dp wide (device check F): today
+ * as the first day shown, as far as the row scrolls — the days after it in view, those before it a
+ * swipe back. The week's start when today isn't in it (or the row isn't measured yet).
+ */
+export function todayScrollX(dates: readonly string[], today: string, viewport: number): number {
+  const i = dates.indexOf(today);
+  if (i <= 0 || viewport <= 0) return 0;
+  return Math.max(0, Math.min(stripWidth(dates.length) - viewport, i * (WEEK_STRIP.day + WEEK_STRIP.gap)));
+}
+
+/** Which edges of a scrolled row hide more days (they fade, so the row is seen to scroll); within a dp is none. */
+export function stripEdges(x: number, content: number, viewport: number): { before: boolean; after: boolean } {
+  return { before: x > 1, after: x + viewport < content - 1 };
+}
+
 const LIMITS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 40, 50];
 /** The daily limits offered, with the current one when it is unusual. */
 export function limitOptions(current: number): number[] {

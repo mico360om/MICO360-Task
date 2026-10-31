@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { WorkloadCell, WorkloadPerson } from '../../lib/planning-api';
 import { cellLook, weekBarColor } from '../../lib/planning-look';
-import { cellLabel, cellTone, dayHeading, DAY_COUNT_FONT_CAP, DAY_HEAD_FONT_CAP, weekBar } from '../../lib/workload';
-import { radius, spacing, type Palette } from '../../lib/theme';
+import { cellLabel, cellTone, dayHeading, DAY_COUNT_FONT_CAP, DAY_HEAD_FONT_CAP, stripEdges, todayScrollX, weekBar, WEEK_STRIP } from '../../lib/workload';
+import { hexToRgba, radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { useColors } from '../../core/theme';
 import { Avatar, Card, ProgressBar } from '../ui';
@@ -34,6 +35,64 @@ export function Hatch({ color }: { color: string }) {
 
 const hatch = StyleSheet.create({ box: { ...StyleSheet.absoluteFillObject, borderRadius: radius.input, overflow: 'hidden' } });
 
+/** How wide an edge's fade is (dp): enough to show the row goes on, not to hide a day's number. */
+const EDGE_FADE = 24;
+
+/**
+ * A person's row of days (device check F): it opens with today in view — the first day shown, as far
+ * as the row scrolls (lib/workload todayScrollX) — once its width and the days' are measured, and an
+ * edge that hides more days fades into the card, so the row is seen to scroll. Keyed by the week: a
+ * new week opens on today again.
+ */
+function DaysRow({ dates, today, children }: { dates: string[]; today: string; children: ReactNode }) {
+  const c = useColors();
+  const scroll = useRef<ScrollView>(null);
+  const [size, setSize] = useState({ content: 0, viewport: 0 });
+  const [edges, setEdges] = useState({ before: false, after: false });
+  const opened = useRef(false);
+  const showEdges = (x: number, content: number, viewport: number) => {
+    const next = stripEdges(x, content, viewport);
+    setEdges((cur) => (cur.before === next.before && cur.after === next.after ? cur : next));
+  };
+  useEffect(() => {
+    const { content, viewport } = size;
+    if (opened.current || !content || !viewport) return;
+    opened.current = true;
+    const x = todayScrollX(dates, today, viewport);
+    scroll.current?.scrollTo({ x, animated: false });
+    showEdges(x, content, viewport);
+  }, [size, dates, today]);
+  const clear = hexToRgba(c.surface, 0);
+  return (
+    <View>
+      <ScrollView
+        ref={scroll}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={rowStyles.days}
+        onLayout={(e) => {
+          const viewport = e.nativeEvent.layout.width;
+          setSize((cur) => (cur.viewport === viewport ? cur : { ...cur, viewport }));
+        }}
+        onContentSizeChange={(content) => setSize((cur) => (cur.content === content ? cur : { ...cur, content }))}
+        onScroll={(e) => showEdges(e.nativeEvent.contentOffset.x, size.content, size.viewport)}
+        scrollEventThrottle={32}
+      >
+        {children}
+      </ScrollView>
+      {edges.before ? <LinearGradient colors={[c.surface, clear]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[rowStyles.fade, rowStyles.fadeStart]} pointerEvents="none" /> : null}
+      {edges.after ? <LinearGradient colors={[clear, c.surface]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[rowStyles.fade, rowStyles.fadeEnd]} pointerEvents="none" /> : null}
+    </View>
+  );
+}
+
+const rowStyles = StyleSheet.create({
+  days: { gap: WEEK_STRIP.gap, paddingTop: spacing.md },
+  fade: { position: 'absolute', top: spacing.md, bottom: 0, width: EDGE_FADE },
+  fadeStart: { left: 0 },
+  fadeEnd: { right: 0 },
+});
+
 /**
  * One person's week on Workload (a phone design in the website's style — it has no phone layout
  * here): their face and name, the week against its limit, their overdue tasks, and the seven days
@@ -60,7 +119,7 @@ export function PersonCard({ person, week, today, onOpenDay }: { person: Workloa
       <View style={s.bar}>
         <ProgressBar value={bar.pct} color={weekBarColor(c, bar.tone)} label={`${person.name}’s week: ${bar.text}, ${bar.note}`} />
       </View>
-      <ScrollView key={week} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.days}>
+      <DaysRow key={week} dates={person.days.map((d) => d.date)} today={today}>
         {person.days.map((cell) => {
           const tone = cellTone(cell);
           const look = cellLook(c, tone);
@@ -93,7 +152,7 @@ export function PersonCard({ person, week, today, onOpenDay }: { person: Workloa
             </Pressable>
           );
         })}
-      </ScrollView>
+      </DaysRow>
     </Card>
   );
 }
@@ -108,8 +167,7 @@ function makeStyles(c: Palette) {
     overdue: { ...typeStyle('caption'), ...font('700'), fontVariant: ['tabular-nums'], color: c.ink2 },
     overdueOn: { color: c.dangerText },
     bar: { marginTop: spacing.sm },
-    days: { gap: 6, paddingTop: spacing.md },
-    day: { width: 64, minHeight: 56, alignItems: 'center', gap: 4, paddingVertical: 4, borderRadius: radius.input },
+    day: { width: WEEK_STRIP.day, minHeight: 56, alignItems: 'center', gap: 4, paddingVertical: 4, borderRadius: radius.input },
     todayColumn: { backgroundColor: c.brandWash },
     pressed: { opacity: 0.8 },
     dayHead: { ...typeStyle('caption'), ...font('600'), fontSize: 11, lineHeight: 14, textAlign: 'center', color: c.ink2 },
