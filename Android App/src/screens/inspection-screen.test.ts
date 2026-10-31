@@ -92,3 +92,9 @@ it('keeps what it read only once the phone’s records are read (Final I1)', () 
   expect(s()).toMatch(/if \(!ready \|\| !q\.data \|\| !ownerId \|\| !outbox\) return;/);
   expect(s()).toMatch(/\}, \[ready, q\.data, ownerId, outbox\]\);/);
 });
+
+it("a Pass / Fail / N/A choice says it is chosen once: checked, not also selected (Final I14)", () => {
+  const r = src('components/inspections/InspectionItemRow.tsx');
+  expect(r).toContain('accessibilityState={{ checked: on }}');
+  expect(r).not.toMatch(/accessibilityState=\{\{ checked: on, selected: on \}\}/);
+});
