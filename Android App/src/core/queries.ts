@@ -551,14 +551,26 @@ export function useSetTaskTags(taskId: string) {
   });
 }
 
-export function useNotifications() {
-  const { resources, reads, queue, currentUserId } = useServices();
-  return useQuery({
-    queryKey: ['notifications'],
+/** The alerts list, read through the offline copy (per person). */
+function notificationsQuery(s: Pick<Services, 'resources' | 'reads' | 'queue' | 'currentUserId'>) {
+  return {
+    queryKey: ['notifications'] as const,
     // Alerts read on this phone while offline show as read until their reads are sent (5c).
-    queryFn: ({ queryKey }) =>
-      reads.read(queryKey, 'notifications', () => resources.notifications.list()).then((list) => withPendingReads(list, queue.pendingFor(currentUserId()))),
-  });
+    queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) =>
+      s.reads.read(queryKey, 'notifications', () => s.resources.notifications.list()).then((list) => withPendingReads(list, s.queue.pendingFor(s.currentUserId()))),
+  };
+}
+
+export function useNotifications() {
+  return useQuery(notificationsQuery(useServices()));
+}
+
+/**
+ * Read the alerts list now (when out of date), so its offline copy is there even for someone who
+ * never opened Notifications with a signal (re-check note c) — the alerts mount calls it.
+ */
+export function keepNotificationsCopy(qc: QueryClient, s: Pick<Services, 'resources' | 'reads' | 'queue' | 'currentUserId'>): void {
+  void qc.prefetchQuery(notificationsQuery(s));
 }
 
 /** The server's release (the version row in Settings and the "new version" notice). */

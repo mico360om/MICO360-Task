@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { useMarkNotificationRead, useUnreadCount } from './queries';
+import { keepNotificationsCopy, useMarkNotificationRead, useUnreadCount } from './queries';
 import { ALERTS_REFRESH, alertForPush, listBehindCount, pushNotificationId, serverCount, whenShown } from '../lib/alerts';
 import { appCovered, subscribeViewing } from '../lib/chat-viewing';
 import { launcherBadge, onPushReceived } from '../adapters/alerts';
@@ -31,12 +31,15 @@ function refreshAlerts(qc: QueryClient): void {
  */
 export function useAlertsLive(): void {
   const qc = useQueryClient();
-  const { reads } = useServices();
+  const services = useServices();
+  const { reads } = services;
   useUnreadCount({ poll: true });
 
   useEffect(() => {
     // Signed in: this person's counts reach the icon (sign-out stopped them, #5).
     launcherBadge.start();
+    // The list is kept on the phone from the start, so Notifications opens with no signal (re-check note c).
+    keepNotificationsCopy(qc, services);
     let last: number | undefined;
     const offCache = qc.getQueryCache().subscribe((event) => {
       const count = serverCount(event as Parameters<typeof serverCount>[0]);
@@ -54,13 +57,14 @@ export function useAlertsLive(): void {
       if (state !== 'active') return;
       launcherBadge.resumed();
       refreshAlerts(qc);
+      keepNotificationsCopy(qc, services);
     });
     return () => {
       offCache();
       push.remove();
       app.remove();
     };
-  }, [qc, reads]);
+  }, [qc, reads, services]);
 }
 
 /**

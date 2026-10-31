@@ -26,3 +26,16 @@ it('the unread count is read through the offline copy, with this phone’s reads
 it('a count from the kept copy never reaches the app’s icon', () => {
   expect(src('core/alerts.ts')).toMatch(/if \(count === undefined \|\| reads\.answeredFromCopy\(event\.query\)\) return;/);
 });
+
+// Re-check note (c): after a restart with no signal Notifications said "Couldn’t load notifications."
+// The list is read through the offline copy (per person) — but only once it had been read: a person
+// who never opened Notifications online had no copy. The alerts mount (signed in) now reads it at
+// once and again when the app comes back to the front, so the copy is there to open offline.
+it('the alerts list is kept on the phone from the start, not only once Notifications was opened', () => {
+  const q = src('core/queries.ts');
+  expect(q).toMatch(/reads\.read\(queryKey, 'notifications', \(\) => s\.resources\.notifications\.list\(\)\)/);
+  expect(q).toMatch(/export function useNotifications\(\) \{\s*return useQuery\(notificationsQuery\(useServices\(\)\)\);/);
+  expect(q).toMatch(/export function keepNotificationsCopy\([^)]*\): void \{\s*void qc\.prefetchQuery\(notificationsQuery\(s\)\);/);
+  const alerts = src('core/alerts.ts');
+  expect(alerts.match(/keepNotificationsCopy\(qc, services\)/g)?.length).toBe(2); // signed in, and back in front
+});
