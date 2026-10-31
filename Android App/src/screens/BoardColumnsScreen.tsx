@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Switch, Alert, AccessibilityInfo, type TextInput } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, AccessibilityInfo, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProject, useProjectColumns, useProjectMembers } from '../core/queries';
 import { useColumnActions } from '../core/board-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
-import { Button, ErrorNote, IconButton, SkeletonList, TextField } from '../components/ui';
+import { Button, ErrorNote, IconButton, SkeletonList, TextField, Toggle } from '../components/ui';
 import { ChipChoice, SheetMessage } from '../components/meeting/sheet-kit';
 import { COLUMN_COLORS, COLUMN_TEXT, columnNameProblem, manageColumnsGate, orderedColumns } from '../lib/board-columns';
 import { CATEGORY_LABEL } from '../lib/task-status';
@@ -14,7 +14,6 @@ import { colorName, customColor } from '../lib/project-identity';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { ApiColumn, ColumnCategory } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
-import { font } from '../lib/typography';
 
 const STATUSES: ColumnCategory[] = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'REVIEW', 'DONE'];
 
@@ -249,10 +248,7 @@ function ColumnRow({
 
       <View style={s.rowBottom}>
         <View style={s.visible}>
-          <Switch value={shown} onValueChange={onEnabled} disabled={busy} accessibilityLabel={`Show ${col.name} on the board`} />
-          <Text style={s.visibleText} importantForAccessibility="no">
-            {shown ? 'Visible' : 'Hidden'}
-          </Text>
+          <Toggle on={shown} onChange={onEnabled} disabled={busy} label={shown ? 'Visible' : 'Hidden'} a11yLabel={`Show ${col.name} on the board`} />
         </View>
         <View style={s.moves}>
           <IconButton icon="kit.up" label={`Move ${col.name} up`} variant="outlined" disabled={first || busy} onPress={() => onMove('up')} />
@@ -280,8 +276,8 @@ const makeStyles = (c: Palette) =>
     colourOn: { borderColor: c.ink },
     customRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, width: '100%' },
     rowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm },
-    visible: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
-    visibleText: { fontSize: fontSize.sm, color: c.ink2, ...font('600') },
+    // The Toggle's words take the room left beside the move and delete buttons.
+    visible: { flexGrow: 1, minWidth: 132 },
     moves: { flexDirection: 'row', gap: spacing.xs },
     add: { gap: spacing.sm, borderWidth: 1, borderStyle: 'dashed', borderColor: c.line, borderRadius: radius.card, padding: spacing.md, backgroundColor: c.surface },
     note: { fontSize: fontSize.sm, color: c.ink3 },

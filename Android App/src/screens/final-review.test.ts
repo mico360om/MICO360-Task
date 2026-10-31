@@ -142,6 +142,13 @@ it('Mark all read says "notifications", as the website', () => {
   if (hasWeb('frontend/src/pages/NotificationsPage.tsx')) expect(readWeb('frontend/src/pages/NotificationsPage.tsx')).toMatch(/title="Notifications"/);
 });
 
+// Item 23 (S8): a board column's "Visible" switch is the shared Toggle, still saying what it does.
+it('the board columns’ visibility switch is the shared Toggle', () => {
+  const s = src('screens/BoardColumnsScreen.tsx');
+  expect(s).toMatch(/<Toggle on=\{shown\} onChange=\{onEnabled\} disabled=\{busy\} label=\{shown \? 'Visible' : 'Hidden'\} a11yLabel=\{`Show \$\{col\.name\} on the board`\} \/>/);
+  expect(src('components/ui/Toggle.tsx')).toMatch(/accessibilityLabel=\{a11yLabel \?\? label\}/);
+});
+
 // Item 20 (S12): while the totals load, TalkBack hears "All tasks: loading" (as before the new look),
 // not "All tasks: —"; the tile still shows the dash.
 it('the administrators’ totals say "loading" while they load', () => {

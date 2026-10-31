@@ -139,6 +139,13 @@ const RULES: Rule[] = [
     breaks: (_f, text) => matchesOf(/\bpersonInitials\(/, text),
   },
   {
+    // Final review S8: one switch everywhere — the website's 44×24 track (Toggle), never the phone's own.
+    id: 'R9',
+    says: 'switches are the shared <Toggle> (components/ui/Toggle.tsx), not react-native’s Switch',
+    applies: (f) => f !== 'components/ui/Toggle.tsx',
+    breaks: (_f, text) => matchesOf(/import \{[^}]*\bSwitch\b[^}]*\} from 'react-native'/, text),
+  },
+  {
     id: 'R8',
     says: 'the named radii — badge, input, button, card, sheet, pill — not radius.sm/md/lg',
     applies: () => true,

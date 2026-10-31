@@ -9,12 +9,15 @@ export function Toggle({
   on,
   onChange,
   label,
+  a11yLabel,
   disabled,
   hint,
 }: {
   on: boolean;
   onChange: (next: boolean) => void;
   label: string;
+  /** What TalkBack says when it differs from the words shown (e.g. "Show Done on the board" for "Visible"). */
+  a11yLabel?: string;
   disabled?: boolean;
   hint?: string;
 }) {
@@ -25,7 +28,7 @@ export function Toggle({
       onPress={() => onChange(!on)}
       disabled={disabled}
       accessibilityRole="switch"
-      accessibilityLabel={label}
+      accessibilityLabel={a11yLabel ?? label}
       accessibilityHint={hint}
       accessibilityState={{ checked: on, disabled: !!disabled }}
       style={[styles.row, disabled ? styles.dim : null]}
