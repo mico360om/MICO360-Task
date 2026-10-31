@@ -26,8 +26,12 @@ describe.skipIf(!hasWeb('backend/src/modules/inspections/inspection-rules.ts', '
   it('every call goes to the website’s path with the website’s verb', () => {
     const web = apiRoutes(readWeb('frontend/src/api/inspections.ts'));
     const app = apiRoutes(src('lib/inspections-api.ts'));
+    // The website makes schedules through its tasks API; the app keeps those two calls here.
+    const APP_ONLY = ['createCheckSeries', 'updateCheckSeries'];
     expect(Object.keys(app).length).toBeGreaterThanOrEqual(15);
-    for (const [name, route] of Object.entries(app)) expect(route, name).toBe(web[name]);
+    for (const [name, route] of Object.entries(app)) if (!APP_ONLY.includes(name)) expect(route, name).toBe(web[name]);
+    expect(app.createCheckSeries).toBe('POST /tasks');
+    expect(app.updateCheckSeries).toBe('PUT /tasks/:p');
     expect(src('lib/inspections-api.ts')).toContain('reportPdfPath: (id: string) => `/inspections/${seg(id)}/report.pdf`');
   });
 

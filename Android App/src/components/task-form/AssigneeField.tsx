@@ -7,6 +7,8 @@ import { spacing, radius, fontSize } from '../../lib/theme';
 import { font } from '../../lib/typography';
 import { Icon } from '../Icon';
 
+const DEFAULT_LABELS = { list: 'Assignees (optional)', add: 'Add people', allChosen: 'Everyone on this project is assigned.' };
+
 /**
  * Who works on the task (4a), as on the website's AssigneeSelect: the chosen people as removable
  * chips, and a searchable list of the rest of the project's active members. A note under it says
@@ -19,6 +21,7 @@ export function AssigneeField({
   note,
   disabled,
   status,
+  labels = DEFAULT_LABELS,
 }: {
   people: readonly PersonOption[];
   value: string[];
@@ -27,6 +30,8 @@ export function AssigneeField({
   disabled?: boolean;
   /** The project's people are still loading, or couldn't be loaded (offline, never opened). */
   status?: 'loading' | 'failed' | null;
+  /** Its own words (a schedule's inspectors — Stage 4): the list's label, the picker's, and when everyone is chosen. */
+  labels?: { list: string; add: string; allChosen: string };
 }) {
   const c = useColors();
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -38,7 +43,7 @@ export function AssigneeField({
   const placeholder = status === 'loading' ? 'Loading…' : people.length ? 'Search by name…' : 'No one is on this project yet';
   return (
     <View style={styles.wrap}>
-      <FieldLabel>Assignees (optional)</FieldLabel>
+      <FieldLabel>{labels.list}</FieldLabel>
       {chosen.length ? (
         <View style={styles.chips} accessibilityLabel="Assigned people">
           {chosen.map((p) => (
@@ -61,12 +66,12 @@ export function AssigneeField({
         </View>
       ) : null}
       <InlinePicker
-        label="Add people"
+        label={labels.add}
         options={options}
         value=""
         onChange={(id) => id && onChange([...value, id])}
         placeholder={placeholder}
-        emptyText="Everyone on this project is assigned."
+        emptyText={labels.allChosen}
         disabled={disabled || people.length === 0}
       />
       {status === 'failed' ? <Text style={[styles.note, { color: c.ink2 }]}>Couldn’t load the project’s people — you can still create the task, and assign people from it later.</Text> : null}

@@ -17,6 +17,7 @@ import type { AppStackParamList } from '../../navigation/types';
 import { Icon } from '../Icon';
 import { Button, Card, EmptyState, ErrorNote, SectionTitle, SkeletonList } from '../ui';
 import { DueChecksSection } from '../inspections/DueChecksSection';
+import { SchedulesSection } from '../inspections/SchedulesSection';
 import { InspectionRow } from '../inspections/InspectionRow';
 import { StartInspectionSheet, type InspectionTaskOption } from '../inspections/StartInspectionSheet';
 
@@ -52,13 +53,10 @@ export function InspectionsTab({
   projectId,
   tasks,
   onOpenTask,
-  schedules,
 }: {
   projectId: string;
   tasks: InspectionTaskOption[];
   onOpenTask?: (taskId: string) => void;
-  /** The schedules section (Task 12), between the due checks and the lists. */
-  schedules?: React.ReactNode;
 }) {
   const c = useColors();
   const { baseUrl } = useServices();
@@ -117,7 +115,7 @@ export function InspectionsTab({
       {q.data && settled ? (
         <>
           <DueChecksSection projectId={projectId} canStart={q.data.canStart} onOpenTask={onOpenTask} />
-          {schedules}
+          <SchedulesSection projectId={projectId} canChange={q.data.canStart} />
           <Group title={W.inProgress} items={inProgress} timeZone={timeZone} empty={W.noneInProgress} />
           <Group title={W.finished} items={finished} timeZone={timeZone} empty={W.noneFinished} />
         </>
