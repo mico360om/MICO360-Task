@@ -51,6 +51,8 @@ describe('Edit task (4d): New task’s form with what the task holds, as the web
       assigneeIds: ['u1', 'u2'],
       milestone: false,
       needsApproval: false,
+      checklist: [],
+      checklistPending: '',
     });
   });
 

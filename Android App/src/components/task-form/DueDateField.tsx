@@ -5,13 +5,14 @@ import { DayPicker } from '../calendar/CalendarSheets';
 import { FieldLabel } from '../meeting/sheet-kit';
 import { fullDayLabel, shiftDayKey, type WeekStart } from '../../lib/calendar';
 import { spacing, radius, fontSize } from '../../lib/theme';
-import { font } from '../../lib/typography';
+import { font, typeStyle } from '../../lib/typography';
 import { Icon } from '../Icon';
 
 /**
  * The due date (4a): the day shown in words, and — once tapped — a month to pick it from, with
  * Today, Tomorrow and In a week one tap away (the calendar's day picker; no date-picker package).
- * "No due date" clears it. Company calendar days, as the website's date box.
+ * "No due date" clears it. Company calendar days, as the website's date box. A note under it (New
+ * task: "Due today (this project’s setting)") is said with the field too.
  */
 export function DueDateField({
   value,
@@ -21,7 +22,10 @@ export function DueDateField({
   disabled,
   label = 'Due date (optional)',
   what = 'Due date',
+  note,
 }: {
+  /** A line under the field (what the project will give an empty due date), said with it. */
+  note?: string;
   /** What the day is, in words ("Due date", "Start date" — the Edit form's, 4d). */
   what?: string;
   /** The field's label; null when the screen labels it itself (the task's details). */
@@ -45,7 +49,7 @@ export function DueDateField({
           disabled={disabled}
           accessibilityRole="button"
           accessibilityLabel={`${what}: ${shown}`}
-          accessibilityHint={open ? 'Closes the calendar' : 'Opens a calendar to pick the day'}
+          accessibilityHint={`${note ? `${note}. ` : ''}${open ? 'Closes the calendar' : 'Opens a calendar to pick the day'}`}
           accessibilityState={{ expanded: open, disabled: !!disabled }}
           style={({ pressed }) => [styles.field, { borderColor: c.line, backgroundColor: c.surface }, pressed && styles.pressed, disabled && styles.disabled]}
         >
@@ -68,6 +72,11 @@ export function DueDateField({
           </Pressable>
         ) : null}
       </View>
+      {note ? (
+        <Text style={[typeStyle('caption'), { color: c.ink2 }]} importantForAccessibility="no">
+          {note}
+        </Text>
+      ) : null}
       {open && !disabled ? (
         <DayPicker
           value={value || null}

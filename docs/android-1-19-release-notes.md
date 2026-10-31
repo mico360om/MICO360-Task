@@ -33,6 +33,7 @@
 - In the Android app, a task waiting for approval opens on its Approval section: a project manager can Approve it or Send it back with a reason; others see whose approval it waits for. "Needs approval" can be turned on there by anyone and off only by the project's managers.
 - In the Android app, My Tasks starts with "To approve" for project managers: approve or send back the tasks others have finished.
 - In the Android app, New task and Edit task have the "Needs approval" tick, already ticked in projects that ask for it; only the project's managers can untick it.
+- In the Android app, New task can start from a task template, takes a checklist, and says when the project will give the new task today's date.
 <!-- daily-work-tasks lines above this line -->
 
 <!-- daily-work-pages lines above this line -->

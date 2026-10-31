@@ -2,8 +2,9 @@
  * The New task form (4a), as on the website (Web Portal/frontend/src/components/task-form/
  * TaskFormDialog.tsx): where the task goes (project and column), what it is (title, description),
  * when and how urgent (priority, due date, repeat), who does it (several assignees, from the
- * project's active members), whether it is a milestone, whether it needs approval, and files attached
- * once it exists.
+ * project's active members), whether it is a milestone, whether it needs approval, its checklist, and
+ * files attached once it exists — and it can start from a task template (title, description, priority,
+ * checklist).
  *
  * Sending follows the app's offline rules: a task without files goes through the offline queue
  * under its Idempotency-Key (kept on this phone when it gets no answer, sent later — never twice);
@@ -18,7 +19,8 @@ import { isKeptOnPhone, keptOnPhoneText } from './write-order';
 import { dueDayKey } from './due-date';
 import { recurrenceSummary } from './recurrence-summary';
 import { APPROVAL_LOCKED } from './approvals';
-import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule } from './types';
+import { checklistRows, checklistTexts, type ChecklistRow } from './checklist-draft';
+import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule, type TaskTemplate } from './types';
 
 /** The website's limits for the title and description. */
 export const TITLE_MAX = 191;
@@ -80,13 +82,17 @@ export interface TaskDraft {
   milestone: boolean;
   /** Needs approval: a project manager must approve it before it counts as done. */
   needsApproval: boolean;
+  /** A new task's checklist (a task template fills it in); an existing task's is edited on the task. */
+  checklist: ChecklistRow[];
+  /** What is typed in "Add an item" and not added yet (it is saved too). */
+  checklistPending: string;
   /** Edit task only (4d): 'YYYY-MM-DD' (a company calendar day), or '' for none. New tasks start today (the server's). */
   startDate?: string;
 }
 
 /** A new task as it opens: in the project and column it was opened from, on the day chosen (the calendar's). */
 export function newTaskDraft(o: { projectId?: string; columnId?: string; dueDate?: string }): TaskDraft {
-  return { projectId: o.projectId ?? '', columnId: o.columnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: o.dueDate ?? '', rule: null, assigneeIds: [], milestone: false, needsApproval: false };
+  return { projectId: o.projectId ?? '', columnId: o.columnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: o.dueDate ?? '', rule: null, assigneeIds: [], milestone: false, needsApproval: false, checklist: [], checklistPending: '' };
 }
 
 // ── Where the task goes ──────────────────────────────────────────────────────
@@ -271,6 +277,8 @@ export interface NewTaskInput {
   boardDate?: string;
   /** Ticked: true; unticked in a project that pre-ticks: false; otherwise left out (the project decides). */
   needsApproval?: boolean;
+  /** Its checklist's items, in order (e.g. from a task template), created with the task. */
+  checklist?: string[];
 }
 
 export type DraftCheck = { ok: true; input: NewTaskInput } | { ok: false; field: 'title' | 'repeat' | 'place'; message: string };
@@ -282,6 +290,7 @@ export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?:
   if (until) return { ok: false, field: 'repeat', message: until };
   if (!d.projectId || !d.columnId) return { ok: false, field: 'place', message: o.noProjects ? 'Create a project first.' : 'Choose where the task goes: its project and column.' };
   const description = d.description.trim();
+  const checklist = checklistTexts(d.checklist, d.checklistPending);
   return {
     ok: true,
     input: {
@@ -296,9 +305,35 @@ export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?:
       ...(d.assigneeIds.length ? { assigneeIds: [...new Set(d.assigneeIds)] } : {}),
       ...(o.boardDate ? { boardDate: o.boardDate } : {}),
       ...(d.needsApproval ? { needsApproval: true } : o.project?.newTasksNeedApproval ? { needsApproval: false } : {}),
+      ...(checklist.length ? { checklist } : {}),
     },
   };
 }
+
+// ── Start from a task template ───────────────────────────────────────────────
+
+/** The template picker's words (the website's). */
+export const TEMPLATE_TEXT = { label: 'Start from a template', placeholder: 'Choose a task template' } as const;
+
+/** Only well-formed templates (a server without templates answers something else, or nothing). */
+export function usableTemplates(data: unknown): TaskTemplate[] {
+  if (!Array.isArray(data)) return [];
+  return data.filter((t): t is TaskTemplate => !!t && typeof t === 'object' && typeof (t as TaskTemplate).name === 'string' && typeof (t as TaskTemplate).title === 'string' && Array.isArray((t as TaskTemplate).checklist));
+}
+
+/** "4 checklist items" / "1 checklist item" under a template's name; nothing for one without a checklist. */
+export function templateHint(t: TaskTemplate): string | undefined {
+  const n = t.checklist.length;
+  return n ? `${n} checklist item${n === 1 ? '' : 's'}` : undefined;
+}
+
+/** The form filled in from a template: its title, description, priority and checklist (a change of yours). */
+export function applyTemplate(draft: TaskDraft, t: TaskTemplate): TaskDraft {
+  return { ...draft, title: t.title, description: t.description ?? '', priority: t.priority, checklist: checklistRows(t.checklist), checklistPending: '' };
+}
+
+/** Said once a template is used. */
+export const templateFilledText = (name: string): string => `Filled in from “${name}” — change anything before saving.`;
 
 /**
  * Is there something to keep? What you typed or chose — not what the form filled in itself (the
@@ -434,6 +469,8 @@ export function editTaskDraft(task: ApiTask, assigneeIds: readonly string[], tim
     assigneeIds: [...assigneeIds],
     milestone: !!task.isMilestone,
     needsApproval: !!task.needsApproval,
+    checklist: [],
+    checklistPending: '',
   };
 }
 

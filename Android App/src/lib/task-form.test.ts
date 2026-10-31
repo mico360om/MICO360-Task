@@ -32,6 +32,11 @@ import {
   APPROVAL_WAITING_NOTE,
   approvalAfterProjectChange,
   approvalTickFor,
+  applyTemplate,
+  templateFilledText,
+  templateHint,
+  usableTemplates,
+  TEMPLATE_TEXT,
   editTaskDraft,
   saveTaskEdit,
   type EditDeps,
@@ -40,6 +45,8 @@ import {
   type TaskDraft,
 } from './task-form';
 import { APPROVAL_LOCKED } from './approvals';
+import { checklistRows } from './checklist-draft';
+import type { TaskTemplate } from './types';
 import { hasWeb, readWeb } from '../testing/web-source';
 import { ApiError, NetworkError } from './api-client';
 import { WaitingBehindError } from './write-order';
@@ -145,6 +152,8 @@ describe('checking and sending a new task', () => {
       assigneeIds: [],
       milestone: false,
       needsApproval: false,
+      checklist: [],
+      checklistPending: '',
     });
   });
 
@@ -638,4 +647,38 @@ describe('"Needs approval" in New and Edit task (the website’s TaskFormDialog)
 });
 describe.skipIf(!hasWeb('frontend/src/components/task-form/TaskFormDialog.tsx'))('the website’s Needs approval words', () => {
   it('the waiting note', () => expect(readWeb('frontend/src/components/task-form/TaskFormDialog.tsx')).toContain(APPROVAL_WAITING_NOTE));
+});
+
+// ── Stage 2 Task 6: task templates and the checklist in New task ──
+describe('New task: task templates and the checklist (the website’s TaskFormDialog)', () => {
+  it('a template fills title, description, priority and checklist, and says so', () => {
+    const t = { id: 'tt1', name: 'Pump check', title: 'Check the pumps', description: null, priority: 'HIGH', checklist: ['Pressure', 'Leaks'] } as TaskTemplate;
+    const d = applyTemplate({ ...newTaskDraft({}), title: 'typed', checklistPending: 'half' }, t);
+    expect(d).toMatchObject({ title: 'Check the pumps', description: '', priority: 'HIGH', checklistPending: '' }); expect(d.checklist.map((r) => r.text)).toEqual(['Pressure', 'Leaks']);
+    expect(templateFilledText('Pump check')).toBe('Filled in from “Pump check” — change anything before saving.');
+    expect([templateHint(t), templateHint({ ...t, checklist: ['a'] }), templateHint({ ...t, checklist: [] })]).toEqual(['2 checklist items', '1 checklist item', undefined]);
+    expect(usableTemplates([t, { id: 'x', name: 3 }, null])).toEqual([t]);
+    expect(usableTemplates({ data: [t] })).toEqual([]);
+    expect(isDraftDirty(d, newTaskDraft({}), { placeChosen: false, files: 0 })).toBe(true); // using one counts as a change
+  });
+  it('a new task sends its checklist, typed-but-not-added text included', () => {
+    const input = bodyOf({ checklist: checklistRows(['Pressure']), checklistPending: 'Leaks' }, rig);
+    expect(input.checklist).toEqual(['Pressure', 'Leaks']);
+    expect(bodyOf({}, rig)).not.toHaveProperty('checklist');
+    expect(bodyOf({ checklist: checklistRows(['  ']), checklistPending: ' ' }, rig)).not.toHaveProperty('checklist');
+  });
+  it('the checklist and its typed text count as a change', () => {
+    const start = newTaskDraft({});
+    expect(isDraftDirty({ ...start, checklistPending: 'Leaks' }, start, { placeChosen: false, files: 0 })).toBe(true);
+    expect(isDraftDirty({ ...start, checklist: checklistRows(['Pressure']) }, start, { placeChosen: false, files: 0 })).toBe(true);
+  });
+  it('Edit task opens with no checklist of its own (its checklist is edited on the task)', () => {
+    expect(saved).toMatchObject({ checklist: [], checklistPending: '' });
+  });
+});
+describe.skipIf(!hasWeb('frontend/src/components/task-form/TaskFormDialog.tsx'))('the website’s template words', () => {
+  it('label, placeholder, status line', () => {
+    const w = readWeb('frontend/src/components/task-form/TaskFormDialog.tsx');
+    for (const t of [TEMPLATE_TEXT.label, TEMPLATE_TEXT.placeholder, '— change anything before saving.', 'Filled in from “', ' checklist item']) expect(w, t).toContain(t);
+  });
 });
