@@ -36,6 +36,8 @@ export interface InspectionOutboxes {
   recordKey(ownerId: string, inspectionId: string): string;
   /** The person's changes not sent yet: answers, follow-up requests and a waiting finish (the sign-out question). */
   unsentCount(ownerId: string | null | undefined): number;
+  /** Every record the person keeps on this phone for this server — waiting, or kept so it opens offline (lib/on-this-phone). */
+  kept(ownerId: string): DraftView[];
   /** The same, once the phone's records are read (before that the count would say 0 — Final I4). */
   unsentCountWhenReady(ownerId: string | null | undefined): Promise<number>;
   /** Why a person's record of an inspection is only in the app (too big, or the storage full / refused it). */
@@ -204,6 +206,14 @@ export function createInspectionOutboxes(deps: {
     ownerKey,
     recordKey: (ownerId, inspectionId) => `${INSPECTION_RECORD_PREFIX}${ownerKey(ownerId)}.${inspectionId}`,
     unsentCount,
+    kept(ownerId) {
+      const prefix = `${INSPECTION_RECORD_PREFIX}${ownerKey(ownerId)}.`;
+      const o = outboxFor(ownerId);
+      // The records on the phone, and any only in the app (storage full: waiting() names them).
+      const ids = new Set(storage.keys().filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length)));
+      for (const w of o.waiting(ownerId)) ids.add(w.inspectionId);
+      return [...ids].map((id) => o.view(ownerId, id)).filter((v): v is DraftView => v !== null);
+    },
     async unsentCountWhenReady(ownerId) {
       await ready;
       return unsentCount(ownerId);

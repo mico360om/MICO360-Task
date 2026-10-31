@@ -1,11 +1,11 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { hashKey, useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { refetchAfterMove } from '../lib/task-status';
 import { editBaseVersion, taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
-import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, UNREAD_COUNT_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
+import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, UNREAD_COUNT_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, taskCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
 import { resourcesApi } from '../lib/resources';
@@ -93,9 +93,29 @@ export function useMyTasks() {
   });
 }
 
+/**
+ * One task's details, read through the offline copy (the most recent TASK_COPIES_KEPT are kept), so
+ * a task looked at — or the task of an inspection opened here — opens with no signal (device check B).
+ */
+function taskQuery(s: Pick<Services, 'resources' | 'reads'>, taskId: string) {
+  return {
+    queryKey: ['task', taskId] as const,
+    queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) => s.reads.read(queryKey, taskCopyKey(taskId), () => s.resources.tasks.get(taskId)),
+  };
+}
+
 export function useTask(taskId: string) {
-  const { resources } = useServices();
-  return useQuery({ queryKey: ['task', taskId], queryFn: () => resources.tasks.get(taskId), enabled: !!taskId });
+  const s = useServices();
+  return useQuery({ ...taskQuery(s, taskId), enabled: !!taskId });
+}
+
+/** Keep a task's details on the phone (read once, if not already): an inspection's task, as the inspection opens. */
+export function useKeepTaskCopy(taskId: string | null | undefined): void {
+  const s = useServices();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (taskId) void qc.prefetchQuery(taskQuery(s, taskId));
+  }, [qc, s, taskId]);
 }
 
 /**

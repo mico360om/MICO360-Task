@@ -11,6 +11,7 @@ import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { SkeletonList } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
+import { OnThisPhoneCard } from '../components/inspections/OnThisPhoneCard';
 import { AdminTotals } from '../components/AdminTotals';
 import { WelcomeBand } from '../components/dashboard/WelcomeBand';
 import { DashboardTiles } from '../components/dashboard/DashboardTiles';
@@ -102,6 +103,8 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
         <WelcomeBand {...band} onOpenBoard={() => navigation.navigate('AllBoard')} onViewMyTasks={() => navigation.navigate('MyTasks')} />
 
         <SyncStatus />
+        {/* Inspections waiting on this phone open from here with no signal (device check B). */}
+        <OnThisPhoneCard />
 
         <DashboardTiles tiles={tiles} onOpen={openTile} onRetry={retryTiles} retrying={myTasksQ.isRefetching || projectsQ.isRefetching || adminQ.isRefetching} />
 

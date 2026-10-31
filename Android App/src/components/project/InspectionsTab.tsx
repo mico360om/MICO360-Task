@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useServices } from '../../core/providers';
 import { useColors } from '../../core/theme';
-import { useWaitingInspections } from '../../core/inspection-sync';
+import { useKeptInspections, useWaitingInspections } from '../../core/inspection-sync';
 import { useDueChecks, useInspectionForms, useInspectionSchedules, useProjectInspections } from '../../core/inspection-queries';
 import { openWebsitePage } from '../../adapters/website';
 import { appTimeZone } from '../../lib/due-date';
@@ -19,6 +19,7 @@ import { Button, Card, EmptyState, ErrorNote, SectionTitle, SkeletonList } from 
 import { DueChecksSection } from '../inspections/DueChecksSection';
 import { SchedulesSection } from '../inspections/SchedulesSection';
 import { InspectionRow } from '../inspections/InspectionRow';
+import { OnThisPhoneCard } from '../inspections/OnThisPhoneCard';
 import { StartInspectionSheet, type InspectionTaskOption } from '../inspections/StartInspectionSheet';
 
 const FORMS_TAB = '/templates?tab=inspections';
@@ -69,6 +70,8 @@ export function InspectionsTab({
   const schedulesQ = useInspectionSchedules(projectId);
   const allWaiting = useWaitingInspections();
   const waiting = useMemo(() => allWaiting.filter((w) => w.projectId === projectId), [allWaiting, projectId]);
+  // Kept on this phone (waiting, or unfinished): listed at the top, and never the first-run screen (device check B).
+  const kept = useKeptInspections(projectId);
   const all = q.data?.inspections ?? [];
   const inProgress = all.filter((x) => x.status === 'IN_PROGRESS');
   const finished = all.filter((x) => x.status === 'FINISHED');
@@ -83,7 +86,7 @@ export function InspectionsTab({
     formsSettled: settledQ(formsQ),
     schedules: schedulesQ.data?.schedules,
     schedulesSettled: settledQ(schedulesQ),
-    waiting: waiting.length,
+    waiting: Math.max(waiting.length, kept.length),
   });
 
   if (state === 'first-run') {
@@ -100,6 +103,7 @@ export function InspectionsTab({
   const banner = waitingBannerText(waiting);
   return (
     <View style={s.stack}>
+      <OnThisPhoneCard projectId={projectId} />
       <View style={s.head}>
         <View style={s.intro}>
           <Icon name="misc.inspection" size={16} color={c.ink2} />

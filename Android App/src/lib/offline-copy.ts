@@ -58,6 +58,15 @@ export const chatMembersCopyKey = (conversationId: string): string => `chat.memb
 const CHAT_THREAD = /^chat\.thread\.[^.]+$/;
 const CHAT_MEMBERS = /^chat\.members\.[^.]+$/;
 
+// ── Task details (device check B) ─────────────────────────────────────────────
+
+/** Tasks whose details are kept offline per person (the most recently read; older ones are deleted). */
+export const TASK_COPIES_KEPT = 50;
+
+/** One task's details (its page): kept when read, so an inspection's task opens with no signal too. */
+export const taskCopyKey = (taskId: string): string => `task.${taskId}`;
+const TASK_COPY = /^task\.[^.]+$/;
+
 // ── Alerts (device check N11) ────────────────────────────────────────────────
 
 /** The unread count (the bell's number), kept so it shows offline too. */
@@ -84,7 +93,7 @@ export const dueChecksCopyKey = (projectId: string): string => `inspections.chec
 export const taskInspectionsCopyKey = (taskId: string): string => `inspections.task.${taskId}`;
 const INSPECTION_COPY = /^inspections\.(list|checks|task)\.[^.]+$/;
 
-/** The copies that pile up, each capped on its own: board days, chat threads, channel members, boards' progress. */
+/** The copies that pile up, each capped on its own: board days, chat threads, channel members, boards' progress, inspections, task details. */
 export function offlineCopyCaps(): RollingGroup[] {
   return [
     { matches: isBoardDayCopy, keep: BOARD_DAYS_KEPT },
@@ -92,5 +101,6 @@ export function offlineCopyCaps(): RollingGroup[] {
     { name: 'chat-members', matches: (key) => CHAT_MEMBERS.test(key), keep: CHAT_THREADS_KEPT },
     { name: 'progress', matches: (key) => PROGRESS.test(key), keep: PROGRESS_KEPT },
     { name: 'inspections', matches: (key) => INSPECTION_COPY.test(key), keep: INSPECTION_COPIES_KEPT },
+    { name: 'task', matches: (key) => TASK_COPY.test(key), keep: TASK_COPIES_KEPT },
   ];
 }

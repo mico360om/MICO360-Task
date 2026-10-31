@@ -5,7 +5,7 @@ import { useColors } from '../core/theme';
 import { useServices } from '../core/providers';
 import { refreshInspectionQueries, useInspectionDraft } from '../core/inspection-sync';
 import { useInspection } from '../core/inspection-queries';
-import { useProjectMembers, useProjects } from '../core/queries';
+import { useKeepTaskCopy, useProjectMembers, useProjects } from '../core/queries';
 import { usePullRefresh } from '../components/meeting/live';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { Badge, Button, Card, IconButton, SectionTitle, SkeletonList } from '../components/ui';
@@ -47,6 +47,8 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
   const { inspectionId } = route.params;
   const { ownerId, ready, view, storageProblem, sync, online, send, sendSoon, outbox } = useInspectionDraft(inspectionId);
   const q = useInspection(inspectionId);
+  // Its task is kept on the phone too, so the task's page opens with no signal (device check B).
+  useKeepTaskCopy(q.data?.task?.id);
   const pull = usePullRefresh(q.refetch);
   const [changeNote, setChangeNote] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);

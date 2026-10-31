@@ -6,6 +6,7 @@ import { useOnline } from './chat';
 import type { StorageProblem } from '../lib/draft-storage';
 import type { DraftView, FlushState, InspectionOutbox, WaitingInspection } from '../lib/inspection-outbox';
 import { FLUSH_ALL_EVERY_MS, RETRY_EVERY_MS, SEND_DELAY_MS, type SyncState } from '../lib/inspection-outboxes';
+import { keptRows, type KeptRow } from '../lib/on-this-phone';
 
 /**
  * The website's inspection hooks (`lib/inspection-sync.ts`) for the phone: the screens read the
@@ -155,6 +156,20 @@ export function useWaitingInspections(): WaitingInspection[] {
     () => (ready && outbox && ownerId ? outbox.waiting(ownerId) : []),
     // `version` changes with every change of a record.
     [ready, outbox, ownerId, version],
+  );
+}
+
+/**
+ * "Waiting on this phone" (lib/on-this-phone): the signed-in person's inspections with changes waiting
+ * or kept unfinished here, of one project when given — from the phone's records, so it works offline.
+ */
+export function useKeptInspections(projectId?: string): KeptRow[] {
+  const { inspections } = useServices();
+  const { ownerId, outbox, ready, version } = useOutbox();
+  return useMemo(
+    () => (ready && outbox && ownerId ? keptRows(inspections.kept(ownerId), projectId) : []),
+    // `version` changes with every change of a record.
+    [ready, outbox, ownerId, version, inspections, projectId],
   );
 }
 
