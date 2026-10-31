@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, Appearance } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Appearance, StatusBar } from 'react-native';
 import { resolveColors, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { CrashReporter } from '../lib/error-reporter';
 import { font } from '../lib/typography';
@@ -41,6 +41,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
       this.props.reporter.captureException(error, { componentStack: info.componentStack });
     } catch {
       /* a failing reporter must never break the fallback */
+    }
+    // The status bar is see-through from the start (App): without the navigator's, its icons follow
+    // this screen's colours — dark on the light ground, light on the dark one.
+    try {
+      StatusBar.setBarStyle(Appearance.getColorScheme() === 'dark' ? 'light-content' : 'dark-content');
+    } catch {
+      /* nothing to set (tests) */
     }
   }
 

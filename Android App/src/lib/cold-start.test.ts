@@ -40,3 +40,10 @@ it('the lock gate’s start-up cover is the logo splash, its status bar light on
   expect(splash).toMatch(/import \{ StatusBar \} from 'expo-status-bar';/);
   expect(splash).toMatch(/<StatusBar style="light" \/>/);
 });
+
+// With the status bar see-through from the start, a screen shown without the navigator (the crash
+// screen) sets its own icons: dark on its light ground, light on the dark one — as its colours follow the phone.
+it('the crash screen’s status bar icons follow its colours', () => {
+  const boundary = src('components/ErrorBoundary.tsx');
+  expect(boundary).toMatch(/componentDidCatch[^]*StatusBar\.setBarStyle\(Appearance\.getColorScheme\(\) === 'dark' \? 'light-content' : 'dark-content'\)/);
+});
