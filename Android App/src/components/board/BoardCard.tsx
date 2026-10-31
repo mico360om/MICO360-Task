@@ -137,7 +137,7 @@ export const BoardCard = React.memo(function BoardCard({
               ))}
               {view.extra > 0 ? (
                 <View style={[s.face, s.more]}>
-                  <Text style={s.moreText}>+{view.extra}</Text>
+                  <Text style={s.moreText} allowFontScaling={false}>+{view.extra}</Text>
                 </View>
               ) : null}
             </View>

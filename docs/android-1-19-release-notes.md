@@ -84,4 +84,5 @@
 - In the Android app, Dashboard, My Tasks, Projects, Meetings, Notifications and Settings no longer start with an empty band under the top bar, and the side menu's logo sits at its top.
 - In the Android app, the bottom tabs keep a little room under their names, so they no longer touch the phone's own buttons.
 - In the Android app, TalkBack reads Management's owner choice once — "Owner: Anyone" instead of "Owner: Owner: Anyone".
+- In the Android app, the "+N" after the faces on project, board and My Tasks cards is no longer cut off at the largest font size.
 <!-- final-pass lines above this line -->

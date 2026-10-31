@@ -82,7 +82,7 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
             ))}
             {people.length > 3 ? (
               <View style={[s.face, s.overlap, s.more]}>
-                <Text style={s.moreText}>+{people.length - 3}</Text>
+                <Text style={s.moreText} allowFontScaling={false}>+{people.length - 3}</Text>
               </View>
             ) : null}
           </View>

@@ -170,7 +170,7 @@ export const ProjectCard = React.memo(function ProjectCard({
               ))}
               {more ? (
                 <View style={[s.more, s.overlap, { backgroundColor: c.ground, borderColor: c.surface }]}>
-                  <Text style={[s.moreText, { color: c.ink2 }]}>+{more}</Text>
+                  <Text style={[s.moreText, { color: c.ink2 }]} allowFontScaling={false}>+{more}</Text>
                 </View>
               ) : null}
             </View>
