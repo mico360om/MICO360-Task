@@ -3,9 +3,9 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Sheet, SheetButtons, CardChoice, SheetMessage } from '../meeting/sheet-kit';
 import { MonthGrid } from './MonthGrid';
-import { IconButton } from '../ui';
+import { ApprovalChip, IconButton } from '../ui';
 import { dayLabel, fullDayLabel, shiftMonth, type WeekStart } from '../../lib/calendar';
-import { PRIORITY_LABEL, STATUS_LABEL, type CalItem } from '../../lib/calendar-model';
+import { PRIORITY_LABEL, STATUS_LABEL, waits, type CalItem } from '../../lib/calendar-model';
 import { moveBlockReason, needsSeriesChoice, projectedNote, quickDays, type MoveScope } from '../../lib/calendar-reschedule';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { dueDayKey } from '../../lib/due-date';
@@ -188,7 +188,12 @@ export function TaskInfoSheet({
     >
       <SheetMessage text={note} tone="info" />
       {projected && moveBlockReason(item) ? <Text style={s.note}>{moveBlockReason(item)}</Text> : null}
-      <Fact label="Status">{STATUS_LABEL[item.status]}</Fact>
+      <View style={s.statusRow}>
+        <View style={s.flex}>
+          <Fact label="Status">{STATUS_LABEL[item.status]}</Fact>
+        </View>
+        {waits(item) ? <ApprovalChip size="sm" /> : null}
+      </View>
       <Fact label={projected ? 'This copy' : 'Due'}>{fullDayLabel(item.date)}</Fact>
       {projected && due ? <Fact label="Current copy due">{fullDayLabel(due)}</Fact> : null}
       <Fact label="Project">{projectName ?? 'Project'}</Fact>
@@ -240,6 +245,8 @@ const makeStyles = (c: Palette) =>
     monthName: { flex: 1, textAlign: 'center', fontSize: fontSize.md, ...font('700'), color: c.ink },
     taskTitle: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     note: { fontSize: fontSize.sm, color: c.ink2 },
+    statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    flex: { flex: 1, minWidth: 0 },
     fact: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: spacing.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line },
     factLabel: { width: 120, fontSize: fontSize.xs, ...font('700'), color: c.ink2, textTransform: 'uppercase' },
     factValue: { flex: 1, minWidth: 140, fontSize: fontSize.sm, color: c.ink, textAlign: 'auto' },
