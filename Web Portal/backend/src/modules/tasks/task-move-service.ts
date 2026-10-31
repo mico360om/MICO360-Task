@@ -4,7 +4,7 @@ import { boardDateFromKey, boardDateKey } from './board-date';
 import { columnEntryChange, defaultCompanyTimeZone } from './task-status';
 import { TaskKeyConflictError, type TaskRecord } from './task-repository';
 import { TaskChangedConflictError, TaskMovedConflictError, type MovableTask, type MoveColumn, type MovePerson, type MoveProject, type ProjectMoveWrite, type TaskMoveRepository } from './task-move-repository';
-import { matchingColumn, notOnTeamMessage } from './task-move';
+import { matchingColumn, namesText, notOnTeamMessage } from './task-move';
 import { isAwaitingApproval, type ApprovalEvent } from './task-approval';
 import { projectArchived } from '../companies/project-archive';
 
@@ -63,9 +63,12 @@ export interface TaskMovePreview {
   dueDate: string | null;
   /** SERIES: the newest copy of a repeating task, whose later copies are made in the new project. COPY: an earlier copy, moving alone. */
   repeat: 'SERIES' | 'COPY' | null;
-  /** People assigned to it who aren't on the new project's team. */
-  outsiders: MovePerson[];
+  /** People assigned to it who aren't on the new project's team (companies: `canJoin` false — only "Unassign them"). */
+  outsiders: Outsider[];
 }
+
+/** Someone assigned who isn't on the new team, and whether they may join it (companies: in one of its companies). */
+export type Outsider = MovePerson & { canJoin: boolean };
 
 export interface MovePreview {
   project: MoveProjectSummary & { defaultDueToday: boolean };
@@ -73,7 +76,7 @@ export interface MovePreview {
   columns: MoveColumn[];
   tasks: TaskMovePreview[];
   /** Everyone assigned to the tasks that can move who isn't on the new team, once each. */
-  outsiders: MovePerson[];
+  outsiders: Outsider[];
 }
 
 export interface MoveResult {
@@ -213,11 +216,16 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     return column;
   }
 
-  async function outsidersOf(task: MovableTask, to: MoveProject): Promise<MovePerson[]> {
+  async function outsidersOf(task: MovableTask, to: MoveProject): Promise<Outsider[]> {
     if (task.assignees.length === 0) return [];
     const team = new Set(await repo.teamIds(to.id, task.assignees.map((p) => p.id)));
-    return task.assignees.filter((p) => !team.has(p.id));
+    const outside = task.assignees.filter((p) => !team.has(p.id));
+    if (outside.length === 0) return [];
+    // companies: only people in one of the new project's companies (or admins) may join its team.
+    const may = new Set(repo.joinableIds ? await repo.joinableIds(to.id, outside.map((p) => p.id)) : outside.map((p) => p.id));
+    return outside.map((p) => ({ ...p, canJoin: may.has(p.id) }));
   }
+  const person = ({ id, name }: Outsider): MovePerson => ({ id, name });
 
   /** The due date entering `to` gives the task, or null (it keeps the one it has, or stays undated). */
   function dueOnEntry(task: MovableTask, to: MoveProject): Date | null {
@@ -235,7 +243,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     const [found, columns, next] = await Promise.all([repo.findTasks(ids), repo.listColumns(to.id), repo.nextKeyNumber(to.id)]);
     const byId = new Map(found.map((t) => [t.id, t]));
     const tasks: TaskMovePreview[] = [];
-    const outsiders = new Map<string, MovePerson>();
+    const outsiders = new Map<string, Outsider>();
     let numbered = 0;
     for (const id of ids) {
       const task = byId.get(id);
@@ -280,9 +288,15 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
     if (!task) throw new NotFoundError('Task not found.');
     const from = await source(scope, task, to, find);
     const column = columnFor(columns, to, task, input.columnId);
-    const outsiders = await outsidersOf(task, to);
+    const found = await outsidersOf(task, to);
+    const outsiders = found.map(person);
     if (outsiders.length > 0 && !input.assignees) {
       throw new TaskRefusal(notOnTeamMessage(outsiders, to.name), 'ASSIGNEES_NOT_ON_TEAM', 409, undefined, { people: outsiders });
+    }
+    const cannot = found.filter((p) => !p.canJoin).map(person);
+    if (input.assignees === 'ADD_TO_TEAM' && cannot.length > 0) {
+      const message = `${namesText(cannot.map((p) => p.name))} can’t join the ${to.name} team: they aren’t in any of its companies. Unassign them instead.`;
+      throw new TaskRefusal(message, 'CANT_JOIN_TEAM', 409, undefined, { people: cannot });
     }
     const addedToTeam = input.assignees === 'ADD_TO_TEAM' ? outsiders : [];
     const unassigned = input.assignees === 'UNASSIGN' ? outsiders : [];

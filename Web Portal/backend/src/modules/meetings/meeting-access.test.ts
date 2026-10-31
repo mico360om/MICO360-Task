@@ -50,3 +50,31 @@ describe('meeting access', () => {
     expect(await access.canEditMeeting('pm2', [], 'm2')).toBe(false);
   });
 });
+
+describe('meeting access: the invitation exception (companies)', () => {
+  // m3: a project meeting of p2, organizer member2, with guest u5 invited from another company.
+  const withInvitee = { ...cores, m3: { organizerId: 'member2', createdById: 'member2', projectId: 'p2', attendeeUserIds: ['u5', 'member2'] } };
+  const lookup = { async accessCore(id: string) { return withInvitee[id as keyof typeof withInvitee] ?? null; } };
+  // u5 shares no company with p2; everyone else does.
+  const meetingView = async (viewer: { id: string }, m: { projectId: string | null }) => (m.projectId && viewer.id === 'u5' ? ('invitee' as const) : ('full' as const));
+  const companies = createMeetingAccess({ meetings: lookup, projectAccess, meetingView });
+
+  it('an invitee from outside the project’s companies sees the meeting in the invitee view only', async () => {
+    expect(await companies.viewOf('u5', [], 'm3')).toBe('invitee');
+    expect(await companies.canViewMeeting('u5', [], 'm3')).toBe(false); // not the full view
+    expect(await companies.viewOf('member2', [], 'm3')).toBe('full');
+    expect(await companies.viewOf('admin', ['ADMIN'], 'm3')).toBe('full');
+    expect(await companies.viewOf('u9', [], 'm3')).toBeNull();
+    expect(await companies.viewOf('u1', [], 'ghost')).toBeNull();
+  });
+
+  it('a project member who isn’t invited still has the full view; a standalone meeting’s people too', async () => {
+    expect(await companies.viewOf('member2', [], 'm2')).toBe('full');
+    expect(await companies.viewOf('u2', [], 'm1')).toBe('full');
+  });
+
+  it('without the companies rule an invitee keeps today’s full view', async () => {
+    expect(await access.viewOf('u2', [], 'm1')).toBe('full');
+    expect(await access.viewOf('u9', [], 'm1')).toBeNull();
+  });
+});

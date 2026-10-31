@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AgendaService } from './agenda-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import type { MeetingViewOf } from './invitee-view';
 
 const addSchema = z.object({
   title: z.string().min(1),
@@ -26,6 +27,8 @@ export interface AgendaRouteDeps {
   guard: AuthGuard;
   /** Object-level view/edit authorization on the parent meeting. */
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
+  /** companies: how a person sees the meeting — an invitee from another company may read its agenda. */
+  viewOf?: MeetingViewOf;
 }
 
 export async function registerAgendaRoutes(app: FastifyInstance, deps: AgendaRouteDeps): Promise<void> {
@@ -39,7 +42,8 @@ export async function registerAgendaRoutes(app: FastifyInstance, deps: AgendaRou
 
   app.get('/meetings/:id/agenda', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await canView(req, id))) return reply.status(404).send(notFound);
+    const sees = deps.viewOf ? (await deps.viewOf(req.user!.id, req.user!.roles ?? [], id)) !== null : await canView(req, id);
+    if (!sees) return reply.status(404).send(notFound);
     return { data: await agendaService.listAgenda(id) };
   });
 

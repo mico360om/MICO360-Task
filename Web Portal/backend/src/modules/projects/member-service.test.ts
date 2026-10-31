@@ -102,3 +102,18 @@ describe('MemberService — companies', () => {
     expect((await s.addMembers('old', ['u2'])).map((u) => u.id)).toEqual(['u2']);
   });
 });
+
+describe('MemberService — who still has access (companies)', () => {
+  it('lists everyone on the team and says who can still see the project', async () => {
+    const svc = createMemberService({ ...inMemory(['p1']), whoCanSee: async (_p, ids) => new Set(ids.filter((id) => id !== 'u2')) });
+    const added = await svc.addMembers('p1', ['u1', 'u2']);
+    expect(Object.fromEntries(added.map((u) => [u.id, u.hasAccess]))).toEqual({ u1: true, u2: false });
+    expect(Object.fromEntries((await svc.listMembers('p1')).map((u) => [u.id, u.hasAccess]))).toEqual({ u1: true, u2: false });
+    expect(Object.fromEntries((await svc.setMemberRole('p1', 'u2', 'MANAGER')).map((u) => [u.id, u.hasAccess]))).toEqual({ u1: true, u2: false });
+  });
+
+  it('without the companies rule everyone on the team has access, as before', async () => {
+    await svc.addMembers('p1', ['u1']);
+    expect((await svc.listMembers('p1')).map((u) => u.hasAccess)).toEqual([true]);
+  });
+});

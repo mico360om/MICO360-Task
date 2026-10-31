@@ -1,4 +1,5 @@
-import { ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { ForbiddenError, HttpError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { COMPANY_WORDS, dmReadOnlyMessage } from '../companies/company-rules';
 import type { Logger } from '../../lib/logger';
 import type {
   Conversation,
@@ -12,6 +13,7 @@ import type {
   ReactionRepository,
   ChatAttachmentRepository,
   ChatMemberLookup,
+  ChatPerson,
 } from './chat-repository';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 
@@ -68,6 +70,12 @@ export interface ConversationPrefs {
   muted: boolean;
 }
 
+/**
+ * companies: a direct chat with someone the person no longer shares a company with stays readable but
+ * can't be written in; this says why ("You no longer share a company with Sara."). null: writable.
+ */
+export type ReadOnlyNote = { message: string } | null;
+
 export interface ConversationSummary {
   conversation: Conversation;
   participants: PublicParticipant[];
@@ -75,6 +83,21 @@ export interface ConversationSummary {
   lastMessage: Message | null;
   /** The signed-in person's own settings for this conversation. */
   prefs: ConversationPrefs;
+  /** companies: why it can't be written in, or null. */
+  readOnly: ReadOnlyNote;
+}
+
+/** Someone who wrote (or is quoted) on a page of messages — their name shows even when the reader doesn't otherwise know them. */
+export interface MessageAuthor {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+/** A page of messages, oldest first, and everyone who wrote them. */
+export interface MessagesPage {
+  messages: MessageView[];
+  authors: MessageAuthor[];
 }
 
 /** What to send: text (may be empty with a file), an optional file, reply and retry id. */
@@ -133,6 +156,8 @@ const publicParticipant = (p: Participant): PublicParticipant => ({
   lastDeliveredAt: p.lastDeliveredAt ?? null,
 });
 const prefsOf = (p: Participant | null): ConversationPrefs => ({ favorite: !!p?.favorite, archived: !!p?.archivedAt, muted: !!p?.mutedAt });
+const fullName = (p: ChatPerson) => `${p.firstName} ${p.lastName}`.trim() || p.username;
+const firstName = (p: ChatPerson) => p.firstName.trim() || p.username;
 const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === 'P2002' || /unique constraint/i.test(String((err as Error)?.message ?? ''));
 
 /** A deleted message keeps its row (history order, reply context) but none of its content. */
@@ -161,6 +186,36 @@ export function createMessageService(deps: MessageServiceDeps) {
     if (!(await canAccess(conv, userId))) throw new ForbiddenError('You do not have access to this conversation.');
   }
 
+  /**
+   * companies: a direct chat is read-only for this person when someone else in it shares no active
+   * company with them (neither being an administrator). `others` are the people in it.
+   */
+  async function readOnlyAmong(conv: Conversation, userId: string, others: string[]): Promise<ReadOnlyNote> {
+    if (conv.kind !== 'DIRECT' || !members.colleagues) return null;
+    for (const other of others) {
+      if (other === userId || (await members.colleagues(userId, other))) continue;
+      const [person] = members.people ? await members.people([other]) : [];
+      return { message: dmReadOnlyMessage(person ? firstName(person) : 'this person') };
+    }
+    return null;
+  }
+  async function readOnlyOf(conv: Conversation, userId: string): Promise<ReadOnlyNote> {
+    if (conv.kind !== 'DIRECT' || !members.colleagues) return null;
+    return readOnlyAmong(conv, userId, (await participants.listByConversation(conv.id)).map((p) => p.userId));
+  }
+  /** Refuses (403 DM_READ_ONLY) sending, attaching, reacting and editing in a read-only direct chat. */
+  async function assertCanWrite(conv: Conversation, userId: string): Promise<void> {
+    const note = await readOnlyOf(conv, userId);
+    if (note) throw new HttpError(note.message, 'DM_READ_ONLY', 403);
+  }
+  /** May this person write in this conversation they can open? Project channels: always. */
+  async function canWriteDirect(conversationId: string, userId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+    const conv = await load(conversationId);
+    await assertAccess(conv, userId);
+    const note = await readOnlyOf(conv, userId);
+    return note ? { ok: false, message: note.message } : { ok: true };
+  }
+
   /** Can this user read the conversation right now? (Used to filter mention recipients.) */
   async function canUserAccessConversation(conversationId: string, userId: string): Promise<boolean> {
     const conv = await conversations.findById(conversationId);
@@ -169,7 +224,9 @@ export function createMessageService(deps: MessageServiceDeps) {
 
   /** Throws unless the user may post to the conversation — checked before an upload is stored. */
   async function assertCanPost(conversationId: string, userId: string): Promise<void> {
-    await assertAccess(await load(conversationId), userId);
+    const conv = await load(conversationId);
+    await assertAccess(conv, userId);
+    await assertCanWrite(conv, userId);
   }
 
   function cleanBody(body: string, allowEmpty: boolean): string {
@@ -199,15 +256,20 @@ export function createMessageService(deps: MessageServiceDeps) {
     return conv;
   }
 
-  async function getOrCreateDirectConversation(userId: string, otherUserId: string): Promise<Conversation> {
+  /**
+   * The direct chat with someone: the existing one (perhaps read-only now), or a new one — only with a
+   * colleague (companies: someone who shares a company with you; 403 NOT_A_COLLEAGUE otherwise).
+   */
+  async function getOrCreateDirectConversation(userId: string, otherUserId: string): Promise<Conversation & { readOnly: ReadOnlyNote }> {
     if (userId === otherUserId) throw new ValidationError('You cannot start a conversation with yourself.');
     const existing = await conversations.findDirectConversation(userId, otherUserId);
-    if (existing) return existing;
+    if (existing) return { ...existing, readOnly: await readOnlyOf(existing, userId) };
     if (!(await members.isActiveUser(otherUserId))) throw new NotFoundError('User not found.');
+    if (members.colleagues && !(await members.colleagues(userId, otherUserId))) throw new HttpError(COMPANY_WORDS.notColleague, 'NOT_A_COLLEAGUE', 403);
     const conv = await conversations.createDirect();
     await participants.add(conv.id, userId);
     await participants.add(conv.id, otherUserId);
-    return conv;
+    return { ...conv, readOnly: null };
   }
 
   /**
@@ -221,6 +283,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     const already = async () => (clientId && messages.findByClientId ? messages.findByClientId(conversationId, userId, clientId) : null);
     const earlier = await already();
     if (earlier) return { message: (await viewOf([earlier]))[0]!, created: false };
+    await assertCanWrite(conv, userId);
     // A caption may be empty when a file is attached; a plain message may not.
     const text = cleanBody(input.body, !!input.attachment);
     let replyToId: string | null = null;
@@ -304,16 +367,25 @@ export function createMessageService(deps: MessageServiceDeps) {
     }));
   }
 
-  async function listMessages(
-    conversationId: string,
-    userId: string,
-    opts?: { before?: Date; limit?: number },
-  ): Promise<{ messages: MessageView[] }> {
+  /** Everyone who wrote a message on the page or is quoted by a reply on it, in order of appearance. */
+  async function authorsOf(page: MessageView[]): Promise<MessageAuthor[]> {
+    if (!members.people) return [];
+    const ids = [...new Set(page.flatMap((m) => [m.userId, ...(m.replyTo ? [m.replyTo.userId] : [])]))];
+    if (ids.length === 0) return [];
+    const byId = new Map((await members.people(ids)).map((p) => [p.id, p]));
+    return ids.flatMap((id) => {
+      const p = byId.get(id);
+      return p ? [{ id, name: fullName(p), avatarUrl: p.avatarUrl }] : [];
+    });
+  }
+
+  async function listMessages(conversationId: string, userId: string, opts?: { before?: Date; limit?: number }): Promise<MessagesPage> {
     const conv = await load(conversationId);
     await assertAccess(conv, userId);
     const page = await messages.list(conversationId, { before: opts?.before, limit: opts?.limit ?? DEFAULT_LIMIT });
     const ordered = [...page].reverse(); // repo returns newest-first; display oldest-first
-    return { messages: await viewOf(ordered) };
+    const view = await viewOf(ordered);
+    return { messages: view, authors: await authorsOf(view) };
   }
 
   async function messageConversation(messageId: string): Promise<{ message: Message; conv: Conversation }> {
@@ -329,6 +401,7 @@ export function createMessageService(deps: MessageServiceDeps) {
     if (m.userId !== userId) throw new ForbiddenError('You can only edit your own message.');
     // Authors who have since lost access to the conversation can't rewrite its history.
     await assertAccess(conv, userId);
+    await assertCanWrite(conv, userId);
     const text = cleanBody(body, false);
     return messages.update(messageId, text);
   }
@@ -349,6 +422,7 @@ export function createMessageService(deps: MessageServiceDeps) {
   async function addReaction(messageId: string, userId: string, emoji: string): Promise<{ conversationId: string }> {
     const { message, conv } = await messageConversation(messageId);
     await assertAccess(conv, userId);
+    await assertCanWrite(conv, userId);
     if (message.deletedAt) throw new ValidationError('You cannot react to a deleted message.');
     await reactions.add(messageId, userId, emoji);
     return { conversationId: message.conversationId };
@@ -356,6 +430,7 @@ export function createMessageService(deps: MessageServiceDeps) {
   async function removeReaction(messageId: string, userId: string, emoji: string): Promise<{ conversationId: string }> {
     const { message, conv } = await messageConversation(messageId);
     await assertAccess(conv, userId);
+    await assertCanWrite(conv, userId);
     await reactions.remove(messageId, userId, emoji);
     return { conversationId: message.conversationId };
   }
@@ -412,12 +487,14 @@ export function createMessageService(deps: MessageServiceDeps) {
       [...byId.values()].map(async (conversation) => {
         const p = await participants.find(conversation.id, userId);
         const latest = await messages.latest(conversation.id);
+        const people = await participants.listByConversation(conversation.id);
         return {
           conversation,
-          participants: (await participants.listByConversation(conversation.id)).map(publicParticipant),
+          participants: people.map(publicParticipant),
           unread: await unreadFor(conversation, userId, p?.lastReadAt ?? null, team),
           lastMessage: latest ? redact(latest) : null,
           prefs: prefsOf(p),
+          readOnly: await readOnlyAmong(conversation, userId, people.map((x) => x.userId)),
         };
       }),
     );
@@ -497,6 +574,7 @@ export function createMessageService(deps: MessageServiceDeps) {
   return {
     getOrCreateProjectConversation,
     getOrCreateDirectConversation,
+    canWriteDirect,
     conversationTargets,
     sendMessage,
     postMessage,

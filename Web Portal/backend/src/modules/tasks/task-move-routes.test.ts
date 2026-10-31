@@ -125,7 +125,7 @@ describe('POST /tasks/move-preview', () => {
     expect(data.project).toMatchObject({ id: 'ops', name: 'Operations' });
     expect(data.columns).toEqual([{ id: 'o-todo', name: 'Next', category: 'TODO', position: 0, enabled: true }]);
     expect(data.tasks.map((t: { key: string; newKey: string }) => [t.key, t.newKey])).toEqual([['RIG-1', 'OPS-1'], ['RIG-2', 'OPS-2']]);
-    expect(data.outsiders).toEqual([SARA]);
+    expect(data.outsiders).toEqual([{ ...SARA, canJoin: true }]);
   });
 
   it('a task the person can’t see is “not found”, without its key, title or project', async () => {

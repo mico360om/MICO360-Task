@@ -13,25 +13,40 @@ export interface MemberServiceDeps {
   onMemberRemoved?: (projectId: string, userId: string) => void | Promise<void>;
   /** Only active people may be added (deactivated, suspended, deleted or unknown ones are refused). */
   people?: PeopleLookup;
+  /**
+   * companies: of these team members, who can see the project now (in one of its active companies, or
+   * an admin). The Team tab still lists the others, with `hasAccess: false`. Absent: everyone has.
+   */
+  whoCanSee?: (projectId: string, userIds: string[]) => Promise<Set<string>>;
 }
 
-export function createMemberService({ repo, projects, onMemberRemoved, people }: MemberServiceDeps) {
+/** A team member, and whether they can still see the project (companies: they may have lost its companies). */
+export type MemberView = MemberUser & { hasAccess: boolean };
+
+export function createMemberService({ repo, projects, onMemberRemoved, people, whoCanSee }: MemberServiceDeps) {
   async function ensureProject(projectId: string): Promise<void> {
     if (!(await projects.exists(projectId))) throw new NotFoundError('Project not found.');
   }
 
-  async function listMembers(projectId: string): Promise<MemberUser[]> {
-    await ensureProject(projectId);
-    return repo.list(projectId);
+  /** The team, each marked with whether they can still see the project. */
+  async function teamOf(projectId: string): Promise<MemberView[]> {
+    const team = await repo.list(projectId);
+    const seeing = whoCanSee ? await whoCanSee(projectId, team.map((m) => m.id)) : null;
+    return team.map((m) => ({ ...m, hasAccess: seeing ? seeing.has(m.id) : true }));
   }
 
-  async function addMembers(projectId: string, userIds: string[]): Promise<MemberUser[]> {
+  async function listMembers(projectId: string): Promise<MemberView[]> {
+    await ensureProject(projectId);
+    return teamOf(projectId);
+  }
+
+  async function addMembers(projectId: string, userIds: string[]): Promise<MemberView[]> {
     await ensureProject(projectId);
     // companies: a new member is an administrator or in one of the project's companies (MC1 Ruling 8).
     const companyIds = people?.projectCompanyIds ? await people.projectCompanyIds(projectId) : null;
     await requireActiveTeam(people, userIds, '', companyIds);
     for (const userId of userIds) await repo.add(projectId, userId);
-    return repo.list(projectId);
+    return teamOf(projectId);
   }
 
   /**
@@ -50,11 +65,11 @@ export function createMemberService({ repo, projects, onMemberRemoved, people }:
     await onMemberRemoved?.(projectId, userId);
   }
 
-  async function setMemberRole(projectId: string, userId: string, role: ProjectMemberRole, opts: { byAdmin?: boolean } = {}): Promise<MemberUser[]> {
+  async function setMemberRole(projectId: string, userId: string, role: ProjectMemberRole, opts: { byAdmin?: boolean } = {}): Promise<MemberView[]> {
     await ensureProject(projectId);
     if (!opts.byAdmin && repo.changeGuarded) await repo.changeGuarded(projectId, userId, { role });
     else await repo.setRole(projectId, userId, role);
-    return repo.list(projectId);
+    return teamOf(projectId);
   }
 
   return { listMembers, addMembers, removeMember, setMemberRole };

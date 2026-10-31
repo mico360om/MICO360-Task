@@ -67,7 +67,44 @@ describe('People directory', () => {
     const byName = Object.fromEntries(res.json().data.map((u: { username: string; active: boolean }) => [u.username, u.active]));
     expect(byName).toEqual({ sara: true, omar: false });
     // Still nothing sensitive: no email, phone, roles or status word.
-    expect(Object.keys(res.json().data[0]).sort()).toEqual(['active', 'avatarUrl', 'firstName', 'id', 'lastActiveAt', 'lastName', 'username']);
+    expect(Object.keys(res.json().data[0]).sort()).toEqual(['active', 'avatarUrl', 'colleague', 'firstName', 'id', 'lastActiveAt', 'lastName', 'username']);
+    // One company (no companies module wired): everyone is a colleague, as before.
+    expect(res.json().data.every((u: { colleague: boolean }) => u.colleague)).toBe(true);
+  });
+});
+
+describe('People directory with companies', () => {
+  async function appWith(known: (id: Record<string, string>) => Map<string, { colleague: boolean }> | 'everyone') {
+    const users = createMemoryUserRepository();
+    const userService = createUserService({ users: users.repo });
+    const made = await Promise.all(
+      ['ana', 'amy', 'ben', 'bob', 'adm'].map((n) =>
+        userService.createUser({ email: `${n}@x.co`, username: n, password: 'Password1!', firstName: n, lastName: 'X', ...(n === 'adm' ? { roleNames: ['ADMIN'] } : {}) }),
+      ),
+    );
+    const id = Object.fromEntries(made.map((u) => [u.username, u.id]));
+    const companyAccess = { knownPeople: async () => known(id) } as unknown as NonNullable<Parameters<typeof buildApp>[0]['companyAccess']>;
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    return { app: await buildApp({ authService, tokenService, userService, companyAccess }), id };
+  }
+  const directoryOf = async (a: Awaited<ReturnType<typeof appWith>>['app'], userId: string, roles: string[]) =>
+    Object.fromEntries(
+      (await a.inject({ method: 'GET', url: '/api/v1/users/directory', headers: { authorization: `Bearer ${await tokenFor(userId, roles)}` } }))
+        .json()
+        .data.map((u: { username: string; colleague: boolean }) => [u.username, u.colleague]),
+    );
+
+  it('shows the people you know — colleagues marked, teammates and chat partners not — and administrators; never strangers', async () => {
+    const { app: a, id } = await appWith((id) => new Map([[id.amy!, { colleague: true }], [id.ben!, { colleague: false }]]));
+    expect(await directoryOf(a, id.ana!, ['EMPLOYEE'])).toEqual({ ana: true, amy: true, ben: false, adm: true });
+  });
+
+  it('administrators see everyone, all colleagues', async () => {
+    const { app: a, id } = await appWith(() => 'everyone');
+    expect(await directoryOf(a, id.adm!, ['ADMIN'])).toEqual({ ana: true, amy: true, ben: true, bob: true, adm: true });
   });
 });
 

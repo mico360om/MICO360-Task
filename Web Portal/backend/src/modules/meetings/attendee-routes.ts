@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AttendeeService } from './attendee-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { InviteeOnlyError, type MeetingViewOf } from './invitee-view';
+import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
 
 const roleEnum = z.enum(['REQUIRED', 'OPTIONAL']);
 const attendanceEnum = z.enum(['INVITED', 'PRESENT', 'ABSENT', 'LATE', 'EXCUSED']);
@@ -37,6 +39,12 @@ export interface AttendeeRouteDeps {
   guard: AuthGuard;
   /** Object-level view authorization on the parent meeting. */
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
+  /** companies: how a person sees the meeting — an invitee may read its people and answer their own invitation. */
+  viewOf?: MeetingViewOf;
+  /** companies: who may be invited to a meeting (adding someone outside its companies is refused). */
+  invitees?: MeetingInvitees;
+  /** companies: where a meeting's people come from — its project, or its company. */
+  inviteTargetOf?: (meetingId: string) => Promise<InviteTarget | null>;
 }
 
 export async function registerAttendeeRoutes(app: FastifyInstance, deps: AttendeeRouteDeps): Promise<void> {
@@ -47,10 +55,14 @@ export async function registerAttendeeRoutes(app: FastifyInstance, deps: Attende
   const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
   const canEdit = (req: FastifyRequest, id: string): Promise<boolean> => attendeeService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
+  /** 'full', 'invitee' (invited from outside the project's companies) or null. */
+  const viewOf = async (req: FastifyRequest, id: string) =>
+    deps.viewOf ? deps.viewOf(req.user!.id, req.user!.roles ?? [], id) : (await canView(req, id)) ? ('full' as const) : null;
+  const viewer = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
 
   app.get('/meetings/:id/attendees', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await canView(req, id))) return reply.status(404).send(notFound);
+    if (!(await viewOf(req, id))) return reply.status(404).send(notFound);
     return { data: await attendeeService.listAttendees(id) };
   });
 
@@ -59,6 +71,11 @@ export async function registerAttendeeRoutes(app: FastifyInstance, deps: Attende
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
     const body = addSchema.parse(req.body);
+    // companies: a colleague from the meeting's project or company (outside guests by email as before).
+    if (body.userId && deps.invitees && deps.inviteTargetOf) {
+      const target = await deps.inviteTargetOf(id);
+      if (target) await deps.invitees.assertInvitable(viewer(req), target, [body.userId]);
+    }
     const attendee = await attendeeService.addAttendee(id, body);
     return reply.status(201).send({ data: attendee });
   });
@@ -71,14 +88,24 @@ export async function registerAttendeeRoutes(app: FastifyInstance, deps: Attende
     // Only meetings the caller can see may be mined for names — others' rosters stay private.
     const visible = await Promise.all(requested.map(async (mid) => ((await canView(req, mid)) ? mid : null)));
     const previous = visible.filter((mid): mid is string => mid !== null);
-    return { data: await attendeeService.suggestAttendees(id, previous) };
+    const suggested = await attendeeService.suggestAttendees(id, previous);
+    // companies: only people who could be invited to this meeting.
+    if (!deps.invitees || !deps.inviteTargetOf || suggested.length === 0) return { data: suggested };
+    const target = await deps.inviteTargetOf(id);
+    const allowed = target ? new Set((await deps.invitees.candidates(viewer(req), target).catch(() => [])).map((p) => p.id)) : new Set<string>();
+    return { data: suggested.filter((u) => allowed.has(u)) };
   });
 
   app.patch('/meetings/:id/attendees/:attendeeId', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id, attendeeId } = req.params as { id: string; attendeeId: string };
-    if (!(await canView(req, id))) return reply.status(403).send(forbidden);
+    const view = await viewOf(req, id);
+    if (!view) return reply.status(403).send(forbidden);
     const body = patchSchema.parse(req.body);
-    if (!(await canEdit(req, id))) {
+    if (view === 'invitee') {
+      // companies: someone invited from another company answers their own invitation, nothing more.
+      const own = await attendeeService.getAttendee(id, attendeeId);
+      if (own.userId !== req.user!.id || body.role !== undefined || body.department !== undefined) throw new InviteeOnlyError();
+    } else if (!(await canEdit(req, id))) {
       // Attendees may record their own attendance and answer their own invitation; everything else
       // is the organizer's call (who may also record a guest's emailed answer).
       const own = await attendeeService.getAttendee(id, attendeeId);

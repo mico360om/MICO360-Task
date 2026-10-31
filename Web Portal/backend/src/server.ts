@@ -31,11 +31,14 @@ import { createTemplateService } from './modules/templates/template-service';
 import { createPrismaTemplateRepository } from './modules/templates/prisma-template-repository';
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
-import { createCompanyAccess } from './modules/companies/company-access';
+import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles } from './modules/companies/company-access';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
 import { createProjectCompanies, type OnProjectAudienceChanged } from './modules/companies/project-companies';
+import { createPrismaMeetingInvitees } from './modules/meetings/meeting-invitees';
+import { createMeetingCompanyRule } from './modules/meetings/meeting-company';
+import { createPrismaPersonOptions, keepKnownPeople } from './modules/companies/person-options';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -240,7 +243,7 @@ async function main(): Promise<void> {
   };
   const projectCompanies = createProjectCompanies(prisma, { site: async () => ({ timeZone: companyTz, weekStart: await siteWeekStart() }) });
   // Late-bound: the realtime server re-checks who may see a project whose companies changed (MC1 Task 12 binds it).
-  // eslint-disable-next-line prefer-const -- companies: MC1 Task 12 assigns it once the realtime server exists
+  // companies: bound to the realtime server's re-check below (refreshCompanyAccess), once it exists.
   let onProjectAudienceChanged: OnProjectAudienceChanged = () => {};
   const projectService = createProjectService({ projects: projectRepository, people: peopleLookup, companies: projectCompanies });
 
@@ -258,6 +261,8 @@ async function main(): Promise<void> {
     projects: createPrismaProjectExistsLookup(prisma),
     people: peopleLookup,
     onMemberRemoved: (projectId, userId) => onMemberRemoved(projectId, userId),
+    // companies: the Team tab marks who can no longer see the project (hasAccess: false).
+    whoCanSee: (projectId, userIds) => companyAccess.whoCanSeeProject(projectId, userIds),
   });
 
   const projectAuthz = createProjectAuthz({ managers: createPrismaProjectManagerLookup(prisma) });
@@ -269,6 +274,7 @@ async function main(): Promise<void> {
   });
   // companies: the access rule module (memberships and project companies, read fresh on every request).
   const companyAccess = createCompanyAccess(prisma);
+  const personOptions = createPrismaPersonOptions(prisma);
 
   // Late-bound so moving a task to a DONE column can spawn the next recurring instance (below).
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
@@ -575,6 +581,8 @@ async function main(): Promise<void> {
       accessibleProjectIds: (userId, roles, pick?: string | null) => projectAccess.accessibleProjectIds(userId, roles, pick),
       canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
     },
+    // companies (MC1 Task 10): someone invited from outside the project's companies gets the invitee view.
+    meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);
   // Live meeting events reach the project's room AND the organizer, creator and internal attendees
@@ -938,7 +946,7 @@ async function main(): Promise<void> {
   // the site's week start, working hours and sender name until it has its own; the site's time zone
   // always. Logos go where uploads go, made at most 512 pixels on their long side.
   // Late-bound: the realtime server re-checks whose access changed (MC1 Task 12 binds it).
-  // eslint-disable-next-line prefer-const -- companies: MC1 Task 12 assigns it once the realtime server exists
+  // companies: bound to the realtime server's re-sync below (refreshCompanyAccess), once it exists.
   let onCompanyAccessChanged: OnCompanyAccessChanged = () => {};
   // companies: people's companies and primary company, with their rules (User Management and the
   // Companies page's people both go through it).
@@ -982,14 +990,17 @@ async function main(): Promise<void> {
     // "Describe it in plain English" may suggest one of the projects the person can see.
     // companies: …in the picked company, when the request has one.
     listProjectsFor: (user, pick) => projectService.listVisibleProjects(user, pick),
-    // Describing a meeting may invite active users (only their names and usernames reach the AI).
-    listPeople: () =>
-      prisma.user.findMany({
+    // Describing a meeting may invite active users (only their names and usernames reach the AI) —
+    // companies: only the people the requester knows (MC1 Task 9).
+    listPeople: async (requester) => {
+      const people = await prisma.user.findMany({
         where: { deletedAt: null, status: 'ACTIVE' },
         select: { id: true, firstName: true, lastName: true, username: true },
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
         take: 1000,
-      }),
+      });
+      return requester ? keepKnownPeople(companyAccess, { id: requester.userId, roles: requester.roles ?? [] }, people) : people;
+    },
     timeZone: companyTz,
     allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS,
     limits: { perMinute: env.AI_USER_REQUESTS_PER_MINUTE, perDay: env.AI_USER_REQUESTS_PER_DAY },
@@ -1537,6 +1548,11 @@ async function main(): Promise<void> {
     companyMembership,
     projectCompanies,
     onProjectAudienceChanged: (projectId) => onProjectAudienceChanged(projectId),
+    // companies: people for pickers inside projects (team candidates, meeting invitations).
+    personOptions,
+    // companies (MC1 Task 10): who may be invited to a meeting, and a standalone meeting's company.
+    meetingInvitees: createPrismaMeetingInvitees(prisma, { companyAccess, personOptions }),
+    meetingCompany: createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) }),
     columnService,
     memberService,
     projectAuthz,
@@ -1736,6 +1752,9 @@ async function main(): Promise<void> {
     },
     // Room authz: a socket may only subscribe to projects its user can view.
     canJoinProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+    // companies (MC1 Task 12): sockets sit in their companies' rooms (admins in `admins`), and
+    // presence is announced only to the people who share a company (and administrators).
+    companiesOf: async (userId, roles) => ({ companyIds: await companyAccess.activeCompanyIds(userId), admin: isAdminRoles(roles) }),
     // Persist last-active on every connect/disconnect (best-effort) for presence + delivered receipts.
     onPresence: (userId) => {
       void prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date() } }).catch(() => {});
@@ -1756,6 +1775,17 @@ async function main(): Promise<void> {
     realtime.leaveProject(userId, projectId);
     await chatService.removeProjectParticipant(projectId, userId).catch((err) => logger.error('chat participant cleanup failed', { err, projectId, userId }));
   };
+  // companies (MC1 Task 12): a change to people's companies (added, removed, a company archived or
+  // brought back) or to a project's companies reaches live connections at once — company rooms and
+  // presence re-synced, project rooms left (`project:removed`), `companies:changed` to their apps.
+  // The companies service (people's companies, archive / unarchive) and the project companies rules
+  // (a project's companies changed) call it through these hooks.
+  const refreshCompanyAccess = (userIds: string[], projectIds: string[] = []): void => {
+    if (userIds.length) void realtime.refreshAccess(userIds).catch((err) => logger.error('realtime: refreshing company access failed', { err, userIds }));
+    for (const projectId of projectIds) void realtime.refreshProjectAudience(projectId).catch((err) => logger.error('realtime: refreshing a project’s audience failed', { err, projectId }));
+  };
+  onCompanyAccessChanged = refreshCompanyAccess;
+  onProjectAudienceChanged = (projectId) => refreshCompanyAccess([], [projectId]);
 
   // On-schedule recurring series: each copy is made on its due date, done or not, shown live on open
   // boards and announced to its people. Hourly, so a copy appears soon after local midnight; one

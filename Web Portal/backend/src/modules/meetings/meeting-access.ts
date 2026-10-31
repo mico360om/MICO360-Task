@@ -1,4 +1,5 @@
 import type { MeetingAccessCore, MeetingRepository } from './meeting-repository';
+import type { MeetingView } from './invitee-view';
 
 /** Project-scope facts the meeting access layer borrows from the projects module. */
 export interface ProjectAccessLike {
@@ -12,6 +13,12 @@ export interface ProjectAccessLike {
 export interface MeetingAccessDeps {
   meetings: Pick<MeetingRepository, 'accessCore'>;
   projectAccess?: ProjectAccessLike;
+  /**
+   * companies (CompanyAccess.meetingView): how the meeting's own people (organizer, creator,
+   * attendees) see it — 'invitee' when it has a project they share no active company with.
+   * Absent: they all have the full view, as before.
+   */
+  meetingView?: (viewer: { id: string; roles: string[] }, m: MeetingAccessCore) => Promise<'full' | 'invitee' | null>;
 }
 
 const isAdmin = (roles: string[]): boolean => roles.includes('ADMIN');
@@ -27,16 +34,26 @@ export type MeetingEditFacts = Pick<MeetingAccessCore, 'organizerId' | 'createdB
  * - only the organizer, the creator, the project's manager or an admin may change it
  *   (edit, cancel, delete, invite, send minutes, change attendees or the agenda).
  * Standalone meetings are visible only to their organizer/creator/attendees.
+ *
+ * companies (spec §8.8): someone invited (or organizing) from outside the project's companies gets
+ * the invitee view of that one meeting (`viewOf` → 'invitee'); `canViewMeeting` is the full view.
  */
-export function createMeetingAccess({ meetings, projectAccess }: MeetingAccessDeps) {
-  async function canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean> {
-    if (isAdmin(roles)) return true;
+export function createMeetingAccess({ meetings, projectAccess, meetingView }: MeetingAccessDeps) {
+  /** How this person sees the meeting: 'full', 'invitee' (invited from another company) or not at all. */
+  async function viewOf(userId: string, roles: string[], meetingId: string): Promise<MeetingView> {
+    if (isAdmin(roles)) return 'full';
     const core = await meetings.accessCore(meetingId);
-    if (!core) return false;
-    if (core.organizerId === userId || core.createdById === userId) return true;
-    if (core.attendeeUserIds.includes(userId)) return true;
-    if (core.projectId && projectAccess) return projectAccess.canViewProject(userId, roles, core.projectId);
-    return false;
+    if (!core) return null;
+    if (core.organizerId === userId || core.createdById === userId || core.attendeeUserIds.includes(userId)) {
+      return meetingView ? ((await meetingView({ id: userId, roles }, core)) ?? 'full') : 'full';
+    }
+    if (core.projectId && projectAccess) return (await projectAccess.canViewProject(userId, roles, core.projectId)) ? 'full' : null;
+    return null;
+  }
+
+  /** The full view: everything of the meeting the person's rights allow (not an invitee's view). */
+  async function canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean> {
+    return (await viewOf(userId, roles, meetingId)) === 'full';
   }
 
   /** May this user change a meeting whose facts are already loaded (no extra meeting query)? */
@@ -64,7 +81,7 @@ export function createMeetingAccess({ meetings, projectAccess }: MeetingAccessDe
     return projectAccess ? projectAccess.accessibleProjectIds(userId, roles, pick) : [];
   }
 
-  return { canViewMeeting, canEditMeeting, canEditMeetingRecord, accessibleProjectIds };
+  return { canViewMeeting, viewOf, canEditMeeting, canEditMeetingRecord, accessibleProjectIds };
 }
 
 export type MeetingAccess = ReturnType<typeof createMeetingAccess>;

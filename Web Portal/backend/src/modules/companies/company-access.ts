@@ -66,6 +66,27 @@ export function colleagueWhere(viewerId: string): Prisma.UserWhereInput {
   return { companies: { some: { company: { status: 'ACTIVE', members: { some: { userId: viewerId } } } } } };
 }
 
+type CompanyDb = Pick<PrismaClient, 'company' | 'companyMember'>;
+
+/** The one active company, when the site has exactly one (else null: there is a choice to make). */
+export async function onlyActiveCompanyId(db: CompanyDb): Promise<string | null> {
+  const active = await db.company.findMany({ where: { status: 'ACTIVE' }, select: { id: true }, take: 2 });
+  return active.length === 1 ? active[0]!.id : null;
+}
+
+/**
+ * A person's default company when nothing names one: their primary company (while it is active and
+ * they belong to it), else the site's only active company, else none. A meeting without a project
+ * uses it for its organizer (Ruling 11; new projects and people get theirs from the companies rules).
+ */
+export async function fallbackProjectCompanyId(db: CompanyDb, creatorId: string): Promise<string | null> {
+  const primary = await db.companyMember.findFirst({
+    where: { userId: creatorId, company: { status: 'ACTIVE', primaryOf: { some: { id: creatorId } } } },
+    select: { companyId: true },
+  });
+  return primary?.companyId ?? onlyActiveCompanyId(db);
+}
+
 export interface CompanyAccess {
   /** The person's ACTIVE companies, oldest membership first. */
   activeCompanyIds(userId: string): Promise<string[]>;

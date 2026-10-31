@@ -22,6 +22,8 @@ export interface MeetingRecord {
   category: string | null;
   status: MeetingStatus;
   projectId: string | null;
+  /** companies: the company of a meeting without a project (a project meeting's is its project's: null). */
+  companyId?: string | null;
   organizerId: string;
   location: string | null;
   onlineLink: string | null;
@@ -53,6 +55,8 @@ export interface CreateMeetingData {
   category?: string | null;
   status?: MeetingStatus;
   projectId?: string | null;
+  /** companies: a meeting without a project belongs to a company. */
+  companyId?: string | null;
   organizerId: string;
   location?: string | null;
   onlineLink?: string | null;

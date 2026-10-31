@@ -110,6 +110,7 @@ export function createMeetingService({ meetings, onChanged, access, defaultTimeZ
       category: src.category,
       status: 'DRAFT',
       projectId: src.projectId,
+      companyId: src.companyId ?? null,
       organizerId: src.organizerId,
       location: src.location,
       onlineLink: src.onlineLink,

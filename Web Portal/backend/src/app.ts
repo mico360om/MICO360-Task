@@ -108,6 +108,11 @@ import { registerCompanyRoutes } from './modules/companies/company-routes';
 import type { CompanyService } from './modules/companies/company-service';
 import type { CompanyMembership } from './modules/companies/company-membership';
 import type { OnProjectAudienceChanged, ProjectCompanies } from './modules/companies/project-companies';
+import { registerPeopleRoutes } from './modules/companies/people-routes';
+import { keepKnownPeople, type PersonOptions } from './modules/companies/person-options';
+import { fullViewOrInviteeRefusal } from './modules/meetings/invitee-view';
+import { inviteTargetOf, type MeetingInvitees } from './modules/meetings/meeting-invitees';
+import type { MeetingCompanyRule } from './modules/meetings/meeting-company';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -302,6 +307,12 @@ export interface AppDeps extends AuthRouteDeps {
   projectCompanies?: ProjectCompanies;
   /** companies: a project's companies changed (the realtime server re-checks who may see it). */
   onProjectAudienceChanged?: OnProjectAudienceChanged;
+  /** companies: people as pickers show them (team candidates, meeting invitations) — names and pictures only. */
+  personOptions?: PersonOptions;
+  /** companies: who may be invited to a meeting (its project's or its own company), MC1 Task 10. */
+  meetingInvitees?: MeetingInvitees;
+  /** companies: the company of a meeting without a project, MC1 Task 10. */
+  meetingCompany?: MeetingCompanyRule;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -509,7 +520,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // companies: routes pass the request's pick, `deps.accessibleProjectIds(u, r, await pickOf(req))` (from MC1 Task 8).
       const accessibleProjectIds = access ? (u: string, r: string[], pick?: string | null) => access.accessibleProjectIds(u, r, pick) : undefined;
       const mAccess = deps.meetingAccess;
-      const canViewMeeting = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
+      // companies (MC1 Task 10): someone invited from outside a project's companies has the invitee view
+      // of that one meeting. The meeting routes get the full-view check, which refuses an invitee with
+      // 403 INVITEE_ONLY, and `viewOf` where the invitee view is served (the meeting, its people and
+      // agenda, approved minutes, their own action items and answer). Elsewhere (a task's meeting link,
+      // its PDF) an invitee simply has no full view.
+      const meetingViewOf = mAccess?.viewOf ? (u: string, r: string[], m: string) => mAccess.viewOf(u, r, m) : undefined;
+      const canViewMeetingQuietly = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
+      const canViewMeeting = meetingViewOf ? fullViewOrInviteeRefusal(meetingViewOf) : canViewMeetingQuietly;
+      const meetingTargetOf = deps.meetingService ? async (meetingId: string) => inviteTargetOf(await deps.meetingService!.getMeeting(meetingId)) : undefined;
+      const knownIds = deps.companyAccess
+        ? async (viewer: { id: string; roles: string[] }, ids: string[]) => (await keepKnownPeople(deps.companyAccess!, viewer, ids.map((id) => ({ id })))).map((p) => p.id)
+        : undefined;
       // companies: the request's picked company (X-Company-Id), checked once per request; it narrows
       // `list` routes only (see modules/companies/route-classes.ts). Without the module: no pick.
       const pickOf: PickOf = deps.companyAccess ? createPickResolver(deps.companyAccess) : NO_PICK;
@@ -569,7 +591,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           source: deps.taskExportSource,
           canViewTask,
           // The same meeting check as the task's details (GET /tasks/:id).
-          canViewMeeting: deps.taskMeeting?.canView ?? canViewMeeting,
+          canViewMeeting: deps.taskMeeting?.canView ?? canViewMeetingQuietly,
           userName: deps.reportNames ? (id) => deps.reportNames!.user(id) : undefined,
           timeZone: deps.appConfig?.timeZone ?? 'Asia/Muscat',
           readAttachment: deps.readAttachment,
@@ -731,6 +753,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // companies: people's companies, and the picked company as a new person's default.
           membership: deps.companyMembership,
           pickOf,
+          // companies: the directory lists the people the caller knows (MC1 Task 9).
+          knownPeople: deps.companyAccess ? (viewer) => deps.companyAccess!.knownPeople(viewer) : undefined,
         });
       }
       if (deps.notificationService) {
@@ -752,19 +776,24 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf });
       }
       if (deps.meetingService) {
-        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, pickOf, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser });
+        await registerMeetingRoutes(api, {
+          meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser,
+          // companies (MC1 Task 10): the invitee view, a standalone meeting's company, who may be invited.
+          viewOf: meetingViewOf, pickOf, meetingCompany: deps.meetingCompany, invitees: deps.meetingInvitees, knownIds,
+        });
       }
       if (deps.attendeeService) {
-        await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting });
+        await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting, viewOf: meetingViewOf, invitees: deps.meetingInvitees, inviteTargetOf: meetingTargetOf });
       }
       if (deps.agendaService) {
-        await registerAgendaRoutes(api, { agendaService: deps.agendaService, guard, canViewMeeting });
+        await registerAgendaRoutes(api, { agendaService: deps.agendaService, guard, canViewMeeting, viewOf: meetingViewOf });
       }
       if (deps.actionItemService) {
         await registerActionItemRoutes(api, {
           actionItemService: deps.actionItemService,
           guard,
           canViewMeeting,
+          viewOf: meetingViewOf,
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
           resolveTaskKeys: deps.resolveTaskKeys,
           pickOf, // companies: My Action Items follows the pick
@@ -797,6 +826,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           onFinalMinutesChanged: deps.onFinalMinutesChanged,
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
+          viewOf: meetingViewOf,
         });
       }
       if (deps.activityService) {
@@ -851,6 +881,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // companies: the Companies admin API and GET /me/companies.
       if (deps.companyService) {
         await registerCompanyRoutes(api, { service: deps.companyService, guard });
+      }
+      // companies: people for pickers inside projects — GET /people/candidates (MC1 Task 9).
+      if (deps.companyAccess && deps.personOptions) {
+        await registerPeopleRoutes(api, { guard, companyAccess: deps.companyAccess, personOptions: deps.personOptions });
       }
     },
     { prefix: '/api/v1' },

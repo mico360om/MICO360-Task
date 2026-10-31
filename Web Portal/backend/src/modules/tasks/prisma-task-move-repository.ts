@@ -5,6 +5,7 @@ import { TaskChangedConflictError, TaskMovedConflictError, type TaskMoveReposito
 import { moveHistory } from './task-move-history';
 import { managedVisibleWhere } from '../projects/project-managers';
 import { ARCHIVE_SELECT, archivedOf, liveProjectWhere } from '../companies/project-archive';
+import { sharesProjectCompanyWhere } from '../companies/company-access';
 
 // companies: with its companies' statuses, so it says whether it counts as archived.
 const projectSelect = { id: true, code: true, name: true, status: true, defaultDueToday: true, color: true, icon: true, imageUrl: true, companies: ARCHIVE_SELECT.companies } as const;
@@ -80,6 +81,16 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
       return prisma.kanbanColumn.findMany({ where: { projectId }, select: { id: true, name: true, category: true, position: true, enabled: true }, orderBy: { position: 'asc' } });
     },
 
+    async joinableIds(projectId, userIds) {
+      // companies: admins, and people in one of the project's active companies, may join its team.
+      if (userIds.length === 0) return [];
+      const rows = await prisma.user.findMany({
+        where: { id: { in: userIds }, OR: [{ roles: { some: { role: { name: 'ADMIN' } } } }, sharesProjectCompanyWhere(projectId)] },
+        select: { id: true },
+      });
+      const may = new Set(rows.map((r) => r.id));
+      return userIds.filter((id) => may.has(id));
+    },
     async teamIds(projectId, userIds) {
       if (userIds.length === 0) return [];
       const [project, admins] = await Promise.all([

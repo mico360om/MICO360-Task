@@ -355,4 +355,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /companies/:id/projects': 'admin',
   // People's companies: User Management's bulk assign (MC1 Task 6).
   'POST /users/companies': 'admin',
+  // Lane P (MC1 Task 9): people for pickers inside projects.
+  'GET /people/candidates': 'people',
+  // Lane P (MC1 Task 10): who may be invited to a meeting.
+  'GET /meetings/invite-candidates': 'people',
 };

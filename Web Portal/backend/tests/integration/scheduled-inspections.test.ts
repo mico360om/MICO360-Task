@@ -130,6 +130,7 @@ describe('repeat copies of a scheduled check (MySQL)', () => {
     const t = await scheduledCheck(form.id, '2026-10-01');
     const other = await prisma.project.create({ data: { code: 'SCHEDB', name: 'Other', createdById: ownerId, ownerId } });
     await prisma.kanbanColumn.create({ data: { projectId: other.id, name: 'To do', category: 'TODO', position: 0 } });
+    await runBackfill(prisma); // companies: the new project in the site's one company too, as on an upgraded site
     const moves = createTaskMoveService({ repo: createPrismaTaskMoveRepository(prisma), timeZone: TZ, now: () => NOW });
     const moved = await moves.moveTask({ id: ownerId, roles: ['ADMIN'] }, t.id, { projectId: other.id, assignees: 'ADD_TO_TEAM' });
     expect(moved.task).toMatchObject({ id: t.id, projectId: other.id, inspectionFormId: form.id, inspectionPlace: 'Rig 3 – الحفار ٣' });
