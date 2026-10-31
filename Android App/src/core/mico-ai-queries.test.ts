@@ -37,3 +37,10 @@ it('a question whose answer was lost is read back; a chat made for it goes only 
   expect(s).toMatch(/if \(after\.deleteNewChat[^]*resources\.micoAi\.remove\(/);
   expect(s).toMatch(/if \(after\.reread[^]*invalidateQueries\(\{ queryKey: micoAiChatKey\(userId, id\) \}\)/);
 });
+
+it('a question whose answer was lost is read back at once and put back in the box unless it arrived (final review A7)', () => {
+  expect(s).toMatch(/before = new Set\(\(qc\.getQueryData<ChatView>\(micoAiChatKey\(userId, id\)\)/);
+  expect(s).toMatch(/if \(after\.reread && id\)[^]*await resources\.micoAi\.chat\(id, \{ asUser: userId \}\)[^]*afterReadBack\(arrived\)/);
+  expect(s).toMatch(/arrived = askArrived\(before, view\.messages\)/);
+  expect(s).toMatch(/if \(back\.clearError\) return \{ chatId: id \};/);
+});

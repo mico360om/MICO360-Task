@@ -107,6 +107,22 @@ export function afterAskFailed(err: unknown, newChat: boolean): { reread: boolea
 }
 
 /**
+ * After a question whose answer was lost, the chat as read back: did a question that wasn't there
+ * before arrive? (`before`: the chat's message ids just before asking.)
+ */
+export function askArrived(before: ReadonlySet<string>, messages: readonly MicoAiMessage[]): boolean {
+  return messages.some((m) => m.role === 'user' && !before.has(m.id));
+}
+
+/**
+ * What the read-back decides (`arrived` null: it failed too): a question that arrived was asked —
+ * no error, nothing to send again; one that didn't, or nobody knows, goes back in the box.
+ */
+export function afterReadBack(arrived: boolean | null): { restoreDraft: boolean; clearError: boolean } {
+  return arrived ? { restoreDraft: false, clearError: true } : { restoreDraft: true, clearError: false };
+}
+
+/**
  * One action at a time (a card's Confirm, Cancel and Undo): the flag is set before the first await,
  * so a second tap while one runs returns undefined without calling anything.
  */

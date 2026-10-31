@@ -8,7 +8,9 @@ import {
   MICO_AI_ACTION_TIMEOUT_MS,
   MICO_AI_POLL_MS,
   afterAskFailed,
+  afterReadBack,
   announce,
+  askArrived,
   createActionGate,
   errorText,
   goneCopy,
@@ -156,4 +158,16 @@ it('a chat deleted elsewhere: a 404, and the answer it was writing stops (final 
   const copy = goneCopy(PENDING);
   expect(copy).toEqual({ ...PENDING, status: 'stopped', step: null });
   expect(pendingAnswer([QUESTION, copy])).toBeNull();
+});
+
+it('a question whose answer was lost is read back: kept if it arrived, put back in the box if not (final review A7)', () => {
+  const before = new Set([QUESTION.id, ANSWER.id]);
+  expect(askArrived(before, [QUESTION, ANSWER])).toBe(false);
+  expect(askArrived(before, [QUESTION, ANSWER, { ...QUESTION, id: 'm-q2' }, { ...PENDING, id: 'm-a9' }])).toBe(true);
+  // Only a new question counts, not an answer alone.
+  expect(askArrived(before, [QUESTION, ANSWER, { ...PENDING, id: 'm-a9' }])).toBe(false);
+  expect(afterReadBack(true)).toEqual({ restoreDraft: false, clearError: true });
+  expect(afterReadBack(false)).toEqual({ restoreDraft: true, clearError: false });
+  // The read-back failed too: nobody knows, so the question goes back in the box (sending it is the person's choice).
+  expect(afterReadBack(null)).toEqual({ restoreDraft: true, clearError: false });
 });

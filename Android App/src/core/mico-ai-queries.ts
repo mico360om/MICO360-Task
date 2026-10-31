@@ -11,6 +11,8 @@ import {
   MICO_AI_ACTION_TIMEOUT_MS,
   MICO_AI_POLL_MS,
   afterAskFailed,
+  afterReadBack,
+  askArrived,
   createActionGate,
   earlierWithMessage,
   errorText,
@@ -208,6 +210,8 @@ export function useMicoAiActions(chatId: string | null) {
       let id = o.newChat ? null : chatId;
       let created = false;
       let asked = false;
+      /** The chat's messages just before asking: a read-back tells a question that arrived by its new id. */
+      let before: ReadonlySet<string> = new Set();
       try {
         if (!id) {
           const c = await resources.micoAi.create({ asUser: userId });
@@ -215,6 +219,7 @@ export function useMicoAiActions(chatId: string | null) {
           created = true;
           qc.setQueryData<ChatView>(micoAiChatKey(userId, id), { chat: c, messages: [] });
         }
+        before = new Set((qc.getQueryData<ChatView>(micoAiChatKey(userId, id))?.messages ?? []).map((m) => m.id));
         asked = true;
         // Retry names the answer it asks again, so the server replaces that answer's unconfirmed card.
         const r = await resources.micoAi.ask(id, text, !created && o.retryOf ? o.retryOf : undefined, { asUser: userId });
@@ -229,7 +234,23 @@ export function useMicoAiActions(chatId: string | null) {
         // Only the new chat failed to be made: the question never went, so it goes back in the box.
         if (!asked) return { error: errorText(err), restoreDraft: true, chatId: null };
         const after = afterAskFailed(err, created);
-        if (after.reread && id) void qc.invalidateQueries({ queryKey: micoAiChatKey(userId, id) });
+        if (after.reread && id) {
+          // Its answer was lost (or MICO AI was busy): the chat is read back now. A question that is
+          // there was asked — no error, nothing to send again; one that isn't, or a read-back that
+          // fails too, goes back in the box.
+          let arrived: boolean | null = null;
+          try {
+            const view = await resources.micoAi.chat(id, { asUser: userId });
+            await qc.cancelQueries({ queryKey: micoAiChatKey(userId, id) });
+            qc.setQueryData<ChatView>(micoAiChatKey(userId, id), view);
+            arrived = askArrived(before, view.messages);
+          } catch {
+            void qc.invalidateQueries({ queryKey: micoAiChatKey(userId, id) });
+          }
+          const back = afterReadBack(arrived);
+          if (back.clearError) return { chatId: id };
+          return { error: errorText(err), restoreDraft: back.restoreDraft, chatId: id };
+        }
         if (after.deleteNewChat && id) {
           // A chat made just for this question stays only if the question was asked.
           await resources.micoAi.remove(id, { asUser: userId }).catch(() => {});
