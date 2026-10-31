@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects, boardCompanies, filterBoardByCompany } from './board';
+import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects, boardCompanies, filterBoardByCompany, fullColumnIndex } from './board';
 import type { ApiProject } from '../api/projects';
 import type { ApiColumn } from '../api/columns';
 import type { ApiTask } from '../api/tasks';
@@ -241,5 +241,28 @@ describe('external contacts on the board', () => {
     const pdo = filterBoardByCompany(board, 'pdo');
     expect(pdo.map((c) => c.tasks.map((t) => t.key))).toEqual([['MICO-1'], []]);
     expect(filterBoardByCompany(board, '')).toBe(board);
+  });
+});
+
+describe('dropping a card on a board filtered by company', () => {
+  const card = (key: string) => ({ key, title: key, priority: 'NORMAL' as const, progress: 0, assignees: [] });
+  const full = [
+    { id: 'a', name: 'To Do', color: '#000', tasks: [card('M1')] },
+    { id: 'b', name: 'Doing', color: '#000', tasks: [card('H1'), card('S1'), card('H2'), card('S2'), card('H3')] },
+  ];
+  // Only S1 and S2 have a contact from the chosen company: the hidden cards H1–H3 keep their places.
+  const shown = [
+    { id: 'a', name: 'To Do', color: '#000', tasks: [card('M1')] },
+    { id: 'b', name: 'Doing', color: '#000', tasks: [card('S1'), card('S2')] },
+  ];
+
+  it('puts it just before the shown card it was dropped on, in the whole column', () => {
+    expect(fullColumnIndex(full, shown, 'b', 0, 'M1')).toBe(1);
+    expect(fullColumnIndex(full, shown, 'b', 1, 'M1')).toBe(3);
+  });
+
+  it('after the last shown card when dropped at the end, and at the end of a column with none shown', () => {
+    expect(fullColumnIndex(full, shown, 'b', 2, 'M1')).toBe(4);
+    expect(fullColumnIndex(full, [{ ...shown[0]!, tasks: [] }, { ...shown[1]!, tasks: [] }], 'b', 0, 'M1')).toBe(5);
   });
 });

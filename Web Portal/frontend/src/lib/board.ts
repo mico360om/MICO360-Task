@@ -193,6 +193,21 @@ export function filterBoardByCompany(columns: KanbanColumnData[], company: strin
   return columns.map((c) => ({ ...c, tasks: c.tasks.filter((t) => hasExternalCompany(t.external, company)) }));
 }
 
+/**
+ * Where a card dropped on a filtered board lands in the whole column (hidden cards keep their places):
+ * just before the shown card it was dropped on, after the last shown card when dropped at the end, or
+ * at the end of a column with none shown. `movingKey` is the card being moved.
+ */
+export function fullColumnIndex(full: KanbanColumnData[], shown: KanbanColumnData[], columnId: string, shownIndex: number, movingKey: string): number {
+  const all = (full.find((c) => c.id === columnId)?.tasks ?? []).filter((t) => t.key !== movingKey);
+  const visible = (shown.find((c) => c.id === columnId)?.tasks ?? []).filter((t) => t.key !== movingKey);
+  const at = (key: string | undefined) => (key === undefined ? -1 : all.findIndex((t) => t.key === key));
+  const before = at(visible[shownIndex]?.key);
+  if (before >= 0) return before;
+  const last = at(visible[visible.length - 1]?.key);
+  return last >= 0 ? last + 1 : all.length;
+}
+
 /** Where a card dropped on a status lands in its own project: that project's first visible column of it. */
 export function targetColumnFor(columns: ApiColumn[], status: TaskCategory): string | null {
   return (

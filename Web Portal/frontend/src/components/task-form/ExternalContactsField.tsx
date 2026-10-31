@@ -11,6 +11,13 @@ export interface FormContact extends ExternalContactFields {
 let seq = 0;
 export const formContact = (fields: ExternalContactFields, id?: string): FormContact => ({ ...fieldsOnly(fields), key: id ?? `new-${++seq}`, ...(id ? { id } : {}) });
 export const fieldsOnly = (c: ExternalContactFields): ExternalContactFields => ({ name: c.name, company: c.company, designation: c.designation, email: c.email, phone: c.phone, remarks: c.remarks });
+const FIELDS = ['name', 'company', 'designation', 'email', 'phone', 'remarks'] as const;
+/** Only the fields that changed (to send as a contact's change, so a field someone else changed meanwhile is kept). */
+export function changedContactFields(before: ExternalContactFields, after: ExternalContactFields): Partial<ExternalContactFields> {
+  const patch: Partial<Record<(typeof FIELDS)[number], string | null>> = {};
+  for (const f of FIELDS) if ((before[f] ?? null) !== (after[f] ?? null)) patch[f] = after[f];
+  return patch as Partial<ExternalContactFields>;
+}
 
 /**
  * The New / Edit task form's "External contacts": people outside the company responsible for the

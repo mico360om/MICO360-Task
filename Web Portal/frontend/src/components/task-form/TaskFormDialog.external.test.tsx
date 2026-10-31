@@ -22,9 +22,15 @@ const TASK = {
 
 type Call = { url: string; method: string; body: Record<string, unknown> | null };
 let calls: Call[];
+let failAdd: string | null;
+let goneIds: Set<string>;
+let added: number;
 beforeEach(() => {
   localStorage.clear();
   calls = [];
+  failAdd = null;
+  goneIds = new Set();
+  added = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -39,9 +45,14 @@ beforeEach(() => {
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: '' } });
       if (u.endsWith('/tasks') && method === 'POST') return json({ data: { id: 't99', key: 'MICO-9', title: body?.title, projectId: 'p1', columnId: 'c1' } }, 201);
       if (/\/tasks\/t1$/.test(u) && method === 'PUT') return json({ data: { ...TASK, ...body, version: 4 } });
-      if (u.endsWith('/tasks/t1/external-contacts') && method === 'POST') return json({ data: contact('x3', String(body?.name), (body?.company as string) ?? null) }, 201);
-      if (/\/external-contacts\/x\d$/.test(u) && method === 'PUT') return json({ data: contact('x1', String(body?.name), (body?.company as string) ?? null) });
-      if (/\/external-contacts\/x\d$/.test(u) && method === 'DELETE') return new Response(null, { status: 204 });
+      if (u.endsWith('/tasks/t1/external-contacts') && method === 'POST') {
+        if (body?.name === failAdd) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
+        return json({ data: contact(`n${++added}`, String(body?.name), (body?.company as string) ?? null) }, 201);
+      }
+      const one = /\/external-contacts\/(\w+)$/.exec(u)?.[1];
+      if (one && goneIds.has(one)) return json({ error: { code: 'NOT_FOUND', message: 'This contact isn’t on the task any more. Someone may have removed it.' } }, 404);
+      if (one && method === 'PUT') return json({ data: contact(one, String(body?.name), (body?.company as string) ?? null) });
+      if (one && method === 'DELETE') return new Response(null, { status: 204 });
       return json({ data: [] });
     }),
   );
@@ -108,8 +119,74 @@ describe('Task form: external contacts', () => {
     const contactCalls = calls.filter((c) => c.url.includes('external-contacts') && c.method !== 'GET').map((c) => [c.method, c.url.replace(/^.*\/api\/v1/, ''), c.body]);
     expect(contactCalls).toEqual([
       ['DELETE', '/external-contacts/x2', null],
-      ['PUT', '/external-contacts/x1', { name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }],
+      // Only what changed is sent, so a field someone else changed meanwhile is kept.
+      ['PUT', '/external-contacts/x1', { name: 'Ahmed Al Said' }],
       ['POST', '/tasks/t1/external-contacts', { name: 'Huda', company: null, designation: null, email: null, phone: null, remarks: null }],
     ]);
+  });
+
+  it('Enter in a contact’s name box saves that contact, not the task', async () => {
+    renderDialog({ projectId: 'p1' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('Backlog'));
+    await userEvent.click(within(field()).getByRole('button', { name: 'Add a contact' }));
+    await userEvent.type(within(field()).getByRole('combobox', { name: /^Name/ }), 'Huda{Enter}');
+    expect(within(field()).getByText('Huda')).toBeInTheDocument();
+    expect(within(field()).queryByRole('combobox', { name: /^Name/ })).toBeNull();
+    expect(screen.queryByText('Give the task a title.')).toBeNull();
+    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+  });
+
+  it('a contact added before a failure can still be removed on the next try', async () => {
+    failAdd = 'Bader';
+    const { onClose } = renderDialog({ task: TASK });
+    const f = field();
+    for (const name of ['Amal', 'Bader']) {
+      await userEvent.click(within(f).getByRole('button', { name: 'Add a contact' }));
+      await userEvent.type(within(f).getByRole('combobox', { name: /^Name/ }), `${name}{Enter}`);
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText(/Couldn’t save all of the changes/)).toBeInTheDocument();
+    await userEvent.click(within(f).getByRole('button', { name: 'Remove Amal' }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Remove this contact?' })).getByRole('button', { name: 'Remove' }));
+    failAdd = null;
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const writes = calls.filter((c) => c.url.includes('external-contacts') && c.method !== 'GET').map((c) => [c.method, c.url.replace(/^.*\/api\/v1/, ''), c.body?.name ?? null]);
+    expect(writes).toEqual([
+      ['POST', '/tasks/t1/external-contacts', 'Amal'],
+      ['POST', '/tasks/t1/external-contacts', 'Bader'],
+      ['DELETE', '/external-contacts/n1', null],
+      ['POST', '/tasks/t1/external-contacts', 'Bader'],
+    ]);
+  });
+
+  it('a contact someone else already removed counts as removed; a change to one is dropped and said, and the rest is saved', async () => {
+    goneIds = new Set(['x1', 'x2']);
+    const { onClose } = renderDialog({ task: TASK });
+    const f = field();
+    await userEvent.click(within(f).getByRole('button', { name: 'Remove Old Contact' }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Remove this contact?' })).getByRole('button', { name: 'Remove' }));
+    await userEvent.click(within(f).getByRole('button', { name: 'Edit Ahmed' }));
+    await userEvent.type(within(f).getByLabelText('Company'), ' Oman{Enter}');
+    await userEvent.click(within(f).getByRole('button', { name: 'Add a contact' }));
+    await userEvent.type(within(f).getByRole('combobox', { name: /^Name/ }), 'Huda{Enter}');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Ahmed had been removed by someone else, so your change to them wasn’t saved. Everything else was saved.')).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/tasks/t1/external-contacts'))).toBe(true);
+    expect(within(f).queryByText('Ahmed')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    // Nothing is left to save: the next Save just closes.
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/tasks/t1/external-contacts'))).toHaveLength(1);
+  });
+
+  it('closing with a contact still being typed in asks first', async () => {
+    const { onClose } = renderDialog({ projectId: 'p1' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('Backlog'));
+    await userEvent.click(within(field()).getByRole('button', { name: 'Add a contact' }));
+    await userEvent.type(within(field()).getByRole('combobox', { name: /^Name/ }), 'Half typed');
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

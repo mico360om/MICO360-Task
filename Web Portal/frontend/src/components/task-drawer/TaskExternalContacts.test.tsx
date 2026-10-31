@@ -29,6 +29,7 @@ beforeEach(() => {
       if (u.includes('/projects/p1/external-contacts')) return json({ data: [{ name: 'Sara Nasser', company: 'PDO', designation: null, email: 'sara@pdo.co.om', phone: null, remarks: null }] });
       if (method === 'POST' && u.endsWith('/tasks/t1/external-contacts')) return json({ data: { ...ahmed, id: 'x2', name: 'Sara Nasser' } }, 201);
       if (method === 'DELETE') return new Response(null, { status: 204 });
+      if (method === 'PUT') return json({ data: { ...ahmed, ...(init?.body ? JSON.parse(String(init.body)) : {}) } });
       if (u.includes('/dependencies')) return json({ data: { blockedBy: [], blocks: [] } });
       if (u.includes('/checklist')) return json({ data: { items: [], progress: 0 } });
       if (u.endsWith('/tasks/t1')) {
@@ -64,11 +65,30 @@ describe('TaskExternalContacts (the task panel’s contacts, saved on the server
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['board'] });
   });
 
+  it('a change sends only the fields changed, so someone else’s change to another field stays', async () => {
+    wrap(<TaskExternalContacts taskId="t1" projectId="p1" contacts={[ahmed]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Ahmed Al Said' }));
+    const company = screen.getByLabelText('Company');
+    await userEvent.clear(company);
+    await userEvent.type(company, 'Occidental{Enter}');
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.url).toMatch(/\/external-contacts\/x1$/));
+    expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ company: 'Occidental' });
+  });
+
   it('removes a contact after asking', async () => {
     wrap(<TaskExternalContacts taskId="t1" projectId="p1" contacts={[ahmed]} />);
     await userEvent.click(screen.getByRole('button', { name: 'Remove Ahmed Al Said' }));
     await userEvent.click(within(screen.getByRole('group', { name: 'Remove this contact?' })).getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'DELETE')?.url).toMatch(/\/external-contacts\/x1$/));
+  });
+
+  it('a contact someone else removed meanwhile: says so and refreshes the task, so it goes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: { code: 'NOT_FOUND', message: 'This contact isn’t on the task any more. Someone may have removed it.' } }, 404)));
+    const { invalidate } = wrap(<TaskExternalContacts taskId="t1" projectId="p1" contacts={[ahmed]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Ahmed Al Said' }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Remove this contact?' })).getByRole('button', { name: 'Remove' }));
+    expect(await screen.findByText('This contact isn’t on the task any more. Someone may have removed it.')).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['task', 't1'] });
   });
 
   it('the task panel shows the task’s contacts under its details', async () => {

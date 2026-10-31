@@ -41,7 +41,7 @@ import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/t
 import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from './ChecklistField';
-import { ExternalContactsField, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
+import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
 import { externalContactsApi } from '../../api/external-contacts';
 
 export interface TaskFormDialogProps {
@@ -211,6 +211,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const dirty =
     placeChosen ||
     files.length > 0 ||
+    contactOpen ||
     JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
     draft.columnId !== saved.columnId;
   const finish = (task: ApiTask) => {
@@ -545,22 +546,44 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         keep({ assigneeIds: done.assigneeIds.filter((x) => x !== id) });
       }
       // External contacts, each saved on its own (what went through is kept, so a retry sends the rest):
-      // the ones removed, then the ones changed, then the new ones.
+      // the ones removed, then the ones changed (only the fields changed, so someone else's change to
+      // another field stays), then the new ones.
       const contacts = externalContactsApi(apiClient);
-      const same = (a: FormContact, b: FormContact) => JSON.stringify(fieldsOnly(a)) === JSON.stringify(fieldsOnly(b));
+      const goneAlready = (err: unknown) => err instanceof ApiError && err.status === 404;
       for (const gone of done.contacts.filter((c) => c.id && !draft.contacts.some((d) => d.id === c.id))) {
-        await contacts.remove(gone.id!);
+        // Someone else removed it already: it is gone either way.
+        await contacts.remove(gone.id!).catch((err) => {
+          if (!goneAlready(err)) throw err;
+        });
         keep({ contacts: done.contacts.filter((c) => c.key !== gone.key) });
       }
+      const lost: string[] = [];
       for (const now of draft.contacts.filter((d) => d.id)) {
         const before = done.contacts.find((c) => c.id === now.id);
-        if (!before || same(before, now)) continue;
-        await contacts.update(now.id!, fieldsOnly(now));
-        keep({ contacts: done.contacts.map((c) => (c.id === now.id ? now : c)) });
+        const patch = before ? changedContactFields(before, now) : {};
+        if (!before || Object.keys(patch).length === 0) continue;
+        try {
+          await contacts.update(now.id!, patch);
+          keep({ contacts: done.contacts.map((c) => (c.id === now.id ? now : c)) });
+        } catch (err) {
+          if (!goneAlready(err)) throw err;
+          // Removed by someone else meanwhile: the change can't be saved, and the row goes.
+          lost.push(now.name);
+          keep({ contacts: done.contacts.filter((c) => c.key !== now.key) });
+          setDraft((d) => ({ ...d, contacts: d.contacts.filter((c) => c.key !== now.key) }));
+        }
       }
       for (const added of draft.contacts.filter((d) => !d.id && !done.contacts.some((c) => c.key === d.key))) {
-        await contacts.add(t.id, fieldsOnly(added));
-        keep({ contacts: [...done.contacts, added] });
+        const made = await contacts.add(t.id, fieldsOnly(added));
+        // Kept with the server's id, so it can still be changed or removed if a later save fails.
+        keep({ contacts: [...done.contacts, { ...added, id: made.id }] });
+        setDraft((d) => ({ ...d, contacts: d.contacts.map((c) => (c.key === added.key ? { ...c, id: made.id } : c)) }));
+      }
+      if (lost.length) {
+        void invalidateTaskQueries(qc);
+        void qc.invalidateQueries({ queryKey: ['task', t.id] });
+        setBanner(`${listNames(lost)} had been removed by someone else, so your ${lost.length === 1 ? 'change to them wasn’t' : 'changes to them weren’t'} saved. Everything else was saved.`);
+        return;
       }
       void invalidateTaskQueries(qc);
       void qc.invalidateQueries({ queryKey: ['task', t.id] });

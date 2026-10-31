@@ -67,11 +67,12 @@ export function createPrismaExternalContactRepository(prisma: PrismaClient): Ext
     async searchProject(projectId, prefix, limit) {
       const p = prefix.trim();
       if (!p) return [];
-      // The database narrows to a word start of the name or company; the exact check runs here.
+      // The database narrows to names and companies that contain it; the word-start check runs here
+      // (a word can start after a space, a hyphen or a bracket: "Al-Hassan", "Oman (PDO)").
       const rows = await prisma.taskExternalContact.findMany({
         where: {
           task: { ...liveTaskWhere, projectId },
-          OR: [{ name: { startsWith: p } }, { name: { contains: ` ${p}` } }, { company: { startsWith: p } }, { company: { contains: ` ${p}` } }],
+          OR: [{ name: { contains: p } }, { company: { contains: p } }],
         },
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         take: limit,

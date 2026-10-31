@@ -76,11 +76,14 @@ function NameField({
   invalid,
   describedBy,
   inputRef,
+  onEnter,
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
   onPick: (c: ExternalContactFields) => void;
+  /** Enter with no suggestion picked: save the contact (never the form around it). */
+  onEnter: () => void;
   suggest?: SuggestContacts;
   invalid: boolean;
   describedBy?: string;
@@ -93,15 +96,16 @@ function NameField({
   // Only what the person types asks for suggestions (not a pick filling the box).
   const [typed, setTyped] = useState<string | null>(null);
   useEffect(() => {
-    if (!suggest || typed === null || !typed.trim()) {
-      setOptions([]);
-      return;
-    }
+    // What was suggested for the earlier text is not offered for this one.
+    setOptions([]);
+    setActive(-1);
+    if (!suggest || typed === null || !typed.trim()) return;
     let live = true;
     const timer = setTimeout(() => {
       suggest(typed.trim()).then(
         (found) => {
-          if (!live) return;
+          // Only for the box still being typed in (not one that was left meanwhile).
+          if (!live || document.activeElement !== inputRef.current) return;
           setOptions(found);
           setActive(-1);
           setOpen(true);
@@ -113,7 +117,7 @@ function NameField({
       live = false;
       clearTimeout(timer);
     };
-  }, [typed, suggest]);
+  }, [typed, suggest, inputRef]);
   const listed = open && options.length > 0;
   const pick = (c: ExternalContactFields) => {
     setOpen(false);
@@ -158,6 +162,11 @@ function NameField({
         }}
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
+          if (e.key === 'Enter' && !(listed && active >= 0)) {
+            e.preventDefault();
+            onEnter();
+            return;
+          }
           if (!listed) return;
           if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -321,6 +330,7 @@ export function ContactEditor({
               setProblems({});
             }}
             suggest={suggest}
+            onEnter={() => void save()}
             invalid={Boolean(problems.name)}
             describedBy={problems.name ? errorId('name') : undefined}
           />
@@ -385,12 +395,19 @@ export function ContactCard({
   contact,
   onEdit,
   onRemove,
+  focusEdit = false,
 }: {
   contact: ExternalContactFields;
   onEdit?: () => void;
   /** Remove it (asked first); rejects with the reason to show. */
   onRemove?: () => Promise<void> | void;
+  /** Put focus on its Edit button (back from editing it). */
+  focusEdit?: boolean;
 }) {
+  const editRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (focusEdit) editRef.current?.focus();
+  }, [focusEdit]);
   const [asking, setAsking] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -467,7 +484,7 @@ export function ContactCard({
       {onEdit || onRemove ? (
         <div className="flex flex-none items-center">
           {onEdit ? (
-            <button type="button" onClick={onEdit} aria-label={`${W.edit} ${contact.name}`} title={W.edit} className={iconButton}>
+            <button ref={editRef} type="button" onClick={onEdit} aria-label={`${W.edit} ${contact.name}`} title={W.edit} className={iconButton}>
               <PencilIcon />
             </button>
           ) : null}
@@ -503,16 +520,25 @@ export function ExternalContactsSection({
   const headingId = useId();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  // Back from editing a contact: focus returns to its Edit button.
+  const [backTo, setBackTo] = useState<string | null>(null);
   const addRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const full = contacts.length >= MAX_EXTERNAL_CONTACTS;
+  /** Focus Add (or the heading, when the task is full), once the change has shown. */
+  const focusAdd = () => setTimeout(() => (addRef.current ?? headingRef.current)?.focus(), 0);
   const closeAdd = () => {
     setAdding(false);
-    setTimeout(() => addRef.current?.focus(), 0);
+    focusAdd();
+  };
+  const closeEdit = (id: string) => {
+    setEditing(null);
+    setBackTo(id);
   };
   return (
     <section role="region" aria-labelledby={headingId} className="rounded-xl border border-line p-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 id={headingId} className="eyebrow">
+        <h3 id={headingId} ref={headingRef} tabIndex={-1} className="eyebrow outline-none">
           {W.heading}
         </h3>
         {contacts.length > 0 ? <span className="text-xs tabular-nums text-ink-3" aria-hidden="true">{contacts.length}</span> : null}
@@ -530,12 +556,31 @@ export function ExternalContactsSection({
                   suggest={suggest}
                   onSubmit={async (fields) => {
                     await onSave(c.id, fields);
-                    setEditing(null);
+                    closeEdit(c.id);
                   }}
-                  onCancel={() => setEditing(null)}
+                  onCancel={() => closeEdit(c.id)}
                 />
               ) : (
-                <ContactCard contact={c} onEdit={onSave ? () => setEditing(c.id) : undefined} onRemove={onRemove ? () => onRemove(c.id) : undefined} />
+                <ContactCard
+                  contact={c}
+                  focusEdit={backTo === c.id}
+                  onEdit={
+                    onSave
+                      ? () => {
+                          setBackTo(null);
+                          setEditing(c.id);
+                        }
+                      : undefined
+                  }
+                  onRemove={
+                    onRemove
+                      ? async () => {
+                          await onRemove(c.id);
+                          focusAdd();
+                        }
+                      : undefined
+                  }
+                />
               )}
             </li>
           ))}

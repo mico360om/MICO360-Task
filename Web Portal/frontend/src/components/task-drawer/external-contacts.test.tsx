@@ -122,6 +122,32 @@ describe('External contacts in the task panel', () => {
     expect(onAdd).not.toHaveBeenCalled();
   });
 
+  it('never opens suggestions for a box that was left, and hides the old ones while more is typed', async () => {
+    const suggest = vi.fn(async (typed: string) => [{ ...blank, name: `${typed} match` }]);
+    render(<ExternalContactsSection contacts={[]} onAdd={vi.fn()} suggest={suggest} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add a contact' }));
+    const name = screen.getByRole('combobox', { name: /^Name/ });
+    await userEvent.type(name, 'Ah');
+    expect(await screen.findByRole('option', { name: 'Ah match' })).toBeInTheDocument();
+    await userEvent.type(name, 'm');
+    expect(screen.queryByRole('option', { name: 'Ah match' })).toBeNull();
+    expect(await screen.findByRole('option', { name: 'Ahm match' })).toBeInTheDocument();
+    await userEvent.type(name, 'e');
+    await userEvent.tab();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('keeps focus in the section: on the contact after saving a change, on Add after removing one', async () => {
+    render(<ExternalContactsSection contacts={[ahmed, sara]} onAdd={vi.fn()} onSave={vi.fn(async () => {})} onRemove={vi.fn(async () => {})} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Ahmed Al Said' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Ahmed Al Said' })).toHaveFocus());
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Sara Nasser' }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Remove this contact?' })).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add a contact' })).toHaveFocus());
+  });
+
   it('edits a contact in place: its fields filled in, saved with the changes', async () => {
     const onSave = vi.fn(async () => {});
     render(<ExternalContactsSection contacts={[ahmed]} onAdd={vi.fn()} onSave={onSave} onRemove={vi.fn()} />);

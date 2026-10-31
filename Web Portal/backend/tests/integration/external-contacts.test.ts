@@ -105,6 +105,13 @@ describe('External contacts on MySQL (integration)', () => {
     expect(await repo.searchProject(projectId, 'zz', 50)).toEqual([]);
   });
 
+  it('finds a word start after a hyphen or a bracket too ("Al-Hassan", "Oman (PDO)")', async () => {
+    await repo.add(taskId, fields('Khalid Al-Hassan', { company: 'Petroleum Development Oman (PDO)' }), userId, 20);
+    expect((await repo.searchProject(projectId, 'hassan', 50)).map((c) => c.name)).toEqual(['Khalid Al-Hassan']);
+    expect((await repo.searchProject(projectId, 'pdo', 50)).map((c) => c.name)).toEqual(['Khalid Al-Hassan']);
+    expect(await repo.searchProject(projectId, 'assan', 50)).toEqual([]);
+  });
+
   it('task rows sum up their contacts, and a single task carries them in full', async () => {
     await repo.add(taskId, fields('Ahmed Al Said', { company: 'OXY' }), userId, 20);
     await repo.add(taskId, fields('Sara Nasser', { company: 'PDO' }), userId, 20);

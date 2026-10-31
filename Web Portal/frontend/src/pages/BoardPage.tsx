@@ -14,7 +14,7 @@ import { enqueueOffline } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { approvalNotice } from '../lib/approvals';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
-import { ALL_PROJECTS, BOARD_FIT_QUERY, boardCompanies, boardProjects, composeAllProjectsBoard, composeBoard, filterBoardByCompany, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
+import { ALL_PROJECTS, BOARD_FIT_QUERY, boardCompanies, boardProjects, composeAllProjectsBoard, composeBoard, filterBoardByCompany, fullColumnIndex, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
 import { STATUS_META, type TaskCategory } from '../lib/taskStatus';
 import { ProjectFilter } from '../components/board/ProjectFilter';
 import type { KanbanColumnData } from '../components/KanbanColumn';
@@ -437,11 +437,13 @@ export function BoardPage() {
     const data = boardQ.data;
     const id = data?.idByKey[taskKey];
     if (!data || !id) return;
-    const after = moveTaskInBoard(data.columns, taskKey, toColumnId, toIndex);
+    // Filtered by company, the drop position is among the shown cards: place it in the whole column.
+    const at = company ? fullColumnIndex(data.columns, boardColumns, toColumnId, toIndex, taskKey) : toIndex;
+    const after = moveTaskInBoard(data.columns, taskKey, toColumnId, at);
     const orderedIds = (after.find((c) => c.id === toColumnId)?.tasks ?? [])
       .map((t) => data.idByKey[t.key])
       .filter((x): x is string => Boolean(x));
-    moveMut.mutate({ id, toColumnId, taskKey, toIndex, orderedIds });
+    moveMut.mutate({ id, toColumnId, taskKey, toIndex: at, orderedIds });
   }
 
   function onReorder(columnId: string, orderedKeys: string[]) {
