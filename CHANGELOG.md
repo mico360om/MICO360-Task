@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-10-31
+
 ### New features
 - Task approvals: tick "Needs approval" on a task (or switch on "New tasks in this project need
   approval" for a project) and it must be approved by whoever runs the project before it counts as
