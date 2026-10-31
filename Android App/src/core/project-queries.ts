@@ -4,7 +4,8 @@ import { useServices } from './providers';
 import { owned } from './queries';
 import { useDebouncedValue } from './useDebounced';
 import { PROJECTS_OVERVIEW_COPY } from '../lib/offline-copy';
-import { PROJECTS_OVERVIEW_KEY } from '../lib/refresh';
+import { PROJECTS_OVERVIEW_KEY, refresh } from '../lib/refresh';
+import { createdTaskRefreshes } from '../lib/task-cache';
 import { codeProblem } from '../lib/project-identity';
 import { saveProject, type ProjectSaveApi, type SaveOutcome } from '../lib/project-form';
 import { changeProjectStatus, type StatusChangeOutcome } from '../lib/project-status';
@@ -66,6 +67,7 @@ export function useCodeCheck(code: string, enabled: boolean) {
 /** Save the project form (create or edit, then the picture), as the website does. */
 export function useSaveProject() {
   const { resources } = useServices();
+  const qc = useQueryClient();
   const refreshed = useProjectRefresh();
   return useCallback(
     async (o: Parameters<typeof saveProject>[1], over?: Pick<ProjectSaveApi, 'create'>): Promise<SaveOutcome> => {
@@ -82,9 +84,11 @@ export function useSaveProject() {
         o,
       );
       if (out.kind === 'done' || out.kind === 'partly') refreshed(out.project);
+      // Made from a template (Stage 4): its tasks are new — My Tasks, the Dashboard and the Calendar too.
+      if (over?.create && !o.saved && (out.kind === 'done' || out.kind === 'partly')) refresh(qc, createdTaskRefreshes(out.project.id));
       return out;
     },
-    [resources, refreshed],
+    [resources, refreshed, qc],
   );
 }
 

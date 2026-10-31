@@ -20,3 +20,7 @@ it('S2: a try the server is still on (or that got no answer) keeps its key; only
 it('S3: a preview shows "Loading…" (and can’t be confirmed) while it is read again — minutes and inspection reports', () => {
   for (const f of ['components/client-share/MinutesClientSwitch.tsx', 'components/inspections/InspectionClientSwitch.tsx']) expect(src(f), f).toMatch(/loading=\{previewQ\.isFetching\}/);
 });
+
+it('S4: a project made from a template refreshes My Tasks, the Dashboard and the Calendar (its tasks are new)', () => {
+  expect(src('core/project-queries.ts')).toMatch(/over\?\.create && !o\.saved && \(out\.kind === 'done' \|\| out\.kind === 'partly'\)\) refresh\(qc, createdTaskRefreshes\(out\.project\.id\)\)/);
+});
