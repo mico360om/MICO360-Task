@@ -67,4 +67,8 @@ describe('resultsQuery — the full results’ address query', () => {
     expect(resultsQuery({ q: 'rig', projectId: 'p1', status: 'TODO', assigneeId: 'me', done: false, archived: true })).toBe('q=rig&project=p1&status=TODO&assignee=me&done=false&archived=true');
     expect(resultsQuery({ q: '"hot work"', done: true, archived: false })).toBe('q=%22hot+work%22&done=true');
   });
+
+  it('keeps at most 200 letters of the words (what the search takes)', () => {
+    expect(new URLSearchParams(resultsQuery({ q: 'x'.repeat(250) })).get('q')).toHaveLength(200);
+  });
 });

@@ -95,10 +95,13 @@ export interface ResultsFilters {
   archived?: boolean;
 }
 
+/** The most letters of words the search takes. */
+export const MAX_QUERY_LETTERS = 200;
+
 /** The query of the website's Search results address ("q=…&project=…"), only what is set. */
 export function resultsQuery(f: ResultsFilters): string {
   const p = new URLSearchParams();
-  p.set('q', String(f.q ?? '').trim());
+  p.set('q', String(f.q ?? '').trim().slice(0, MAX_QUERY_LETTERS));
   if (f.projectId) p.set('project', f.projectId);
   if (f.status) p.set('status', f.status);
   if (f.assigneeId) p.set('assignee', f.assigneeId);

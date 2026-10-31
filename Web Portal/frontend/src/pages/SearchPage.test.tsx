@@ -108,6 +108,37 @@ describe('Search results page', () => {
     expect(screen.getByTestId('where').textContent).toContain('q=%22hot+work%22');
   });
 
+  it('keeps a space typed before a pause (the next word does not run into the last)', async () => {
+    const asked = serve();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/search?q=scaff']}>
+          <Routes>
+            <Route path="/search" element={<SearchPage debounceMs={40} />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const box = screen.getByRole('searchbox', { name: 'Search tasks' });
+    await userEvent.clear(box);
+    await userEvent.type(box, '"hot ');
+    await new Promise((r) => setTimeout(r, 120)); // past the pause: the search runs
+    await userEvent.type(box, 'work"');
+    expect(box).toHaveValue('"hot work"');
+    await waitFor(() => expect(lastAsked(asked).q).toBe('"hot work"'));
+  });
+
+  it('a page whose tasks all changed since they were indexed asks for the next one', async () => {
+    const asked = serve([
+      { data: [], nextCursor: 'b2s6Mg', total: 3, totalCapped: false },
+      { data: [hit(3)], nextCursor: null },
+    ]);
+    open();
+    await row('Check the scaffold 3');
+    expect(lastAsked(asked).cursor).toBe('b2s6Mg');
+  });
+
   it('filters by project, status, assignee, done or not, and archived projects', async () => {
     const asked = serve();
     open();

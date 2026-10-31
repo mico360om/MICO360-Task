@@ -12,7 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Toggle } from '../components/ui/Toggle';
 import { fieldClass } from '../components/ui/Field';
 import { Highlighted } from '../components/ui/Highlighted';
-import { resultsQuery, type ResultsFilters, type TaskSearchHit } from '../lib/search-highlight';
+import { MAX_QUERY_LETTERS, resultsQuery, type ResultsFilters, type TaskSearchHit } from '../lib/search-highlight';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { formatDueDay } from '../lib/due-display';
 import { isOverdue } from '../lib/due-date';
@@ -78,8 +78,9 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
       { replace: true },
     );
 
-  // The box: what is typed reaches the address (and the search) once typing pauses. Words put in the
-  // address from elsewhere (the top-bar search's "See all results") replace what the box shows.
+  // The box: what is typed reaches the address (and the search) once typing pauses — trimmed, as the
+  // address keeps it, while the box keeps what was typed (a space before the next word). Words put in
+  // the address from elsewhere (the top-bar search's "See all results") replace what the box shows.
   const [term, setTerm] = useState(filters.q);
   const pushed = useRef(filters.q);
   useEffect(() => {
@@ -89,10 +90,11 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     }
   }, [filters.q]);
   useEffect(() => {
-    if (term === pushed.current) return;
+    const typed = term.trim().slice(0, MAX_QUERY_LETTERS);
+    if (typed === pushed.current) return;
     const t = setTimeout(() => {
-      pushed.current = term;
-      update({ q: term });
+      pushed.current = typed;
+      update({ q: typed });
     }, debounceMs);
     return () => clearTimeout(t);
     // `update` reads the address when it runs, so it is not a dependency.
@@ -115,6 +117,12 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     const seen = new Set<string>();
     return (results.data?.pages ?? []).flatMap((p) => p.data).filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
   }, [results.data]);
+  // A page whose tasks all changed since they were indexed comes back empty: ask for the next one.
+  const lastPage = results.data?.pages[results.data.pages.length - 1];
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = results;
+  useEffect(() => {
+    if (lastPage && lastPage.data.length === 0 && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [lastPage, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const first = results.data?.pages[0];
   const count = first ? (first.totalCapped ? '1000+ tasks' : `${first.total ?? hits.length} ${(first.total ?? hits.length) === 1 ? 'task' : 'tasks'}`) : null;
 
@@ -160,7 +168,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
             value={term}
             onChange={(e) => setTerm(e.target.value)}
             placeholder="Words to find in tasks…"
-            maxLength={200}
+            maxLength={MAX_QUERY_LETTERS}
             className={fieldClass(false, 'w-full')}
           />
           <p id="search-tips" className="mt-1 text-xs text-ink-3">
@@ -225,7 +233,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
 
       {!searching ? (
         <p className="text-sm text-ink-2">Type 2 or more letters to search every task you can open.</p>
-      ) : results.isLoading ? (
+      ) : results.isLoading || (hits.length === 0 && (hasNextPage || isFetchingNextPage)) ? (
         <div className="flex flex-col gap-2" aria-label="Searching…">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="skeleton h-16 rounded-lg" />
