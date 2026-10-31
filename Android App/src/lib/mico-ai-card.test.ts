@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FIELD_MAX, FOOTER_NOTE, KIND_BADGE, LENGTH_CHOICES, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, lengthChoices, resultLine, timeProblem, undoButtonText, undoLine } from './mico-ai-card';
+import { FIELD_MAX, FOOTER_NOTE, KIND_BADGE, LENGTH_CHOICES, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, lengthChoices, resultLine, timeProblem, undoDeadline, undoButtonText, undoLine } from './mico-ai-card';
 import type { MicoAiProposal, ProposalChange, ProposalStatus } from './mico-ai-api';
 import { resultSummary, undoSummary } from './mico-ai-proposal';
 import { PROPOSALS } from '../testing/mico-ai-fixtures';
@@ -105,4 +105,12 @@ it('a meeting time typed wrong holds Confirm back, and says why (final review A3
   expect(timeProblem({ c4: '10:30', c5: 'ten' })).not.toBeNull();
   // Emptied: the time it had would still be sent, so it holds Confirm back too.
   expect(timeProblem({ c4: ' ' })).not.toBeNull();
+});
+
+it('Undo closes when the server says, on the phone’s clock (final review A8)', () => {
+  // Read at 08:00 server time, 07:59:30 on the phone (30 s behind): it closes at 08:14:30 phone time.
+  const receivedAt = Date.parse('2026-10-30T07:59:30Z');
+  expect(undoDeadline('2026-10-30T08:15:00Z', '2026-10-30T08:00:00Z', receivedAt)).toBe(Date.parse('2026-10-30T08:14:30Z'));
+  expect(undoDeadline(null, '2026-10-30T08:00:00Z', receivedAt)).toBeNull();
+  expect(undoDeadline('nonsense', '2026-10-30T08:00:00Z', receivedAt)).toBeNull();
 });

@@ -17,8 +17,8 @@ it('only the buttons the card’s status allows are shown', () => {
 
 it('the Undo countdown follows the server’s clock, ticking every second', () => {
   expect(s).toMatch(/undoLeft\(proposal\.undoUntil, proposal\.serverNow, receivedAt, now\)/);
-  expect(s).toMatch(/\[proposal\.serverNow\]/);
-  expect(s).toMatch(/setInterval\(\(\) => setNow\(Date\.now\(\)\), 1000\)/);
+  expect(s).toMatch(/const receivedAt = useMessageReceivedAt\(chatId, message\.id, proposal\.serverNow\)/);
+  expect(s).toMatch(/setInterval\(/);
 });
 
 it('a change that needs putting right can’t be ticked; a locked one has no tick box', () => {
@@ -70,4 +70,12 @@ it('a second tap while an action runs changes nothing on the card, not even its 
   expect(run).toMatch(/^async function run\(.*\) \{\s+if \(running\.current\) return;\s+running\.current = true;/);
   expect(run).toMatch(/finally \{\s+running\.current = false;/);
   expect(s).toMatch(/const running = useRef\(false\)/);
+});
+
+it('a card shown from the phone’s copy counts down from when that copy arrived, and stops when Undo closes (final review A8)', () => {
+  const q = src('core/mico-ai-queries.ts');
+  expect(q).toMatch(/export function useMessageReceivedAt[^]*getQueryState<ChatView>\(micoAiChatKey\(userId, chatId\)\)[^]*dataUpdatedAt[^]*\[qc, userId, chatId, messageId, serverNow\]/);
+  expect(s).toMatch(/const deadline = undoDeadline\(proposal\.undoUntil, proposal\.serverNow, receivedAt\)/);
+  expect(s).toMatch(/useNow\(canUndoNow, deadline\)/);
+  expect(s).toMatch(/if \(deadline !== null && t >= deadline\) clearInterval\(timer\)/);
 });

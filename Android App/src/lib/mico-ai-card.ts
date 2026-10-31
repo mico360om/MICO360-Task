@@ -81,6 +81,16 @@ export const confirmLabel = (n: number): string => `Confirm (${n})`;
 export const confirmA11y = (n: number): string => `Confirm ${n} ${n === 1 ? 'change' : 'changes'}`;
 export const undoButtonText = (leftMs: number): string => `Undo (${countdown(leftMs)})`;
 
+/**
+ * When Undo closes on the phone's clock (null: no undo window): the server's `undoUntil`, moved by
+ * the gap between its clock and the phone's when the card was read (`serverNow` at `receivedAt`).
+ */
+export function undoDeadline(undoUntil: string | null, serverNow: string, receivedAt: number): number | null {
+  if (!undoUntil) return null;
+  const at = receivedAt + (Date.parse(undoUntil) - Date.parse(serverNow));
+  return Number.isFinite(at) ? at : null;
+}
+
 // ── Editing a change before Confirm (Stage 3 Task 15) ──────────────────────────
 
 /** Names to show for edited values (the card's labels are for what was proposed). */

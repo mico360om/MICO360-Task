@@ -184,6 +184,24 @@ export function useCardRefresh(chatId: string, message: MicoAiMessage): void {
   }, [m, userId, chatId, message.id, qc]);
 }
 
+/**
+ * When the phone got the copy of a message it shows (its query's `dataUpdatedAt`: the chat's, or the
+ * older page's), read again whenever the server's time on it changes. A card shown from the phone's
+ * copy counts its Undo down from then, not from when the screen opened.
+ */
+export function useMessageReceivedAt(chatId: string, messageId: string, serverNow: string): number {
+  const userId = useUserId();
+  const qc = useQueryClient();
+  return useMemo(() => {
+    const chat = qc.getQueryState<ChatView>(micoAiChatKey(userId, chatId));
+    if (chat?.data?.messages.some((m) => m.id === messageId) && chat.dataUpdatedAt) return chat.dataUpdatedAt;
+    const older = qc.getQueryState<EarlierPage>(micoAiEarlierKey(userId, chatId));
+    if (older?.data?.messages.some((m) => m.id === messageId) && older.dataUpdatedAt) return older.dataUpdatedAt;
+    // Not in the phone's copy (yet): from now. serverNow keys the memo, so a new copy is a new start.
+    return Date.now();
+  }, [qc, userId, chatId, messageId, serverNow]);
+}
+
 /** A question asked: the chat it went to — or why not, whether it goes back in the box, and the chat kept for it. */
 export type AskResult = { chatId: string } | { error: string; restoreDraft: boolean; chatId: string | null };
 

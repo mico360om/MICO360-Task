@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
-import { useCardActions, useCardRefresh } from '../../core/mico-ai-queries';
+import { useCardActions, useCardRefresh, useMessageReceivedAt } from '../../core/mico-ai-queries';
 import { applyNavAction } from '../../navigation/apply-action';
 import type { MicoAiMessage, MicoAiProposal, ProposalChange } from '../../lib/mico-ai-api';
 import { linkTarget } from '../../lib/mico-ai-chat';
-import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, timeProblem, undoButtonText, undoLine, type Shown } from '../../lib/mico-ai-card';
+import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, timeProblem, undoButtonText, undoDeadline, undoLine, type Shown } from '../../lib/mico-ai-card';
 import { cardHeading, changeLabel, confirmBody, initialTicks, remainingNeeds, resultSummary, undoLeft, undoSummary } from '../../lib/mico-ai-proposal';
 import { radius, shadow, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
@@ -16,20 +16,21 @@ import { RowSummary, cardWhen } from './ProposalSummary';
 
 const CANCELLED = 'Cancelled — nothing was changed.';
 
-/** The current time, ticking every second while `active` (the Undo countdown). */
-function useNow(active: boolean): number {
+/** The current time, ticking every second while `active` (the Undo countdown) — and no longer once `deadline` has passed. */
+function useNow(active: boolean, deadline: number | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [active]);
+    const timer = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (deadline !== null && t >= deadline) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [active, deadline]);
   return now;
 }
-
-/** When the card's server time was taken, by the phone's clock (read again with each new `serverNow`). */
-const receivedTime = (_serverNow: string) => Date.now();
 
 /** What happened to one change: done (with where to open it), being made, refused or failed, or skipped. */
 function ResultLine({ result, gone, s }: { result: NonNullable<ProposalChange['result']>; gone: boolean; s: Styles }) {
@@ -91,8 +92,9 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
 
   // The countdown follows the server's clock: the phone's may be off (taken when this copy of the card arrived).
   const canUndoNow = status === 'done' && proposal.canUndo && !!proposal.undoUntil;
-  const now = useNow(canUndoNow);
-  const receivedAt = useMemo(() => receivedTime(proposal.serverNow), [proposal.serverNow]);
+  const receivedAt = useMessageReceivedAt(chatId, message.id, proposal.serverNow);
+  const deadline = undoDeadline(proposal.undoUntil, proposal.serverNow, receivedAt);
+  const now = useNow(canUndoNow, deadline);
   const left = undoLeft(proposal.undoUntil, proposal.serverNow, receivedAt, now);
   const controls = cardControls(proposal, left);
 
