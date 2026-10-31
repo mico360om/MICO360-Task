@@ -468,7 +468,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   async function attach() {
     setSendErr(null);
     if (!online) return setSendErr('You’re offline — files can be sent when you’re connected.');
-    if (draft.trim().length > CHAT_MAX_LENGTH) return setSendErr(`Captions can be up to ${CHAT_MAX_LENGTH.toLocaleString()} characters.`);
+    if (draft.trim().length > CHAT_MAX_LENGTH) return setSendErr(`Captions can be up to ${CHAT_MAX_LENGTH.toLocaleString('en-US')} characters.`);
     let picked: DocumentPicker.DocumentPickerResult;
     try {
       picked = await DocumentPicker.getDocumentAsync({ type: '*/*', multiple: true, copyToCacheDirectory: true });

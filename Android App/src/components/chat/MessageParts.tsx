@@ -528,7 +528,7 @@ export function EditMessageSheet({
       />
       {length > 3500 ? (
         <Text style={[s.hint, length > 4000 && { color: c.dangerText, ...font('700') }]} accessibilityLiveRegion="polite">
-          {length.toLocaleString()} / 4,000
+          {length.toLocaleString('en-US')} / 4,000
         </Text>
       ) : null}
       <SheetMessage text={note} tone="info" />
