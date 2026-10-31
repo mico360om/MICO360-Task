@@ -116,3 +116,41 @@ export function afterTaskDeleted(qc: QueryClient, taskId: string, scope?: 'serie
   qc.removeQueries({ queryKey: ['task', taskId] });
   refresh(qc, targets);
 }
+
+/**
+ * What an approval decision changes (Approve, Send back, the "Needs approval" switch): the task, its
+ * comments (a send-back's reason is one) and history, the lists that show it, its project's progress,
+ * the approvals list (My Tasks' To approve, the Dashboard's card) and, when next shown, the projects'
+ * counts.
+ */
+export function approvalRefreshes(taskId: string): Refresh[] {
+  return [
+    { queryKey: ['task', taskId], exact: true },
+    { queryKey: ['task', taskId, 'comments'] },
+    { queryKey: ['task', taskId, 'activity'] },
+    { listsHolding: taskId },
+    { progressFor: taskId },
+    { queryKey: ['approvals'] },
+    { queryKey: ['projects'], later: true },
+  ];
+}
+
+/**
+ * After an approval decision the server accepted: its copy of the task is laid over the details
+ * shown at once (a load still on its way is called off first, as after an edit), then everything
+ * it changed is refreshed. Details never loaded (a decision from To approve) are not made from the
+ * answer — it lacks what only the details call returns — and load in full when opened.
+ */
+export function afterApprovalDecision(qc: QueryClient, taskId: string, answer: ApiTask): void {
+  void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
+  if (answer?.id === taskId) qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...answer } : prev));
+  refresh(qc, approvalRefreshes(taskId));
+}
+
+/**
+ * After the server refused a decision (the task changed meanwhile, someone else decided first, the
+ * person's rights changed): the task is read again, so a retry is from what is there now (the website's).
+ */
+export function afterApprovalRefused(qc: QueryClient, taskId: string): void {
+  refresh(qc, [{ queryKey: ['task', taskId], exact: true }]);
+}

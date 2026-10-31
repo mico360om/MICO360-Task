@@ -21,7 +21,7 @@ const GROUP = [
   'screens/TaskDetailScreen.tsx',
 ];
 
-it('the task header shows the approval chip while it waits', () => expect(src('components/task-detail/HeaderCard.tsx')).toMatch(/approvalRequestedAt \? <ApprovalChip size="sm"/));
+it('the Approval section shows the chip while it waits', () => expect(src('components/approvals/TaskApproval.tsx')).toMatch(/view\.waiting \? [^]*<ApprovalChip size="sm"/));
 
 it('switches are Toggles', () => {
   for (const f of GROUP) expect(src(f), f).not.toMatch(/import \{[^}]*\bSwitch\b[^}]*\} from 'react-native'/);

@@ -60,6 +60,7 @@ import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
 import { failureText } from '../components/task-detail/kit';
 import { FilePreviewSheet } from '../components/task-detail/FilePreviewSheet';
+import { TaskApproval } from '../components/approvals/TaskApproval';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
@@ -71,8 +72,9 @@ const BLOCKER_SEARCH_PAUSE_MS = 250;
 /**
  * Task details, in the website's TaskDrawer order (lib/task-detail taskSections): header (reference,
  * status, priority, due date, title, ⋯ menu), then on a phone the description, properties, checklist
- * and comments, then files and blockers, then the history; on a wide screen the properties, files and
- * blockers beside the work. Each part is edited in place with its own saving / saved / error state.
+ * and comments, then approval, files and blockers, then the history; on a wide screen the properties,
+ * approval, files and blockers beside the work. A task waiting for approval opens on its Approval
+ * section. Each part is edited in place with its own saving / saved / error state.
  * Edits made offline are kept and synced where the app allows it.
  */
 export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDetail'>) {
@@ -375,9 +377,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   );
   const activity = <ActivityCard entries={activityFeed(activityQ.data ?? [], nameOf)} />;
   // Where each part goes: the website's order on a phone and beside the work on a wide screen.
-  const layout = taskSections({ wide, waiting: isWaitingForApproval(task), approval: false });
+  const layout = taskSections({ wide, waiting: isWaitingForApproval(task), approval: true });
   const part: Record<TaskSection, React.ReactNode> = {
-    approval: null,
+    approval: <TaskApproval task={task} />,
     description,
     details,
     checklist: checklistCard,

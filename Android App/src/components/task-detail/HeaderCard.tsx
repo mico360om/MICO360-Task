@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { ApprovalChip, ClientChip, InspectionChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
+import { ClientChip, InspectionChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
 import { Icon } from '../Icon';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
@@ -18,8 +18,8 @@ const TITLE_MAX = 191;
  * The top of the task, as the website's: reference (and "Formerly RIG-4" after a move to another
  * project), status, priority, the Inspection and Visible to client marks and the due date at a
  * glance; the title (edited in place); a menu (the three dots) for the secondary actions (watching,
- * exporting); the approval chip while it waits. A task made from a meeting names that meeting;
- * tapping it opens the meeting in the app.
+ * exporting). A task waiting for approval says so in its Approval section, shown first (as on the
+ * website). A task made from a meeting names that meeting; tapping it opens the meeting in the app.
  */
 export function HeaderCard({
   task,
@@ -107,7 +107,6 @@ export function HeaderCard({
           {task.inspectionFormId ? <InspectionChip size="sm" /> : null}
           {task.clientVisible ? <ClientChip /> : null}
           {due.text ? <Tag label={due.text} tone={due.overdue ? 'danger' : undefined} /> : null}
-          {task.approvalRequestedAt ? <ApprovalChip size="sm" /> : null}
         </View>
         {onEdit ? (
           <Button title="Edit" icon="ui.edit" variant="secondary" size="sm" onPress={onEdit} accessibilityLabel="Edit task" accessibilityHint="Edit every detail of the task" />

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
+import { afterApprovalDecision, afterApprovalRefused, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
 import { refresh } from './refresh';
 import type { ApiTask } from './types';
 
@@ -228,5 +228,33 @@ describe('assignmentRefreshes and the replay of a kept assignment', () => {
     const { refreshesAfterReplay } = await import('./perform-mutation');
     expect(refreshesAfterReplay({ kind: 'task.assign', payload: { id: 't1', userIds: ['u2'] } })).toEqual(assignmentRefreshes('t1'));
     expect(refreshesAfterReplay({ kind: 'task.unassign', payload: { id: 't1', userId: 'u2' } })).toEqual(assignmentRefreshes('t1'));
+  });
+});
+
+describe('approvals: Approve, Send back and the "Needs approval" switch (Stage 2)', () => {
+  it('a decision refreshes the task, its comments and history, the lists, the approvals and the project counts', () =>
+    expect(approvalRefreshes('t1')).toEqual([{ queryKey: ['task', 't1'], exact: true }, { queryKey: ['task', 't1', 'comments'] }, { queryKey: ['task', 't1', 'activity'] }, { listsHolding: 't1' }, { progressFor: 't1' }, { queryKey: ['approvals'] }, { queryKey: ['projects'], later: true }]));
+
+  it('shows the server’s answer at once over the details shown (keeping what only the details call returns), then refreshes', () => {
+    const qc = seeded();
+    qc.setQueryData(['approvals'], { canApprove: true, tasks: [] });
+    afterApprovalDecision(qc, 't1', { ...t('t1'), approvalRequestedAt: null, completedAt: '2026-10-30T08:00:00Z', version: 4 });
+    const detail = qc.getQueryData<ApiTask & { meeting?: unknown }>(['task', 't1']);
+    expect(detail).toMatchObject({ completedAt: '2026-10-30T08:00:00Z', approvalRequestedAt: null, version: 4 });
+    expect(detail?.meeting).toEqual({ id: 'm1', title: 'Weekly', startAt: null, canView: true });
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["task","t1"]', '["task","t1","comments"]', '["task","t1","activity"]', '["tasks","project","p1","2026-10-21"]', '["project","p1","progress"]', '["approvals"]']));
+  });
+
+  it('details never loaded (a decision from To approve) are not made from the answer: they load in full when opened', () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    afterApprovalDecision(qc, 't1', { ...t('t1'), version: 4 });
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+  });
+
+  it('a refused decision (changed meanwhile, decided by someone else) reloads the task, so a retry is from what is there now', () => {
+    const qc = seeded();
+    afterApprovalRefused(qc, 't1');
+    expect(refreshedKeys(qc)).toEqual(['["task","t1"]']);
   });
 });
