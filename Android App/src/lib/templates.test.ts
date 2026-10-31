@@ -183,3 +183,10 @@ it('roles: each person’s note and the summary follow the server’s rule', () 
   expect(personRoleNote('u2', 'inspector', same, 2)).toBe('inspector gets 1 of these 2 tasks; the others name another role first.');
   expect(personRoleNote('u1', 'Inspector', roleCounts([['u1']], ['u1'], { u1: 'Inspector' }), 1)).toBe('Inspector gets this task.');
 });
+
+// Task 15 (lead amendment 1): Stage 2 built "New task from a task template" (TemplatePicker,
+// applyTemplate, templateFilledText — new-task-extras.test.ts, task-form.test.ts). What Stage 4 adds
+// to it is only this check: a task from a template is made with the normal New task body.
+it('a task started from a template is created as any new task: no template endpoint is called', () => {
+  for (const f of ['screens/NewTaskScreen.tsx', 'core/new-task.ts', 'lib/task-form.ts']) expect(src(f), f).not.toMatch(/templates\.(?!listTasks\b)\w+\(/);
+});
