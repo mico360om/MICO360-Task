@@ -62,33 +62,38 @@ export function DaySheet({
       }
     >
       {shown.length ? (
-        shown.map((task) => (
-          <View key={task.id} style={s.row}>
-            <View style={s.keyBox}>
-              <Text style={s.key}>{task.key}</Text>
+        shown.map((task) => {
+          const saving = busyTaskId === task.id;
+          return (
+            <View key={task.id} style={s.row}>
+              {/* The key inside the task's button: one stop for TalkBack, read as its name (final review P6). */}
+              <Pressable onPress={() => openTask(task)} accessibilityRole="button" accessibilityLabel={`${task.key} ${task.title}`} accessibilityHint="Opens the task" style={s.titleBox}>
+                <View style={s.keyBox}>
+                  <Text style={s.key}>{task.key}</Text>
+                </View>
+                <Text style={s.title} numberOfLines={2}>
+                  {task.title}
+                </Text>
+              </Pressable>
+              {task.suggestion ? (
+                <Button
+                  title={saving ? 'Saving…' : suggestionText(task.suggestion, week)}
+                  accessibilityLabel={saving ? 'Saving…' : suggestionLabel(task.suggestion, task.key)}
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => (busyTaskId === null ? onApply(task) : undefined)}
+                />
+              ) : cell.over > 0 ? (
+                <Text style={s.noRoom}>No room nearby</Text>
+              ) : null}
             </View>
-            <Pressable onPress={() => openTask(task)} accessibilityRole="button" accessibilityLabel={`${task.key} ${task.title}`} accessibilityHint="Opens the task" style={s.titleBox}>
-              <Text style={s.title} numberOfLines={2}>
-                {task.title}
-              </Text>
-            </Pressable>
-            {task.suggestion ? (
-              <Button
-                title={busyTaskId === task.id ? 'Saving…' : suggestionText(task.suggestion, week)}
-                accessibilityLabel={suggestionLabel(task.suggestion, task.key)}
-                variant="secondary"
-                size="sm"
-                onPress={() => (busyTaskId === null ? onApply(task) : undefined)}
-              />
-            ) : cell.over > 0 ? (
-              <Text style={s.noRoom}>No room nearby</Text>
-            ) : null}
-          </View>
-        ))
+          );
+        })
       ) : (
         <Text style={s.nothing}>Nothing due.</Text>
       )}
-      <Text style={[s.notice, notice ? (notice.ok ? s.ok : s.problem) : null]} accessibilityLiveRegion="polite">
+      {/* What the last tap did; while one is saved it says "Saving…" (the button's words are not announced). */}
+      <Text style={[s.notice, notice ? (notice.ok ? s.ok : s.problem) : null]} accessibilityLiveRegion="polite" accessibilityLabel={busyTaskId && !notice ? 'Saving…' : undefined}>
         {notice?.text ?? ''}
       </Text>
     </Sheet>
@@ -100,8 +105,8 @@ function makeStyles(c: Palette) {
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line2 },
     keyBox: { borderRadius: radius.badge, backgroundColor: c.ground, paddingHorizontal: 6, paddingVertical: 2 },
     key: { ...typeStyle('caption'), fontFamily: 'monospace', color: c.ink2 },
-    titleBox: { flex: 1, minHeight: 44, justifyContent: 'center' },
-    title: { ...typeStyle('label'), color: c.ink },
+    titleBox: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    title: { ...typeStyle('label'), color: c.ink, flexShrink: 1 },
     noRoom: { ...typeStyle('caption'), color: c.ink3 },
     nothing: { ...typeStyle('body'), color: c.ink2, paddingVertical: spacing.sm },
     notice: { ...typeStyle('label'), marginTop: spacing.sm },
