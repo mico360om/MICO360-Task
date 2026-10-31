@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useProjectTemplates } from '../../core/template-queries';
 import { Icon } from '../Icon';
@@ -114,9 +114,9 @@ export function TemplateStartField({
           {planError ? (
             <View style={s.problem} accessibilityRole="alert">
               <Text style={s.problemText}>{TEMPLATE_START_WORDS.planFailed}</Text>
-              <Text onPress={onRetry} accessibilityRole="button" style={s.retry} suppressHighlighting>
-                {TEMPLATE_START_WORDS.retry}
-              </Text>
+              <Pressable onPress={onRetry} accessibilityRole="button" style={({ pressed }) => [s.retry, pressed && s.pressed]} hitSlop={4}>
+                <Text style={s.retryText}>{TEMPLATE_START_WORDS.retry}</Text>
+              </Pressable>
             </View>
           ) : !current ? (
             <View accessible accessibilityRole="progressbar" accessibilityLabel={TEMPLATE_START_WORDS.planLoading}>
@@ -171,7 +171,9 @@ const makeStyles = (c: Palette) =>
     note: { fontSize: fontSize.sm, color: c.ink2 },
     problem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
     problemText: { fontSize: fontSize.sm, color: c.dangerText },
-    retry: { fontSize: fontSize.sm, ...font('600'), color: c.dangerText, textDecorationLine: 'underline', paddingVertical: spacing.sm },
+    retry: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.sm },
+    retryText: { fontSize: fontSize.sm, ...font('600'), color: c.dangerText, textDecorationLine: 'underline' },
+    pressed: { opacity: 0.6 },
     plan: { gap: spacing.sm },
     summary: { fontSize: fontSize.sm, color: c.ink },
     warning: { fontSize: fontSize.sm, ...font('500'), color: c.warningText, backgroundColor: c.warningSoft, borderRadius: radius.input, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },

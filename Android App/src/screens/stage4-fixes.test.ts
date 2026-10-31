@@ -39,3 +39,13 @@ it('S7: TalkBack hears each switch’s explanation with the switch, once', () =>
   expect(minutes).toMatch(/<Toggle on=\{v\.clientVisible\}[^>]*hint=\{minutesHint\(v\)\}/);
   expect(minutes).toMatch(/importantForAccessibility="no">\s*\{minutesHint\(v\)\}/);
 });
+
+it('S8: Remove, Retry and the follow-up link are 44 dp targets', () => {
+  expect(src('screens/ClientShareScreen.tsx')).toMatch(/remove: \{ minHeight: 44,/);
+  const field = src('components/templates/TemplateStartField.tsx');
+  expect(field).toMatch(/<Pressable onPress=\{onRetry\} accessibilityRole="button" style=\{\(\{ pressed \}\) => \[s\.retry/);
+  expect(field).toMatch(/retry: \{ minHeight: 44,/);
+  const card = src('components/inspections/TaskInspectionsCard.tsx');
+  expect(card).toMatch(/<Pressable[^>]*onPress=\{\(\) => open\(of\.inspectionId, of\.title\)\}/);
+  expect(card).toMatch(/followLink: \{ minHeight: 44,/);
+});

@@ -218,7 +218,7 @@ const makeStyles = (c: Palette) =>
     name: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
     small: { ...typeStyle('caption'), color: c.ink2 },
     rowActions: { flexDirection: 'row', gap: spacing.sm },
-    remove: { minHeight: 40, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.button },
+    remove: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.button },
     removeText: { ...typeStyle('button'), color: c.dangerText },
     dim: { opacity: 0.5 },
   });

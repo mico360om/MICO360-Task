@@ -103,12 +103,15 @@ export function TaskInspectionsCard({ task, project }: { task: ApiTask; project:
 
       {of ? (
         <View style={s.followUp}>
-          <Text style={s.caption}>
-            {of.before}{' '}
-            <Text style={s.link} onPress={() => open(of.inspectionId, of.title)} accessibilityRole="link" suppressHighlighting>
-              {of.title}
-            </Text>
-          </Text>
+          <Text style={s.caption}>{of.before}</Text>
+          <Pressable
+            onPress={() => open(of.inspectionId, of.title)}
+            accessibilityRole="link"
+            accessibilityLabel={`${of.before} ${of.title}`}
+            style={({ pressed }) => [s.followLink, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={s.link}>{of.title}</Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -159,6 +162,7 @@ const makeStyles = (c: Palette) =>
     problem: { ...typeStyle('caption'), color: c.dangerText, marginTop: spacing.xs },
     followUp: { borderRadius: radius.input, backgroundColor: c.ground, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.sm },
     link: { ...typeStyle('caption'), ...font('600'), color: c.brandText },
+    followLink: { minHeight: 44, justifyContent: 'center' },
     row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: 6, minHeight: 44 },
     rowTitle: { ...typeStyle('bodyStrong'), color: c.ink, flexShrink: 1 },
     another: { minHeight: 44, justifyContent: 'center' },
