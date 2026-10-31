@@ -3,6 +3,7 @@ import type { ApiColumn } from '../api/columns';
 import type { ApiProject } from '../api/projects';
 import { STATUS_META, STATUS_ORDER, type TaskCategory } from './taskStatus';
 import type { KanbanColumnData } from '../components/KanbanColumn';
+import { externalCompanyOptions, hasExternalCompany } from './external-contacts';
 
 /**
  * Resolve a drag-drop: given the dragged task key and the id it was dropped over
@@ -112,6 +113,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           awaitingApproval: !!t.approvalRequestedAt,
           // A finished task (DONE column, or completed) is never shown as overdue.
           done: col.category === 'DONE' || !!t.completedAt,
+          external: t.externalSummary ?? null,
         })),
     }));
 }
@@ -172,11 +174,23 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
           inspection: !!t.inspectionFormId,
           awaitingApproval: !!t.approvalRequestedAt,
           done: status === 'DONE' || !!t.completedAt,
+          external: t.externalSummary ?? null,
           project: { name: p.name, code: p.code, color: p.color, icon: p.icon ?? null, imageUrl: p.imageUrl },
         };
       }),
     };
   });
+}
+
+/** The companies named on the board's cards' external contacts, each once, A to Z (the company filter's choices). */
+export function boardCompanies(columns: KanbanColumnData[]): string[] {
+  return externalCompanyOptions(columns.flatMap((c) => c.tasks.map((t) => ({ externalSummary: t.external }))));
+}
+
+/** Only the cards with an external contact from `company` (case and extra spaces aside); the board as it is for no company. */
+export function filterBoardByCompany(columns: KanbanColumnData[], company: string): KanbanColumnData[] {
+  if (!company.trim()) return columns;
+  return columns.map((c) => ({ ...c, tasks: c.tasks.filter((t) => hasExternalCompany(t.external, company)) }));
 }
 
 /** Where a card dropped on a status lands in its own project: that project's first visible column of it. */

@@ -17,6 +17,8 @@ import { FirstStepsActions, FirstStepsIcon, useNoProjectsYet } from '../componen
 import { Avatar } from '../components/ui/Avatar';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { ExternalContactsLine } from '../components/ExternalContactsLine';
+import { EXTERNAL_CONTACT_WORDS, externalCompanyOptions, hasExternalCompany } from '../lib/external-contacts';
 import { NewTaskButton } from '../components/NewTaskButton';
 import { statusMeta, STATUS_ORDER } from '../lib/taskStatus';
 import { runBulk, type BulkAction, type BulkDeps } from '../lib/bulkActions';
@@ -97,6 +99,8 @@ export function MyTasksPage() {
   const [priority, setPriority] = useState('');
   const [assignee, setAssignee] = useState('');
   const [due, setDue] = useState('');
+  // External company: only tasks with a contact from it (not part of saved views).
+  const [company, setCompany] = useState('');
   const [sort, setSort] = useState<Sort>('due');
   const [view, setView] = useState<View>(() => (readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View) || 'grid');
   // A phone (below the sm width): the filters wait behind one button.
@@ -153,6 +157,11 @@ export function MyTasksPage() {
     { value: 'NORMAL', label: 'Normal' },
     { value: 'LOW', label: 'Low' },
   ];
+  const companyOptions = useMemo(() => {
+    const found = externalCompanyOptions(tasks);
+    const choices = company && !found.includes(company) ? [company, ...found] : found;
+    return [{ value: '', label: `${EXTERNAL_CONTACT_WORDS.filter}: ${EXTERNAL_CONTACT_WORDS.anyCompany}` }, ...choices.map((c) => ({ value: c, label: c }))];
+  }, [tasks, company]);
   const assigneeOptions = useMemo(() => {
     const m = new Map<string, string>();
     for (const t of tasks) for (const a of t.assignees ?? []) m.set(a.id, a.name);
@@ -171,9 +180,10 @@ export function MyTasksPage() {
       if (due === 'today' && !e.dueToday) return false;
       if (due === 'week' && !(e.dueKey && e.dueKey >= tK && e.dueKey <= wK)) return false;
       if (due === 'none' && e.task.dueDate) return false;
+      if (company && !hasExternalCompany(e.task.externalSummary, company)) return false;
       return true;
     });
-  }, [enriched, project, status, priority, assignee, due, timeZone]);
+  }, [enriched, project, status, priority, assignee, due, company, timeZone]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -200,8 +210,8 @@ export function MyTasksPage() {
     return { total: enriched.length, open, overdue, done };
   }, [enriched]);
 
-  const filtersActive = !!(project || status || priority || assignee || due);
-  const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); };
+  const filtersActive = !!(project || status || priority || assignee || due || company);
+  const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); setCompany(''); };
 
   // Saved views: snapshot the filter state and apply a preset back onto it.
   const currentFilters: TaskFilters = { project, status, priority, assignee, due, sort };
@@ -280,7 +290,7 @@ export function MyTasksPage() {
     : undefined;
 
   // The toolbar's parts: laid out in a row (tablet and up), or behind "Filters" on a phone.
-  const activeFilters = [project, status, priority, assignee, due].filter(Boolean).length;
+  const activeFilters = [project, status, priority, assignee, due, company].filter(Boolean).length;
   const filterBoxes = (box: string) => (
     <>
       <div className={box}><SearchableSelect ariaLabel="Filter by project" value={project} onChange={setProject} options={projectOptions} /></div>
@@ -288,6 +298,9 @@ export function MyTasksPage() {
       <div className={box}><SearchableSelect ariaLabel="Filter by priority" value={priority} onChange={setPriority} options={priorityOptions} /></div>
       <div className={box}><SearchableSelect ariaLabel="Filter by assignee" value={assignee} onChange={setAssignee} options={assigneeOptions} /></div>
       <div className={box}><SearchableSelect ariaLabel="Filter by due date" value={due} onChange={setDue} options={DUE_OPTIONS} /></div>
+      {companyOptions.length > 1 ? (
+        <div className={box}><SearchableSelect ariaLabel={`Filter by ${EXTERNAL_CONTACT_WORDS.filter.toLowerCase()}`} value={company} onChange={setCompany} options={companyOptions} /></div>
+      ) : null}
     </>
   );
   const clearButton = filtersActive ? (
@@ -585,6 +598,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
       >
         {t.title}
       </button>
+      <ExternalContactsLine summary={t.externalSummary} />
 
       <div className="mt-auto flex flex-col gap-2 pt-1">
         <div className="flex items-center gap-1.5 text-[11px]">
@@ -637,6 +651,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
             <InspectionChip />
           </span>
         ) : null}
+        <ExternalContactsLine summary={t.externalSummary} className="basis-full" />
         {/* Phones have no room for the columns: the same facts go on a second line. */}
         <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
           <span className="font-mono text-[11px] text-ink-3">{t.key}</span>

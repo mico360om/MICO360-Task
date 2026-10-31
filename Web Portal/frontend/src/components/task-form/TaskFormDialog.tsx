@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useInRouterContext } from 'react-router-dom';
 import { apiClient } from '../../api/client';
@@ -41,6 +41,8 @@ import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/t
 import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from './ChecklistField';
+import { ExternalContactsField, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
+import { externalContactsApi } from '../../api/external-contacts';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -85,6 +87,8 @@ interface Draft {
   place: string;
   /** Needs approval: a project manager must approve it before it counts as done. */
   approval: boolean;
+  /** People outside the company responsible for it (an existing task's carry their ids). */
+  contacts: FormContact[];
 }
 
 export const TITLE_MAX = 191;
@@ -173,8 +177,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           formId: task.inspectionFormId ?? '',
           place: task.inspectionPlace ?? '',
           approval: !!task.needsApproval,
+          contacts: (task.externalContacts ?? []).map((c) => formContact(c, c.id)),
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '', formId: '', place: '', approval: false };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '', formId: '', place: '', approval: false, contacts: [] };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -191,6 +196,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  // A contact being typed in (its editor open): saving the task asks for it to be saved first.
+  const [contactOpen, setContactOpen] = useState(false);
   // Files for a new task (chosen, dropped or pasted); they go up once the task exists.
   const [files, setFiles] = useState<PendingFile[]>([]);
   const fileSeq = useRef(0);
@@ -298,6 +305,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // ── Who can do it ──
   const membersQ = useQuery({ queryKey: ['members', draft.projectId], queryFn: () => membersApi(apiClient).list(draft.projectId), enabled: !!draft.projectId });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  // Earlier external contacts of the chosen project, suggested as a contact's name is typed.
+  const suggestContacts = useCallback((typed: string) => externalContactsApi(apiClient).suggest(draft.projectId, typed), [draft.projectId]);
   const people = useMemo<PersonOption[]>(() => {
     const dir = Array.isArray(dirQ.data) ? dirQ.data : [];
     return (Array.isArray(membersQ.data) ? membersQ.data : []).map((m) => ({ id: m.id, name: fullName(m), username: m.username, avatarUrl: dir.find((d) => d.id === m.id)?.avatarUrl ?? null }));
@@ -387,6 +396,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       untilRef.current?.querySelector<HTMLElement>('input[aria-label="End date"]')?.focus();
       return;
     }
+    if (contactOpen) {
+      setBanner('Save the external contact you’re working on, or cancel it, first.');
+      return;
+    }
     if (!draft.projectId || !draft.columnId) {
       setBanner(noProjects ? 'Create a project first.' : 'Choose where the task goes: its project and column.');
       return;
@@ -419,6 +432,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(checklistTexts(draft.checklist, draft.checklistPending).length ? { checklist: checklistTexts(draft.checklist, draft.checklistPending) } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
+      ...(draft.contacts.length ? { externalContacts: draft.contacts.map(fieldsOnly) } : {}),
       ...(boardDate ? { boardDate } : {}),
       ...(draft.formId ? { inspectionFormId: draft.formId, inspectionPlace: draft.place.trim() || null } : {}),
     };
@@ -529,6 +543,24 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       for (const id of done.assigneeIds.filter((x) => !draft.assigneeIds.includes(x))) {
         await assigneesApi(apiClient).unassign(t.id, id);
         keep({ assigneeIds: done.assigneeIds.filter((x) => x !== id) });
+      }
+      // External contacts, each saved on its own (what went through is kept, so a retry sends the rest):
+      // the ones removed, then the ones changed, then the new ones.
+      const contacts = externalContactsApi(apiClient);
+      const same = (a: FormContact, b: FormContact) => JSON.stringify(fieldsOnly(a)) === JSON.stringify(fieldsOnly(b));
+      for (const gone of done.contacts.filter((c) => c.id && !draft.contacts.some((d) => d.id === c.id))) {
+        await contacts.remove(gone.id!);
+        keep({ contacts: done.contacts.filter((c) => c.key !== gone.key) });
+      }
+      for (const now of draft.contacts.filter((d) => d.id)) {
+        const before = done.contacts.find((c) => c.id === now.id);
+        if (!before || same(before, now)) continue;
+        await contacts.update(now.id!, fieldsOnly(now));
+        keep({ contacts: done.contacts.map((c) => (c.id === now.id ? now : c)) });
+      }
+      for (const added of draft.contacts.filter((d) => !d.id && !done.contacts.some((c) => c.key === d.key))) {
+        await contacts.add(t.id, fieldsOnly(added));
+        keep({ contacts: [...done.contacts, added] });
       }
       void invalidateTaskQueries(qc);
       void qc.invalidateQueries({ queryKey: ['task', t.id] });
@@ -774,6 +806,18 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                   disabled={!draft.projectId}
                 />
               </div>
+
+              {/* Apart from the assignees: people outside the company. An existing task's come with its
+                  details (an older server sends none, and has nowhere to keep them). */}
+              {!editing || task?.externalContacts ? (
+                <ExternalContactsField
+                  contacts={draft.contacts}
+                  onChange={(contacts) => set({ contacts })}
+                  suggest={draft.projectId ? suggestContacts : undefined}
+                  onEditingChange={setContactOpen}
+                  disabled={saving || !!created}
+                />
+              ) : null}
 
               {!editing ? (
                 <div>

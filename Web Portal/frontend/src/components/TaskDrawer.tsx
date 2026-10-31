@@ -115,6 +115,8 @@ export interface TaskDrawerProps {
   inspections?: ReactNode;
   /** The "Approval" section (needs approval; Approve / Send back while it waits) — first while it waits. */
   approval?: ReactNode;
+  /** The "External contacts" section (people outside the company responsible for the task), under its details. */
+  externalContacts?: ReactNode;
   onClose: () => void;
 }
 
@@ -243,6 +245,7 @@ export function TaskDrawer({
   onSetClientVisible,
   inspections,
   approval,
+  externalContacts,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -434,6 +437,8 @@ export function TaskDrawer({
               scope={scope}
               onScope={setScope}
             />
+            {/* Apart from the assignees above: the people outside the company responsible for it. */}
+            {externalContacts}
             {phone ? null : sideParts}
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">

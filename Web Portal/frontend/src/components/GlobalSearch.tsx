@@ -151,7 +151,13 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     });
 
   /** A found task's key — with the key it had, for a task that moved project ("OPS-17 (was RIG-4)"). */
-  const keyHint = (t: { key: string; formerKeys?: string[] }) => (t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key);
+  const keyHint = (t: { key: string; title: string; formerKeys?: string[]; external?: string[] }) => {
+    const key = t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key;
+    // Found by one of its external contacts (not its title): say which, so the hit makes sense.
+    const words = debounced.trim().toLowerCase();
+    const contact = words && !t.title.toLowerCase().includes(words) ? t.external?.find((x) => x.toLowerCase().includes(words)) : undefined;
+    return contact ? `${key} · External: ${contact}` : key;
+  };
 
   const reset = () => {
     setTerm('');

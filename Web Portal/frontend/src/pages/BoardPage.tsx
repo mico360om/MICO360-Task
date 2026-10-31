@@ -14,7 +14,7 @@ import { enqueueOffline } from '../lib/offline-replay';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { approvalNotice } from '../lib/approvals';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
-import { ALL_PROJECTS, BOARD_FIT_QUERY, boardProjects, composeAllProjectsBoard, composeBoard, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
+import { ALL_PROJECTS, BOARD_FIT_QUERY, boardCompanies, boardProjects, composeAllProjectsBoard, composeBoard, filterBoardByCompany, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
 import { STATUS_META, type TaskCategory } from '../lib/taskStatus';
 import { ProjectFilter } from '../components/board/ProjectFilter';
 import type { KanbanColumnData } from '../components/KanbanColumn';
@@ -27,6 +27,7 @@ import { useCurrentProject } from '../components/CurrentProject';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { EXTERNAL_CONTACT_WORDS } from '../lib/external-contacts';
 import { useBoardRealtime, type BoardEvent } from '../lib/useBoardRealtime';
 import { useAuthStore } from '../stores/auth-store';
 import { LoadError } from '../components/ui/LoadError';
@@ -365,7 +366,13 @@ export function BoardPage() {
     };
   }
 
-  const boardColumns = isAll ? allColumns : boardQ.data?.columns ?? [];
+  // Filter by external company: only the cards with a contact from it (in memory; the choices are the board's own).
+  const [company, setCompany] = useState('');
+  const fullColumns = isAll ? allColumns : boardQ.data?.columns ?? [];
+  const companies = useMemo(() => boardCompanies(fullColumns), [fullColumns]);
+  // The chosen company stays a choice on a day without it, so it can be seen (and cleared).
+  const companyChoices = company && !companies.includes(company) ? [company, ...companies] : companies;
+  const boardColumns = useMemo(() => filterBoardByCompany(fullColumns, company), [fullColumns, company]);
   const idByKey = useMemo(
     () => (isAll ? Object.fromEntries((allQ.data ?? []).map((t) => [t.key, t.id])) : boardQ.data?.idByKey ?? {}),
     [isAll, allQ.data, boardQ.data],
@@ -445,7 +452,9 @@ export function BoardPage() {
   const loading = projectsQ.isLoading || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
   const error = projectsQ.isError || (isAll ? allQ.isError : boardQ.isError);
   // A day with nothing on it says so once, above the columns (each column only says "No tasks").
-  const emptyDay = !loading && !error && Boolean(projectId) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
+  const emptyDay = !loading && !error && Boolean(projectId) && fullColumns.length > 0 && fullColumns.every((c) => c.tasks.length === 0);
+  // The company filter leaves no card on a board that has some.
+  const noneFromCompany = !emptyDay && Boolean(company) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
 
   // A laptop, or a tablet with room: the page is the window's height and each column scrolls by
   // itself, its header always in view. A phone scrolls the page. So does the page while columns are
@@ -541,6 +550,16 @@ export function BoardPage() {
               Jump to today
             </button>
           ) : null}
+          {companies.length > 0 || company ? (
+            <div className="w-48" title={company || EXTERNAL_CONTACT_WORDS.anyCompany}>
+              <SearchableSelect
+                ariaLabel={`Filter by ${EXTERNAL_CONTACT_WORDS.filter.toLowerCase()}`}
+                value={company}
+                onChange={setCompany}
+                options={[{ value: '', label: `${EXTERNAL_CONTACT_WORDS.filter}: ${EXTERNAL_CONTACT_WORDS.anyCompany}` }, ...companyChoices.map((c) => ({ value: c, label: c }))]}
+              />
+            </div>
+          ) : null}
           {isAll ? <p className="ms-auto hidden text-sm text-ink-2 lg:block">All projects — drag a card to change its status in its own project.</p> : null}
         </div>
       ) : null}
@@ -598,6 +617,14 @@ export function BoardPage() {
             <span>{emptyDayText(boardDate, todayKey)}</span>
           </p>
         ) : null}
+        {noneFromCompany ? (
+          <p role="status" className="mb-3 flex flex-none items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+            <span dir="auto">No cards on this board have an external contact from {company}.</span>
+            <button type="button" onClick={() => setCompany('')} className={`flex-none text-xs font-semibold text-brand underline ${TOUCH_TALL}`}>
+              Show every card
+            </button>
+          </p>
+        ) : null}
         <div className={fit ? 'min-h-0 flex-1' : undefined}>
         <KanbanBoard
           fit={fit}
@@ -605,7 +632,8 @@ export function BoardPage() {
           timeZone={timeZone}
           onMove={onMove}
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
-          onReorder={isAll ? undefined : onReorder}
+          // Filtered by company, some cards are hidden: a column's order can't be set from what is shown.
+          onReorder={isAll || company ? undefined : onReorder}
           onAddTask={(columnId) => openAddTask(columnId)}
           cardMenu={cardMenu}
           onTaskClick={(key) => {

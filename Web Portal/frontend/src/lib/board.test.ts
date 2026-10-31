@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects } from './board';
+import { composeBoard, resolveDrop, moveTaskInBoard, reorderColumnInBoard, dropIndex, composeAllProjectsBoard, statusOfBoardColumn, targetColumnFor, boardProjects, boardCompanies, filterBoardByCompany } from './board';
 import type { ApiProject } from '../api/projects';
 import type { ApiColumn } from '../api/columns';
 import type { ApiTask } from '../api/tasks';
@@ -220,5 +220,26 @@ describe('targetColumnFor (where a card dropped on a status lands in its own pro
     const project = { id: 'p1', code: 'MICO', name: 'MICO', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null } as unknown as ApiProject;
     const all = composeAllProjectsBoard(marked.map((t) => ({ ...t, columnCategory: t.columnId === 'c1' ? 'TODO' : 'DONE' })), [project]);
     expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.awaitingApproval).toBe(true);
+  });
+});
+
+describe('external contacts on the board', () => {
+  const oxy = { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara Nasser'], companies: ['OXY', 'PDO'] };
+  const withContacts = [{ ...tasks[0]!, externalSummary: oxy }, { ...tasks[1]!, externalSummary: null }];
+  const projects = [{ id: 'p1', code: 'MICO', name: 'MICO360', status: 'ACTIVE', color: null }] as unknown as ApiProject[];
+
+  it('every card carries its contacts in short (the card line), on a project’s board and on All projects', () => {
+    expect(composeBoard(columns, withContacts)[0]!.tasks[0]!.external).toEqual(oxy);
+    expect(composeBoard(columns, withContacts)[1]!.tasks[0]!.external).toBeNull();
+    const all = composeAllProjectsBoard(withContacts, projects);
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.external).toEqual(oxy);
+  });
+
+  it('lists the companies on the board and keeps only the cards with a contact from the one chosen', () => {
+    const board = composeBoard(columns, withContacts);
+    expect(boardCompanies(board)).toEqual(['OXY', 'PDO']);
+    const pdo = filterBoardByCompany(board, 'pdo');
+    expect(pdo.map((c) => c.tasks.map((t) => t.key))).toEqual([['MICO-1'], []]);
+    expect(filterBoardByCompany(board, '')).toBe(board);
   });
 });

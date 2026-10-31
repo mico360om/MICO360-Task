@@ -7,6 +7,8 @@ import { formatDueDay } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { InspectionChip } from './inspections/inspection-ui';
 import { ApprovalChip } from './approvals/ApprovalChip';
+import type { ExternalContactSummary } from '../lib/external-contacts';
+import { ExternalContactsLine } from './ExternalContactsLine';
 
 export interface TaskCardTask {
   key: string;
@@ -34,6 +36,8 @@ export interface TaskCardTask {
   done?: boolean;
   /** Its project, on a board showing several projects (the All projects board). */
   project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
+  /** Its external contacts in short ("External: Ahmed Al Said (OXY) and 2 more"); null or absent for none. */
+  external?: ExternalContactSummary | null;
 }
 
 export interface TaskCardProps {
@@ -157,6 +161,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       </div>
 
       <div dir="auto" className="line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand">{task.title}</div>
+      <ExternalContactsLine summary={task.external} />
 
       {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and
           the flags, it overlapped them in a narrow column and broke the key in two). */}

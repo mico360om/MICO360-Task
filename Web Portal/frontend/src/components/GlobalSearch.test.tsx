@@ -155,6 +155,13 @@ describe('GlobalSearch', () => {
     expect(await screen.findByText('OPS-17 (was RIG-4)')).toBeInTheDocument();
   });
 
+  it('a task found by one of its external contacts says which one', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't5', key: 'RIG-5', title: 'Inspect the rig', projectId: 'p2', external: ['Ahmed Al Said', 'Occidental Oman'] }], projects: [], users: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'occidental');
+    expect(await screen.findByText('RIG-5 · External: Occidental Oman')).toBeInTheDocument();
+  });
+
   describe('a person in the results', () => {
     const people = { tasks: [], projects: [], users: [{ id: 'u7', username: 'sara', firstName: 'Sara', lastName: 'Ahmed' }, { id: 'me', username: 'me', firstName: 'Me', lastName: 'Myself' }] };
     const signIn = (roles: string[]) => useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles }, accessToken: 'at', refreshToken: 'rt' });

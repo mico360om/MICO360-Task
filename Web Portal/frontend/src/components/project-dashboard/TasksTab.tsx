@@ -10,6 +10,8 @@ import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyState } from '../ui/EmptyState';
 import { Button } from '../ui/Button';
 import { ApprovalChip } from '../approvals/ApprovalChip';
+import { ExternalContactsLine } from '../ExternalContactsLine';
+import { matchesExternalContact } from '../../lib/external-contacts';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -39,7 +41,10 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
         <span className="w-16 flex-none font-mono text-xs text-ink-3">{task.key}</span>
         {task.isMilestone ? <span className="text-brand" role="img" aria-label="Milestone" title="Milestone"><FlagIcon /></span> : null}
         {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
-        <span dir="auto" className={`min-w-0 flex-1 truncate text-start text-sm font-medium ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span dir="auto" className={`min-w-0 truncate text-start text-sm font-medium ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+          <ExternalContactsLine summary={task.externalSummary} />
+        </span>
       </span>
       <span className="flex flex-wrap items-center gap-2 ps-[4.5rem] sm:flex-nowrap sm:ps-0">
         <span className="inline-flex items-center gap-1.5 rounded-md bg-ground px-2 py-0.5 text-xs font-medium text-ink-2">
@@ -73,7 +78,8 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
 
 /**
  * Every task of the project by status column, narrowed to ongoing, pending, overdue, completed
- * or milestone tasks, or by words — with priority, people, progress and due date on each.
+ * or milestone tasks, or by words (its title, key or an external contact's name or company) — with
+ * priority, people, external contacts, progress and due date on each.
  */
 export function TasksTab({
   groups,
@@ -108,7 +114,7 @@ export function TasksTab({
   const words = q.trim().toLocaleLowerCase();
   const keep = (t: ApiTask) =>
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
-    (!words || t.title.toLocaleLowerCase().includes(words) || t.key.toLocaleLowerCase().includes(words));
+    (!words || t.title.toLocaleLowerCase().includes(words) || t.key.toLocaleLowerCase().includes(words) || matchesExternalContact(t.externalSummary, words));
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;

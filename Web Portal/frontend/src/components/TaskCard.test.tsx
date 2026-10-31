@@ -154,3 +154,15 @@ describe('TaskCard on a board of several projects', () => {
     expect(screen.queryByTestId('approval-chip')).not.toBeInTheDocument();
   });
 });
+
+describe('TaskCard: external contacts', () => {
+  it('says who outside the company is responsible: the first contact, and how many more', () => {
+    render(<TaskCard task={{ ...task, external: { count: 3, name: 'Ahmed Al Said', company: 'OXY', names: [], companies: [] } }} />);
+    expect(screen.getByText('External: Ahmed Al Said (OXY) and 2 more')).toBeInTheDocument();
+  });
+
+  it('says nothing for a task without any', () => {
+    render(<TaskCard task={{ ...task, external: null }} />);
+    expect(screen.queryByText(/^External:/)).toBeNull();
+  });
+});

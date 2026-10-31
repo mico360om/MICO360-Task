@@ -1,5 +1,7 @@
 import type { ApiClient } from '../lib/api-client';
 import type { RecurrenceRule } from '../lib/recurrence';
+import type { ExternalContactDraft, ExternalContactSummary } from '../lib/external-contacts';
+import type { ApiExternalContact } from './external-contacts';
 
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -99,6 +101,10 @@ export interface ApiTask {
   assignees?: { id: string; name: string }[];
   /** Aggregate counts for card badges (present on list responses). */
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
+  /** Its external contacts in short — the first one's name and company, how many, every name and company (null: none; older servers leave it out). */
+  externalSummary?: ExternalContactSummary | null;
+  /** Its external contacts in full, in order (single-task responses). */
+  externalContacts?: ApiExternalContact[];
 }
 
 export interface NewTaskInput {
@@ -119,6 +125,8 @@ export interface NewTaskInput {
   assigneeIds?: string[];
   /** Its checklist's items, in order (e.g. from a task template), created with the task. */
   checklist?: string[];
+  /** Its external contacts (people outside the company responsible for it), in order, created with the task. */
+  externalContacts?: ExternalContactDraft[];
   /** The inspection form it is carried out with, and where (a check). */
   inspectionFormId?: string | null;
   inspectionPlace?: string | null;
@@ -241,7 +249,7 @@ export function tasksApi(client: ApiClient) {
         .then((r) => r.data),
     update: (
       id: string,
-      patch: Omit<Partial<NewTaskInput>, 'dueDate'> & {
+      patch: Omit<Partial<NewTaskInput>, 'dueDate' | 'externalContacts'> & {
         progress?: number;
         columnId?: string;
         dueDate?: string | null;

@@ -29,6 +29,7 @@ import { clientSharesApi } from '../api/client-shares';
 import { TaskInspections } from './inspections/TaskInspections';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { TaskApproval } from './approvals/TaskApproval';
+import { TaskExternalContacts } from './task-drawer/TaskExternalContacts';
 import { approvalNotice } from '../lib/approvals';
 
 export interface TaskDrawerContainerProps {
@@ -436,6 +437,10 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
                 onApprove={() => attempt(() => approveM.mutateAsync(), 'Couldn’t approve it.').then(() => undefined)}
                 onSendBack={(reason) => attempt(() => sendBackM.mutateAsync(reason), 'Couldn’t send it back.').then(() => undefined)}
               />
+            }
+            externalContacts={
+              // Older servers don't send them: no section then.
+              projectId && taskQ.data.externalContacts ? <TaskExternalContacts taskId={taskId} projectId={projectId} contacts={taskQ.data.externalContacts} /> : undefined
             }
             inspections={
               projectId ? (
