@@ -40,6 +40,7 @@ import { SHARE_ACTION_LABEL } from '../lib/client-share-words';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { detailHeaderTitle } from '../lib/detail-header';
 
 type Tab = 'overview' | 'tasks' | 'meetings' | 'inspections' | 'team';
 
@@ -103,10 +104,10 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
   const counts = useMemo(() => filterCounts(tasks, today), [tasks, today]);
   const items = useMemo<TasksTabItem[]>(() => (tab === 'tasks' ? tasksTabItems(shownGroups(groups, filter, query, today)) : []), [tab, groups, filter, query, today]);
 
-  // The title follows the project's name (an edit renames it).
+  // The header is the project's code (its key), or nothing until it is known: the page shows the name.
   useLayoutEffect(() => {
-    if (project?.name) navigation.setOptions({ title: project.name });
-  }, [navigation, project?.name]);
+    navigation.setOptions({ title: detailHeaderTitle(project?.code) });
+  }, [navigation, project?.code]);
 
   const openTask = useCallback((t: Pick<ApiTask, 'id' | 'title'>) => navigation.navigate('TaskDetail', { taskId: t.id, title: t.title }), [navigation]);
   const openMeeting = (meetingId: string, title?: string | null) => navigation.navigate('MeetingDetail', { meetingId, title: title ?? undefined });

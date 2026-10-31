@@ -66,10 +66,7 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
   }, [ready, q.data, ownerId, outbox]);
 
   const shown: DraftView | null = view ?? (q.data ? detailView(q.data) : null);
-  const title = shown?.snapshot.title;
-  useEffect(() => {
-    if (title) navigation.setOptions({ title });
-  }, [navigation, title]);
+  // The header stays empty: an inspection has no key, and the page shows its title (device check H).
 
   // Until the phone's records are read, "no copy here" can't be told from "not read yet".
   if (!ready) return <SkeletonList rows={4} />;

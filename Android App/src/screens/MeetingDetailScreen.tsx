@@ -118,9 +118,7 @@ export function MeetingDetailScreen({ route, navigation }: AppScreenProps<'Meeti
   const closing = useRef(false);
 
   const meeting = meetingQ.data;
-  useEffect(() => {
-    if (meeting?.title && meeting.title !== route.params.title) navigation.setOptions({ title: meeting.title });
-  }, [meeting?.title, route.params.title, navigation]);
+  // The header stays empty: a meeting has no key, and the page shows its title (device check H).
 
   // A deleted note can be brought back for a few seconds.
   useEffect(() => {

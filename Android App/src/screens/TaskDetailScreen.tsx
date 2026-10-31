@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, RefreshControl, Alert, Linking, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { pickedFiles } from '../adapters/picked-files';
@@ -69,6 +69,7 @@ import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
 import { useMoveTargets } from '../core/move-queries';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
+import { detailHeaderTitle } from '../lib/detail-header';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
 const TWO_COLUMNS_FROM = 720;
@@ -93,6 +94,10 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
 
   const taskQ = useTask(taskId);
   const task = taskQ.data;
+  // The header is the task's key (SITE-1), or nothing until it is known: the page shows the title once.
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: detailHeaderTitle(task?.key) });
+  }, [navigation, task?.key]);
   const projectId = task?.projectId ?? '';
   const columnsQ = useProjectColumns(projectId);
   const move = useMoveTask(projectId);

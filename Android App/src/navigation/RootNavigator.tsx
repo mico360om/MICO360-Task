@@ -337,19 +337,20 @@ export function RootNavigator() {
             <AppStack.Screen
               name="ProjectDetail"
               component={ProjectDetailScreen}
-              options={({ route }) => ({ title: route.params.projectName ?? 'Project' })}
+              // A detail screen's header is its key (set by the screen once known) — the page shows the title.
+              options={{ title: '' }}
             />
             <AppStack.Screen
               name="TaskDetail"
               component={TaskDetailScreen}
               getId={taskScreenId}
-              options={({ route }) => ({ title: route.params.title ?? 'Task' })}
+              options={{ title: '' }}
             />
             <AppStack.Screen
               name="MeetingDetail"
               component={MeetingDetailScreen}
               getId={meetingScreenId}
-              options={({ route }) => ({ title: route.params.title ?? 'Meeting' })}
+              options={{ title: '' }}
             />
             <AppStack.Screen
               name="MeetingForm"
@@ -387,7 +388,7 @@ export function RootNavigator() {
             <AppStack.Screen name="Workload" component={WorkloadScreen} options={{ title: 'Workload' }} />
             <AppStack.Screen name="Management" component={ManagementScreen} options={{ title: 'Management' }} />
             <AppStack.Screen name="MicoAi" component={MicoAiScreen} options={{ title: 'MICO AI' }} />
-            <AppStack.Screen name="Inspection" component={InspectionScreen} options={({ route }) => ({ title: route.params.title ?? 'Inspection' })} />
+            <AppStack.Screen name="Inspection" component={InspectionScreen} options={{ title: '' }} />
             <AppStack.Screen name="ClientShare" component={ClientShareScreen} options={{ title: 'Share with client' }} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyNavAction} />
