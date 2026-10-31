@@ -135,3 +135,12 @@ it('the box stays above the phone’s own bottom bar, as on the other Stage 3 sc
   expect(screen).toMatch(/import \{ SafeAreaView \} from 'react-native-safe-area-context'/);
   expect(screen).toMatch(/<SafeAreaView style=\{\[styles\.page, \{ backgroundColor: c\.surface \}\]\} edges=\{\['bottom'\]\}>\s+<View key=\{userId/);
 });
+
+it('a question being sent never pulls the person back from a chat they opened meanwhile (final review A12)', () => {
+  expect(screen).toMatch(/const viewing = useRef\(chatId\);\s+viewing\.current = chatId;/);
+  const send = screen.slice(screen.indexOf('const send = useCallback('), screen.indexOf('const stop = async'));
+  expect(send).toMatch(/const stayed = viewing\.current === \(fresh \? null : chatId\);/);
+  expect(send).toMatch(/if \(fresh && stayed\) setChatId\(r\.chatId\);/);
+  expect(send).toMatch(/\} else if \(stayed\) setChatId\(r\.chatId\);/);
+  expect(send).not.toMatch(/\} else setChatId\(r\.chatId\);/);
+});

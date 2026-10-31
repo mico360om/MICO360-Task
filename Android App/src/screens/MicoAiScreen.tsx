@@ -96,6 +96,10 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
   const live = useLiveWords(messages, pending);
 
+  /** The chat on screen now (read after a send's wait: the person may have opened another meanwhile). */
+  const viewing = useRef(chatId);
+  viewing.current = chatId;
+
   const openChat = (id: string | null) => {
     setSheet(false);
     setError(null);
@@ -116,15 +120,21 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
       setSending(true);
       setError(null);
       const fresh = !!o.newChat || gone || !chatId;
-      if (fresh) setChatId(null);
+      if (fresh) {
+        setChatId(null);
+        // At once, should the answer come before the screen redraws.
+        viewing.current = null;
+      }
       try {
         const r = await actions.ask(text, { newChat: !!o.newChat || gone, retryOf: o.retryOf });
         if (!r) return;
+        // Opened the asked chat only if the person is still where the question was asked from.
+        const stayed = viewing.current === (fresh ? null : chatId);
         if ('error' in r) {
           setError(r.error);
           if (r.restoreDraft) composer.current?.restore(text);
-          if (fresh) setChatId(r.chatId);
-        } else setChatId(r.chatId);
+          if (fresh && stayed) setChatId(r.chatId);
+        } else if (stayed) setChatId(r.chatId);
       } finally {
         sendingRef.current = false;
         setSending(false);
