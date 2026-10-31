@@ -603,7 +603,7 @@ export function resourcesApi(client: ApiClient) {
       resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${seg(id)}/password`, { password }),
       /** Email one person a welcome (username + "Set your password" link). Refusals are errors with the reason. */
       sendWelcome: (id: string) => data(client.post<Envelope<WelcomeOutcome>>(`/users/${seg(id)}/welcome-email`, {})),
-      /** Welcome emails for several people (up to 200); each one says whether it went. */
+      /** Welcome emails for several people (up to 100); each one says whether it went. */
       sendWelcomes: (userIds: string[]) => data(client.post<Envelope<WelcomeBatchResult>>('/users/welcome-emails', { userIds })),
     },
     /**

@@ -100,7 +100,7 @@ export function usersApi(client: ApiClient) {
       client.post<{ data: ApiUser; meta?: { welcome?: WelcomeOutcome } }>('/users', input).then((r) => ({ user: r.data, welcome: r.meta?.welcome ?? null })),
     /** Admin-only: email one person a welcome (username + "Set your password" link). Refusals are errors with the reason. */
     sendWelcome: (id: string) => client.post<{ data: WelcomeOutcome }>(`/users/${id}/welcome-email`).then((r) => r.data),
-    /** Admin-only: welcome emails for several people (up to 200); each one says whether it went. */
+    /** Admin-only: welcome emails for several people (up to 100); each one says whether it went. */
     sendWelcomes: (userIds: string[]) => client.post<{ data: WelcomeBatchResult }>('/users/welcome-emails', { userIds }).then((r) => r.data),
     update: (id: string, patch: UserPatch) => client.put<{ data: ApiUser }>(`/users/${id}`, patch).then((r) => r.data),
     setStatus: (id: string, status: UserStatus) => client.patch<{ data: ApiUser }>(`/users/${id}/status`, { status }).then((r) => r.data),

@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   signInText,
   welcomeSentText,
@@ -56,6 +58,11 @@ describe('the bulk send’s words', () => {
 
   it('sends to at most 100 people at a time (the server’s limit)', () => {
     expect(MAX_WELCOME_BATCH).toBe(100);
+  });
+
+  it('the call that sends them says the same limit (final pass, item 9)', () => {
+    const calls = readFileSync(resolve(__dirname, '../api/users.ts'), 'utf8');
+    expect(calls).toContain(`welcome emails for several people (up to ${MAX_WELCOME_BATCH})`);
   });
 });
 

@@ -13,7 +13,7 @@ import {
   welcomeOneConfirmTitle,
   welcomeSentText,
 } from './user-sign-in';
-import { hasWeb, webPath } from '../testing/web-source';
+import { appSource, hasWeb, readWeb, webPath } from '../testing/web-source';
 
 const NOW = new Date('2026-10-30T08:00:00Z');
 const TZ = 'Asia/Muscat';
@@ -102,5 +102,13 @@ describe.skipIf(!hasWeb('frontend/src/lib/user-sign-in.ts'))('the website’s si
     expect(namesText(twelve)).toBe(web.namesText!(twelve));
     expect(namesText(twelve.slice(0, 4))).toBe(web.namesText!(twelve.slice(0, 4)));
     expect([MAX_WELCOME_BATCH, SIGN_OUT_NOTE]).toEqual([web.MAX_WELCOME_BATCH, web.SIGN_OUT_NOTE]);
+  });
+});
+
+describe.skipIf(!hasWeb('backend/src/modules/users/user-routes.ts'))('the server’s welcome limit', () => {
+  it('is the one the app’s call says (final pass, item 9)', () => {
+    const server = Number(/const MAX_WELCOME_BATCH = (\d+);/.exec(readWeb('backend/src/modules/users/user-routes.ts'))?.[1]);
+    expect(server).toBe(MAX_WELCOME_BATCH);
+    expect(appSource('lib/resources.ts')).toContain(`Welcome emails for several people (up to ${server})`);
   });
 });
