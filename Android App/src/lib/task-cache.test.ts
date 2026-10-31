@@ -259,3 +259,10 @@ describe('approvals: Approve, Send back and the "Needs approval" switch (Stage 2
     expect(refreshedKeys(qc)).toEqual(['["approvals"]', '["task","t1"]']);
   });
 });
+
+describe('editRefreshes and "Needs approval" (Stage 2)', () => {
+  it('turning it on or off refreshes the approvals list and the project’s progress (off while it waits marks it done)', () => {
+    expect(editRefreshes('t1', { needsApproval: false })).toEqual(expect.arrayContaining([{ queryKey: ['approvals'] }, { progressFor: 't1' }]));
+    expect(editRefreshes('t1', { title: 'x' })).not.toContainEqual({ queryKey: ['approvals'] });
+  });
+});

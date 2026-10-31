@@ -10,7 +10,10 @@ import { refresh, type Refresh } from './refresh';
  */
 export function editRefreshes(taskId: string, patch: object): Refresh[] {
   const targets: Refresh[] = [{ queryKey: ['task', taskId, 'activity'], exact: true }, { listsHolding: taskId }];
-  if ('dueDate' in patch || 'columnId' in patch) targets.push({ progressFor: taskId });
+  // "Needs approval" turned off while it waits marks it done: the project's figures change too.
+  if ('dueDate' in patch || 'columnId' in patch || 'needsApproval' in patch) targets.push({ progressFor: taskId });
+  // It joins or leaves the approvals list (My Tasks' To approve, the Dashboard's card).
+  if ('needsApproval' in patch) targets.push({ queryKey: ['approvals'] });
   // A new day or repeat may put the task (or its copies to come) on a calendar range that didn't hold it (5a).
   if ('dueDate' in patch || 'recurrenceRule' in patch) targets.push({ queryKey: ['tasks', 'calendar'] });
   if ((patch as { scope?: unknown }).scope === 'series') targets.push({ queryKey: ['tasks'] }, { taskDetails: 'all' });

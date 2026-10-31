@@ -79,7 +79,8 @@ export function useSendNewTask(): (req: { input: NewTaskInput; key: string; file
  * Save Edit task's changes (4d), as the website's form does (lib/task-form saveTaskEdit): only what
  * changed, each through the task write path — the edit against the version the form opened with
  * (a colleague's change meanwhile is refused, not overwritten), the column as a move, the people as
- * assignments — each kept on this phone when it gets no answer, each refreshing what it changed.
+ * assignments — each kept on this phone when it gets no answer (but a change to "Needs approval",
+ * sent at once: online only), each refreshing what it changed.
  */
 export function useSaveTaskEdit(taskId: string): (draft: TaskDraft, saved: TaskDraft, o: { series: boolean; canRepeat: boolean; projectId: string; openedVersion?: number }) => Promise<EditOutcome> {
   const services = useServices();
@@ -89,6 +90,12 @@ export function useSaveTaskEdit(taskId: string): (draft: TaskDraft, saved: TaskD
       const deps: EditDeps = {
         update: async (patch) => {
           const done = await sendTaskEdit(services, qc, taskId, patch, undefined, openedVersion);
+          afterTaskSaved(qc, taskId, done, patch);
+        },
+        // An edit that changes "Needs approval": sent now, never kept (online only) — as the person who
+        // saved it, against the version the form opened with.
+        updateLive: async (patch) => {
+          const done = await owned(services).resources.tasks.update(taskId, { ...patch, expectedVersion: openedVersion });
           afterTaskSaved(qc, taskId, done, patch);
         },
         move: async (columnId) => {
