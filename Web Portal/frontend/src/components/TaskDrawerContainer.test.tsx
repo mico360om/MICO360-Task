@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { useAuthStore } from '../stores/auth-store';
@@ -448,5 +448,74 @@ describe('TaskDrawerContainer: moving the task to another project', () => {
     expect(await screen.findByText('Order the parts elsewhere')).toBeInTheDocument();
     expect(screen.getByText('OPS-3')).toBeInTheDocument();
     expect(screen.getByText('Do first')).toBeInTheDocument();
+  });
+});
+
+describe('TaskDrawerContainer — who may delete this task (its creator, or the one person it’s assigned to)', () => {
+  const REASON = 'Only the person who created this task, or the one person it’s assigned to, can delete it.';
+  const SERIES = 'Only the person who created this repeating task can delete the entire series.';
+  const TASK = { id: 't1', key: 'MICO-1', title: 'Prepare report', description: 'Do it', projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 40, completedAt: null, createdAt: '', updatedAt: '' };
+  /** Someone who runs p1 opens t1, as the server describes it (and with these assignees). */
+  function open(task: Record<string, unknown>, assignees: string[] = []) {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith('/projects')) return json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO360 Platform', status: 'ACTIVE', color: '#8B1E1E', ownerId: 'u9', canManage: true }] });
+      if (u.endsWith('/tasks/t1/assignees')) return json({ data: assignees.map((id) => MEMBERS.find((m) => m.id === id)) });
+      if (u.endsWith('/tasks/t1')) return json({ data: { ...TASK, ...task } });
+      return base(url, init);
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('the server says no: Delete task stays, greyed out with the reason', async () => {
+    open({ createdById: 'u2', canDelete: false, canDeleteSeries: false });
+    const button = await screen.findByRole('button', { name: /delete task/i });
+    await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'true'));
+    expect(screen.getByText(REASON)).toBeInTheDocument();
+  });
+
+  it('the server says yes: Delete task works as before', async () => {
+    open({ createdById: 'u2', canDelete: true, canDeleteSeries: false });
+    const button = await screen.findByRole('button', { name: /delete task/i });
+    expect(button).not.toHaveAttribute('aria-disabled');
+    expect(screen.queryByText(REASON)).toBeNull();
+  });
+
+  it('a repeating copy they may delete, but not its series: only “Entire series” is greyed out', async () => {
+    open({ createdById: 'u2', recurrenceRule: { freq: 'WEEKLY', interval: 1 }, canDelete: true, canDeleteSeries: false }, ['u1']);
+    await userEvent.click(await screen.findByRole('button', { name: /delete task/i }));
+    expect(screen.getByRole('button', { name: /entire series/i })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText(SERIES)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'This occurrence' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('a refusal sent anyway (someone changed who it’s assigned to meanwhile) is told in the server’s words', async () => {
+    open({ createdById: 'u2', canDelete: true });
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/tasks/t1') && (init as RequestInit | undefined)?.method === 'DELETE') {
+        return json({ error: { code: 'DELETE_NOT_ALLOWED', message: REASON } }, 403);
+      }
+      return base(url, init);
+    });
+    await userEvent.click(await screen.findByRole('button', { name: /delete task/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Delete$/ }));
+    expect(await screen.findByText(REASON)).toBeInTheDocument();
+  });
+
+  it('a server that doesn’t say: the same rule worked out here from who created it and who it’s assigned to', async () => {
+    open({ createdById: 'u2' }, ['u1', 'u2']);
+    const button = await screen.findByRole('button', { name: /delete task/i });
+    await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'true'));
+    cleanup();
+    open({ createdById: 'u2' }, ['u1']);
+    const mine = await screen.findByRole('button', { name: /delete task/i });
+    await screen.findByText('Ada L'); // its one assignee (me) is loaded
+    expect(mine).not.toHaveAttribute('aria-disabled');
   });
 });

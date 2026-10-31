@@ -100,6 +100,12 @@ export interface ApiTask {
   externalSummary?: ExternalContactSummary | null;
   /** Its external contacts in full, in order (GET /tasks/:id). */
   externalContacts?: ApiExternalContact[];
+  /** Who created it (older servers may leave it out). */
+  createdById?: string;
+  /** May the signed-in person delete it: its creator, or the one person it's assigned to (task details; lib/task-delete-rule). */
+  canDelete?: boolean;
+  /** May they delete its entire repeating series: only the series' creator (task details). */
+  canDeleteSeries?: boolean;
 }
 
 /** A person outside the company responsible for a task (that task's own copy — the website's api/external-contacts). */

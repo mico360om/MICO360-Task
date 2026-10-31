@@ -10,6 +10,8 @@ import type { ColumnInfo, CreateTaskData, TaskRecord, TaskRepository, ProjectLoo
 import type { AssigneeRepository, AssigneeUser } from './assignee-repository';
 import { NotFoundError } from '../../lib/http-errors';
 import { summarizeExternalContacts } from './external-contacts';
+import { createProjectAuthz } from '../projects/project-authz';
+import { DELETE_NOT_ALLOWED, DELETE_SERIES_NOT_ALLOWED } from './task-delete-rule';
 
 // c1/c2/done belong to p1, c3 to p2.
 const COLUMNS: Record<string, ColumnInfo> = {
@@ -948,5 +950,161 @@ describe('Task routes — a task that carries an inspection form (scheduled chec
     expect(stale.json().error.code).toBe('RECURRENCE_NOT_NEWEST');
     // Without the flag, an ordinary edit of an earlier copy is as before.
     expect((await put(made.id, { title: 'Old copy renamed' })).statusCode).toBe(200);
+  });
+});
+
+describe('Task routes — who may delete a task (its creator, or the one person it’s assigned to)', () => {
+  // 'boss' is an admin; 'mgr' runs p1 (project-level, not a role); 'emp' is an employee there.
+  // Tasks go straight into the store, so who created them and who they're assigned to is exact.
+  async function build() {
+    const links = new Set<string>();
+    const mem = inMemory({ links });
+    const taskService = createTaskService(mem);
+    const repo: AssigneeRepository = {
+      async add(taskId, userId) { links.add(`${taskId}:${userId}`); },
+      async remove(taskId, userId) { links.delete(`${taskId}:${userId}`); },
+      async list(taskId) {
+        return [...links].filter((l) => l.startsWith(`${taskId}:`)).map((l) => l.split(':')[1]!).map((id) => ({ id, username: id, email: `${id}@x`, firstName: id, lastName: '' }));
+      },
+      async eligibleUserIds(_projectId, userIds) { return userIds; },
+    };
+    const assigneeService = createAssigneeService({ repo, taskLookup: { exists: async (id) => mem.rows.has(id) } });
+    const projectAuthz = createProjectAuthz({
+      managers: {
+        async managesProject(userId, projectId) { return userId === 'mgr' && projectId === 'p1'; },
+        async projectIdOfTask(taskId) { return mem.rows.get(taskId)?.projectId ?? null; },
+        async projectIdOfColumn() { return null; },
+      },
+    });
+    const built = await buildApp({ authService, tokenService, taskService, assigneeService, projectAuthz });
+    let n = 0;
+    const seed = (createdById: string, assigneeIds: string[], extra: Partial<TaskRecord> = {}) => {
+      n += 1;
+      const id = `d${n}`;
+      const at = new Date();
+      mem.rows.set(id, {
+        id, key: `MICO-${n}`, title: `Task ${n}`, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL',
+        startDate: null, dueDate: null, estimatedHours: null, actualHours: null, progress: 0, createdById, completedAt: null,
+        recurrenceRule: null, recurrenceParentId: null, boardDate: null, version: 0, createdAt: at, updatedAt: at, ...extra,
+      });
+      for (const u of assigneeIds) links.add(`${id}:${u}`);
+      return id;
+    };
+    const as = async (userId: string) => ({ authorization: `Bearer ${await tokenFor(userId, userId === 'boss' ? ['ADMIN'] : ['EMPLOYEE'])}` });
+    const del = async (userId: string, id: string, scope?: 'series') =>
+      built.inject({ method: 'DELETE', url: `/api/v1/tasks/${id}${scope ? `?scope=${scope}` : ''}`, headers: await as(userId) });
+    const details = async (userId: string, id: string) => (await built.inject({ method: 'GET', url: `/api/v1/tasks/${id}`, headers: await as(userId) })).json().data;
+    return { mem, seed, del, details };
+  }
+
+  for (const who of ['boss', 'mgr']) {
+    const label = who === 'boss' ? 'an admin' : 'a project manager';
+    it(`${label} may delete a task they created, even one assigned to others`, async () => {
+      const { seed, del, mem } = await build();
+      const id = seed(who, ['a', 'b']);
+      expect((await del(who, id)).statusCode).toBe(204);
+      expect(mem.rows.has(id)).toBe(false);
+    });
+
+    it(`${label} may delete a task someone else created that is assigned to them alone`, async () => {
+      const { seed, del, mem } = await build();
+      const id = seed('someone', [who]);
+      expect((await del(who, id)).statusCode).toBe(204);
+      expect(mem.rows.has(id)).toBe(false);
+    });
+
+    it(`${label} may not delete a task someone else created that is assigned to them and others — 403 says why`, async () => {
+      const { seed, del, mem } = await build();
+      const id = seed('someone', [who, 'a']);
+      const res = await del(who, id);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toEqual({ code: 'DELETE_NOT_ALLOWED', message: DELETE_NOT_ALLOWED });
+      expect(mem.rows.has(id)).toBe(true);
+    });
+
+    it(`${label} may not delete a task someone else created that is unassigned, or assigned to others only`, async () => {
+      const { seed, del, mem } = await build();
+      for (const id of [seed('someone', []), seed('someone', ['a']), seed('someone', ['a', 'b'])]) {
+        const res = await del(who, id);
+        expect(res.statusCode).toBe(403);
+        expect(res.json().error).toEqual({ code: 'DELETE_NOT_ALLOWED', message: DELETE_NOT_ALLOWED });
+        expect(mem.rows.has(id)).toBe(true);
+      }
+    });
+  }
+
+  it('an employee still may not delete a task — not even one they created and are alone on (as before)', async () => {
+    const { seed, del, mem } = await build();
+    const id = seed('emp', ['emp']);
+    const res = await del('emp', id);
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toEqual({ code: 'FORBIDDEN', message: 'You do not have permission to do that.' });
+    expect(mem.rows.has(id)).toBe(true);
+  });
+
+  it('a manager of another project is refused as before (they do not run this one)', async () => {
+    const { seed, del } = await build();
+    const id = seed('mgr', ['mgr'], { projectId: 'p2', columnId: 'c3' });
+    expect((await del('mgr', id)).json().error.code).toBe('FORBIDDEN');
+  });
+
+  it('a gone task still answers 404 first, for everyone — the refusal is only for a task that is there', async () => {
+    const { seed, del } = await build();
+    const id = seed('someone', ['a', 'b']);
+    expect((await del('boss', 'no-such-task')).statusCode).toBe(404);
+    expect((await del('emp', 'no-such-task')).statusCode).toBe(404);
+    expect((await del('mgr', id)).statusCode).toBe(403);
+    expect((await del('someone', id)).statusCode).toBe(403); // created it, but doesn't run the project
+  });
+
+  describe('a repeating task', () => {
+    // The series' first task is its own parent once a copy is made; every copy keeps its creator.
+    const rule = { freq: 'WEEKLY' as const, interval: 1 };
+    function series(seed: (c: string, a: string[], e?: Partial<TaskRecord>) => string, creator: string, assignees: string[]) {
+      const first = seed(creator, assignees);
+      const copy = seed(creator, assignees, { recurrenceParentId: first, recurrenceRule: rule });
+      return { first, copy };
+    }
+
+    it('“delete this copy” follows the rule on that copy', async () => {
+      const { seed, del, mem } = await build();
+      const mine = series(seed, 'someone', ['mgr']);
+      expect((await del('mgr', mine.copy)).statusCode).toBe(204);
+      expect(mem.rows.has(mine.copy)).toBe(false);
+      const shared = series(seed, 'someone', ['mgr', 'a']);
+      expect((await del('mgr', shared.copy)).json().error).toEqual({ code: 'DELETE_NOT_ALLOWED', message: DELETE_NOT_ALLOWED });
+    });
+
+    it('“delete the entire series” is only for the person who created the series', async () => {
+      const { seed, del, mem } = await build();
+      const theirs = series(seed, 'someone', ['mgr']);
+      const refused = await del('mgr', theirs.copy, 'series');
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json().error).toEqual({ code: 'DELETE_NOT_ALLOWED', message: DELETE_SERIES_NOT_ALLOWED });
+      expect(mem.rows.has(theirs.first) && mem.rows.has(theirs.copy)).toBe(true);
+
+      const mine = series(seed, 'mgr', ['a', 'b']);
+      expect((await del('mgr', mine.copy, 'series')).statusCode).toBe(204);
+      expect(mem.rows.has(mine.first) || mem.rows.has(mine.copy)).toBe(false);
+    });
+
+    it('a task that does not repeat sent with scope=series is judged as the one task it is', async () => {
+      const { seed, del } = await build();
+      const id = seed('someone', ['boss']);
+      expect((await del('boss', id, 'series')).statusCode).toBe(204);
+    });
+  });
+
+  it('a task’s details say whether the person asking may delete it, and its entire series', async () => {
+    const { seed, details } = await build();
+    const created = seed('mgr', ['a', 'b']);
+    const alone = seed('someone', ['mgr']);
+    const shared = seed('someone', ['mgr', 'a']);
+    expect(await details('mgr', created)).toMatchObject({ canDelete: true, canDeleteSeries: true });
+    expect(await details('mgr', alone)).toMatchObject({ canDelete: true, canDeleteSeries: false });
+    expect(await details('mgr', shared)).toMatchObject({ canDelete: false, canDeleteSeries: false });
+    expect(await details('boss', shared)).toMatchObject({ canDelete: false });
+    // An employee may not delete tasks at all.
+    expect(await details('emp', created)).toMatchObject({ canDelete: false, canDeleteSeries: false });
   });
 });

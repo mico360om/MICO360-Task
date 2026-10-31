@@ -60,7 +60,8 @@ describe.skipIf(!hasWeb(...PAIRS.map(([f]) => f)))('the app’s copies of the we
   });
 
   it('ApiTask and ApiProject carry the fields Stage 2 reads', () => {
-    const TASK = ['formerKeys', 'clientVisible', 'inspectionFormId', 'inspectionPlace'];
+    // …and who may delete it (task-delete-rule): its creator, and the server's answer for this person.
+    const TASK = ['formerKeys', 'clientVisible', 'inspectionFormId', 'inspectionPlace', 'createdById', 'canDelete', 'canDeleteSeries'];
     const PROJECT = ['carryForward', 'defaultDueToday', 'newTasksNeedApproval'];
     for (const f of TASK) expect(fieldsOf(readWeb('frontend/src/api/tasks.ts'), 'ApiTask'), f).toContain(f);
     for (const f of PROJECT) expect(fieldsOf(readWeb('frontend/src/api/projects.ts'), 'ApiProject'), f).toContain(f);

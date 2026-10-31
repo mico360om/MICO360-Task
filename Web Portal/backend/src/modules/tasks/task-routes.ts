@@ -14,6 +14,7 @@ import type { TaskRecord } from './task-repository';
 import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
 import { checkNewTaskContacts } from './external-contact-service';
 import { externalContactSchema } from './external-contact-routes';
+import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from './task-delete-rule';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -146,7 +147,10 @@ export interface TaskRouteDeps {
   taskService: TaskService;
   guard: AuthGuard;
   broadcast?: (projectId: string, event: string, payload: unknown) => void;
-  /** Optional per-project authorization for task deletion (admin or project manager). */
+  /**
+   * Optional per-project authorization for task deletion (admin or project manager) — who may delete
+   * tasks at all; which tasks they may delete is the rule in task-delete-rule.ts.
+   */
   canDeleteTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   /** Object-level view/edit authorization: may this user see/touch this task's project? */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
@@ -284,6 +288,25 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     return { id: meeting.id, title: meeting.title, startAt: meeting.startAt, canView: true };
   }
 
+  /**
+   * What the person asking may delete of this task: this task (or copy), and its entire series. Only
+   * someone who may delete tasks at all (`mayManage`) gets either, and then only by the owner's rule:
+   * its creator, or the one person it's assigned to; the series, its creator — every copy carries
+   * the series' creator over (prisma-recurrence-port), so this one says who.
+   */
+  async function deleteRightsOf(req: FastifyRequest, task: TaskRecord): Promise<{ mayManage: boolean; canDelete: boolean; canDeleteSeries: boolean }> {
+    const viewerId = req.user!.id;
+    const roles = req.user!.roles ?? [];
+    const mayManage = deps.canDeleteTask ? await deps.canDeleteTask(viewerId, roles, task.id) : roles.includes('ADMIN');
+    if (!mayManage) return { mayManage, canDelete: false, canDeleteSeries: false };
+    const assigneeIds = deps.assigneeService ? (await deps.assigneeService.listAssignees(task.id)).map((u) => u.id) : [];
+    return {
+      mayManage,
+      canDelete: mayDeleteTask({ viewerId, mayManage, createdById: task.createdById, assigneeIds }),
+      canDeleteSeries: mayDeleteSeries({ viewerId, mayManage, seriesCreatorId: task.createdById }),
+    };
+  }
+
   app.get('/tasks/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await assertTaskView(req, id))) {
@@ -292,7 +315,8 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     const task = await taskService.getTask(id);
     const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
     const approval = deps.taskApproval ? { approval: await deps.taskApproval({ id: req.user!.id, roles: req.user!.roles ?? [] }, task) } : {};
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval } };
+    const { canDelete, canDeleteSeries } = await deleteRightsOf(req, task);
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries } };
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -383,11 +407,14 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     // replayed late counts that as done), and 403 means a real refusal of a task that is still there.
     // It also gives us the project to scope the broadcast.
     const task = await taskService.getTask(id);
-    const allowed = deps.canDeleteTask
-      ? await deps.canDeleteTask(req.user!.id, req.user!.roles ?? [], id)
-      : (req.user!.roles ?? []).includes('ADMIN');
-    if (!allowed) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } });
+    const rights = await deleteRightsOf(req, task);
+    if (!rights.mayManage) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do that.' } });
     const scope = (req.query as { scope?: string }).scope === 'series' ? 'series' : 'one';
+    // The entire series only when it is one (the service deletes just this task otherwise).
+    const wholeSeries = scope === 'series' && Boolean(task.recurrenceRule || task.recurrenceParentId);
+    if (!(wholeSeries ? rights.canDeleteSeries : rights.canDelete)) {
+      return reply.status(403).send({ error: { code: DELETE_NOT_ALLOWED_CODE, message: wholeSeries ? DELETE_SERIES_NOT_ALLOWED : DELETE_NOT_ALLOWED } });
+    }
     await taskService.deleteTask(id, scope);
     deps.broadcast?.(task.projectId, 'task:deleted', { id });
     return reply.status(204).send();

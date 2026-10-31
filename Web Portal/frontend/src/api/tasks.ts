@@ -97,6 +97,15 @@ export interface ApiTask {
   approvedById?: string | null;
   /** Its approval as the signed-in person sees it (single-task responses). */
   approval?: TaskApprovalInfo;
+  /** Who created it (older servers may leave it out). */
+  createdById?: string;
+  /**
+   * May the signed-in person delete it — its creator, or the one person it's assigned to, among those
+   * who may delete tasks at all (single-task responses; older servers leave it out: lib/task-delete-rule).
+   */
+  canDelete?: boolean;
+  /** May they delete its entire repeating series (only the series' creator; single-task responses). */
+  canDeleteSeries?: boolean;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
   /** Aggregate counts for card badges (present on list responses). */

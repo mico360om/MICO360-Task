@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiTask, Priority, RecurrenceRule } from '../api/tasks';
 import { PriorityBadge } from './ui/PriorityBadge';
@@ -88,6 +88,10 @@ export interface TaskDrawerProps {
   savePending?: boolean;
   /** Delete the task — with `'series'` on a recurring task, delete the whole series. */
   onDelete?: (scope?: 'series') => void;
+  /** Why this person may not delete this task: Delete task is shown greyed out, saying so. */
+  deleteBlocked?: string | null;
+  /** Why they may not delete its entire series: "Entire series" is shown greyed out, saying so. */
+  seriesDeleteBlocked?: string | null;
   /** Whether the current user is watching (following) this task. */
   watching?: boolean;
   /** How many people watch this task. */
@@ -233,6 +237,8 @@ export function TaskDrawer({
   activity = [],
   onSaveEdit,
   onDelete,
+  deleteBlocked,
+  seriesDeleteBlocked,
   watching,
   watcherCount,
   onToggleWatch,
@@ -254,9 +260,11 @@ export function TaskDrawer({
   const rootRef = useRef<HTMLDivElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
   useShortcut('edit', () => onEdit?.(), { scope: rootRef, enabled: !!onEdit });
-  useShortcut('delete', () => setConfirmingDelete(true), { scope: rootRef, enabled: !!onDelete });
+  useShortcut('delete', () => setConfirmingDelete(true), { scope: rootRef, enabled: !!onDelete && !deleteBlocked });
   const editHint = useShortcutHint('edit');
   const deleteHint = useShortcutHint('delete');
+  const deleteWhyId = useId();
+  const seriesWhyId = useId();
   // Asked to delete: focus moves to the safe answer, so Enter keeps the task.
   useEffect(() => {
     if (confirmingDelete) keepRef.current?.focus();
@@ -474,28 +482,53 @@ export function TaskDrawer({
                 {inSeries ? 'This occurrence' : 'Delete'}
               </button>
               {inSeries ? (
-                <button type="button" onClick={() => onDelete('series')} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8 [@media(pointer:coarse)]:h-11">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!seriesDeleteBlocked) onDelete('series');
+                  }}
+                  aria-disabled={seriesDeleteBlocked ? 'true' : undefined}
+                  aria-describedby={seriesDeleteBlocked ? seriesWhyId : undefined}
+                  title={seriesDeleteBlocked ?? undefined}
+                  className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:brightness-100 sm:h-8 [@media(pointer:coarse)]:h-11"
+                >
                   Entire series
                 </button>
               ) : null}
               <button ref={keepRef} type="button" onClick={() => setConfirmingDelete(false)} className="h-9 rounded-lg px-3 text-xs font-medium text-ink-2 transition-colors hover:bg-ground sm:h-8 [@media(pointer:coarse)]:h-11">
                 Cancel
               </button>
+              {inSeries && seriesDeleteBlocked ? (
+                <span id={seriesWhyId} className="basis-full text-xs text-ink-3">
+                  {seriesDeleteBlocked}
+                </span>
+              ) : null}
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              title={deleteHint?.title('Delete task')}
-              aria-keyshortcuts={deleteHint?.aria}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger sm:h-8 [@media(pointer:coarse)]:h-11"
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" />
-              </svg>
-              Delete task
-              <ShortcutHint action="delete" />
-            </button>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!deleteBlocked) setConfirmingDelete(true);
+                }}
+                title={deleteBlocked ?? deleteHint?.title('Delete task')}
+                aria-keyshortcuts={deleteBlocked ? undefined : deleteHint?.aria}
+                aria-disabled={deleteBlocked ? 'true' : undefined}
+                aria-describedby={deleteBlocked ? deleteWhyId : undefined}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-transparent aria-disabled:hover:text-ink-3 sm:h-8 [@media(pointer:coarse)]:h-11"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6M10 11v6M14 11v6" />
+                </svg>
+                Delete task
+                {deleteBlocked ? null : <ShortcutHint action="delete" />}
+              </button>
+              {deleteBlocked ? (
+                <span id={deleteWhyId} className="text-xs text-ink-3">
+                  {deleteBlocked}
+                </span>
+              ) : null}
+            </div>
           )}
         </div>
       ) : null}

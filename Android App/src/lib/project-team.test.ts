@@ -43,7 +43,8 @@ it('the screens ask the project (its canManage), not roles alone', () => {
   expect(src('screens/ProjectsScreen.tsx')).toMatch(/canManageProject\(user, item\)/);
   expect(src('screens/ProjectFormScreen.tsx')).toMatch(/canManageProject\(user, project/);
   expect(src('screens/DashboardScreen.tsx')).toMatch(/roles\.includes\('ADMIN'\)/);
-  expect(src('screens/TaskDetailScreen.tsx')).toMatch(/canDeleteTask\(session\?\.user \?\? null, projectQ\.data, members\)/);
+  // Delete task: the project's canManage first (deleteChoice → canDeleteTask), then the delete rule.
+  expect(src('screens/TaskDetailScreen.tsx')).toMatch(/deleteChoice\(session\?\.user \?\? null, projectQ\.data, members,/);
   for (const f of ['screens/ProjectFormScreen.tsx', 'screens/ProjectsScreen.tsx', 'screens/ProjectDetailScreen.tsx', 'screens/DashboardScreen.tsx']) expect(src(f), f).not.toMatch(/canEditProject/);
 });
 

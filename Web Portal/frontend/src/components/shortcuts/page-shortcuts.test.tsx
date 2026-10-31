@@ -59,6 +59,14 @@ describe('the task panel’s shortcuts', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
+  it('Delete does not ask about a task the person may not delete (greyed out, with the reason)', () => {
+    const reason = 'Only the person who created this task, or the one person it’s assigned to, can delete it.';
+    wrap(<TaskDrawer task={task} checklist={[]} comments={[]} onDelete={vi.fn()} deleteBlocked={reason} onClose={vi.fn()} />);
+    screen.getByRole('button', { name: 'Close' }).focus();
+    press({ key: 'Delete', code: 'Delete' });
+    expect(screen.queryByRole('group', { name: 'Confirm delete' })).toBeNull();
+  });
+
   it('shows the shortcuts on its Edit and Delete buttons', () => {
     wrap(<TaskDrawer task={task} checklist={[]} comments={[]} onEdit={vi.fn()} onDelete={vi.fn()} onClose={vi.fn()} />);
     const edit = screen.getByRole('button', { name: 'Edit task' });

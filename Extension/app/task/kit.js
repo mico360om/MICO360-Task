@@ -74,12 +74,28 @@ export function select(label, options, value, onPick, extra = {}) {
  * one focused, so Enter never deletes by accident. Escape answers "Keep" too (not the drawer's
  * Escape, which closes it). Call `focusSafe()` once it is on the page.
  */
+let whys = 0;
+/** A page-unique id for the reason an unavailable control gives (its aria-describedby). */
+export function whyId() {
+  whys += 1;
+  return `td-why-${whys}`;
+}
+
 export function confirmBox(question, answers, onKeep, { keepLabel = 'Keep', label = 'Confirm delete' } = {}) {
   const keep = el('button', { class: 'btn sm', type: 'button', onClick: onKeep }, keepLabel);
+  // An answer with `why` is shown but unavailable, saying why (under the answers, read with it).
+  const reasons = [];
+  const answer = ({ text, onClick, aria, why }) => {
+    if (!why) return el('button', { class: 'btn sm danger', type: 'button', 'aria-label': aria || null, onClick }, text);
+    const id = whyId();
+    reasons.push(el('span', { class: 'td-confirm-why', id }, why));
+    return el('button', { class: 'btn sm danger', type: 'button', 'aria-label': aria || null, 'aria-disabled': 'true', 'aria-describedby': id, title: why }, text);
+  };
   const node = el('div', { class: 'td-confirm', role: 'group', 'aria-label': label },
     el('span', { class: 'td-confirm-q' }, question),
-    answers.map(({ text, onClick, aria }) => el('button', { class: 'btn sm danger', type: 'button', 'aria-label': aria || null, onClick }, text)),
-    keep);
+    answers.map(answer),
+    keep,
+    reasons);
   node.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     e.preventDefault();

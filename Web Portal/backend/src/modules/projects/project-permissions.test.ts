@@ -175,7 +175,8 @@ beforeEach(async () => {
     async removeColumn(id: string) { return { projectId: w.columns.get(id)! }; },
   } as unknown as ColumnService;
   const taskService = {
-    async getTask(id: string) { const projectId = w.tasks.get(id); if (!projectId) throw new NotFoundError('Task not found.'); return { id, projectId }; },
+    // t1 was created by the owner, t2 by the named manager (who may delete a task: task-delete-rule).
+    async getTask(id: string) { const projectId = w.tasks.get(id); if (!projectId) throw new NotFoundError('Task not found.'); return { id, projectId, createdById: id === 't2' ? 'named' : 'owner' }; },
     async deleteTask(id: string) { deletedTasks.push(id); },
     async listTasks() { return []; },
   } as unknown as TaskService;
@@ -207,6 +208,7 @@ beforeEach(async () => {
   w.team(rig).set('member', 'MEMBER');
   w.columns.set('c1', rig);
   w.tasks.set('t1', rig);
+  w.tasks.set('t2', rig);
   audit = [];
   notices = [];
 });
@@ -336,11 +338,17 @@ describe('Board columns and deleting tasks follow the same rule', () => {
     }
   });
 
-  it('lets the owner and the named manager delete a task; not a plain member or an outsider', async () => {
+  it('lets the owner and the named manager delete a task they created; not a plain member or an outsider', async () => {
     for (const who of ['member', 'outsider']) expect((await call(who, 'DELETE', '/tasks/t1')).statusCode, who).toBe(403);
     expect(deletedTasks).toEqual([]);
-    for (const who of ['owner', 'named']) expect((await call(who, 'DELETE', '/tasks/t1')).statusCode, who).toBe(204);
-    expect(deletedTasks).toEqual(['t1', 't1']);
+    // Running the project isn't enough on its own: someone else's task (not theirs alone) stays.
+    const refused = await call('named', 'DELETE', '/tasks/t1');
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe('DELETE_NOT_ALLOWED');
+    expect(deletedTasks).toEqual([]);
+    expect((await call('owner', 'DELETE', '/tasks/t1')).statusCode).toBe(204);
+    expect((await call('named', 'DELETE', '/tasks/t2')).statusCode).toBe(204);
+    expect(deletedTasks).toEqual(['t1', 't2']);
   });
 });
 
