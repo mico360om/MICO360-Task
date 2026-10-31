@@ -144,9 +144,11 @@ describe('createdTaskRefreshes', () => {
 // (a day's task, a project's task row) leaves their figures out of date — marked so and read again
 // when they are next shown, as the website's TASK_FIGURE_KEYS / invalidateTaskQueries.
 describe('Timeline, Workload and Management after a task change', () => {
-  it('are named by every task change: an edit, a new task, its people, a move and a delete', () => {
+  it('are named by every task change: an edit, a new task, its people, a move, an approval decision, a move to another project and a delete', () => {
     expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }]);
-    for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1')]) {
+    // Stage 2's approval decisions and moves to another project too (Management counts what waits for approval; Timeline each project's tasks).
+    const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
+    for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
       for (const v of TASK_FIGURE_VIEWS) expect(list).toContainEqual(v);
     }
   });
@@ -260,7 +262,7 @@ describe('assignmentRefreshes and the replay of a kept assignment', () => {
 
 describe('approvals: Approve, Send back and the "Needs approval" switch (Stage 2)', () => {
   it('a decision refreshes the task, its comments and history, the lists, the approvals and the project counts', () =>
-    expect(approvalRefreshes('t1')).toEqual([{ queryKey: ['task', 't1'], exact: true }, { queryKey: ['task', 't1', 'comments'] }, { queryKey: ['task', 't1', 'activity'] }, { listsHolding: 't1' }, { progressFor: 't1' }, { queryKey: ['approvals'] }, { queryKey: ['projects'], later: true }]));
+    expect(approvalRefreshes('t1')).toEqual([{ queryKey: ['task', 't1'], exact: true }, { queryKey: ['task', 't1', 'comments'] }, { queryKey: ['task', 't1', 'activity'] }, { listsHolding: 't1' }, { progressFor: 't1' }, { queryKey: ['approvals'] }, { queryKey: ['projects'], later: true }, ...TASK_FIGURE_VIEWS]));
 
   it('shows the server’s answer at once over the details shown (keeping what only the details call returns), then refreshes', () => {
     const qc = seeded();
@@ -300,7 +302,7 @@ describe('a task moved to another project (Stage 2)', () => {
     qc.setQueryData(['task', 't1'], { id: 't1', key: 'RIG-4', projectId: 'p1', title: 'Check pumps' });
     afterTaskMoved(qc, { task: { id: 't1', key: 'OPS-17', projectId: 'p2', formerKeys: ['RIG-4'] }, from: { projectId: 'p1', name: 'Rig', key: 'RIG-4' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } } as MoveResult);
     const t = qc.getQueryData<ApiTask>(['task', 't1'])!; expect(t).toMatchObject({ key: 'OPS-17', projectId: 'p2', title: 'Check pumps' }); expect(formerKeysText(t.formerKeys)).toBe('Formerly RIG-4');
-    expect(projectMoveRefreshes({ task: t, from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult)).toEqual([{ queryKey: ['tasks'] }, { queryKey: ['projects'] }, { queryKey: ['project', 'p1'] }, { queryKey: ['project', 'p2'] }, { queryKey: ['task', 't1'] }, { queryKey: ['approvals'] }]);
+    expect(projectMoveRefreshes({ task: t, from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult)).toEqual([{ queryKey: ['tasks'] }, { queryKey: ['projects'] }, { queryKey: ['project', 'p1'] }, { queryKey: ['project', 'p2'] }, { queryKey: ['task', 't1'] }, { queryKey: ['approvals'] }, ...TASK_FIGURE_VIEWS]);
   });
   it('lists of both projects are read again; a task never opened isn’t made from the answer', () => {
     const qc = seeded();

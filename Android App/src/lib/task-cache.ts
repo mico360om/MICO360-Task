@@ -151,6 +151,7 @@ export function approvalRefreshes(taskId: string): Refresh[] {
     { progressFor: taskId },
     { queryKey: ['approvals'] },
     { queryKey: ['projects'], later: true },
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -189,6 +190,7 @@ export function projectMoveRefreshes(r: Pick<MoveResult, 'task' | 'from' | 'to'>
     { queryKey: ['project', r.to.projectId] },
     { queryKey: ['task', r.task.id] },
     { queryKey: ['approvals'] },
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
