@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { hasWeb, readWeb } from '../testing/web-source';
 import { GUARD_RAILS, PRESSURE } from '../testing/inspection-fixtures';
 import { websiteSays } from '../testing/phone-words';
-import { DRAFT_DELAY_MS, ITEM_WORDS, allowedText, followUpLine, outsideText, readOnlyReading, readingDraft, readingError, readingLabel } from './inspection-item';
+import { DRAFT_DELAY_MS, ITEM_WORDS, allowedText, followUpLine, outsideText, readOnlyReading, readingDraft, readingError, readingKeyboard, readingLabel } from './inspection-item';
+import { appSource as src } from '../testing/web-source';
 
 /** One checklist item on the phone (Stage 4 Task 7, Review Focus 3). */
 
@@ -47,4 +48,12 @@ describe.skipIf(!hasWeb('frontend/src/components/inspections/InspectionItem.tsx'
     const web = [readWeb('frontend/src/components/inspections/InspectionItem.tsx'), readWeb('frontend/src/components/inspections/inspection-ui.tsx')];
     for (const [k, w] of Object.entries(ITEM_WORDS)) expect(websiteSays(web, w), k).toBe(true);
   });
+});
+
+it('a reading that can be below zero gets a keyboard with a minus sign (Final I3)', () => {
+  expect(readingKeyboard(PRESSURE)).toBe('decimal-pad');
+  expect(readingKeyboard({ ...PRESSURE, min: -10, max: 5, unit: '°C' })).toBe('numeric');
+  expect(readingKeyboard({ ...PRESSURE, min: null, max: null })).toBe('decimal-pad');
+  expect(readingDraft({ ...PRESSURE, min: -10, max: 5 }, '−4,5')).toEqual({ reading: '-4.5', result: 'PASS', outside: false });
+  expect(src('components/inspections/InspectionItemRow.tsx')).toContain('keyboardType={readingKeyboard(item)}');
 });

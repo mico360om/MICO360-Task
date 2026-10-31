@@ -24,7 +24,7 @@ it('answers stop while signed or refused', () => expect(s()).toMatch(/p\.canAnsw
 
 it('the reading box takes decimals and the item is a radio group', () => {
   const r = src('components/inspections/InspectionItemRow.tsx');
-  expect(r).toContain('keyboardType="decimal-pad"');
+  expect(r).toContain('keyboardType={readingKeyboard(item)}');
   expect(r).toContain('accessibilityRole="radio"');
   expect(r).toContain('accessibilityRole="radiogroup"');
   expect(r).toMatch(/maxLength=\{INSPECTION_LIMITS\.readingMax\}/);
