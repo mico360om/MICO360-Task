@@ -4,26 +4,29 @@ import { typeStyle } from './typography';
 import { spacing } from './theme';
 import { appSource as src } from '../testing/web-source';
 
-const DASHBOARD = ['Overdue', 'Due today', 'Upcoming', 'Completed'];
+// The Dashboard's four tiles (Stage 2: the website's), for an employee and for an administrator.
+const DASHBOARD = ['My tasks', 'Projects', 'Overdue', 'Due this week'];
+const ADMIN = ['My tasks', 'Projects', 'All tasks', 'Overdue'];
 const REPORTS = ['Total tasks', 'Completed', 'Overdue', 'On-time rate'];
-const ADMIN = ['All tasks', 'Overdue'];
 
 // Final review S4 (RULING): two tiles per row only when every label fits; otherwise one per row.
 describe('statTileColumns', () => {
   it('a 360 dp phone: two per row at the normal font size, one from 1.15 (COMPLETED no longer fits)', () => {
     expect(statLabelRoom(360)).toBe(74);
-    for (const labels of [DASHBOARD, REPORTS]) {
+    expect(statTileColumns(REPORTS, 360, 1)).toBe(2);
+    expect(statTileColumns(REPORTS, 360, 1.15)).toBe(1);
+    expect(statTileColumns(REPORTS, 360, 1.3)).toBe(1);
+    expect(statTileColumns(REPORTS, 360, 2)).toBe(1);
+  });
+
+  it('the Dashboard’s four tiles (employee and administrator) stay two per row up to 1.15, then one per row (PROJECTS no longer fits)', () => {
+    for (const labels of [DASHBOARD, ADMIN]) {
       expect(statTileColumns(labels, 360, 1)).toBe(2);
-      expect(statTileColumns(labels, 360, 1.15)).toBe(1);
+      expect(statTileColumns(labels, 360, 1.15)).toBe(2);
       expect(statTileColumns(labels, 360, 1.3)).toBe(1);
       expect(statTileColumns(labels, 360, 2)).toBe(1);
     }
-  });
-
-  it('the administrators’ two totals stay side by side up to 1.3, then one per row', () => {
-    expect(statTileColumns(ADMIN, 360, 1)).toBe(2);
-    expect(statTileColumns(ADMIN, 360, 1.3)).toBe(2);
-    expect(statTileColumns(ADMIN, 360, 2)).toBe(1);
+    expect(statLabelFits('Projects', statLabelRoom(360), 1.3)).toBe(false);
   });
 
   it('a 320 dp screen (a larger Display size) has one per row: OVERDUE needs 54.4 of its 54 dp', () => {
@@ -61,17 +64,18 @@ describe('measured the way the tiles are drawn', () => {
     expect(STAT_GRID.gap).toBe(spacing.sm);
     expect(src('screens/DashboardScreen.tsx')).toMatch(/scroll: \{ padding: spacing\.lg/);
     expect(src('screens/ReportsScreen.tsx')).toMatch(/scroll: \{ padding: spacing\.lg/);
-    for (const f of ['screens/DashboardScreen.tsx', 'screens/ReportsScreen.tsx', 'components/AdminTotals.tsx']) {
+    for (const f of ['components/dashboard/DashboardTiles.tsx', 'screens/ReportsScreen.tsx']) {
       expect(src(f), f).toMatch(/tiles: \{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing\.sm \}/);
     }
   });
 });
 
-describe('the three grids use it', () => {
+// Stage 2: the Dashboard's tiles moved to components/dashboard/DashboardTiles.tsx (measured from the
+// tiles it is given); the administrators' totals lost their two tiles to it.
+describe('the grids use it', () => {
   it.each([
-    ['screens/DashboardScreen.tsx', DASHBOARD],
+    ['components/dashboard/DashboardTiles.tsx', null],
     ['screens/ReportsScreen.tsx', REPORTS],
-    ['components/AdminTotals.tsx', null],
   ] as const)('%s', (file, labels) => {
     const s = src(file);
     expect(s).toMatch(/useWindowDimensions\(\)/);

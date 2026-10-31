@@ -28,6 +28,27 @@
 - In the Android app, Chat, Notifications, Activity, Search, Settings, Profile, About and the sign-in screens use the new look.
 <!-- meetings-chat-account lines above this line -->
 
+## Daily work
+- In the Android app, the task screen lists comments before files and dependencies on a phone, as the website does, and shows "Formerly RIG-4", "Inspection" and "Visible to client" by the task's number.
+- In the Android app, a task waiting for approval opens on its Approval section: a project manager can Approve it or Send it back with a reason; others see whose approval it waits for. "Needs approval" can be turned on there by anyone and off only by the project's managers.
+- In the Android app, My Tasks starts with "To approve" for project managers: approve or send back the tasks others have finished.
+- In the Android app, New task and Edit task have the "Needs approval" tick, already ticked in projects that ask for it; only the project's managers can untick it.
+- In the Android app, New task can start from a task template, takes a checklist, and says when the project will give the new task today's date.
+- In the Android app, a task can be moved to another project — from the task's menu, a card's actions on the boards, or several at once in My Tasks — with the website's preview and one question about people not on the new team; the task's old number still finds it.
+- In the Android app, board cards show "Visible to client" and "Inspection", and on a phone an empty column is only as tall as its "No tasks".
+<!-- daily-work-tasks lines above this line -->
+
+- In the Android app, the Dashboard is the website's: the welcome band, the four tiles (your own, or the company's for administrators), tasks waiting for your approval, Due soon, Recent activity, and first steps for a new company.
+- In the Android app, Projects is the website's page: status tabs with counts, search, owner, sort and "Only my projects" for administrators, the website's project cards (Open, Overdue, Next due, team, owner, target), a status menu and Archive.
+- In the Android app, the project form has the website's Tasks switches — carry unfinished tasks forward, new tasks due today, new tasks need approval — and a new project's team can be picked when creating it.
+<!-- daily-work-pages lines above this line -->
+
+- In the Android app, Meetings shows the website's summary — Next 7 days, Open action items, Minutes to finish, Held this month; tap one to filter — "Nothing coming up" with the last meeting, people's faces on the cards and a compact header.
+- In the Android app, a finished meeting shows its Final MOM and action items first, and says "No notes were taken." when none were.
+- In the Android app, Settings has the Approvals and "Added to a project" notification switches, the weekly management summary switch for the people who get it, and says when your week follows the company's; Reports shows "—" for on time until a task with a due date is finished.
+- In the Android app, User Management shows each person's last sign-in, finds those who never signed in, sorts by last sign-in, and sends welcome emails — to one person, the ticked ones, or everyone who never signed in; a new account's temporary password is optional when a welcome email goes.
+<!-- daily-work-meetings-people lines above this line -->
+
 ## Planning and AI
 - In the Android app, Timeline shows every open project's health, progress, next milestone and target, with Late and At risk filters and each project's tasks — as on the website's phone layout.
 - In the Android app, Workload shows each person's open tasks due each day of the week against the daily limit, with overdue tasks and days off; its suggestions give a task to a teammate or move it to a lighter day in one tap, and administrators can change the daily limit.

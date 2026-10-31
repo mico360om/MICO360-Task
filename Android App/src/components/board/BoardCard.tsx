@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet, type AccessibilityActionEvent } from
 import { useColors } from '../../core/theme';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { Icon } from '../Icon';
-import { ApprovalChip, Avatar, Badge, PriorityBadge, ProgressBar } from '../ui';
+import { ApprovalChip, Avatar, Badge, PriorityBadge, ProgressBar, InspectionChip } from '../ui';
 import { cardView, type BoardCard as Card } from '../../lib/board';
 import type { IconName } from '../../lib/icons';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
@@ -81,6 +81,7 @@ export const BoardCard = React.memo(function BoardCard({
         <View style={s.flags}>
           {card.blocked ? <Badge label="Blocked" tone="danger" /> : null}
           {card.milestone ? <Icon name="misc.milestone" size={14} color={c.brandText} /> : null}
+          {card.clientVisible ? <Icon name="misc.eye" size={13} color={c.infoText} label="Visible to client" /> : null}
           {card.recurring ? <Icon name="kit.repeat" size={14} color={c.ink3} /> : null}
           <PriorityBadge priority={card.priority} />
         </View>
@@ -90,14 +91,15 @@ export const BoardCard = React.memo(function BoardCard({
         {card.title}
       </Text>
 
-      {view.waiting ? (
-        <View importantForAccessibility="no-hide-descendants">
-          <ApprovalChip />
-        </View>
-      ) : null}
-
-      {view.hasDue || view.counts.length ? (
+      {/* The facts row, as the website's: waiting for approval, the inspection mark, the due day, the counts. */}
+      {view.waiting || card.inspection || view.hasDue || view.counts.length ? (
         <View style={s.meta} importantForAccessibility="no-hide-descendants">
+          {view.waiting ? (
+            <View importantForAccessibility="no-hide-descendants">
+              <ApprovalChip />
+            </View>
+          ) : null}
+          {card.inspection ? <InspectionChip /> : null}
           {view.dueText ? (
             <View style={[s.metaItem, view.overdue && s.dueLate]}>
               <Icon name="kit.calendar" size={12} color={view.overdue ? c.dangerText : c.ink2} />

@@ -825,7 +825,7 @@ describe('resourcesApi: User Management, search and About (6b)', () => {
     const { client, calls } = recorder();
     const users = resourcesApi(client).users;
     await users.list();
-    await users.create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Fake-pass-1', roleNames: ['EMPLOYEE'] }, 'key-1');
+    await users.create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Fake-pass-1', roleNames: ['EMPLOYEE'], sendWelcome: false }, 'key-1');
     await users.update('u 1', { firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co' });
     await users.setStatus('u1', 'SUSPENDED');
     await users.unlock('u1');
@@ -864,5 +864,44 @@ describe('resourcesApi.notifications.markAllRead (5c review #9)', () => {
       { method: 'POST', path: '/notifications/read-all', body: { upTo: '2026-10-21T10:30:00.000Z' } },
       { method: 'POST', path: '/notifications/read-all', body: undefined },
     ]);
+  });
+});
+
+describe('resourcesApi — Stage 2 daily work: approvals, moving tasks, Projects page, task templates, welcome emails', () => {
+  it('reads approvals and decides on a task', async () => {
+    const { client, calls } = fakeClient(); const api = resourcesApi(client);
+    await api.tasks.approvals(); await api.tasks.approve('t1', 3); await api.tasks.approve('t1'); await api.tasks.sendBack('t1', 'Readings missing', 3);
+    expect(calls).toEqual([
+      { method: 'GET', path: '/tasks/approvals' },
+      { method: 'POST', path: '/tasks/t1/approve', body: { expectedVersion: 3 } },
+      { method: 'POST', path: '/tasks/t1/approve', body: {} },
+      { method: 'POST', path: '/tasks/t1/send-back', body: { reason: 'Readings missing', expectedVersion: 3 } },
+    ]);
+  });
+  it('moves tasks to another project', async () => {
+    const { client, calls } = fakeClient(); const api = resourcesApi(client);
+    await api.tasks.moveTargets(); await api.tasks.movePreview(['t1'], 'p2');
+    await api.tasks.moveToProject('t1', { projectId: 'p2', assignees: 'ADD_TO_TEAM' }); await api.tasks.bulkMoveToProject(['t1', 't2'], { projectId: 'p2' });
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['GET', '/tasks/move-targets', undefined], ['POST', '/tasks/move-preview', { taskIds: ['t1'], projectId: 'p2' }],
+      ['POST', '/tasks/t1/move-to-project', { projectId: 'p2', assignees: 'ADD_TO_TEAM' }], ['POST', '/tasks/move-to-project', { taskIds: ['t1', 't2'], projectId: 'p2' }],
+    ]);
+  });
+  it('reads the Projects page list and the task templates; sends welcome emails', async () => {
+    const { client, calls } = fakeClient(); const api = resourcesApi(client);
+    await api.projects.overview(); await api.templates.listTasks(); await api.users.sendWelcome('u1'); await api.users.sendWelcomes(['u1', 'u2']);
+    expect(calls.map((c) => [c.method, c.path, c.body])).toEqual([
+      ['GET', '/projects/overview', undefined], ['GET', '/templates/tasks', undefined],
+      ['POST', '/users/u1/welcome-email', {}], ['POST', '/users/welcome-emails', { userIds: ['u1', 'u2'] }],
+    ]);
+  });
+});
+
+describe('creating a user (1.13): the account and what happened to its welcome email', () => {
+  it('creating a user returns the account and what happened to its welcome email', async () => {
+    const client = { post: () => Promise.resolve({ data: { id: 'u1' }, meta: { welcome: { sent: true } } }) } as unknown as ApiClient;
+    expect(await resourcesApi(client).users.create({} as never)).toEqual({ user: { id: 'u1' }, welcome: { sent: true } });
+    const plain = { post: () => Promise.resolve({ data: { id: 'u2' } }) } as unknown as ApiClient;
+    expect(await resourcesApi(plain).users.create({} as never, 'k')).toEqual({ user: { id: 'u2' }, welcome: null });
   });
 });

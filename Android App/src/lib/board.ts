@@ -48,6 +48,10 @@ export interface BoardCard {
   /** The newest copy of a repeating task. */
   recurring: boolean;
   milestone: boolean;
+  /** Shown on the project's client page (the eye). */
+  clientVisible: boolean;
+  /** Carried out with an inspection form (a check): the "Inspection" mark. */
+  inspection: boolean;
   /** Finished, waiting for a project manager's approval (not done yet): never overdue while it waits. */
   awaitingApproval: boolean;
   /** In a Done column, or completed: never overdue. */
@@ -78,6 +82,8 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
     blocked: column.category === 'BLOCKED',
     recurring: Boolean(t.recurrenceRule),
     milestone: !!t.isMilestone,
+    clientVisible: !!t.clientVisible,
+    inspection: !!t.inspectionFormId,
     awaitingApproval: !!t.approvalRequestedAt,
     done: column.category === 'DONE' || !!t.completedAt,
   };
@@ -139,8 +145,10 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
     `${PRIORITY_WORD[card.priority] ?? card.priority} priority.`,
     card.blocked ? 'Blocked.' : null,
     card.milestone ? 'Milestone.' : null,
+    card.clientVisible ? 'Visible to client.' : null,
     card.recurring ? 'Repeats.' : null,
     waiting ? `${DECISION_WORDS.waiting}.` : null,
+    card.inspection ? 'Inspection.' : null,
     day ? (overdue ? `Overdue, due ${day}.` : `Due ${day}.`) : null,
     card.done ? 'Done.' : `${card.progress}% done.`,
     card.assignees.length ? `${card.assignees.map((a) => a.name).join(', ')}.` : 'Nobody assigned.',
@@ -157,4 +165,15 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
     counts,
     label: words.filter(Boolean).join(' '),
   };
+}
+
+/** Below this width (the website's `md`, 768 px) a board's columns keep their own height. */
+export const COLUMN_FIT_BELOW = 768;
+
+/**
+ * How tall a column is: as tall as the board ('fill', its cards scroll inside it), or — an empty
+ * column on a phone — only as tall as its "No tasks" ('fit'), as the website's `max-md:items-start`.
+ */
+export function columnFill(o: { cards: number; screenWidth: number }): 'fill' | 'fit' {
+  return o.cards === 0 && o.screenWidth < COLUMN_FIT_BELOW ? 'fit' : 'fill';
 }

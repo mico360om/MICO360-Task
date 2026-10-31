@@ -4,21 +4,32 @@ import { resolve } from 'node:path';
 import {
   DATE_RANGES,
   EMPTY_FILTERS,
+  FOCUSES,
+  FOCUS_CHIPS,
+  FOCUS_LABELS,
+  NOTHING_TEXT,
   filterChips,
   filterMeetings,
   groupMeetings,
   hasActiveFilters,
+  hasEnded,
   isUnderWay,
+  lastMeeting,
+  lastMeetingLine,
   meetingCardLabel,
+  meetingFaces,
   meetingListRows,
+  meetingSummary,
   nextUpMeeting,
   startsLabel,
+  whenItWas,
   withoutOldMeetings,
   type ListContext,
   type MeetingFilters,
   type MeetingSort,
 } from './meeting-list';
 import type { ApiMeeting } from './types';
+import { hasWeb, readWeb } from '../testing/web-source';
 
 const m = (over: Partial<ApiMeeting>): ApiMeeting => ({
   id: 'x',
@@ -268,5 +279,68 @@ describe.skipIf(!existsSync(webList))('the same as the website', () => {
       expect(nextUpMeeting(list, now)?.id ?? null, at).toBe((web.nextUpMeeting!(list, now) as ApiMeeting | null)?.id ?? null);
       for (const x of list) expect(isUnderWay(x, now)).toBe(web.isUnderWay!(x, now));
     }
+  });
+  // The list above plus what the strip counts: meetings over without final minutes, with open action
+  // items, held this month (and one last month), under way and scheduled but already past its end.
+  const wide: ApiMeeting[] = [
+    ...list,
+    m({ id: 'draft-minutes', title: 'Site walk', startAt: '2026-10-05T06:00:00.000Z', status: 'COMPLETED', minutes: 'DRAFT', openActionItemCount: 2 }),
+    m({ id: 'final-minutes', title: 'Safety review', startAt: '2026-10-07T06:00:00.000Z', endAt: '2026-10-07T07:00:00.000Z', status: 'COMPLETED', minutes: 'FINAL', openActionItemCount: 1 }),
+    m({ id: 'past-end', title: 'Supplier sync', startAt: '2026-10-08T06:00:00.000Z', minutes: 'NONE' }),
+    m({ id: 'live', title: 'Toolbox talk', startAt: '2026-10-10T04:00:00.000Z', status: 'IN_PROGRESS', minutes: 'NOTES', openActionItemCount: 3 }),
+    m({ id: 'old-open', title: 'Kick-off follow-up', startAt: '2026-09-20T06:00:00.000Z', status: 'COMPLETED', minutes: 'FINAL', openActionItemCount: 4 }),
+    m({ id: 'next-week', title: 'Handover', startAt: '2026-10-16T06:00:00.000Z' }),
+  ];
+
+  it('the strip, the focus filters and "Nothing coming up" decide alike', async () => {
+    const web = await load();
+    // Every number has something to count (worked by hand: the fixture reaches each rule).
+    expect(meetingSummary(wide, ctx)).toEqual({ week: 5, actions: 10, actionMeetings: 4, minutes: 2, held: 5 });
+    expect(meetingSummary(wide, ctx)).toEqual(web.meetingSummary!(wide, ctx));
+    expect(FOCUSES).toEqual(web.FOCUSES);
+    expect(FOCUS_LABELS).toEqual(web.FOCUS_LABELS);
+    // The website keeps FOCUS_CHIPS to itself (not exported): its chips are compared through filterChips below.
+    for (const focus of FOCUSES) {
+      const fl = { ...EMPTY_FILTERS, focus };
+      expect(ids(filterMeetings(wide, fl, ctx)), focus).toEqual(ids(web.filterMeetings!(wide, fl, ctx) as ApiMeeting[]));
+      expect(hasActiveFilters(fl)).toBe(true);
+      expect(hasActiveFilters(fl)).toBe(web.hasActiveFilters!(fl));
+      expect(filterChips(fl, 'date', ctx)).toEqual(web.filterChips!(fl, 'date', ctx));
+      expect(filterChips(fl, 'date', ctx)).toContainEqual({ key: 'focus', label: FOCUS_CHIPS[focus] });
+    }
+    for (const at of ['2026-10-10T05:00:00.000Z', '2026-10-08T06:30:00.000Z', '2026-10-08T07:30:00.000Z']) {
+      for (const x of wide) expect(hasEnded(x, new Date(at)), `${x.id} ${at}`).toBe(web.hasEnded!(x, new Date(at)));
+    }
+    expect(lastMeeting(wide, ctx.now)?.id).toBe((web.lastMeeting!(wide, ctx.now) as ApiMeeting | null)?.id);
+    expect(lastMeeting(list.filter((x) => x.status !== 'COMPLETED'), ctx.now)).toBe(web.lastMeeting!(list.filter((x) => x.status !== 'COMPLETED'), ctx.now));
+    for (const iso of ['2026-10-30T05:00:00Z', '2026-10-29T05:00:00Z', '2026-10-26T05:00:00Z', '2026-10-03T05:00:00Z', '2025-12-01T05:00:00Z']) {
+      const later = new Date('2026-10-30T08:00:00Z');
+      expect(whenItWas(iso, later, ctx.timeZone), iso).toBe(web.whenItWas!(iso, later, ctx.timeZone));
+      expect(whenItWas(iso, ctx.now, ctx.timeZone), iso).toBe(web.whenItWas!(iso, ctx.now, ctx.timeZone));
+    }
+  });
+});
+
+describe('faces and the quiet week', () => {
+  it('faces: three at most, then +N', () => {
+    expect(meetingFaces({ attendees: ['Ann Lee', 'Omar Said', 'Sara Ali', 'Ali Noor'], attendeeCount: 6 })).toEqual({ names: ['Ann Lee', 'Omar Said', 'Sara Ali'], more: 3, text: '6 people' });
+    expect(meetingFaces({ attendees: [], attendeeCount: 0 })).toEqual({ names: [], more: 0, text: 'No attendees yet' });
+    expect(meetingFaces({ attendees: ['Ann Lee'] }).text).toBe('1 person');
+    expect(meetingFaces({ attendeeCount: 2 })).toEqual({ names: [], more: 2, text: '2 people' });
+  });
+
+  it('names the last meeting and when it was', () => {
+    const later = new Date('2026-10-30T08:00:00Z');
+    expect(lastMeetingLine(m({ title: 'Retro', startAt: '2026-10-29T10:00:00.000Z', status: 'COMPLETED' }), later, 'Asia/Muscat')).toEqual({ title: 'Retro', when: 'yesterday' });
+    expect(whenItWas('2026-10-26T05:00:00Z', later, 'Asia/Muscat')).toBe('on Monday');
+    expect(whenItWas('2026-10-03T05:00:00Z', later, 'Asia/Muscat')).toBe('on Sat 3 Oct');
+    expect(whenItWas('2025-12-01T05:00:00Z', later, 'Asia/Muscat')).toBe('on 1 Dec 2025');
+  });
+});
+
+describe.skipIf(!hasWeb('frontend/src/components/meeting/NothingComingUp.tsx', 'frontend/src/components/meeting/MeetingSummaryStrip.tsx', 'frontend/src/components/meeting/meeting-card-parts.tsx'))('the website’s words', () => {
+  it('Nothing coming up and the strip', () => {
+    const w = readWeb('frontend/src/components/meeting/NothingComingUp.tsx') + readWeb('frontend/src/components/meeting/MeetingSummaryStrip.tsx') + readWeb('frontend/src/components/meeting/meeting-card-parts.tsx');
+    for (const t of [...Object.values(NOTHING_TEXT), 'Meetings at a glance', 'No attendees yet', 'Last meeting:']) expect(w, t).toContain(t);
   });
 });

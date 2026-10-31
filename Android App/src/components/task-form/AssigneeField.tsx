@@ -10,7 +10,8 @@ import { Icon } from '../Icon';
 /**
  * Who works on the task (4a), as on the website's AssigneeSelect: the chosen people as removable
  * chips, and a searchable list of the rest of the project's active members. A note under it says
- * who gets the task when nobody is picked.
+ * who gets the task when nobody is picked. The words can be another field's (a new project's team:
+ * `label`, `listLabel`, `addLabel`, `emptyText`, `allChosenText`); they default to the task's.
  */
 export function AssigneeField({
   people,
@@ -19,6 +20,11 @@ export function AssigneeField({
   note,
   disabled,
   status,
+  label = 'Assignees (optional)',
+  listLabel = 'Assigned people',
+  addLabel = 'Add people',
+  emptyText = 'No one is on this project yet',
+  allChosenText = 'Everyone on this project is assigned.',
 }: {
   people: readonly PersonOption[];
   value: string[];
@@ -27,6 +33,16 @@ export function AssigneeField({
   disabled?: boolean;
   /** The project's people are still loading, or couldn't be loaded (offline, never opened). */
   status?: 'loading' | 'failed' | null;
+  /** The field's name above it. */
+  label?: string;
+  /** What TalkBack calls the chosen people. */
+  listLabel?: string;
+  /** The search list's name. */
+  addLabel?: string;
+  /** In the search box when there is no one to pick. */
+  emptyText?: string;
+  /** In the list once everyone is picked. */
+  allChosenText?: string;
 }) {
   const c = useColors();
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -35,12 +51,12 @@ export function AssigneeField({
     () => people.filter((p) => !value.includes(p.id)).map((p) => ({ value: p.id, label: p.name, hint: p.username ? `@${p.username}` : undefined })),
     [people, value],
   );
-  const placeholder = status === 'loading' ? 'Loading…' : people.length ? 'Search by name…' : 'No one is on this project yet';
+  const placeholder = status === 'loading' ? 'Loading…' : people.length ? 'Search by name…' : emptyText;
   return (
     <View style={styles.wrap}>
-      <FieldLabel>Assignees (optional)</FieldLabel>
+      <FieldLabel>{label}</FieldLabel>
       {chosen.length ? (
-        <View style={styles.chips} accessibilityLabel="Assigned people">
+        <View style={styles.chips} accessibilityLabel={listLabel}>
           {chosen.map((p) => (
             <View key={p.id} style={[styles.chip, { borderColor: c.line, backgroundColor: c.ground }]}>
               <Text style={[styles.chipText, { color: c.ink }]} numberOfLines={1}>
@@ -61,12 +77,12 @@ export function AssigneeField({
         </View>
       ) : null}
       <InlinePicker
-        label="Add people"
+        label={addLabel}
         options={options}
         value=""
         onChange={(id) => id && onChange([...value, id])}
         placeholder={placeholder}
-        emptyText="Everyone on this project is assigned."
+        emptyText={allChosenText}
         disabled={disabled || people.length === 0}
       />
       {status === 'failed' ? <Text style={[styles.note, { color: c.ink2 }]}>Couldn’t load the project’s people — you can still create the task, and assign people from it later.</Text> : null}

@@ -178,6 +178,11 @@ export function svgShapes(node: unknown): { shapes: Shape[]; strokeWidth?: numbe
  * (TypeScript's parser): for icons drawn inline inside a component that can't be called on its
  * own (it has hooks). Attributes are read when literal ("2", {2.2}, "currentColor"); a computed
  * one comes back as its source text, so it never equals a number by accident.
+ *
+ * An icon map drawn through a wrapper (the Dashboard's `<StatIcon>{icon.tasks}</StatIcon>`, whose
+ * `<svg …>{children}</svg>` has the stroke and `icon` the shapes): each <svg> holding `{children}`
+ * is also read once with each JSX value of an object property in the file that holds only SVG
+ * elements (path, circle, rect, line, …; an unsupported one still throws in svgShapes).
  */
 export function svgDrawingsIn(rel: string): Array<ReturnType<typeof svgShapes>> {
   const sf = ts.createSourceFile(rel, readWeb(rel), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -200,14 +205,32 @@ export function svgDrawingsIn(rel: string): Array<ReturnType<typeof svgShapes>> 
     return { type: open.tagName.getText(sf), props, children };
   };
   const out: Array<ReturnType<typeof svgShapes>> = [];
+  const wrappers: JsxNode[] = [];
+  const mapped: JsxNode[] = [];
+  const isChildren = (c: ts.JsxChild) =>
+    ts.isJsxExpression(c) && !!c.expression && ((ts.isIdentifier(c.expression) && c.expression.text === 'children') || (ts.isPropertyAccessExpression(c.expression) && c.expression.name.text === 'children'));
+  const jsxValue = (e: ts.Expression): JsxNode | null => {
+    if (ts.isParenthesizedExpression(e)) return jsxValue(e.expression);
+    if (ts.isJsxElement(e) || ts.isJsxSelfClosingElement(e)) return node(e);
+    if (ts.isJsxFragment(e)) return { type: FRAGMENT, props: {}, children: e.children.filter((c): c is ts.JsxElement | ts.JsxSelfClosingElement => ts.isJsxElement(c) || ts.isJsxSelfClosingElement(c)).map(node) };
+    return null;
+  };
+  const SVG_PARTS = new Set([FRAGMENT, 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'g', 'title']);
+  const svgOnly = (n: JsxNode): boolean => SVG_PARTS.has(String(n.type)) && n.children.every((c) => svgOnly(c as JsxNode));
   const visit = (n: ts.Node): void => {
     if ((ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && (ts.isJsxElement(n) ? n.openingElement : n).tagName.getText(sf) === 'svg') {
       out.push(svgShapes(node(n)));
+      if (ts.isJsxElement(n) && n.children.some(isChildren)) wrappers.push(node(n));
       return;
+    }
+    if (ts.isPropertyAssignment(n)) {
+      const j = jsxValue(n.initializer);
+      if (j && svgOnly(j)) mapped.push(j);
     }
     ts.forEachChild(n, visit);
   };
   visit(sf);
+  for (const w of wrappers) for (const m of mapped) out.push(svgShapes({ ...w, children: [...w.children, m] }));
   return out;
 }
 

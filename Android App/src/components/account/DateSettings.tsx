@@ -9,12 +9,14 @@ import { ChipChoice, InlinePicker } from '../meeting/sheet-kit';
 import {
   WEEK_START_OPTIONS,
   calendarZoneNote,
+  companyWeekStartButton,
   deviceTimeZone,
   phoneTimeZones,
   timeZoneChoices,
   unknownZoneNote,
   usableZone,
   webZoneName,
+  weekStartHint,
   type DatePreferences,
 } from '../../lib/date-settings';
 import { weekStartOf } from '../../lib/calendar';
@@ -40,6 +42,9 @@ export function DateSettings() {
   const chosen = own ? webZoneName(own) : '';
   const unknown = unknownZoneNote(prefs?.timeZone, zones.company);
   const weekStart = weekStartOf(prefs);
+  // Whose week start it is, and the way back to the company's when you chose another day.
+  const ownWeekStart = prefs?.weekStart ?? null;
+  const useCompanyWeek = companyWeekStartButton(ownWeekStart, zones.companyWeekStart);
   const choices = useMemo(() => timeZoneChoices({ zones: phoneTimeZones(), company: zones.company, own, device: deviceTimeZone() }), [zones.company, own]);
   const [problem, setProblem] = useState<string | null>(null);
   const loading = !prefs && prefsQ.isLoading;
@@ -72,7 +77,8 @@ export function DateSettings() {
           }}
           disabled={loading}
         />
-        <Muted>The first column of the calendar.</Muted>
+        <Muted>{weekStartHint(prefs?.weekStart ?? null, zones.companyWeekStart)}</Muted>
+        {useCompanyWeek ? <Button title={useCompanyWeek} variant="ghost" onPress={() => change({ weekStart: null })} disabled={save.isPending || loading} /> : null}
         <View style={s.divided}>
           <Text style={s.rowTitle}>Time zone for the calendar</Text>
           <Muted style={s.gap}>{calendarZoneNote(own ? webZoneName(own) : null, zones.company)}</Muted>

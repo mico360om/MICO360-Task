@@ -6,7 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useDirectory, useProjectColumns, useProjectMembers, useProjects, useTask, useTaskAssignees } from '../core/queries';
 import { useDatePreferences } from '../core/calendar-queries';
 import { useLastProject, useSaveTaskEdit, useSendNewTask } from '../core/new-task';
-import { useServices } from '../core/providers';
+import { APPROVAL_HINT } from '../lib/approvals';
+import { useServices, useSession } from '../core/providers';
 // A short notice that stays after the form has closed (Android's own toast; TalkBack reads it).
 import { notice } from '../components/notice';
 import { useColors } from '../core/theme';
@@ -17,6 +18,10 @@ import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { RecurrenceEditor } from '../components/RecurrenceEditor';
 import { CardChoice, CheckRow, ChipChoice, FieldLabel, InlinePicker } from '../components/meeting/sheet-kit';
 import { DescribeTask } from '../components/task-form/DescribeTask';
+import { ChecklistField } from '../components/task-form/ChecklistField';
+import { TemplatePicker } from '../components/task-form/TemplatePicker';
+import { useTaskTemplates } from '../core/template-queries';
+import { defaultDueDay, defaultDueNote } from '../lib/default-due';
 import { AssigneeField } from '../components/task-form/AssigneeField';
 import { DueDateField } from '../components/task-form/DueDateField';
 import { FilesField } from '../components/task-form/FilesField';
@@ -36,6 +41,11 @@ import {
   assigneesWithoutTeam,
   checkEditTask,
   checkNewTask,
+  approvalAfterProjectChange,
+  approvalTickFor,
+  applyTemplate,
+  templateFilledText,
+  usableTemplates,
   createdWithoutFilesText,
   EDIT_TEXT,
   editLeaveWarning,
@@ -69,7 +79,7 @@ import {
   type TaskDraft,
 } from '../lib/task-form';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
-import { displayName, type ApiTask, type Priority } from '../lib/types';
+import { displayName, type ApiTask, type Priority, type TaskTemplate } from '../lib/types';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
 
@@ -78,7 +88,7 @@ const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
 /**
  * New task (4a) — the website's New task form: where it goes (project and column), what it is,
- * when and how urgent (priority, due date, repeat), who does it, whether it is a milestone, and
+ * when and how urgent (priority, due date, repeat), who does it, whether it is a milestone (and whether it needs approval), its checklist (new tasks; a task template can fill it in), and
  * files attached once it exists. "Describe it in plain English" fills the form from a sentence
  * (reviewed first). Opened from a board's column (its project fixed, that column), the calendar (a
  * day), a project, My Tasks.
@@ -165,6 +175,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const openProjects = useMemo(() => openProjectsOf(allProjects), [allProjects]);
   const project = allProjects.find((p) => p.id === draft.projectId) ?? null;
   const projectFixed = editing || !!fixedProjectId;
+  const isAdmin = (useSession()?.user.roles ?? []).includes('ADMIN');
   const noProjects = !projectFixed && !!projectsQ.data && openProjects.length === 0;
   const [lastProject, rememberProject] = useLastProject();
 
@@ -198,6 +209,31 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   }, [editing, assigneesQ.data, saving]);
   const series = editing && inSeries(editTask);
   const canRepeat = !editing || !isEarlierCopy(editTask);
+
+  // ── Start from a task template (new tasks): it fills in the title, description, priority and checklist ──
+  const templatesQ = useTaskTemplates(!editing);
+  const templates = useMemo(() => usableTemplates(templatesQ.data), [templatesQ.data]);
+  const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
+  const pickTemplate = (t: TaskTemplate) => {
+    if (frozen) return;
+    setDraft((d) => applyTemplate(d, t));
+    setUsedTemplate(t);
+    setTitleError(null);
+  };
+  // "New tasks are due today" (a project setting): which day an empty due date will get, said under it.
+  const autoDue = editing ? null : defaultDueDay(project, draft.dueDate, params.boardDate, today);
+
+  // ── Needs approval (the website's): anyone may tick it; only the people who run the project (and
+  // administrators) may untick it. A new task's box starts as its project asks ("New tasks in this
+  // project need approval"); your own choice stands after a project change — unless the new
+  // project's tick is locked on for you. A locked form doesn't change (its kept try goes as it was).
+  const approvalTouched = useRef(false);
+  const tick = approvalTickFor({ isAdmin, project, editing, task: editTask });
+  useEffect(() => {
+    if (editing || !project || frozen) return;
+    const next = approvalAfterProjectChange({ on: draft.needsApproval, touched: approvalTouched.current, tick });
+    if (next !== draft.needsApproval) settle({ needsApproval: next });
+  }, [editing, project?.id, tick.projectWants, tick.locked]);
 
   const columnsQ = useProjectColumns(draft.projectId);
   // An edited task's own column stays on offer even when it is switched off.
@@ -384,7 +420,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     if (busy.current) return;
     if (editing) return saveEdit();
     if (created) return leave(); // the task exists already: never a second one
-    const check = checkNewTask(draft, { noProjects, boardDate: params.boardDate });
+    const check = checkNewTask(draft, { noProjects, boardDate: params.boardDate, project });
     if (!check.ok) {
       if (check.field === 'title') {
         setTitleError(check.message);
@@ -506,6 +542,13 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           </View>
         ) : null}
 
+        {!editing && !noProjects && !created && templates.length > 0 ? <TemplatePicker templates={templates} value={usedTemplate?.id ?? ''} onPick={pickTemplate} disabled={frozen} /> : null}
+        {!editing && usedTemplate ? (
+          <Text style={s.hint} accessibilityLiveRegion="polite">
+            {templateFilledText(usedTemplate.name)}
+          </Text>
+        ) : null}
+
         {!editing && !noProjects && !created ? <DescribeTask timeZone={timeZone} withProject={!projectFixed} suggest={suggest} onApply={applyFound} disabled={frozen} /> : null}
 
         {projectFixed ? (
@@ -599,6 +642,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           style={s.multiline}
           editable={!frozen}
         />
+        {!editing ? <ChecklistField rows={draft.checklist} pending={draft.checklistPending} onChange={(next) => set({ checklist: next.rows, checklistPending: next.pending })} disabled={frozen} /> : null}
 
         <ChipChoice<Priority> label="Priority" options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} value={draft.priority} onChange={(priority) => set({ priority })} disabled={frozen} />
         <DueDateField
@@ -610,6 +654,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           today={today}
           weekStart={weekStart}
           disabled={frozen}
+          note={autoDue ? defaultDueNote(autoDue, today) : undefined}
         />
         {editing ? (
           <>
@@ -674,6 +719,20 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
         <View style={s.card}>
           <CheckRow label="Milestone" checked={draft.milestone} onChange={(milestone) => set({ milestone })} disabled={frozen} />
           <Text style={s.hint}>{NEW_TASK_TEXT.milestoneHint}</Text>
+        </View>
+
+        <View style={s.card}>
+          <CheckRow
+            label="Needs approval"
+            checked={draft.needsApproval}
+            disabled={tick.locked || frozen}
+            onChange={(needsApproval) => {
+              approvalTouched.current = true;
+              set({ needsApproval });
+            }}
+          />
+          <Text style={s.hint}>{APPROVAL_HINT}</Text>
+          {tick.note ? <Text style={s.hint}>{tick.note}</Text> : null}
         </View>
 
         {editing && series ? (

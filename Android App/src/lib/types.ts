@@ -85,6 +85,14 @@ export interface ApiTask {
   approvedById?: string | null;
   /** Its approval as the signed-in person sees it (single-task responses). */
   approval?: TaskApprovalInfo;
+  /** Shown on the project's client page (its title, status and due date only). */
+  clientVisible?: boolean;
+  /** Keys it had before it moved to another project, oldest first (single-task responses): "RIG-4" for OPS-17. */
+  formerKeys?: string[];
+  /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */
+  inspectionFormId?: string | null;
+  /** Where the check is done ("Rig 3"). */
+  inspectionPlace?: string | null;
 }
 
 /** A person named on a task's approval (the website's api/tasks.ts). */
@@ -210,6 +218,168 @@ export interface ApiProject {
    * and PUT; older servers leave it out.
    */
   canManage?: boolean;
+  /** Each night, its unfinished tasks on past days move to today's board. Missing (older server) = on. */
+  carryForward?: boolean;
+  /** A task added without a due date gets today's date. Missing (older server) = off. */
+  defaultDueToday?: boolean;
+  /** "New tasks in this project need approval": the New task form starts ticked. Missing (older server) = off. */
+  newTasksNeedApproval?: boolean;
+}
+
+// ── Daily work (Stage 2): approvals, moving tasks, the Projects page, task templates ─────────────
+// Field names exactly the website's api/tasks.ts, api/projects.ts and api/templates.ts (lib/api-types.test.ts).
+
+/** A task waiting for the signed-in person's approval (GET /tasks/approvals). */
+export interface ApprovalTask extends ApiTask {
+  project: { id: string; code: string; name: string; color: string | null; icon: string | null; imageUrl: string | null };
+  requestedBy: ApprovalPerson | null;
+}
+
+/** GET /tasks/approvals: the tasks waiting for the signed-in person's approval (oldest first), and whether they approve any project's tasks. */
+export interface ApprovalsAnswer {
+  canApprove: boolean;
+  tasks: ApprovalTask[];
+}
+
+/** What happens to people assigned to a moved task who aren't on the new project's team. */
+export type AssigneeChoice = 'ADD_TO_TEAM' | 'UNASSIGN';
+
+/** A project a task can be moved to. */
+export interface MoveProject {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  color: string | null;
+  icon: string | null;
+  imageUrl: string | null;
+}
+
+/** Where the signed-in person may move tasks (GET /tasks/move-targets). */
+export interface MoveTargets {
+  /** An administrator: any task, to any open project. */
+  managesAll: boolean;
+  /** Projects whose tasks they may move out (the ones they manage). */
+  managedProjectIds: string[];
+  /** Open projects they may move tasks into. */
+  projects: MoveProject[];
+}
+
+export interface MovePerson {
+  id: string;
+  name: string;
+}
+
+/** What moving one task would change (POST /tasks/move-preview). */
+export interface TaskMovePreview {
+  id: string;
+  key: string;
+  title: string;
+  from: { id: string; code: string; name: string } | null;
+  canMove: boolean;
+  /** Why it can't be moved, in words. */
+  reason: string | null;
+  /** The key it would get, e.g. "OPS-17" (the next free number now). */
+  newKey: string | null;
+  /** The stage it is in now (its column's category). */
+  currentCategory: string | null;
+  /** It is completed now (a Done column, or a completion time). */
+  completed: boolean;
+  /** The column it goes to unless another is chosen (the same kind as now, else the first). */
+  columnId: string | null;
+  milestoneCleared: boolean;
+  /** 'YYYY-MM-DD': the due date it gets from the new project's "New tasks are due today". */
+  dueDate: string | null;
+  repeat: 'SERIES' | 'COPY' | null;
+  /** People assigned to it who aren't on the new project's team. */
+  outsiders: MovePerson[];
+}
+
+export interface MovePreview {
+  project: MoveProject & { defaultDueToday: boolean };
+  /** The new project's columns, in board order. */
+  columns: { id: string; name: string; category: string; position: number; enabled: boolean }[];
+  tasks: TaskMovePreview[];
+  /** Everyone not on the new team, across the tasks that can move. */
+  outsiders: MovePerson[];
+}
+
+export interface MoveInput {
+  projectId: string;
+  /** A column of the new project; left out, each task goes to the same kind of column as now. */
+  columnId?: string;
+  /** Required when someone assigned isn't on the new team. */
+  assignees?: AssigneeChoice;
+}
+
+export interface MoveResult {
+  task: ApiTask;
+  from: { projectId: string; name: string; key: string };
+  to: { projectId: string; name: string; key: string };
+  addedToTeam: MovePerson[];
+  unassigned: MovePerson[];
+  milestoneCleared: boolean;
+  dueDateSet: string | null;
+  /** The move completed it (into a Done column) or re-opened it (out of one). */
+  statusChange?: 'COMPLETED' | 'REOPENED' | null;
+}
+
+export type BulkMoveItem = ({ taskId: string; ok: true } & MoveResult) | { taskId: string; ok: false; error: { code: string; message: string; details?: unknown } };
+
+export interface BulkMoveResult {
+  results: BulkMoveItem[];
+  moved: number;
+  failed: number;
+}
+
+/** A person on a project card: a face and a name. */
+export interface ProjectPerson {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+/** A project's card figures, counted by the server for the whole list at once. */
+export interface ProjectStats {
+  total: number;
+  done: number;
+  open: number;
+  /** Open tasks whose due day is before today (company time zone). */
+  overdue: number;
+  /** Nearest due day ('YYYY-MM-DD') of an open task, today or later; null when there is none. */
+  nextDue: string | null;
+  /** The later of the project's own last change and its latest task change (ISO). */
+  lastActivityAt: string;
+}
+
+/** A project as the Projects page lists it (GET /projects/overview): only what its card shows (Edit loads the full project). */
+export interface ProjectOverview
+  extends Pick<ApiProject, 'id' | 'code' | 'number' | 'name' | 'clientName' | 'status' | 'color' | 'icon' | 'imageUrl' | 'ownerId' | 'targetDate'> {
+  stats: ProjectStats;
+  owner: ProjectPerson | null;
+  /** Up to four active members, in the order they joined. */
+  team: ProjectPerson[];
+  /** How many active members the project has. */
+  teamCount: number;
+  /** You own it, manage it or are on its team (worked out by the server). */
+  mine: boolean;
+  /** You may change it (see ApiProject.canManage). */
+  canManage?: boolean;
+}
+
+/** A task template (GET /templates/tasks): New task can start from one (editing them stays on the website). */
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  title: string;
+  description: string | null;
+  priority: Priority;
+  checklist: string[];
+  createdById: string | null;
+  createdByName: string | null;
+  canManage: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ── Meetings (taking part in them — 2a — and running them — 2b) ─────────────

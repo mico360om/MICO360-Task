@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { activityFeed, aiFailureText, blockerRefs, canDeleteTask, conflictText, dueFieldValue, dueState, meetingLine, moveBy, taskLoadProblem } from './task-detail';
+import { FORMERLY_HINT, activityFeed, aiFailureText, blockerRefs, canDeleteTask, conflictText, dueFieldValue, dueState, formerKeysText, meetingLine, moveBy, taskLoadProblem, taskSections } from './task-detail';
+import { hasWeb, readWeb } from '../testing/web-source';
 import { ApiError, NetworkError } from './api-client';
 import type { ApiActivityEntry, ApiColumn, ApiTask } from './types';
 
@@ -157,5 +158,24 @@ describe('aiFailureText — a slow AI is not a lost connection', () => {
   it('shows the server’s own reason, else the fallback', () => {
     expect(aiFailureText(new ApiError(503, 'AI_UNAVAILABLE', 'AI is not set up on this server.'), 'The AI suggestion failed.')).toBe('AI is not set up on this server.');
     expect(aiFailureText(new Error(''), 'The AI suggestion failed.')).toBe('The AI suggestion failed.');
+  });
+});
+
+describe('taskSections — the website’s TaskDrawer order (Stage 2)', () => {
+  it('on a phone, comments come before files and dependencies (the website’s 1.19 order)', () => {
+    expect(taskSections({ wide: false, waiting: false, approval: true })).toEqual({ top: [], main: ['description', 'details', 'checklist', 'comments', 'approval', 'files', 'blockers', 'activity'], side: [] });
+    expect(taskSections({ wide: true, waiting: false, approval: true })).toEqual({ top: [], main: ['description', 'checklist', 'comments', 'activity'], side: ['details', 'approval', 'files', 'blockers'] });
+  });
+  it('a task waiting for approval opens on its Approval section, shown once', () => {
+    for (const wide of [false, true]) { const s = taskSections({ wide, waiting: true, approval: true }); expect(s.top).toEqual(['approval']); expect([...s.main, ...s.side]).not.toContain('approval'); }
+    expect(Object.values(taskSections({ wide: false, waiting: true, approval: false })).flat()).not.toContain('approval');
+  });
+  it('says the old numbers', () => { expect(formerKeysText(['RIG-4', 'OPS-2'])).toBe('Formerly RIG-4, OPS-2'); expect(formerKeysText([])).toBeNull(); expect(formerKeysText(undefined)).toBeNull(); });
+});
+describe.skipIf(!hasWeb('frontend/src/components/TaskDrawer.tsx', 'frontend/src/components/inspections/inspection-ui.tsx'))('the website’s words', () => {
+  it('Formerly, Visible to client, Inspection', () => {
+    const drawer = readWeb('frontend/src/components/TaskDrawer.tsx');
+    for (const w of [FORMERLY_HINT, 'Visible to client', 'Shown on the project’s client page', 'Formerly ']) expect(drawer, w).toContain(w);
+    expect(readWeb('frontend/src/components/inspections/inspection-ui.tsx')).toContain('Carried out with an inspection form');
   });
 });

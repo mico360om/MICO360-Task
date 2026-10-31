@@ -1,24 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { ApprovalChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
+import { ClientChip, InspectionChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
 import { Icon } from '../Icon';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
-import { carryForward } from '../../lib/task-detail';
+import { FORMERLY_HINT, carryForward, formerKeysText } from '../../lib/task-detail';
 import { SaveNote, Tag, useSave } from './kit';
-import { font } from '../../lib/typography';
+import { font, typeStyle } from '../../lib/typography';
+import { MOVE_TEXT } from '../../lib/move-sheet';
+import type { MoveAvailability } from '../../lib/task-move';
 
 /** The task title column's limit (VARCHAR 191). */
 const TITLE_MAX = 191;
 
 /**
- * The top of the task: reference, status, priority and due date at a glance, the title (edited in
- * place), and a menu (the three dots) for the secondary actions (watching, exporting); the approval
- * chip while it waits. A task made from a meeting
- * names that meeting; tapping it opens the meeting in the app.
+ * The top of the task, as the website's: reference (and "Formerly RIG-4" after a move to another
+ * project), status, priority, the Inspection and Visible to client marks and the due date at a
+ * glance; the title (edited in place); a menu (the three dots) for the secondary actions (watching,
+ * exporting, moving to another project — listed even when the person can't, with why). A task waiting for approval says so in its Approval section, shown first (as on the
+ * website). A task made from a meeting names that meeting; tapping it opens the meeting in the app.
  */
 export function HeaderCard({
   task,
@@ -34,7 +37,13 @@ export function HeaderCard({
   meeting,
   onOpenMeeting,
   onEdit,
+  move,
+  onMove,
 }: {
+  /** May the signed-in person move it to another project (the website's rule), and why not. */
+  move?: MoveAvailability;
+  /** Opens "Move to another project". */
+  onMove?: () => void;
   /** Opens the full Edit form (every detail at once — 4d), as the website's "Edit task". */
   onEdit?: () => void;
   task: ApiTask;
@@ -59,6 +68,7 @@ export function HeaderCard({
   const save = useSave();
   // Moved on to the next day's board, and when (per-date boards — 4d): tapped, each move.
   const carried = carryForward(task.carryForwardLog);
+  const formerly = formerKeysText(task.formerKeys);
   const [carryOpen, setCarryOpen] = useState(false);
 
   async function commit() {
@@ -95,10 +105,16 @@ export function HeaderCard({
       <View style={s.topRow}>
         <View style={s.meta}>
           <Text style={s.key}>{task.key}</Text>
+          {formerly ? (
+            <Text style={s.formerly} accessibilityHint={FORMERLY_HINT}>
+              {formerly}
+            </Text>
+          ) : null}
           {statusName ? <Tag label={statusName} color={categoryColorOf(c, statusCategory ?? 'TODO')} /> : null}
           <PriorityBadge priority={task.priority} />
+          {task.inspectionFormId ? <InspectionChip size="sm" /> : null}
+          {task.clientVisible ? <ClientChip /> : null}
           {due.text ? <Tag label={due.text} tone={due.overdue ? 'danger' : undefined} /> : null}
-          {task.approvalRequestedAt ? <ApprovalChip size="sm" /> : null}
         </View>
         {onEdit ? (
           <Button title="Edit" icon="ui.edit" variant="secondary" size="sm" onPress={onEdit} accessibilityLabel="Edit task" accessibilityHint="Edit every detail of the task" />
@@ -199,6 +215,24 @@ export function HeaderCard({
             {action(watching ? `Stop watching (${watcherCount})` : `Watch this task${watcherCount ? ` (${watcherCount})` : ''}`, onToggleWatch, watching ? 'Stop watching this task' : 'Watch this task')}
             {action(exporting === 'xlsx' ? 'Preparing Excel…' : 'Export as Excel', () => onExport('xlsx'))}
             {action(exporting === 'pdf' ? 'Preparing PDF…' : 'Export as PDF', () => onExport('pdf'))}
+            {move && onMove ? (
+              move.canMove ? (
+                action(MOVE_TEXT.menuItem, onMove)
+              ) : (
+                // Shown, not offered: why it can't be moved now (the website's menu).
+                <View
+                  key="move"
+                  accessible
+                  accessibilityRole="menuitem"
+                  accessibilityState={{ disabled: true }}
+                  accessibilityLabel={move.reason ? `${MOVE_TEXT.menuItem} ${move.reason}` : MOVE_TEXT.menuItem}
+                  style={s.menuItemOff}
+                >
+                  <Text style={[s.menuText, s.menuTextOff]}>{MOVE_TEXT.menuItem}</Text>
+                  {move.reason ? <Text style={s.menuReason}>{move.reason}</Text> : null}
+                </View>
+              )
+            ) : null}
             {action('Cancel', () => {})}
           </View>
         </Pressable>
@@ -213,6 +247,7 @@ const makeStyles = (c: Palette) =>
     topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
     key: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 1, marginRight: spacing.xs },
+    formerly: { ...typeStyle('caption'), color: c.ink2 },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
     title: { flex: 1, fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, paddingTop: spacing.xs },
     editActions: { flexDirection: 'row', gap: spacing.sm },
@@ -231,4 +266,7 @@ const makeStyles = (c: Palette) =>
     sheetTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },
     menuItem: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg },
     menuText: { fontSize: fontSize.md, color: c.ink, ...font('600') },
+    menuItemOff: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 2 },
+    menuTextOff: { color: c.ink3 },
+    menuReason: { ...typeStyle('caption'), color: c.ink2 },
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
@@ -29,9 +29,25 @@ import {
   untilProblem,
   withPickedFiles,
   NEW_TASK_TEXT,
+  APPROVAL_WAITING_NOTE,
+  approvalAfterProjectChange,
+  approvalTickFor,
+  applyTemplate,
+  templateFilledText,
+  templateHint,
+  usableTemplates,
+  TEMPLATE_TEXT,
+  editTaskDraft,
+  saveTaskEdit,
+  type EditDeps,
+  type FormProject,
   type NewTaskFile,
   type TaskDraft,
 } from './task-form';
+import { APPROVAL_LOCKED } from './approvals';
+import { checklistRows } from './checklist-draft';
+import type { TaskTemplate } from './types';
+import { hasWeb, readWeb } from '../testing/web-source';
 import { ApiError, NetworkError } from './api-client';
 import { WaitingBehindError } from './write-order';
 import type { ApiColumn, ApiDirectoryUser, ApiMember, ApiTask } from './types';
@@ -135,6 +151,9 @@ describe('checking and sending a new task', () => {
       rule: null,
       assigneeIds: [],
       milestone: false,
+      needsApproval: false,
+      checklist: [],
+      checklistPending: '',
     });
   });
 
@@ -313,7 +332,13 @@ describe('sendNewTask', () => {
       kind: 'refused',
       message: 'Couldn’t create the task. Only active members of this project can be assigned.',
     });
-    expect(await sendNewTask(refuse(new ApiError(403, 'FORBIDDEN', 'Forbidden')), { input, key: 'k1', files: [file('a')] })).toEqual({
+    // A 403 says the server's own sentence (Stage 2: "Only the project’s managers can …" is never hidden).
+    expect(await sendNewTask(refuse(new ApiError(403, 'FORBIDDEN', 'You do not have permission to do that.')), { input, key: 'k1', files: [file('a')] })).toEqual({
+      kind: 'refused',
+      message: 'Couldn’t create the task. You do not have permission to do that.',
+    });
+    // A 403 without words of its own: the website's sentence.
+    expect(await sendNewTask(refuse(new ApiError(403, 'HTTP_403', 'Request failed (403)')), { input, key: 'k1', files: [] })).toEqual({
       kind: 'refused',
       message: 'Couldn’t create the task. You don’t have permission to do that.',
     });
@@ -537,5 +562,123 @@ describe('who gets the task after a project change (4a review #8, #9)', () => {
     const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
     expect(screen).toMatch(/const ownerName = projectOwnerName\(project\?\.ownerId, people\);/);
     expect(screen).toMatch(/assigneesWithoutTeam\(/);
+  });
+});
+
+// ── Stage 2 Task 5: "Needs approval" in New and Edit task ──
+const TZ5 = 'Asia/Muscat';
+const rig: FormProject = { id: 'p1', name: 'Rig', code: 'RIG', status: 'ACTIVE', newTasksNeedApproval: true, canManage: false };
+/** What POST /tasks gets for a draft in `p` (the form's own check). */
+const bodyOf = (patch: Partial<TaskDraft>, p: FormProject) => {
+  const out = checkNewTask(draft(patch), { noProjects: false, project: p });
+  if (!out.ok) throw new Error(out.message);
+  return out.input;
+};
+/** An error isNetworkError recognises, built as the tests above build one. */
+const networkError = () => new NetworkError('Network request failed.');
+/** EditDeps whose calls resolve (vi.fn), overridden by `o`. */
+const fakeEditDeps = (o: Partial<EditDeps> = {}): EditDeps => ({
+  update: vi.fn(async () => undefined),
+  updateLive: vi.fn(async () => undefined),
+  move: vi.fn(async () => undefined),
+  assign: vi.fn(async () => undefined),
+  unassign: vi.fn(async () => undefined),
+  ...o,
+});
+const editedTask: ApiTask = { id: 't1', key: 'RIG-7', title: 'Fix pump', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, estimatedHours: null, progress: 0, completedAt: null, version: 4 };
+const saved = editTaskDraft(editedTask, [], TZ5);
+
+describe('"Needs approval" in New and Edit task (the website’s TaskFormDialog)', () => {
+  it('a new task starts unticked; Edit opens with the task’s own tick', () => {
+    expect(newTaskDraft({}).needsApproval).toBe(false);
+    expect(saved.needsApproval).toBe(false);
+    expect(editTaskDraft({ ...editedTask, needsApproval: true }, [], TZ5).needsApproval).toBe(true);
+  });
+  it('Review Focus 1: a non-manager can’t untick Needs approval where the project asks for it', () => {
+    expect(approvalTickFor({ isAdmin: false, project: rig, editing: false })).toEqual({ canManage: false, projectWants: true, locked: true, note: APPROVAL_LOCKED });
+    expect(approvalTickFor({ isAdmin: false, project: { ...rig, canManage: true }, editing: false }).locked).toBe(false);
+    expect(approvalTickFor({ isAdmin: true, project: rig, editing: false }).locked).toBe(false);
+    const open = { ...rig, newTasksNeedApproval: false };
+    expect(approvalTickFor({ isAdmin: false, project: open, editing: false })).toEqual({ canManage: false, projectWants: false, locked: false, note: null });
+    expect(approvalTickFor({ isAdmin: false, project: open, editing: true, task: { needsApproval: true, approval: { canApprove: false, requestedBy: null, approvedBy: null, approverName: null } } }).locked).toBe(true);
+    expect(approvalTickFor({ isAdmin: false, project: open, editing: true, task: { needsApproval: true, approvalRequestedAt: '2026-10-30T06:00:00Z', approval: { canApprove: true, requestedBy: null, approvedBy: null, approverName: null } } })).toMatchObject({ locked: false, note: APPROVAL_WAITING_NOTE });
+  });
+  it('switching project re-ticks from the new project unless the person chose and may', () => {
+    const tick = approvalTickFor({ isAdmin: false, project: { ...rig, canManage: true }, editing: false });
+    expect(approvalAfterProjectChange({ on: false, touched: true, tick })).toBe(false);
+    expect(approvalAfterProjectChange({ on: false, touched: false, tick })).toBe(true);
+    expect(approvalAfterProjectChange({ on: false, touched: true, tick: approvalTickFor({ isAdmin: false, project: rig, editing: false }) })).toBe(true);
+  });
+  it('the create body says needsApproval only when it matters', () => {
+    expect(bodyOf({ needsApproval: true }, { ...rig, newTasksNeedApproval: false }).needsApproval).toBe(true);
+    expect(bodyOf({ needsApproval: false }, { ...rig, canManage: true }).needsApproval).toBe(false);
+    expect(bodyOf({ needsApproval: false }, { ...rig, newTasksNeedApproval: false })).not.toHaveProperty('needsApproval');
+  });
+  it('Review Focus 1: an approval change in Edit task goes now; the server’s refusal is shown in its words', async () => {
+    const words = 'Only the project’s managers can turn off approval for this task.';
+    const deps = fakeEditDeps({ updateLive: vi.fn(() => Promise.reject(new ApiError(403, 'FORBIDDEN', words))) });
+    const out = await saveTaskEdit(deps, { ...saved, needsApproval: false }, { ...saved, needsApproval: true }, { series: false, canRepeat: true });
+    expect(out.kind).toBe('failed'); expect((out as { message: string }).message).toContain(words); expect(deps.update).not.toHaveBeenCalled();
+    expect(out.saved.needsApproval).toBe(true); // nothing went: a retry sends it again
+  });
+  it('offline, an approval change is not kept for later', async () => {
+    const deps = fakeEditDeps({ updateLive: vi.fn(() => Promise.reject(networkError())) });
+    const out = await saveTaskEdit(deps, { ...saved, needsApproval: true }, saved, { series: false, canRepeat: true });
+    expect(out).toMatchObject({ kind: 'failed', message: expect.stringContaining('You’re offline — this needs a connection.') });
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+  it('an approval change goes with the other changed fields in one live edit; the rest stays on the kept path', async () => {
+    const deps = fakeEditDeps();
+    const out = await saveTaskEdit(deps, { ...saved, title: 'Fix the pump', needsApproval: true }, saved, { series: false, canRepeat: true });
+    expect(deps.updateLive).toHaveBeenCalledWith({ title: 'Fix the pump', needsApproval: true });
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ kind: 'saved', saved: { title: 'Fix the pump', needsApproval: true } });
+    const plain = fakeEditDeps();
+    await saveTaskEdit(plain, { ...saved, title: 'Fix the pump' }, saved, { series: false, canRepeat: true });
+    expect(plain.update).toHaveBeenCalledWith({ title: 'Fix the pump' }); expect(plain.updateLive).not.toHaveBeenCalled();
+  });
+  it('the tick and a new column go in one request, so the server judges them together (the website’s)', async () => {
+    const deps = fakeEditDeps();
+    const out = await saveTaskEdit(deps, { ...saved, needsApproval: false, columnId: 'c2' }, { ...saved, needsApproval: true }, { series: false, canRepeat: true });
+    expect(deps.updateLive).toHaveBeenCalledWith({ needsApproval: false, columnId: 'c2' });
+    expect(deps.move).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ kind: 'saved', saved: { needsApproval: false, columnId: 'c2' } });
+  });
+});
+describe.skipIf(!hasWeb('frontend/src/components/task-form/TaskFormDialog.tsx'))('the website’s Needs approval words', () => {
+  it('the waiting note', () => expect(readWeb('frontend/src/components/task-form/TaskFormDialog.tsx')).toContain(APPROVAL_WAITING_NOTE));
+});
+
+// ── Stage 2 Task 6: task templates and the checklist in New task ──
+describe('New task: task templates and the checklist (the website’s TaskFormDialog)', () => {
+  it('a template fills title, description, priority and checklist, and says so', () => {
+    const t = { id: 'tt1', name: 'Pump check', title: 'Check the pumps', description: null, priority: 'HIGH', checklist: ['Pressure', 'Leaks'] } as TaskTemplate;
+    const d = applyTemplate({ ...newTaskDraft({}), title: 'typed', checklistPending: 'half' }, t);
+    expect(d).toMatchObject({ title: 'Check the pumps', description: '', priority: 'HIGH', checklistPending: '' }); expect(d.checklist.map((r) => r.text)).toEqual(['Pressure', 'Leaks']);
+    expect(templateFilledText('Pump check')).toBe('Filled in from “Pump check” — change anything before saving.');
+    expect([templateHint(t), templateHint({ ...t, checklist: ['a'] }), templateHint({ ...t, checklist: [] })]).toEqual(['2 checklist items', '1 checklist item', undefined]);
+    expect(usableTemplates([t, { id: 'x', name: 3 }, null])).toEqual([t]);
+    expect(usableTemplates({ data: [t] })).toEqual([]);
+    expect(isDraftDirty(d, newTaskDraft({}), { placeChosen: false, files: 0 })).toBe(true); // using one counts as a change
+  });
+  it('a new task sends its checklist, typed-but-not-added text included', () => {
+    const input = bodyOf({ checklist: checklistRows(['Pressure']), checklistPending: 'Leaks' }, rig);
+    expect(input.checklist).toEqual(['Pressure', 'Leaks']);
+    expect(bodyOf({}, rig)).not.toHaveProperty('checklist');
+    expect(bodyOf({ checklist: checklistRows(['  ']), checklistPending: ' ' }, rig)).not.toHaveProperty('checklist');
+  });
+  it('the checklist and its typed text count as a change', () => {
+    const start = newTaskDraft({});
+    expect(isDraftDirty({ ...start, checklistPending: 'Leaks' }, start, { placeChosen: false, files: 0 })).toBe(true);
+    expect(isDraftDirty({ ...start, checklist: checklistRows(['Pressure']) }, start, { placeChosen: false, files: 0 })).toBe(true);
+  });
+  it('Edit task opens with no checklist of its own (its checklist is edited on the task)', () => {
+    expect(saved).toMatchObject({ checklist: [], checklistPending: '' });
+  });
+});
+describe.skipIf(!hasWeb('frontend/src/components/task-form/TaskFormDialog.tsx'))('the website’s template words', () => {
+  it('label, placeholder, status line', () => {
+    const w = readWeb('frontend/src/components/task-form/TaskFormDialog.tsx');
+    for (const t of [TEMPLATE_TEXT.label, TEMPLATE_TEXT.placeholder, '— change anything before saving.', 'Filled in from “', ' checklist item']) expect(w, t).toContain(t);
   });
 });

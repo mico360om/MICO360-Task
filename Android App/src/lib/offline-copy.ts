@@ -65,8 +65,8 @@ export const PROGRESS_KEPT = 20;
 
 const PROGRESS = /^progress\.[^.]+$/;
 
-/** The Projects list's card figures (one small copy, from one task list). */
-export const PROJECT_FIGURES_COPY = 'projects.figures';
+/** The Projects page's list with each card's figures (GET /projects/overview, one copy). */
+export const PROJECTS_OVERVIEW_COPY = 'projects.overview';
 
 /** The copies that pile up, each capped on its own: board days, chat threads, channel members, boards' progress. */
 export function offlineCopyCaps(): RollingGroup[] {

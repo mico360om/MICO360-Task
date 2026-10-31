@@ -1,8 +1,9 @@
 /**
  * User Management on the phone (6b), as the website's admin Users page and its New user / Manage
  * account dialogs: the list with the website's role and status names, finding people by name,
- * username or email, a status filter, New user with a temporary password, editing the details,
- * roles and status, unlocking, deleting and setting a new password. The server decides who may do
+ * username or email, a status filter (and "Never signed in"), New user with a welcome email or a
+ * temporary password, editing the details, roles and status, unlocking, deleting, setting a new
+ * password and sending welcome emails (1.13; the sign-in words are lib/user-sign-in). The server decides who may do
  * any of it (administrators) and refuses what would break its rules (the last administrator); the
  * app shows those refusals in plain words. Pure TypeScript.
  *
@@ -12,6 +13,7 @@ import { ApiError, isNetworkError } from './api-client';
 import { roleLabel } from './auth';
 import { PASSWORD_RULE_ERROR, isStrongPassword } from './password-change';
 import type { Tone } from './tone';
+import { welcomeBatchSummary, type SignInSort } from './user-sign-in';
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
@@ -27,6 +29,30 @@ export interface ApiAdminUser {
   roles: string[];
   /** Sign-in is locked after too many failed attempts (an administrator can unlock it). */
   locked?: boolean;
+  /** Last sign-in (password, emailed code or fingerprint); null: never signed in. Admin list only. */
+  lastLoginAt?: string | null;
+  /** When an administrator last sent them a welcome email; null: never. Admin list only. */
+  welcomeSentAt?: string | null;
+}
+
+/** What happened for one person's welcome email (the website's api/users.ts). */
+export interface WelcomeOutcome {
+  userId: string;
+  username: string | null;
+  name: string | null;
+  email: string | null;
+  sent: boolean;
+  sentAt?: string;
+  /** Why it wasn't sent: the server's code (NOT_FOUND, ACCOUNT_SUSPENDED, TOO_SOON, …). */
+  reason?: string;
+  /** "the account is suspended": finishes "Not sent: …". */
+  why?: string;
+}
+
+export interface WelcomeBatchResult {
+  sent: number;
+  notSent: number;
+  results: WelcomeOutcome[];
 }
 
 export const USER_STATUSES: readonly UserStatus[] = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
@@ -55,23 +81,43 @@ export function userFullName(u: Pick<ApiAdminUser, 'firstName' | 'lastName' | 'u
 
 // ── The list ─────────────────────────────────────────────────────────────────
 
-export type UserFilter = 'ALL' | UserStatus | 'LOCKED';
+export type UserFilter = 'ALL' | UserStatus | 'NEVER' | 'LOCKED';
+
+/** The page's words (the website's PageHeader subtitle). */
+export const USERS_SUBTITLE = 'Create and edit accounts, assign roles, control access, reset passwords and send welcome emails.';
+
+/** "Never signed in" with nobody in it. */
+export const NEVER_EMPTY = 'Everyone has signed in at least once.';
+
+/** The website's "Sort" choices. */
+export const SIGN_IN_SORTS: { value: SignInSort; label: string }[] = [
+  { value: 'newest', label: 'Newest accounts first' },
+  { value: 'signin-latest', label: 'Last sign-in, latest first' },
+  { value: 'signin-earliest', label: 'Last sign-in, earliest first' },
+];
+
+const keptBy = (u: ApiAdminUser, filter: UserFilter): boolean => {
+  if (filter === 'LOCKED') return !!u.locked;
+  if (filter === 'NEVER') return !u.lastLoginAt;
+  return filter === 'ALL' || u.status === filter;
+};
 
 /** The people matching the words typed (name, username or email) and the filter, in the server's order. */
 export function filterUsers(users: readonly ApiAdminUser[], { q, filter }: { q: string; filter: UserFilter }): ApiAdminUser[] {
   const words = q.trim().toLowerCase();
   return users.filter((u) => {
-    if (filter === 'LOCKED' ? !u.locked : filter !== 'ALL' && u.status !== filter) return false;
+    if (!keptBy(u, filter)) return false;
     if (!words) return true;
     return [userFullName(u), u.username, u.email].some((t) => (t ?? '').toLowerCase().includes(words));
   });
 }
 
-/** The filter chips with their counts; "Locked" only while someone is locked. */
+/** The filter chips with their counts; "Never signed in" always (as the website's Show); "Locked" only while someone is locked. */
 export function filterOptions(users: readonly ApiAdminUser[]): { value: UserFilter; label: string; count: number; danger?: boolean }[] {
   const out: { value: UserFilter; label: string; count: number; danger?: boolean }[] = [
     { value: 'ALL', label: 'All', count: users.length },
     ...USER_STATUSES.map((s) => ({ value: s as UserFilter, label: statusLabel(s), count: users.filter((u) => u.status === s).length })),
+    { value: 'NEVER', label: 'Never signed in', count: users.filter((u) => !u.lastLoginAt).length },
   ];
   const locked = users.filter((u) => u.locked).length;
   if (locked > 0) out.push({ value: 'LOCKED', label: 'Locked', count: locked, danger: true });
@@ -108,6 +154,43 @@ export function offersNewUser(state: { isAdmin: boolean; listed: boolean; denied
   return !state.denied && (state.isAdmin || state.listed);
 }
 
+// ── Welcome emails (1.13) ────────────────────────────────────────────────────
+
+/** The website's words for welcome emails (UsersPage.tsx). */
+export const WELCOME_TEXT = {
+  send: 'Send welcome email',
+  sendMany: 'Send welcome emails',
+  pickNever: 'Select everyone who has never signed in',
+  nobody: 'No one to pick: everyone active has signed in, or was sent a welcome email in the last 7 days',
+  clear: 'Clear selection',
+  tooMany: 'You can send up to 100 welcome emails at a time. Choose fewer people.',
+  body: 'Each gets their username and a link to set their password, valid for 7 days. Any password they already have keeps working until they use the link, and an earlier welcome link stops working.',
+  emailOff: 'Email isn’t set up on this server, so welcome emails can’t be sent. An administrator needs to add the email (Mailjet) keys.',
+  failed: 'Couldn’t send the welcome email. Try again.',
+} as const;
+
+/** After one person's send: "Welcome email sent to sara (sara@mico360.com)." */
+export function welcomeSentNotice(o: { username: string; email: string }): string {
+  return `Welcome email sent to ${o.username} (${o.email}).`;
+}
+
+/**
+ * How a batch went, as the website says it: "Sent 11. 1 not sent:" and a line for each person not
+ * sent one, with why (keyed by person and place: two may read alike); an error when none went.
+ */
+export function welcomeResultLines(r: WelcomeBatchResult): { summary: string; lines: { key: string; text: string }[]; error: boolean } {
+  const lines = r.results
+    .map((x, i) => ({ x, i }))
+    .filter(({ x }) => !x.sent)
+    .map(({ x, i }) => ({ key: `${x.userId}-${i}`, text: `${x.username ?? x.name ?? 'Someone'}: ${x.why ?? 'not sent'}` }));
+  return { summary: welcomeBatchSummary(r), lines, error: r.sent === 0 && r.notSent > 0 };
+}
+
+/** "3 selected". */
+export function selectedText(n: number): string {
+  return `${n} selected`;
+}
+
 // ── Why a change wasn't made ─────────────────────────────────────────────────
 
 /** The phone knew it was offline, so the change was never sent: nothing changed. */
@@ -130,6 +213,17 @@ function reason(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** The server's words for a welcome email it didn't send (refused, too soon, email not set up, not delivered). */
+const WELCOME_CODES = new Set(['NOT_FOUND', 'ACCOUNT_INACTIVE', 'ACCOUNT_SUSPENDED', 'ACCOUNT_LOCKED', 'NO_EMAIL', 'EMAIL_BLOCKED', 'TOO_SOON', 'DELIVERY_FAILED', 'SERVER_ERROR', 'EMAIL_NOT_CONFIGURED']);
+
+/** Why a welcome email (or a batch) didn't go: offline (never sent), no answer, the server's reason, or the website's fallback. */
+export function welcomeProblem(error: unknown): string {
+  if (error instanceof UserChangeNotSent) return OFFLINE;
+  if (isNetworkError(error)) return UNSURE;
+  if (error instanceof ApiError && WELCOME_CODES.has(error.code ?? '') && error.message) return error.message;
+  return reason(error, WELCOME_TEXT.failed);
+}
+
 const FIELD_NAMES: Record<string, string> = { firstName: 'first name', lastName: 'last name', username: 'username', email: 'email', password: 'password', roleNames: 'role' };
 
 /** A field the server found wrong (its validation details), as the website words it. */
@@ -148,25 +242,72 @@ export interface NewUserForm {
   lastName: string;
   username: string;
   email: string;
-  /** The temporary password: sent as typed. */
+  /** The temporary password: sent as typed (none: they set their own with the welcome email's link). */
   password: string;
   role: 'EMPLOYEE' | 'ADMIN';
+  /** Send a welcome email (on unless email isn't set up on the server). */
+  sendWelcome: boolean;
+}
+
+/** The New user form's welcome email and password words (the website's CreateUserModal). */
+export const NEW_USER_TEXT = {
+  welcome: 'Send a welcome email',
+  welcomeHint: 'They get their username and a link to set their own password (it works for 7 days).',
+  welcomeOffHint: 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.',
+  password: 'Temp password',
+  optional: ' (optional)',
+  leaveEmpty: 'Or leave it empty: they choose their own with the link.',
+} as const;
+
+/** A new account, and whether its welcome email went (null: none was asked for). */
+export interface CreatedUser {
+  user: ApiAdminUser;
+  welcome: WelcomeOutcome | null;
+}
+
+/** What the list says once a new account is made: whether its welcome email went, and why not. */
+export function createdNotice({ user, welcome }: CreatedUser): string {
+  const whose = user.username ? `${user.username}’s account is ready` : 'The account is ready';
+  if (!welcome) return `${whose}.`;
+  if (welcome.sent) return `${whose}. Welcome email sent to ${welcome.email ?? user.email}.`;
+  return `${whose}, but the welcome email wasn’t sent: ${welcome.why ?? 'it couldn’t be sent'}.`;
 }
 
 export type NewUserField = 'firstName' | 'lastName' | 'username' | 'email' | 'password';
 const NEW_USER_FIELDS: readonly NewUserField[] = ['firstName', 'lastName', 'username', 'email', 'password'];
 
-/** What's wrong before it is sent, and the field to fix (null: send it). The server's own password rule. */
-export function checkNewUser(f: NewUserForm): { field: NewUserField; message: string } | null {
-  const empty = NEW_USER_FIELDS.find((k) => (k === 'password' ? !f.password : !f[k].trim()));
+/**
+ * What's wrong before it is sent, and the field to fix (null: send it), as the website's form: every
+ * detail first; then a password, unless a welcome email goes (they set their own with its link —
+ * never when email isn't set up on the server); a typed password meets the server's own rule.
+ */
+export function checkNewUser(f: NewUserForm, o: { emailEnabled: boolean }): { field: NewUserField; message: string } | null {
+  const empty = NEW_USER_FIELDS.find((k) => k !== 'password' && !f[k].trim());
   if (empty) return { field: empty, message: 'Fill in every field.' };
-  if (!isStrongPassword(f.password)) return { field: 'password', message: PASSWORD_RULE_ERROR };
+  if (!f.password && !(f.sendWelcome && o.emailEnabled)) {
+    // Only point at the welcome email when it can be turned on.
+    return {
+      field: 'password',
+      message: o.emailEnabled
+        ? 'Enter a temporary password, or turn on “Send a welcome email” so they can set their own.'
+        : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password.',
+    };
+  }
+  if (f.password && !isStrongPassword(f.password)) return { field: 'password', message: PASSWORD_RULE_ERROR };
   return null;
 }
 
-/** POST /users: the details trimmed (the server trims them too), the password as typed, the one role chosen. */
+/** POST /users: the details trimmed (the server trims them too), the password as typed (none when empty), the one role chosen, and the welcome email. */
 export function newUserBody(f: NewUserForm) {
-  return { firstName: f.firstName.trim(), lastName: f.lastName.trim(), username: f.username.trim(), email: f.email.trim(), password: f.password, roleNames: [f.role] };
+  return {
+    firstName: f.firstName.trim(),
+    lastName: f.lastName.trim(),
+    username: f.username.trim(),
+    email: f.email.trim(),
+    ...(f.password ? { password: f.password } : {}),
+    roleNames: [f.role],
+    sendWelcome: f.sendWelcome,
+  };
 }
 
 /** Why the account wasn't created, pointing at the detail to fix. */
@@ -181,6 +322,10 @@ export function createUserProblem(error: unknown): { field: NewUserField | null;
       return { field: null, message: 'The account is still being created. Wait a moment, then tap Create user again: it won’t be made twice.', unsure: true };
     }
     if (error.code === 'WEAK_PASSWORD') return { field: 'password', message: PASSWORD_RULE_ERROR };
+    // The phone thought email was set up (the screen asks the server's settings again).
+    if (error.code === 'EMAIL_NOT_CONFIGURED') {
+      return { field: 'password', message: 'Email isn’t set up on this server, so the welcome email can’t be sent and the account wasn’t created. Give them a temporary password.' };
+    }
     if (error.code === 'DUPLICATE_USER' || error.status === 409) return { field: 'username', message: 'That email or username is already in use. Choose a different one.' };
     const issue = fieldIssue(error);
     if (issue) return { field: (NEW_USER_FIELDS as readonly string[]).includes(issue.field) ? (issue.field as NewUserField) : null, message: issue.message };
@@ -300,7 +445,7 @@ export function resetProblem(error: unknown): string {
 
 /** The requests (resources.users). */
 export interface UserApi {
-  create(body: ReturnType<typeof newUserBody>, idempotencyKey: string): Promise<ApiAdminUser>;
+  create(body: ReturnType<typeof newUserBody>, idempotencyKey: string): Promise<CreatedUser>;
   update(id: string, patch: ReturnType<typeof userPatch>): Promise<ApiAdminUser>;
   setStatus(id: string, status: UserStatus): Promise<ApiAdminUser>;
   remove(id: string): Promise<void>;
@@ -336,7 +481,7 @@ export function userActions({ api, isOnline }: { api: UserApi | (() => UserApi);
   };
   const now = typeof api === 'function' ? api : () => api;
   return {
-    async create(form: NewUserForm, idempotencyKey: string): Promise<ApiAdminUser> {
+    async create(form: NewUserForm, idempotencyKey: string): Promise<CreatedUser> {
       online();
       return now().create(newUserBody(form), idempotencyKey);
     },

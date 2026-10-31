@@ -47,9 +47,9 @@ import { loadTextPreview, previewMode } from '../lib/file-preview';
 import { checkTaskFiles } from '../lib/task-form';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
-import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem, taskSections, type TaskSection } from '../lib/task-detail';
 import { stillMatching } from '../lib/blocker-search';
-import { approvalNotice } from '../lib/approvals';
+import { approvalNotice, isWaitingForApproval } from '../lib/approvals';
 import { notice } from '../components/notice';
 import { withQueuedTicks } from '../lib/checklist-ticks';
 import type { AppScreenProps } from '../navigation/types';
@@ -60,6 +60,10 @@ import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
 import { failureText } from '../components/task-detail/kit';
 import { FilePreviewSheet } from '../components/task-detail/FilePreviewSheet';
+import { TaskApproval } from '../components/approvals/TaskApproval';
+import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
+import { useMoveTargets } from '../core/move-queries';
+import { moveAvailability, movedText } from '../lib/task-move';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
@@ -69,9 +73,12 @@ const TWO_COLUMNS_FROM = 720;
 const BLOCKER_SEARCH_PAUSE_MS = 250;
 
 /**
- * Task details: header (reference, status, priority, due date, title, ⋯ menu), the description,
- * properties, checklist, files, blockers, comments and activity — each edited in place with its own
- * saving / saved / error state. Edits made offline are kept and synced where the app allows it.
+ * Task details, in the website's TaskDrawer order (lib/task-detail taskSections): header (reference,
+ * status, priority, due date, title, ⋯ menu), then on a phone the description, properties, checklist
+ * and comments, then approval, files and blockers, then the history; on a wide screen the properties,
+ * approval, files and blockers beside the work. A task waiting for approval opens on its Approval
+ * section. Each part is edited in place with its own saving / saved / error state.
+ * Edits made offline are kept and synced where the app allows it.
  */
 export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDetail'>) {
   const { taskId } = route.params;
@@ -113,6 +120,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const blockerSearch = useTaskSearch(projectId, searchFor);
   const watch = useTaskWatch(taskId);
   const deleteTask = useDeleteTask(taskId);
+  // Moving it to another project (the ⋯ menu): where the person may move tasks, and the sheet.
+  const moveTargets = useMoveTargets(true);
+  const [moveOpen, setMoveOpen] = useState(false);
   const directoryQ = useDirectory();
   const queued = useMyQueuedChanges();
   const { baseUrl, exporter, resources } = useServices();
@@ -372,6 +382,19 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     />
   );
   const activity = <ActivityCard entries={activityFeed(activityQ.data ?? [], nameOf)} />;
+  // Where each part goes: the website's order on a phone and beside the work on a wide screen.
+  const layout = taskSections({ wide, waiting: isWaitingForApproval(task), approval: true });
+  const part: Record<TaskSection, React.ReactNode> = {
+    approval: <TaskApproval task={task} />,
+    description,
+    details,
+    checklist: checklistCard,
+    comments: commentsCard,
+    files,
+    blockers,
+    activity,
+  };
+  const show = (list: readonly TaskSection[]) => list.map((k) => <React.Fragment key={k}>{part[k]}</React.Fragment>);
   const refreshAll = () => {
     void taskQ.refetch();
     void checklistQ.refetch();
@@ -404,31 +427,17 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           onOpenMeeting={openMeeting}
           // The full Edit form (4d): New task's form, filled with this task.
           onEdit={() => navigation.navigate('NewTask', { taskId: task.id })}
+          move={moveAvailability(task.projectId, moveTargets, projectQ.data?.name)}
+          onMove={() => setMoveOpen(true)}
         />
+        {show(layout.top)}
         {wide ? (
           <View style={styles.columns}>
-            <View style={styles.main}>
-              {description}
-              {checklistCard}
-              {commentsCard}
-              {activity}
-            </View>
-            <View style={styles.side}>
-              {details}
-              {files}
-              {blockers}
-            </View>
+            <View style={styles.main}>{show(layout.main)}</View>
+            <View style={styles.side}>{show(layout.side)}</View>
           </View>
         ) : (
-          <>
-            {description}
-            {details}
-            {checklistCard}
-            {files}
-            {blockers}
-            {commentsCard}
-            {activity}
-          </>
+          show(layout.main)
         )}
         {canDeleteTask(session?.user ?? null, projectQ.data, members) ? (
           <View style={styles.danger}>
@@ -437,6 +446,16 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           </View>
         ) : null}
       </KeyboardAwareScrollView>
+      <MoveTaskSheet
+        tasks={[{ id: task.id, key: task.key, title: task.title, projectId: task.projectId }]}
+        visible={moveOpen}
+        onClose={() => setMoveOpen(false)}
+        // It stays open on its new number ("Formerly …" under it): said where it went.
+        onMoved={(r) => {
+          setMoveOpen(false);
+          notice(movedText(r));
+        }}
+      />
       <FilePreviewSheet
         file={previewing}
         mode={previewing ? previewMode(previewing.mimeType, previewing.filename) : null}

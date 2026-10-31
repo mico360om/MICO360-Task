@@ -2,7 +2,9 @@
  * The New task form (4a), as on the website (Web Portal/frontend/src/components/task-form/
  * TaskFormDialog.tsx): where the task goes (project and column), what it is (title, description),
  * when and how urgent (priority, due date, repeat), who does it (several assignees, from the
- * project's active members), whether it is a milestone, and files attached once it exists.
+ * project's active members), whether it is a milestone, whether it needs approval, its checklist, and
+ * files attached once it exists — and it can start from a task template (title, description, priority,
+ * checklist).
  *
  * Sending follows the app's offline rules: a task without files goes through the offline queue
  * under its Idempotency-Key (kept on this phone when it gets no answer, sent later — never twice);
@@ -16,7 +18,9 @@ import { validateAttachment } from './chat-model';
 import { isKeptOnPhone, keptOnPhoneText } from './write-order';
 import { dueDayKey } from './due-date';
 import { recurrenceSummary } from './recurrence-summary';
-import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule } from './types';
+import { APPROVAL_LOCKED } from './approvals';
+import { checklistRows, checklistTexts, type ChecklistRow } from './checklist-draft';
+import { displayName, type ApiColumn, type ApiDirectoryUser, type ApiMember, type ApiTask, type Priority, type RecurrenceRule, type TaskTemplate } from './types';
 
 /** The website's limits for the title and description. */
 export const TITLE_MAX = 191;
@@ -76,13 +80,19 @@ export interface TaskDraft {
   rule: RecurrenceRule | null;
   assigneeIds: string[];
   milestone: boolean;
+  /** Needs approval: a project manager must approve it before it counts as done. */
+  needsApproval: boolean;
+  /** A new task's checklist (a task template fills it in); an existing task's is edited on the task. */
+  checklist: ChecklistRow[];
+  /** What is typed in "Add an item" and not added yet (it is saved too). */
+  checklistPending: string;
   /** Edit task only (4d): 'YYYY-MM-DD' (a company calendar day), or '' for none. New tasks start today (the server's). */
   startDate?: string;
 }
 
 /** A new task as it opens: in the project and column it was opened from, on the day chosen (the calendar's). */
 export function newTaskDraft(o: { projectId?: string; columnId?: string; dueDate?: string }): TaskDraft {
-  return { projectId: o.projectId ?? '', columnId: o.columnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: o.dueDate ?? '', rule: null, assigneeIds: [], milestone: false };
+  return { projectId: o.projectId ?? '', columnId: o.columnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: o.dueDate ?? '', rule: null, assigneeIds: [], milestone: false, needsApproval: false, checklist: [], checklistPending: '' };
 }
 
 // ── Where the task goes ──────────────────────────────────────────────────────
@@ -95,6 +105,12 @@ export interface FormProject {
   number?: string | null;
   status: string;
   ownerId?: string | null;
+  /** "New tasks in this project need approval": the form starts ticked (missing: off). */
+  newTasksNeedApproval?: boolean;
+  /** A task added without a due date gets today's date (missing: off). */
+  defaultDueToday?: boolean;
+  /** May the signed-in person run it (the server's canManage): they may untick "Needs approval". */
+  canManage?: boolean;
 }
 
 /** The projects a task can be added to: those not archived (the website's rule). */
@@ -191,6 +207,45 @@ export function assigneeNote(ids: readonly string[], ownerName: string | null): 
   return ownerName ? `Nobody picked — the task will go to ${ownerName}, the project owner.` : 'Nobody picked — the task will be unassigned.';
 }
 
+// ── Needs approval ───────────────────────────────────────────────────────────
+
+/** Edit task, a task waiting for approval (the website's TaskFormDialog). */
+export const APPROVAL_WAITING_NOTE = 'It is waiting for approval: turning this off marks it done.';
+
+export interface ApprovalTick {
+  /** May untick it: an administrator, someone who runs the project, or (editing) the task's approver. */
+  canManage: boolean;
+  /** The project's "New tasks in this project need approval". */
+  projectWants: boolean;
+  /** On, and it stays on: the server refuses anyone else turning it off. */
+  locked: boolean;
+  note: string | null;
+}
+
+/**
+ * The form's "Needs approval" tick, as the website's: ticking it is anyone's; unticking it is for the
+ * people who run the project and administrators only (owner, 30 Oct — the server refuses anyone
+ * else), so for everyone else a tick that is on stays on — a saved task's, or the one the project
+ * gives its new tasks.
+ */
+export function approvalTickFor(o: {
+  isAdmin: boolean;
+  project: FormProject | null | undefined;
+  editing: boolean;
+  task?: Pick<ApiTask, 'needsApproval' | 'approvalRequestedAt' | 'approval'> | null;
+}): ApprovalTick {
+  const canManage = o.isAdmin || o.project?.canManage === true || (o.editing && o.task?.approval?.canApprove === true);
+  const projectWants = !!o.project?.newTasksNeedApproval;
+  const locked = !canManage && (o.editing ? !!o.task?.needsApproval : projectWants);
+  const note = locked ? APPROVAL_LOCKED : o.editing && o.task?.approvalRequestedAt ? APPROVAL_WAITING_NOTE : null;
+  return { canManage, projectWants, locked, note };
+}
+
+/** After New task's project changed: your own choice stands — unless the new project's tick is locked on for you. */
+export function approvalAfterProjectChange(o: { on: boolean; touched: boolean; tick: ApprovalTick }): boolean {
+  return o.touched && !o.tick.locked ? o.on : o.tick.projectWants;
+}
+
 // ── The repeat ───────────────────────────────────────────────────────────────
 
 /** "Repeats every week on Thu": a weekly rule without chosen days repeats on the due date's weekday. */
@@ -220,17 +275,22 @@ export interface NewTaskInput {
   assigneeIds?: string[];
   /** The board day the task belongs to (per-date boards). */
   boardDate?: string;
+  /** Ticked: true; unticked in a project that pre-ticks: false; otherwise left out (the project decides). */
+  needsApproval?: boolean;
+  /** Its checklist's items, in order (e.g. from a task template), created with the task. */
+  checklist?: string[];
 }
 
 export type DraftCheck = { ok: true; input: NewTaskInput } | { ok: false; field: 'title' | 'repeat' | 'place'; message: string };
 
-export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?: string }): DraftCheck {
+export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?: string; project?: FormProject | null }): DraftCheck {
   const title = d.title.trim();
   if (!title) return { ok: false, field: 'title', message: 'Give the task a title.' };
   const until = untilProblem(d.rule, d.dueDate);
   if (until) return { ok: false, field: 'repeat', message: until };
   if (!d.projectId || !d.columnId) return { ok: false, field: 'place', message: o.noProjects ? 'Create a project first.' : 'Choose where the task goes: its project and column.' };
   const description = d.description.trim();
+  const checklist = checklistTexts(d.checklist, d.checklistPending);
   return {
     ok: true,
     input: {
@@ -244,9 +304,36 @@ export function checkNewTask(d: TaskDraft, o: { noProjects: boolean; boardDate?:
       ...(d.milestone ? { isMilestone: true as const } : {}),
       ...(d.assigneeIds.length ? { assigneeIds: [...new Set(d.assigneeIds)] } : {}),
       ...(o.boardDate ? { boardDate: o.boardDate } : {}),
+      ...(d.needsApproval ? { needsApproval: true } : o.project?.newTasksNeedApproval ? { needsApproval: false } : {}),
+      ...(checklist.length ? { checklist } : {}),
     },
   };
 }
+
+// ── Start from a task template ───────────────────────────────────────────────
+
+/** The template picker's words (the website's). */
+export const TEMPLATE_TEXT = { label: 'Start from a template', placeholder: 'Choose a task template' } as const;
+
+/** Only well-formed templates (a server without templates answers something else, or nothing). */
+export function usableTemplates(data: unknown): TaskTemplate[] {
+  if (!Array.isArray(data)) return [];
+  return data.filter((t): t is TaskTemplate => !!t && typeof t === 'object' && typeof (t as TaskTemplate).name === 'string' && typeof (t as TaskTemplate).title === 'string' && Array.isArray((t as TaskTemplate).checklist));
+}
+
+/** "4 checklist items" / "1 checklist item" under a template's name; nothing for one without a checklist. */
+export function templateHint(t: TaskTemplate): string | undefined {
+  const n = t.checklist.length;
+  return n ? `${n} checklist item${n === 1 ? '' : 's'}` : undefined;
+}
+
+/** The form filled in from a template: its title, description, priority and checklist (a change of yours). */
+export function applyTemplate(draft: TaskDraft, t: TaskTemplate): TaskDraft {
+  return { ...draft, title: t.title, description: t.description ?? '', priority: t.priority, checklist: checklistRows(t.checklist), checklistPending: '' };
+}
+
+/** Said once a template is used. */
+export const templateFilledText = (name: string): string => `Filled in from “${name}” — change anything before saving.`;
 
 /**
  * Is there something to keep? What you typed or chose — not what the form filled in itself (the
@@ -381,6 +468,9 @@ export function editTaskDraft(task: ApiTask, assigneeIds: readonly string[], tim
     rule: task.recurrenceRule ?? null,
     assigneeIds: [...assigneeIds],
     milestone: !!task.isMilestone,
+    needsApproval: !!task.needsApproval,
+    checklist: [],
+    checklistPending: '',
   };
 }
 
@@ -430,6 +520,8 @@ export function editLeaveWarning(): { title: string; message: string; stay: stri
 export interface EditDeps {
   /** PUT /tasks/:id with only what changed (and `scope: 'series'`), against the version the form opened with. */
   update(patch: Record<string, unknown>): Promise<unknown>;
+  /** The same PUT, sent now and never kept: an edit that changes "Needs approval" (online only). */
+  updateLive(patch: Record<string, unknown>): Promise<unknown>;
   move(columnId: string): Promise<unknown>;
   assign(userIds: string[]): Promise<unknown>;
   unassign(userId: string): Promise<unknown>;
@@ -448,7 +540,9 @@ const sameRule = (a: RecurrenceRule | null, b: RecurrenceRule | null) => JSON.st
  * Save an edit as the website does: only what changed, in one edit (`scope: 'series'` when chosen);
  * a new repeat for a series on its own (the rule lives on the newest copy); then the column; then the
  * people added (one request) and taken off. Each step's success is kept, so a retry sends only the
- * rest. A step with no answer is kept on this phone (the rest go too).
+ * rest. A step with no answer is kept on this phone (the rest go too) — except an edit that changes
+ * "Needs approval": it goes now (updateLive) or fails, never kept, with a new column in the same
+ * request so the server judges them together (the website's).
  */
 export async function saveTaskEdit(deps: EditDeps, draft: TaskDraft, saved: TaskDraft, o: { series: boolean; canRepeat: boolean }): Promise<EditOutcome> {
   let done = saved;
@@ -473,22 +567,35 @@ export async function saveTaskEdit(deps: EditDeps, draft: TaskDraft, saved: Task
     if (draft.dueDate !== done.dueDate) fields.dueDate = draft.dueDate || null;
     if ((draft.startDate ?? '') !== (done.startDate ?? '')) fields.startDate = draft.startDate || null;
     if (draft.milestone !== done.milestone) fields.isMilestone = draft.milestone;
+    const tickChanged = draft.needsApproval !== done.needsApproval;
+    if (tickChanged) fields.needsApproval = draft.needsApproval;
+    // The tick and a new status in one request, so the server judges them together (an approver
+    // unticking a waiting task and moving it elsewhere moves it — it isn't completed first).
+    const moveWithTick = tickChanged && draft.columnId !== done.columnId;
+    if (moveWithTick) fields.columnId = draft.columnId;
     const ruleChanged = o.canRepeat && !sameRule(draft.rule, done.rule);
     if (ruleChanged && !o.series) fields.recurrenceRule = draft.rule;
     if (Object.keys(fields).length) {
-      await step(
-        () => deps.update({ ...fields, ...(o.series ? { scope: 'series' } : {}) }),
-        () =>
-          keep({
-            title: draft.title,
-            description: draft.description,
-            priority: draft.priority,
-            dueDate: draft.dueDate,
-            startDate: draft.startDate,
-            milestone: draft.milestone,
-            ...(ruleChanged && !o.series ? { rule: draft.rule } : {}),
-          }),
-      );
+      const patch = { ...fields, ...(o.series ? { scope: 'series' } : {}) };
+      const sent = () =>
+        keep({
+          title: draft.title,
+          description: draft.description,
+          priority: draft.priority,
+          dueDate: draft.dueDate,
+          startDate: draft.startDate,
+          milestone: draft.milestone,
+          needsApproval: draft.needsApproval,
+          ...(moveWithTick ? { columnId: draft.columnId } : {}),
+          ...(ruleChanged && !o.series ? { rule: draft.rule } : {}),
+        });
+      if (tickChanged) {
+        // Online only: a network error or a refusal fails the save; nothing is kept for later.
+        await deps.updateLive(patch);
+        sent();
+      } else {
+        await step(() => deps.update(patch), sent);
+      }
     }
     if (ruleChanged && o.series) await step(() => deps.update({ recurrenceRule: draft.rule }), () => keep({ rule: draft.rule }));
     if (draft.columnId !== done.columnId) await step(() => deps.move(draft.columnId), () => keep({ columnId: draft.columnId }));
@@ -504,10 +611,16 @@ export async function saveTaskEdit(deps: EditDeps, draft: TaskDraft, saved: Task
   }
 }
 
+/**
+ * Why a save or create was refused, after "Couldn’t …": offline, the server's own sentence (a 403's
+ * too — "Only the project’s managers can turn off approval for this task."), the website's words for
+ * a 403 without words of its own, or "Please try again.".
+ */
 function reasonOf(err: unknown): string {
+  if (isNetworkError(err)) return 'You’re offline — this needs a connection. Please try again.';
   if (err instanceof ApiError) {
-    if (err.status === 403) return 'You don’t have permission to do that.';
     if (err.message && !/^Request failed/.test(err.message)) return err.message;
+    if (err.status === 403) return 'You don’t have permission to do that.';
   }
   return 'Please try again.';
 }

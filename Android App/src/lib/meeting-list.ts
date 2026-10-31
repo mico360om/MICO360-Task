@@ -1,8 +1,8 @@
 /**
  * The Meetings tab's list, as on the website (Web Portal/frontend/src/lib/meeting-list.ts; the
  * tests check both behave alike): the search, the project / status / date filters and their chips,
- * the groups (Today, Next 7 days, Later, Drafts, Past), the meeting shown as "Up next", and the rows
- * the list draws. Days are the company's (appTimeZone). A custom date range needs a date picker,
+ * the groups (Today, Next 7 days, Later, Drafts, Past), the meeting shown as "Up next", the four
+ * numbers above the list (each also a filter), "Nothing coming up", and the rows the list draws. Days are the company's (appTimeZone). A custom date range needs a date picker,
  * which the app doesn't have yet, so the phone offers the presets only.
  */
 import type { ApiMeeting, MeetingStatus } from './types';
@@ -22,12 +22,38 @@ export const DATE_RANGES: { value: DateRange; label: string }[] = [
   { value: 'last30', label: 'Last 30 days' },
 ];
 
+/**
+ * The numbers above the list, each also a way to see just those meetings: still to come in the next
+ * 7 days, with open action items, over without final minutes, and held this month.
+ */
+export type MeetingFocus = 'week' | 'actions' | 'minutes' | 'held';
+
+export const FOCUSES: MeetingFocus[] = ['week', 'actions', 'minutes', 'held'];
+
+/** What each number is called above the list… */
+export const FOCUS_LABELS: Record<MeetingFocus, string> = {
+  week: 'Next 7 days',
+  actions: 'Open action items',
+  minutes: 'Minutes to finish',
+  held: 'Held this month',
+};
+
+/** …and the chip that says the list shows only those meetings. */
+export const FOCUS_CHIPS: Record<MeetingFocus, string> = {
+  week: 'Next 7 days',
+  actions: 'With open action items',
+  minutes: 'Minutes to finish',
+  held: 'Held this month',
+};
+
 export interface MeetingFilters {
   q: string;
   /** '' = every project, 'none' = standalone meetings only, else a project id. */
   projectId: string;
   status: MeetingStatus | 'ALL';
   range: DateRange;
+  /** Only the meetings behind one of the numbers above the list. */
+  focus?: MeetingFocus;
 }
 
 export const EMPTY_FILTERS: MeetingFilters = { q: '', projectId: '', status: 'ALL', range: 'any' };
@@ -68,7 +94,7 @@ function shiftDayKey(key: string, days: number): string {
 const dayOf = (m: Pick<ApiMeeting, 'startAt'>, timeZone: string): string => zonedDayKey(new Date(m.startAt), timeZone);
 
 export function hasActiveFilters(f: MeetingFilters): boolean {
-  return f.q.trim() !== '' || f.projectId !== '' || f.status !== 'ALL' || f.range !== 'any';
+  return f.q.trim() !== '' || f.projectId !== '' || f.status !== 'ALL' || f.range !== 'any' || f.focus !== undefined;
 }
 
 function inRange(day: string, range: DateRange, today: string): boolean {
@@ -96,6 +122,7 @@ export function filterMeetings(list: ApiMeeting[], f: MeetingFilters, ctx: ListC
     if (f.status !== 'ALL' && m.status !== f.status) return false;
     if (f.projectId === 'none' ? m.projectId !== null : f.projectId !== '' && m.projectId !== f.projectId) return false;
     if (f.range !== 'any' && !inRange(dayOf(m, ctx.timeZone), f.range, today)) return false;
+    if (f.focus && !inFocus(m, f.focus, ctx, today)) return false;
     if (!q) return true;
     const haystack = [m.title, m.location, m.category, m.projectId ? ctx.projectName(m.projectId) : null, ctx.organizerName(m.organizerId)];
     return haystack.some((s) => s != null && s.toLocaleLowerCase().includes(q));
@@ -148,6 +175,88 @@ export function isUnderWay(m: Pick<ApiMeeting, 'status' | 'startAt' | 'endAt'>, 
 }
 
 /**
+ * Is the meeting over? Finished, or scheduled and past its end (an hour after its start when it has
+ * none). A meeting under way, a draft or a cancelled one is not.
+ */
+export function hasEnded(m: Pick<ApiMeeting, 'status' | 'startAt' | 'endAt'>, now: Date): boolean {
+  if (m.status === 'COMPLETED') return true;
+  if (m.status !== 'SCHEDULED') return false;
+  const start = new Date(m.startAt).getTime();
+  const end = m.endAt ? new Date(m.endAt).getTime() : start + HOUR;
+  return end <= now.getTime();
+}
+
+/** Does the meeting count towards one of the numbers above the list? */
+function inFocus(m: ApiMeeting, focus: MeetingFocus, ctx: Pick<ListContext, 'timeZone' | 'now'>, today: string): boolean {
+  switch (focus) {
+    case 'week':
+      // Still to come (or under way), from today to the sixth day after: the "Next 7 days" date filter's days.
+      return (m.status === 'SCHEDULED' || m.status === 'IN_PROGRESS') && !hasEnded(m, ctx.now) && dayOf(m, ctx.timeZone) <= shiftDayKey(today, 6);
+    case 'actions':
+      return (m.openActionItemCount ?? 0) > 0;
+    case 'minutes':
+      return hasEnded(m, ctx.now) && m.minutes !== undefined && m.minutes !== 'FINAL';
+    case 'held':
+      return hasEnded(m, ctx.now) && dayOf(m, ctx.timeZone).slice(0, 7) === today.slice(0, 7);
+  }
+}
+
+export interface MeetingSummary {
+  /** Meetings still to come in the next 7 days. */
+  week: number;
+  /** Open action items, all told… */
+  actions: number;
+  /** …and how many meetings they are in. */
+  actionMeetings: number;
+  /** Meetings that are over without final minutes. */
+  minutes: number;
+  /** Meetings held this month. */
+  held: number;
+}
+
+/** The numbers above the list, from the meetings it already has (each matches its focus filter). */
+export function meetingSummary(list: ApiMeeting[], ctx: Pick<ListContext, 'timeZone' | 'now'>): MeetingSummary {
+  const today = zonedDayKey(ctx.now, ctx.timeZone);
+  const count = (focus: MeetingFocus) => list.filter((m) => inFocus(m, focus, ctx, today)).length;
+  return {
+    week: count('week'),
+    actions: list.reduce((sum, m) => sum + (m.openActionItemCount ?? 0), 0),
+    actionMeetings: count('actions'),
+    minutes: count('minutes'),
+    held: count('held'),
+  };
+}
+
+/** The most recent meeting that is over (none when nothing has happened yet). */
+export function lastMeeting(list: ApiMeeting[], now: Date): ApiMeeting | null {
+  return list.filter((m) => hasEnded(m, now)).sort((a, b) => compare(b.startAt, a.startAt))[0] ?? null;
+}
+
+/** When a past meeting was, from today: "earlier today", "yesterday", "on Monday", "on Sat 3 Oct", "on 1 Dec 2025". */
+export function whenItWas(iso: string, now: Date, timeZone: string): string {
+  const today = zonedDayKey(now, timeZone);
+  const day = zonedDayKey(new Date(iso), timeZone);
+  if (day >= today) return 'earlier today';
+  if (day === shiftDayKey(today, -1)) return 'yesterday';
+  if (day >= shiftDayKey(today, -6)) return `on ${dayText(day, { weekday: 'long' }).split(' ')[0]}`;
+  if (day.slice(0, 4) === today.slice(0, 4)) return `on ${dayText(day, { weekday: 'short', year: false })}`;
+  return `on ${dayText(day)}`;
+}
+
+/** "Nothing coming up" in the Up next place, as on the website (NothingComingUp.tsx). */
+export const NOTHING_TEXT = {
+  eyebrow: 'Up next',
+  title: 'Nothing coming up',
+  none: 'No meeting has been held yet.',
+  schedule: 'Schedule a meeting',
+} as const;
+
+/** The last meeting for "Last meeting: <title>, yesterday.": its title and when it was. */
+export function lastMeetingLine(m: Pick<ApiMeeting, 'title' | 'startAt'>, now: Date, timeZone: string): { title: string; when: string } {
+  return { title: m.title, when: whenItWas(m.startAt, now, timeZone) };
+}
+
+/**
  * The meeting to feature as "Up next": one under way (the earliest to start), else the soonest
  * scheduled one still to come. Never a draft, a cancelled or a completed meeting.
  */
@@ -182,7 +291,7 @@ export function startsLabel(m: Pick<ApiMeeting, 'status' | 'startAt' | 'endAt'>,
 }
 
 export interface FilterChip {
-  key: 'project' | 'date' | 'status' | 'sort';
+  key: 'project' | 'date' | 'status' | 'sort' | 'focus';
   label: string;
 }
 
@@ -193,6 +302,7 @@ export function filterChips(f: MeetingFilters, sort: MeetingSort, ctx: Pick<List
   else if (f.projectId) chips.push({ key: 'project', label: `Project: ${ctx.projectName(f.projectId) ?? 'a project'}` });
   if (f.range !== 'any') chips.push({ key: 'date', label: `Date: ${DATE_RANGES.find((r) => r.value === f.range)?.label ?? f.range}` });
   if (f.status !== 'ALL') chips.push({ key: 'status', label: `Status: ${MEETING_STATUS_LABELS[f.status]}` });
+  if (f.focus) chips.push({ key: 'focus', label: FOCUS_CHIPS[f.focus] });
   if (sort === 'title') chips.push({ key: 'sort', label: 'Sorted by title' });
   if (sort === 'updated') chips.push({ key: 'sort', label: 'Recently updated first' });
   return chips;
@@ -203,6 +313,17 @@ export function peopleText(m: Pick<ApiMeeting, 'attendeeCount' | 'attendees'>): 
   const n = m.attendeeCount ?? m.attendees?.length ?? 0;
   if (!n) return 'No attendees yet';
   return `${n} ${n === 1 ? 'person' : 'people'}`;
+}
+
+/**
+ * Who's coming, as the website's card footer draws it (meeting-card-parts.tsx People): the first
+ * three faces, "+N" for the rest, and how many in words.
+ */
+export function meetingFaces(m: Pick<ApiMeeting, 'attendees' | 'attendeeCount'>): { names: string[]; more: number; text: string } {
+  const names = m.attendees ?? [];
+  const total = m.attendeeCount ?? names.length;
+  const shown = total ? names.slice(0, 3) : [];
+  return { names: shown, more: total ? total - shown.length : 0, text: peopleText({ attendeeCount: total, attendees: names }) };
 }
 
 /**
