@@ -393,12 +393,16 @@ export function createMessageService(deps: MessageServiceDeps) {
     return unreadFor(conv, userId, p?.lastReadAt ?? null, team);
   }
 
-  async function listConversations(userId: string): Promise<ConversationSummary[]> {
+  /** companies: `onlyProjectIds` (a picked company's projects) keeps only those projects' channels. */
+  const keepOnly = (ids: string[], only?: readonly string[] | null) => (only ? ids.filter((id) => only.includes(id)) : ids);
+
+  async function listConversations(userId: string, opts?: { onlyProjectIds?: readonly string[] | null }): Promise<ConversationSummary[]> {
     // DMs come from participant rows; project channels from the projects the user can see NOW —
-    // a stale participant row from a project they've left grants nothing.
+    // a stale participant row from a project they've left grants nothing. With a picked company
+    // (companies), only its projects' channels; direct chats are always kept.
     const [participantConvs, projectConvs, team] = await Promise.all([
       participants.listConversationIdsForUser(userId).then((ids) => conversations.listByIds(ids)),
-      members.accessibleProjectIds(userId).then((ids) => conversations.listProjectConversations(ids)),
+      members.accessibleProjectIds(userId).then((ids) => conversations.listProjectConversations(keepOnly(ids, opts?.onlyProjectIds))),
       members.teamSince ? members.teamSince(userId) : Promise.resolve(null),
     ]);
     const byId = new Map<string, Conversation>();
@@ -448,20 +452,20 @@ export function createMessageService(deps: MessageServiceDeps) {
   }
 
   /** Conversations this person can open right now (DMs they're in + channels of projects they see). */
-  async function accessibleConversationIds(userId: string): Promise<string[]> {
+  async function accessibleConversationIds(userId: string, onlyProjectIds?: readonly string[] | null): Promise<string[]> {
     const [participantConvs, projectConvs] = await Promise.all([
       participants.listConversationIdsForUser(userId).then((ids) => conversations.listByIds(ids)),
-      members.accessibleProjectIds(userId).then((ids) => conversations.listProjectConversations(ids)),
+      members.accessibleProjectIds(userId).then((ids) => conversations.listProjectConversations(keepOnly(ids, onlyProjectIds))),
     ]);
     return [...new Set([...participantConvs.filter((c) => c.kind === 'DIRECT'), ...projectConvs].map((c) => c.id))];
   }
 
   /** Messages containing the words, in one conversation or in all of this person's conversations. */
-  async function searchMessages(userId: string, q: string, opts?: { conversationId?: string; limit?: number }): Promise<Message[]> {
+  async function searchMessages(userId: string, q: string, opts?: { conversationId?: string; limit?: number; onlyProjectIds?: readonly string[] | null }): Promise<Message[]> {
     const text = q.trim();
     if (opts?.conversationId) await assertAccess(await load(opts.conversationId), userId);
     if (text.length < SEARCH_MIN || !messages.search) return [];
-    const ids = opts?.conversationId ? [opts.conversationId] : await accessibleConversationIds(userId);
+    const ids = opts?.conversationId ? [opts.conversationId] : await accessibleConversationIds(userId, opts?.onlyProjectIds);
     if (ids.length === 0) return [];
     return messages.search(ids, text, Math.min(opts?.limit ?? SEARCH_LIMIT, SEARCH_LIMIT));
   }

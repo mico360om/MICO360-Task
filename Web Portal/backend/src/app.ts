@@ -500,9 +500,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const canViewMeeting = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
       // companies: the request's picked company (X-Company-Id), checked once per request; it narrows
       // `list` routes only (see modules/companies/route-classes.ts). Without the module: no pick.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- companies: the list routes take it (MC1 Task 8)
       const pickOf: PickOf = deps.companyAccess ? createPickResolver(deps.companyAccess) : NO_PICK;
-      const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[]) => mAccess.accessibleProjectIds(u, r) : undefined;
+      const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[], pick?: string | null) => mAccess.accessibleProjectIds(u, r, pick) : undefined;
       if (deps.projectService) {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
@@ -515,6 +514,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           imageMaxBytes: deps.attachmentMaxSizeBytes,
           authz: projectAuthz,
           notices: deps.projectNotices,
+          pickOf, // companies: GET /projects and /projects/overview follow the pick
         });
       }
       if (deps.projectService && (deps.timelineSource || deps.workloadStore)) {
@@ -557,6 +557,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canDeleteTask: (userId, roles, taskId) => projectAuthz.canManageTask(userId, roles, taskId),
           canViewTask,
           accessibleProjectIds,
+          pickOf, // companies: the task lists and the calendar follow the pick
           tagService: deps.tagService,
           assigneeService: deps.assigneeService,
           carryForwardService: deps.carryForwardService,
@@ -578,6 +579,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canViewTask,
           audit: deps.auditService,
           logger: deps.logger,
+          accessibleProjectIds, // companies: the To approve list follows the pick
+          pickOf,
         });
       }
       if (deps.taskMoveService) {
@@ -663,6 +666,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           attachmentMaxSizeBytes: deps.attachmentMaxSizeBytes,
           attachmentAllowedMime: deps.attachmentAllowedMime,
           shrinkImage: deps.shrinkImage,
+          accessibleProjectIds, // companies: with a pick, the conversation list and chat search keep only its projects' channels
+          pickOf,
         });
       }
       if (deps.attachmentService) {
@@ -694,7 +699,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.notificationService) {
-        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard });
+        // companies: the bell follows the person's projects and the pick.
+        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds, pickOf });
       }
       if (deps.dailyEmails) {
         await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });
@@ -709,7 +715,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch });
       }
       if (deps.meetingService) {
-        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser });
+        await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, pickOf, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser });
       }
       if (deps.attendeeService) {
         await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting });
@@ -724,6 +730,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canViewMeeting,
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
           resolveTaskKeys: deps.resolveTaskKeys,
+          accessibleProjectIds, // companies: My Action Items follows the pick
+          pickOf,
         });
       }
       if (deps.noteService) {
@@ -756,7 +764,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.activityService) {
-        await registerActivityRoutes(api, { activityService: deps.activityService, guard, canViewTask, accessibleProjectIds });
+        await registerActivityRoutes(api, { activityService: deps.activityService, guard, canViewTask, accessibleProjectIds, pickOf });
       }
       if (deps.auditService) {
         await registerAuditRoutes(api, { auditService: deps.auditService, guard, timeZone: deps.appConfig?.timeZone });
@@ -768,7 +776,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerAiRoutes(api, { aiConfigService: deps.aiConfigService, guard });
       }
       if (deps.aiFeatureService) {
-        await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames });
+        await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames, pickOf });
       }
       if (deps.micoAiService) {
         await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard });
@@ -798,7 +806,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerManagementRoutes(api, { ...deps.management, guard });
       }
       if (deps.inspections) {
-        await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent });
+        // companies: a form's usage counts follow the person's projects and the pick.
+        await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent, accessibleProjectIds, pickOf });
       }
       if (deps.backups) {
         await registerBackupRoutes(api, { ...deps.backups, guard, audit: deps.auditService });

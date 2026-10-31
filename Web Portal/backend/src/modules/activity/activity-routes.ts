@@ -3,14 +3,17 @@ import type { ActivityService } from './activity-service';
 import type { ActivityRecord } from './activity-repository';
 import { withoutHiddenBlockers } from './hidden-blockers';
 import type { AuthGuard } from '../auth/auth-guard';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 export interface ActivityRouteDeps {
   activityService: ActivityService;
   guard: AuthGuard;
   /** Object-level view authorization: may this user see this task's activity? */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
-  /** Project ids a user may see (`null` = admin, unscoped) — scopes the global activity feed. */
-  accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
+  /** Project ids a user may see (`null` = admin, unscoped) — scopes the global activity feed; with a pick, that company's. */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id); the global feed follows it. Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 export async function registerActivityRoutes(app: FastifyInstance, deps: ActivityRouteDeps): Promise<void> {
@@ -30,7 +33,9 @@ export async function registerActivityRoutes(app: FastifyInstance, deps: Activit
   app.get('/activity', { preHandler: guard.authenticate }, async (req) => {
     // Object-level scope: a non-admin only sees activity from projects they belong to. The scope
     // goes into the query, so the 50 rows are the newest *they* may see.
-    const allowed = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null;
+    // companies: …and inside the picked company (none = all the person's companies).
+    const pick = await (deps.pickOf ?? NO_PICK)(req);
+    const allowed = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : null;
     if (allowed !== null && allowed.length === 0) return { data: [] };
     const rows = await activityService.listRecent(50, allowed);
     if (allowed === null) return { data: await asSeenBy(rows, req.user!) };

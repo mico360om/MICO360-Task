@@ -15,6 +15,7 @@ import type { ApprovalViewer, TaskApprovalDetails } from './task-approval-routes
 import { checkNewTaskContacts } from './external-contact-service';
 import { externalContactSchema } from './external-contact-routes';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from './task-delete-rule';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 
@@ -155,7 +156,9 @@ export interface TaskRouteDeps {
   /** Object-level view/edit authorization: may this user see/touch this task's project? */
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   /** Project ids a user may see (`null` = admin, no scoping) — scopes the task list to their projects. */
-  accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id); the lists and the calendar follow it. Absent: no pick. */
+  pickOf?: PickOf;
   /** When provided, `tags` supplied on create are applied to the new task. */
   tagService?: TagService;
   /** When provided, `assigneeIds` supplied on create are checked and the assignees notified. */
@@ -182,11 +185,23 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   async function scopeOf(req: FastifyRequest): Promise<string[] | null> {
     return deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null;
   }
+  /**
+   * companies: a list's scope — the caller's projects in the picked company (X-Company-Id; none =
+   * all their companies). An admin with a pick gets that company's project ids. Object checks
+   * (one task, one named project) use scopeOf: the pick never decides whether one thing opens.
+   */
+  const pickOf = deps.pickOf ?? NO_PICK;
+  async function listScopeOf(req: FastifyRequest): Promise<string[] | null> {
+    const pick = await pickOf(req);
+    return deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : null;
+  }
 
   app.get('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
     const params = listQuerySchema.parse(req.query);
-    // Object-level scope: a non-admin only ever sees tasks in projects they belong to.
-    const allowedIds = await scopeOf(req);
+    // Object-level scope: a non-admin only ever sees tasks in projects they belong to. One named
+    // project (its board, opened by its link) is checked by its own rule; the plain list follows
+    // the picked company too (companies).
+    const allowedIds = params.projectId ? await scopeOf(req) : await listScopeOf(req);
     if (allowedIds && params.projectId && !allowedIds.includes(params.projectId)) return reply.status(403).send(forbidden);
     const criteria: TaskFilterCriteria = {
       q: params.q,
@@ -231,7 +246,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     if (span < 0 || span > MAX_CALENDAR_DAYS) {
       return reply.status(400).send({ error: { code: 'VALIDATION', message: `Ask for 1 to ${MAX_CALENDAR_DAYS + 1} days, ending on or after the start.` } });
     }
-    const allowedIds = await scopeOf(req);
+    const allowedIds = await listScopeOf(req); // companies: the calendar follows the pick
     const scope = allowedIds ? { projectIds: allowedIds } : {};
     const visible = <T extends { projectId: string }>(rows: T[]) => (allowedIds ? rows.filter((t) => allowedIds.includes(t.projectId)) : rows);
     const tz = taskService.timeZone;
@@ -260,7 +275,7 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
 
   // Tasks assigned to the current user (My Tasks) — only in projects they can still see.
   app.get('/tasks/mine', { preHandler: guard.authenticate }, async (req) => {
-    const allowedIds = await scopeOf(req);
+    const allowedIds = await listScopeOf(req); // companies: My Tasks follows the pick
     return { data: await taskService.listTasks({ assigneeId: req.user!.id, ...(allowedIds ? { projectIds: allowedIds } : {}) }) };
   });
 

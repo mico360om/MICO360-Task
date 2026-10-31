@@ -24,7 +24,7 @@ export interface AiFeatureServiceDeps {
    * The projects the person may add tasks to (archived ones are left out here), so a described
    * task can suggest one. Without it, no project is suggested.
    */
-  listProjectsFor?: (user: { id: string; roles: string[] }) => Promise<DescribableProject[]>;
+  listProjectsFor?: (user: { id: string; roles: string[] }, pick?: string | null) => Promise<DescribableProject[]>;
   /**
    * The active portal users a described meeting may invite (first name, last name and username
    * only go in the prompt). Without it, nobody is matched.
@@ -49,6 +49,8 @@ export interface AiFeatureServiceDeps {
 export interface AiRequester {
   userId: string;
   roles?: string[];
+  /** companies: the picked company (X-Company-Id); a described task's project is one of that company's. */
+  pick?: string | null;
 }
 
 const PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
@@ -161,7 +163,7 @@ export function createAiFeatureService({
   async function promptProjects(requester?: AiRequester): Promise<{ projects: DescribableProject[]; projectList: string }> {
     const projects =
       listProjectsFor && requester
-        ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }))
+        ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }, requester.pick ?? null))
             .filter((p) => !projectArchived(p))
             .sort((a, b) => a.name.localeCompare(b.name))
             .slice(0, MAX_PROMPT_PROJECTS)

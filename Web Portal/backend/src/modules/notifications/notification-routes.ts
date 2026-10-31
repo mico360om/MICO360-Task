@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { NotificationService } from './notification-service';
+import type { ListScope } from './notification-repository';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { AuthGuard } from '../auth/auth-guard';
 import { dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type NotificationPreferences } from './notification-preferences';
 
@@ -25,13 +27,26 @@ const withDailyEmails = (p: NotificationPreferences): NotificationPreferences =>
 export interface NotificationRouteDeps {
   notificationService: NotificationService;
   guard: AuthGuard;
+  /** companies: the person's project ids, in a picked company (null = every project: an administrator without a pick). */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 export async function registerNotificationRoutes(app: FastifyInstance, deps: NotificationRouteDeps): Promise<void> {
   const { notificationService, guard } = deps;
+  /**
+   * companies: the bell shows notices about no project, and about the projects the person sees now
+   * (in the picked company) — never one about a project they can no longer see. Unscoped without the module.
+   */
+  async function scopeOf(req: FastifyRequest): Promise<ListScope | undefined> {
+    if (!deps.accessibleProjectIds) return undefined;
+    const pick = await (deps.pickOf ?? NO_PICK)(req);
+    return { projectIds: await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick), pick };
+  }
 
   app.get('/notifications', { preHandler: guard.authenticate }, async (req) => {
-    return { data: await notificationService.listForUser(req.user!.id) };
+    return { data: await notificationService.listForUser(req.user!.id, await scopeOf(req)) };
   });
 
   // Per-user notification preferences (muted types, reminder lead time, daily task emails).
@@ -55,7 +70,7 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
   });
 
   app.get('/notifications/unread-count', { preHandler: guard.authenticate }, async (req) => {
-    return { data: { count: await notificationService.unreadCount(req.user!.id) } };
+    return { data: { count: await notificationService.unreadCount(req.user!.id, await scopeOf(req)) } };
   });
 
   app.put('/notifications/:id/read', { preHandler: guard.authenticate }, async (req) => {
@@ -67,7 +82,8 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
   // read, so one that arrives while the list is open stays unread. Without it, everything (as before).
   app.post('/notifications/read-all', { preHandler: guard.authenticate }, async (req) => {
     const { upTo } = readAllSchema.parse(req.body ?? {});
-    await notificationService.markAllRead(req.user!.id, upTo ? new Date(upTo) : undefined);
+    // companies: only what the list (in this scope) shows is read.
+    await notificationService.markAllRead(req.user!.id, upTo ? new Date(upTo) : undefined, await scopeOf(req));
     return { data: { ok: true } };
   });
 }

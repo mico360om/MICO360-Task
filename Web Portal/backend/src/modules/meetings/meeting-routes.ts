@@ -21,6 +21,7 @@ export interface ProjectMeetingsDeps {
 import type { AuthGuard } from '../auth/auth-guard';
 import type { Logger } from '../../lib/logger';
 import { onlineLinkField, timeZoneField } from './meeting-validation';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 const statusEnum = z.enum(['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);
 const recurrenceSchema = z.object({
@@ -120,8 +121,10 @@ export interface MeetingRouteDeps {
   broadcast?: (projectId: string, event: string, payload: unknown) => void;
   /** Object-level view authorization. */
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
-  /** Project ids the user may see (null = admin) — scopes the list + gates project meetings on create/move. */
-  accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
+  /** Project ids the user may see (null = admin) — scopes the list + gates project meetings on create/move; with a pick, that company's. */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id); the meetings list follows it. Absent: no pick. */
+  pickOf?: PickOf;
   /** Calendar invitations / cancellations (enables POST /meetings/:id/invites + automatic updates). */
   notify?: Pick<MeetingNotifyService, 'sendInvites' | 'sendCancellation'> & Partial<Pick<MeetingNotifyService, 'previewInvites'>>;
   /** Structured logger for best-effort background sends. */
@@ -259,14 +262,22 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
 
   app.get('/meetings', { preHandler: guard.authenticate }, async (req) => {
     const q = listQuery.parse(req.query);
-    const projectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null;
+    // companies: the plain list follows the picked company; one named project (its meetings tab,
+    // opened from the project) is checked by its own rule, as opening it is.
+    const pick = q.projectId ? null : await (deps.pickOf ?? NO_PICK)(req);
+    const { id: userId, roles } = actor(req);
+    const projectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(userId, roles, pick) : null;
     const data = await meetingService.listMeetings({
       projectId: q.projectId,
       status: q.status,
       from: q.from,
       to: q.to,
-      ...(q.mine ? { organizerId: req.user!.id } : {}),
-      scope: q.mine ? { userId: req.user!.id, projectIds: [] } : { userId: req.user!.id, projectIds },
+      ...(q.mine ? { organizerId: userId } : {}),
+      scope: pick
+        ? { userId, projectIds, pick: { companyId: pick, everyone: roles.includes('ADMIN') } }
+        : q.mine
+          ? { userId, projectIds: [] }
+          : { userId, projectIds },
     });
     const flagged = await withEditFlags(req, data);
     if (!deps.listCounts || flagged.length === 0) return { data: flagged };

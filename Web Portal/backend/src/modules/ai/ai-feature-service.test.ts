@@ -204,6 +204,21 @@ describe('AiFeatureService: describing a task in plain English', () => {
     expect(prompts[0]).not.toContain('Shut Company Project');
   });
 
+  it('asks for the person’s projects in the picked company (companies)', async () => {
+    const asked: unknown[] = [];
+    const svc = createAiFeatureService({
+      repo: createMemoryAiConfigRepository(config),
+      fetchImpl: (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: 'X' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch,
+      listProjectsFor: async (user, pick) => {
+        asked.push([user.id, pick]);
+        return projects;
+      },
+    });
+    await svc.parseTask({ text: 'x', today: '2026-09-14' }, { ...me, pick: 'company-b' });
+    await svc.parseTask({ text: 'x', today: '2026-09-14' }, me);
+    expect(asked).toEqual([[me.userId, 'company-b'], [me.userId, null]]);
+  });
+
   it('suggests the project the AI names, by code, number or name', async () => {
     for (const named of ['RIG1', 'pdo-2026-014', 'Rig Inspection Portal']) {
       const { svc } = describing({ title: 'Check the forms', project: named });

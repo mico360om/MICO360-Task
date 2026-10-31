@@ -134,7 +134,14 @@ export function createPrismaMeetingRepository(
       if (filter.from || filter.to) where.startAt = { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lt: filter.to } : {}) };
       // Object-level scope: non-admins see meetings they organize/attend or in their accessible projects.
       const scope = filter.scope;
-      if (scope && scope.projectIds !== null) {
+      if (scope?.pick) {
+        // companies: the picked company's meetings only (see MeetingListFilter.scope).
+        const own: Prisma.MeetingWhereInput[] = [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }];
+        where.OR = [
+          { projectId: { in: scope.projectIds ?? [] } },
+          { projectId: null, companyId: scope.pick.companyId, ...(scope.pick.everyone ? {} : { OR: own }) },
+        ];
+      } else if (scope && scope.projectIds !== null) {
         const or: Prisma.MeetingWhereInput[] = [
           { organizerId: scope.userId },
           { attendees: { some: { userId: scope.userId } } },

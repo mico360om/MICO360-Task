@@ -12,6 +12,8 @@ import { NotFoundError } from '../../lib/http-errors';
 import { summarizeExternalContacts } from './external-contacts';
 import { createProjectAuthz } from '../projects/project-authz';
 import { DELETE_NOT_ALLOWED, DELETE_SERIES_NOT_ALLOWED } from './task-delete-rule';
+import { CompanyNotAvailableError } from '../companies/company-pick';
+import type { CompanyAccess } from '../companies/company-access';
 
 // c1/c2/done belong to p1, c3 to p2.
 const COLUMNS: Record<string, ColumnInfo> = {
@@ -543,6 +545,71 @@ describe('Task routes', () => {
     expect(refused.statusCode).toBe(403);
     expect(refused.json().error).toEqual({ code: 'FORBIDDEN', message: 'You do not have permission to do that.' });
     expect((await app.inject({ method: 'GET', url: `/api/v1/tasks/${kept}`, headers: employee })).statusCode).toBe(200);
+  });
+});
+
+describe('Task routes — the picked company (companies)', () => {
+  // cat belongs to companies A and B (projects p1, p2); ana only to A. The company module is a fake
+  // whose checkPick refuses a company that isn't the person's — the real resolver reads the header.
+  const companiesOf: Record<string, string[]> = { cat: ['A', 'B'], ana: ['A'] };
+  const inCompany: Record<string, string> = { p1: 'A', p2: 'B' };
+  const companyAccess = {
+    async checkPick(viewer: { id: string }, pick: string | null) {
+      if (pick !== null && !(companiesOf[viewer.id] ?? []).includes(pick)) throw new CompanyNotAvailableError();
+      return pick;
+    },
+  } as unknown as CompanyAccess;
+  const projectAccess = {
+    canViewProject: async () => true,
+    canViewTask: async () => true,
+    canViewColumn: async () => true,
+    accessibleProjectIds: vi.fn(async (_userId: string, _roles: string[], pick?: string | null) => Object.keys(inCompany).filter((p) => !pick || inCompany[p] === pick)),
+  };
+
+  async function build() {
+    const taskService = createTaskService(inMemory());
+    const built = await buildApp({ authService, tokenService, taskService, projectAccess, companyAccess });
+    const admin = { authorization: `Bearer ${await tokenFor('admin', ['ADMIN'])}` };
+    const tb1 = (await built.inject({ method: 'POST', url: '/api/v1/tasks', headers: admin, payload: { title: 'In B', projectId: 'p2', columnId: 'c3' } })).json().data.id as string;
+    projectAccess.accessibleProjectIds.mockClear();
+    return { app: built, tb1 };
+  }
+  const as = async (id: string, headers: Record<string, string> = {}) => ({ authorization: `Bearer ${await tokenFor(id, [])}`, ...headers });
+
+  it('lists ask for the picked company', async () => {
+    const { app: a } = await build();
+    await a.inject({ method: 'GET', url: '/api/v1/tasks/mine', headers: await as('cat', { 'x-company-id': 'A' }) });
+    expect(projectAccess.accessibleProjectIds).toHaveBeenCalledWith('cat', [], 'A');
+    for (const url of ['/api/v1/tasks', '/api/v1/calendar?from=2026-10-01&to=2026-10-31']) {
+      projectAccess.accessibleProjectIds.mockClear();
+      expect((await a.inject({ method: 'GET', url, headers: await as('cat', { 'x-company-id': 'B' }) })).statusCode, url).toBe(200);
+      expect(projectAccess.accessibleProjectIds, url).toHaveBeenCalledWith('cat', [], 'B');
+    }
+    projectAccess.accessibleProjectIds.mockClear();
+    await a.inject({ method: 'GET', url: '/api/v1/tasks/mine', headers: await as('cat') });
+    expect(projectAccess.accessibleProjectIds).toHaveBeenCalledWith('cat', [], null); // no header: all my companies
+  });
+
+  it('a pick that isn’t yours is refused', async () => {
+    const { app: a } = await build();
+    const res = await a.inject({ method: 'GET', url: '/api/v1/tasks', headers: await as('ana', { 'x-company-id': 'B' }) });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('COMPANY_NOT_AVAILABLE');
+  });
+
+  it('opening one task ignores the pick', async () => {
+    const { app: a, tb1 } = await build();
+    expect((await a.inject({ method: 'GET', url: `/api/v1/tasks/${tb1}`, headers: await as('cat', { 'x-company-id': 'A' }) })).statusCode).toBe(200);
+  });
+
+  it('a board opened by its link (one named project) is checked without the pick; creating a task too', async () => {
+    const { app: a } = await build();
+    const res = await a.inject({ method: 'GET', url: '/api/v1/tasks?projectId=p2', headers: await as('cat', { 'x-company-id': 'A' }) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.map((t: { projectId: string }) => t.projectId)).toEqual(['p2']);
+    expect(projectAccess.accessibleProjectIds).toHaveBeenLastCalledWith('cat', [], undefined);
+    const created = await a.inject({ method: 'POST', url: '/api/v1/tasks', headers: await as('cat', { 'x-company-id': 'A' }), payload: { title: 'Also in B', projectId: 'p2', columnId: 'c3' } });
+    expect(created.statusCode).toBe(201);
   });
 });
 

@@ -3,8 +3,8 @@ import type { MeetingAccessCore, MeetingRepository } from './meeting-repository'
 /** Project-scope facts the meeting access layer borrows from the projects module. */
 export interface ProjectAccessLike {
   canViewProject(userId: string, roles: string[], projectId: string): Promise<boolean>;
-  /** Project ids the user may see; null = admin (no scoping). */
-  accessibleProjectIds(userId: string, roles: string[]): Promise<string[] | null>;
+  /** Project ids the user may see; null = admin (no scoping). With a pick (companies): that company's (admins too). */
+  accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null>;
   /** Does the user manage this project (its manager / owner)? Managers may edit its meetings. */
   canManageProject?(userId: string, roles: string[], projectId: string): Promise<boolean>;
 }
@@ -55,10 +55,13 @@ export function createMeetingAccess({ meetings, projectAccess }: MeetingAccessDe
     return canEditMeetingRecord(core, userId, roles);
   }
 
-  /** Project ids the user may see (null = admin) — used to scope meeting/search lists. */
-  async function accessibleProjectIds(userId: string, roles: string[]): Promise<string[] | null> {
-    if (isAdmin(roles)) return null;
-    return projectAccess ? projectAccess.accessibleProjectIds(userId, roles) : [];
+  /**
+   * Project ids the user may see (null = admin) — used to scope meeting/search lists. companies:
+   * with a picked company, that company's projects they may see (an admin: all of that company's).
+   */
+  async function accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null> {
+    if (isAdmin(roles) && !pick) return null;
+    return projectAccess ? projectAccess.accessibleProjectIds(userId, roles, pick) : [];
   }
 
   return { canViewMeeting, canEditMeeting, canEditMeetingRecord, accessibleProjectIds };

@@ -1,6 +1,6 @@
 import { NotFoundError } from '../../lib/http-errors';
 import type { Logger } from '../../lib/logger';
-import type { CreateNotificationData, NotificationRecord, NotificationRepository } from './notification-repository';
+import type { CreateNotificationData, ListScope, NotificationRecord, NotificationRepository } from './notification-repository';
 import {
   emptyPreferences,
   isMuted,
@@ -113,12 +113,13 @@ export function createNotificationService({ notifications, preferences, push, lo
     return record;
   }
 
-  async function listForUser(userId: string): Promise<NotificationRecord[]> {
-    return notifications.list(userId);
+  /** companies: `scope` limits the list to rows about no project or about its projects (the bell's company filter). */
+  async function listForUser(userId: string, scope?: ListScope): Promise<NotificationRecord[]> {
+    return notifications.list(userId, scope?.projectIds ?? null);
   }
 
-  async function unreadCount(userId: string): Promise<number> {
-    return notifications.unreadCount(userId);
+  async function unreadCount(userId: string, scope?: ListScope): Promise<number> {
+    return notifications.unreadCount(userId, scope?.projectIds ?? null);
   }
 
   async function markRead(id: string, userId: string): Promise<NotificationRecord> {
@@ -127,9 +128,9 @@ export function createNotificationService({ notifications, preferences, push, lo
     return notifications.markRead(id);
   }
 
-  /** Read everything — with `upTo`, only what came in by then (newer ones were never seen). */
-  async function markAllRead(userId: string, upTo?: Date): Promise<void> {
-    await notifications.markAllRead(userId, upTo);
+  /** Read everything — with `upTo`, only what came in by then (newer ones were never seen); with `scope`, only what the list showed. */
+  async function markAllRead(userId: string, upTo?: Date, scope?: ListScope): Promise<void> {
+    await notifications.markAllRead(userId, upTo, scope?.projectIds ?? null);
   }
 
   async function getPreferences(userId: string): Promise<NotificationPreferences> {

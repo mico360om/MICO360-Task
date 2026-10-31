@@ -71,6 +71,20 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
       };
       if (filter.status) where.status = filter.status;
       else if (filter.openOnly) where.status = { notIn: ['COMPLETED', 'CANCELLED'] };
+      if (filter.pick) {
+        // companies: the picked company's items only (see AssigneeListFilter.pick).
+        const { companyId, projectIds } = filter.pick;
+        where.AND = [
+          {
+            OR: [
+              { projectId: { in: projectIds } },
+              { projectId: null, meeting: { is: { projectId: { in: projectIds } } } },
+              { projectId: null, meeting: { is: { projectId: null, companyId } } },
+              { projectId: null, meetingId: null },
+            ],
+          },
+        ];
+      }
       const rows = await prisma.actionItem.findMany({ where, orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }] });
       return rows.map(toRecord);
     },

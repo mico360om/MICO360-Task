@@ -1,11 +1,12 @@
 import { fileContentMismatchMessage, fileTooLargeMessage, fileTypeNotAllowedMessage } from '../../lib/upload-safety';
 import { z } from 'zod';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { MAX_MESSAGE_LENGTH, type MessageService } from './message-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { sniffMime, SNIFFABLE } from '../../lib/magic-mime';
 import { ValidationError } from '../../lib/http-errors';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 /** A client id lets a retried send be recognised (letters, digits, - and _ only). */
 const clientIdSchema = z.string().regex(/^[\w-]{1,64}$/);
@@ -43,10 +44,20 @@ export interface ChatRouteDeps {
   attachmentAllowedMime?: string[];
   /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
+  /** companies: the caller's project ids in a picked company (the conversation list and chat search keep only those channels). */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Promise<void> {
   const { messageService: chat, guard } = deps;
+  /** companies: with a picked company, its projects' ids (the channels a list keeps); null = every channel the person has. */
+  async function pickedProjectIds(req: FastifyRequest): Promise<string[] | null> {
+    const pick = await (deps.pickOf ?? NO_PICK)(req);
+    if (!pick || !deps.accessibleProjectIds) return null;
+    return (await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick)) ?? null;
+  }
 
   /** Deliver a chat event to a project channel's room, or to each participant of a DM. */
   async function announce(conversationId: string, event: string, payload: unknown): Promise<void> {
@@ -60,7 +71,7 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
 
   // The signed-in user's conversation inbox (project channels + DMs) with unread counts.
   app.get('/conversations', { preHandler: guard.authenticate }, async (req) => ({
-    data: await chat.listConversations(req.user!.id),
+    data: await chat.listConversations(req.user!.id, { onlyProjectIds: await pickedProjectIds(req) }),
   }));
 
   // Get-or-create a project's team channel and return its recent messages.
@@ -122,7 +133,8 @@ export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDe
   // Search message text in all of the caller's conversations, or in one of them.
   app.get('/chat/search', { preHandler: guard.authenticate }, async (req) => {
     const { q, conversationId } = searchQuery.parse(req.query);
-    return { data: await chat.searchMessages(req.user!.id, q, { conversationId }) };
+    // companies: searching everywhere follows the pick; one named conversation is checked by its own rule.
+    return { data: await chat.searchMessages(req.user!.id, q, { conversationId, ...(conversationId ? {} : { onlyProjectIds: await pickedProjectIds(req) }) }) };
   });
 
   app.post('/conversations/:id/read', { preHandler: guard.authenticate }, async (req, reply) => {

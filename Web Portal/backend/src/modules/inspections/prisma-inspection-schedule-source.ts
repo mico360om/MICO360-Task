@@ -100,9 +100,10 @@ export function createPrismaInspectionScheduleSource(prisma: PrismaClient, opts:
       const seen = new Set<string>();
       return rows.flatMap((r) => (r.taskId && !seen.has(r.taskId) && seen.add(r.taskId) ? [{ taskId: r.taskId, inspectionId: r.id, inspectorId: r.inspectorId }] : []));
     },
-    async formUsage(formId) {
+    async formUsage(formId, projectIds) {
       if ((await prisma.inspectionForm.count({ where: { id: formId, deletedAt: null } })) === 0) return null;
-      const live = { inspectionFormId: formId, deletedAt: null, project: { is: { deletedAt: null } } } satisfies Prisma.TaskWhereInput;
+      // companies: only the projects the person sees (in the picked company) when they are given.
+      const live = { inspectionFormId: formId, deletedAt: null, project: { is: { deletedAt: null } }, ...(projectIds ? { projectId: { in: [...projectIds] } } : {}) } satisfies Prisma.TaskWhereInput;
       const [schedules, openChecks] = await Promise.all([
         prisma.task.count({ where: { ...live, NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }] } }),
         prisma.task.count({ where: { ...live, ...openWhere } }),
