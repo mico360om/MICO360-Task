@@ -146,13 +146,18 @@ export function MoveTaskSheet({
       subtitle={moveSubtitle(tasks)}
       onClose={busy ? () => {} : onClose}
       footer={
-        <SheetButtons
-          onCancel={onClose}
-          confirm={submitLabel({ single, movable: movable.length || tasks.length, busy })}
-          onConfirm={() => void submit()}
-          busy={busy}
-          disabled={!preview || movable.length === 0}
-        />
+        <View style={s.footer}>
+          {choiceError ? <SheetMessage text={MOVE_TEXT.chooseTeam} /> : null}
+          <View style={s.footerRow}>
+            <SheetButtons
+              onCancel={onClose}
+              confirm={submitLabel({ single, movable: movable.length || tasks.length, busy })}
+              onConfirm={() => void submit()}
+              busy={busy}
+              disabled={!preview || movable.length === 0}
+            />
+          </View>
+        </View>
       }
     >
       <SheetMessage text={error} />
@@ -201,7 +206,7 @@ export function MoveTaskSheet({
                   setChoiceError(false);
                 }}
               />
-              {choiceError ? <SheetMessage text={MOVE_TEXT.chooseTeam} /> : null}
+              {/* No answer when Move is tapped: said by the buttons (final review A5), never scrolled out of view. */}
             </>
           ) : null}
 
@@ -223,6 +228,8 @@ export function MoveTaskSheet({
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     flex: { flex: 1 },
+    footer: { flex: 1, gap: spacing.xs },
+    footerRow: { flexDirection: 'row', gap: spacing.sm },
     hint: { ...typeStyle('caption'), color: c.ink2, marginBottom: spacing.sm },
     line: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.xs },
     dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: c.ink2, marginTop: 7 },

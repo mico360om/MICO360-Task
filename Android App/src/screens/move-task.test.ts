@@ -39,3 +39,9 @@ it('final review A4: the sheet shows the tasks it was opened for until it has cl
   const s = src('components/move/MoveTaskSheet.tsx');
   expect(s).toMatch(/const held = useRef<MoveTaskRef\[\]>\(given\);\s*if \(given\.length > 0\) held\.current = given;\s*const tasks = sheetTasks\(given, held\.current\);/);
 });
+
+it('final review A5: tapping Move without the team answer says so by the buttons, where it is always seen', () => {
+  const s = src('components/move/MoveTaskSheet.tsx');
+  expect(s).toMatch(/footer=\{\s*<View style=\{s\.footer\}>\s*\{choiceError \? <SheetMessage text=\{MOVE_TEXT\.chooseTeam\} \/> : null\}\s*<View style=\{s\.footerRow\}>\s*<SheetButtons/);
+  expect(s.match(/MOVE_TEXT\.chooseTeam/g)).toHaveLength(1); // said once: by the buttons, not under the question scrolled out of view
+});
