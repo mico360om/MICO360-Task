@@ -252,7 +252,7 @@ function Conversation(_props: AppScreenProps<'MicoAi'>) {
           {chatId && chatQ.isLoading ? <SkeletonList rows={3} /> : null}
         </View>
         {messages.map((m) => (
-          <MessageView key={m.id} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} />
+          <MessageView key={m.id} chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} />
         ))}
       </ScrollView>
 

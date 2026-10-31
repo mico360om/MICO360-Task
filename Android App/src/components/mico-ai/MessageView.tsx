@@ -12,6 +12,7 @@ import { font, typeStyle } from '../../lib/typography';
 import { Button } from '../ui';
 import { Icon } from '../Icon';
 import { AnswerTable } from './AnswerTable';
+import { ProposalCard } from './ProposalCard';
 
 /** What an answer's buttons do (the screen carries them out and shows what went wrong). */
 export interface MessageActions {
@@ -134,9 +135,9 @@ function Pill({ text, canAsk, onAsk, s }: { text: string; canAsk: boolean; onAsk
 
 /**
  * One message, as on the website: your question in a bubble on the right; MICO AI's answer beside
- * its mark, with its tables, sources and buttons.
+ * its mark, with its card of proposed changes, tables, sources and buttons.
  */
-export function MessageView({ message, latest, canAsk, actions }: { message: MicoAiMessage; latest: boolean; canAsk: boolean; actions: MessageActions }) {
+export function MessageView({ chatId, message, latest, canAsk, actions }: { chatId: string | null; message: MicoAiMessage; latest: boolean; canAsk: boolean; actions: MessageActions }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [copied, setCopied] = useState(false);
@@ -182,6 +183,8 @@ export function MessageView({ message, latest, canAsk, actions }: { message: Mic
       <MicoAiMark />
       <View style={s.answerBody} accessibilityLabel="MICO AI’s answer">
         {body}
+        {/* A card of proposed changes: MICO AI's words, then the card to check and confirm. */}
+        {a?.kind === 'proposal' && a.proposal && done && chatId ? <ProposalCard chatId={chatId} message={message} /> : null}
         {a?.kind === 'clarify' && a.options.length ? (
           // "Which Omar?": each option is sent as the next question.
           <View style={s.pills} accessibilityLabel="Quick replies">
