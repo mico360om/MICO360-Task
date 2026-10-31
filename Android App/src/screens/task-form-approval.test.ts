@@ -12,7 +12,7 @@ it('the tick says the website’s hint and its note, and follows a project chang
   expect(s.indexOf('label="Needs approval"')).toBeGreaterThan(s.indexOf('label="Milestone"'));
   expect(s).toMatch(/checkNewTask\(draft, \{ noProjects, boardDate: params\.boardDate, project \}\)/);
 });
-it('an Edit save that changes the tick goes now, as the person who saved it, against the version the form opened with', () => {
+it('an Edit save that changes the tick goes now, as the person who saved it, in the task’s lane against the newest version (final review A1)', () => {
   const s = src('core/new-task.ts');
-  expect(s).toMatch(/updateLive: async \(patch\) => \{[^]*owned\(services\)\.resources\.tasks\.update\(taskId, \{ \.\.\.patch, expectedVersion: openedVersion \}\)[^]*afterTaskSaved\(qc, taskId, done, patch\)/);
+  expect(s).toMatch(/updateLive: async \(patch\) => \{[^]*liveTaskWrite\(taskWrites, taskId, editBaseVersion\(openedVersion, [^]*w\.resources\.tasks\.update\(taskId, withExpectedVersion\(patch, version\)\)[^]*afterTaskSaved\(qc, taskId, done, patch\)/);
 });

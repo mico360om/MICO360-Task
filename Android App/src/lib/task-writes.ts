@@ -55,6 +55,36 @@ export function editBaseVersion(pinned: number | undefined, cached: number | und
   return Math.max(cached, listed);
 }
 
+/**
+ * A task write sent now and never kept (online only — an approval decision, an Edit-task save that
+ * changes "Needs approval", a move to another project): still in the task's lane, after this phone's
+ * earlier writes of the task (a queued edit, an inline save on its way), sent against the newest
+ * version this phone knows, and the version it makes remembered — so neither it nor the next edit is
+ * refused as someone else's change (final review A1). A refusal notes nothing.
+ */
+export function liveTaskWrite<T>(
+  writes: TaskWrites,
+  taskId: string,
+  base: number | undefined,
+  send: (expectedVersion: number | undefined) => Promise<T>,
+  versionOf: (answer: T) => number | undefined = (answer) => (answer as { version?: number } | null | undefined)?.version,
+): Promise<T> {
+  return writes.run(taskId, async () => {
+    const answer = await send(writes.expectedVersion(taskId, base));
+    writes.note(taskId, versionOf(answer));
+    return answer;
+  });
+}
+
+/**
+ * One write for several tasks (a bulk move): after every one of their earlier writes. The lanes are
+ * taken in one order (the ids sorted), so two such writes never wait for each other.
+ */
+export function inTaskLanes<T>(writes: TaskWrites, taskIds: readonly string[], write: () => Promise<T>): Promise<T> {
+  const ids = [...new Set(taskIds)].sort();
+  return ids.reduceRight<() => Promise<T>>((inner, id) => () => writes.run(id, inner), write)();
+}
+
 /** The edit with the version it was made against; an unknown version (older server) is left out. */
 export function withExpectedVersion<P extends object>(patch: P, version: number | undefined): P & { expectedVersion?: number } {
   return typeof version === 'number' ? { ...patch, expectedVersion: version } : patch;

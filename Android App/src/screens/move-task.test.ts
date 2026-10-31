@@ -27,3 +27,10 @@ it('the task screen offers it with the reason, stays on the task and says where 
   expect(s).toMatch(/moveAvailability\(task\.projectId, moveTargets, projectQ\.data\?\.name\)/);
   expect(s).toMatch(/notice\(movedText\(/); expect(s).toMatch(/<MoveTaskSheet/);
 });
+
+it('final review A1: a move goes in the task’s lane (several: every task’s), noting the version it made', () => {
+  const s = src('core/move-queries.ts');
+  expect(s).toMatch(/liveTaskWrite\(taskWrites, id, undefined, [^]*\(result\) => result\.task\?\.version\)/);
+  expect(s).toMatch(/inTaskLanes\(taskWrites, ids, /);
+  expect(s).toMatch(/if \(item\.ok\) taskWrites\.note\(item\.taskId, item\.task\?\.version\)/);
+});

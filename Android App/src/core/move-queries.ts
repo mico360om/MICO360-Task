@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { owned } from './queries';
 import { afterTaskMoved, afterTasksMoved } from '../lib/task-cache';
+import { inTaskLanes, liveTaskWrite, taskWrites } from '../lib/task-writes';
 import { moveTargetsOf } from '../lib/move-sheet';
 import type { BulkMoveResult, MoveInput, MoveResult, MoveTargets } from '../lib/types';
 
@@ -34,7 +35,9 @@ export function useMovePreview(taskIds: string[], projectId: string) {
 
 /**
  * Moving to another project — online only, never kept on the phone: sent at once, as the person who
- * asked; every task that moved shows its new number at once and what it changed is read again.
+ * asked, in each task's lane (after this phone's earlier writes of it), noting the version the move
+ * made (final review A1); every task that moved shows its new number at once and what it changed is
+ * read again.
  * Errors go back to the sheet, which says them.
  */
 export function useMoveTasks(): { moveOne(id: string, input: MoveInput): Promise<MoveResult>; moveMany(ids: string[], input: MoveInput): Promise<BulkMoveResult> } {
@@ -42,20 +45,22 @@ export function useMoveTasks(): { moveOne(id: string, input: MoveInput): Promise
   const qc = useQueryClient();
   return useMemo(
     () => ({
-      moveOne: (id, input) =>
-        owned(services)
-          .run((r) => r.tasks.moveToProject(id, input))
+      moveOne: (id, input) => {
+        const w = owned(services);
+        return liveTaskWrite(taskWrites, id, undefined, () => w.run((r) => r.tasks.moveToProject(id, input)), (result) => result.task?.version)
           .then((result) => {
             afterTaskMoved(qc, result);
             return result;
-          }),
-      moveMany: (ids, input) =>
-        owned(services)
-          .run((r) => r.tasks.bulkMoveToProject(ids, input))
-          .then((result) => {
-            afterTasksMoved(qc, result.results.flatMap((item) => (item.ok ? [item] : [])));
-            return result;
-          }),
+          });
+      },
+      moveMany: (ids, input) => {
+        const w = owned(services);
+        return inTaskLanes(taskWrites, ids, () => w.run((r) => r.tasks.bulkMoveToProject(ids, input))).then((result) => {
+          for (const item of result.results) if (item.ok) taskWrites.note(item.taskId, item.task?.version);
+          afterTasksMoved(qc, result.results.flatMap((item) => (item.ok ? [item] : [])));
+          return result;
+        });
+      },
     }),
     [services, qc],
   );
