@@ -11,6 +11,7 @@ import {
   inkPathD,
   pathOf,
   pngDataUrl,
+  signButtonsSideBySide,
   signatureInputs,
   signatureProblem,
   toPadPoint,
@@ -18,6 +19,7 @@ import {
   type SignatureValue,
 } from './signature-ink';
 import { SIGNATURE_COLORS } from './theme';
+import { appSource as src } from '../testing/web-source';
 
 /** Finger signatures (Stage 4 Task 8, Review Focus 4). */
 
@@ -99,4 +101,15 @@ it('a stroke as an SVG path: two decimals, no trailing zeros; a dot is drawn as 
   expect(inkPathD({ kind: 'line', start: { x: 1, y: 2 }, segments: [{ cx: 1, cy: 2, x: 3.333, y: 4 }] })).toBe('M1 2 Q1 2 3.33 4');
   expect(inkPathD({ kind: 'line', start: { x: 0.5, y: 10.1 }, segments: [{ cx: 0.5, cy: 10.1, x: 2.006, y: 3.1 }, { cx: 4, cy: 5, x: 4, y: 5 }] })).toBe('M0.5 10.1 Q0.5 10.1 2.01 3.1 Q4 5 4 5');
   expect(inkPathD({ kind: 'dot', x: 3, y: 4 })).toBe('');
+});
+
+it('the sign sheet’s two buttons sit side by side only while both words fit; at a large font they stack (Final I13)', () => {
+  expect(signButtonsSideBySide(360, 1)).toBe(true);
+  expect(signButtonsSideBySide(360, 1.3)).toBe(true);
+  expect(signButtonsSideBySide(360, 2)).toBe(false);
+  expect(signButtonsSideBySide(320, 1.6)).toBe(false);
+  expect(signButtonsSideBySide(800, 2)).toBe(true);
+  const sheet = src('components/inspections/SignFinishSheet.tsx');
+  expect(sheet).toMatch(/const \{ width, fontScale \} = useWindowDimensions\(\);/);
+  expect(sheet).toMatch(/signButtonsSideBySide\(width, fontScale\) \? s\.buttonsRow : s\.buttonsStacked/);
 });

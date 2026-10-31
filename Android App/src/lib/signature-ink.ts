@@ -1,5 +1,6 @@
 import type { SignatureInput } from './inspection-types';
 import type { SignatureRole } from './inspection-rules';
+import { PLEX_SEMIBOLD_ADVANCE, textWidthEm } from './font-metrics';
 
 /**
  * The signature pad's drawing, as plain functions — the website's `signature-ink.ts` (where a
@@ -124,6 +125,21 @@ export function signatureInputs(
     signatures.push({ role, name: v.name.trim(), method: v.method, ...(v.method === 'DRAWN' ? { image: v.image } : {}), signedAt });
   }
   return { ok: true, signatures };
+}
+
+/** The sign sheet's buttons row: page padding each side, the gap between, a button's padding and its label size (ui Button md). */
+const SIGN_ROW = { pagePadding: 16, gap: 8, buttonPadding: 16, fontSize: 14, margin: 4 } as const;
+
+/**
+ * Whether the sign sheet's "Cancel" and "Sign and finish" fit side by side at this screen width and
+ * font scale (Final I13): each label, at the button's size in Plex SemiBold, inside half the row.
+ * When they don't, the buttons stack so neither word is cut.
+ */
+export function signButtonsSideBySide(width: number, fontScale: number): boolean {
+  const r = SIGN_ROW;
+  const half = (width - 2 * r.pagePadding - r.gap) / 2;
+  const widest = Math.max(...[SIGN_WORDS.cancel, SIGN_WORDS.title].map((t) => textWidthEm(t, PLEX_SEMIBOLD_ADVANCE) * r.fontSize * Math.max(1, fontScale)));
+  return widest + 2 * r.buttonPadding <= half - r.margin;
 }
 
 /** The pad's and the sign sheet's words, the website's ("finger", not "finger or mouse", on a phone). */
