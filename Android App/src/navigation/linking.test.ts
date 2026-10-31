@@ -181,6 +181,15 @@ describe('website addresses open in the app (6b)', () => {
     }
   });
 
+  it('an inspection opens on the phone (Stage 4), its id checked like every other', () => {
+    expect(normalizeLinkPath('inspections/abc')).toBe('inspection/abc');
+    expect(normalizeLinkPath('/inspections/abc')).toBe('/inspection/abc');
+    expect(first('/inspections/abc')).toMatchObject({ name: 'Inspection', params: { inspectionId: 'abc' } });
+    expect(first('inspection/abc?title=Hi')?.params).toEqual({ inspectionId: 'abc' });
+    expect(open('/inspections/..%2Fx')).toBeUndefined();
+    expect(first('/inspections/abc?task=t1')).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+  });
+
   it('the website-only pages open nothing in the app (the browser keeps them)', () => {
     for (const path of ['/admin/ai', '/admin/settings', '/admin/audit', '/privacy', '/terms', '/downloads/MICO360-Tasks.apk']) expect(open(path), path).toBeUndefined();
   });

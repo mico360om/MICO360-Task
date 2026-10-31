@@ -29,5 +29,6 @@
 
 ## Inspections, templates and client sharing
 - In the Android app, signing out warns about inspection changes not sent yet, and someone else signing in on the same phone never sees or sends them.
+- In the Android app, inspections open on the phone and are answered there: Pass, Fail or N/A with a note, and readings with their unit and limits (a reading outside its limits fails). Every answer is kept on the phone and sent when there is signal; an inspection opened once opens again with no signal.
 <!-- inspections lines above this line -->
 <!-- templates-client lines above this line -->

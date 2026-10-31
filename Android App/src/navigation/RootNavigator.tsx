@@ -70,6 +70,7 @@ import { SearchScreen } from '../screens/SearchScreen';
 import { AboutScreen } from '../screens/AboutScreen';
 import { UsersScreen } from '../screens/UsersScreen';
 import { UserFormScreen } from '../screens/UserFormScreen';
+import { InspectionScreen } from '../screens/InspectionScreen';
 import { useAlertsLive, usePushOpened } from '../core/alerts';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -369,6 +370,7 @@ export function RootNavigator() {
               component={UserFormScreen}
               options={({ route }) => ({ title: route.params?.userId ? 'Manage account' : 'New user' })}
             />
+            <AppStack.Screen name="Inspection" component={InspectionScreen} options={({ route }) => ({ title: route.params.title ?? 'Inspection' })} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyNavAction} />
           <RealtimeMount />

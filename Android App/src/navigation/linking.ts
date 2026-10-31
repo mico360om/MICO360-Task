@@ -54,7 +54,8 @@ const segment = (v: string) => encodeURIComponent(v);
  * Navigation allows one path per screen). 6b adds the website's pages to the App Links (app.json):
  * - a task: `?task=<id>` on any page (how the website opens one, and what its emails send) → `task/<id>`;
  * - `/projects/<id>` → `project/<id>`; `/board?project=<id>` → its board; `/board` → the All projects board (4c);
- * - `/meetings/<id>` → `meeting/<id>` (2a); `/chat?conversation=<id>` → the thread; `/dashboard` → `home`.
+ * - `/meetings/<id>` → `meeting/<id>` (2a); `/chat?conversation=<id>` → the thread; `/dashboard` → `home`;
+ * - `/inspections/<id>` → `inspection/<id>` (Stage 4).
  * Anything else is left as is; a link longer than MAX_LINK_LENGTH reads as no path (it opens nothing).
  */
 export function normalizeLinkPath(path: string): string {
@@ -77,6 +78,9 @@ export function normalizeLinkPath(path: string): string {
     return id ? `${lead}chat/${segment(id)}` : `${lead}chat`;
   }
   if (page === 'dashboard') return `${lead}home`;
+  // An inspection (Stage 4): the website's /inspections/<id> opens it on the phone.
+  const inspection = /^inspections\/([^/]+)$/.exec(page);
+  if (inspection) return `${lead}inspection/${inspection[1]}`;
   return path.replace(/^(\/?)meetings\/(?=[^/?#])/, '$1meeting/');
 }
 
@@ -84,7 +88,7 @@ export function normalizeLinkPath(path: string): string {
 const TITLE_PARAMS = ['title', 'projectName'];
 
 /** Params a link fills with an id (they go into API paths). */
-const ID_PARAMS = ['taskId', 'projectId', 'meetingId', 'conversationId'];
+const ID_PARAMS = ['taskId', 'projectId', 'meetingId', 'conversationId', 'inspectionId'];
 
 /** The navigation state a link gives (React Navigation's getStateFromPath), as far as the app reads it. */
 export interface LinkState {
@@ -152,6 +156,7 @@ export const linkingConfig = {
     Activity: 'activity',
     TaskDetail: 'task/:taskId',
     MeetingDetail: 'meeting/:meetingId',
+    Inspection: 'inspection/:inspectionId',
     MyActionItems: 'my-action-items',
     ChatThread: 'chat/:conversationId',
     // The website's other pages the app has (6b); its admin pages but Users stay on the website.
