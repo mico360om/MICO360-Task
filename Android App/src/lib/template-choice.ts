@@ -26,9 +26,13 @@ export function withFiller(choice: TemplateChoice, roleId: string, personId: str
   return { ...choice, roles };
 }
 
-/** The preview of the chosen template only (an older answer for another one doesn't count). */
+/**
+ * The preview of the chosen template for the chosen start day only: an older answer — for another
+ * template, or for the day before it was changed (still shown while the new one loads) — doesn't
+ * count, so the dates shown and what Create checks are always this choice's.
+ */
 export function planFor(plan: TemplatePlan | undefined, choice: TemplateChoice | null): TemplatePlan | undefined {
-  return plan && choice && plan.template?.id === choice.id ? plan : undefined;
+  return plan && choice && plan.template?.id === choice.id && plan.startDate === choice.startDate ? plan : undefined;
 }
 
 /** The project templates as the server listed them (a row without a name or task count is left out). */

@@ -24,6 +24,8 @@ it('the preview is the chosen template’s only', () => {
   expect(planFor(PLAN, { id: 't1', startDate: '2026-11-01', roles: {} })).toBe(PLAN);
   expect(planFor(PLAN, { id: 't2', startDate: '2026-11-01', roles: {} })).toBeUndefined();
   expect(planFor(PLAN, null)).toBeUndefined();
+  // S5: an answer for another start day (shown while the new one loads) isn't this choice's preview.
+  expect(planFor(PLAN, { id: 't1', startDate: '2026-11-08', roles: {} })).toBeUndefined();
   expect(planFor(undefined, { id: 't1', startDate: '2026-11-01', roles: {} })).toBeUndefined();
 });
 
