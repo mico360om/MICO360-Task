@@ -185,3 +185,14 @@ describe('AttachmentService.remove', () => {
     await expect(svc.remove('ghost', 'u1', true)).rejects.toBeInstanceOf(NotFoundError);
   });
 });
+
+describe('AttachmentService — the task search index follows its files', () => {
+  it('tells onChanged about the task after a file is attached or removed', async () => {
+    const changed: string[] = [];
+    const m = inMemory(['t1']);
+    const files = createAttachmentService({ repo: m.repo, storage: m.storage, taskLookup: m.taskLookup, maxSizeBytes: 1024, allowedMimeTypes: ['image/png'], onChanged: (taskId) => void changed.push(taskId) });
+    const rec = await files.upload('t1', 'u1', png);
+    await files.remove(rec.id, 'u1', false);
+    expect(changed).toEqual(['t1', 't1']);
+  });
+});

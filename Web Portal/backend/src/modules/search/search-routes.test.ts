@@ -77,3 +77,81 @@ describe('Search routes — object-level scope', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/search?q=x' })).statusCode).toBe(401);
   });
 });
+
+describe('GET /search/tasks — the full task search', () => {
+  type Input = import('./task-search-engine').TaskSearchInput;
+  function makeTaskApp(result: { hits: unknown[]; nextOffset: number | null; total?: number; totalCapped?: boolean } = { hits: [], nextOffset: null }) {
+    const calls: Input[] = [];
+    const taskSearch = {
+      async search(input: Input) {
+        calls.push(input);
+        return result as Awaited<ReturnType<import('./task-search-engine').TaskSearchEngine['search']>>;
+      },
+    };
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    const searchService = createSearchService({ data: { async getSearchData() { return data; } }, tasks: taskSearch });
+    return { calls, app: buildApp({ authService, tokenService, searchService, taskSearch, projectAccess }) };
+  }
+  const get = async (app: Awaited<ReturnType<typeof buildApp>>, url: string, token?: string) =>
+    app.inject({ method: 'GET', url: `/api/v1${url}`, headers: token ? { authorization: `Bearer ${token}` } : {} });
+
+  it('needs a signed-in person (401)', async () => {
+    const { app } = makeTaskApp();
+    expect((await get(await app, '/search/tasks?q=rig')).statusCode).toBe(401);
+  });
+
+  it('searches only the projects the person can see; an administrator, all of them', async () => {
+    const { app, calls } = makeTaskApp();
+    const a = await app;
+    expect((await get(a, '/search/tasks?q=rig', await tokenFor('u1', ['EMPLOYEE']))).statusCode).toBe(200);
+    expect(calls[0]).toMatchObject({ q: 'rig', scope: { projectIds: ['p1'] }, limit: 20, offset: 0, includeArchived: false, withTotal: true });
+    await get(a, '/search/tasks?q=rig', await tokenFor('admin', ['ADMIN']));
+    expect(calls[1]?.scope).toEqual({ projectIds: null });
+  });
+
+  it('passes the filters on: project, statuses, assignee ("me" too), done or not, archived projects', async () => {
+    const { app, calls } = makeTaskApp();
+    const a = await app;
+    const token = await tokenFor('u1', ['EMPLOYEE']);
+    await get(a, '/search/tasks?q=rig&projectId=p1&status=TODO,IN_PROGRESS&assigneeId=me&done=false&archived=true&limit=5', token);
+    expect(calls[0]).toMatchObject({ projectId: 'p1', statuses: ['TODO', 'IN_PROGRESS'], assigneeId: 'u1', done: false, includeArchived: true, limit: 5 });
+    await get(a, '/search/tasks?q=rig&done=true&assigneeId=u9', token);
+    expect(calls[1]).toMatchObject({ done: true, assigneeId: 'u9' });
+  });
+
+  it('turns the next-page cursor into where the page starts, and counts only the first page', async () => {
+    const { app, calls } = makeTaskApp({ hits: [], nextOffset: 20, total: 45, totalCapped: false });
+    const a = await app;
+    const token = await tokenFor('u1', ['EMPLOYEE']);
+    const first = (await get(a, '/search/tasks?q=rig', token)).json();
+    expect(first).toEqual({ data: [], nextCursor: expect.any(String), total: 45, totalCapped: false });
+    await get(a, `/search/tasks?q=rig&cursor=${encodeURIComponent(first.nextCursor)}`, token);
+    expect(calls[1]).toMatchObject({ offset: 20, withTotal: false });
+  });
+
+  it('refuses a bad status, done, limit or cursor (400)', async () => {
+    const { app } = makeTaskApp();
+    const a = await app;
+    const token = await tokenFor('u1', ['EMPLOYEE']);
+    for (const qs of ['status=LATE', 'done=maybe', 'limit=0', 'limit=500', 'cursor=nope', `q=${'x'.repeat(201)}`]) {
+      expect((await get(a, `/search/tasks?q=rig&${qs}`, token)).statusCode, qs).toBe(400);
+    }
+  });
+
+  it('an empty query asks nothing and finds nothing', async () => {
+    const { app, calls } = makeTaskApp();
+    const res = await get(await app, '/search/tasks?q=%20', await tokenFor('u1', ['EMPLOYEE']));
+    expect(res.json()).toEqual({ data: [], nextCursor: null, total: 0, totalCapped: false });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('the global search shows the task search’s best five', async () => {
+    const { app, calls } = makeTaskApp({ hits: [{ id: 't1', key: 'MICO-1', title: 'Prepare report', projectId: 'p1', matches: [] }], nextOffset: null });
+    const res = await get(await app, '/search?q=report', await tokenFor('u1', ['EMPLOYEE']));
+    expect(res.json().data.tasks).toEqual([{ id: 't1', key: 'MICO-1', title: 'Prepare report', projectId: 'p1', matches: [] }]);
+    expect(calls[0]).toMatchObject({ q: 'report', scope: { projectIds: ['p1'] }, limit: 5 });
+  });
+});

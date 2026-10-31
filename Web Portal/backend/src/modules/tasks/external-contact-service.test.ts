@@ -115,3 +115,17 @@ describe('external contacts given with a new task', () => {
     expect(() => checkNewTaskContacts(Array.from({ length: 21 }, (_, i) => ({ name: `P${i}` })))).toThrow('A task can have at most 20 external contacts.');
   });
 });
+
+describe('external contacts — the task search index follows them', () => {
+  it('tells onChanged about the task after a contact is added, changed or removed', async () => {
+    const changed: string[] = [];
+    const liveTasks = new Map([['t1', 'p1']]);
+    const repo = createMemoryExternalContactRepository({ liveTasks });
+    const service = createExternalContactService({ repo, taskLookup: { exists: async (id) => liveTasks.has(id) }, onChanged: (taskId) => void changed.push(taskId) });
+    const c = await service.add('t1', { name: 'Ahmed Al Said' }, 'u1');
+    await service.update(c.id, { name: 'Ahmed Al Said' }); // unchanged: nothing to re-index
+    await service.update(c.id, { name: 'Ahmed Al Said', company: 'OXY' });
+    await service.remove(c.id);
+    expect(changed).toEqual(['t1', 't1', 't1']);
+  });
+});

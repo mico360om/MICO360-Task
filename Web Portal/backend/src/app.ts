@@ -203,6 +203,8 @@ export interface AppDeps extends AuthRouteDeps {
   /** Names for report exports (project, team member, author). */
   reportNames?: import('./modules/reports/report-routes').ReportNames;
   searchService?: SearchService;
+  /** The full task search (GET /search/tasks): the task search index, scoped to what each person can open. */
+  taskSearch?: Pick<import('./modules/search/task-search-engine').TaskSearchEngine, 'search'>;
   meetingService?: MeetingService;
   /** Repeating meetings: creates a series' meetings and changes all its upcoming ones. */
   meetingSeriesService?: MeetingSeriesService;
@@ -692,7 +694,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames });
       }
       if (deps.searchService) {
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser });

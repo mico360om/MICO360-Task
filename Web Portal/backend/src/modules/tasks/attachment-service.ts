@@ -21,6 +21,8 @@ export interface AttachmentServiceDeps {
   maxTotalBytesPerTask?: number;
   /** Makes a picture smaller before it is stored (the same bytes back when it can't). */
   shrinkImage?: (content: Buffer, mimeType: string) => Promise<Buffer>;
+  /** After a change to the words of a task (the task search index re-reads it). */
+  onChanged?: (taskId: string) => void | Promise<void>;
 }
 
 export function createAttachmentService({
@@ -31,6 +33,7 @@ export function createAttachmentService({
   allowedMimeTypes,
   maxTotalBytesPerTask,
   shrinkImage,
+  onChanged,
 }: AttachmentServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
@@ -63,7 +66,7 @@ export function createAttachmentService({
       }
     }
     const { storageKey, url, sizeBytes } = await storage.save({ ...file, content });
-    return repo.create({
+    const created = await repo.create({
       taskId,
       uploadedById,
       filename: file.filename,
@@ -72,6 +75,8 @@ export function createAttachmentService({
       storageKey,
       url,
     });
+    await onChanged?.(taskId);
+    return created;
   }
 
   async function list(taskId: string): Promise<AttachmentRecord[]> {
@@ -88,6 +93,7 @@ export function createAttachmentService({
     }
     await storage.remove(rec.storageKey);
     await repo.delete(id);
+    await onChanged?.(rec.taskId);
     return rec;
   }
 
