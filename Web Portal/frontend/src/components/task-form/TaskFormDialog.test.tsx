@@ -670,6 +670,20 @@ describe('Edit task form', () => {
     expect(screen.getByLabelText(/^description/i)).toHaveValue('Collect quotes and compare');
   });
 
+  it('a refusal says the server’s own reason; a refusal without one says it plainly', async () => {
+    const REASON = 'Only the project’s managers can turn off approval for this task.';
+    let reason: string | undefined = REASON;
+    override = (u, m) => (/\/tasks\/t1$/.test(u) && m === 'PUT' ? json({ error: { code: 'FORBIDDEN', ...(reason ? { message: reason } : {}) } }, 403) : undefined);
+    renderDialog({ task: TASK });
+    await screen.findByRole('button', { name: 'Remove Omar A' });
+    await userEvent.type(screen.getByLabelText(/^description/i), ' and compare');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(`Couldn’t save the changes. ${REASON}`);
+    reason = undefined;
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t save the changes. You don’t have permission to do that.'));
+  });
+
   it('on a repeating task, can apply the edit to the whole series', async () => {
     renderDialog({ task: { ...TASK, recurrenceRule: { freq: 'WEEKLY', interval: 1 } } });
     await screen.findByRole('button', { name: 'Remove Omar A' });

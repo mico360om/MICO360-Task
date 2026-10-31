@@ -105,10 +105,15 @@ function fileFailure(err: unknown): string {
   return 'It couldn’t be uploaded.';
 }
 
+/**
+ * Why a save or create was refused, after "Couldn’t …": the server's own sentence (a 403's too —
+ * "Only the project’s managers can turn off approval for this task."), plain words for a 403 that
+ * has none, or "Please try again.".
+ */
 function reasonOf(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 403) return 'You don’t have permission to do that.';
     if (err.message && !/^Request failed/.test(err.message)) return err.message;
+    if (err.status === 403) return 'You don’t have permission to do that.';
   }
   if (err instanceof TypeError) return 'The server couldn’t be reached.';
   return 'Please try again.';
