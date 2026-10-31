@@ -120,6 +120,14 @@ describe('NotesSection — a meeting that is over', () => {
     expect(screen.queryByText(/as the meeting unfolds/i)).not.toBeInTheDocument();
   });
 
+  it('points up to the Final MOM, which a finished meeting shows above its notes', async () => {
+    notes = [];
+    renderSection(true);
+    expect(await screen.findByText(/no notes were taken/i)).toHaveTextContent(
+      'No notes were taken. Add what was discussed, decided and agreed: the Final MOM above can be drafted from them.',
+    );
+  });
+
   it('before or during the meeting, still invites notes as it unfolds', async () => {
     notes = [];
     renderSection(false);

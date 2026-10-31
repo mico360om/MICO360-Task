@@ -56,7 +56,7 @@ export type Section = 'agenda' | 'people' | 'notes' | 'actions' | 'minutes';
 /**
  * The Live notes' empty words (the website's NotesSection.tsx). Once the meeting has ended, the
  * person who runs it is told what to add and that the Final MOM can be drafted from it — "above":
- * a finished meeting shows its Final MOM first (the website, 31 Oct, still says "below").
+ * a finished meeting shows its Final MOM first.
  */
 export const NOTES_EMPTY = {
   notTaken: 'No notes were taken.',

@@ -251,12 +251,10 @@ describe('a finished meeting (the website’s order once it is COMPLETED)', () =
 describe.skipIf(!hasWeb('frontend/src/components/meeting/NotesSection.tsx', 'frontend/src/components/meeting/AgendaSection.tsx', 'frontend/src/pages/MeetingDetailPage.tsx'))('the website’s', () => {
   it('words and finished order', () => {
     const w = readWeb('frontend/src/components/meeting/NotesSection.tsx') + readWeb('frontend/src/components/meeting/AgendaSection.tsx');
-    // The website (31 Oct) still says "the Final MOM below" although a finished meeting shows it above
-    // the notes; the phone says "above" (its true place) — either is accepted until the website is fixed.
-    for (const t of [...Object.values(NOTES_EMPTY), ...Object.values(AGENDA_EMPTY_ENDED)]) {
-      const words = t.trim();
-      expect(w.includes(words) || w.includes(words.replace('the Final MOM above', 'the Final MOM below')), words).toBe(true);
-    }
+    // A finished meeting shows its Final MOM above the notes: both say "the Final MOM above" (the
+    // website said "below" until the final pass, item 3).
+    for (const t of [...Object.values(NOTES_EMPTY), ...Object.values(AGENDA_EMPTY_ENDED)]) expect(w, t).toContain(t.trim());
+    expect(w).not.toContain('the Final MOM below');
     const page = readWeb('frontend/src/pages/MeetingDetailPage.tsx');
     expect(page).toMatch(/finished \? \[finalMom, actions, agenda, notes\]/);
     // "Ended" for the notes and agenda words is the website's `finished`: the meeting is COMPLETED.

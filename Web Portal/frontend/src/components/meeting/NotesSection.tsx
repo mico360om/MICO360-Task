@@ -209,7 +209,7 @@ export function NotesSection({
       ) : shown.length === 0 ? (
         <p className="text-sm text-ink-2">{notes.length === 0
             ? ended
-              ? `No notes were taken.${canEdit ? ' Add what was discussed, decided and agreed: the Final MOM below can be drafted from them.' : ''}`
+              ? `No notes were taken.${canEdit ? ' Add what was discussed, decided and agreed: the Final MOM above can be drafted from them.' : ''}`
               : 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.'
             : 'No notes in this category.'}</p>
       ) : (
