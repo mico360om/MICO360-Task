@@ -47,7 +47,7 @@ import { loadTextPreview, previewMode } from '../lib/file-preview';
 import { checkTaskFiles } from '../lib/task-form';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
-import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem, taskSections, type TaskSection } from '../lib/task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem, taskSections } from '../lib/task-detail';
 import { stillMatching } from '../lib/blocker-search';
 import { approvalNotice, isWaitingForApproval } from '../lib/approvals';
 import { notice } from '../components/notice';
@@ -56,6 +56,8 @@ import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
 import { SaveTaskTemplateSheet } from '../components/templates/SaveTaskTemplateSheet';
+import { TaskClientCard } from '../components/client-share/TaskClientCard';
+import { withTaskCards, type TaskPart } from '../lib/task-cards';
 import { DetailsCard, type TaskPatch } from '../components/task-detail/DetailsCard';
 import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '../components/task-detail/WorkCards';
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
@@ -387,9 +389,12 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   );
   const activity = <ActivityCard entries={activityFeed(activityQ.data ?? [], nameOf)} />;
   // Where each part goes: the website's order on a phone and beside the work on a wide screen.
-  const layout = taskSections({ wide, waiting: isWaitingForApproval(task), approval: true });
-  const part: Record<TaskSection, React.ReactNode> = {
+  // Stage 4: Client view (whoever runs the project) where the website puts it (lib/task-cards).
+  const runsProject = canDeleteTask(user, project, members);
+  const layout = withTaskCards(taskSections({ wide, waiting: isWaitingForApproval(task), approval: true }), { client: runsProject });
+  const part: Record<TaskPart, React.ReactNode> = {
     approval: <TaskApproval task={task} />,
+    client: <TaskClientCard task={task} canChange={canDeleteTask(user, project, members)} />,
     description,
     details,
     checklist: checklistCard,
@@ -398,7 +403,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     blockers,
     activity,
   };
-  const show = (list: readonly TaskSection[]) => list.map((k) => <React.Fragment key={k}>{part[k]}</React.Fragment>);
+  const show = (list: readonly TaskPart[]) => list.map((k) => <React.Fragment key={k}>{part[k]}</React.Fragment>);
   const refreshAll = () => {
     void taskQ.refetch();
     void checklistQ.refetch();

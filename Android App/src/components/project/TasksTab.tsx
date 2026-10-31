@@ -88,6 +88,12 @@ export const TasksTabRow = React.memo(function TasksTabRow({ task, group, today,
         <Text style={[s.title, phase === 'completed' && s.doneTitle]} numberOfLines={2}>
           {task.title}
         </Text>
+        {/* Shown on the project's client page (Stage 4): the website's eye. */}
+        {task.clientVisible ? (
+          <View style={s.flag}>
+            <Icon name="misc.eye" size={13} color={c.infoText} label="Visible to client" />
+          </View>
+        ) : null}
       </View>
       <View style={s.meta}>
         <View style={s.status}>

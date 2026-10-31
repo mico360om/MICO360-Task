@@ -293,6 +293,8 @@ export function tasksTabRowLabel(t: ApiTask, row: { statusName: string; phase: T
     t.key,
     t.isMilestone ? 'milestone' : null,
     t.title,
+    // Shown on the project's client page (Stage 4): the row's eye mark, said.
+    t.clientVisible ? 'visible to client' : null,
     row.statusName,
     `${PRIORITY_WORD[t.priority] ?? 'Normal'} priority`,
     `${shownProgress(t, row.phase)}% done`,
