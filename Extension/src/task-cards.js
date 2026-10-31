@@ -14,6 +14,7 @@ import { isDone } from './summary.js';
 import { isRecurring } from './recurrence.js';
 import { personInitials } from './initials.js';
 import { isWaitingForApproval } from './approvals.js';
+import { externalContactsLine } from './external-contacts.js';
 
 const PRIORITY_WORD = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 const P_RANK = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
@@ -31,7 +32,7 @@ export { personInitials };
 /**
  * The facts a card shows. `task.columnCategory` is its column's status (the board sets it).
  * Returns { done, overdue, due, dueText, counts, people: { shown, extra, single }, milestone,
- * blocked, recurring, progress }.
+ * blocked, recurring, progress, external }.
  */
 export function cardFacts(task, { timeZone = DEFAULT_TIME_ZONE, now = new Date() } = {}) {
   const done = isDone(task);
@@ -59,6 +60,8 @@ export function cardFacts(task, { timeZone = DEFAULT_TIME_ZONE, now = new Date()
     // Finished, waiting for a project manager's approval (not done yet) — the web card's badge.
     awaitingApproval: isWaitingForApproval(task),
     progress: Math.max(0, Math.min(100, Number(task.progress) || 0)),
+    // Its external contacts in short: "External: Ahmed Al Said (OXY) and 2 more" (null for none).
+    external: externalContactsLine(task.externalSummary),
   };
 }
 
@@ -83,6 +86,7 @@ export function cardLabel(task, facts) {
     c.comments > 0 ? plural(c.comments, 'comment', 'comments') : null,
     c.attachments > 0 ? plural(c.attachments, 'attachment', 'attachments') : null,
     f.people.all.length ? `assigned to ${andList(f.people.all)}` : null,
+    f.external,
   ].filter(Boolean).join(', ');
 }
 

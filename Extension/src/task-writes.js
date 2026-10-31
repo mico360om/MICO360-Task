@@ -15,6 +15,7 @@ const TASK_KINDS = new Set([
   'task.update', 'task.move', 'task.assign', 'task.unassign', 'comment.add', 'checklist.add',
   'comment.update', 'comment.delete', 'task.tags', 'task.watch', 'task.unwatch', 'attachment.delete', 'task.delete',
   'checklist.update', // its payload carries the task's `id` beside the item's (queued before Stage 3: none)
+  'contact.add', 'contact.update', 'contact.delete', // a task's external contacts (the contact's own id beside it)
 ]);
 
 /** The task a queued change is about, or null. */
@@ -50,6 +51,7 @@ const LANE = {
   'task.assign': 'people', 'task.unassign': 'people',
   'task.watch': 'watch', 'task.unwatch': 'watch',
   'comment.update': 'comment', 'comment.delete': 'comment',
+  'contact.update': 'contact', 'contact.delete': 'contact',
   'chat.send': 'chat',
   'meeting.respond': 'answer',
 };
@@ -58,7 +60,10 @@ const LANE = {
 export const ORDERED_KINDS = new Set([...Object.keys(LANE), 'task.delete']);
 
 /** Deletes: one that finds nothing to delete (already gone) has done its job. */
-export const DELETE_KINDS = new Set(['comment.delete', 'attachment.delete', 'task.delete']);
+export const DELETE_KINDS = new Set(['comment.delete', 'attachment.delete', 'task.delete', 'contact.delete']);
+
+/** For a lane of one thing within a task (one comment, one external contact): the payload field naming it. */
+const ONE_OF = { comment: 'commentId', contact: 'contactId' };
 
 /**
  * Must `next` wait for `waiting` (a change still queued) to reach the server first? A change waits
@@ -71,7 +76,8 @@ export function mustFollow(next, waiting) {
   if (next.kind === 'task.delete') return true;
   const lane = LANE[next.kind];
   if (!lane || LANE[waiting.kind] !== lane) return false;
-  return lane !== 'comment' || (waiting.payload && waiting.payload.commentId) === (next.payload && next.payload.commentId);
+  const field = ONE_OF[lane];
+  return !field || (waiting.payload && waiting.payload[field]) === (next.payload && next.payload[field]);
 }
 
 /** Why a failed change can't be tried again (Settings → Sync shows it, with Discard only). */

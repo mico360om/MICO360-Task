@@ -272,6 +272,13 @@ export function mutationRequest(item) {
       return post(`/tasks/${p.id}/checklist`, { text: p.text });
     case 'checklist.update':
       return { path: `/checklist/${p.itemId}`, init: { method: 'PUT', body: JSON.stringify(p.patch || {}) } };
+    // A task's external contacts: its six fields; a change sends only the fields changed (blank clears one).
+    case 'contact.add':
+      return post(`/tasks/${p.id}/external-contacts`, p.contact || {});
+    case 'contact.update':
+      return { path: `/external-contacts/${encodeURIComponent(p.contactId)}`, init: { method: 'PUT', body: JSON.stringify(p.patch || {}) } };
+    case 'contact.delete':
+      return { path: `/external-contacts/${encodeURIComponent(p.contactId)}`, init: { method: 'DELETE' } };
     case 'notification.read':
       return { path: `/notifications/${p.id}/read`, init: { method: 'PUT' } };
     case 'notification.readAll': {
@@ -328,6 +335,9 @@ export function describeMutation(item) {
     case 'task.delete': return p.scope === 'series' ? 'Delete a repeating series' : 'Delete a task';
     case 'checklist.add': return `Checklist item “${p.text || ''}”`;
     case 'checklist.update': return 'Tick a checklist item';
+    case 'contact.add': return `Add the external contact “${(p.contact && p.contact.name) || ''}”`;
+    case 'contact.update': return p.name ? `Change the external contact “${p.name}”` : 'Change an external contact';
+    case 'contact.delete': return p.name ? `Remove the external contact “${p.name}”` : 'Remove an external contact';
     case 'notification.read': return 'Mark a notification read';
     case 'notification.readAll': return 'Mark all notifications read';
     case 'chat.send': return 'Chat message';

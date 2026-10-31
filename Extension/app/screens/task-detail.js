@@ -5,6 +5,7 @@ import { VERSIONED_KINDS, taskIdOf, isVersionConflict, createWriteLane, CONFLICT
 import { FieldsSection } from '../task/fields.js';
 import { ChecklistSection } from '../task/checklist.js';
 import { PeopleSection } from '../task/people.js';
+import { ExternalContactsSection } from '../task/external-contacts.js';
 import { TagsSection } from '../task/tags.js';
 import { AttachmentsSection } from '../task/attachments.js';
 import { CommentsSection } from '../task/comments.js';
@@ -80,12 +81,13 @@ export function TaskDetail(ctx, onClose) {
   const fields = FieldsSection(d);
   const tags = TagsSection(d);
   const people = PeopleSection(d);
+  const externalContacts = ExternalContactsSection(d);
   const attachments = AttachmentsSection(d);
   const checklist = ChecklistSection(d);
   const comments = CommentsSection(d);
   const activity = ActivitySection(d);
   const footer = DeleteSection(d);
-  const sections = [fields, tags, people, attachments, checklist, comments, activity];
+  const sections = [fields, tags, people, externalContacts, attachments, checklist, comments, activity];
 
   /**
    * The task's other details, read once it is shown — each on its own, so one that can't be had

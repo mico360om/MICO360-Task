@@ -7,6 +7,7 @@ import { DEFAULT_TIME_ZONE } from '../src/config.js';
 import { messageFor } from '../src/errors.js';
 import { projectLook, PROJECT_ICON_PATHS, projectStatusLabel } from '../src/project-identity.js';
 import { attachmentUrl } from '../src/file-kind.js';
+import { externalContactsLine } from '../src/external-contacts.js';
 
 export { isDone };
 
@@ -103,7 +104,8 @@ export function taskRow(task, onClick, { timeZone = DEFAULT_TIME_ZONE } = {}) {
   const due = dueKey ? formatDayKey(dueKey, { weekday: false }) : '';
   // Never overdue while it waits for approval (the web's rule, 30 Oct).
   const overdue = !done && !isWaitingForApproval(task) && isOverdue(task.dueDate, timeZone);
-  const label = [task.key, `${PRIORITY_LABEL[task.priority] || ''} priority`, task.title, due ? `due ${due}` : null, overdue ? 'overdue' : null, isRecurring(task) ? 'repeats' : null, done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null].filter(Boolean).join(', ');
+  const external = externalContactsLine(task.externalSummary);
+  const label = [task.key, `${PRIORITY_LABEL[task.priority] || ''} priority`, task.title, due ? `due ${due}` : null, overdue ? 'overdue' : null, isRecurring(task) ? 'repeats' : null, done ? 'done' : task.progress > 0 ? `${task.progress}% complete` : null, external].filter(Boolean).join(', ');
   // data-task-id: closing the task drawer puts focus back on this row (app/dialog.js returnFocus).
   return el('button', { class: `task-row${done ? ' done' : ''}`, type: 'button', 'aria-label': label, dataset: { taskId: task.id }, onClick },
     el('span', { class: 'prio', style: { background: `var(${priorityVar(task.priority)})` } }),
@@ -116,6 +118,8 @@ export function taskRow(task, onClick, { timeZone = DEFAULT_TIME_ZONE } = {}) {
         done ? el('span', {}, '· Done') : null,
         isRecurring(task) ? el('span', { title: 'Repeats' }, '· 🔁 Repeats') : null,
       ),
+      // Its external contacts in short (people outside the company responsible for it).
+      external ? el('span', { class: 'texternal', dir: 'auto' }, external) : null,
     ),
   );
 }

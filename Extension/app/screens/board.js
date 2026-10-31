@@ -292,6 +292,7 @@ export function BoardScreen(ctx) {
         pill(PRIORITY_LABEL[task.priority] || task.priority || '', task.priority),
       ),
       el('div', { class: 'tt', dir: 'auto' }, task.title),
+      f.external ? el('div', { class: 'texternal', dir: 'auto' }, f.external) : null,
       f.awaitingApproval || f.dueText || f.counts.length
         ? el('div', { class: 'row meta' },
           // The web card's badge: finished, waiting for a project manager's approval (not done yet).

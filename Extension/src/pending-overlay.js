@@ -3,7 +3,7 @@
  * server's answers as they were; each read then shows this person's queued changes on top, so a card
  * moved offline stays where it was put, and a task, checklist item, comment or chat message added
  * offline is still there after going to another screen and back — as are tags, a reply, an edited or
- * deleted comment, a removed file, watching, and a deleted task. Pure (no chrome APIs).
+ * deleted comment, a removed file, watching, a task's external contacts, and a deleted task. Pure (no chrome APIs).
  *
  * `applyPending(key, data, items)` takes a read-cache key (see api.js), the data read for it and the
  * signed-in person's queued items (oldest first). It never changes `data` itself: changed rows are
@@ -30,11 +30,29 @@ function patchOf(item) {
   return shown;
 }
 
+/**
+ * A task's external contacts (its details only — a list row has none) after a queued change of one:
+ * an added one at the end (waiting to sync), a changed one with its changes, a removed one gone.
+ */
+function changedContacts(task, item) {
+  const rows = task.externalContacts;
+  const p = item.payload || {};
+  if (!Array.isArray(rows)) return null;
+  if (item.kind === 'contact.add') {
+    return { ...task, externalContacts: [...rows, { ...(p.contact || {}), id: tempId(item), taskId: task.id, position: rows.length, pending: true }] };
+  }
+  if (!rows.some((c) => c && c.id === p.contactId)) return null;
+  if (item.kind === 'contact.update') return { ...task, externalContacts: rows.map((c) => (c.id === p.contactId ? { ...c, ...(p.patch || {}) } : c)) };
+  if (item.kind === 'contact.delete') return { ...task, externalContacts: rows.filter((c) => c.id !== p.contactId) };
+  return null;
+}
+
 /** A task row after a queued edit or move of it; null when the item doesn't touch it. */
 function changedTask(task, item) {
   const p = item.payload || {};
   if (!task || task.id !== p.id) return null;
   if (item.kind === 'task.update') return { ...task, ...patchOf(item) };
+  if (item.kind.startsWith('contact.')) return changedContacts(task, item);
   // Tags it already had keep their colour; a new one has none until the server makes it. A change
   // that knows the list it started from shows as its additions and removals over the task's tags.
   if (item.kind === 'task.tags') {

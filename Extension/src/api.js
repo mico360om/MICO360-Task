@@ -122,6 +122,12 @@ export function createApi({ auth, cache, pending }) {
       progress: (id) => get(`progress:${id}`, `/projects/${id}/progress`),
       /** The project's team: the people a task in it can be assigned to. */
       members: (id) => get(`members:${id}`, `/projects/${id}/members`),
+      /**
+       * Earlier external contacts on the project's tasks whose name or company has a word starting
+       * with `q` (at most 10, newest first; their six fields), suggested while a name is typed.
+       * Always asked fresh: answers for every name typed aren't kept on the device.
+       */
+      externalContacts: (id, q) => raw(`/projects/${id}/external-contacts${qs({ q })}`),
     },
     attachments: {
       /**

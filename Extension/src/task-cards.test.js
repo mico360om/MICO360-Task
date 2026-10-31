@@ -54,6 +54,15 @@ describe('what a board card shows (as the web’s TaskCard)', () => {
     );
   });
 
+  it('names the task’s external contacts in short, as the web’s card does, and says so in its label', () => {
+    const externalSummary = { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara'], companies: ['OXY'] };
+    const f = cardFacts(task({ externalSummary }), { timeZone: TZ, now: NOW });
+    expect(f.external).toBe('External: Ahmed Al Said (OXY) and 1 more');
+    expect(cardLabel(task(), f)).toMatch(/, External: Ahmed Al Said \(OXY\) and 1 more$/);
+    expect(cardFacts(task(), { timeZone: TZ, now: NOW }).external).toBeNull();
+    expect(cardFacts(task({ externalSummary: null }), { timeZone: TZ, now: NOW }).external).toBeNull();
+  });
+
   it('initials as the web’s avatars make them: from letters only, “?” when there is none', () => {
     expect(personInitials('Omar  Ahmed Ali')).toBe('OA');
     expect(personInitials('bilal')).toBe('B');
