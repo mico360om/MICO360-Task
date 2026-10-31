@@ -5,9 +5,10 @@ import { Button } from '../ui';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { clockTime, joinLink, meetingPlace } from '../../lib/meetings';
 import { meetingWhen } from '../../lib/meeting-detail';
-import { isUnderWay, peopleText, startsLabel, type ListContext } from '../../lib/meeting-list';
+import { isUnderWay, startsLabel, type ListContext } from '../../lib/meeting-list';
 import type { ApiMeeting } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { MeetingFaces } from './MeetingFaces';
 
 /**
  * The next meeting (or the one under way), on top of the list: when it starts, where, who's coming,
@@ -37,7 +38,9 @@ export function UpNextCard({ meeting: m, ctx, onOpen, onJoin }: { meeting: ApiMe
         {place ? ` · ${place}` : ''}
         {project ? ` · ${project}` : ''}
       </Text>
-      <Text style={s.meta}>{peopleText(m)}</Text>
+      <View style={s.people}>
+        <MeetingFaces meeting={m} />
+      </View>
       <View style={s.actions}>
         {join ? <Button title="Join" accessibilityLabel={`Join ${m.title} online`} onPress={() => onJoin(join)} style={s.action} /> : null}
         <Button title="Open" accessibilityLabel={`Open ${m.title}`} variant={join ? 'secondary' : 'primary'} onPress={onOpen} style={s.action} />
@@ -54,6 +57,7 @@ const makeStyles = (c: Palette) =>
     when: { color: c.ink, ...font('700'), letterSpacing: 0 },
     title: { fontSize: fontSize.lg, ...font('700', 'display'), color: c.ink, marginTop: 2, textAlign: 'auto' },
     meta: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
+    people: { marginTop: spacing.xs },
     actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
     action: { flex: 1, minHeight: 44 },
   });

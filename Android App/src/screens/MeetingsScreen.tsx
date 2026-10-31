@@ -2,23 +2,27 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
-import { useDirectory, useMeetings, useMyActionItems, useProjects, type MeetingScope } from '../core/queries';
+import { useDirectory, useMeetings, useProjects, type MeetingScope } from '../core/queries';
 import { useColors } from '../core/theme';
 import { SkeletonList, EmptyState, ErrorNote, TextField, Button, PageHeader, Chip } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { MeetingCard } from '../components/meeting/MeetingCard';
 import { UpNextCard } from '../components/meeting/UpNextCard';
+import { MeetingSummaryStrip } from '../components/meeting/MeetingSummaryStrip';
+import { NothingComingUp } from '../components/meeting/NothingComingUp';
 import { MeetingFiltersSheet } from '../components/meeting/MeetingFiltersSheet';
 import { openJoinLink, useMinuteNow, usePullRefresh } from '../components/meeting/live';
 import { appTimeZone } from '../lib/due-date';
-import { isActionItemOverdue } from '../lib/meeting-detail';
 import {
   EMPTY_FILTERS,
   filterChips,
   filterMeetings,
   groupMeetings,
   hasActiveFilters,
+  lastMeeting,
+  lastMeetingLine,
   meetingListRows,
+  meetingSummary,
   nextUpMeeting,
   type FilterChip,
   type ListContext,
@@ -37,13 +41,15 @@ const CHIP_CLEARS: Record<FilterChip['key'], Partial<MeetingFilters> & { sort?: 
   date: { range: 'any' },
   status: { status: 'ALL' },
   sort: { sort: 'date' },
+  focus: { focus: undefined },
 };
 
 /**
- * Meetings (2a): every meeting you can see, as on the website — "Up next" on top, a search, the
- * filters (project, date, status, sort) with their chips, all meetings or the ones you organize, and
- * the groups Today, Next 7 days, Later, Drafts and Past. Each card opens the meeting; "New meeting"
- * schedules one (2b).
+ * Meetings (2a): every meeting you can see, as on the website — the title with "New meeting" beside
+ * it, a search, all meetings or the ones you organize, the filters (project, date, status, sort)
+ * with their chips, the four numbers at a glance (each also a filter), "Up next" (or "Nothing coming
+ * up" with the last meeting), and the groups Today, Next 7 days, Later, Drafts and Past. Each card
+ * opens the meeting; "New meeting" schedules one (2b). My Action Items is in the side menu.
  */
 export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const c = useColors();
@@ -59,10 +65,8 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const meetingsQ = useMeetings(scope, { active: focused });
   const projectsQ = useProjects();
   const dirQ = useDirectory();
-  const itemsQ = useMyActionItems('open', { active: focused });
   const { refetch: refetchMeetings } = meetingsQ;
-  const { refetch: refetchItems } = itemsQ;
-  const pull = usePullRefresh(useCallback(() => Promise.all([refetchMeetings(), refetchItems()]), [refetchMeetings, refetchItems]));
+  const pull = usePullRefresh(useCallback(() => refetchMeetings(), [refetchMeetings]));
 
   const projects = useMemo(() => [...(projectsQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [projectsQ.data]);
   const ctx: ListContext = useMemo(() => {
@@ -81,12 +85,17 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   const rows = useMemo(() => meetingListRows(groupMeetings(visible, ctx, sort)), [visible, ctx, sort]);
   const filtered = hasActiveFilters(filters);
   const chips = filterChips(filters, sort, ctx);
-  const filterCount = chips.filter((ch) => ch.key !== 'sort').length;
+  // The Filters chip counts what its own sheet sets (not the sort, nor a number tapped above the list).
+  const filterCount = chips.filter((ch) => ch.key !== 'sort' && ch.key !== 'focus').length;
+  const filtersInUse = filterCount > 0 || sort !== 'date';
   const drafts = all.filter((m) => m.status === 'DRAFT').length;
+  // The numbers count the whole list, whatever is searched or filtered (as on the website).
+  const summary = useMemo(() => meetingSummary(all, ctx), [all, ctx]);
   // The next meeting, on top — unless the list is being searched or filtered.
   const upNext = filtered ? null : nextUpMeeting(all, now);
-  const openItems = itemsQ.data ?? [];
-  const overdueItems = openItems.filter((i) => isActionItemOverdue(i, now)).length;
+  // A quiet week: loaded, nothing filtered, some meetings, none coming up.
+  const quiet = !!meetingsQ.data && !filtered && all.length > 0 && !upNext;
+  const last = quiet ? lastMeeting(all, now) : null;
 
   const change = useCallback((changes: Partial<MeetingFilters> & { sort?: MeetingSort }) => {
     const { sort: nextSort, ...rest } = changes;
@@ -114,8 +123,10 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
 
   const header = (
     <View style={styles.header}>
-      <PageHeader title="Meetings" />
-      <Button title="New meeting" icon="ui.plus" accessibilityLabel="Schedule a new meeting" onPress={() => navigation.navigate('MeetingForm')} />
+      <PageHeader
+        title="Meetings"
+        actions={<Button size="sm" icon="ui.plus" title="New meeting" accessibilityLabel="Schedule a new meeting" onPress={() => navigation.navigate('MeetingForm')} />}
+      />
       <TextField
         value={filters.q}
         onChangeText={(q) => change({ q })}
@@ -124,31 +135,28 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
         autoCapitalize="none"
         style={styles.search}
       />
-      <View style={styles.controls}>
-        <View style={styles.scope} accessibilityLabel="Whose meetings">
-          <Chip label="All meetings" selected={scope === 'all'} onPress={() => setScope('all')} />
-          <Chip label="Organized by me" selected={scope === 'mine'} onPress={() => setScope('mine')} />
-        </View>
-        <View style={styles.scope}>
-          <Pressable
-            onPress={() => setSheet(true)}
-            accessibilityRole="button"
-            accessibilityLabel={filterCount ? `Filters, ${filterCount} in use` : 'Filters'}
-            style={({ pressed }) => [styles.filterButton, (filterCount > 0 || sort !== 'date') && styles.filterButtonOn, pressed && styles.pressed]}
-          >
-            <Icon name="nav.settings" size={16} color={filterCount > 0 || sort !== 'date' ? c.brandText : c.ink2} />
-            <Text style={[styles.filterText, (filterCount > 0 || sort !== 'date') && styles.filterTextOn]}>Filters{filterCount ? ` (${filterCount})` : ''}</Text>
-          </Pressable>
-          {drafts > 0 ? (
-            <Chip
-              label={`Drafts (${drafts})`}
-              selected={filters.status === 'DRAFT'}
-              onPress={() => change({ status: filters.status === 'DRAFT' ? 'ALL' : 'DRAFT' })}
-              a11yLabel={`Show drafts only, ${drafts}`}
-            />
-          ) : null}
-        </View>
+      {/* One wrapping row, as the website's phone layout: whose meetings (short words), Filters, Drafts. */}
+      <View style={styles.scope}>
+        <Chip label="All" a11yLabel="All meetings" selected={scope === 'all'} onPress={() => setScope('all')} />
+        <Chip label="Mine" a11yLabel="Organized by me" selected={scope === 'mine'} onPress={() => setScope('mine')} />
+        <Chip
+          label={filterCount ? `Filters (${filterCount})` : 'Filters'}
+          a11yLabel={filterCount ? `Filters, ${filterCount} in use` : 'Filters'}
+          selected={filtersInUse}
+          onPress={() => setSheet(true)}
+        />
+        {drafts > 0 ? (
+          <Chip
+            label={`Drafts (${drafts})`}
+            selected={filters.status === 'DRAFT'}
+            onPress={() => change({ status: filters.status === 'DRAFT' ? 'ALL' : 'DRAFT' })}
+            a11yLabel={`Show drafts only, ${drafts}`}
+          />
+        ) : null}
       </View>
+
+      {/* The numbers: once there is a meeting (four zeros over an empty page say nothing). */}
+      {meetingsQ.data && all.length > 0 ? <MeetingSummaryStrip summary={summary} focus={filters.focus} onFocus={(focus) => change({ focus })} /> : null}
 
       {filtered || chips.length ? (
         <View style={styles.chipRow}>
@@ -177,22 +185,13 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
       ) : null}
 
       {upNext ? <UpNextCard meeting={upNext} ctx={ctx} onOpen={() => open(upNext)} onJoin={openJoinLink} /> : null}
-
-      <Pressable
-        onPress={() => navigation.navigate('MyActionItems')}
-        accessibilityRole="button"
-        accessibilityLabel={`My action items${openItems.length ? `, ${openItems.length} open${overdueItems ? `, ${overdueItems} overdue` : ''}` : ''}`}
-        style={({ pressed }) => [styles.itemsLink, pressed && styles.pressed]}
-      >
-        <Icon name="nav.actionItems" size={18} color={c.brandText} />
-        <Text style={styles.itemsText}>My action items</Text>
-        {openItems.length ? (
-          <Text style={[styles.itemsCount, overdueItems > 0 && styles.overdue]}>
-            {openItems.length} open{overdueItems ? ` · ${overdueItems} overdue` : ''}
-          </Text>
-        ) : null}
-        <Icon name="ui.chevron" size={18} color={c.ink3} rotate={270} />
-      </Pressable>
+      {quiet ? (
+        <NothingComingUp
+          last={last ? lastMeetingLine(last, now, ctx.timeZone) : null}
+          onOpen={() => (last ? open(last) : undefined)}
+          onSchedule={() => navigation.navigate('MeetingForm')}
+        />
+      ) : null}
     </View>
   );
 
@@ -249,23 +248,7 @@ const makeStyles = (c: Palette) =>
     list: { padding: spacing.lg, gap: spacing.sm },
     header: { gap: spacing.sm, marginBottom: spacing.xs },
     search: { marginBottom: 0 },
-    controls: { gap: spacing.sm },
     scope: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center' },
-    filterButton: {
-      minHeight: 40,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: c.line,
-      borderRadius: radius.pill,
-      paddingHorizontal: spacing.md,
-      backgroundColor: c.surface,
-    },
-    filterButtonOn: { borderColor: c.brand },
-    filterText: { fontSize: fontSize.sm, ...font('700'), color: c.ink },
-    filterTextOn: { color: c.brandText },
     pressed: { opacity: 0.7 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
     usedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: c.brand, backgroundColor: c.brandWash, borderRadius: radius.pill, paddingHorizontal: spacing.md, minHeight: 32, justifyContent: 'center' },
@@ -273,19 +256,5 @@ const makeStyles = (c: Palette) =>
     summary: { fontSize: fontSize.sm, color: c.ink2 },
     clearAll: { minHeight: 32, justifyContent: 'center', paddingHorizontal: spacing.xs },
     clearAllText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText },
-    itemsLink: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      minHeight: 48,
-      paddingHorizontal: spacing.md,
-      backgroundColor: c.surface,
-      borderRadius: radius.input,
-      borderWidth: 1,
-      borderColor: c.line,
-    },
-    itemsText: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
-    itemsCount: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
-    overdue: { color: c.dangerText },
     groupTitle: { fontSize: fontSize.xs, ...font('600', 'display'), color: c.ink3, letterSpacing: 0.8, marginTop: spacing.sm },
   });
