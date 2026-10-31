@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { answerBlocks, cellDisplay, chatGroups, chatTitle, copyTextOf, suggestedQuestions } from './mico-ai';
+import { answerBlocks, cellDisplay, chatGroups, chatTitle, copyTextOf, keepSlidOut, suggestedQuestions } from './mico-ai';
 import type { MicoAiChat, MicoAiMessage } from '../api/mico-ai';
 
 describe('MICO AI answer text (a small Markdown subset, never HTML)', () => {
@@ -96,5 +96,22 @@ describe('MICO AI copy and suggestions', () => {
   it('four suggested questions, the last about one of the person’s projects', () => {
     expect(suggestedQuestions('Falcon CRM')).toEqual(['Which of my tasks are overdue?', 'Summarize this week’s meetings', 'Workload report for my team this week', 'What changed in Falcon CRM yesterday?']);
     expect(suggestedQuestions(null)[3]).toBe('Which projects need attention?');
+  });
+});
+
+describe('older messages and the newest page', () => {
+  const m = (id: string): MicoAiMessage => ({ id, role: 'user', status: 'done', text: id, createdAt: '', step: null });
+  it('messages the newest page lets go of move to the older page above, so none vanishes', () => {
+    const earlier = { chatId: 'c1', messages: [m('m1'), m('m2')], hasMore: true };
+    // The newest page was m3–m6; a question and its answer push m3 and m4 out of it.
+    const next = keepSlidOut(earlier, [m('m3'), m('m4'), m('m5'), m('m6')], [m('m5'), m('m6'), m('m7'), m('m8')]);
+    expect(next!.messages.map((x) => x.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+    expect(next).toMatchObject({ chatId: 'c1', hasMore: true });
+  });
+  it('nothing let go, or no older page loaded: unchanged (the server keeps the rest behind “Load earlier”)', () => {
+    const earlier = { chatId: 'c1', messages: [m('m1'), m('m2')], hasMore: true };
+    expect(keepSlidOut(earlier, [m('m3')], [m('m3'), m('m4')])).toBe(earlier);
+    expect(keepSlidOut(null, [m('m3')], [m('m4')])).toBeNull();
+    expect(keepSlidOut(earlier, [m('m2'), m('m3')], [m('m3')])).toBe(earlier);
   });
 });

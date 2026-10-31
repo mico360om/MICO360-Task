@@ -1,8 +1,8 @@
 /**
  * MICO AI on the page: the answer's small Markdown subset (paragraphs, "- " bullets, **bold**) as
  * plain text runs — never HTML, so nothing in an answer can become markup — table cells in the
- * app's own wording, the chat list's day groups, what Copy puts on the clipboard, and the
- * questions a new chat suggests.
+ * app's own wording, the chat list's day groups, what Copy puts on the clipboard, the questions a
+ * new chat suggests, and the older messages kept above a chat's newest page.
  */
 import type { CellKind, CellValue, MicoAiChat, MicoAiMessage } from '../api/mico-ai';
 import { shiftDayKey, todayKey, zonedDayKey } from './due-date';
@@ -129,4 +129,16 @@ export function suggestedQuestions(projectName: string | null): string[] {
     'Workload report for my team this week',
     projectName ? `What changed in ${projectName} yesterday?` : 'Which projects need attention?',
   ];
+}
+
+/**
+ * The older messages ("Load earlier messages") once the chat's newest page let go of some (a question
+ * and its answer push the oldest out of it): they go to the end of the older ones, so nothing
+ * vanishes between the two. Without older messages loaded nothing is kept — the server has them
+ * behind "Load earlier messages". The same object when nothing changed.
+ */
+export function keepSlidOut<T extends { messages: MicoAiMessage[] }>(earlier: T | null, previous: readonly MicoAiMessage[], latest: readonly MicoAiMessage[]): T | null {
+  if (!earlier) return earlier;
+  const slid = previous.filter((m) => !latest.some((x) => x.id === m.id) && !earlier.messages.some((x) => x.id === m.id));
+  return slid.length ? { ...earlier, messages: [...earlier.messages, ...slid] } : earlier;
 }

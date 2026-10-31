@@ -9,7 +9,7 @@ import { ApiError } from '../lib/api-client';
 import { downloadBlob, fileNameOf } from '../lib/download';
 import { useFrameOffset } from '../lib/useFrameOffset';
 import { useDateSettings } from '../lib/useDatePrefs';
-import { chatTitle, copyTextOf, suggestedQuestions } from '../lib/mico-ai';
+import { chatTitle, copyTextOf, keepSlidOut, suggestedQuestions } from '../lib/mico-ai';
 import { useAuthStore } from '../stores/auth-store';
 import { useDialog } from '../hooks/useDialog';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -184,7 +184,20 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
 
   const statusQ = useQuery({ queryKey: ['mico-ai', 'status'], queryFn: () => api.status(), staleTime: 60_000 });
   const listQ = useQuery({ queryKey: [...MICO_AI_CHATS_KEY, debounced.trim()], queryFn: () => api.list(debounced) });
-  const chatQ = useQuery({ queryKey: micoAiChatKey(chatId ?? ''), queryFn: () => api.get(chatId!), enabled: !!chatId, staleTime: 10_000 });
+  const chatQ = useQuery({
+    queryKey: micoAiChatKey(chatId ?? ''),
+    queryFn: async () => {
+      const id = chatId!;
+      const view = await api.get(id);
+      // The newest page moves on as questions are asked: what it lets go of joins the older messages
+      // loaded above it, so none vanishes from the middle (the app's A9).
+      const previous = qc.getQueryData<{ messages: MicoAiMessage[] }>(micoAiChatKey(id))?.messages;
+      if (previous) setEarlier((e) => (e && e.chatId === id ? keepSlidOut(e, previous, view.messages) : e));
+      return view;
+    },
+    enabled: !!chatId,
+    staleTime: 10_000,
+  });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
 

@@ -32,6 +32,8 @@ interface FakeChat {
 }
 let ready: boolean;
 let chats: FakeChat[];
+/** How many of a chat's newest messages its read returns (the server's window; the rest are behind "Load earlier"). */
+let latestPage: number;
 let calls: Array<{ method: string; url: string; body?: unknown }>;
 /** What a pending answer becomes on the next poll. */
 let next: Partial<MicoAiMessage> | null;
@@ -78,6 +80,7 @@ const tableAnswer: Partial<MicoAiMessage> = {
 beforeEach(() => {
   ready = true;
   chats = [];
+  latestPage = Infinity;
   calls = [];
   next = null;
   seq = 0;
@@ -118,7 +121,7 @@ beforeEach(() => {
           return json({ data: { question, answer } }, 202);
         }
         if (!messageId && method === 'GET' && path.endsWith('/messages')) return json({ data: { messages: c.older ?? [], hasMore: false } });
-        if (!messageId && method === 'GET') return json({ data: { chat: summary(c), messages: c.messages, hasMore: !!c.older?.length } });
+        if (!messageId && method === 'GET') return json({ data: { chat: summary(c), messages: c.messages.slice(-latestPage), hasMore: !!c.older?.length || c.messages.length > latestPage } });
         if (!messageId && method === 'PATCH') {
           c.title = body.title;
           return json({ data: summary(c) });
@@ -762,6 +765,23 @@ describe('MICO AI page: review fixes (2)', () => {
     await screen.findByRole('table', { name: 'Overdue tasks' });
     // Its top was 300px into the view: it now starts just under the top edge.
     expect(region.scrollTop).toBe(500 + 300 - 16);
+  });
+
+  it('after “Load earlier messages”, a new question keeps every message: those the newest page lets go of join the earlier ones (final pass, item 6)', async () => {
+    latestPage = 3;
+    chats = [{ id: 'c9', title: 'Long', lastMessageAt: now, messages: [question('m2', 'second'), question('m3', 'third'), question('m4', 'fourth')], older: [question('m1', 'first')] }];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('fourth');
+    await userEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+    await screen.findByText('first');
+    next = { status: 'done', step: null, text: 'Fifth answer.', answer: { kind: 'answer', unavailable: false, options: [], followUps: [], sources: [], tables: [] } };
+    await userEvent.type(box(), 'fifth{Enter}');
+    await screen.findByText('Fifth answer.');
+    // The chat was read again after the question: its newest page is now fourth, fifth and the answer.
+    await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url === '/mico-ai/chats/c9').length).toBeGreaterThanOrEqual(2));
+    const shown = () => [...document.querySelectorAll('[data-mico-message]')].map((el) => el.textContent ?? '');
+    await waitFor(() => expect(shown().filter((t) => /first|second|third|fourth|fifth/.test(t))).toHaveLength(5));
+    for (const t of ['first', 'second', 'third', 'fourth']) expect(screen.getByText(t)).toBeInTheDocument();
   });
 
   it('“Load earlier messages” keeps your place', async () => {
