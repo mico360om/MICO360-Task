@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 import { websiteSays } from '../testing/phone-words';
-import { INSPECTIONS_TAB_WORDS, dueCheckGroups, dueCheckWhen, inspectorsText, isFirstRun, startCheck, startTry, waitingBannerText } from './inspection-tab';
+import { INSPECTIONS_TAB_WORDS, dueCheckGroups, dueCheckWhen, inspectorsText, isFirstRun, startCheck, startTry, tabState, waitingBannerText } from './inspection-tab';
 import { createPendingKeys } from './pending-keys';
 import { ApiError, NetworkError } from './api-client';
 import type { DueCheck, Person } from './inspection-types';
@@ -106,4 +106,21 @@ it('a due check keeps one Start key until the server answers: kept after a lost 
   expect(d).toMatch(/pendingKeys\.settle\(startTry\(projectId, check\)(, e)?\)/);
   expect(d).not.toMatch(/newIdempotencyKey\(\)/);
   expect(src('components/inspections/StartInspectionSheet.tsx')).toMatch(/if \(!keepsKey\(e\)\) setKey\(newIdempotencyKey\(\)\)/);
+});
+
+it('the kept lists show as soon as they and the due checks are there; only the first-run invitation waits for the online reads (Final I9)', () => {
+  const offline = { inspections: [{}], checks: [], checksSettled: true, forms: undefined, formsSettled: false, schedules: undefined, schedulesSettled: false, waiting: 0 };
+  expect(tabState(offline)).toBe('lists');
+  expect(tabState({ ...offline, inspections: [], checks: [{}] })).toBe('lists');
+  expect(tabState({ ...offline, inspections: [], waiting: 1 })).toBe('lists');
+  expect(tabState({ ...offline, inspections: undefined })).toBe('loading');
+  expect(tabState({ ...offline, checksSettled: false })).toBe('loading');
+  // Nothing kept here at all: whether it is a first run waits for the forms and schedules.
+  expect(tabState({ ...offline, inspections: [] })).toBe('loading');
+  expect(tabState({ ...offline, inspections: [], forms: [], formsSettled: true, schedules: [], schedulesSettled: true })).toBe('first-run');
+  expect(tabState({ ...offline, inspections: [], forms: [{}], formsSettled: true, schedules: [], schedulesSettled: true })).toBe('lists');
+  expect(tabState({ ...offline, inspections: [], formsSettled: true, schedulesSettled: true })).toBe('lists'); // failed online reads: no invitation
+  const t = src('components/project/InspectionsTab.tsx');
+  expect(t).toMatch(/const state = tabState\(\{/);
+  expect(t).toMatch(/state === 'lists' && q\.data \? \(/);
 });
