@@ -87,4 +87,5 @@
 - In the Android app, the "+N" after the faces on project, board and My Tasks cards is no longer cut off at the largest font size.
 - In the Android app, with a larger font size, project names, task titles and other text that is cut after a few lines is shown in full instead of losing its "…".
 - In the Android app, Workload opens each person's days on today, and the row fades at the edge where more days are hidden.
+- In the Android app, the signer's name under an optional signature (the client's or a supervisor's) no longer shows a required star.
 <!-- final-pass lines above this line -->

@@ -284,7 +284,7 @@ export function SignaturePad({
         <Button title={SIGN_WORDS.clear} variant="secondary" size="sm" onPress={clear} disabled={disabled || typed || !hasDrawing} />
       </View>
       <Toggle on={typed} onChange={onTypedChange} label={SIGN_WORDS.typeInstead} disabled={disabled} />
-      <TextField label={SIGN_WORDS.signerName} required value={name} onChangeText={onNameChange} autoComplete="name" maxLength={INSPECTION_LIMITS.signerNameMax} editable={!disabled} error={error && !signer ? error : null} />
+      <TextField label={SIGN_WORDS.signerName} required={required} value={name} onChangeText={onNameChange} autoComplete="name" maxLength={INSPECTION_LIMITS.signerNameMax} editable={!disabled} error={error && !signer ? error : null} />
       {error && signer ? (
         <Text style={[typeStyle('caption'), { color: c.dangerText }]} accessibilityRole="alert" accessibilityLiveRegion="assertive">
           {error}
