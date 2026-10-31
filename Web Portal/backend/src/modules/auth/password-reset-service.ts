@@ -2,6 +2,7 @@ import { generateResetToken, hashResetToken } from '../../lib/reset-token';
 import { isStrongPassword } from '../../lib/password-policy';
 import { isExpired } from '../../lib/otp';
 import { EmailUnavailableError, InvalidResetTokenError, WeakPasswordError } from './errors';
+import type { TemplateOptions } from '../email/email-templates';
 
 export interface ResetUser {
   id: string;
@@ -40,7 +41,7 @@ export interface PasswordResetStore {
 }
 
 export interface ResetMailer {
-  sendPasswordReset(email: string, link: string): Promise<void>;
+  sendPasswordReset(email: string, link: string, opts?: TemplateOptions): Promise<void>;
   /** False when no mail provider is configured at all. */
   isConfigured?(): boolean;
 }
@@ -64,6 +65,8 @@ export interface PasswordResetServiceDeps {
   runInBackground?: (task: () => Promise<void>) => void;
   logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
   now?: () => Date;
+  /** Companies: the person's company brand on the email (their primary company's name, logo and sender name). */
+  emailOptions?: (userId: string) => Promise<TemplateOptions | undefined>;
 }
 
 const MINUTE = 60_000;
@@ -99,7 +102,10 @@ export function createPasswordResetService(deps: PasswordResetServiceDeps) {
       const { token, tokenHash } = generateResetToken();
       await deps.store.create({ userId: user.id, tokenHash, expiresAt: new Date(at + deps.ttlSeconds * 1000) });
       const link = `${deps.appUrl.replace(/\/$/, '')}/reset?token=${token}`;
-      await deps.mailer.sendPasswordReset(user.email, link);
+      // Off the request path (runInBackground): reading the brand takes no time anyone can measure.
+      const brand = await deps.emailOptions?.(user.id).catch(() => undefined);
+      if (brand) await deps.mailer.sendPasswordReset(user.email, link, brand);
+      else await deps.mailer.sendPasswordReset(user.email, link);
     } finally {
       issuing.delete(user.id);
     }

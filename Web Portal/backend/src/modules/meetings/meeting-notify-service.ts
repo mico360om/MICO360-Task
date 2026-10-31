@@ -8,7 +8,7 @@ import { wallOf } from './meeting-series';
 import type { Logger } from '../../lib/logger';
 import { EmailNotConfiguredError } from '../email/delivery-error';
 import type { EmailAttachment } from '../email/mailer';
-import { meetingMinutesEmail, type MeetingEmailParams } from '../email/email-templates';
+import { meetingMinutesEmail, type MeetingEmailParams, type TemplateOptions } from '../email/email-templates';
 import type { MeetingRecord, MeetingRepository, MeetingSeriesStore, RecurrenceRule } from './meeting-repository';
 import type { AttendeeRecord } from './attendee-repository';
 import { isValidTimeZone } from './meeting-validation';
@@ -20,9 +20,9 @@ export interface NotifyPerson {
 
 /** The email surface this service needs (a subset of EmailService). Sends throw when delivery fails. */
 export interface MeetingMailer {
-  sendMeetingInvite(email: string, params: MeetingEmailParams, ics: EmailAttachment): Promise<void>;
-  sendMeetingCancelled(email: string, params: MeetingEmailParams, ics: EmailAttachment): Promise<void>;
-  sendMeetingMinutes(email: string, params: MeetingEmailParams, pdf: EmailAttachment): Promise<void>;
+  sendMeetingInvite(email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions): Promise<void>;
+  sendMeetingCancelled(email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions): Promise<void>;
+  sendMeetingMinutes(email: string, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions): Promise<void>;
 }
 
 export interface MeetingNotifyDeps {
@@ -50,6 +50,8 @@ export interface MeetingNotifyDeps {
   /** Where per-recipient failures are reported. */
   logger?: Pick<Logger, 'error' | 'warn'>;
   now?: () => Date;
+  /** Companies: the meeting's company brand on its emails (its project's main company, else its own company). */
+  emailOptions?: (m: MeetingRecord) => Promise<TemplateOptions | undefined>;
 }
 
 /** Per-recipient outcome of a send: how many emails were delivered and how many failed. */
@@ -141,9 +143,21 @@ function slugify(title: string): string {
 }
 
 export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNotifyService {
-  const { meetings, attendees, email } = deps;
+  const { meetings, attendees } = deps;
   const now = deps.now ?? (() => new Date());
   const fallbackZone = deps.defaultTimeZone && isValidTimeZone(deps.defaultTimeZone) ? deps.defaultTimeZone : 'UTC';
+
+  /** Companies: the meeting's company brand (null: the site's — a brand that can't be read leaves it so). */
+  const brandOf = async (m: MeetingRecord): Promise<TemplateOptions | null> => (deps.emailOptions ? ((await deps.emailOptions(m).catch(() => undefined)) ?? null) : null);
+  /** The mailer, each send with the meeting's brand added — and exactly as before without one. */
+  const mailerFor = (brand: TemplateOptions | null): MeetingMailer =>
+    brand
+      ? {
+          sendMeetingInvite: (to, params, ics) => deps.email.sendMeetingInvite(to, params, ics, brand),
+          sendMeetingCancelled: (to, params, ics) => deps.email.sendMeetingCancelled(to, params, ics, brand),
+          sendMeetingMinutes: (to, params, pdf) => deps.email.sendMeetingMinutes(to, params, pdf, brand),
+        }
+      : deps.email;
 
   /** The meeting's own zone when valid, else the company zone — never a zone that makes formatting throw. */
   const zoneOf = (m: MeetingRecord): string => (m.timeZone && isValidTimeZone(m.timeZone) ? m.timeZone : fallbackZone);
@@ -510,7 +524,8 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       params.whenLabel = scope === 'series' ? `${repeatText(s.root)} — you’re no longer on this meeting series` : `${params.whenLabel} · you’re no longer on this meeting`;
     }
     const ics = await calendarFor(m, method, organizerOf(m, all.organizer), icsAttendees, scope, opts.alsoFrom);
-    const r = await deliver(m, 'cancellation', people, (p) => email.sendMeetingCancelled(p.email, params, ics));
+    const mail = mailerFor(await brandOf(m));
+    const r = await deliver(m, 'cancellation', people, (p) => mail.sendMeetingCancelled(p.email, params, ics));
     return { sent: r.sent, failed: r.failed };
   }
 
@@ -528,7 +543,8 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const targets = s && scope === 'one' ? asked.filter((r) => r.alreadyInvited || r.kind === 'organizer') : asked;
       if (s) params.whenLabel = scope === 'series' ? `${params.whenLabel} · ${repeatText(s.root)}` : `${params.whenLabel} · This meeting of the series only`;
       const ics = await calendarFor(m, 'REQUEST', organizerOf(m, organizer), icsAttendees, scope);
-      const r = assertConfigured(await deliver(m, 'invitation', targets, (p) => email.sendMeetingInvite(p.email, params, ics)));
+      const mail = mailerFor(await brandOf(m));
+      const r = assertConfigured(await deliver(m, 'invitation', targets, (p) => mail.sendMeetingInvite(p.email, params, ics)));
       // Only a delivered invitation counts as "invites sent" (it later drives cancellation notices).
       if (r.sent > 0) {
         const at = now();
@@ -575,14 +591,17 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       if (chosen && targets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
       const params = { ...(await emailParams(m, organizer)), project: await projectLook(m) };
       const attachment: EmailAttachment = { filename: minutesAttachmentName(m.title, opts?.final), contentType: 'application/pdf', content: pdf };
-      const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => email.sendMeetingMinutes(p.email, params, attachment)));
+      const mail = mailerFor(await brandOf(m));
+      const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => mail.sendMeetingMinutes(p.email, params, attachment)));
       return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, chosen ? [] : missingEmail);
     },
 
     async previewMinutes(meetingId, opts) {
       const m = await requireMeeting(meetingId);
       const { recipients, missingEmail, organizer } = await recipientsFor(m);
-      const content = meetingMinutesEmail({ ...(await emailParams(m, organizer)), project: await projectLook(m) });
+      // The preview is the email as sent: with the meeting's company brand.
+      const brand = await brandOf(m);
+      const content = meetingMinutesEmail({ ...(await emailParams(m, organizer)), project: await projectLook(m) }, brand ?? undefined);
       return { subject: content.subject, html: content.html, text: content.text, attachmentName: minutesAttachmentName(m.title, opts?.final), recipients, missingEmail };
     },
   };

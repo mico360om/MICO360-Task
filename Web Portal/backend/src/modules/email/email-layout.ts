@@ -290,7 +290,12 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
   const c = brand.colors;
   const dir = isRtl(locale) ? 'rtl' : 'ltr';
 
-  const logo = brand.logoUrl
+  // Companies: a company's own logo keeps its proportions and sits on a white plate (a coloured logo
+  // would be lost on the brand colour); the built-in white logo is drawn as before.
+  const box = brand.logoUrl ? brand.logoBox : undefined;
+  const logo = box
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:6px"><tr><td style="padding:4px 8px;line-height:0"><img src="${safeHref(brand.logoUrl!)}" alt="${escapeHtml(box.alt)}" width="${box.width}" height="${box.height}" style="display:block;border:0;width:${box.width}px;height:${box.height}px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:${c.ink}"/></td></tr></table>`
+    : brand.logoUrl
     ? `<img src="${safeHref(brand.logoUrl)}" alt="${escapeHtml(brand.productName)}" width="64" height="30" style="display:block;border:0;width:64px;height:30px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:800;color:${c.onBrand}"/>`
     : `<span style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.3px;color:${c.onBrand}">${escapeHtml(brand.wordmark.pre)}<span style="opacity:0.85">${escapeHtml(brand.wordmark.mid)}</span> <span style="font-weight:600;opacity:0.9">${escapeHtml(brand.wordmark.post)}</span></span>`;
 

@@ -20,8 +20,8 @@ export interface MentionNotifierDeps {
   notify: (input: { userId: string; type: string; title: string; body: string | null; entityType: string; entityId: string }) => Promise<unknown | null>;
   task: (taskId: string) => Promise<{ key: string; title: string } | null>;
   authorName: (authorId: string) => Promise<string>;
-  /** Best-effort email; absent when email isn't wired. */
-  sendMentionEmail?: (email: string, params: MentionEmailParams) => Promise<void>;
+  /** Best-effort email; absent when email isn't wired. Companies: `taskId` lets it carry the task's project's company brand. */
+  sendMentionEmail?: (email: string, params: MentionEmailParams, taskId: string) => Promise<void>;
   appUrl: string;
   logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void };
 }
@@ -55,7 +55,7 @@ export function createMentionNotifier(deps: MentionNotifierDeps) {
           taskTitle: task.title,
           snippet: snippetOf(body),
           link: `${deps.appUrl.replace(/\/$/, '')}/my-tasks?task=${encodeURIComponent(taskId)}`,
-        })
+        }, taskId)
         .catch((err) => deps.logger?.warn('mention email failed', { err, userId, taskId }));
     }
   };

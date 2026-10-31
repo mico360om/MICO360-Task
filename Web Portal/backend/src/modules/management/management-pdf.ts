@@ -10,6 +10,7 @@ import { BRAND, formatDateTime, formatDay, slugPart } from '../../lib/export-for
 import { zonedDayKey } from '../../lib/due-date';
 import type { ProjectStatus, Rag } from './management-rules';
 import { shortDay, type ManagementOverview } from './management-service';
+import type { PdfBrand } from '../companies/company-branding';
 
 const RAG_WORD: Record<Rag, string> = { RED: 'Red', AMBER: 'Amber', GREEN: 'Green' };
 const RAG_COLOR: Record<Rag, RGB> = { RED: [0.72, 0.16, 0.16], AMBER: [0.62, 0.4, 0.04], GREEN: [0.16, 0.45, 0.28] };
@@ -45,14 +46,17 @@ export function managementPdfFileName(o: ManagementOverview): string {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: string | null }): Buffer {
+export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: string | null; company?: PdfBrand | null }): Buffer {
   const generated = `Generated ${formatDateTime(new Date(o.generatedAt), o.timeZone)} (${o.timeZone})${meta.generatedBy ? ` by ${meta.generatedBy}` : ''}`;
+  // Companies: the company's name before the product's (2+ companies), and its logo.
+  const company = meta.company?.companyName ? `${meta.company.companyName} · ` : '';
   const doc = new PdfDocument({
     orientation: 'landscape',
     title: 'Management overview',
     runningTitle: 'Management overview',
-    footerLeft: `MICO360 Tasks · ${generated}`,
+    footerLeft: `${company}MICO360 Tasks · ${generated}`,
     palette: { brand: BRAND },
+    ...(meta.company?.logo ? { logo: meta.company.logo } : {}),
   });
   doc.reportHeader({ title: 'Management overview', subtitle: o.scope === 'ALL' ? 'All projects' : 'Projects you run', details: [filtersInWords(o), generated] });
   const t = o.tiles;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PdfDocument, hexToRgb } from './pdf-document';
 import { inspectPdf } from './pdf-inspect';
 import { measureText } from './pdf-text';
+import { solidPng } from './test-images';
 
 describe('PdfDocument', () => {
   it('produces a valid PDF envelope whose xref offsets point at each object', () => {
@@ -166,6 +167,51 @@ describe('PdfDocument — report layout', () => {
     // Body text never runs under the running header: every line is still there exactly once.
     const all = pages.flat().filter((t) => t.startsWith('Line '));
     expect(all).toHaveLength(120);
+  });
+
+  describe('a company logo (companies)', () => {
+    const images = (buf: Buffer) => [...inspectPdf(buf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d));
+    const widths = (buf: Buffer) => images(buf).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
+
+    it('replaces the built-in logo in the report header and the running header, embedded once', () => {
+      const doc = new PdfDocument({ runningTitle: 'Tasks report', logo: solidPng(300, 100) });
+      doc.reportHeader({ title: 'Tasks report' });
+      for (let i = 0; i < 120; i++) doc.text(`Line ${i}`);
+      const buf = doc.build();
+      const { pages, contents } = inspectPdf(buf);
+      expect(pages.length).toBeGreaterThan(1);
+      expect(widths(buf)).toEqual([300]); // no built-in logo (900 wide), and the company's only once
+      for (let p = 0; p < pages.length; p++) expect(contents[p]).toMatch(/\/I\d+ Do/);
+      expect(pages[1]).toContain('Tasks report');
+    });
+
+    it('sits on the right of a project header and of the product header, beside the badge', () => {
+      for (const draw of [
+        (d: PdfDocument) => d.identityHeader({ initials: 'PA', title: 'Project Alpha', eyebrow: 'Minutes of Meeting', badge: { text: 'Draft', tone: 'warning' } }),
+        (d: PdfDocument) => d.brandHeader({ title: 'MICO360 Tasks', eyebrow: 'Minutes of Meeting' }),
+      ]) {
+        const doc = new PdfDocument({ logo: solidPng(240, 80) });
+        draw(doc);
+        const buf = doc.build();
+        expect(widths(buf)).toEqual([240]);
+        expect(inspectPdf(buf).pages[0]).toEqual(expect.arrayContaining(['MINUTES OF MEETING']));
+      }
+    });
+
+    it('without one, a project header has no picture and the report header keeps the built-in logo', () => {
+      const plain = new PdfDocument();
+      plain.identityHeader({ initials: 'PA', title: 'Project Alpha' });
+      expect(widths(plain.build())).toEqual([]);
+      const report = new PdfDocument({ logo: null });
+      report.reportHeader({ title: 'Tasks report' });
+      expect(widths(report.build())).toEqual([900]);
+    });
+
+    it('a logo the PDF can’t print falls back to the built-in one', () => {
+      const doc = new PdfDocument({ logo: Buffer.from('not a picture') });
+      doc.reportHeader({ title: 'Tasks report' });
+      expect(widths(doc.build())).toEqual([900]);
+    });
   });
 
   it('draws stat tiles with their values and labels', () => {

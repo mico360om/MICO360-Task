@@ -1,6 +1,6 @@
 import type { Logger } from '../../lib/logger';
 import { EmailDeliveryError, EmailNotConfiguredError } from '../email/delivery-error';
-import type { MeetingEmailParams } from '../email/email-templates';
+import type { MeetingEmailParams, TemplateOptions } from '../email/email-templates';
 import { MEETING_PUSH_CHANNEL } from '../device-tokens/fcm-transport';
 import type { CreateNotificationData, NotificationRecord } from '../notifications/notification-repository';
 import type { NotifyOptions } from '../notifications/notification-service';
@@ -70,7 +70,9 @@ export interface MeetingReminderServiceDeps {
   store: MeetingReminderStore;
   /** The notification service's notify: the bell, the phone push, and the website's live pop-up. */
   notify: (input: CreateNotificationData, opts?: NotifyOptions) => Promise<NotificationRecord | null>;
-  email: { sendMeetingReminder(email: string, params: MeetingEmailParams & { startsInLabel: string }): Promise<void> };
+  email: { sendMeetingReminder(email: string, params: MeetingEmailParams & { startsInLabel: string }, opts?: TemplateOptions): Promise<void> };
+  /** Companies: the meeting's company brand on its reminder emails (its project's main company, else its own company). */
+  emailOptions?: (meetingId: string) => Promise<TemplateOptions | undefined>;
   /** The website's address, for the email's "Open" link. */
   appUrl: string;
   /** The company's time zone: for meetings stored without one and people who chose none. */
@@ -174,6 +176,9 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
     const organizerName = people.get(m.organizerId)?.name ?? null;
     // Out of date once the meeting has started: a phone that was off doesn't show it afterwards.
     const ttlSeconds = Math.max(60, Math.ceil((m.startAt.getTime() - at.getTime()) / 1000));
+    // Companies: the meeting's brand, read once, when its first email goes (null: the site's, as before).
+    let brand: TemplateOptions | null | undefined;
+    const brandOf = async () => (brand !== undefined ? brand : (brand = deps.emailOptions ? ((await deps.emailOptions(m.id).catch(() => undefined)) ?? null) : null));
 
     // Each person's sends per way, nearest reminder time first: when several are due at once (a
     // meeting made late, times close together), only the nearest goes; the others are written
@@ -218,7 +223,7 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
             // Null: they switched meeting reminders off a moment ago.
             outcome = stored ? 'SENT' : 'SKIPPED';
           } else if (recipient.email) {
-            await deps.email.sendMeetingReminder(recipient.email, {
+            const params = {
               title: m.title,
               whenLabel: words.when,
               startsInLabel: words.startsIn,
@@ -228,7 +233,10 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
               projectName: m.projectName,
               description: m.description,
               link: `${deps.appUrl.replace(/\/+$/, '')}/meetings/${m.id}`,
-            });
+            };
+            const branded = await brandOf();
+            if (branded) await deps.email.sendMeetingReminder(recipient.email, params, branded);
+            else await deps.email.sendMeetingReminder(recipient.email, params);
             outcome = 'SENT';
           } else {
             outcome = 'SKIPPED';

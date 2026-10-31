@@ -5,6 +5,7 @@ import { HttpError, ValidationError } from '../../lib/http-errors';
 import { DEFAULT_STATUSES, PERIOD_WEEKS, PROJECT_STATUSES, type ProjectStatus } from './management-rules';
 import type { ManagementFilters, ManagementService, ManagementViewer } from './management-service';
 import { buildManagementPdf, managementPdfFileName } from './management-pdf';
+import type { PdfBrand } from '../companies/company-branding';
 
 export interface ManagementRouteDeps {
   service: ManagementService;
@@ -17,6 +18,11 @@ export interface ManagementRouteDeps {
   pdfsPerMinute?: number;
   /** Overviews and lists per signed-in person a minute (default 120: plenty for refreshes on focus and opening lists). */
   readsPerMinute?: number;
+  /**
+   * Companies: the PDF's company brand — the one chosen project's main company, else the picked
+   * company, else the reader's primary company; absent: the site's.
+   */
+  pdfBrand?: (req: FastifyRequest, projectId: string | null) => Promise<PdfBrand>;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -121,7 +127,9 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
     if (!allowPdf(who.id)) throw new HttpError('Too many PDFs in a minute. Please wait a moment and try again.', 'RATE_LIMITED', 429);
     const overview = await service.overview(who, filters);
     const generatedBy = (await deps.userName?.(who.id).catch(() => null)) ?? null;
-    const pdf = buildManagementPdf(overview, { generatedBy });
+    const one = overview.filters.projectIds.length === 1 ? overview.filters.projectIds[0]! : null;
+    const company = deps.pdfBrand ? await deps.pdfBrand(req, one).catch(() => null) : null;
+    const pdf = buildManagementPdf(overview, { generatedBy, company });
     return reply
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${managementPdfFileName(overview)}"`)

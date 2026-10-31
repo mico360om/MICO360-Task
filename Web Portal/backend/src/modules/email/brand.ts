@@ -13,6 +13,12 @@ export interface Brand {
   wordmark: { pre: string; mid: string; post: string };
   /** Optional hosted logo image URL (falls back to the text wordmark). */
   logoUrl?: string;
+  /**
+   * Companies: `logoUrl` is a company's own logo, not the built-in one — drawn at this size (fitted
+   * to the slim header) on a white plate, so a coloured logo reads on the brand colour, with `alt`
+   * (the company's name) for when images are blocked.
+   */
+  logoBox?: { width: number; height: number; alt: string };
   colors: {
     brand: string;
     brand2: string;

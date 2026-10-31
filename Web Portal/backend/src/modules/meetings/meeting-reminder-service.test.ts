@@ -58,7 +58,7 @@ function memoryStore(): MeetingReminderStore & { rows: Map<string, { status: str
   };
 }
 
-function setup(opts: { meetings?: DueMeeting[]; settings?: MeetingReminderSettings; people?: ReminderPerson[]; now?: Date; email?: (to: string) => Promise<void> } = {}) {
+function setup(opts: { meetings?: DueMeeting[]; settings?: MeetingReminderSettings; people?: ReminderPerson[]; now?: Date; email?: (to: string) => Promise<void>; emailOptions?: (meetingId: string) => Promise<never> } = {}) {
   let now = opts.now ?? new Date(START.getTime() - 15 * MIN);
   let list = opts.meetings ?? [meeting()];
   const people = new Map((opts.people ?? [person('org'), person('ann')]).map((p) => [p.userId, p] as const));
@@ -81,6 +81,7 @@ function setup(opts: { meetings?: DueMeeting[]; settings?: MeetingReminderSettin
     defaultTimeZone: 'Asia/Muscat',
     logger,
     now: () => now,
+    ...(opts.emailOptions ? { emailOptions: opts.emailOptions } : {}),
   });
   return {
     svc, store, notify, sendMeetingReminder, logger, dueMeetings,
@@ -298,5 +299,20 @@ describe('the meeting reminder sweep', () => {
     expect(t.dueMeetings).toHaveBeenCalledTimes(1);
     await t.svc.runSweep();
     expect(t.dueMeetings).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('meeting reminder emails carry the meeting’s company brand (companies)', () => {
+  it('each email of the meeting gets it (read once); without one they go as before', async () => {
+    const asked: string[] = [];
+    const brand = { brand: { companyName: 'Alpha LLC' }, fromName: 'Alpha Team' };
+    const t = setup({ now: new Date(START.getTime() - 24 * 60 * MIN), emailOptions: (async (id: string) => { asked.push(id); return brand; }) as never });
+    await t.svc.runSweep();
+    expect(t.sendMeetingReminder.mock.calls.length).toBeGreaterThan(1);
+    for (const call of t.sendMeetingReminder.mock.calls) expect((call as unknown[])[2]).toEqual(brand);
+    expect(asked).toEqual(['m1']);
+    const plain = setup({ now: new Date(START.getTime() - 24 * 60 * MIN) });
+    await plain.svc.runSweep();
+    expect(plain.sendMeetingReminder.mock.calls.every((c) => c.length === 2)).toBe(true);
   });
 });

@@ -115,6 +115,25 @@ export interface PdfDocumentOptions {
   orientation?: 'portrait' | 'landscape';
   /** Shown with the logo in a slim header at the top of every page after the first. */
   runningTitle?: string;
+  /**
+   * Companies: the company's own logo (a picture the PDF can print, e.g. from readProjectPicture). It
+   * takes the built-in logo's place in the report header and the running header, and sits on the
+   * right of a project's or the product's header. Null or left out (or one that can't be printed):
+   * the built-in logo, as before.
+   */
+  logo?: Buffer | null;
+}
+
+/** A picture pdfkit has opened: embedded once however often it is drawn; its size in pixels. */
+interface OpenedImage {
+  width: number;
+  height: number;
+}
+
+/** The biggest box (points) that holds a `width`×`height` picture inside `maxW`×`maxH`, keeping its shape. */
+function fitBox(width: number, height: number, maxW: number, maxH: number): { w: number; h: number } {
+  const k = Math.min(maxW / width, maxH / height);
+  return { w: width * k, h: height * k };
 }
 
 /** A small pill on the right of a header ("DRAFT", "FINAL"). */
@@ -193,6 +212,8 @@ export class PdfDocument {
 
   /** Resolved brand palette used by headings, rules, labels and the footer. */
   private readonly pal: { ink: RGB; muted: RGB; brand: RGB; line: RGB };
+  /** Companies: the company's own logo, opened once (null: the built-in logo is used). */
+  private readonly companyMark: OpenedImage | null;
 
   constructor(private readonly opts: PdfDocumentOptions = {}) {
     const landscape = opts.orientation === 'landscape';
@@ -216,6 +237,37 @@ export class PdfDocument {
     });
     registerPdfFonts(this.doc);
     this.y = this.margin;
+    this.companyMark = opts.logo ? this.openImage(opts.logo) : null;
+  }
+
+  /** A picture opened for drawing (from prepareImage's rules), or null when it can't be printed. */
+  private openImage(image: Buffer): OpenedImage | null {
+    const printable = printableImage(image);
+    if (!printable) return null;
+    try {
+      const opened = (this.doc as unknown as { openImage(src: Buffer): OpenedImage }).openImage(printable);
+      return opened.width > 0 && opened.height > 0 ? opened : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Draws an opened picture fitted into `w`×`h` at (x, top) — the same object every time, so it is embedded once. */
+  private drawOpened(img: OpenedImage, x: number, top: number, w: number, h: number): void {
+    (this.doc as unknown as { image(src: OpenedImage, x: number, y: number, o: { width: number; height: number }): unknown }).image(img, x, top, { width: w, height: h });
+  }
+
+  /**
+   * Companies: the company's logo at the right end of a header `s` high starting at `top`, above the
+   * badge when there is one (else centred). Returns the width it takes (0 without one).
+   */
+  private headerLogo(top: number, s: number, withBadge: boolean): number {
+    const img = this.companyMark;
+    if (!img) return 0;
+    const box = fitBox(img.width, img.height, 110, withBadge ? 22 : 30);
+    const x = this.margin + this.contentWidth - box.w;
+    this.drawOpened(img, x, withBadge ? top : top + (s - box.h) / 2, box.w, box.h);
+    return box.w;
   }
 
   private get contentWidth(): number {
@@ -358,8 +410,11 @@ export class PdfDocument {
     const badgeSize = 7.5;
     const badgeLine = opts.badge ? layoutText(opts.badge.text.toUpperCase(), { size: badgeSize, bold: true })[0]! : null;
     const badgeW = badgeLine ? badgeLine.width + 16 : 0;
+    // Companies: the company's logo on the right (above the badge); the text keeps clear of both.
+    const logoW = this.headerLogo(top, s, Boolean(badgeLine));
+    const rightW = Math.max(badgeW, logoW);
     const tx = this.margin + s + 14;
-    const tw = this.contentWidth - s - 14 - (badgeW ? badgeW + 12 : 0);
+    const tw = this.contentWidth - s - 14 - (rightW ? rightW + 12 : 0);
     const fit = (text: string, size: number, min: number, bold: boolean, color: RGB) => {
       let sz = size;
       while (sz > min && measureText(text, sz, bold) > tw) sz -= 0.5;
@@ -390,7 +445,7 @@ export class PdfDocument {
       const tone = opts.badge.tone === 'success' ? SUCCESS : opts.badge.tone === 'warning' ? WARNING : this.pal.muted;
       const bx = this.margin + this.contentWidth - badgeW;
       const bh = 18;
-      const by = mid - bh / 2;
+      const by = logoW ? top + s - bh : mid - bh / 2; // under the company's logo, else centred
       this.doc.save().roundedRect(bx, by, badgeW, bh, bh / 2).fill(toHex(mix(tone, WHITE, 0.86))).restore();
       this.doc.save().lineWidth(0.8).roundedRect(bx, by, badgeW, bh, bh / 2).stroke(toHex(tone)).restore();
       drawTextLine(this.doc, badgeLine, bx + 8, by + bh / 2 + badgeSize * 0.36, badgeSize, toHex(tone));
@@ -775,11 +830,19 @@ export class PdfDocument {
    */
   reportHeader(opts: { title: string; subtitle?: string; details?: string[] }): this {
     const top = this.y;
-    const logo = companyLogo();
     const logoH = 40;
-    const logoW = logo ? logoH * LOGO_ASPECT : logoH;
-    if (logo) this.doc.image(logo, this.margin, top, { height: logoH });
-    else this.logoMark(this.margin, this.pageHeight - top - logoH, logoH);
+    let logoW: number;
+    if (this.companyMark) {
+      // Companies: the company's own logo, at its own shape, in the built-in logo's place.
+      const box = fitBox(this.companyMark.width, this.companyMark.height, 140, logoH);
+      this.drawOpened(this.companyMark, this.margin, top + (logoH - box.h) / 2, box.w, box.h);
+      logoW = box.w;
+    } else {
+      const logo = companyLogo();
+      logoW = logo ? logoH * LOGO_ASPECT : logoH;
+      if (logo) this.doc.image(logo, this.margin, top, { height: logoH });
+      else this.logoMark(this.margin, this.pageHeight - top - logoH, logoH);
+    }
     const blockLeft = this.margin + logoW + 24;
     const blockWidth = this.pageWidth - this.margin - blockLeft;
     let by = top;
@@ -1130,16 +1193,23 @@ export class PdfDocument {
     const footerLines = (this.opts.footerLeft ?? '').split('\n').filter((l) => l.length > 0);
     const { line, muted, brand } = this.pal;
 
-    const logo = this.opts.runningTitle ? companyLogo() : null;
+    const mark = this.opts.runningTitle ? this.companyMark : null;
+    const logo = this.opts.runningTitle && !mark ? companyLogo() : null;
     for (let i = 0; i < total; i++) {
       this.doc.switchToPage(range.start + i);
       if (i > 0 && this.opts.runningTitle) {
         // Slim running header: small logo, the document title on the right, a hairline.
         const h = 16;
-        if (logo) this.doc.image(logo, this.margin, 26, { height: h });
+        let markW = h * LOGO_ASPECT;
+        if (mark) {
+          // Companies: the company's own logo (the same embedded picture on every page).
+          const box = fitBox(mark.width, mark.height, 70, h);
+          this.drawOpened(mark, this.margin, 26 + (h - box.h) / 2, box.w, box.h);
+          markW = box.w;
+        } else if (logo) this.doc.image(logo, this.margin, 26, { height: h });
         else this.logoMark(this.margin, this.pageHeight - 26 - h, h);
         // A title too long for the header ends with "…" (the first page's own header shows it in full).
-        const t = fitLine(this.opts.runningTitle.replace(/\s+/g, ' '), { size: 8, maxWidth: this.contentWidth - h * LOGO_ASPECT - 20 });
+        const t = fitLine(this.opts.runningTitle.replace(/\s+/g, ' '), { size: 8, maxWidth: this.contentWidth - markW - 20 });
         drawTextLine(this.doc, t.line, this.pageWidth - this.margin - t.line.width, 37, t.size, toHex(muted));
         this.fillRect(this.margin, 48, this.contentWidth, 0.6, line);
       }

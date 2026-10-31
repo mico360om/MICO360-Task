@@ -104,6 +104,7 @@ import { registerManagementRoutes, type ManagementRouteDeps } from './modules/ma
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import type { CompanyAccess } from './modules/companies/company-access';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
+import type { PdfBrands } from './modules/companies/company-branding';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -290,6 +291,8 @@ export interface AppDeps extends AuthRouteDeps {
    * project and people query is built from), and the company a request picked (X-Company-Id).
    */
   companyAccess?: CompanyAccess;
+  /** Companies: each PDF's company brand — its name (2+ companies) and logo (MC1 Task 14). Absent: the site's. */
+  pdfBranding?: PdfBrands;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -500,8 +503,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const canViewMeeting = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
       // companies: the request's picked company (X-Company-Id), checked once per request; it narrows
       // `list` routes only (see modules/companies/route-classes.ts). Without the module: no pick.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- companies: the list routes take it (MC1 Task 8)
       const pickOf: PickOf = deps.companyAccess ? createPickResolver(deps.companyAccess) : NO_PICK;
+      // companies: a cross-project PDF's brand — the one project's main company, else the picked
+      // company, else the reader's primary one (MC1 Task 14). A pick that can't be used only drops the brand.
+      const brands = deps.pdfBranding;
+      const scopeBrand = brands
+        ? async (req: FastifyRequest, projectId: string | null = null) =>
+            projectId ? brands.project(projectId) : brands.scope({ id: req.user!.id, roles: req.user!.roles ?? [] }, await pickOf(req).catch(() => null))
+        : undefined;
       const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[]) => mAccess.accessibleProjectIds(u, r) : undefined;
       if (deps.projectService) {
         await registerProjectRoutes(api, {
@@ -544,6 +553,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           pictureThumbnail: deps.pictureThumbnail,
           readProjectImage: deps.readProjectImage,
           printableProjectImage: deps.printableProjectImage,
+          // companies: the task's project's company on its PDF (MC1 Task 14).
+          pdfBrand: brands ? (taskId) => brands.task(taskId) : undefined,
         });
       }
       if (deps.memberService) {
@@ -703,7 +714,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });
       }
       if (deps.reportService) {
-        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames });
+        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pdfBrand: scopeBrand }); // companies: pdfBrand
       }
       if (deps.searchService) {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch });
@@ -753,6 +764,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           onFinalMinutesChanged: deps.onFinalMinutesChanged,
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
+          // companies: the meeting's company on its minutes PDF (MC1 Task 14).
+          pdfBrand: brands ? (meetingId) => brands.meeting(meetingId) : undefined,
         });
       }
       if (deps.activityService) {
@@ -771,7 +784,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames });
       }
       if (deps.micoAiService) {
-        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard });
+        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard, pdfBrand: scopeBrand }); // companies: pdfBrand
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });
@@ -795,7 +808,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.management) {
-        await registerManagementRoutes(api, { ...deps.management, guard });
+        await registerManagementRoutes(api, { ...deps.management, guard, pdfBrand: scopeBrand }); // companies: pdfBrand
       }
       if (deps.inspections) {
         await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent });

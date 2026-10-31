@@ -1,6 +1,7 @@
 import { generateOtpCode, hashOtp, verifyOtp, isExpired } from '../../lib/otp';
 import { createRepeatGuard } from '../../lib/repeat-requests';
 import { EmailUnavailableError, InvalidOtpError, OtpExpiredError, TooManyOtpAttemptsError } from './errors';
+import type { TemplateOptions } from '../email/email-templates';
 
 export interface OtpUser {
   id: string;
@@ -42,7 +43,7 @@ export interface OtpStore {
 
 export interface OtpMailer {
   /** `expiresInMinutes`: how long the code lasts, so the email can say so. */
-  sendLoginCode(email: string, code: string, opts?: { expiresInMinutes?: number }): Promise<void>;
+  sendLoginCode(email: string, code: string, opts?: { expiresInMinutes?: number } & TemplateOptions): Promise<void>;
   /** False when no mail provider is configured at all. */
   isConfigured?(): boolean;
 }
@@ -67,6 +68,8 @@ export interface OtpServiceDeps {
   runInBackground?: (task: () => Promise<void>) => void;
   logger?: OtpLogger;
   now?: () => Date;
+  /** Companies: the person's company brand on the email (their primary company's name, logo and sender name). */
+  emailOptions?: (userId: string) => Promise<TemplateOptions | undefined>;
 }
 
 const MINUTE = 60_000;
@@ -123,7 +126,9 @@ export function createOtpService(deps: OtpServiceDeps) {
     const code = generateOtpCode(deps.otpLength);
     const codeHash = await hashOtp(code);
     await deps.otps.create({ userId: user.id, codeHash, expiresAt: new Date(at + deps.ttlSeconds * 1000), attempts: 0 });
-    await deps.mailer.sendLoginCode(user.email, code, { expiresInMinutes: Math.ceil(deps.ttlSeconds / 60) });
+    // Off the request path (runInBackground), so reading the brand takes no time anyone can measure.
+    const brand = await deps.emailOptions?.(user.id).catch(() => undefined);
+    await deps.mailer.sendLoginCode(user.email, code, { expiresInMinutes: Math.ceil(deps.ttlSeconds / 60), ...brand });
   }
 
   /**

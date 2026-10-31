@@ -29,6 +29,8 @@ export interface ClientMinutesPdfData {
   content: FinalMinutesContent;
   companyTimeZone?: string | null;
   generatedAt: string;
+  /** Companies: the project's company logo (printable), on the right of the header; null = none, as before. */
+  logo?: Buffer | null;
 }
 
 const INK: [number, number, number] = [0.11, 0.1, 0.09];
@@ -48,6 +50,7 @@ export function buildClientMinutesPdf(data: ClientMinutesPdfData): Buffer {
     title: `Minutes of Meeting: ${meeting.title}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
     footerLeft: footer,
+    ...(data.logo ? { logo: data.logo } : {}),
   });
 
   const subtitle = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName]

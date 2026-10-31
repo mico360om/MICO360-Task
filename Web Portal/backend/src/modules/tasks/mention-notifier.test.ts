@@ -31,6 +31,8 @@ describe('mention notifier', () => {
     const mails = (d.sendMentionEmail as ReturnType<typeof vi.fn>).mock.calls;
     expect(mails.map((c) => c[0])).toEqual(['omar@x.co', 'sara@x.co']);
     expect(mails[0]![1]).toEqual({ mentionedBy: 'Aisha Khan', taskKey: 'FAL-7', taskTitle: 'Book the venue', snippet: 'Please check @omar and @sara', link: 'https://app.example.com/my-tasks?task=t1' });
+    // Companies: the task's id goes with it, so the email can carry its project's company brand.
+    expect(mails.map((c) => c[2])).toEqual(['t1', 't1']);
   });
 
   it('sends no email to someone who muted mentions (no notification was kept)', async () => {

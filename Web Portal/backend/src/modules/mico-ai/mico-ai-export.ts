@@ -4,6 +4,7 @@ import { fitColumns, measureColumns } from '../../lib/pdf-table-layout';
 import type { StyledRun } from '../../lib/pdf-text';
 import { BRAND, formatDateTime, formatDay, slugPart, wallClock } from '../../lib/export-format';
 import type { AnswerTable, CellKind, CellValue, SourceRef } from './mico-ai-types';
+import type { PdfBrand } from '../companies/company-branding';
 
 /**
  * An answer's table as an Excel workbook or a branded PDF. Both are built from the table the server
@@ -169,14 +170,16 @@ const clipped = (text: string, n: number) => (text.length > n ? `${text.slice(0,
  * every page, its rows kept whole. Every page has the logo and the chat at the top, and "Page N of M",
  * when and by whom at the bottom. Landscape when any table needs the width (see pageOrientation).
  */
-function reportPdf(r: { title: string; details: string[]; runningTitle: string; question: string; text: string; sources: string | null; tables: AnswerTable[]; made: Made }): Buffer {
+function reportPdf(r: { title: string; details: string[]; runningTitle: string; question: string; text: string; sources: string | null; tables: AnswerTable[]; made: Made; company?: PdfBrand | null }): Buffer {
   const tables = r.tables.map((t) => ({ t, columns: pdfColumns(t), rows: pdfRows(t) }));
   const doc = new PdfDocument({
     orientation: tables.some((x) => pageOrientation(x.columns, x.rows) === 'landscape') ? 'landscape' : 'portrait',
     title: r.title,
     runningTitle: r.runningTitle,
-    footerLeft: `MICO360 Tasks · MICO AI report · ${generatedLine(r.made)}`,
+    // Companies: the company's name before the product's (2+ companies), and its logo.
+    footerLeft: `${r.company?.companyName ? `${r.company.companyName} · ` : ''}MICO360 Tasks · MICO AI report · ${generatedLine(r.made)}`,
     palette: { brand: BRAND },
+    ...(r.company?.logo ? { logo: r.company.logo } : {}),
   });
   doc.reportHeader({ title: r.title, subtitle: 'MICO AI report', details: r.details });
 
@@ -217,9 +220,10 @@ function reportPdf(r: { title: string; details: string[]; runningTitle: string; 
  * One table's PDF: the report with just that table, under the table's own title (the chat named
  * beneath it).
  */
-export function tablePdf(d: TableExport): Buffer {
+export function tablePdf(d: TableExport, company?: PdfBrand | null): Buffer {
   const chat = oneLine(d.chatTitle);
   return reportPdf({
+    company,
     title: d.table.title,
     details: [...(chat ? [`Chat: ${chat}`] : []), generatedLine(d)],
     runningTitle: `MICO AI · ${chat || oneLine(d.question) || d.table.title}`,
@@ -236,9 +240,10 @@ export function tablePdf(d: TableExport): Buffer {
  * every one of its tables (each under its own heading; an empty one says so) and its sources. An
  * answer without tables (a summary of meetings) makes a report too.
  */
-export function answerPdf(d: AnswerExport): Buffer {
+export function answerPdf(d: AnswerExport, company?: PdfBrand | null): Buffer {
   const title = clipped(oneLine(d.chatTitle) || oneLine(d.question), 120) || 'MICO AI answer';
   return reportPdf({
+    company,
     title,
     details: [generatedLine(d)],
     runningTitle: `MICO AI · ${title}`,

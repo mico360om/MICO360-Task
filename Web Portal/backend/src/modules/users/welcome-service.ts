@@ -1,7 +1,7 @@
 import { generateResetToken } from '../../lib/reset-token';
 import { HttpError } from '../../lib/http-errors';
 import type { DeliveryResult } from '../email/email-service';
-import type { WelcomeEmailParams } from '../email/email-templates';
+import type { TemplateOptions, WelcomeEmailParams } from '../email/email-templates';
 import type { UserRepository, UserSummary } from './user-repository';
 
 /** Where welcome links are kept: hashed, single use, with their own expiry (7 days). */
@@ -19,7 +19,7 @@ export interface WelcomeMailer {
   isConfigured(): boolean;
   /** True when emails to the address are blocked (it bounced or was marked as spam). */
   isBlocked(email: string): Promise<boolean>;
-  sendWelcome(email: string, params: WelcomeEmailParams): Promise<DeliveryResult>;
+  sendWelcome(email: string, params: WelcomeEmailParams, opts?: TemplateOptions): Promise<DeliveryResult>;
 }
 
 /** Why a person didn't get a welcome email. */
@@ -85,6 +85,8 @@ export interface WelcomeServiceDeps {
   concurrency?: number;
   logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
   now?: () => Date;
+  /** Companies: the person's company brand on the email (their primary company's name, logo and sender name). */
+  emailOptions?: (userId: string) => Promise<TemplateOptions | undefined>;
 }
 
 /** Email isn't set up on this server: nothing can be sent (the same words as the daily emails). */
@@ -162,14 +164,17 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
     const apps = deps.downloads?.() ?? { androidAppUrl: null, extensionUrl: null };
     let result: DeliveryResult;
     try {
-      result = await deps.mailer.sendWelcome(email, {
+      const params: WelcomeEmailParams = {
         firstName: user.firstName,
         username: user.username,
         setPasswordLink: `${appUrl}/reset?token=${token}&welcome=1`,
         expiresInDays: Math.round(ttlSeconds / 86_400),
         androidAppUrl: apps.androidAppUrl,
         extensionUrl: apps.extensionUrl,
-      });
+      };
+      // A brand that can't be read never stops the email: it goes with the site's brand.
+      const brand = await deps.emailOptions?.(user.id).catch(() => undefined);
+      result = brand ? await deps.mailer.sendWelcome(email, params, brand) : await deps.mailer.sendWelcome(email, params);
     } catch (err) {
       await discard();
       // Only the provider's words: never the link.

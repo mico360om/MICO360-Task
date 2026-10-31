@@ -5,6 +5,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from './inspection-report-pdf';
 import type { Actor, InspectionService } from './inspection-service';
 import type { InspectionScheduleService } from './inspection-schedules';
+import type { PdfBrand } from '../companies/company-branding';
 
 export interface InspectionRouteDeps {
   service: InspectionService;
@@ -21,6 +22,8 @@ export interface InspectionRouteDeps {
   pdfsPerMinute?: number;
   /** Scheduled inspections: a project's schedules and due checks, and how much a form is used. */
   schedules?: InspectionScheduleService;
+  /** Companies: an inspection's project's company brand on its report PDF (name with 2+ companies, logo); absent: the site's. */
+  pdfBrand?: (inspectionId: string) => Promise<PdfBrand>;
 }
 
 const visibleBody = z.object({ visible: z.boolean() });
@@ -145,8 +148,11 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
     if (!allowPdf(who.id)) throw new HttpError('Too many reports in a minute. Please wait a moment and try again.', 'RATE_LIMITED', 429);
     const r = await service.reportOf(who, params(req).id, deps.timeZone);
     const image = r.project.imageUrl && deps.projectImage ? await deps.projectImage(r.project.imageUrl).catch(() => null) : null;
+    // Companies: checked (reportOf) before the brand is read, so it never says which company owns a report one can't see.
+    const company = deps.pdfBrand ? await deps.pdfBrand(params(req).id).catch(() => null) : null;
     const pdf = buildInspectionPdf({
-      brand: reportBrand(),
+      brand: company?.companyName ? { ...reportBrand(), companyName: company.companyName } : reportBrand(),
+      ...(company?.logo ? { logo: company.logo } : {}),
       project: { name: r.project.name, code: r.project.code, number: r.project.number, clientName: r.project.clientName, color: r.project.color, icon: r.project.icon, image },
       report: r.report,
       staff: r.staff,

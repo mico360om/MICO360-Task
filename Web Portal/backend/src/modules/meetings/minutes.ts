@@ -126,6 +126,8 @@ export interface MinutesData {
    * no valid zone of its own. Falls back to the COMPANY_TIMEZONE env var, then Asia/Muscat.
    */
   companyTimeZone?: string | null;
+  /** Companies: the meeting's company logo (printable), on the right of the header; null = none, as before. */
+  logo?: Buffer | null;
 }
 
 /**
@@ -239,6 +241,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       line: brand.colors?.line,
     },
     footerLeft,
+    ...(data.logo ? { logo: data.logo } : {}),
   });
 
   // Header: the project's picture (or its icon, or its initials, on its colour), name, code and

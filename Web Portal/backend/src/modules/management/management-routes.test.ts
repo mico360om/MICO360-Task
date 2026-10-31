@@ -3,6 +3,7 @@ import { buildApp } from '../../app';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { solidPng } from '../../lib/test-images';
 import { createManagementService } from './management-service';
 import { parseManagementFilters } from './management-routes';
 import { fakeManagementSource, fakeWorkloadFor, type FakeManagementData } from './management-source.fixture';
@@ -51,7 +52,7 @@ const tokenService = createTokenService({
 });
 const auth = async (id: string, roles: string[]) => ({ authorization: `Bearer ${(await tokenService.issueTokens({ id, roles })).accessToken}` });
 
-async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}, data: FakeManagementData = DATA) {
+async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}, data: FakeManagementData = DATA, extra: Record<string, unknown> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -67,6 +68,7 @@ async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number }
     authService,
     tokenService,
     management: { service, timeZone: 'Asia/Muscat', userName: async (id) => ({ admin: 'Aisha Khan', sara: 'Sara Ahmed' } as Record<string, string>)[id] ?? null, ...opts },
+    ...extra,
   });
 }
 
@@ -228,5 +230,23 @@ describe('Management routes', () => {
     expect(third.json().error.message).toMatch(/wait a moment/i);
     // Someone else still can.
     expect((await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers: await auth('sara', ['EMPLOYEE']) })).statusCode).toBe(200);
+  });
+});
+
+describe('Management PDF: the company (companies)', () => {
+  it('one chosen project: its company; otherwise the picked (else the reader’s) company', async () => {
+    const asked: unknown[] = [];
+    const pdfBranding = {
+      project: async (id: string) => { asked.push(['project', id]); return { companyName: 'Rig Co', logo: solidPng(215, 60) }; },
+      scope: async (viewer: { id: string }, pick: string | null) => { asked.push(['scope', viewer.id, pick]); return { companyName: 'Alpha LLC', logo: null }; },
+    };
+    const app = await makeApp({}, DATA, { pdfBranding });
+    const headers = await auth('admin', ['ADMIN']);
+    const all = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers });
+    expect(inspectPdf(all.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks');
+    const one = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf?projectIds=rig', headers });
+    expect(inspectPdf(one.rawPayload).pages.flat().join('\n')).toContain('Rig Co · MICO360 Tasks');
+    expect([...inspectPdf(one.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 215\b/.test(d))).toBe(true);
+    expect(asked).toEqual([['scope', 'admin', null], ['project', 'rig']]);
   });
 });

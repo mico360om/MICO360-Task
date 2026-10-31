@@ -27,7 +27,13 @@ export function createOutboxTransport({ dir, now = () => new Date() }: OutboxCon
       mkdirSync(dir, { recursive: true });
       const base = `${stamp(now())}${sequence++ ? `-${sequence}` : ''}-${slug(input.to)}`;
       const attachments = (input.attachments ?? []).map((a) => `${a.filename} (${a.contentType}, ${a.content.length} bytes)`);
-      const header = [`To: ${input.to}`, `Subject: ${input.subject}`, ...(attachments.length ? [`Attachments: ${attachments.join(', ')}`] : [])];
+      const header = [
+        `To: ${input.to}`,
+        `Subject: ${input.subject}`,
+        // companies: the sender name, only when it isn't MAIL_FROM's (a company's own).
+        ...(input.fromName ? [`From: ${input.fromName}`] : []),
+        ...(attachments.length ? [`Attachments: ${attachments.join(', ')}`] : []),
+      ];
       writeFileSync(join(dir, `${base}.html`), `<!-- ${header.join(' · ').replace(/--/g, '- -')} -->\n${input.html}`, 'utf8');
       writeFileSync(join(dir, `${base}.txt`), `${header.join('\n')}\n\n${input.text ?? ''}\n`, 'utf8');
       for (const a of input.attachments ?? []) {

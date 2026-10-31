@@ -8,6 +8,7 @@ import { createMicoAiTools } from './mico-ai-tools';
 import { createMemoryMicoAiData, company, NOW } from './mico-ai-data.fixture';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { solidPng } from '../../lib/test-images';
 
 const tokenService = createTokenService({
   accessSecret: 'mico-ai-access',
@@ -21,7 +22,7 @@ const authService = createAuthService({
   maxAttempts: 5,
 });
 
-async function makeApp(opts: { ready?: boolean } = {}) {
+async function makeApp(opts: { ready?: boolean; extra?: Record<string, unknown> } = {}) {
   const replies = [
     { action: 'tool', name: 'search_tasks', args: { project: 'RIG', status: 'overdue' } },
     { action: 'answer', text: '**3 tasks** are overdue.', tables: [{ title: 'Overdue tasks', fromResult: 'r1', columns: ['key', 'title', 'assignees', 'due', 'overdueDays'] }] },
@@ -42,7 +43,7 @@ async function makeApp(opts: { ready?: boolean } = {}) {
     now: () => NOW,
     userName: async () => 'Omar Said',
   });
-  const app = await buildApp({ authService, tokenService, micoAiService });
+  const app = await buildApp({ authService, tokenService, micoAiService, ...opts.extra });
   const auth = async (id: string, roles = ['EMPLOYEE']) => ({ authorization: `Bearer ${(await tokenService.issueTokens({ id, roles })).accessToken}` });
   return { app, audit, omar: await auth('u-omar'), sara: await auth('u-sara'), admin: await auth('u-admin', ['ADMIN']), micoAiService };
 }
@@ -252,6 +253,25 @@ describe('MICO AI routes: confirming, cancelling and undoing a card', () => {
     expect(early.json().error.code).toBe('NOTHING_TO_UNDO');
     const cancelled = await app.inject({ method: 'POST', url: `${base}/cancel`, headers: omar });
     expect(cancelled.json().data.answer.proposal.status).toBe('cancelled');
+    await app.close();
+  });
+});
+
+describe('MICO AI report PDFs: the reader’s company (companies)', () => {
+  it('tables and the whole answer name the picked (else the reader’s) company and carry its logo', async () => {
+    const asked: Array<[string, string | null]> = [];
+    const pdfBranding = { scope: async (viewer: { id: string }, pick: string | null) => { asked.push([viewer.id, pick]); return { companyName: 'Alpha LLC', logo: solidPng(230, 70) }; } };
+    const { app, omar, micoAiService } = await makeApp({ extra: { pdfBranding } });
+    const chatId = (await app.inject({ method: 'POST', url: '/api/v1/mico-ai/chats', headers: omar, payload: {} })).json().data.id;
+    const { answer } = (await app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'Which tasks are overdue in Rig Inspection?' } })).json().data;
+    await micoAiService.whenDone(answer.id);
+    for (const path of ['tables/1.pdf', 'report.pdf']) {
+      const pdf = await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}/messages/${answer.id}/${path}`, headers: omar });
+      expect(pdf.statusCode, path).toBe(200);
+      expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks · MICO AI report');
+      expect([...inspectPdf(pdf.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 230\b/.test(d))).toBe(true);
+    }
+    expect(asked).toEqual([['u-omar', null], ['u-omar', null]]);
     await app.close();
   });
 });

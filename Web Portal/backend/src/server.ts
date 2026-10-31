@@ -32,6 +32,7 @@ import { createPrismaTemplateRepository } from './modules/templates/prisma-templ
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess } from './modules/companies/company-access';
+import { createCompanyBranding, createDocumentBrands } from './modules/companies/company-branding';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -848,7 +849,8 @@ async function main(): Promise<void> {
       const u = await prisma.user.findUnique({ where: { id: authorId }, select: { firstName: true, lastName: true, username: true } });
       return u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username : 'A teammate';
     },
-    sendMentionEmail: (email, params) => emailService.sendMention(email, params),
+    // companies: the task's project's company brand on the email.
+    sendMentionEmail: async (email, params, taskId) => emailService.sendMention(email, params, await documentBrands.email.task(taskId).catch(() => undefined)),
     appUrl: env.APP_URL,
     logger,
   });
@@ -919,6 +921,17 @@ async function main(): Promise<void> {
   onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
+  // companies: each company's name (with 2+ companies), logo and sender name on its PDFs, emails and
+  // client page; week start and working hours inherit System Settings until a company sets its own (MC1 Task 14).
+  const companyBranding = createCompanyBranding({
+    prisma,
+    site: { companyName: env.COMPANY_NAME, timeZone: companyTz, senderName: /^\s*(.*?)\s*<[^>]+>\s*$/.exec(env.MAIL_FROM)?.[1]?.trim() || null },
+    settings: settingsService,
+    readImage: async (url) => (url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null),
+    printable: (raw) => imageShrinker.toPrintable(raw),
+    apiBaseUrl: env.API_BASE_URL,
+  });
+  const documentBrands = createDocumentBrands(companyBranding, prisma);
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
   const aiConfigRepository = createPrismaAiConfigRepository(prisma, { logger });
   const aiConfigService = createAiConfigService({ repo: aiConfigRepository, audit: auditService, allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS });
@@ -1104,6 +1117,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     defaultTimeZone: companyTz, // times in emails are shown in the company zone, not UTC
     logger,
+    emailOptions: (m) => documentBrands.email.meeting(m.id), // companies: the meeting's company
   });
   // Taking someone off an invited meeting removes it from their calendar (best-effort).
   onAttendeeRemoved = (meetingId, attendee, alsoFrom) => {
@@ -1136,6 +1150,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     defaultTimeZone: companyTz,
     logger,
+    emailOptions: documentBrands.email.meeting, // companies: the meeting's company
   });
   const MEETING_REMINDER_LEASE_MS = 55 * 1000;
   const runMeetingReminders = () =>
@@ -1310,6 +1325,7 @@ async function main(): Promise<void> {
     otpLength: env.OTP_LENGTH,
     maxAttempts: 3,
     logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
   const passwordResetService = createPasswordResetService({
@@ -1323,6 +1339,7 @@ async function main(): Promise<void> {
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
   // Realtime broadcasters are wired after the HTTP server exists (below).
@@ -1359,6 +1376,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     downloads: () => emailDownloadLinks({ appUrl: env.APP_URL, androidAppUrl: env.ANDROID_APP_URL, webRoot: webRootDir, downloadsDir }),
     logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
   // ── Nightly backups (docs/BACKUPS.md) ──────────────────────────────────────
@@ -1441,8 +1459,14 @@ async function main(): Promise<void> {
     source: createPrismaClientViewSource(prisma),
     mailer: {
       isConfigured: () => emailService.isConfigured(),
-      sendClientInvitation: (email, params) => emailService.sendClientInvitation(email, params),
-      sendClientCode: (email, params) => emailService.sendClientCode(email, params),
+      sendClientInvitation: (email, params, opts) => emailService.sendClientInvitation(email, params, opts),
+      sendClientCode: (email, params, opts) => emailService.sendClientCode(email, params, opts),
+    },
+    // companies: the project's main company on the client's emails, PDFs and page.
+    branding: {
+      email: documentBrands.email.project,
+      pdf: documentBrands.pdf.project,
+      page: async (projectId) => companyBranding.clientPage(await companyBranding.forProject(projectId)),
     },
     userName: async (id) => {
       const u = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true, username: true } });
@@ -1492,6 +1516,7 @@ async function main(): Promise<void> {
     workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
     companyAccess,
+    pdfBranding: documentBrands.pdf, // companies: each PDF's company name and logo
     columnService,
     memberService,
     projectAuthz,
@@ -1643,6 +1668,7 @@ async function main(): Promise<void> {
       timeZone: companyTz,
       projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
+      pdfBrand: documentBrands.pdf.inspection, // companies: the inspection's project's company
     },
     management: {
       service: managementService,

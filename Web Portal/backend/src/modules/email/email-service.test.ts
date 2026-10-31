@@ -147,4 +147,46 @@ describe('EmailService.sendPrepared (an email already built, e.g. the daily task
     const { transport } = fakeTransport({ ok: false, status: 503, error: 'busy' });
     await expect(createEmailService({ transport }).sendPrepared('daily-pending', 'ada@x.co', { subject: 's', html: 'h', text: 't' })).rejects.toBeInstanceOf(EmailDeliveryError);
   });
+
+  it('goes out under a company’s sender name when given one; otherwise none is set (companies)', async () => {
+    const { transport, sent } = fakeTransport();
+    const svc = createEmailService({ transport });
+    await svc.sendPrepared('daily-pending', 'ada@x.co', { subject: 's', html: 'h', text: 't' }, { fromName: 'Beta Team' });
+    await svc.sendPrepared('daily-pending', 'ada@x.co', { subject: 's', html: 'h', text: 't' });
+    expect(sent[0]!.fromName).toBe('Beta Team');
+    expect('fromName' in sent[1]!).toBe(false);
+  });
+});
+
+describe('EmailService: a company’s brand on every email (companies)', () => {
+  const welcome = { firstName: 'Ada', username: 'ada', setPasswordLink: 'https://app.test/reset?token=t1&welcome=1', expiresInDays: 7 };
+  const opts = { brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' };
+
+  it('each kind of email takes the company’s name and sender name from its options', async () => {
+    const { transport, sent } = fakeTransport();
+    const svc = createEmailService({ transport });
+    const ics = { filename: 'invite.ics', contentType: 'text/calendar', content: Buffer.from('x') };
+    const meeting = { title: 'Review', whenLabel: 'Mon 2 Nov 2026, 10:00', link: 'https://app.test/meetings/m1' };
+    await svc.sendLoginCode('ada@x.co', '123456', { expiresInMinutes: 10, ...opts });
+    await svc.sendPasswordReset('ada@x.co', 'https://app.test/reset?token=t', opts);
+    await svc.sendWelcome('ada@x.co', welcome, opts);
+    await svc.sendMention('ada@x.co', { mentionedBy: 'Ben', taskKey: 'PB-1', taskTitle: 'T', snippet: 's', link: 'https://app.test/t' }, opts);
+    await svc.sendMeetingInvite('ada@x.co', meeting, ics, opts);
+    await svc.sendMeetingCancelled('ada@x.co', meeting, ics, opts);
+    await svc.sendMeetingMinutes('ada@x.co', meeting, { filename: 'm.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF') }, opts);
+    await svc.sendMeetingReminder('ada@x.co', { ...meeting, startsInLabel: 'in 15 minutes' }, opts);
+    await svc.sendClientInvitation('ada@x.co', { clientName: 'Cli', sharedByName: 'Ben', projectName: 'P', link: 'https://app.test/client/x', email: 'ada@x.co' }, opts);
+    await svc.sendClientCode('ada@x.co', { code: '123456', projectName: 'P', expiresInMinutes: 10 }, opts);
+    expect(sent).toHaveLength(10);
+    for (const m of sent) {
+      expect(m.fromName, m.subject).toBe('Beta Team');
+      expect(m.html, m.subject).toContain('Beta LLC');
+    }
+  });
+
+  it('without options nothing about the sender changes', async () => {
+    const { transport, sent } = fakeTransport();
+    await createEmailService({ transport }).sendWelcome('ada@x.co', welcome);
+    expect('fromName' in sent[0]!).toBe(false);
+  });
 });

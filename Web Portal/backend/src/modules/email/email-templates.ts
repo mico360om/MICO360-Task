@@ -12,6 +12,8 @@ export interface EmailContent {
 export interface TemplateOptions {
   brand?: Partial<Brand>;
   locale?: Locale;
+  /** Companies: the sender's name the email goes out with (the address stays MAIL_FROM's); the content ignores it. */
+  fromName?: string;
 }
 
 /** Compose subject + rendered HTML/text from a heading, preheader and content blocks. */

@@ -74,8 +74,16 @@ describe('the client page payload: an explicit allow-list', () => {
         'inspections[].counts', 'inspections[].counts.total', 'inspections[].counts.passed', 'inspections[].counts.failed', 'inspections[].counts.na',
         'inspections[].revisionNumber', 'inspections[].reopenedOn',
         'generatedAt', 'timeZone',
+        // Companies: the project's main company while the site has several (null with one).
+        'company',
       ].sort(),
     );
+  });
+
+  it('companies: the project’s company is its name and logo only (null while the site has one company)', () => {
+    expect(buildClientView(input()).company).toBeNull();
+    const leaky = { ...input(), company: { name: 'Alpha LLC', logoUrl: '/uploads/companies/a/logo.png', senderName: 'secret sender', id: 'c-1' } };
+    expect(buildClientView(leaky).company).toEqual({ name: 'Alpha LLC', logoUrl: '/uploads/companies/a/logo.png' });
   });
 
   it('copies field by field: extra properties on the rows it is given never pass through', () => {

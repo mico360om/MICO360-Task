@@ -5,7 +5,7 @@ import { registerTaskExportRoutes, type TaskExportRouteDeps } from './task-expor
 import type { TaskExportAttachment, TaskExportData } from './task-export';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
-import { blankPng } from '../../lib/test-images';
+import { blankPng, solidPng } from '../../lib/test-images';
 import { createImageShrinker } from '../../lib/image-shrink';
 
 const attachment = (filename: string, mimeType: string): TaskExportAttachment => ({
@@ -248,5 +248,28 @@ describe('Task export routes', () => {
 
   it('requires sign-in (401)', async () => {
     expect((await (await makeApp({ userId: null })).inject({ method: 'GET', url: '/tasks/t1/export.xlsx' })).statusCode).toBe(401);
+  });
+});
+
+describe('Task export routes: the project’s company (companies)', () => {
+  const widths = (pdf: Buffer) => [...inspectPdf(pdf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d)).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
+
+  it('the PDF names the company before the product and carries its logo; the workbook is unchanged', async () => {
+    const asked: string[] = [];
+    const app = await makeApp({ extra: { pdfBrand: async (id) => { asked.push(id); return { companyName: 'Alpha LLC', logo: solidPng(222, 60) }; } } });
+    const pdf = await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' });
+    expect(pdf.statusCode).toBe(200);
+    expect(asked).toEqual(['t1']);
+    expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks');
+    expect(widths(pdf.rawPayload)).toContain(222);
+    expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.xlsx' })).statusCode).toBe(200);
+    expect(asked).toEqual(['t1']);
+  });
+
+  it('a task the reader can’t open: the brand is never read', async () => {
+    const asked: string[] = [];
+    const app = await makeApp({ canView: false, extra: { pdfBrand: async (id) => { asked.push(id); return { companyName: 'Alpha LLC', logo: null }; } } });
+    expect((await app.inject({ method: 'GET', url: '/tasks/t1/export.pdf' })).statusCode).toBe(404);
+    expect(asked).toEqual([]);
   });
 });

@@ -5,10 +5,13 @@ import { NotFoundError } from '../../lib/http-errors';
 import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
 import type { MicoAiService } from './mico-ai-service';
 import { answerFileName, answerPdf, tableFileName, tablePdf, tableXlsx } from './mico-ai-export';
+import type { PdfBrand } from '../companies/company-branding';
 
 export interface MicoAiRouteDeps {
   micoAiService: MicoAiService;
   guard: AuthGuard;
+  /** Companies: a report PDF's company brand (the picked company, else the reader's primary one); absent: the site's. */
+  pdfBrand?: (req: FastifyRequest) => Promise<PdfBrand>;
 }
 
 const id = z.string().min(1).max(64);
@@ -41,6 +44,8 @@ const viewer = (req: FastifyRequest) => ({ userId: req.user!.id, roles: req.user
 export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRouteDeps): Promise<void> {
   const { micoAiService: svc, guard } = deps;
   const auth = { preHandler: guard.authenticate };
+  /** Companies: read after the answer is checked as the reader's; nothing when it can't be read. */
+  const brandOf = async (req: FastifyRequest): Promise<PdfBrand | null> => (deps.pdfBrand ? deps.pdfBrand(req).catch(() => null) : null);
 
   app.get('/mico-ai/status', auth, async () => ({ data: await svc.status() }));
 
@@ -123,7 +128,7 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
       .header('Content-Type', format === 'xlsx' ? XLSX_CONTENT_TYPE : 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${tableFileName(doc, format)}"`)
       .header('Cache-Control', 'no-store')
-      .send(format === 'xlsx' ? tableXlsx(doc) : tablePdf(doc));
+      .send(format === 'xlsx' ? tableXlsx(doc) : tablePdf(doc, await brandOf(req)));
   });
 
   // The whole answer as one PDF report: the question, the words, every table and the sources.
@@ -134,6 +139,6 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${answerFileName(doc)}"`)
       .header('Cache-Control', 'no-store')
-      .send(answerPdf(doc));
+      .send(answerPdf(doc, await brandOf(req)));
   });
 }

@@ -230,3 +230,36 @@ describe('OtpService.verifyLoginOtp', () => {
     await expect(svc.verifyLoginOtp('ghost', '123456')).rejects.toBeInstanceOf(InvalidOtpError);
   });
 });
+
+describe('OtpService — the person’s company brand (companies)', () => {
+  const brandOf = (fail = false) => async (userId: string) => {
+    if (fail) throw new Error('database away');
+    return userId === ADA.id ? { brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' } : undefined;
+  };
+  async function codeEmail(emailOptions: (userId: string) => Promise<unknown>) {
+    const got: unknown[] = [];
+    const pending: Promise<void>[] = [];
+    const svc = createOtpService({
+      ttlSeconds: 600,
+      otpLength: 6,
+      maxAttempts: 3,
+      users: { findActiveByIdentifier: async () => ADA },
+      otps: createMemoryOtpStore(() => new Date('2026-10-31T08:00:00Z')),
+      mailer: { async sendLoginCode(_email, _code, options) { got.push(options); } },
+      runInBackground: (task) => void pending.push(task()),
+      now: () => new Date('2026-10-31T08:00:00Z'),
+      emailOptions: emailOptions as never,
+    });
+    await svc.requestLoginOtp('ada');
+    await Promise.all(pending);
+    return got[0];
+  }
+
+  it('the code email carries the person’s company brand and sender name', async () => {
+    expect(await codeEmail(brandOf())).toEqual({ expiresInMinutes: 10, brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' });
+  });
+
+  it('a brand that can’t be read never stops the code: it goes with the site’s brand', async () => {
+    expect(await codeEmail(brandOf(true))).toEqual({ expiresInMinutes: 10 });
+  });
+});

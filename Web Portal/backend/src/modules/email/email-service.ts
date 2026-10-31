@@ -69,7 +69,12 @@ interface DeliverOptions {
   essential?: boolean;
   /** It carries a secret link or code: the provider must not click-track it (see SendEmailInput). */
   secretLinks?: boolean;
+  /** Companies: the sender name it goes out with (a company's); omitted = MAIL_FROM's. */
+  fromName?: string;
 }
+
+/** Companies: the sender name in a send's options, when one is given (else nothing, as before). */
+const sender = (opts?: { fromName?: string }): { fromName?: string } => (opts?.fromName ? { fromName: opts.fromName } : {});
 
 /**
  * High-level email sender. Every method renders a branded template and sends HTML + text.
@@ -112,6 +117,7 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
         text: content.text,
         ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts.secretLinks ? { secretLinks: true } : {}),
+        ...sender(opts),
       });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
@@ -143,67 +149,68 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
 
     // Auth & account
     // Secret links and codes are never click-tracked (secretLinks).
-    sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { essential: true, secretLinks: true }),
+    sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { ...sender(opts), essential: true, secretLinks: true }),
     sendPasswordReset: (email: string, link: string, opts?: TemplateOptions) =>
-      deliver('password-reset', email, passwordResetEmail(link, opts), { essential: true, secretLinks: true }),
+      deliver('password-reset', email, passwordResetEmail(link, opts), { ...sender(opts), essential: true, secretLinks: true }),
     sendActivation: (email: string, username: string, link: string, opts?: TemplateOptions) =>
-      deliver('activation', email, accountActivationEmail(username, link, opts), { essential: true, secretLinks: true }),
+      deliver('activation', email, accountActivationEmail(username, link, opts), { ...sender(opts), essential: true, secretLinks: true }),
     /**
      * An administrator's welcome email with its "Set your password" link: 'sent', or 'suppressed' when
      * the address is blocked (never sent to it). The email log records the subject, never the link.
      */
     sendWelcome: (email: string, params: WelcomeEmailParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
-      deliverResult('welcome', email, welcomeEmail(params, opts), { secretLinks: true }),
+      deliverResult('welcome', email, welcomeEmail(params, opts), { ...sender(opts), secretLinks: true }),
     sendPasswordChanged: (email: string, username: string, opts?: TemplateOptions) =>
-      deliver('password-changed', email, passwordChangedEmail(username, opts)),
+      deliver('password-changed', email, passwordChangedEmail(username, opts), sender(opts)),
     sendAccountLocked: (email: string, username: string, resetLink: string, opts?: TemplateOptions) =>
-      deliver('account-locked', email, accountLockedEmail(username, resetLink, opts)),
+      deliver('account-locked', email, accountLockedEmail(username, resetLink, opts), sender(opts)),
 
     // Collaboration & workflow
     sendTaskAssigned: (email: string, taskTitle: string, taskKey: string, opts?: TemplateOptions & { link?: string }) =>
-      deliver('task-assigned', email, taskAssignedEmail(taskTitle, taskKey, opts)),
+      deliver('task-assigned', email, taskAssignedEmail(taskTitle, taskKey, opts), sender(opts)),
     sendMention: (email: string, params: Parameters<typeof mentionEmail>[0], opts?: TemplateOptions) =>
-      deliver('mention', email, mentionEmail(params, opts)),
+      deliver('mention', email, mentionEmail(params, opts), sender(opts)),
     sendInvitation: (email: string, params: Parameters<typeof invitationEmail>[0], opts?: TemplateOptions) =>
-      deliver('invitation', email, invitationEmail(params, opts)),
+      deliver('invitation', email, invitationEmail(params, opts), sender(opts)),
     sendApproval: (email: string, params: Parameters<typeof approvalEmail>[0], opts?: TemplateOptions) =>
-      deliver('approval', email, approvalEmail(params, opts)),
+      deliver('approval', email, approvalEmail(params, opts), sender(opts)),
     sendRejection: (email: string, params: Parameters<typeof rejectionEmail>[0], opts?: TemplateOptions) =>
-      deliver('rejection', email, rejectionEmail(params, opts)),
+      deliver('rejection', email, rejectionEmail(params, opts), sender(opts)),
     sendReminder: (email: string, params: Parameters<typeof reminderEmail>[0], opts?: TemplateOptions) =>
-      deliver('reminder', email, reminderEmail(params, opts)),
+      deliver('reminder', email, reminderEmail(params, opts), sender(opts)),
     sendWorkflowNotification: (email: string, params: Parameters<typeof workflowNotificationEmail>[0], opts?: TemplateOptions) =>
-      deliver('workflow', email, workflowNotificationEmail(params, opts)),
+      deliver('workflow', email, workflowNotificationEmail(params, opts), sender(opts)),
 
     // Reports & alerts
     sendReport: (email: string, params: Parameters<typeof reportReadyEmail>[0], opts?: TemplateOptions) =>
-      deliver('report', email, reportReadyEmail(params, opts)),
+      deliver('report', email, reportReadyEmail(params, opts), sender(opts)),
     sendAlert: (email: string, params: Parameters<typeof alertEmail>[0], opts?: TemplateOptions) =>
-      deliver('alert', email, alertEmail(params, opts)),
+      deliver('alert', email, alertEmail(params, opts), sender(opts)),
     sendNotification: (email: string, params: Parameters<typeof genericNotificationEmail>[0], opts?: TemplateOptions) =>
-      deliver('notification', email, genericNotificationEmail(params, opts)),
+      deliver('notification', email, genericNotificationEmail(params, opts), sender(opts)),
     /**
      * An email already built elsewhere (the daily task emails), logged under its own template name.
      * 'suppressed': the address is blocked after a bounce or spam complaint, so nothing was sent.
      */
-    sendPrepared: (template: string, email: string, content: EmailContent): Promise<DeliveryResult> => deliverResult(template, email, content),
+    sendPrepared: (template: string, email: string, content: EmailContent, opts?: { fromName?: string }): Promise<DeliveryResult> =>
+      deliverResult(template, email, content, sender(opts)),
 
     // Meetings — invitations, reminders, cancellations, minutes (with .ics / PDF attachments)
     sendMeetingInvite: (email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions) =>
-      deliver('meeting-invite', email, meetingInviteEmail(params, opts), { attachments: [ics] }),
+      deliver('meeting-invite', email, meetingInviteEmail(params, opts), { ...sender(opts), attachments: [ics] }),
     sendMeetingReminder: (email: string, params: MeetingEmailParams & { startsInLabel: string }, opts?: TemplateOptions) =>
-      deliver('meeting-reminder', email, meetingReminderEmail(params, opts)),
+      deliver('meeting-reminder', email, meetingReminderEmail(params, opts), sender(opts)),
     sendMeetingCancelled: (email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions) =>
-      deliver('meeting-cancelled', email, meetingCancelledEmail(params, opts), { attachments: [ics] }),
+      deliver('meeting-cancelled', email, meetingCancelledEmail(params, opts), { ...sender(opts), attachments: [ics] }),
     sendMeetingMinutes: (email: string, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions) =>
-      deliver('meeting-minutes', email, meetingMinutesEmail(params, opts), { attachments: [pdf] }),
+      deliver('meeting-minutes', email, meetingMinutesEmail(params, opts), { ...sender(opts), attachments: [pdf] }),
 
     // Client view — a client following one project. The invitation is skipped for a blocked address
     // ('suppressed'); the code is sign-in mail, never dropped because of an old bounce.
     sendClientInvitation: (email: string, params: ClientInvitationParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
-      deliverResult('client-invitation', email, clientInvitationEmail(params, opts), { secretLinks: true }),
+      deliverResult('client-invitation', email, clientInvitationEmail(params, opts), { ...sender(opts), secretLinks: true }),
     sendClientCode: (email: string, params: ClientCodeParams, opts?: TemplateOptions) =>
-      deliver('client-code', email, clientCodeEmail(params, opts), { essential: true, secretLinks: true }),
+      deliver('client-code', email, clientCodeEmail(params, opts), { ...sender(opts), essential: true, secretLinks: true }),
   };
 }
 

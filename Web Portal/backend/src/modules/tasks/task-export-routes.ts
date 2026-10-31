@@ -5,6 +5,7 @@ import { BRAND, fileSlug } from '../../lib/export-format';
 import { readProjectPicture } from '../../lib/pdf-image';
 import { withoutHiddenBlockers } from '../activity/hidden-blockers';
 import { taskPdf, taskSheets, withPictures, type TaskExportData, type TaskExportLink, type TaskExportSource } from './task-export';
+import type { PdfBrand } from '../companies/company-branding';
 
 export interface TaskExportRouteDeps {
   guard: AuthGuard;
@@ -24,6 +25,8 @@ export interface TaskExportRouteDeps {
   readProjectImage?: (imageUrl: string) => Promise<Buffer | null>;
   /** Converts a project picture the PDF can't take as stored (WebP, GIF, some PNGs). */
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
+  /** Companies: the task's project's company brand on its PDF (name with 2+ companies, logo); absent: the site's. */
+  pdfBrand?: (taskId: string) => Promise<PdfBrand>;
 }
 
 /** Linked tasks are checked this many at a time. */
@@ -63,6 +66,11 @@ async function forPdf(data: TaskExportData, deps: TaskExportRouteDeps): Promise<
 
 /** GET /tasks/:id/export.xlsx and /tasks/:id/export.pdf — one task as a document, for anyone who can open it. */
 export async function registerTaskExportRoutes(app: FastifyInstance, deps: TaskExportRouteDeps): Promise<void> {
+  /** Companies: the PDF's company name and logo (read after the access check; nothing when it can't be read). */
+  const companyOf = async (taskId: string): Promise<{ companyName?: string; logo?: Buffer }> => {
+    const b = deps.pdfBrand ? await deps.pdfBrand(taskId).catch(() => null) : null;
+    return { ...(b?.companyName ? { companyName: b.companyName } : {}), ...(b?.logo ? { logo: b.logo } : {}) };
+  };
   for (const format of ['xlsx', 'pdf'] as const) {
     app.get(`/tasks/:id/export.${format}`, { preHandler: deps.guard.authenticate }, async (req, reply) => {
       const { id } = req.params as { id: string };
@@ -77,7 +85,7 @@ export async function registerTaskExportRoutes(app: FastifyInstance, deps: TaskE
       const body =
         format === 'xlsx'
           ? buildXlsx(taskSheets(data, ctx), { title: `${data.key} · ${data.title}`, brand: BRAND }, ctx.generatedAt)
-          : taskPdf(await forPdf(data, deps), ctx);
+          : taskPdf(await forPdf(data, deps), { ...ctx, ...(await companyOf(id)) });
       return reply
         .header('Content-Type', format === 'xlsx' ? XLSX_CONTENT_TYPE : 'application/pdf')
         .header('Content-Disposition', `attachment; filename="${file}"`)
