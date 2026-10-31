@@ -38,6 +38,7 @@ export function ActivityCard({ entries }: { entries: FeedEntry[] }) {
       comment: c.category.REVIEW,
       file: c.warning,
       blocker: c.danger,
+      external: c.brand,
       other: c.ink3,
     })[k];
   if (items.length === 0) return null;

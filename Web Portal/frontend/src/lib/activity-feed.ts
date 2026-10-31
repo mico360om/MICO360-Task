@@ -27,6 +27,7 @@ export type TimelineKind =
   | 'comment'
   | 'file'
   | 'blocker'
+  | 'external'
   | 'other';
 
 export interface TimelineItem {
@@ -75,6 +76,9 @@ const KIND_OF: Record<string, TimelineKind> = {
   ATTACHMENT_REMOVED: 'file',
   BLOCKER_ADDED: 'blocker',
   BLOCKER_REMOVED: 'blocker',
+  EXTERNAL_CONTACT_ADDED: 'external',
+  EXTERNAL_CONTACT_CHANGED: 'external',
+  EXTERNAL_CONTACT_REMOVED: 'external',
 };
 /** Older rows from before the timeline had details. */
 const OTHER_TEXT: Record<string, string> = {
@@ -86,7 +90,8 @@ const OTHER_TEXT: Record<string, string> = {
 const isMove = (k: TimelineKind) => k === 'moved' || k === 'completed' || k === 'reopened';
 /**
  * What a run is "of" — entries with the same key, by one person, close together, become one line:
- * any status moves; assignments; edits; and each kind of checklist, comment, file or blocker change.
+ * any status moves; assignments; edits; and each kind of checklist, comment, file, blocker or
+ * external-contact change.
  */
 function mergeKey(entry: FeedEntry): string | null {
   const key = runKey(entry);
@@ -96,7 +101,7 @@ function runKey(entry: FeedEntry): string | null {
   const kind = KIND_OF[entry.action] ?? 'other';
   if (isMove(kind)) return 'move';
   if (kind === 'assigned' || kind === 'unassigned' || kind === 'updated') return kind;
-  if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker') return entry.action;
+  if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker' || kind === 'external') return entry.action;
   return null;
 }
 /** Made through MICO AI (the person confirmed it there). */
@@ -122,6 +127,13 @@ function someOf(names: string[], shown = 3): string {
   return names.length <= shown + 1 ? listText(names) : `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
 }
 const quote = (s: string) => `“${s}”`;
+/** An external contact as a line names them: "Ahmed Al Said (OXY)", or just the name. */
+const contactName = (e: FeedEntry): string | null => {
+  const name = str(e.meta?.name);
+  const company = str(e.meta?.company);
+  return name ? (company ? `${name} (${company})` : name) : null;
+};
+const EXTERNAL_VERB: Record<string, string> = { EXTERNAL_CONTACT_ADDED: 'added', EXTERNAL_CONTACT_CHANGED: 'changed', EXTERNAL_CONTACT_REMOVED: 'removed' };
 const blockerName = (e: FeedEntry) => [str(e.meta?.key), str(e.meta?.title) ? quote(str(e.meta?.title)!) : null].filter(Boolean).join(' ') || 'a task';
 
 /** A project and the task's key in it: "Rig Inspection (RIG-4)" (either alone when the other is missing). */
@@ -305,6 +317,13 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       // The server keeps only the other task's id (naming it could reveal a task you can't open).
       if (names.every((n) => n === 'a task')) return { ...base, text: names.length === 1 ? `${verb} a blocker` : `${verb} ${names.length} blockers` };
       return { ...base, text: names.length === 1 ? `${verb} the blocker ${names[0]}` : `${verb} the blockers ${someOf(names)}` };
+    }
+    case 'external': {
+      // "added an external contact: Ahmed Al Said (OXY)"; a run names each person once.
+      const verb = EXTERNAL_VERB[newest.action] ?? 'changed';
+      const names = [...new Set(chronological.map(contactName).filter((n): n is string => Boolean(n)))];
+      if (names.length <= 1) return { ...base, text: names[0] ? `${verb} an external contact: ${names[0]}` : `${verb} an external contact` };
+      return { ...base, text: `${verb} ${names.length} external contacts: ${someOf(names)}` };
     }
     default:
       // A move to another project is a line of its own (never merged with status moves or edits).

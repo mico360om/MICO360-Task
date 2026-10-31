@@ -283,3 +283,29 @@ describe('approvals in a task’s history', () => {
     expect(items.map((i) => i.text)).toEqual(['finished this task and asked for approval', 'sent this task back: “Redo”', 'finished this task and asked for approval']);
   });
 });
+
+describe('external contacts in a task’s history', () => {
+  const oxy = { name: 'Ahmed Al Said', company: 'OXY' };
+  it('says who was added, changed or removed, with their company', () => {
+    expect(buildTimeline([e('a1', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 1, oxy)])[0]).toMatchObject({ kind: 'external', text: 'added an external contact: Ahmed Al Said (OXY)' });
+    expect(buildTimeline([e('a1', 'EXTERNAL_CONTACT_CHANGED', 'Sara Ali', 1, oxy)])[0]!.text).toBe('changed an external contact: Ahmed Al Said (OXY)');
+    expect(buildTimeline([e('a1', 'EXTERNAL_CONTACT_REMOVED', 'Sara Ali', 1, { name: 'Salim', company: null })])[0]!.text).toBe('removed an external contact: Salim');
+    expect(buildTimeline([e('a1', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 1, {})])[0]!.text).toBe('added an external contact');
+  });
+  it('folds a quick run into one line, naming a few; a contact changed twice is named once', () => {
+    const added = buildTimeline([
+      e('a3', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 1, { name: 'Salim', company: null }),
+      e('a2', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 2, { name: 'Sara Nasser', company: 'PDO' }),
+      e('a1', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 3, oxy),
+    ]);
+    expect(added.map((i) => [i.text, i.count])).toEqual([['added 3 external contacts: Ahmed Al Said (OXY), Sara Nasser (PDO) and Salim', 3]]);
+    const changed = buildTimeline([e('a2', 'EXTERNAL_CONTACT_CHANGED', 'Sara Ali', 1, oxy), e('a1', 'EXTERNAL_CONTACT_CHANGED', 'Sara Ali', 2, oxy)]);
+    expect(changed.map((i) => i.text)).toEqual(['changed an external contact: Ahmed Al Said (OXY)']);
+    const removed = buildTimeline([e('a2', 'EXTERNAL_CONTACT_REMOVED', 'Sara Ali', 1, oxy), e('a1', 'EXTERNAL_CONTACT_REMOVED', 'Sara Ali', 2, { name: 'Salim' })]);
+    expect(removed.map((i) => i.text)).toEqual(['removed 2 external contacts: Salim and Ahmed Al Said (OXY)']);
+  });
+  it('keeps adding and removing apart', () => {
+    const items = buildTimeline([e('a2', 'EXTERNAL_CONTACT_REMOVED', 'Sara Ali', 1, oxy), e('a1', 'EXTERNAL_CONTACT_ADDED', 'Sara Ali', 2, oxy)]);
+    expect(items.map((i) => i.text)).toEqual(['removed an external contact: Ahmed Al Said (OXY)', 'added an external contact: Ahmed Al Said (OXY)']);
+  });
+});

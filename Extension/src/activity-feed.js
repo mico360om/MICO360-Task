@@ -44,6 +44,9 @@ const KIND_OF = table({
   ATTACHMENT_REMOVED: 'file',
   BLOCKER_ADDED: 'blocker',
   BLOCKER_REMOVED: 'blocker',
+  EXTERNAL_CONTACT_ADDED: 'external',
+  EXTERNAL_CONTACT_CHANGED: 'external',
+  EXTERNAL_CONTACT_REMOVED: 'external',
 });
 /** Older rows from before the timeline had details. */
 const OTHER_TEXT = table({
@@ -56,7 +59,8 @@ const kindOf = (action) => KIND_OF[action] ?? 'other';
 const isMove = (k) => k === 'moved' || k === 'completed' || k === 'reopened';
 /**
  * What a run is "of" — entries with the same key, by one person, close together, become one line:
- * any status moves; assignments; edits; and each kind of checklist, comment, file or blocker change.
+ * any status moves; assignments; edits; and each kind of checklist, comment, file, blocker or
+ * external-contact change.
  */
 function mergeKey(entry) {
   const key = runKey(entry);
@@ -66,7 +70,7 @@ function runKey(entry) {
   const kind = kindOf(entry.action);
   if (isMove(kind)) return 'move';
   if (kind === 'assigned' || kind === 'unassigned' || kind === 'updated') return kind;
-  if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker') return entry.action;
+  if (kind === 'checklist' || kind === 'comment' || kind === 'file' || kind === 'blocker' || kind === 'external') return entry.action;
   return null;
 }
 /** Made through MICO AI (the person confirmed it there). */
@@ -95,6 +99,13 @@ function someOf(names, shown = 3) {
   return names.length <= shown + 1 ? listText(names) : `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
 }
 const quote = (s) => `“${s}”`;
+/** An external contact as a line names them: "Ahmed Al Said (OXY)", or just the name. */
+const contactName = (e) => {
+  const name = str(metaOf(e)?.name);
+  const company = str(metaOf(e)?.company);
+  return name ? (company ? `${name} (${company})` : name) : null;
+};
+const EXTERNAL_VERB = table({ EXTERNAL_CONTACT_ADDED: 'added', EXTERNAL_CONTACT_CHANGED: 'changed', EXTERNAL_CONTACT_REMOVED: 'removed' });
 const blockerName = (e) => [str(metaOf(e)?.key), str(metaOf(e)?.title) ? quote(str(metaOf(e)?.title)) : null].filter(Boolean).join(' ') || 'a task';
 
 /** A project and the task's key in it: "Rig Inspection (RIG-4)" (either alone when the other is missing). */
@@ -261,6 +272,13 @@ function lineOf(kind, entries) {
       // The server keeps only the other task's id (naming it could reveal a task you can't open).
       if (names.every((n) => n === 'a task')) return { ...base, text: names.length === 1 ? `${verb} a blocker` : `${verb} ${names.length} blockers` };
       return { ...base, text: names.length === 1 ? `${verb} the blocker ${names[0]}` : `${verb} the blockers ${someOf(names)}` };
+    }
+    case 'external': {
+      // "added an external contact: Ahmed Al Said (OXY)"; a run names each person once.
+      const verb = EXTERNAL_VERB[newest.action] ?? 'changed';
+      const names = [...new Set(chronological.map(contactName).filter(Boolean))];
+      if (names.length <= 1) return { ...base, text: names[0] ? `${verb} an external contact: ${names[0]}` : `${verb} an external contact` };
+      return { ...base, text: `${verb} ${names.length} external contacts: ${someOf(names)}` };
     }
     default:
       // A move to another project is a line of its own (never merged with status moves or edits).

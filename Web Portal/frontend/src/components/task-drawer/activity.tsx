@@ -21,6 +21,7 @@ const DOT: Record<TimelineKind, string> = {
   comment: 'bg-info',
   file: 'bg-warning',
   blocker: 'bg-danger',
+  external: 'bg-brand-2',
   other: 'bg-ink-3',
 };
 
