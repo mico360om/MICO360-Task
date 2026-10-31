@@ -113,6 +113,12 @@ describe('starting an inspection', () => {
     f.projects.get('P1')!.status = 'ARCHIVED';
     await rejects(f.service.start(as(inspector), 'P1', { formId: form.id }), 409, 'PROJECT_ARCHIVED');
     f.projects.get('P1')!.status = 'ACTIVE';
+    // companies: all its companies archived — read-only like an archived project.
+    f.projects.get('P1')!.archived = true;
+    await rejects(f.service.start(as(inspector), 'P1', { formId: form.id }), 409, 'PROJECT_ARCHIVED');
+    expect((await f.service.listForProject(as(inspector), 'P1')).canStart).toBe(false);
+    f.projects.get('P1')!.archived = false;
+    expect((await f.service.listForProject(as(inspector), 'P1')).canStart).toBe(true);
     await f.service.deleteForm(as(owner), form.id);
     await rejects(f.service.start(as(inspector), 'P1', { formId: form.id }), 404);
   });

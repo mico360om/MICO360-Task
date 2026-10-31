@@ -6,6 +6,7 @@ import { TaskKeyConflictError, type TaskRecord } from './task-repository';
 import { TaskChangedConflictError, TaskMovedConflictError, type MovableTask, type MoveColumn, type MovePerson, type MoveProject, type ProjectMoveWrite, type TaskMoveRepository } from './task-move-repository';
 import { matchingColumn, notOnTeamMessage } from './task-move';
 import { isAwaitingApproval, type ApprovalEvent } from './task-approval';
+import { projectArchived } from '../companies/project-archive';
 
 /** What happens to people assigned to a task who aren't on the new project's team. */
 export type AssigneeChoice = 'ADD_TO_TEAM' | 'UNASSIGN';
@@ -122,7 +123,8 @@ export interface TaskMoveServiceDeps {
 
 /** How many consecutive numbers to try when other tasks take them at the same moment. */
 const KEY_ATTEMPTS = 5;
-const CLOSED: Record<string, string> = { COMPLETED: 'completed', ARCHIVED: 'archived' };
+/** Why a project takes no tasks: completed, or archived (its own status or all its companies: projectArchived). */
+const closedWord = (p: MoveProject): string | null => (p.status === 'COMPLETED' ? 'completed' : projectArchived(p) ? 'archived' : null);
 
 /** A refusal of one task (not of the whole request), with the preview's shorter wording. */
 class TaskRefusal extends HttpError {
@@ -181,7 +183,7 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
   /** The actor may move tasks into `to`, and it is open. */
   function assertDestination(scope: Set<string> | null, to: MoveProject): void {
     if (!manages(scope, to.id)) throw new ForbiddenError(`You need to manage ${to.name} to move tasks into it.`);
-    const closed = CLOSED[to.status];
+    const closed = closedWord(to);
     if (closed) throw new HttpError(`${to.name} is ${closed}. Tasks can only be moved to open projects.`, 'PROJECT_CLOSED', 400);
   }
   async function destination(scope: Set<string> | null, projectId: string, find: FindProject): Promise<MoveProject> {

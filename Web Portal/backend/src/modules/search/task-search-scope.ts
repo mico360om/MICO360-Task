@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { LIVE_PROJECT_SQL } from '../companies/project-archive';
 
 /** Who is searching. */
 export interface SearchViewer {
@@ -34,7 +35,8 @@ export type TaskSearchScopeResolver = ReturnType<typeof createTaskSearchScope>;
  */
 export function visibleTasksSql(scope: TaskSearchScope, { includeArchived = false, archivedWhen }: { includeArchived?: boolean; archivedWhen?: Prisma.Sql } = {}): Prisma.Sql {
   const parts: Prisma.Sql[] = [Prisma.sql`t.deletedAt IS NULL`, Prisma.sql`p.deletedAt IS NULL`];
-  if (!includeArchived) parts.push(archivedWhen ? Prisma.sql`(p.status <> 'ARCHIVED' OR ${archivedWhen})` : Prisma.sql`p.status <> 'ARCHIVED'`);
+  // companies: archived by its own status or by all its companies (LIVE_PROJECT_SQL).
+  if (!includeArchived) parts.push(archivedWhen ? Prisma.sql`(${LIVE_PROJECT_SQL} OR ${archivedWhen})` : LIVE_PROJECT_SQL);
   if (scope.projectIds) parts.push(scope.projectIds.length ? Prisma.sql`t.projectId IN (${Prisma.join(scope.projectIds)})` : Prisma.sql`FALSE`);
   return Prisma.join(parts, ' AND ');
 }

@@ -9,6 +9,7 @@ import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recur
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -77,6 +78,7 @@ beforeEach(async () => {
       { projectId: rig.id, userId: outsiderId },
     ],
   });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 });
 
 const newTask = (title: string, extra: Partial<Parameters<typeof taskService.createTask>[0]> = {}) =>
@@ -166,6 +168,7 @@ describe('Moving a task to another project (integration)', () => {
     const user = (email: string, first: string) => prisma.user.create({ data: { email, username: email.split('@')[0]!, passwordHash: 'x', firstName: first, lastName: 'Test' } });
     const owner = { id: (await user(EMAILS[3]!, 'Owner')).id, roles: ['EMPLOYEE'] };
     const named = { id: (await user(EMAILS[4]!, 'Named')).id, roles: ['EMPLOYEE'] };
+    await runBackfill(prisma); // companies: they join the one company, as everyone on a one-company site
     // Neither is a MANAGER member: one owns both projects, the other is their named manager.
     await prisma.project.updateMany({ where: { id: { in: [rig.id, ops.id] } }, data: { ownerId: owner.id } });
     const one = await newTask('By the owner');

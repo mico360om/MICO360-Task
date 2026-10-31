@@ -24,6 +24,7 @@ import {
   type SignatureRole,
 } from './inspection-rules';
 import type { AnswerRecord, AnswerWrite, Counts, InspectionRecord, InspectionStore, Refusal, SignatureRecord } from './inspection-store';
+import { projectArchived } from '../companies/project-archive';
 import {
   answerView,
   byRole,
@@ -73,6 +74,8 @@ export interface ProjectInfo {
   icon: string | null;
   imageUrl: string | null;
   status: string;
+  /** companies: it counts as archived (its own status, or all its companies); absent = its own status decides. */
+  archived?: boolean;
   ownerId: string | null;
 }
 
@@ -298,7 +301,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
   async function writableProject(projectId: string): Promise<ProjectInfo> {
     const p = await ports.project(projectId);
     if (!p) throw new NotFoundError('Project not found.');
-    if (p.status === 'ARCHIVED') throw archived();
+    if (projectArchived(p)) throw archived();
     return p;
   }
   async function mustManage(actor: Actor, projectId: string): Promise<void> {
@@ -371,7 +374,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       if (t.done) return { completed: ref, offer: false };
       if (t.waiting) return { completed: null, offer: false, waiting: ref };
       const project = await ports.project(r.projectId);
-      if (!project || project.status === 'ARCHIVED') return { completed: null, offer: false };
+      if (!project || projectArchived(project)) return { completed: null, offer: false };
       // Moved or reopened by hand since it was finished: left open on purpose, and nothing is offered.
       if (replay && r.finishedAt && (await ports.statusChangedSince?.(t.id, r.finishedAt))) return { completed: null, offer: false };
       try {
@@ -421,7 +424,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
     const tasks = await tasksFor(actor, r.projectId, taskIds);
     const attached = r.taskId ? tasks.get(r.taskId) : undefined;
     const inProgress = r.status === 'IN_PROGRESS';
-    const readOnly = !project || project.status === 'ARCHIVED';
+    const readOnly = !project || projectArchived(project);
     const mine = r.inspectorId === actor.id;
     const permissions: InspectionPermissions = {
       canAnswer: inProgress && mine && !readOnly,
@@ -449,7 +452,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
         return { itemId: x.itemId, task: x.taskId && t ? { id: x.taskId, key: t.key, title: t.title, deleted: t.deleted, done: t.done } : null, pending: x.taskId === null };
       }),
       revision: r.revision,
-      projectArchived: project?.status === 'ARCHIVED',
+      projectArchived: project ? projectArchived(project) : false,
       reopened: r.reopenedAt && r.reopenedById ? { at: r.reopenedAt.toISOString(), by: personOf(r.reopenedById, names) } : null,
       earlierRevisions: earlierRevisionsOf(earlier),
       permissions,
@@ -533,7 +536,7 @@ export function createInspectionService(deps: InspectionServiceDeps) {
       if (!(await ports.canViewProject(actor.id, actor.roles, projectId))) throw new NotFoundError('Project not found.');
       const project = await ports.project(projectId);
       if (!project) throw new NotFoundError('Project not found.');
-      return { inspections: await listItems(actor, await store.listForProject(projectId)), canStart: project.status !== 'ARCHIVED' };
+      return { inspections: await listItems(actor, await store.listForProject(projectId)), canStart: !projectArchived(project) };
     },
 
     async start(actor: Actor, projectId: string, body: unknown): Promise<InspectionDetail> {

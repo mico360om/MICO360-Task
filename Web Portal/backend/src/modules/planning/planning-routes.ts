@@ -9,6 +9,7 @@ import { shiftDayKey, todayKey, zonedStartOfDay } from '../../lib/due-date';
 import { MAX_TIMELINE_WEEKS, MILESTONE_HORIZON_DAYS, buildTimeline, buildTimelineTasks, daysBetween, timelineRange, weekOf, type TimelineSource, type WeekStart } from './timeline';
 import { buildWorkload, resolveWorkloadScope } from './workload';
 import { loadWorkload, type WorkloadStore } from './workload-service';
+import { projectArchived } from '../companies/project-archive';
 
 export interface PlanningRouteDeps {
   guard: AuthGuard;
@@ -40,8 +41,8 @@ function dayParam(value: unknown, today: string, outOfReach: string, missing: st
 
 /** UTC midnight of a day: how a due date given as a day is stored. */
 const utcDay = (key: string) => new Date(`${key}T00:00:00.000Z`);
-/** Projects still going: the timeline leaves out completed and archived ones. */
-const isOpen = (status: string) => status !== 'COMPLETED' && status !== 'ARCHIVED';
+/** Projects still going: the timeline leaves out completed and archived ones (companies: archived by its own status or all its companies). */
+const isOpen = (p: { status: string; archived?: boolean }) => p.status !== 'COMPLETED' && !projectArchived(p);
 
 /**
  * The planning pages. GET /timeline: every open project the asker may see (as the projects list
@@ -68,7 +69,7 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const weekStart = weekStartParam.parse(q.weekStart);
       const range = timelineRange(from, to, weekStart);
       if (!range) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
-      const projects = (await deps.projectService.listVisibleProjects(viewerOf(req))).filter((p) => isOpen(p.status));
+      const projects = (await deps.projectService.listVisibleProjects(viewerOf(req))).filter(isOpen);
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
       // Each read in its own window: the shown weeks' markers, the next 30 days' milestones (a day
       // either side, for due dates kept as days) and this week's meetings (moments, company time).
@@ -96,7 +97,7 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const to = dayParam(q.to, today, reach, 'Say which days to show (from and to, YYYY-MM-DD).');
       if (to < from || daysBetween(from, to) >= MAX_TIMELINE_WEEKS * 7) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
       const project = await deps.projectService.getVisibleProject(id, viewerOf(req));
-      if (!isOpen(project.status)) throw new NotFoundError('Project not found.');
+      if (!isOpen(project)) throw new NotFoundError('Project not found.');
       // A day either side of each bound, for due dates kept as days; the builder places each on its own day.
       const rows = await source.projectTasks(project.id, {
         from: utcDay(shiftDayKey(from, -1)),

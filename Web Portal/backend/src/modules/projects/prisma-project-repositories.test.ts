@@ -11,6 +11,8 @@ const projectRow = {
   id: 'p1', code: 'MICO', name: 'MICO', description: null, clientName: null, managerId: null, ownerId: null, status: 'PLANNING',
   priority: 'NORMAL', color: '#8B1E1E', imageUrl: null, startDate: null, targetDate: null, notes: null, createdById: 'admin',
   createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+  // companies: every read takes its companies' statuses along (ARCHIVE_INCLUDE).
+  companies: [{ company: { status: 'ACTIVE' } }],
 };
 
 describe('createPrismaProjectRepository.create', () => {
@@ -32,6 +34,23 @@ describe('createPrismaProjectRepository.create', () => {
     // …and in the site's only company, in the same write.
     expect(data.mainCompanyId).toBe('company_prolens');
     expect(data.companies).toEqual({ create: { companyId: 'company_prolens' } });
+  });
+
+  it('says whether a project counts as archived: its own status, or all its companies archived', async () => {
+    const rows = [
+      { ...projectRow, id: 'live', companies: [{ company: { status: 'ARCHIVED' } }, { company: { status: 'ACTIVE' } }] },
+      { ...projectRow, id: 'gone-with-company', companies: [{ company: { status: 'ARCHIVED' } }] },
+      { ...projectRow, id: 'own', status: 'ARCHIVED', companies: [{ company: { status: 'ACTIVE' } }] },
+    ];
+    const findMany = vi.fn(async () => rows);
+    const repo = createPrismaProjectRepository({ project: { findMany } } as unknown as PrismaClient);
+    const listed = await repo.list();
+    expect(listed.map((p) => [p.id, p.status, p.archived])).toEqual([
+      ['live', 'PLANNING', false],
+      ['gone-with-company', 'PLANNING', true], // the stored status is never rewritten
+      ['own', 'ARCHIVED', true],
+    ]);
+    expect((findMany.mock.calls[0] as unknown as [{ include: unknown }])[0].include).toEqual({ companies: { select: { company: { select: { status: true } } } } });
   });
 
   it('reports a code taken by a (possibly deleted) project as a 409', async () => {

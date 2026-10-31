@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { zonedStartOfDay } from '../../lib/due-date';
 import { managedVisibleWhere } from '../projects/project-managers';
+import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { ProjectStatus } from './management-rules';
 import type { ActionLine, ManagementSource, MgmtPerson, TaskLine } from './management-source';
 
@@ -79,10 +80,11 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
     async projects(runBy) {
       const rows = await prisma.project.findMany({
         where: { deletedAt: null, ...(runBy ? managedVisibleWhere(runBy) : {}) },
-        select: { id: true, code: true, name: true, status: true, color: true, icon: true, imageUrl: true, ownerId: true, managerId: true, updatedAt: true },
+        select: { id: true, code: true, name: true, status: true, color: true, icon: true, imageUrl: true, ownerId: true, managerId: true, updatedAt: true, companies: ARCHIVE_SELECT.companies },
         orderBy: { name: 'asc' },
       });
-      return rows.map((p) => ({ ...p, status: p.status as ProjectStatus }));
+      // companies: a project whose companies are all archived shows (and filters) as Archived.
+      return rows.map(({ companies, ...p }) => ({ ...p, status: (archivedOf({ status: p.status, companies }) ? 'ARCHIVED' : p.status) as ProjectStatus }));
     },
 
     async runCount(userId) {

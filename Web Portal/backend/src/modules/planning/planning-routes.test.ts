@@ -139,6 +139,8 @@ describe('GET /timeline', () => {
       record('hold', { status: 'ON_HOLD' }),
       record('done', { status: 'COMPLETED' }),
       record('old', { status: 'ARCHIVED' }),
+      // companies: every one of its companies archived — it counts as archived, whatever its status.
+      record('shut', { status: 'ACTIVE', archived: true }),
     ];
     timelineRows = { ...timelineRows, owners: [{ id: 'sara', name: 'Sara Ahmed', avatarUrl: null }] };
     const res = await app.inject({ method: 'GET', url, headers: await ADMIN() });
@@ -275,8 +277,8 @@ describe('GET /timeline/projects/:id/tasks', () => {
   });
 
   it('answers 404 for a project the asker can’t see, and for a completed or archived one (not on the timeline)', async () => {
-    projects = [record('theirs'), record('done', { status: 'COMPLETED', ownerId: 'emp' }), record('old', { status: 'ARCHIVED', ownerId: 'emp' })];
-    for (const id of ['theirs', 'done', 'old', 'missing']) {
+    projects = [record('theirs'), record('done', { status: 'COMPLETED', ownerId: 'emp' }), record('old', { status: 'ARCHIVED', ownerId: 'emp' }), record('shut', { status: 'ACTIVE', archived: true, ownerId: 'emp' })];
+    for (const id of ['theirs', 'done', 'old', 'shut', 'missing']) {
       expect((await app.inject({ method: 'GET', url: url(id), headers: await EMPLOYEE() })).statusCode, id).toBe(404);
     }
     expect(taskCalls).toHaveLength(0);

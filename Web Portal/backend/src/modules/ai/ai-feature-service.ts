@@ -6,6 +6,7 @@ import { complete, COMPLETION_TIMEOUT_MS, type ChatModel } from './ai-completion
 import { createSafeFetch } from './ai-network';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
 import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
+import { projectArchived } from '../companies/project-archive';
 
 /** A project a person can add tasks to, as "Describe it in plain English" may suggest it. */
 export interface DescribableProject {
@@ -14,6 +15,8 @@ export interface DescribableProject {
   number: string | null;
   name: string;
   status: string;
+  /** companies: it counts as archived (its own status, or all its companies); absent = its own status decides. */
+  archived?: boolean;
 }
 
 export interface AiFeatureServiceDeps {
@@ -159,7 +162,7 @@ export function createAiFeatureService({
     const projects =
       listProjectsFor && requester
         ? (await listProjectsFor({ id: requester.userId, roles: requester.roles ?? [] }))
-            .filter((p) => p.status !== 'ARCHIVED')
+            .filter((p) => !projectArchived(p))
             .sort((a, b) => a.name.localeCompare(b.name))
             .slice(0, MAX_PROMPT_PROJECTS)
         : [];

@@ -56,6 +56,8 @@ function world() {
       project('adm', 'ADM', 'Admin'),
       project('old', 'OLD', 'Old Works', 'COMPLETED'),
       project('arc', 'ARC', 'Archive', 'ARCHIVED'),
+      // companies: every one of its companies archived — it counts as archived, whatever its status.
+      { ...project('shut', 'SHT', 'Shut Co Works'), archived: true },
     ],
     columns: [
       { projectId: 'rig', id: 'r-todo', name: 'To do', category: 'TODO', position: 0, enabled: true },
@@ -92,7 +94,7 @@ function world() {
       ['adm', new Set(['aisha', 'omar'])],
     ]),
     managers: new Map([
-      ['aisha', new Set(['rig', 'ops', 'old', 'arc'])],
+      ['aisha', new Set(['rig', 'ops', 'old', 'arc', 'shut'])],
       ['khalid', new Set(['rig'])],
     ]),
     admins: new Set(['root']),
@@ -137,6 +139,7 @@ describe('Moving a task to another project: who may', () => {
     const w = world();
     expect(await refusal(w.service.moveTask(aisha, 't1', { projectId: 'old' }))).toMatchObject({ status: 400, code: 'PROJECT_CLOSED', message: 'Old Works is completed. Tasks can only be moved to open projects.' });
     expect(await refusal(w.service.moveTask(aisha, 't1', { projectId: 'arc' }))).toMatchObject({ status: 400, code: 'PROJECT_CLOSED', message: 'Archive is archived. Tasks can only be moved to open projects.' });
+    expect(await refusal(w.service.moveTask(aisha, 't1', { projectId: 'shut' }))).toMatchObject({ status: 400, code: 'PROJECT_CLOSED', message: 'Shut Co Works is archived. Tasks can only be moved to open projects.' });
     expect(await refusal(w.service.moveTask(aisha, 't1', { projectId: 'rig' }))).toMatchObject({ status: 400, code: 'SAME_PROJECT', message: 'This task is already in Rig Inspection.' });
     expect(await refusal(w.service.moveTask(aisha, 't1', { projectId: 'nowhere' }))).toMatchObject({ status: 404, message: 'Project not found.' });
     expect(await refusal(w.service.moveTask(aisha, 'gone', { projectId: 'ops' }))).toMatchObject({ status: 404, message: 'Task not found.' });
@@ -148,12 +151,12 @@ describe('Where tasks can go (move targets)', () => {
     const w = world();
     const mine = await w.service.targets(aisha);
     expect(mine.managesAll).toBe(false);
-    expect([...mine.managedProjectIds].sort()).toEqual(['arc', 'old', 'ops', 'rig']);
+    expect([...mine.managedProjectIds].sort()).toEqual(['arc', 'old', 'ops', 'rig', 'shut']);
     expect(mine.projects.map((p) => p.id)).toEqual(['rig', 'ops']);
     expect(mine.projects[0]).toEqual({ id: 'rig', code: 'RIG', name: 'Rig Inspection', status: 'ACTIVE', color: '#123456', icon: null, imageUrl: null });
     const admin = await w.service.targets(root);
     expect(admin.managesAll).toBe(true);
-    expect(admin.projects.map((p) => p.id)).toEqual(['rig', 'ops', 'adm']);
+    expect(admin.projects.map((p) => p.id)).toEqual(['rig', 'ops', 'adm']); // not 'shut': all its companies are archived
     expect((await w.service.targets(omar)).projects).toEqual([]);
   });
 });

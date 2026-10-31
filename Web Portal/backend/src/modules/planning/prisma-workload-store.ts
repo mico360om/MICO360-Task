@@ -2,11 +2,15 @@ import type { PrismaClient } from '@prisma/client';
 import { toPerson } from './prisma-timeline-source';
 import type { WorkloadStore } from './workload-service';
 import { managedVisibleWhere } from '../projects/project-managers';
+import { liveProjectWhere } from '../companies/project-archive';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
 const ACTIVE = { deletedAt: null, status: 'ACTIVE' as const };
-/** Projects the page works with: not deleted, completed or archived (as the timeline and the daily emails). */
-const LIVE_PROJECT = { deletedAt: null, status: { notIn: ['COMPLETED' as const, 'ARCHIVED' as const] } };
+/**
+ * Projects the page works with: not deleted, completed or archived (as the timeline and the daily
+ * emails) — companies: archived by its own status or by all its companies (liveProjectWhere).
+ */
+const LIVE_PROJECT = liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } });
 /** The shared "open" rule: not in a Done column and no completion time. */
 const OPEN = { deletedAt: null, completedAt: null, column: { category: { not: 'DONE' as const } } };
 
@@ -29,7 +33,7 @@ export function createPrismaWorkloadStore(prisma: PrismaClient): WorkloadStore {
     async liveProjects(ids) {
       if (ids && ids.length === 0) return [];
       return prisma.project.findMany({
-        where: { ...LIVE_PROJECT, ...(ids ? { id: { in: ids } } : {}) },
+        where: { AND: [LIVE_PROJECT, ...(ids ? [{ id: { in: ids } }] : [])] },
         select: { id: true, code: true, name: true, color: true, icon: true, imageUrl: true, ownerId: true, managerId: true },
         orderBy: { name: 'asc' },
       });

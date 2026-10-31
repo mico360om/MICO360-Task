@@ -7,6 +7,7 @@ import type { CreateAuditData } from '../audit/audit-repository';
 import type { TaskRecord } from '../tasks/task-repository';
 import type { RecurrenceRule } from '../tasks/recurrence';
 import type { InspectionPorts } from './inspection-service';
+import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 
 export interface InspectionPortDeps {
   prisma: PrismaClient;
@@ -56,10 +57,14 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
       return (await prisma.project.count({ where: { deletedAt: null, ...managedVisibleWhere(userId) } })) > 0;
     },
     async project(projectId) {
-      return prisma.project.findFirst({
+      const p = await prisma.project.findFirst({
         where: { id: projectId, deletedAt: null },
-        select: { name: true, code: true, number: true, clientName: true, color: true, icon: true, imageUrl: true, status: true, ownerId: true },
+        select: { name: true, code: true, number: true, clientName: true, color: true, icon: true, imageUrl: true, status: true, ownerId: true, companies: ARCHIVE_SELECT.companies },
       });
+      if (!p) return null;
+      // companies: archived by its own status or by all its companies.
+      const { companies, ...info } = p;
+      return { ...info, archived: archivedOf({ status: p.status, companies }) };
     },
     async task(taskId) {
       const t = await prisma.task.findFirst({

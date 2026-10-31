@@ -6,6 +6,8 @@ export interface MoveProject {
   code: string;
   name: string;
   status: string;
+  /** companies: it counts as archived (its own status, or all its companies); absent = its own status decides. */
+  archived?: boolean;
   /** "New tasks are due today": an undated task moved in gets today's date (dueDateOnEntry). */
   defaultDueToday: boolean;
   color: string | null;

@@ -116,6 +116,10 @@ describe('sharing a project with a client (staff side)', () => {
   it('refuses an archived or deleted project', async () => {
     source.setStatus('p1', 'ARCHIVED');
     await expect(svc.share({ projectId: 'p1', name: 'F', email: 'f@x.example', actorId: 'u-omar' })).rejects.toMatchObject({ status: 409, code: 'PROJECT_ARCHIVED' });
+    // companies: all its companies archived — it counts as archived, whatever its status.
+    source.setStatus('p1', 'ACTIVE');
+    source.setArchived('p1', true);
+    await expect(svc.share({ projectId: 'p1', name: 'F', email: 'f@x.example', actorId: 'u-omar' })).rejects.toMatchObject({ status: 409, code: 'PROJECT_ARCHIVED' });
     source.setGone('p2');
     await expect(svc.share({ projectId: 'p2', name: 'F', email: 'f@x.example', actorId: 'u-omar' })).rejects.toMatchObject({ status: 404 });
     expect(invitations).toHaveLength(0);
@@ -447,6 +451,11 @@ describe('the page itself', () => {
     source.setStatus('p1', 'ARCHIVED');
     await expect(svc.view(link, sessionOf(token))).rejects.toBeInstanceOf(ClientLinkEndedError);
     source.setStatus('p1', 'ACTIVE');
+    // companies: archived with all its companies; unarchiving the company opens it again.
+    source.setArchived('p1', true);
+    await expect(svc.view(link, sessionOf(token))).rejects.toBeInstanceOf(ClientLinkEndedError);
+    source.setArchived('p1', false);
+    await expect(svc.view(link, sessionOf(token))).resolves.toBeTruthy();
     source.setGone('p1');
     await expect(svc.view(link, sessionOf(token))).rejects.toBeInstanceOf(ClientLinkEndedError);
   });

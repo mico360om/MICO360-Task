@@ -51,10 +51,14 @@ export function sharesProjectCompanyWhere(projectId: string): Prisma.UserWhereIn
   return { companies: { some: { company: { status: 'ACTIVE', projects: { some: { projectId } } } } } };
 }
 
-/** A live project: its own status isn't ARCHIVED and at least one of its companies is active. */
+/**
+ * A live project: its own status isn't ARCHIVED and at least one of its companies is active — the
+ * opposite of isProjectArchived, so a project with no company (never on a migrated site) isn't
+ * archived by companies either (companies: the one rule, see project-archive.ts).
+ */
 export const LIVE_PROJECT_WHERE: Prisma.ProjectWhereInput = {
   status: { not: 'ARCHIVED' },
-  companies: { some: { company: { status: 'ACTIVE' } } },
+  OR: [{ companies: { none: {} } }, { companies: { some: { company: { status: 'ACTIVE' } } } }],
 };
 
 /** People who share an active company with the viewer (the viewer included; callers leave them out). */

@@ -3,6 +3,7 @@ import { escapeLike, parseTaskQuery } from './task-search-query';
 import { describeMatches, personLabel, type TaskMatch } from './task-search-matches';
 import { loadTaskSearchLive } from './task-search-index';
 import { visibleTasksSql, type TaskSearchScope } from './task-search-scope';
+import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { TextRange } from './task-search-text';
 
 /** Column categories — a task's status, as the All projects board shows them. */
@@ -132,7 +133,7 @@ export function createTaskSearchEngine({
           dueDate: true,
           completedAt: true,
           column: { select: { id: true, name: true, category: true } },
-          project: { select: { id: true, code: true, name: true, status: true } },
+          project: { select: { id: true, code: true, name: true, status: true, companies: ARCHIVE_SELECT.companies } },
           assignees: { orderBy: { assignedAt: 'asc' }, select: { user: { select: { id: true, firstName: true, lastName: true, username: true } } } },
         },
       }),
@@ -155,7 +156,8 @@ export function createTaskSearchEngine({
         title: task.title,
         titleRanges: found.titleRanges,
         projectId: m.projectId,
-        project: { id: m.project.id, code: m.project.code, name: m.project.name, archived: m.project.status === 'ARCHIVED' },
+        // companies: archived by its own status or by all its companies.
+        project: { id: m.project.id, code: m.project.code, name: m.project.name, archived: archivedOf(m.project) },
         status: { columnId: m.column.id, name: m.column.name, category: m.column.category },
         done: m.column.category === 'DONE' || m.completedAt !== null,
         dueDate: m.dueDate ? m.dueDate.toISOString() : null,

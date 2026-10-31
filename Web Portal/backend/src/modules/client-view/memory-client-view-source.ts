@@ -6,6 +6,8 @@ import type { ClientViewSource } from './client-view-source';
 export interface MemoryClientViewSource extends ClientViewSource {
   addProject(id: string, p: ClientProjectSource): void;
   setStatus(id: string, status: string): void;
+  /** companies: all its companies archived (true) or not — it counts as archived, whatever its status. */
+  setArchived(id: string, archived: boolean): void;
   setGone(id: string): void;
   addTask(projectId: string, t: ClientTaskSource): void;
   addMinutes(projectId: string, m: ClientMinutesSource): void;
@@ -20,6 +22,7 @@ export function createMemoryClientViewSource(): MemoryClientViewSource {
   return {
     addProject: (id, p) => void projects.set(id, { ...p, gone: false }),
     setStatus: (id, status) => void (projects.get(id)!.status = status),
+    setArchived: (id, archived) => void (projects.get(id)!.archived = archived),
     setGone: (id) => void (projects.get(id)!.gone = true),
     addTask: (projectId, t) => void tasks.push({ ...t, projectId }),
     addMinutes: (projectId, m) => void minutes.push({ ...m, projectId }),

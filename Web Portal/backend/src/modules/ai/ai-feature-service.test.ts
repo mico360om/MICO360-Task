@@ -141,6 +141,8 @@ describe('AiFeatureService: describing a task in plain English', () => {
     { id: 'p1', code: 'RIG1', number: 'PDO-2026-014', name: 'Rig Inspection Portal', status: 'ACTIVE' as const },
     { id: 'p2', code: 'WEB', number: null, name: 'Company Website', status: 'ACTIVE' as const },
     { id: 'p3', code: 'OLD', number: '1999', name: 'Old Archive Project', status: 'ARCHIVED' as const },
+    // companies: all its companies archived — it counts as archived, whatever its status.
+    { id: 'p4', code: 'SHUT', number: '2001', name: 'Shut Company Project', status: 'ACTIVE' as const, archived: true },
   ];
   function describing(answer: Record<string, unknown>, opts: { withProjects?: boolean } = {}) {
     const prompts: string[] = [];
@@ -199,6 +201,7 @@ describe('AiFeatureService: describing a task in plain English', () => {
     expect(prompts[0]).toContain('PDO-2026-014');
     expect(prompts[0]).toContain('Company Website');
     expect(prompts[0]).not.toContain('Old Archive Project');
+    expect(prompts[0]).not.toContain('Shut Company Project');
   });
 
   it('suggests the project the AI names, by code, number or name', async () => {

@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { noteText } from '../../lib/rich-text';
+import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { FinalMinutesRepository } from '../meetings/final-minutes-repository';
 import type {
   AiActivityRec,
@@ -120,9 +121,10 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     async projects(ids) {
       const rows = await prisma.project.findMany({
         where: { deletedAt: null, ...(ids === null ? {} : { id: { in: ids } }) },
-        select: { id: true, code: true, number: true, name: true, status: true, clientName: true, description: true, startDate: true, targetDate: true, managerId: true, ownerId: true },
+        select: { id: true, code: true, number: true, name: true, status: true, clientName: true, description: true, startDate: true, targetDate: true, managerId: true, ownerId: true, companies: ARCHIVE_SELECT.companies },
       });
-      return rows;
+      // companies: a project whose companies are all archived is described as Archived.
+      return rows.map(({ companies, ...p }) => ({ ...p, status: archivedOf({ status: p.status, companies }) ? ('ARCHIVED' as const) : p.status }));
     },
 
     async tasks({ projectIds, projectId, assigneeId }) {
