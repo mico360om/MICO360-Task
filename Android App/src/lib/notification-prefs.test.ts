@@ -28,7 +28,8 @@ import { hasWeb, loadWebTsx, readWeb } from '../testing/web-source';
 
 describe('notification preferences', () => {
   it('Approvals and Added to a project are there, in the website’s order; the weekly summary survives a save', () => {
-    expect(NOTIFICATION_TYPES.map((t) => t.type)).toEqual(['TASK_ASSIGNED', 'TASK_STATUS', 'TASK_APPROVAL', 'TASK_COMMENT', 'MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'PROJECT_ADDED']);
+    expect(NOTIFICATION_TYPES.map((t) => t.type)).toEqual(['TASK_ASSIGNED', 'TASK_STATUS', 'TASK_APPROVAL', 'TASK_COMMENT', 'MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'PROJECT_ADDED', 'MEETING_REMINDER']);
+    expect(NOTIFICATION_TYPES.at(-1)).toEqual({ type: 'MEETING_REMINDER', label: 'Meeting reminders', description: 'Before each meeting you organize or are invited to' });
     expect(NOTIFICATION_TYPES.map((n) => n.label)).toEqual(expect.arrayContaining(['Approvals', 'Added to a project']));
     expect(mergePreferences({ muted: [], reminderLeadMinutes: 60, weeklySummary: false } as NotificationPreferences, { muted: ['MENTION'] }).weeklySummary).toBe(false);
     expect(mergePreferences({ muted: [], reminderLeadMinutes: 60, weeklySummary: true } as NotificationPreferences, { weeklySummary: false }).weeklySummary).toBe(false);
