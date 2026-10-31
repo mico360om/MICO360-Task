@@ -23,7 +23,7 @@ import { approvalNotice } from '../lib/approvals';
 import { instantDayText } from '../lib/day-words';
 import { appTimeZone } from '../lib/due-date';
 import { detailView, type DraftView, type FlushState, type InspectionOutbox } from '../lib/inspection-outbox';
-import type { SyncState } from '../lib/inspection-outboxes';
+import { unsentChanges, type SyncState } from '../lib/inspection-outboxes';
 import type { StorageProblem } from '../lib/draft-storage';
 import type { InspectionDetail, SignatureInput } from '../lib/inspection-types';
 import { INSPECTION_WORDS, finishedNotice, followUpNotice, inspectionChangeNote, problemText, startedLine } from '../lib/inspection-words';
@@ -327,7 +327,7 @@ function InspectionContent({
           </Text>
         ) : null}
       </Card>
-      <InspectionActions detail={d} finished={finished} ownerId={ownerId} outbox={outbox} onProblem={setProblem} />
+      <InspectionActions detail={d} finished={finished} unsent={unsentChanges(draft?.pending) > 0} ownerId={ownerId} outbox={outbox} onProblem={setProblem} />
 
       {record ? (
         <SyncBanner

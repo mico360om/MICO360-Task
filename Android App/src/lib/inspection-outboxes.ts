@@ -1,6 +1,6 @@
 import type { ApiClient } from './api-client';
 import { INSPECTION_RECORD_PREFIX, createMirroredDraftStorage, type MirroredDraftStorage, type StorageProblem } from './draft-storage';
-import { createInspectionOutbox, removeOwnerRecords, type FlushState, type InspectionOutbox } from './inspection-outbox';
+import { createInspectionOutbox, removeOwnerRecords, type DraftView, type FlushState, type InspectionOutbox } from './inspection-outbox';
 import { inspectionsApi } from './inspections-api';
 import type { KeyValueStore } from './storage';
 
@@ -42,6 +42,14 @@ export interface InspectionOutboxes {
   storageProblem(ownerId: string, inspectionId: string): StorageProblem | null;
   /** Signing out on purpose: the person's records go, on the phone and in the app. */
   clearOwner(ownerId: string): Promise<void>;
+}
+
+/**
+ * A record's changes not sent yet: answers, follow-up requests and a waiting finish (0 for none
+ * kept). What the sign-out question counts; an inspection with any offers no Delete (device check N10).
+ */
+export function unsentChanges(pending: DraftView['pending'] | null | undefined): number {
+  return pending ? pending.answers + pending.followUps + (pending.finish ? 1 : 0) : 0;
 }
 
 /** The server's site (scheme and host), from its API address — without URL (React Native's is partial). */
@@ -185,7 +193,7 @@ export function createInspectionOutboxes(deps: {
     if (!ownerId) return 0;
     return outboxFor(ownerId)
       .waiting(ownerId)
-      .reduce((n, w) => n + w.pending.answers + w.pending.followUps + (w.pending.finish ? 1 : 0), 0);
+      .reduce((n, w) => n + unsentChanges(w.pending), 0);
   };
 
   return {

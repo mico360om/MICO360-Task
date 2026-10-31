@@ -41,12 +41,15 @@ export function confirmDiscard(o: { outbox: InspectionOutbox | null; ownerId: st
 export function InspectionActions({
   detail,
   finished,
+  unsent,
   ownerId,
   outbox,
   onProblem,
 }: {
   detail: InspectionDetail;
   finished: boolean;
+  /** This person has changes to it not sent yet: no Delete until they are (lib/inspection-client). */
+  unsent: boolean;
   ownerId: string | null;
   outbox: InspectionOutbox | null;
   onProblem: (text: string | null) => void;
@@ -55,7 +58,7 @@ export function InspectionActions({
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [busy, setBusy] = useState<InspectionAction | null>(null);
   const id = detail.id;
-  const actions = inspectionMenu(detail.permissions, finished);
+  const actions = inspectionMenu(detail.permissions, finished, unsent);
   if (!actions.length) return null;
 
   const download = async () => {

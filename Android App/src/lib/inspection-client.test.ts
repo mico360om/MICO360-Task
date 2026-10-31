@@ -3,6 +3,7 @@ import { hasWeb, loadWebTsx, readWeb } from '../testing/web-source';
 import { websiteSays } from '../testing/phone-words';
 import { ACTION_WORDS, REPORT_CLIENT_WORDS, backToProject, clientResultLine, clientRow, inspectionMenu, notesNameSomeone, revisionLine } from './inspection-client';
 import { appSource as src } from '../testing/web-source';
+import { unsentChanges } from './inspection-outboxes';
 import type { ClientInspection, InspectionPermissions } from './inspection-types';
 
 /** A finished inspection's report, its actions and showing it to the client (Stage 4 Task 11). */
@@ -76,4 +77,27 @@ it('a deleted inspection goes back to its project’s screen when it came from t
   const a = src('components/inspections/InspectionActions.tsx');
   expect(a).toMatch(/backToProject\(state\.routes, state\.index, detail\.projectId\)/);
   expect(a).toMatch(/navigation\.pop\(back\.pop\)/);
+});
+
+// Device check N10 (31 Oct): an inspection signed with no signal, still waiting to be sent, offered
+// Delete — which would throw away what hasn't reached the server. Delete is left out while this
+// person's record of it has changes not sent yet.
+it('Delete is left out while this person has changes to it not sent yet', () => {
+  const all = { ...NONE, canTakeOver: true, canReopen: true, canDelete: true };
+  expect(inspectionMenu(all, true, true)).toEqual(['report', 'takeOver', 'reopen']);
+  expect(inspectionMenu(all, false, false)).toEqual(['takeOver', 'reopen', 'delete']);
+  expect(inspectionMenu({ ...NONE, canDelete: true }, false, true)).toEqual([]);
+});
+
+it('counts a record’s changes not sent yet: answers, follow-up requests and a waiting finish', () => {
+  expect(unsentChanges({ answers: 2, finish: true, followUps: 1 })).toBe(4);
+  expect(unsentChanges({ answers: 0, finish: false, followUps: 0 })).toBe(0);
+  expect(unsentChanges(null)).toBe(0);
+  expect(unsentChanges(undefined)).toBe(0);
+});
+
+it('the inspection screen tells its actions whether this person has changes waiting', () => {
+  expect(src('components/inspections/InspectionActions.tsx')).toMatch(/const actions = inspectionMenu\(detail\.permissions, finished, unsent\);/);
+  expect(src('screens/InspectionScreen.tsx')).toMatch(/<InspectionActions detail=\{d\} finished=\{finished\} unsent=\{unsentChanges\(draft\?\.pending\) > 0\}/);
+  expect(src('lib/inspection-outboxes.ts')).toMatch(/\.reduce\(\(n, w\) => n \+ unsentChanges\(w\.pending\), 0\)/);
 });

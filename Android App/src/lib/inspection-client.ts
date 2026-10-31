@@ -10,13 +10,17 @@ import { highlightNames } from './name-highlight';
 
 export type InspectionAction = 'report' | 'takeOver' | 'reopen' | 'delete';
 
-/** The actions, in the website's order: the report when finished, then what the server allows. */
-export function inspectionMenu(p: InspectionPermissions, finished: boolean): InspectionAction[] {
+/**
+ * The actions, in the website's order: the report when finished, then what the server allows —
+ * without Delete while this person's record of it has changes not sent yet (`unsent`: deleting it
+ * would throw away what hasn't reached the server; device check N10).
+ */
+export function inspectionMenu(p: InspectionPermissions, finished: boolean, unsent = false): InspectionAction[] {
   const out: InspectionAction[] = [];
   if (finished) out.push('report');
   if (p.canTakeOver) out.push('takeOver');
   if (p.canReopen) out.push('reopen');
-  if (p.canDelete) out.push('delete');
+  if (p.canDelete && !unsent) out.push('delete');
   return out;
 }
 
