@@ -148,7 +148,11 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
     if (e) setError(e);
   };
 
+  /** Enter and leaving the box both save: only the first counts (as a chat row's rename). */
+  const nameSaved = useRef(false);
   const saveName = (v: string) => {
+    if (nameSaved.current) return;
+    nameSaved.current = true;
     setRenaming(false);
     if (!chatId || !chat) return;
     const clean = v.replace(/\s+/g, ' ').trim();
@@ -279,6 +283,7 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
                 label="Rename this chat"
                 size={17}
                 onPress={() => {
+                  nameSaved.current = false;
                   setName(chat.title);
                   setRenaming(true);
                 }}

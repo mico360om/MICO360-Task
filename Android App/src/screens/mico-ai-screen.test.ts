@@ -125,3 +125,8 @@ it('a download shows it is being prepared, a second tap does nothing, and each f
   expect(src('components/task-detail/HeaderCard.tsx')).toContain('Preparing Excel…');
   expect(src('components/task-detail/HeaderCard.tsx')).toContain('Preparing PDF…');
 });
+
+it('renaming in the header saves once: Enter and leaving the box both end it (final review A6)', () => {
+  expect(screen).toMatch(/const saveName = \(v: string\) => \{\s+if \(nameSaved\.current\) return;\s+nameSaved\.current = true;/);
+  expect(screen).toMatch(/nameSaved\.current = false;\s+setName\(chat\.title\);\s+setRenaming\(true\);/);
+});
