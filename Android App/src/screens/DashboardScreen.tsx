@@ -1,38 +1,66 @@
-import React, { useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, useWindowDimensions } from 'react-native';
+import React, { useMemo, useSyncExternalStore } from 'react';
+import { View, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMyTasks } from '../core/queries';
+import { useMyTasks, useProjects } from '../core/queries';
+import { useAdminTotals } from '../core/project-queries';
+import { useActivityFeed } from '../core/activity-queries';
+import { useApprovals } from '../core/approval-queries';
+import { useDueSoonTasks } from '../core/dashboard-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
-import { summarizeTasks } from '../lib/tasks-summary';
-import { TaskRow } from '../components/TaskRow';
-import { Card, SectionTitle, SkeletonList, EmptyState, ErrorNote, PageHeader, StatTile } from '../components/ui';
+import { SkeletonList } from '../components/ui';
 import { SyncStatus } from '../components/SyncStatus';
 import { AdminTotals } from '../components/AdminTotals';
-import { useQueryClient } from '@tanstack/react-query';
-import { spacing, fontSize, type Palette } from '../lib/theme';
+import { WelcomeBand } from '../components/dashboard/WelcomeBand';
+import { DashboardTiles } from '../components/dashboard/DashboardTiles';
+import { FirstSteps } from '../components/dashboard/FirstSteps';
+import { OpenTasksCard } from '../components/dashboard/OpenTasksCard';
+import { ApprovalsCard } from '../components/dashboard/ApprovalsCard';
+import { DueSoonCard } from '../components/dashboard/DueSoonCard';
+import { RecentActivityCard } from '../components/dashboard/RecentActivityCard';
+import { activityRows, dashboardTiles, dueSoonRows, isFirstDay, welcomeBand, type DashboardLink } from '../lib/dashboard';
+import { myDueCounts } from '../lib/dashboard-tiles';
+import { dateZones, subscribeTimeZone } from '../lib/due-date';
+import { spacing, type Palette } from '../lib/theme';
 import type { TabScreenProps } from '../navigation/types';
-import { font } from '../lib/typography';
-import { statTileColumns } from '../lib/stat-grid';
 
+/**
+ * The Dashboard, as the website's, in its phone order: the welcome band (the page's title), the four
+ * tiles, then — on a new company's first day — the first steps instead of the rest; otherwise the
+ * administrators' charts or your open tasks, the tasks waiting for your approval, Due soon and
+ * Recent activity. Everyone else's Overdue and Due this week count company days and the company's
+ * week (never the person's own settings), as the website does.
+ */
 export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const session = useSession();
-  const { data: tasks, isLoading, isError, refetch, isRefetching } = useMyTasks();
-  const summary = useMemo(() => summarizeTasks(tasks ?? [], new Date()), [tasks]);
-  // The all-projects totals are for administrators.
+  // The company's totals and charts are for administrators.
   const admin = !!session?.user.roles.includes('ADMIN');
-  const qc = useQueryClient();
-  // Two tiles a row only while every label fits (a large font gets one a row).
-  const { width, fontScale } = useWindowDimensions();
-  const cols = statTileColumns(['Overdue', 'Due today', 'Upcoming', 'Completed'], width, fontScale);
-  const tile = cols === 2 ? styles.tile : styles.tileFull;
+  const zones = useSyncExternalStore(subscribeTimeZone, dateZones);
 
-  if (isLoading) return <SkeletonList rows={6} />;
+  const myTasksQ = useMyTasks();
+  const projectsQ = useProjects();
+  const dueSoonQ = useDueSoonTasks();
+  const activityQ = useActivityFeed();
+  const approvalsQ = useApprovals();
+  const adminQ = useAdminTotals(admin);
 
-  const firstName = session?.user.username ?? 'there';
-  const openTask = (id: string, title: string) => navigation.navigate('TaskDetail', { taskId: id, title });
+  const mine = useMemo(
+    () => (myTasksQ.data ? myDueCounts(myTasksQ.data, { timeZone: zones.company, weekStart: zones.companyWeekStart }) : undefined),
+    [myTasksQ.data, zones.company, zones.companyWeekStart],
+  );
+
+  if (myTasksQ.isLoading) return <SkeletonList rows={6} />;
+
+  const now = new Date();
+  const tiles = dashboardTiles({ isAdmin: admin, myTasks: myTasksQ.data, projects: projectsQ.data, reportRows: adminQ.data?.projects, mine });
+  const firstDay = isFirstDay({ projects: projectsQ.data, myTasks: myTasksQ.data, dueSoon: dueSoonQ.data });
+  const band = welcomeBand({ firstDay, username: session?.user.username, now, timeZone: zones.company });
+  const openTask = (taskId: string, title?: string) => navigation.navigate('TaskDetail', { taskId, title });
+  // A tile opens its tab (My Tasks, Projects) or Reports.
+  const openTile = (to: DashboardLink) => ('tab' in to ? navigation.navigate(to.tab) : navigation.navigate(to.screen));
+  const refreshing = myTasksQ.isRefetching || projectsQ.isRefetching || dueSoonQ.isRefetching || activityQ.isRefetching;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -40,84 +68,62 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
         contentContainerStyle={styles.scroll}
         refreshControl={
           <RefreshControl
-            refreshing={isRefetching}
+            refreshing={refreshing}
             onRefresh={() => {
-              void refetch();
-              if (admin) void qc.invalidateQueries({ queryKey: ['dashboard', 'admin-totals'] });
+              void myTasksQ.refetch();
+              void projectsQ.refetch();
+              void dueSoonQ.refetch();
+              void activityQ.refetch();
+              void approvalsQ.refetch();
+              if (admin) void adminQ.refetch();
             }}
           />
         }
       >
-        <PageHeader title="Dashboard" />
-        <Text style={styles.greeting}>Hi {firstName}</Text>
-        <Text style={styles.sub}>Here&apos;s what needs your attention.</Text>
+        <WelcomeBand {...band} onOpenBoard={() => navigation.navigate('AllBoard')} onViewMyTasks={() => navigation.navigate('MyTasks')} />
 
         <SyncStatus />
 
-        {isError && !tasks ? (
-          <ErrorNote message="Couldn't load your tasks." onRetry={() => void refetch()} retrying={isRefetching} />
-        ) : null}
+        <DashboardTiles tiles={tiles} onOpen={openTile} />
 
-        <View style={styles.tiles}>
-          <View style={tile}>
-            <StatTile label="Overdue" value={summary.overdue.length} icon="ui.alert" tone="danger" />
+        {firstDay ? (
+          <FirstSteps isAdmin={admin} onCreateProject={() => navigation.navigate('ProjectForm')} onAddTeam={() => navigation.navigate('UserForm')} />
+        ) : (
+          <View style={styles.cards}>
+            {admin ? <AdminTotals /> : (
+              <OpenTasksCard
+                tasks={myTasksQ.data}
+                loading={false}
+                failed={myTasksQ.isError && !myTasksQ.data}
+                retrying={myTasksQ.isRefetching}
+                onRetry={() => void myTasksQ.refetch()}
+                onViewAll={() => navigation.navigate('MyTasks')}
+                onOpenTask={(t) => openTask(t.id, t.title)}
+              />
+            )}
+            <ApprovalsCard onOpenTask={openTask} />
+            <DueSoonCard
+              rows={dueSoonRows(dueSoonQ.data ?? [], now, zones.company)}
+              loading={dueSoonQ.isLoading}
+              failed={dueSoonQ.isError && !dueSoonQ.data}
+              retrying={dueSoonQ.isRefetching}
+              onRetry={() => void dueSoonQ.refetch()}
+              onCalendar={() => navigation.navigate('Calendar')}
+              onOpenTask={(t) => openTask(t.id, t.title)}
+            />
+            <RecentActivityCard
+              rows={activityRows(activityQ.data ?? [], now.getTime())}
+              loading={activityQ.isLoading}
+              failed={activityQ.isError && !activityQ.data}
+              retrying={activityQ.isRefetching}
+              onRetry={() => void activityQ.refetch()}
+              onViewAll={() => navigation.navigate('Activity')}
+              onOpenTask={(taskId) => openTask(taskId)}
+            />
           </View>
-          <View style={tile}>
-            <StatTile label="Due today" value={summary.dueToday.length} icon="kit.calendar" tone="warning" />
-          </View>
-          <View style={tile}>
-            <StatTile label="Upcoming" value={summary.upcoming.length} icon="kit.clock" tone="info" />
-          </View>
-          <View style={tile}>
-            <StatTile label="Completed" value={summary.completed} icon="kit.checkCircle" tone="success" />
-          </View>
-        </View>
-
-        {/* Administrators: every project's totals, as on the website's dashboard (5b). */}
-        {admin ? <AdminTotals onOpenReports={() => navigation.navigate('Reports')} /> : null}
-
-        {summary.overdue.length > 0 && (
-          <Section title="Overdue" styles={styles}>
-            {summary.overdue.slice(0, 5).map((t) => (
-              <TaskRow key={t.id} task={t} onPress={() => openTask(t.id, t.title)} />
-            ))}
-          </Section>
-        )}
-
-        <Section title="Due today" styles={styles}>
-          {summary.dueToday.length === 0 ? (
-            <Card padded={false}>
-              <EmptyState icon="kit.checkCircle" title="Nothing due today." />
-            </Card>
-          ) : (
-            summary.dueToday.map((t) => <TaskRow key={t.id} task={t} onPress={() => openTask(t.id, t.title)} />)
-          )}
-        </Section>
-
-        {summary.upcoming.length > 0 && (
-          <Section title="Upcoming" styles={styles}>
-            {summary.upcoming.slice(0, 5).map((t) => (
-              <TaskRow key={t.id} task={t} onPress={() => openTask(t.id, t.title)} />
-            ))}
-          </Section>
-        )}
-
-        {summary.total === 0 && !(isError && !tasks) && (
-          <EmptyState title="No tasks yet" subtitle="Tasks assigned to you will show up here." />
         )}
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-type Styles = ReturnType<typeof makeStyles>;
-
-function Section({ title, children, styles }: { title: string; children: React.ReactNode; styles: Styles }) {
-  return (
-    <View style={styles.section}>
-      <SectionTitle>{title}</SectionTitle>
-      <View style={{ gap: spacing.sm }}>{children}</View>
-    </View>
   );
 }
 
@@ -125,10 +131,5 @@ const makeStyles = (c: Palette) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.ground },
     scroll: { padding: spacing.lg, gap: spacing.md },
-    greeting: { fontSize: fontSize.xxl, ...font('800', 'display'), color: c.ink },
-    sub: { fontSize: fontSize.md, color: c.ink2, marginBottom: spacing.sm },
-    tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    tile: { flexGrow: 1, flexBasis: '47%' },
-    tileFull: { flexBasis: '100%' },
-    section: { gap: spacing.sm },
+    cards: { gap: spacing.md },
   });

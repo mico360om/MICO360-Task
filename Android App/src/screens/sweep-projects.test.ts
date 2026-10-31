@@ -22,9 +22,10 @@ it('team and user rows use Avatar', () => {
   expect(src('components/project/TeamTab.tsx')).not.toMatch(/backgroundColor: c\.brand, alignItems/); // not the solid maroon circle
 });
 
+// Stage 2: the all-projects totals are the Dashboard's top tiles (components/dashboard/DashboardTiles.tsx).
 it('Reports and the all-projects totals show their figures as stat tiles', () => {
   expect(src('screens/ReportsScreen.tsx').match(/<StatTile/g)?.length).toBe(4);
-  expect(src('components/AdminTotals.tsx')).toMatch(/<StatTile/);
+  expect(src('components/dashboard/DashboardTiles.tsx')).toMatch(/<StatTile/);
   expect(src('screens/ReportsScreen.tsx')).not.toMatch(/function Tile\(/);
 });
 

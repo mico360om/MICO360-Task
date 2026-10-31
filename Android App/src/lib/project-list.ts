@@ -121,6 +121,14 @@ export interface TotalTile {
   tone: Tone;
 }
 
+/**
+ * The Dashboard's administrator tiles: all tasks, the completed ones and the overdue ones over every
+ * project — the sums of the server's /reports/projects rows, as the website's Dashboard adds them.
+ */
+export function reportTotals(rows: readonly ProjectPerformanceRow[]): { total: number; completed: number; overdue: number } {
+  return rows.reduce((acc, p) => ({ total: acc.total + p.total, completed: acc.completed + p.completed, overdue: acc.overdue + p.overdue }), { total: 0, completed: 0, overdue: 0 });
+}
+
 /** "All tasks" (and how many are completed) and "Overdue" (and their share), over every project. */
 export function adminTotals(rows: ProjectPerformanceRow[]): TotalTile[] {
   const s = summarize(rows);

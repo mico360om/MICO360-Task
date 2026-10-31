@@ -45,7 +45,7 @@ it('titles and figures use the display face, as the website’s font-display', (
     ['components/meeting/UpNextCard.tsx', 'title', '700', 'meeting/UpNextCard.tsx'],
     ['components/meeting/sheet-kit.tsx', 'title', '700', 'MeetingFormModal / MoveTaskDialog titles'],
     ['screens/MeetingsScreen.tsx', 'groupTitle', '600', 'pages/MeetingsPage.tsx day groups'],
-    ['screens/DashboardScreen.tsx', 'greeting', '800', 'pages/DashboardPage.tsx'],
+    ['components/dashboard/WelcomeBand.tsx', 'greeting', '800', 'pages/DashboardPage.tsx welcome band'],
     ['screens/ReportsScreen.tsx', 'bigValue', '700', 'pages/ReportsPage.tsx on-time figures'],
     ['screens/ReportsScreen.tsx', 'miniValue', '700', 'pages/ReportsPage.tsx Mini'],
     ['screens/ProfileScreen.tsx', 'name', '700', 'pages/ProfilePage.tsx'],
@@ -160,11 +160,11 @@ it('the board columns’ visibility switch is the shared Toggle', () => {
 });
 
 // Item 20 (S12): while the totals load, TalkBack hears "All tasks: loading" (as before the new look),
-// not "All tasks: —"; the tile still shows the dash.
+// not "All tasks: —"; the tile still shows the dash. Stage 2: the totals are the Dashboard's top tiles.
 it('the administrators’ totals say "loading" while they load', () => {
   const tile = src('components/ui/StatTile.tsx');
   expect(tile).toMatch(/spokenValue\?: string;/);
   expect(tile).toMatch(/const name = `\$\{label\}: \$\{spokenValue \?\? value\}/);
-  const totals = src('components/AdminTotals.tsx');
-  expect(totals).toMatch(/value=\{ready \? t\.value : '—'\}\s*spokenValue=\{ready \? undefined : 'loading'\}/);
+  const tiles = src('components/dashboard/DashboardTiles.tsx');
+  expect(tiles).toMatch(/value=\{t\.value\}\s*spokenValue=\{t\.value === '—' \? 'loading' : undefined\}/);
 });
