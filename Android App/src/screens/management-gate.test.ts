@@ -4,7 +4,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { ApiError } from '../lib/api-client';
-import { DEFAULT_FILTERS, managementOverviewKey, managementView, tileColumns } from '../lib/management';
+import { DEFAULT_FILTERS, MANAGEMENT_TILE_LABELS, managementOverviewKey, managementTiles, managementView } from '../lib/management';
+import { OVERVIEW } from '../testing/management-fixtures';
 import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 
 const access = (allowed: boolean, ready = true, failed = false) => ({ allowed, ready, failed });
@@ -36,12 +37,10 @@ it('“had access” belongs to the person who had it, and a refusal stays one u
 });
 it('the PDF is the server’s, through the app’s exporter', () => { const s = src('screens/ManagementScreen.tsx'); expect(s).toMatch(/exportFile\(resources\.management\.pdfPath\(filters\), pdfFallbackName\(/); expect(s).toContain('Couldn’t make the PDF. Please try again.'); });
 it('a tile opens its list only when it has something in it', () => expect(src('screens/ManagementScreen.tsx')).toMatch(/onPress=\{tile\.query \? \(\) => openList\(tile\.query!, tile\.label\) : undefined\}/));
-it('two tiles to a row only where their words fit (a narrow phone or a large font: one)', () => {
-  expect(tileColumns(360, 1)).toBe(2);
-  expect(tileColumns(411, 1.3)).toBe(1);
-  expect(tileColumns(360, 1.15)).toBe(1);
-  expect(tileColumns(800, 2)).toBe(2);
-  expect(src('screens/ManagementScreen.tsx')).toMatch(/tileColumns\(width, fontScale\)/);
+it('two tiles to a row only while every tile’s label fits: Stage 1’s statTileColumns, measuring the labels shown', () => {
+  expect(managementTiles(OVERVIEW).map((t) => t.label)).toEqual([...MANAGEMENT_TILE_LABELS]);
+  expect(src('screens/ManagementScreen.tsx')).toMatch(/statTileColumns\(MANAGEMENT_TILE_LABELS, width, fontScale\)/);
+  expect(src('lib/management.ts')).not.toMatch(/function tileColumns/);
 });
 it('the list sheet: the server’s list and words, each row opening the app’s screen', () => {
   const s = src('components/management/ItemsSheet.tsx');

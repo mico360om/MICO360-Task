@@ -27,12 +27,10 @@ import {
   type TimelineShow,
   type TimelineState,
 } from '../lib/timeline';
+import { statTileColumns } from '../lib/stat-grid';
 import { spacing, type Palette } from '../lib/theme';
 import { typeStyle } from '../lib/typography';
 import type { AppScreenProps } from '../navigation/types';
-
-/** Two tiles to a row only where their words fit at any font size (a phone gets one per row). */
-const TWO_TILES_FROM = 600;
 
 /**
  * Timeline (Stage 3), as the website's phone layout: every open project with its health, the
@@ -43,7 +41,9 @@ const TWO_TILES_FROM = 600;
 export function TimelineScreen({ navigation }: AppScreenProps<'Timeline'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
-  const { width } = useWindowDimensions();
+  // Two cards a row only while every label fits (a narrow phone or a large font gets one a row).
+  const { width, fontScale } = useWindowDimensions();
+  const cols = statTileColumns(['Open projects', 'Late · target passed', 'At risk', 'Milestones in 30 days', 'Meetings this week'], width, fontScale);
   const focused = useIsFocused();
   const today = companyTodayKey(useMinuteNow(focused));
   const weekStart = weekStartOf(useDatePreferences().data);
@@ -81,7 +81,7 @@ export function TimelineScreen({ navigation }: AppScreenProps<'Timeline'>) {
   );
   const toggle = (show: Exclude<TimelineShow, ''>) => update({ show: state.show === show ? '' : show });
   const cardHint = (show: Exclude<TimelineShow, ''>) => (state.show === show ? 'Show every project again' : 'Show only these projects');
-  const tile = width >= TWO_TILES_FROM ? s.tileHalf : s.tileFull;
+  const tile = cols === 2 ? s.tileHalf : s.tileFull;
 
   const renderItem: ListRenderItem<TimelineProject> = useCallback(
     ({ item }) => <TimelineRow project={item} today={today} range={rowRange} open={expanded.has(item.id)} onToggle={() => toggleRow(item.id)} />,

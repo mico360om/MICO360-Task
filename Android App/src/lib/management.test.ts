@@ -204,6 +204,7 @@ it('trends: the website’s charts, empties and table', () => {
   const weeks = [{ start: '2026-10-04', label: '4 Oct', current: false, created: 0, completed: 0, late: 0, passed: 0, failed: 0, passRate: null }, { start: '2026-10-11', label: '11 Oct', current: true, created: 2, completed: 1, late: 1, passed: 3, failed: 1, passRate: 75 }] as TrendRow[];
   const [made, late, pass] = trendCharts(weeks);
   expect(made).toMatchObject({ title: 'Tasks created and completed', empty: null }); expect(pass!.lines[0]!.values).toEqual([null, 75]); expect(pass!.unit).toBe('%');
+  expect(late!.empty).toBeNull();
   expect(trendCharts(weeks.map((w) => ({ ...w, late: 0 })))[1]!.empty).toBe('No task was late at a week’s end.');
   expect(trendTableRows(weeks, false).map((r) => r.week)).toEqual(['11 Oct (this week)', '4 Oct']);
   expect(trendNote(weeks)).toBe('2 weeks from 4 Oct; the last one is this week, still going.');

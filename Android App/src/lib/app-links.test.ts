@@ -59,10 +59,8 @@ describe('the website addresses the app opens (App Links)', () => {
   });
 
   it('never claims what the website keeps: its admin pages, the app download, sign-in, the legal pages, the site itself', () => {
-    // Every page the app sends to the website (its admin pages and templates). The Stage 3 screens'
-    // shells still offer their pages there until Stage 3 Task 17 takes them out of WEBSITE_LINK_PATHS.
-    const appScreens: readonly string[] = ['/timeline', '/workload', '/management', '/mico-ai'];
-    for (const path of WEBSITE_LINK_PATHS.filter((p) => !appScreens.includes(p))) expect(claimed(path), path).toBe(false);
+    // Every page the app sends to the website (its admin pages and templates).
+    for (const path of WEBSITE_LINK_PATHS) expect(claimed(path), path).toBe(false);
     for (const path of ['/', '/login', '/forgot', '/privacy', '/terms', '/downloads/MICO360-Tasks.apk', '/api/v1/health', '/uploads/a.png', '/admin', '/admin/', '/projectsx']) {
       expect(claimed(path), path).toBe(false);
     }

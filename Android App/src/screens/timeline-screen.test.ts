@@ -7,6 +7,16 @@ it('rows show the server’s numbers: progress and health as sent, tasks’ over
   expect(row).toMatch(/timelineRow\(project, today\)/); expect(row).toMatch(/<ProgressBar[^>]*value=\{row\.progress\}/);
   expect(row).not.toMatch(/tasks\.done|tasks\.total/); expect(tasks).toMatch(/phoneTaskParts\(task, /); expect(tasks).not.toMatch(/isTaskLate|isOverdue|dueDayKey|< today/);
 });
+it('two cards to a row only while every card’s label fits: Stage 1’s statTileColumns, measuring the labels shown', () => {
+  const s = src('screens/TimelineScreen.tsx');
+  const call = /statTileColumns\(\[([^\]]*)\], width, fontScale\)/.exec(s);
+  expect(call, 'statTileColumns([…labels], width, fontScale)').not.toBeNull();
+  const measured = [...call![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const shown = [...s.matchAll(/<StatTile[^>]*?\blabel="([^"]+)"/g)].map((m) => m[1]);
+  expect(measured).toEqual(shown);
+  expect(s).toMatch(/cols === 2 \? s\.tileHalf : s\.tileFull/);
+  expect(s).not.toMatch(/TWO_TILES_FROM/);
+});
 it('the five cards are the website’s; Late and At risk narrow the list', () => {
   const s = src('screens/TimelineScreen.tsx');
   for (const w of ['Open projects', 'Late · target passed', 'At risk', 'Milestones in 30 days', 'Meetings this week']) expect(s).toContain(w);

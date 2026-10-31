@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { WEBSITE_LINK_PATHS, websiteLinkLabel, websiteOpenFailed, websitePageUrl } from './website';
 
 it('the website pages Search and the menu offer open on the connected server', () => {
-  expect([...WEBSITE_LINK_PATHS]).toEqual(['/admin/ai', '/admin/settings', '/admin/audit', '/timeline', '/workload', '/management', '/templates', '/mico-ai']);
+  expect([...WEBSITE_LINK_PATHS]).toEqual(['/admin/ai', '/admin/settings', '/admin/audit', '/templates']);
   for (const p of WEBSITE_LINK_PATHS) expect(websitePageUrl('https://task.mico360.com/api/v1', p), p).toBe(`https://task.mico360.com${p}`);
   expect(websitePageUrl('https://task.mico360.com/api/v1', '/admin/users')).toBeNull();
-  expect(websitePageUrl('https://task.mico360.com/api/v1', '/timeline?x=1')).toBeNull();
+  expect(websitePageUrl('https://task.mico360.com/api/v1', '/templates?x=1')).toBeNull();
+  // The app's own screens since Stage 3 are no website page any more.
+  for (const p of ['/timeline', '/workload', '/management', '/mico-ai']) expect(websitePageUrl('https://task.mico360.com/api/v1', p), p).toBeNull();
 });
 
 // The menu rows for these pages, with the website sidebar's names, are checked in navigation/frame-integration.test.

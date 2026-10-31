@@ -81,6 +81,9 @@ export interface ManagementTile {
   action: string;
 }
 
+/** The 8 tiles' labels, in order: what the screen's grid measures (lib/stat-grid statTileColumns). */
+export const MANAGEMENT_TILE_LABELS = ['Projects', 'In red', 'Late tasks', 'Missing checks', 'Checks done', 'Pass rate', 'Overloaded this week', 'Open follow-ups'] as const;
+
 /** The page's 8 tiles (ManagementPage.tsx), the server's figures as sent. */
 export function managementTiles(o: ManagementOverview): ManagementTile[] {
   const t = o.tiles;
@@ -196,15 +199,6 @@ export function managementView(i: { access: { allowed: boolean; ready: boolean; 
   return 'show';
 }
 
-/**
- * Tiles to a row: two where a tile's label and hint fit in two lines each — at least 360 dp of
- * width for each 1× of the font size (a 360 dp phone at the normal size) — else one, so a large font
- * never cuts a label off.
- */
-export function tileColumns(width: number, fontScale: number): 1 | 2 {
-  return width / Math.max(1, fontScale) >= 360 ? 2 : 1;
-}
-
 // ── The sections (Task 8): HealthSection.tsx, InspectionsSection.tsx and PeopleSection.tsx ──
 
 export type HealthSort = 'worst' | 'late' | 'done' | 'name';
@@ -214,7 +208,8 @@ export const HEALTH_SORTS: { value: HealthSort; label: string }[] = [
   { value: 'done', label: 'Least done' },
   { value: 'name', label: 'Name' },
 ];
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+/** Names in English order on every phone, never in the phone's language (the website sorts in the browser's). */
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 
 /** The health rows in the chosen order: worst first is the server's own (red, amber, green; then most late; then name). */
 export function sortHealth<R extends Pick<HealthRow, 'name' | 'late' | 'completionPct'>>(rows: R[], sort: HealthSort): R[] {

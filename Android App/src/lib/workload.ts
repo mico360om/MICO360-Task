@@ -63,7 +63,8 @@ export function weekBar(p: Pick<WorkloadPerson, 'total' | 'weekLimit'>): { pct: 
   return { pct, tone, text: `${p.total} due · limit ${p.weekLimit}`, note };
 }
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+/** Names in English order on every phone, never in the phone's language (the website sorts in the browser's). */
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 /** A working day over the limit (tasks due on a day off are another matter). */
 const isOver = (c: WorkloadCell) => c.limit > 0 && c.over > 0;
 const overBy = (p: WorkloadPerson) => p.days.reduce((n, c) => n + (isOver(c) ? c.over : 0), 0);
@@ -171,11 +172,11 @@ export function scopeLead(scope: 'everyone' | 'teams' | 'self'): string {
   return scope === 'teams' ? ' You see the people on the projects you manage, and only those projects’ tasks.' : scope === 'self' ? ' You see your own tasks.' : '';
 }
 
-/** Under the people. */
+/** Under the people: the website's words, its "click" said as "tap" on the phone. */
 export function footerLine(scope: 'everyone' | 'teams' | 'self'): string {
   return scope === 'self'
-    ? 'Suggestions name the next lighter day. Nothing changes until you click.'
-    : 'Suggestions name the least-busy teammate on the project for that day, or the next lighter day. Nothing changes until you click.';
+    ? 'Suggestions name the next lighter day. Nothing changes until you tap.'
+    : 'Suggestions name the least-busy teammate on the project for that day, or the next lighter day. Nothing changes until you tap.';
 }
 
 /** How many tasks a day at or under the limit lists before "+ N more". */

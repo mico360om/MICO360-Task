@@ -16,7 +16,8 @@ import { TrendsSection } from '../components/management/TrendsSection';
 import { usePullRefresh } from '../components/meeting/live';
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
-import { DEFAULT_FILTERS, managementRoot, managementTiles, managementView, metaLine, pdfFallbackName, tileColumns } from '../lib/management';
+import { DEFAULT_FILTERS, MANAGEMENT_TILE_LABELS, managementRoot, managementTiles, managementView, metaLine, pdfFallbackName } from '../lib/management';
+import { statTileColumns } from '../lib/stat-grid';
 import type { ItemQuery, ManagementFilters as Filters } from '../lib/management-api';
 import { radius, spacing, type Palette } from '../lib/theme';
 import { font, typeStyle } from '../lib/typography';
@@ -55,7 +56,8 @@ export function ManagementScreen({ navigation }: AppScreenProps<'Management'>) {
   const userId = useUserId() ?? '';
   const qc = useQueryClient();
   const { width, fontScale } = useWindowDimensions();
-  const columns = tileColumns(width, fontScale);
+  // Two tiles a row only while every label fits (a narrow phone or a large font gets one a row).
+  const columns = statTileColumns(MANAGEMENT_TILE_LABELS, width, fontScale);
 
   const access = useManagementAccess();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);

@@ -57,7 +57,8 @@ export function shiftAnchor(view: TimelineView, anchorWeek: string, by: -1 | 1):
   return shiftDayKey(anchorWeek, by * 7 * viewOf(view).step);
 }
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+/** Names in English order on every phone, never in the phone's language (the website sorts in the browser's). */
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 const byName = (a: TimelineProject, b: TimelineProject) => collator.compare(a.name, b.name);
 const RANK: Record<ProjectHealth, number> = { late: 0, 'at-risk': 1, 'on-track': 2, 'no-target': 3 };
 /** How badly: days late, or how far less is done than the time used. */
