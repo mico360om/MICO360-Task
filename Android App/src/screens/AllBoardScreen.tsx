@@ -223,6 +223,7 @@ const makeStyles = (c: Palette) =>
     filterText: { fontSize: fontSize.sm, ...font('600'), color: c.ink },
     filterTextOn: { color: c.brandText },
     boardList: { flex: 1 },
-    board: { padding: spacing.md, gap: spacing.md },
+    // Columns keep their own height (an empty one on a phone is only as tall as its "No tasks").
+    board: { padding: spacing.md, gap: spacing.md, alignItems: 'flex-start' },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
   });

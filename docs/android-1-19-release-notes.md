@@ -35,6 +35,7 @@
 - In the Android app, New task and Edit task have the "Needs approval" tick, already ticked in projects that ask for it; only the project's managers can untick it.
 - In the Android app, New task can start from a task template, takes a checklist, and says when the project will give the new task today's date.
 - In the Android app, a task can be moved to another project — from the task's menu, a card's actions on the boards, or several at once in My Tasks — with the website's preview and one question about people not on the new team; the task's old number still finds it.
+- In the Android app, board cards show "Visible to client" and "Inspection", and on a phone an empty column is only as tall as its "No tasks".
 <!-- daily-work-tasks lines above this line -->
 
 <!-- daily-work-pages lines above this line -->
