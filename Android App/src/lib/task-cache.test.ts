@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, TASK_FIGURE_VIEWS } from './task-cache';
+import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, DASHBOARD_VIEWS, TASK_FIGURE_VIEWS } from './task-cache';
+import { appSource } from '../testing/web-source';
 import { refresh } from './refresh';
 import type { ApiTask, MoveResult } from './types';
 import { formerKeysText } from './task-detail';
@@ -145,7 +146,7 @@ describe('createdTaskRefreshes', () => {
 // when they are next shown, as the website's TASK_FIGURE_KEYS / invalidateTaskQueries.
 describe('Timeline, Workload and Management after a task change', () => {
   it('are named by every task change: an edit, a new task, its people, a move, an approval decision, a move to another project and a delete', () => {
-    expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }]);
+    expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }, ...DASHBOARD_VIEWS]);
     // Stage 2's approval decisions and moves to another project too (Management counts what waits for approval; Timeline each project's tasks).
     const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
     for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
@@ -349,4 +350,37 @@ describe('a decided task leaves the approvals list at once', () => {
     afterApprovalDecision(qc, 't1', { ...t('t1'), approvalRequestedAt: null });
     expect(qc.getQueryData(['approvals'])).toBeUndefined();
   });
+});
+
+// Stage 2 final review A9: the Dashboard's admin totals, its activity feed and Due soon count tasks too —
+// every task change marks them out of date (read again when the Dashboard is next shown), as the
+// website's TASK_QUERY_ROOTS.
+describe('the Dashboard after a task change (final review A9)', () => {
+  it('admin totals, the activity feed and Due soon are named by every task change, with Timeline, Workload and Management', () => {
+    expect(DASHBOARD_VIEWS).toEqual([{ queryKey: ['dashboard'], later: true }, { queryKey: ['activity'], later: true }, { queryKey: ['tasks', 'due-soon'], later: true }]);
+    expect(TASK_FIGURE_VIEWS).toEqual(expect.arrayContaining(DASHBOARD_VIEWS));
+    const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
+    for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
+      for (const v of DASHBOARD_VIEWS) expect(list).toContainEqual(v);
+    }
+  });
+  it('are marked out of date, not fetched at once — after an edit, a new task, a decision and a delete', () => {
+    for (const change of [
+      (qc: QueryClient) => refresh(qc, editRefreshes('t1', { title: 'x' })),
+      (qc: QueryClient) => refresh(qc, createdTaskRefreshes('p1')),
+      (qc: QueryClient) => afterApprovalDecision(qc, 't1', t('t1')),
+      (qc: QueryClient) => afterTaskDeleted(qc, 't1'),
+    ]) {
+      const qc = seeded();
+      qc.setQueryData(['dashboard', 'admin-totals'], { total: 3 });
+      qc.setQueryData(['activity'], []);
+      qc.setQueryData(['tasks', 'due-soon'], []);
+      change(qc);
+      const keys = refreshedKeys(qc);
+      for (const k of ['["dashboard","admin-totals"]', '["activity"]', '["tasks","due-soon"]']) expect(keys).toContain(k);
+      for (const key of [['dashboard'], ['activity'], ['tasks', 'due-soon']]) expect(qc.getQueryCache().findAll({ queryKey: key }).every((q) => q.state.fetchStatus === 'idle')).toBe(true);
+    }
+  });
+  it('Due soon is the Dashboard’s own key (core/dashboard-queries DUE_SOON_KEY)', () =>
+    expect(appSource('core/dashboard-queries.ts')).toContain("export const DUE_SOON_KEY = ['tasks', 'due-soon'] as const;"));
 });

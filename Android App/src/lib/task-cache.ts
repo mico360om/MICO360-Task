@@ -3,14 +3,28 @@ import type { ApiTask, ApprovalsAnswer, MoveResult } from './types';
 import { refresh, type Refresh } from './refresh';
 
 /**
+ * What the Dashboard shows that counts or lists tasks (Stage 2): an administrator's totals
+ * (['dashboard', …]), the activity feed (['activity']) and Due soon (core/dashboard-queries
+ * DUE_SOON_KEY) — marked out of date by every task change and read again when the Dashboard is next
+ * shown, as the website's TASK_QUERY_ROOTS (final review A9).
+ */
+export const DASHBOARD_VIEWS: Refresh[] = [
+  { queryKey: ['dashboard'], later: true },
+  { queryKey: ['activity'], later: true },
+  { queryKey: ['tasks', 'due-soon'], later: true },
+];
+
+/**
  * The figures that count tasks on the Stage 3 screens — Timeline and Workload (['planning', …]) and
- * Management (['management', …]) — after any task change: marked out of date and read again when
- * next shown (those screens read again as they come back into view: core/focus-refetch), as the
- * website's TASK_FIGURE_KEYS / invalidateTaskQueries. Who may open Management is another key.
+ * Management (['management', …]) — and the Dashboard's (DASHBOARD_VIEWS), after any task change:
+ * marked out of date and read again when next shown (those screens read again as they come back into
+ * view: core/focus-refetch), as the website's TASK_FIGURE_KEYS / invalidateTaskQueries. Who may open
+ * Management is another key.
  */
 export const TASK_FIGURE_VIEWS: Refresh[] = [
   { queryKey: ['planning'], later: true },
   { queryKey: ['management'], later: true },
+  ...DASHBOARD_VIEWS,
 ];
 
 /**
