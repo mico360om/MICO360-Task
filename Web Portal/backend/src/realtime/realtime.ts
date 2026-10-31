@@ -20,6 +20,14 @@ export interface RealtimeOptions {
    * the token's own roles are trusted until it expires.
    */
   checkSession?: (userId: string, tokenVersion: number) => Promise<{ roles: string[] } | null>;
+  /**
+   * companies: the person's active companies and whether they are an administrator. Each socket joins
+   * `company:<id>` for those companies (and `admins` for an administrator); someone coming online or
+   * going offline is announced to those rooms only, and the online list a newcomer gets holds only the
+   * people who share a company with them (everyone for an administrator). When omitted presence goes
+   * to everyone, as before companies.
+   */
+  companiesOf?: (userId: string, roles: string[]) => Promise<{ companyIds: string[]; admin: boolean }>;
 }
 
 /** setTimeout can't wait longer than this (~24.8 days); longer-lived tokens are re-checked then. */
@@ -27,6 +35,20 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 
 const userRoom = (userId: string) => `user:${userId}`;
 const projectRoom = (projectId: string) => `project:${projectId}`;
+const PROJECT_ROOM = 'project:';
+/** companies: everyone in one company, and every administrator. */
+const companyRoom = (companyId: string) => `company:${companyId}`;
+const ADMINS_ROOM = 'admins';
+
+/** companies: whose presence a person may see — their companies; an administrator everyone. */
+interface PresenceScope {
+  companyIds: Set<string>;
+  admin: boolean;
+}
+/** The rooms a person's sockets sit in (their companies, and `admins` for an administrator). */
+const scopeRooms = (s: PresenceScope) => [...[...s.companyIds].map(companyRoom), ...(s.admin ? [ADMINS_ROOM] : [])];
+/** Who is told that this person came online or went offline: their companies' people and every administrator. */
+const presenceAudience = (s: PresenceScope) => [...[...s.companyIds].map(companyRoom), ADMINS_ROOM];
 
 /**
  * Sets up Socket.IO on the given HTTP server (M4). Clients authenticate with a JWT
@@ -65,6 +87,36 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
 
   // Online presence — reference-counted across a user's tabs/devices.
   const presence = createPresenceTracker();
+  // companies: each online person's companies, read when they connect and on refreshAccess.
+  const scopes = new Map<string, PresenceScope>();
+  const shareCompany = (a: PresenceScope, b: PresenceScope) => [...b.companyIds].some((id) => a.companyIds.has(id));
+  /** The online people this person may see: those sharing a company with them (admins: everyone). */
+  function onlineFor(userId: string): string[] {
+    const online = presence.online();
+    const me = scopes.get(userId);
+    if (!opts.companiesOf || !me || me.admin) return online;
+    return online.filter((id) => {
+      const other = scopes.get(id);
+      return id === userId || (!!other && shareCompany(me, other));
+    });
+  }
+  async function scopeOf(userId: string, roles: string[]): Promise<PresenceScope> {
+    try {
+      const s = await opts.companiesOf!(userId, roles);
+      return { companyIds: new Set(s.companyIds), admin: s.admin };
+    } catch {
+      return { companyIds: new Set(), admin: false }; // fail closed: seen by administrators only
+    }
+  }
+  /** May this person still be in a project's room (the join rule, re-asked)? */
+  async function mayStayIn(userId: string, roles: string[], projectId: string): Promise<boolean> {
+    if (!opts.canJoinProject) return true;
+    try {
+      return await opts.canJoinProject(userId, roles, projectId);
+    } catch {
+      return false;
+    }
+  }
 
   io.on('connection', (socket) => {
     // Every socket joins a room for its own user id, so DM/chat events can reach the user
@@ -84,13 +136,24 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
       expiryTimer.unref?.();
     }
 
-    // Presence: tell the newcomer who's online, and announce them to everyone if newly online.
-    if (userId) {
-      const { nowOnline } = presence.connect(userId);
-      socket.emit('presence:state', { userIds: presence.online() });
-      if (nowOnline) io.emit('presence:online', { userId });
-      opts.onPresence?.(userId); // mark active on every connection (new tab/device)
+    // Presence: tell the newcomer who's online, and announce them if newly online — companies: to
+    // their companies' people and administrators only, once the socket sits in its company rooms.
+    let counted = false;
+    async function announce(id: string): Promise<void> {
+      let scope: PresenceScope | null = null;
+      if (opts.companiesOf) {
+        scope = await scopeOf(id, (socket.data.roles as string[] | undefined) ?? []);
+        if (socket.disconnected) return;
+        scopes.set(id, scope);
+        void socket.join(scopeRooms(scope));
+      }
+      counted = true;
+      const { nowOnline } = presence.connect(id);
+      socket.emit('presence:state', { userIds: onlineFor(id) });
+      if (nowOnline) (scope ? io.to(presenceAudience(scope)) : io).emit('presence:online', { userId: id });
+      opts.onPresence?.(id); // mark active on every connection (new tab/device)
     }
+    if (userId) void announce(userId);
 
     socket.on('join', async (msg: { projectId?: string }) => {
       const projectId = msg?.projectId;
@@ -123,10 +186,13 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
 
     socket.on('disconnect', () => {
       if (expiryTimer) clearTimeout(expiryTimer);
-      if (!userId) return;
+      if (!userId || !counted) return;
       const { nowOffline } = presence.disconnect(userId);
       opts.onPresence?.(userId); // record last-active at the moment they drop a connection
-      if (nowOffline) io.emit('presence:offline', { userId });
+      if (!nowOffline) return;
+      const scope = scopes.get(userId);
+      scopes.delete(userId);
+      (scope ? io.to(presenceAudience(scope)) : io).emit('presence:offline', { userId });
     });
   });
 
@@ -168,7 +234,59 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
     io.to(userRoom(userId)).emit('project:removed', { projectId });
   }
 
-  return { io, broadcast, broadcastToUser, broadcastToAudience, disconnectUser, leaveProject, onlineUserIds: () => presence.online() };
+  /**
+   * companies: these people's companies changed (added to or taken out of a company, a company
+   * archived or brought back). Their sockets move to their company rooms now; presence follows (the
+   * people they no longer share a company with see them go offline, the new ones see them online,
+   * and they get a fresh online list); each socket leaves the project rooms it may no longer be in
+   * (with `project:removed`); and their apps hear `companies:changed` to read their companies again.
+   */
+  async function refreshAccess(userIds: string[]): Promise<void> {
+    for (const userId of [...new Set(userIds)]) {
+      const sockets = await io.in(userRoom(userId)).fetchSockets();
+      if (sockets.length === 0) continue;
+      const roles = (sockets[0]!.data.roles as string[] | undefined) ?? [];
+      if (opts.companiesOf) {
+        const before = scopes.get(userId) ?? { companyIds: new Set<string>(), admin: false };
+        const next = await scopeOf(userId, roles);
+        const wanted = new Set(scopeRooms(next));
+        for (const s of sockets) {
+          for (const room of [...s.rooms]) if ((room.startsWith('company:') || room === ADMINS_ROOM) && !wanted.has(room)) s.leave(room);
+          s.join([...wanted]);
+        }
+        if (scopes.has(userId)) {
+          scopes.set(userId, next);
+          const lost = [...before.companyIds].filter((id) => !next.companyIds.has(id)).map(companyRoom);
+          const gained = [...next.companyIds].filter((id) => !before.companyIds.has(id)).map(companyRoom);
+          if (lost.length) io.to(lost).except([...presenceAudience(next), userRoom(userId)]).emit('presence:offline', { userId });
+          if (gained.length) io.to(gained).except([...presenceAudience(before), userRoom(userId)]).emit('presence:online', { userId });
+          io.to(userRoom(userId)).emit('presence:state', { userIds: onlineFor(userId) });
+        }
+      }
+      for (const s of sockets) {
+        for (const room of [...s.rooms]) {
+          if (!room.startsWith(PROJECT_ROOM)) continue;
+          const projectId = room.slice(PROJECT_ROOM.length);
+          if (await mayStayIn(userId, roles, projectId)) continue;
+          s.leave(room);
+          s.emit('project:removed', { projectId });
+        }
+      }
+      io.to(userRoom(userId)).emit('companies:changed', {});
+    }
+  }
+
+  /** companies: a project's companies changed — whoever may no longer see it leaves its room (`project:removed`). */
+  async function refreshProjectAudience(projectId: string): Promise<void> {
+    for (const s of await io.in(projectRoom(projectId)).fetchSockets()) {
+      const userId = s.data.userId as string | undefined;
+      if (userId && (await mayStayIn(userId, (s.data.roles as string[] | undefined) ?? [], projectId))) continue;
+      s.leave(projectRoom(projectId));
+      s.emit('project:removed', { projectId });
+    }
+  }
+
+  return { io, broadcast, broadcastToUser, broadcastToAudience, disconnectUser, leaveProject, refreshAccess, refreshProjectAudience, onlineUserIds: () => presence.online() };
 }
 
 export type Realtime = ReturnType<typeof createRealtime>;

@@ -240,3 +240,125 @@ describe('realtime', () => {
     httpServer.close();
   }, 15000);
 });
+
+describe('realtime and companies', () => {
+  type Client = ReturnType<typeof ioClient>;
+  type Seen = { event: string; payload: unknown };
+
+  async function setup() {
+    const httpServer = createServer();
+    // ana: Alpha; cat: Alpha + Beta; ben: Beta; admin: no company (an administrator).
+    const companies: Record<string, string[]> = { ana: ['A'], cat: ['A', 'B'], ben: ['B'], admin: [] };
+    const canJoin = new Map<string, boolean>();
+    const rt = createRealtime(httpServer, {
+      accessSecret: SECRET,
+      companiesOf: async (userId, roles) => ({ companyIds: [...(companies[userId] ?? [])], admin: roles.includes('ADMIN') }),
+      canJoinProject: async (userId, _roles, projectId) => canJoin.get(`${userId}:${projectId}`) ?? true,
+    });
+    const port = await listen(httpServer);
+    const clients: Client[] = [];
+    const logs = new Map<Client, Seen[]>();
+    /** Connects and resolves once the server has set the socket up (its presence snapshot arrived). */
+    async function connect1(sub: string): Promise<Client> {
+      const token = signToken({ sub, type: 'access', roles: sub === 'admin' ? ['ADMIN'] : [] }, SECRET, 60);
+      const c = ioClient(`http://localhost:${port}`, { auth: { token }, transports: ['websocket'] });
+      const log: Seen[] = [];
+      logs.set(c, log);
+      clients.push(c);
+      c.onAny((event: string, payload: unknown) => log.push({ event, payload }));
+      await new Promise<void>((resolve, reject) => {
+        c.on('presence:state', () => resolve());
+        c.on('connect_error', reject);
+      });
+      return c;
+    }
+    const seen = (c: Client, event: string) => logs.get(c)!.filter((e) => e.event === event).map((e) => e.payload);
+    async function nextEvent(c: Client, event: string, match: (p: unknown) => boolean = () => true): Promise<unknown> {
+      for (let i = 0; i < 150; i++) {
+        const found = seen(c, event).find(match);
+        if (found !== undefined) return found;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      throw new Error(`no ${event}`);
+    }
+    /** A round trip on the connection proves anything sent before it has arrived. */
+    const roundTrip = (c: Client) => new Promise<void>((resolve) => { c.once('joined', () => resolve()); c.emit('join', { projectId: 'p-ping' }); });
+    const join = (c: Client, projectId: string) => new Promise<void>((resolve) => { c.once('joined', () => resolve()); c.emit('join', { projectId }); });
+    async function close() {
+      for (const c of clients) c.close();
+      await rt.io.close();
+      httpServer.close();
+    }
+    return { rt, companies, canJoin, connect1, seen, nextEvent, roundTrip, join, close };
+  }
+
+  it('presence goes only to people who share a company, and to admins', async () => {
+    const t = await setup();
+    const ana = await t.connect1('ana');
+    const cat = await t.connect1('cat');
+    const adm = await t.connect1('admin');
+    expect(([...((t.seen(adm, 'presence:state')[0] as { userIds: string[] }).userIds)]).sort()).toEqual(['admin', 'ana', 'cat']); // an admin sees everyone
+    const ben = await t.connect1('ben');
+    expect(((t.seen(ben, 'presence:state')[0] as { userIds: string[] }).userIds).sort()).toEqual(['ben', 'cat']); // not ana, nor the company-less admin
+    const isBen = (p: unknown) => (p as { userId: string }).userId === 'ben';
+    expect(await t.nextEvent(cat, 'presence:online', isBen)).toEqual({ userId: 'ben' });
+    expect(await t.nextEvent(adm, 'presence:online', isBen)).toEqual({ userId: 'ben' });
+    ben.close();
+    expect(await t.nextEvent(cat, 'presence:offline', isBen)).toEqual({ userId: 'ben' });
+    await t.roundTrip(ana);
+    expect(t.seen(ana, 'presence:online').filter(isBen)).toEqual([]);
+    expect(t.seen(ana, 'presence:offline').filter(isBen)).toEqual([]);
+    await t.close();
+  }, 15000);
+
+  it('refreshAccess takes cat out of PB’s room and says project:removed', async () => {
+    const t = await setup();
+    const cat = await t.connect1('cat');
+    const ben = await t.connect1('ben');
+    await t.join(cat, 'PB');
+    t.canJoin.set('cat:PB', false);
+    t.companies.cat = ['A']; // cat leaves Beta
+    await t.rt.refreshAccess(['cat']);
+    expect(await t.nextEvent(cat, 'project:removed')).toEqual({ projectId: 'PB' });
+    expect(await t.nextEvent(cat, 'companies:changed')).toEqual({});
+    // Beta's people no longer see her online, and she no longer sees them.
+    expect(await t.nextEvent(ben, 'presence:offline', (p) => (p as { userId: string }).userId === 'cat')).toEqual({ userId: 'cat' });
+    expect(((t.seen(cat, 'presence:state').at(-1) as { userIds: string[] }).userIds).sort()).toEqual(['cat']);
+    t.rt.broadcast('PB', 'task:updated', {});
+    await t.roundTrip(cat);
+    expect(t.seen(cat, 'task:updated')).toEqual([]);
+    // Her later comings and goings reach Alpha's people only.
+    const ana = await t.connect1('ana');
+    cat.close();
+    expect(await t.nextEvent(ana, 'presence:offline', (p) => (p as { userId: string }).userId === 'cat')).toEqual({ userId: 'cat' });
+    await t.roundTrip(ben);
+    expect(t.seen(ben, 'presence:offline').filter((p) => (p as { userId: string }).userId === 'cat')).toHaveLength(1); // only the one from the refresh
+    await t.close();
+  }, 15000);
+
+  it('a project that leaves a company drops that company’s people from its room', async () => {
+    const t = await setup();
+    const ben = await t.connect1('ben');
+    const ana = await t.connect1('ana');
+    await t.join(ben, 'PAB');
+    await t.join(ana, 'PAB');
+    t.canJoin.set('ben:PAB', false);
+    await t.rt.refreshProjectAudience('PAB');
+    expect(await t.nextEvent(ben, 'project:removed')).toEqual({ projectId: 'PAB' });
+    t.rt.broadcast('PAB', 'task:updated', { taskId: 't1' });
+    expect(await t.nextEvent(ana, 'task:updated')).toEqual({ taskId: 't1' });
+    await t.roundTrip(ben);
+    expect(t.seen(ben, 'task:updated')).toEqual([]);
+    expect(t.seen(ana, 'project:removed')).toEqual([]);
+    await t.close();
+  }, 15000);
+
+  it('ana can’t join PB', async () => {
+    const t = await setup();
+    t.canJoin.set('ana:PB', false);
+    const ana = await t.connect1('ana');
+    ana.emit('join', { projectId: 'PB' });
+    expect(await t.nextEvent(ana, 'join:denied')).toEqual({ projectId: 'PB' });
+    await t.close();
+  }, 15000);
+});

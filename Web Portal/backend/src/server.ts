@@ -31,7 +31,7 @@ import { createTemplateService } from './modules/templates/template-service';
 import { createPrismaTemplateRepository } from './modules/templates/prisma-template-repository';
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
-import { createCompanyAccess, fallbackProjectCompanyId } from './modules/companies/company-access';
+import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles } from './modules/companies/company-access';
 import { createPrismaMeetingInvitees } from './modules/meetings/meeting-invitees';
 import { createMeetingCompanyRule } from './modules/meetings/meeting-company';
 import { createPrismaPersonOptions, keepKnownPeople } from './modules/companies/person-options';
@@ -1707,6 +1707,9 @@ async function main(): Promise<void> {
     },
     // Room authz: a socket may only subscribe to projects its user can view.
     canJoinProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+    // companies (MC1 Task 12): sockets sit in their companies' rooms (admins in `admins`), and
+    // presence is announced only to the people who share a company (and administrators).
+    companiesOf: async (userId, roles) => ({ companyIds: await companyAccess.activeCompanyIds(userId), admin: isAdminRoles(roles) }),
     // Persist last-active on every connect/disconnect (best-effort) for presence + delivered receipts.
     onPresence: (userId) => {
       void prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date() } }).catch(() => {});
@@ -1726,6 +1729,17 @@ async function main(): Promise<void> {
   onMemberRemoved = async (projectId, userId) => {
     realtime.leaveProject(userId, projectId);
     await chatService.removeProjectParticipant(projectId, userId).catch((err) => logger.error('chat participant cleanup failed', { err, projectId, userId }));
+  };
+  // companies (MC1 Task 12): a change to people's companies (added, removed, a company archived or
+  // brought back) or to a project's companies reaches live connections at once — company rooms and
+  // presence re-synced, project rooms left (`project:removed`), `companies:changed` to their apps.
+  // Lane A's onCompanyAccessChanged (Tasks 5–6) and onProjectAudienceChanged (Task 7) hooks are bound
+  // to this when the lanes merge (Task 17): onCompanyAccessChanged = refreshCompanyAccess,
+  // onProjectAudienceChanged = (projectId) => refreshCompanyAccess([], [projectId]).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- companies: lane A's hooks call it (MC1 Task 17 merge)
+  const refreshCompanyAccess = (userIds: string[], projectIds: string[] = []): void => {
+    if (userIds.length) void realtime.refreshAccess(userIds).catch((err) => logger.error('realtime: refreshing company access failed', { err, userIds }));
+    for (const projectId of projectIds) void realtime.refreshProjectAudience(projectId).catch((err) => logger.error('realtime: refreshing a project’s audience failed', { err, projectId }));
   };
 
   // On-schedule recurring series: each copy is made on its due date, done or not, shown live on open
