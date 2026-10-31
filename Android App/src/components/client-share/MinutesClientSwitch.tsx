@@ -92,7 +92,7 @@ export function MinutesClientSwitch({ meetingId, minutes }: { meetingId: string;
           visible
           title={W.previewTitle}
           intro={W.previewIntro}
-          loading={previewQ.isLoading}
+          loading={previewQ.isFetching}
           error={previewQ.isError ? W.previewFailed : problem}
           namesNote={
             content && names.length ? (

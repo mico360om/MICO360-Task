@@ -16,3 +16,7 @@ it('S2: a try the server is still on (or that got no answer) keeps its key; only
     expect(s, f).not.toMatch(/if \(e instanceof ApiError\) key\.current = newIdempotencyKey\(\)/);
   }
 });
+
+it('S3: a preview shows "Loading…" (and can’t be confirmed) while it is read again — minutes and inspection reports', () => {
+  for (const f of ['components/client-share/MinutesClientSwitch.tsx', 'components/inspections/InspectionClientSwitch.tsx']) expect(src(f), f).toMatch(/loading=\{previewQ\.isFetching\}/);
+});

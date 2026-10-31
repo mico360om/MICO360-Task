@@ -82,7 +82,7 @@ export function InspectionClientSwitch({ detail, archived, onChanged }: { detail
           visible
           title={W.previewTitle}
           intro={W.previewIntro}
-          loading={previewQ.isLoading}
+          loading={previewQ.isFetching}
           error={previewQ.isError ? problemText(previewQ.error, W.previewFailed) : problem}
           namesNote={
             p && notesNameSomeone(p.inspection, p.names) ? (
