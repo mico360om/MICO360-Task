@@ -233,3 +233,28 @@ describe('PasswordResetService.resetPassword', () => {
     await expect(h.svc.resetPassword(token, 'NewPass123')).rejects.toBeInstanceOf(InvalidResetTokenError);
   });
 });
+
+describe('PasswordResetService — the person’s company brand (companies)', () => {
+  it('the reset email carries the person’s company brand; a brand that can’t be read leaves it as before', async () => {
+    for (const [emailOptions, want] of [
+      [async () => ({ brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' }), [{ brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' }]],
+      [async () => { throw new Error('database away'); }, []],
+    ] as const) {
+      const got: unknown[][] = [];
+      const pending: Promise<void>[] = [];
+      const svc = createPasswordResetService({
+        store: { create: async () => {}, findActiveByHash: async () => null, countIssuedSince: async () => 0, consume: async () => true, consumeAllForUser: async () => {} },
+        users: { findActiveByIdentifier: async () => ({ id: 'u1', email: 'ada@x.co' }), isActive: async () => true, setPasswordAndUnlock: async () => {} },
+        mailer: { async sendPasswordReset(_email, _link, ...rest) { got.push(rest); } },
+        ttlSeconds: 3600,
+        appUrl: 'https://app.test',
+        hashPassword: async (p) => p,
+        runInBackground: (task) => void pending.push(task()),
+        emailOptions,
+      });
+      await svc.requestReset('ada@x.co');
+      await Promise.all(pending);
+      expect(got).toEqual([want]);
+    }
+  });
+});

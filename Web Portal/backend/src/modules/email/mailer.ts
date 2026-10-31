@@ -20,6 +20,8 @@ export interface SendEmailInput {
    * not rewrite its links through a click tracker, which would log the secret and hand it on.
    */
   secretLinks?: boolean;
+  /** The sender's name for this email (a company's sender name); the address stays MAIL_FROM's. Omitted = MAIL_FROM's name. */
+  fromName?: string;
 }
 
 export interface SendResult {
@@ -75,7 +77,7 @@ export function createMailjetTransport(config: MailjetConfig): Transport {
         body: JSON.stringify({
           Messages: [
             {
-              From: from,
+              From: input.fromName ? { ...from, Name: input.fromName } : from,
               To: [{ Email: input.to }],
               Subject: input.subject,
               HTMLPart: input.html,

@@ -1,0 +1,43 @@
+MICO360 TASKS
+
+Good morning, Ada
+
+You have 4 tasks that aren’t done yet, in 2 projects.
+
+2 tasks waiting for your approval.
+
+Review them: https://task.example/my-tasks#to-approve
+
+1 overdue · 1 due today · 1 upcoming · 1 with no due date · 1 waiting for approval
+
+RIG INSPECTION — RIG · No. 2026-014 · Client: Acme Drilling · Manager: Sara Ali · Target Mon 30 Nov
+Active · 2 tasks for you · 1 overdue · 1 due today
+https://task.example/projects/p-rig
+- Task RIG-1 (RIG-1) — 2 days overdue · Urgent · In Progress
+  https://task.example/my-tasks?task=rig-1
+- Task RIG-2 (RIG-2) — Due today · High priority · To Do
+  https://task.example/my-tasks?task=rig-2
+
+OPERATIONS — OPS
+On hold · 2 tasks for you
+https://task.example/projects/p-ops
+- Task OPS-1 (OPS-1) — Due Sun 25 Oct · Normal priority · To Do
+  https://task.example/my-tasks?task=ops-1
+- Task OPS-2 (OPS-2) — No due date · Normal priority · To Do
+  https://task.example/my-tasks?task=ops-2
+
+Waiting for approval (1): a project manager must approve it before it counts as done.
+
+  - RIG-3 · Task RIG-3: https://task.example/my-tasks?task=rig-3
+
+Open My Tasks: https://task.example/my-tasks
+
+You get this email every morning. To change the time or turn it off, open Settings → Daily task emails: https://task.example/settings
+
+----------------------------------------
+MICO360 Tasks — http://localhost:5173
+Contact support: info@mico360.example
+MICO360, Muscat, Sultanate of Oman
+You’re receiving this email because you have a MICO360 Tasks account.
+This is an automated message — please do not reply directly to this email.
+© 2026 MICO360. All rights reserved.

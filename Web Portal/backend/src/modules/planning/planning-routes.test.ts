@@ -91,7 +91,7 @@ const as = async (id: string, roles: string[]) => ({ authorization: `Bearer ${(a
 const ADMIN = () => as('admin', ['ADMIN']);
 const EMPLOYEE = (id = 'emp') => as(id, ['EMPLOYEE']);
 
-async function makeApp() {
+async function makeApp(extra: Record<string, unknown> = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -113,6 +113,7 @@ async function makeApp() {
     },
     planningNow: () => NOW,
     appConfig: { timeZone: 'Asia/Muscat', productName: 'MICO360 Tasks', companyName: 'MICO360' },
+    ...extra,
   });
 }
 
@@ -322,6 +323,17 @@ describe('GET /workload', () => {
     expect(data.people.map((p: { id: string }) => p.id)).toEqual(['admin', 'omar', 'pm', 'emp']); // by name
     expect(data.projects.map((p: { id: string }) => p.id)).toEqual(['rig', 'mine']); // not the completed one
     expect(data).not.toHaveProperty('loads');
+  });
+
+  it('companies: the days off are the reader’s company’s — the chosen project’s company when one is chosen', async () => {
+    use(TEAM);
+    const asked: unknown[] = [];
+    const branded = await makeApp({ companyTime: { hoursFor: async (t: unknown) => { asked.push(t); return { days: [1, 2, 3, 4, 5], start: '10:00', end: '14:00' }; } } });
+    const data = (await branded.inject({ method: 'GET', url, headers: await ADMIN() })).json().data;
+    expect(data.days.map((d: { working: boolean }) => d.working)).toEqual([false, true, true, true, true, true, false]);
+    expect(asked).toEqual([{ projectId: null, viewer: { id: 'admin', roles: ['ADMIN'] }, pick: null }]);
+    await branded.inject({ method: 'GET', url: `${url}&projectId=rig`, headers: await ADMIN() });
+    expect(asked[1]).toEqual({ projectId: 'rig', viewer: { id: 'admin', roles: ['ADMIN'] }, pick: null });
   });
 
   it('reads only the shown week’s tasks (a day either side), and weighs the three weeks after it', async () => {

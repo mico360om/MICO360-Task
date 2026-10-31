@@ -113,6 +113,8 @@ import { keepKnownPeople, type PersonOptions } from './modules/companies/person-
 import { fullViewOrInviteeRefusal } from './modules/meetings/invitee-view';
 import { inviteTargetOf, type MeetingInvitees } from './modules/meetings/meeting-invitees';
 import type { MeetingCompanyRule } from './modules/meetings/meeting-company';
+import type { PdfBrands } from './modules/companies/company-branding';
+import type { CompanyTime } from './modules/companies/company-time';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -313,6 +315,10 @@ export interface AppDeps extends AuthRouteDeps {
   meetingInvitees?: MeetingInvitees;
   /** companies: the company of a meeting without a project, MC1 Task 10. */
   meetingCompany?: MeetingCompanyRule;
+  /** Companies: each PDF's company brand — its name (2+ companies) and logo (MC1 Task 14). Absent: the site's. */
+  pdfBranding?: PdfBrands;
+  /** Companies: each company's week start and working days and hours (MC1 Task 15). Absent: the site's. */
+  companyTime?: Pick<CompanyTime, 'hoursFor'>;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -550,6 +556,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             return new Set([viewer.id, ...[...known].filter(([, k]) => k.colleague).map(([id]) => id)]);
           }
         : undefined;
+      // companies: a cross-project PDF's brand — the one project's main company, else the picked
+      // company, else the reader's primary one (MC1 Task 14). A pick that can't be used only drops the brand.
+      const brands = deps.pdfBranding;
+      const scopeBrand = brands
+        ? async (req: FastifyRequest, projectId: string | null = null) =>
+            projectId ? brands.project(projectId) : brands.scope({ id: req.user!.id, roles: req.user!.roles ?? [] }, await pickOf(req).catch(() => null))
+        : undefined;
       if (deps.projectService) {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
@@ -576,6 +589,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           timeline: deps.timelineSource,
           workload: deps.workloadStore,
           settings: deps.settingsService,
+          // companies: the Workload's days off — the shown project's company, else the pick's, else the reader's (MC1 Task 15).
+          workingHoursFor: deps.companyTime
+            ? async (req, projectId) => deps.companyTime!.hoursFor({ projectId, viewer: { id: req.user!.id, roles: req.user!.roles ?? [] }, pick: await pickOf(req).catch(() => null) })
+            : undefined,
           timeZone: deps.appConfig?.timeZone ?? defaultCompanyTimeZone(),
           now: deps.planningNow,
           pickOf, // companies: Timeline and Workload follow the pick
@@ -598,6 +615,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           pictureThumbnail: deps.pictureThumbnail,
           readProjectImage: deps.readProjectImage,
           printableProjectImage: deps.printableProjectImage,
+          // companies: the task's project's company on its PDF (MC1 Task 14).
+          pdfBrand: brands ? (taskId) => brands.task(taskId) : undefined,
         });
       }
       if (deps.memberService) {
@@ -768,8 +787,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });
       }
       if (deps.reportService) {
-        // companies: every report and export follows the pick.
-        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pickOf, accessibleProjectIds, companyPeople });
+        // companies: every report and export follows the pick; its PDFs carry the scope's brand.
+        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pickOf, accessibleProjectIds, companyPeople, pdfBrand: scopeBrand });
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
@@ -827,6 +846,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
           viewOf: meetingViewOf,
+          // companies: the meeting's company on its minutes PDF (MC1 Task 14).
+          pdfBrand: brands ? (meetingId) => brands.meeting(meetingId) : undefined,
         });
       }
       if (deps.activityService) {
@@ -845,7 +866,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames, pickOf });
       }
       if (deps.micoAiService) {
-        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard, pickOf }); // companies: asking follows the pick
+        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard, pickOf, pdfBrand: scopeBrand }); // companies: asking follows the pick; pdfBrand
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });
@@ -869,7 +890,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.management) {
-        await registerManagementRoutes(api, { ...deps.management, guard, pickOf }); // companies: follows the pick
+        await registerManagementRoutes(api, { ...deps.management, guard, pickOf, pdfBrand: scopeBrand }); // companies: follows the pick; pdfBrand
       }
       if (deps.inspections) {
         // companies: a form's usage counts follow the person's projects and the pick.

@@ -71,6 +71,8 @@ export interface ClientViewInput {
   /** The company time zone (today, due days). */
   timeZone: string;
   now: Date;
+  /** Companies: the project's main company (its name and logo), only while the site has 2+ active companies. */
+  company?: { name: string; logoUrl: string | null } | null;
 }
 
 export type ClientTaskStatus = 'Not started' | 'In progress' | 'In review' | 'On hold' | 'Done';
@@ -120,6 +122,11 @@ export interface ClientView {
   generatedAt: string;
   /** The company time zone, which the page writes that time in. */
   timeZone: string;
+  /**
+   * Companies: the project's main company — its name and logo (null: the built-in logo) — shown on the
+   * page as "Shared by …"; null while the site has one active company (the page is unchanged).
+   */
+  company: { name: string; logoUrl: string | null } | null;
 }
 
 const PROJECT_STATUS: Record<string, string> = { PLANNING: 'Planning', ACTIVE: 'In progress', ON_HOLD: 'On hold', COMPLETED: 'Completed' };
@@ -231,5 +238,6 @@ export function buildClientView(input: ClientViewInput): ClientView {
     inspections: (input.inspections ?? []).map(inspectionCopy),
     generatedAt: now.toISOString(),
     timeZone,
+    company: input.company ? { name: String(input.company.name), logoUrl: input.company.logoUrl ?? null } : null,
   };
 }

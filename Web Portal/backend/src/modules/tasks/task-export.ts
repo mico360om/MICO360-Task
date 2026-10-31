@@ -114,6 +114,10 @@ export interface TaskExportContext {
   generatedAt: Date;
   timeZone: string;
   generatedBy?: string | null;
+  /** Companies: the project's company name for the PDF's credit line (only while the site has 2+ companies). */
+  companyName?: string | null;
+  /** Companies: the project's company logo (printable) for the PDF's headers; null = the built-in logo. */
+  logo?: Buffer | null;
 }
 
 export interface TaskExportSource {
@@ -328,7 +332,9 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   const tz = ctx.timeZone;
   const brand = hexToRgb(BRAND);
   const generated = generatedLine(ctx, isolate);
-  const doc = new PdfDocument({ title: `${t.key} · ${t.title}`, runningTitle: `${t.key} · ${t.projectName}`, footerLeft: `MICO360 Tasks · ${generated}`, palette: { brand: BRAND } });
+  // Companies: the project's company before the product's name in the credit line (2+ companies), and its logo.
+  const credit = `${ctx.companyName ? `${isolate(ctx.companyName)} · ` : ''}MICO360 Tasks · ${generated}`;
+  const doc = new PdfDocument({ title: `${t.key} · ${t.title}`, runningTitle: `${t.key} · ${t.projectName}`, footerLeft: credit, palette: { brand: BRAND }, ...(ctx.logo ? { logo: ctx.logo } : {}) });
   const width = doc.pageWidth - doc.margin * 2;
 
   // Header: the project's badge (its picture, else its icon, else its initials, on its colour), name

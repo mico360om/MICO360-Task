@@ -28,6 +28,15 @@ describe('Mailjet transport', () => {
     expect(calls[0]!.init.signal).toBeDefined(); // requests time out
   });
 
+  it('sends as the company’s sender name when one is given, from the same address (companies)', async () => {
+    const { impl, calls } = fakeFetch(200, { Messages: [{ Status: 'success' }] });
+    const transport = createMailjetTransport({ apiKey: 'k', secretKey: 's', from: 'MICO360 Tasks <no-reply@mico360.test>', fetchImpl: impl });
+    await transport.send({ to: 'ada@x.co', subject: 'Hi', html: 'x', fromName: 'Beta Team' });
+    await transport.send({ to: 'ada@x.co', subject: 'Hi', html: 'x' });
+    expect(JSON.parse(calls[0]!.init.body as string).Messages[0].From).toEqual({ Email: 'no-reply@mico360.test', Name: 'Beta Team' });
+    expect(JSON.parse(calls[1]!.init.body as string).Messages[0].From).toEqual({ Email: 'no-reply@mico360.test', Name: 'MICO360 Tasks' });
+  });
+
   it('reports a non-2xx answer as a failure with the provider’s error text', async () => {
     const { impl } = fakeFetch(401, { ErrorMessage: 'API key authentication/authorization failure' });
     const transport = createMailjetTransport({ apiKey: 'k', secretKey: 's', from: 'x@y.z', fetchImpl: impl });

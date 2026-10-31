@@ -17,6 +17,8 @@ export interface DailyProject {
   /** As stored ("/uploads/…" or an http(s) address). */
   imageUrl: string | null;
   targetDate: Date | null;
+  /** Companies: the project's main company — the email's heading above its section when grouped. */
+  company?: { id: string; name: string } | null;
 }
 
 /** A task as the daily emails show it (read fresh from the database just before sending). */
@@ -135,6 +137,36 @@ function byProject(tasks: DailyTask[]): Array<{ project: DailyProject; tasks: Da
   return [...groups.values()];
 }
 
+const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+
+/**
+ * Companies: the project sections in company-name order (a project under its main company), keeping
+ * their own order inside each company.
+ */
+function byCompany<G extends { project: DailyProject }>(groups: G[]): G[] {
+  const name = (g: G) => g.project.company?.name ?? '';
+  return groups
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => collator.compare(name(a.g), name(b.g)) || a.i - b.i)
+    .map((x) => x.g);
+}
+
+/** The shown sections' blocks; grouped, each company's name heads its first section. */
+function withHeadings<G extends { project: DailyProject }>(shown: G[], block: (g: G) => Block, grouped: boolean): Block[] {
+  if (!grouped) return shown.map(block);
+  const out: Block[] = [];
+  let last: string | null | undefined;
+  for (const g of shown) {
+    const company = g.project.company ?? null;
+    if (company?.id !== last) {
+      if (company) out.push({ kind: 'heading', text: company.name });
+      last = company?.id;
+    }
+    out.push(block(g));
+  }
+  return out;
+}
+
 /** A section's head: the project's details (only those it has), its status and the given labels. */
 function projectCard(p: DailyProject, chips: EmailChip[], o: { appUrl: string; assetUrl?: string; timeZone: string }): EmailProjectCard {
   const target = dueDayKey(p.targetDate, o.timeZone);
@@ -208,7 +240,7 @@ function waitingBlocks(waiting: DailyTask[], appUrl: string): Block[] {
  * — never "overdue" — and listed on their own "Waiting for approval" line after them (owner, 30 Oct).
  */
 export function pendingEmail(
-  p: { name: string; tasks: DailyTask[]; timeZone: string; now: Date; appUrl: string; assetUrl?: string; awaitingApproval?: number },
+  p: { name: string; tasks: DailyTask[]; timeZone: string; now: Date; appUrl: string; assetUrl?: string; awaitingApproval?: number; groupByCompany?: boolean },
   opts?: TemplateOptions,
 ): EmailContent {
   const handedIn = p.tasks.filter((t) => t.waitingSince).sort(byDueThenPriority(p.timeZone));
@@ -245,7 +277,8 @@ export function pendingEmail(
     key: t.key,
     chips: [dueChip(t), PRIORITY_CHIP[t.priority], { text: t.statusLabel, tone: 'outline' }],
   });
-  const groups = byProject(sorted);
+  // Companies: with tasks in 2+ companies, the sections are grouped under each company's name.
+  const groups = p.groupByCompany ? byCompany(byProject(sorted)) : byProject(sorted);
   const fit = fitting(groups);
   const n = open.length;
   const blocks: Block[] = [
@@ -258,7 +291,7 @@ export function pendingEmail(
       noDue > 0 && { text: `${noDue} with no due date`, tone: 'muted' },
       handedIn.length > 0 && { text: `${handedIn.length} waiting for approval`, tone: 'muted' },
     ]),
-    ...fit.shown.map((g): Block => {
+    ...withHeadings(fit.shown, (g): Block => {
       const late = g.tasks.filter(isOverdue).length;
       const now = g.tasks.filter(isToday).length;
       return {
@@ -275,7 +308,7 @@ export function pendingEmail(
         items: g.showing.map(item),
         ...moreInProject(g, p.appUrl),
       };
-    }),
+    }, Boolean(p.groupByCompany)),
     ...moreProjects(fit),
     ...waitingBlocks(handedIn, p.appUrl),
     { kind: 'button', label: 'Open My Tasks', href: `${base(p.appUrl)}/my-tasks` },
@@ -292,7 +325,7 @@ export function pendingEmail(
  * priority and due day.
  */
 export function completedEmail(
-  p: { name: string; tasks: DailyTask[]; day: string; timeZone: string; appUrl: string; assetUrl?: string },
+  p: { name: string; tasks: DailyTask[]; day: string; timeZone: string; appUrl: string; assetUrl?: string; groupByCompany?: boolean },
   opts?: TemplateOptions,
 ): EmailContent {
   const sorted = [...p.tasks].sort((a, b) => (a.completedAt?.getTime() ?? 0) - (b.completedAt?.getTime() ?? 0));
@@ -320,17 +353,19 @@ export function completedEmail(
   const late = sorted.filter((t) => timing(t)?.tone === 'warning').length;
   const label = dayLabel(p.day);
   const n = sorted.length;
-  const fit = fitting(byProject(sorted));
+  const fit = fitting(p.groupByCompany ? byCompany(byProject(sorted)) : byProject(sorted));
   const blocks: Block[] = [
     { kind: 'text', text: `${p.name}, here ${n === 1 ? 'is the task' : 'are the tasks'} assigned to you that ${n === 1 ? 'was' : 'were'} completed yesterday, ${label}.` },
     ...glance([onTime > 0 && { text: `${onTime} on time`, tone: 'success' }, late > 0 && { text: `${late} late`, tone: 'warning' }]),
-    ...fit.shown.map(
+    ...withHeadings(
+      fit.shown,
       (g): Block => ({
         kind: 'project',
         project: projectCard(g.project, [{ text: `${plural(g.tasks.length, 'task')} done`, tone: 'neutral' }], p),
         items: g.showing.map(item),
         ...moreInProject(g, p.appUrl),
       }),
+      Boolean(p.groupByCompany),
     ),
     ...moreProjects(fit),
     { kind: 'button', label: 'Open My Tasks', href: `${base(p.appUrl)}/my-tasks` },

@@ -670,3 +670,46 @@ describe('Meeting routes and companies', () => {
     expect(refused.json().error.message).toBe('Nine Nobody can’t be invited: they aren’t in this meeting’s companies.');
   });
 });
+
+describe('Meeting free times: whose working hours (companies)', () => {
+  const BETA_HOURS = { days: [1, 2, 3, 4, 5], start: '10:00', end: '14:00' };
+  async function withHours() {
+    const asked: unknown[] = [];
+    const app = await makeApp({
+      meetingFreeTimes: {
+        busy: { async busyBetween() { return []; } },
+        workingHours: async (target?: unknown) => {
+          asked.push(target);
+          return BETA_HOURS;
+        },
+        userNames: async (ids: string[]) => new Map(ids.map((i) => [i, i.toUpperCase()])),
+        timeZone: 'Asia/Muscat',
+      },
+    });
+    const auth = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const ask = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: '/api/v1/meetings/free-times', headers: auth, payload: { userIds: ['u1'], startAt: '2030-01-06T06:00:00Z', minutes: 60, ...payload } });
+    return { asked, ask };
+  }
+
+  it('asks for the hours of the project, company or meeting it is about — and says who is asking', async () => {
+    const { asked, ask } = await withHours();
+    const res = await ask({ projectId: 'p1' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.workingHours).toEqual(BETA_HOURS);
+    await ask({ companyId: 'c-beta' });
+    await ask({ excludeMeetingId: 'm-9' });
+    await ask({});
+    const viewer = { id: 'u1', roles: ['EMPLOYEE'] };
+    expect(asked).toEqual([
+      { projectId: 'p1', companyId: null, meetingId: null, viewer },
+      { projectId: null, companyId: 'c-beta', meetingId: null, viewer },
+      { projectId: null, companyId: null, meetingId: 'm-9', viewer },
+      { projectId: null, companyId: null, meetingId: null, viewer },
+    ]);
+  });
+
+  it('refuses ids that aren’t id-shaped', async () => {
+    const { ask } = await withHours();
+    expect((await ask({ projectId: 'x'.repeat(300) })).statusCode).toBe(400);
+  });
+});

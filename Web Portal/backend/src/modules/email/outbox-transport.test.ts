@@ -51,6 +51,17 @@ describe('outbox transport (local test mailbox)', () => {
     expect(readFileSync(join(dir, '20261010-083005123-a-b.co.invite.ics'), 'utf8')).toBe('BEGIN:VCALENDAR');
     expect(readdirSync(dir).some((f) => f.endsWith('.pdf'))).toBe(false);
   });
+
+  it('notes the sender name an email goes out with, when it isn’t the site’s (companies)', async () => {
+    const outbox = createOutboxTransport({ dir, now: () => new Date('2026-10-10T08:30:05.123Z') });
+    await outbox.send({ to: 'a@b.co', subject: 'Welcome', html: 'x', fromName: 'Beta Team' });
+    await outbox.send({ to: 'c@b.co', subject: 'Welcome', html: 'x' });
+    const read = (to: string) => readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith(`${to}.txt`))!), 'utf8');
+    expect(read('a-b.co')).toContain('Subject: Welcome\nFrom: Beta Team\n');
+    expect(read('c-b.co')).not.toContain('From:');
+    const html = readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith('a-b.co.html'))!), 'utf8');
+    expect(html.split('\n')[0]).toBe('<!-- To: a@b.co · Subject: Welcome · From: Beta Team -->');
+  });
 });
 
 describe('chooseTransport', () => {

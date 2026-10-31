@@ -3,6 +3,7 @@ import { normalizePreferences } from '../notifications/notification-preferences'
 import type { DailyTask } from './daily-email-content';
 import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
+import { sharedCompanyWhere } from '../companies/company-access';
 
 const personSelect = {
   id: true,
@@ -46,6 +47,9 @@ const taskSelect = {
       imageUrl: true,
       targetDate: true,
       manager: { select: { firstName: true, lastName: true, username: true } },
+      // Companies: the main company heads the project's section when an email is grouped.
+      mainCompany: { select: { id: true, name: true } },
+      companies: { select: { company: { select: { id: true, name: true } } }, orderBy: { addedAt: 'asc' }, take: 1 },
     },
   },
   column: { select: { name: true } },
@@ -67,6 +71,7 @@ const toTask = (t: TaskRow): DailyTask => ({
     color: t.project.color,
     imageUrl: t.project.imageUrl,
     targetDate: t.project.targetDate,
+    company: t.project.mainCompany ?? t.project.companies[0]?.company ?? null,
   },
   priority: t.priority,
   dueDate: t.dueDate,
@@ -78,6 +83,12 @@ const toTask = (t: TaskRow): DailyTask => ({
 /** Who gets the morning emails, and their tasks — always only tasks assigned to that person. */
 export function createPrismaDailyEmailSources(prisma: PrismaClient) {
   const active = { status: 'ACTIVE', deletedAt: null } as const;
+  /**
+   * Companies: someone who isn't an administrator only hears of tasks in projects that share an active
+   * company with them (losing a company takes its tasks out of the next email). Administrators: as before.
+   */
+  const companyScope = async (userId: string): Promise<Prisma.ProjectWhereInput> =>
+    (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0 ? {} : sharedCompanyWhere(userId);
   return {
     people: {
       async list(): Promise<DailyRecipient[]> {
@@ -97,8 +108,8 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
             completedAt: null,
             assignees: { some: { userId } },
             column: { category: { not: 'DONE' } },
-            // companies: archived by its own status or by all its companies (liveProjectWhere).
-            project: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }),
+            // companies: archived by its own status or by all its companies (liveProjectWhere), and in the person's company scope.
+            project: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' }, AND: [await companyScope(userId)] }),
           },
           select: taskSelect,
           take: 500,
@@ -108,7 +119,7 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
       /** Assigned to them and completed in [from, to), whoever completed them. */
       async completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
-          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to } },
+          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: await companyScope(userId) },
           select: taskSelect,
           orderBy: { completedAt: 'asc' },
           take: 500,

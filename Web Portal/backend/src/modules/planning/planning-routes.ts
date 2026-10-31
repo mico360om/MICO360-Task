@@ -21,6 +21,11 @@ export interface PlanningRouteDeps {
   workload?: WorkloadStore;
   /** The company's working hours (days off) and the workload daily limit; defaults when absent. */
   settings?: { workingHours(): Promise<WorkingHours>; dailyLimit(): Promise<number> };
+  /**
+   * Companies: the Workload's days off — the shown project's main company's, else the picked
+   * company's, else the reader's primary company's. Absent: the settings' (the site's).
+   */
+  workingHoursFor?: (req: FastifyRequest, projectId: string | null) => Promise<WorkingHours>;
   /** Company time zone: "today", due days and meeting days are read in it. */
   timeZone: string;
   /** The time now (tests pin it). */
@@ -131,7 +136,7 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const [managedAll, visible, hours, limit, pickPeople] = await Promise.all([
         admin ? Promise.resolve([]) : store.managedProjectIds(viewer.id),
         admin && !pick ? Promise.resolve(null) : deps.projectService.listVisibleProjects(viewer, pick).then((ps) => ps.map((p) => p.id)),
-        deps.settings ? deps.settings.workingHours() : Promise.resolve(DEFAULT_WORKING_HOURS),
+        deps.settings && !deps.workingHoursFor ? deps.settings.workingHours() : Promise.resolve(DEFAULT_WORKING_HOURS),
         deps.settings ? deps.settings.dailyLimit() : Promise.resolve(DEFAULT_DAILY_LIMIT),
         admin && pick ? (deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([])) : Promise.resolve(null),
       ]);
@@ -139,8 +144,10 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const managed = inPick ? managedAll.filter((id) => inPick.has(id)) : managedAll;
       const scope = resolveWorkloadScope(viewer, { managedProjectIds: managed, visibleProjectIds: visible }, pickPeople ? { peopleIds: pickPeople } : null);
       const { rows, projectId } = await loadWorkload(store, { scope, viewerId: viewer.id, projectId: asked, week, today, timeZone });
+      // companies: the days off of the shown project's company (only one the reader may see), else of their company.
+      const days = deps.workingHoursFor ? (await deps.workingHoursFor(req, projectId)).days : hours.days;
       return {
-        data: buildWorkload(rows, { week, timeZone, now: at, limit, workingDays: hours.days, viewerId: viewer.id, scope, projectId, canChangeLimit: admin }),
+        data: buildWorkload(rows, { week, timeZone, now: at, limit, workingDays: days, viewerId: viewer.id, scope, projectId, canChangeLimit: admin }),
       };
     });
   }

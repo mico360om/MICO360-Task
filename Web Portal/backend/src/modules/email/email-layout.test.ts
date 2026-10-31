@@ -172,6 +172,22 @@ describe('renderEmail — layout', () => {
     expect(img).toContain('width:64px;height:30px');
   });
 
+  it('a company’s logo is shown at its own size, on a white plate, named after the company (companies)', () => {
+    const { html, text } = renderEmail({
+      preheader: 'x',
+      heading: 'h',
+      blocks: [],
+      brand: { logoUrl: 'https://api.test/uploads/companies/b/logo.png', logoBox: { width: 90, height: 30, alt: 'Beta LLC' } },
+    });
+    const img = html.match(/<img src="https:\/\/api.test\/uploads\/companies\/b\/logo.png"[^>]*>/)?.[0] ?? '';
+    expect(img).toContain('width="90"');
+    expect(img).toContain('height="30"');
+    expect(img).toContain('width:90px;height:30px');
+    expect(img).toContain('alt="Beta LLC"');
+    expect(html).toMatch(/background:#FFFFFF;border-radius:6px[^>]*><tr><td style="padding:4px 8px[^"]*"><img src="https:\/\/api.test/);
+    expect(text).not.toContain('Beta LLC');
+  });
+
   it('starts the footer cleanly when no company address is set', () => {
     const { html } = renderEmail({ preheader: 'x', heading: 'h', blocks: [], brand: { companyAddress: '' } });
     expect(html).not.toMatch(/">\. You/);

@@ -226,6 +226,25 @@ describe('the overview', () => {
     expect(o.weekStart).toBe(1);
   });
 
+  it('companies: the week and the working days are the reader’s company’s (the settings are asked with the reader)', async () => {
+    const asked: string[] = [];
+    const svc = createManagementService({
+      source: fakeManagementSource(DATA),
+      workload: fakeWorkloadFor(DATA),
+      settings: {
+        companyWeekStart: async (viewer?: { id: string }) => (asked.push(`week:${viewer?.id}`), viewer?.id === 'sara' ? 1 : 0),
+        workingHours: async (viewer?: { id: string }) => (asked.push(`hours:${viewer?.id}`), { days: [0, 1, 2, 3, 4] }),
+        dailyLimit: async () => 2,
+      },
+      timeZone: TZ,
+      now: () => NOW,
+    });
+    expect((await svc.overview(SARA, filters({ weeks: 4 }))).trends.map((w) => w.start)).toEqual(['2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26']);
+    expect((await svc.overview(ADMIN, filters({ weeks: 4 }))).trends.map((w) => w.start)).toEqual(['2026-10-04', '2026-10-11', '2026-10-18', '2026-10-25']);
+    await svc.digest(SARA, '2026-10-26');
+    expect(asked).toEqual(['week:sara', 'hours:sara', 'week:admin', 'hours:admin', 'week:sara', 'hours:sara']);
+  });
+
   it('with no project in scope: empty sections, never an error', async () => {
     const { svc } = service();
     const o = await svc.overview(ADMIN, filters({ statuses: ['COMPLETED'] }));

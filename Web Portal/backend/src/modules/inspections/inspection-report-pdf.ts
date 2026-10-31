@@ -54,6 +54,8 @@ export interface InspectionReportData {
   generatedAt: string;
   /** Who made the PDF (the staff copy only). */
   generatedBy?: string | null;
+  /** Companies: the project's company logo (printable), on the header and the running header; null = the built-in logo. */
+  logo?: Buffer | null;
 }
 
 const INK: RGB = [0.11, 0.1, 0.09];
@@ -112,6 +114,7 @@ export function buildInspectionPdf(d: InspectionReportData): Buffer {
     runningTitle: `${r.title} · ${project.name}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
     footerLeft: footer.filter(Boolean).join('\n'),
+    ...(d.logo ? { logo: d.logo } : {}),
   });
   const brandRgb = hexToRgb(brand.colors?.brand ?? '#8B1E1E');
 

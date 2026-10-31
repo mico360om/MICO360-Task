@@ -5,6 +5,7 @@ import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { solidPng } from '../../lib/test-images';
 
 const tasks: ReportTask[] = [
   { id: '1', projectId: 'p1', projectName: 'MICO', columnCategory: 'DONE', createdAt: new Date('2000-01-01'), dueDate: null, completedAt: new Date(), assigneeIds: ['u1'] },
@@ -22,7 +23,7 @@ const tokenService = createTokenService({
   refreshStore: { async save() {}, async findValid() { return null; }, async revoke() {}, async revokeAllForUser() {} },
 });
 
-async function makeApp() {
+async function makeApp(extra: Record<string, unknown> = {}) {
   const reportService = createReportService({
     data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar', name: 'Omar Ahmed' }]; } },
   });
@@ -34,7 +35,7 @@ async function makeApp() {
     async project(id: string) { return ({ p1: 'MICO360 Platform', p2: 'Rig Inspection Portal' } as Record<string, string>)[id] ?? null; },
     async user(id: string) { return ({ admin: 'Aisha Khan', u2: 'Omar Ahmed' } as Record<string, string>)[id] ?? null; },
   };
-  return buildApp({ authService, tokenService, reportService, reportNames });
+  return buildApp({ authService, tokenService, reportService, reportNames, ...extra });
 }
 async function token(roles: string[]) {
   return (await tokenService.issueTokens({ id: 'admin', roles })).accessToken;
@@ -228,5 +229,24 @@ describe('Report routes (admin only)', () => {
     const lines = csvLines(res.body);
     expect(lines[0]).toBe('date,created,completed,overdue,remaining,ideal');
     expect(lines[1]).toBe('2000-01-01,2,0,0,2,2');
+  });
+});
+
+describe('Report PDFs: the company (companies)', () => {
+  it('a one-project report carries its project’s company; others the picked (else the reader’s) company', async () => {
+    const asked: unknown[] = [];
+    const pdfBranding = {
+      project: async (id: string) => { asked.push(['project', id]); return { companyName: 'Rig Co', logo: solidPng(205, 65) }; },
+      scope: async (viewer: { id: string }, pick: string | null) => { asked.push(['scope', viewer.id, pick]); return { companyName: 'Alpha LLC', logo: null }; },
+    };
+    const branded = await makeApp({ pdfBranding });
+    const auth = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    const all = await branded.inject({ method: 'GET', url: '/api/v1/reports/export.pdf', headers: auth });
+    expect(inspectPdf(all.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC · MICO360 Tasks');
+    const one = await branded.inject({ method: 'GET', url: '/api/v1/reports/export.pdf?projectId=p1', headers: auth });
+    expect(inspectPdf(one.rawPayload).pages.flat().join('\n')).toContain('Rig Co · MICO360 Tasks');
+    expect([...inspectPdf(one.rawPayload).objects.values()].some((d) => /\/Subtype \/Image/.test(d) && /\/Width 205\b/.test(d))).toBe(true);
+    expect((await branded.inject({ method: 'GET', url: '/api/v1/reports/export.xlsx', headers: auth })).statusCode).toBe(200);
+    expect(asked).toEqual([['scope', 'admin', null], ['project', 'p1']]);
   });
 });

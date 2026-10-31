@@ -6,6 +6,7 @@ import { DEFAULT_STATUSES, PERIOD_WEEKS, PROJECT_STATUSES, type ProjectStatus } 
 import type { ManagementFilters, ManagementService, ManagementViewer } from './management-service';
 import { buildManagementPdf, managementPdfFileName } from './management-pdf';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import type { PdfBrand } from '../companies/company-branding';
 
 export interface ManagementRouteDeps {
   service: ManagementService;
@@ -20,6 +21,11 @@ export interface ManagementRouteDeps {
   readsPerMinute?: number;
   /** companies: the request's picked company (X-Company-Id); the page, its lists and its PDF follow it. Absent: no pick. */
   pickOf?: PickOf;
+  /**
+   * Companies: the PDF's company brand — the one chosen project's main company, else the picked
+   * company, else the reader's primary company; absent: the site's.
+   */
+  pdfBrand?: (req: FastifyRequest, projectId: string | null) => Promise<PdfBrand>;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -125,7 +131,9 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
     if (!allowPdf(who.id)) throw new HttpError('Too many PDFs in a minute. Please wait a moment and try again.', 'RATE_LIMITED', 429);
     const overview = await service.overview(who, filters, await pickOf(req));
     const generatedBy = (await deps.userName?.(who.id).catch(() => null)) ?? null;
-    const pdf = buildManagementPdf(overview, { generatedBy });
+    const one = overview.filters.projectIds.length === 1 ? overview.filters.projectIds[0]! : null;
+    const company = deps.pdfBrand ? await deps.pdfBrand(req, one).catch(() => null) : null;
+    const pdf = buildManagementPdf(overview, { generatedBy, company });
     return reply
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${managementPdfFileName(overview)}"`)

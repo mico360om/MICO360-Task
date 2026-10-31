@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient, type WeeklySummaryEmail } from '@prisma/clie
 import { normalizePreferences } from '../notifications/notification-preferences';
 import type { WeeklyRecipient } from './weekly-summary-service';
 import type { WeeklySummaryRecord, WeeklySummaryRepository } from './weekly-summary-repository';
+import { visibleProjectWhere } from '../companies/company-access';
 
 const toRecord = (r: WeeklySummaryEmail): WeeklySummaryRecord => ({
   id: r.id,
@@ -124,5 +125,33 @@ export function createPrismaWeeklySummaryPeople(prisma: PrismaClient) {
       const u = await prisma.user.findFirst({ where: { id, ...active }, select: personSelect });
       return u ? toRecipient(u, await runners([u.id])) : null;
     },
+  };
+}
+
+/**
+ * Companies (MC1 Task 16): the projects a person may see (administrators: every project), grouped by
+ * main company (a project with none recorded: its first company), companies in name order. The
+ * weekly summary gives each company of these with figures in it a section of its own.
+ */
+export function createPrismaCompanyGroups(prisma: PrismaClient) {
+  return async (viewer: { id: string; roles: string[] }): Promise<Array<{ company: { id: string; name: string }; projectIds: string[] }>> => {
+    const rows = await prisma.project.findMany({
+      where: viewer.roles.includes('ADMIN') ? { deletedAt: null } : visibleProjectWhere(viewer.id),
+      select: {
+        id: true,
+        mainCompany: { select: { id: true, name: true } },
+        companies: { select: { company: { select: { id: true, name: true } } }, orderBy: { addedAt: 'asc' }, take: 1 },
+      },
+    });
+    const groups = new Map<string, { company: { id: string; name: string }; projectIds: string[] }>();
+    for (const p of rows) {
+      const company = p.mainCompany ?? p.companies[0]?.company;
+      if (!company) continue;
+      const g = groups.get(company.id) ?? { company, projectIds: [] };
+      g.projectIds.push(p.id);
+      groups.set(company.id, g);
+    }
+    const byName = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+    return [...groups.values()].sort((a, b) => byName.compare(a.company.name, b.company.name));
   };
 }

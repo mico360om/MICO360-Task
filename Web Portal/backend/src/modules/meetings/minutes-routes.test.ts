@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { solidPng } from '../../lib/test-images';
 import { buildApp } from '../../app';
 import { createMemoryFinalMinutesRepository } from './final-minutes-repository';
 import { ValidationError } from '../../lib/http-errors';
@@ -490,5 +491,34 @@ describe('Final minutes (Final MOM)', () => {
     const text = inspectPdf(args[1]).pages.flat();
     expect(text).toContain('FINAL');
     expect(text).toContain('Final Minutes of Meeting');
+  });
+});
+
+describe('Minutes PDF route: the meeting’s company (companies)', () => {
+  const widths = (pdf: Buffer) => [...inspectPdf(pdf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d)).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
+
+  it('prints the company’s name in the footer and its logo in the header, for that meeting', async () => {
+    const asked: string[] = [];
+    const app = await makeApp({}, undefined, undefined, {
+      pdfBranding: { meeting: async (id: string) => { asked.push(id); return { companyName: 'Alpha LLC', logo: solidPng(250, 50) }; } },
+    });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z' } });
+    const id = created.json().data.id;
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    expect(asked).toEqual([id]);
+    expect(inspectPdf(res.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC');
+    expect(widths(res.rawPayload)).toEqual([250]);
+  });
+
+  it('a brand that can’t be read leaves the PDF as before', async () => {
+    const app = await makeApp({}, undefined, undefined, { pdfBranding: { meeting: async () => { throw new Error('database away'); } } });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const created = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Weekly review', startAt: '2026-10-01T09:00:00Z' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${created.json().data.id}/minutes.pdf`, headers: { authorization: auth } });
+    expect(res.statusCode).toBe(200);
+    expect(inspectPdf(res.rawPayload).pages.flat().join('\n')).toContain('MICO360');
+    expect(widths(res.rawPayload)).toEqual([]);
   });
 });

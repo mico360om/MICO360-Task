@@ -14,7 +14,9 @@ export type Block =
   | { kind: 'links'; items: Array<{ label: string; href: string }> }
   | { kind: 'chips'; items: EmailChip[] }
   | { kind: 'project'; project: EmailProjectCard; items: EmailTaskItem[]; more?: { text: string; href: string } }
-  | { kind: 'divider' };
+  | { kind: 'divider' }
+  /** Companies: a section heading (a company's name above its projects). */
+  | { kind: 'heading'; text: string };
 
 /** A label's colour: a tone, plain grey ('neutral'), quieter grey ('muted') or an outline. */
 export type ChipTone = Tone | 'neutral' | 'muted' | 'outline';
@@ -246,6 +248,8 @@ function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {
     }
     case 'divider':
       return `<hr class="email-divider" style="border:none;border-top:1px solid ${c.line};margin:8px 0 20px"/>`;
+    case 'heading':
+      return `<h2 class="email-text" style="margin:24px 0 10px;font-size:18px;line-height:1.3;font-weight:800;color:${c.ink}">${escapeHtml(block.text)}</h2>`;
   }
 }
 
@@ -280,6 +284,8 @@ function renderBlockText(block: Block): string {
     }
     case 'divider':
       return '----------------------------------------';
+    case 'heading':
+      return `== ${block.text} ==`;
   }
 }
 
@@ -290,7 +296,12 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
   const c = brand.colors;
   const dir = isRtl(locale) ? 'rtl' : 'ltr';
 
-  const logo = brand.logoUrl
+  // Companies: a company's own logo keeps its proportions and sits on a white plate (a coloured logo
+  // would be lost on the brand colour); the built-in white logo is drawn as before.
+  const box = brand.logoUrl ? brand.logoBox : undefined;
+  const logo = box
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:6px"><tr><td style="padding:4px 8px;line-height:0"><img src="${safeHref(brand.logoUrl!)}" alt="${escapeHtml(box.alt)}" width="${box.width}" height="${box.height}" style="display:block;border:0;width:${box.width}px;height:${box.height}px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:${c.ink}"/></td></tr></table>`
+    : brand.logoUrl
     ? `<img src="${safeHref(brand.logoUrl)}" alt="${escapeHtml(brand.productName)}" width="64" height="30" style="display:block;border:0;width:64px;height:30px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:800;color:${c.onBrand}"/>`
     : `<span style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.3px;color:${c.onBrand}">${escapeHtml(brand.wordmark.pre)}<span style="opacity:0.85">${escapeHtml(brand.wordmark.mid)}</span> <span style="font-weight:600;opacity:0.9">${escapeHtml(brand.wordmark.post)}</span></span>`;
 

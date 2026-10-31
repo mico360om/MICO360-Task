@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { inspectPdf } from '../../lib/pdf-inspect';
-import { blankPng } from '../../lib/test-images';
+import { blankPng, solidPng } from '../../lib/test-images';
 import type { ClientInspection, ClientInspectionItem } from './inspection-client-copy';
 import { buildInspectionPdf, inspectionPdfFileName, type InspectionReportData } from './inspection-report-pdf';
 
@@ -200,5 +200,15 @@ describe('the inspection report PDF', () => {
 
   it('says nothing about revisions for a report never reopened', () => {
     expect(textOf(data())).not.toMatch(/Revision \d/);
+  });
+});
+
+describe('the inspection report PDF: the project’s company (companies)', () => {
+  it('carries the company’s logo on its header and the running header, and its name in the footer', () => {
+    const logo = solidPng(260, 80);
+    const pdf = buildInspectionPdf(data({ brand: { ...brand, companyName: 'Alpha LLC' }, logo }));
+    const { objects } = inspectPdf(pdf);
+    expect([...objects.values()].filter((d) => /\/Subtype \/Image/.test(d) && /\/Width 260\b/.test(d))).toHaveLength(1);
+    expect(textOf(data({ brand: { ...brand, companyName: 'Alpha LLC' }, logo }))).toContain('Alpha LLC');
   });
 });

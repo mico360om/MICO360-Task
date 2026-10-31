@@ -39,6 +39,8 @@ import { createProjectCompanies, type OnProjectAudienceChanged } from './modules
 import { createPrismaMeetingInvitees } from './modules/meetings/meeting-invitees';
 import { createMeetingCompanyRule } from './modules/meetings/meeting-company';
 import { createPrismaPersonOptions, keepKnownPeople } from './modules/companies/person-options';
+import { createCompanyBranding, createDocumentBrands } from './modules/companies/company-branding';
+import { createCompanyTime, usableHoursTarget } from './modules/companies/company-time';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -871,7 +873,8 @@ async function main(): Promise<void> {
       const u = await prisma.user.findUnique({ where: { id: authorId }, select: { firstName: true, lastName: true, username: true } });
       return u ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username : 'A teammate';
     },
-    sendMentionEmail: (email, params) => emailService.sendMention(email, params),
+    // companies: the task's project's company brand on the email.
+    sendMentionEmail: async (email, params, taskId) => emailService.sendMention(email, params, await documentBrands.email.task(taskId).catch(() => undefined)),
     appUrl: env.APP_URL,
     logger,
   });
@@ -945,7 +948,6 @@ async function main(): Promise<void> {
   // companies: System → Companies and each person's companies (GET /me/companies). A company inherits
   // the site's week start, working hours and sender name until it has its own; the site's time zone
   // always. Logos go where uploads go, made at most 512 pixels on their long side.
-  // Late-bound: the realtime server re-checks whose access changed (MC1 Task 12 binds it).
   // companies: bound to the realtime server's re-sync below (refreshCompanyAccess), once it exists.
   let onCompanyAccessChanged: OnCompanyAccessChanged = () => {};
   // companies: people's companies and primary company, with their rules (User Management and the
@@ -967,6 +969,27 @@ async function main(): Promise<void> {
     onAccessChanged: (userIds, projectIds) => onCompanyAccessChanged(userIds, projectIds),
     people: companyMembership,
   });
+  // companies: each company's name (with 2+ companies), logo and sender name on its PDFs, emails and
+  // client page; week start and working hours inherit System Settings until a company sets its own (MC1 Task 14).
+  const companyBranding = createCompanyBranding({
+    prisma,
+    site: { companyName: env.COMPANY_NAME, timeZone: companyTz, senderName: /^\s*(.*?)\s*<[^>]+>\s*$/.exec(env.MAIL_FROM)?.[1]?.trim() || null },
+    settings: settingsService,
+    readImage: async (url) => (url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null),
+    printable: (raw) => imageShrinker.toPrintable(raw),
+    apiBaseUrl: env.API_BASE_URL,
+  });
+  const documentBrands = createDocumentBrands(companyBranding, prisma);
+  // companies: each company's week start and working days and hours (MC1 Task 15); System Settings' until set.
+  const companyTime = createCompanyTime(companyBranding, prisma);
+  // The Management page (and its weekly summary) runs on the scope's week and working days: the picked
+  // company's, else the reader's primary company's (Ruling 15).
+  const managementSettings = {
+    companyWeekStart: (v?: { id: string; roles: string[] }, pick: string | null = null) => (v ? companyTime.weekStartOfScope(v, pick) : settingsService.companyWeekStart()),
+    workingHours: (v?: { id: string; roles: string[] }, pick: string | null = null) => (v ? companyTime.hoursFor({ viewer: v, pick }) : settingsService.workingHours()),
+    dailyLimit: () => settingsService.dailyLimit(),
+    weeklySummaryEnabled: () => settingsService.weeklySummaryEnabled(),
+  };
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
   const aiConfigRepository = createPrismaAiConfigRepository(prisma, { logger });
   const aiConfigService = createAiConfigService({ repo: aiConfigRepository, audit: auditService, allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS });
@@ -1156,6 +1179,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     defaultTimeZone: companyTz, // times in emails are shown in the company zone, not UTC
     logger,
+    emailOptions: (m) => documentBrands.email.meeting(m.id), // companies: the meeting's company
   });
   // Taking someone off an invited meeting removes it from their calendar (best-effort).
   onAttendeeRemoved = (meetingId, attendee, alsoFrom) => {
@@ -1188,6 +1212,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     defaultTimeZone: companyTz,
     logger,
+    emailOptions: documentBrands.email.meeting, // companies: the meeting's company
   });
   const MEETING_REMINDER_LEASE_MS = 55 * 1000;
   const runMeetingReminders = () =>
@@ -1303,7 +1328,9 @@ async function main(): Promise<void> {
     people: dailyEmailSources.people,
     // The pending email also says how many tasks wait for the person's approval.
     tasks: { ...dailyEmailSources.tasks, awaitingApproval: (userId) => approvalSource.countFor(userId) },
-    send: (to, content, template) => emailService.sendPrepared(template, to, content),
+    // companies: one email per person, under their primary company's brand and sender name (MC1 Task 16).
+    send: (to, content, template, opts) => emailService.sendPrepared(template, to, content, opts),
+    emailOptions: documentBrands.email.person,
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
@@ -1333,15 +1360,20 @@ async function main(): Promise<void> {
   // goes on the first working morning of the company week, at each person's daily-email time, to
   // everyone who can see the page (their own projects only), once a week — the same lease-locked,
   // every-minute sweep and retries as the daily task emails, with a company-wide switch.
-  const managementService = createManagementFromPrisma(prisma, { settings: settingsService, timeZone: companyTz });
+  const managementService = createManagementFromPrisma(prisma, { settings: managementSettings, timeZone: companyTz }); // companies: the reader's week
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
-    settings: settingsService,
-    send: (to, content, template) => emailService.sendPrepared(template, to, content),
+    settings: managementSettings,
+    // companies: one summary per person, a section per company, under their primary company's brand (MC1 Task 16).
+    send: (to, content, template, opts) => emailService.sendPrepared(template, to, content, opts),
+    emailOptions: documentBrands.email.person,
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
     logger,
+    // companies: each person's summary goes on their primary company's first working day.
+    calendarOf: (userId) => companyTime.calendarOf(userId),
+    calendars: () => companyTime.calendars(),
   });
   const runWeeklySummary = () =>
     runExclusive(jobLock, 'weekly-management-summary', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
@@ -1362,6 +1394,7 @@ async function main(): Promise<void> {
     otpLength: env.OTP_LENGTH,
     maxAttempts: 3,
     logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
   const passwordResetService = createPasswordResetService({
@@ -1375,6 +1408,7 @@ async function main(): Promise<void> {
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
   // Realtime broadcasters are wired after the HTTP server exists (below).
@@ -1411,6 +1445,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     downloads: () => emailDownloadLinks({ appUrl: env.APP_URL, androidAppUrl: env.ANDROID_APP_URL, webRoot: webRootDir, downloadsDir }),
     logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
   // ── Nightly backups (docs/BACKUPS.md) ──────────────────────────────────────
@@ -1493,8 +1528,14 @@ async function main(): Promise<void> {
     source: createPrismaClientViewSource(prisma),
     mailer: {
       isConfigured: () => emailService.isConfigured(),
-      sendClientInvitation: (email, params) => emailService.sendClientInvitation(email, params),
-      sendClientCode: (email, params) => emailService.sendClientCode(email, params),
+      sendClientInvitation: (email, params, opts) => emailService.sendClientInvitation(email, params, opts),
+      sendClientCode: (email, params, opts) => emailService.sendClientCode(email, params, opts),
+    },
+    // companies: the project's main company on the client's emails, PDFs and page.
+    branding: {
+      email: documentBrands.email.project,
+      pdf: documentBrands.pdf.project,
+      page: async (projectId) => companyBranding.clientPage(await companyBranding.forProject(projectId)),
     },
     userName: async (id) => {
       const u = await prisma.user.findUnique({ where: { id }, select: { firstName: true, lastName: true, username: true } });
@@ -1553,6 +1594,8 @@ async function main(): Promise<void> {
     // companies (MC1 Task 10): who may be invited to a meeting, and a standalone meeting's company.
     meetingInvitees: createPrismaMeetingInvitees(prisma, { companyAccess, personOptions }),
     meetingCompany: createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) }),
+    pdfBranding: documentBrands.pdf, // companies: each PDF's company name and logo
+    companyTime, // companies: each company's week start and working hours
     columnService,
     memberService,
     projectAuthz,
@@ -1625,7 +1668,18 @@ async function main(): Promise<void> {
     // Schedule meeting's free times: who is busy, inside the company's meeting hours.
     meetingFreeTimes: {
       busy: meetingRepository,
-      workingHours: () => settingsService.workingHours(),
+      // companies: the hours of the meeting's project / company / the meeting — only ones the asker may
+      // use (else theirs): a project they can see, one of their companies, a meeting they can open.
+      workingHours: async (target) =>
+        target
+          ? companyTime.hoursFor(
+              await usableHoursTarget(target, {
+                seeProject: (viewer, projectId) => companyAccess.canSeeProject(viewer, projectId),
+                companyIds: (userId) => companyAccess.activeCompanyIds(userId),
+                openMeeting: (viewer, meetingId) => meetingAccess.canViewMeeting(viewer.id, viewer.roles, meetingId),
+              }),
+            )
+          : settingsService.workingHours(),
       userNames: resolveUserNames,
       timeZone: companyTz,
     },
@@ -1704,6 +1758,7 @@ async function main(): Promise<void> {
       timeZone: companyTz,
       projectImage: (url) => readProjectPicture(url, readStoredProjectImage, imageShrinker.toPrintable),
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
+      pdfBrand: documentBrands.pdf.inspection, // companies: the inspection's project's company
     },
     management: {
       service: managementService,

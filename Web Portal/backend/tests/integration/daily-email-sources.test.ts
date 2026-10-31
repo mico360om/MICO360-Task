@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaDailyEmailSources } from '../../src/modules/daily-emails/prisma-daily-email-sources';
+import { runBackfill } from './company-helpers';
+import { DEFAULT_COMPANY } from '../../src/modules/companies/default-company';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -50,6 +52,7 @@ beforeEach(async () => {
   await task(open, open.todo.id, [ada], { deletedAt: new Date() }); // DM-6: deleted
   await task(old, old.todo.id, [ada]); // DM-7: archived project
   await task(open, open.todo.id, []); // DM-8: nobody's
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 });
 
 describe('Daily email sources (integration)', () => {
@@ -77,6 +80,7 @@ describe('Daily email sources (integration)', () => {
       color: '#3A6EA5',
       imageUrl: '/uploads/projects/dm.png',
       targetDate: new Date('2026-11-30T00:00:00Z'),
+      company: { id: DEFAULT_COMPANY.id, name: expect.any(String) }, // companies: its main company (heads a grouped email)
     });
     expect((await sources.tasks.pending(bo)).map((t) => t.key).sort()).toEqual(['DM-2', 'DM-3']);
   });

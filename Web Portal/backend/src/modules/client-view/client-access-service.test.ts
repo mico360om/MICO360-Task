@@ -5,6 +5,7 @@ import { createMemoryClientViewSource, type MemoryClientViewSource } from './mem
 import { ClientCodeInvalidError, ClientLinkEndedError, ClientSignInRequiredError } from './client-view-errors';
 import { hashToken } from './client-tokens';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { solidPng } from '../../lib/test-images';
 import type { ClientCodeParams, ClientInvitationParams } from '../email/email-templates';
 
 const MIN = 60_000;
@@ -521,5 +522,78 @@ describe('the minutes PDF a client downloads', () => {
     const token = await signIn(link);
     for (const id of ['m-hidden', 'm-other', 'nope']) await expect(svc.minutesPdf(link, sessionOf(token), id)).rejects.toMatchObject({ status: 404 });
     await expect(svc.minutesPdf(link, noSession, 'm-shown')).rejects.toBeInstanceOf(ClientSignInRequiredError);
+  });
+});
+
+describe('the project’s company on the client’s emails, page and PDFs (companies)', () => {
+  const logo = solidPng(200, 60);
+  const brandMail = { brand: { companyName: 'Alpha LLC' }, fromName: 'Alpha Team' };
+  let sentWith: unknown[];
+  function branded(over: Partial<{ fail: boolean }> = {}) {
+    sentWith = [];
+    const mailer: ClientMailer = {
+      isConfigured: () => true,
+      async sendClientInvitation(email, params, opts) {
+        invitations.push({ email, params });
+        sentWith.push(opts);
+        return 'sent';
+      },
+      async sendClientCode(email, params, opts) {
+        codes.push({ email, params });
+        sentWith.push(opts);
+      },
+    };
+    const fail = async () => {
+      throw new Error('database away');
+    };
+    return createClientAccessService({
+      store,
+      source,
+      mailer,
+      userName: async () => null,
+      appUrl: 'https://task.mico360.test/',
+      assetUrl: 'https://task.mico360.test',
+      timeZone: 'Asia/Muscat',
+      now: () => new Date(clock),
+      runInBackground: (task) => void pending.push(task()),
+      branding: over.fail
+        ? { email: fail, pdf: fail, page: fail }
+        : {
+            email: async (projectId) => (projectId === 'p1' ? brandMail : undefined),
+            pdf: async () => ({ companyName: 'Alpha LLC', logo }),
+            page: async () => ({ name: 'Alpha LLC', logoUrl: '/uploads/companies/a/logo.png' }),
+          },
+    });
+  }
+  const images = (pdf: Buffer) => [...inspectPdf(pdf).objects.values()].filter((d) => /\/Subtype \/Image/.test(d)).map((d) => Number(/\/Width (\d+)/.exec(d)?.[1]));
+
+  it('the invitation and the code carry the company’s brand; “The … team” names the company; the page shows it', async () => {
+    svc = branded();
+    const link = await shareWithFatma();
+    expect(invitations.at(-1)!.params.sharedByName).toBe('The Alpha LLC team');
+    const token = await signIn(link);
+    expect(sentWith).toEqual([brandMail, brandMail]);
+    expect((await svc.view(link, sessionOf(token))).company).toEqual({ name: 'Alpha LLC', logoUrl: '/uploads/companies/a/logo.png' });
+  });
+
+  it('its minutes PDF has the company’s name in the footer and its logo in the header', async () => {
+    svc = branded();
+    const content = { summary: 'Agreed the plan.', discussion: [], decisions: [], risks: [], nextSteps: [] };
+    source.addMinutes('p1', { meetingId: 'm1', title: 'Kick-off', startAt: new Date('2026-10-05T06:00:00Z'), timeZone: 'Asia/Muscat', status: 'APPROVED', clientVisible: true, approvedAt: new Date('2026-10-06T06:00:00Z'), content });
+    const link = await shareWithFatma();
+    const { pdf } = await svc.minutesPdf(link, sessionOf(await signIn(link)), 'm1');
+    expect(inspectPdf(pdf).pages.flat().join('\n')).toContain('Alpha LLC');
+    expect(images(pdf)).toContain(200);
+  });
+
+  it('without the module, or when it can’t be read, everything is as before', async () => {
+    const link = await shareWithFatma();
+    const token = await signIn(link);
+    expect((await svc.view(link, sessionOf(token))).company).toBeNull();
+    svc = branded({ fail: true });
+    const link2 = await shareWithFatma('other@client.example');
+    expect(invitations.at(-1)!.params.sharedByName).toBe('The MICO360 team');
+    expect(sentWith).toEqual([undefined]);
+    expect((await svc.view(link2, sessionOf(await signIn(link2, 'other@client.example')))).company).toBeNull();
   });
 });

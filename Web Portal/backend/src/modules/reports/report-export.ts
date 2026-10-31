@@ -8,6 +8,7 @@ import type { XlsxSheet, XlsxValue } from '../../lib/xlsx-writer';
 import { BRAND, CATEGORY_COLOR, CATEGORY_ORDER, categoryLabel, formatDateTime, formatDay, priorityLabel, slugPart, wallClock } from '../../lib/export-format';
 import type { CompletionStats, ProjectPerformance, ReportFilter, ReportService, TaskListRow, UserWorkload } from './report-service';
 import type { TimeSeriesResult } from './report-timeseries';
+import type { PdfBrand } from '../companies/company-branding';
 
 export type ReportSection = 'summary' | 'status' | 'projects' | 'workload' | 'trend' | 'tasks';
 export const ALL_SECTIONS: ReportSection[] = ['summary', 'status', 'projects', 'workload', 'trend', 'tasks'];
@@ -193,14 +194,16 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
 // PDF
 // ---------------------------------------------------------------------------
 
-export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSection[] = ALL_SECTIONS): Buffer {
+/** `company` (companies): the company's name before the product's in the credit line (2+ companies), and its logo. */
+export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSection[] = ALL_SECTIONS, company?: PdfBrand | null): Buffer {
   const runningTitle = `${meta.title}${meta.projectName ? ` · ${meta.projectName}` : ''}`;
   const doc = new PdfDocument({
     orientation: 'landscape',
     title: runningTitle,
     runningTitle,
-    footerLeft: `MICO360 Tasks · ${generatedLine(meta)}`,
+    footerLeft: `${company?.companyName ? `${company.companyName} · ` : ''}MICO360 Tasks · ${generatedLine(meta)}`,
     palette: { brand: BRAND },
+    ...(company?.logo ? { logo: company.logo } : {}),
   });
   doc.reportHeader({ title: meta.title, subtitle: meta.projectName || 'All projects', details: [filterSummary(meta, sections), generatedLine(meta)] });
 

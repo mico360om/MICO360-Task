@@ -14,6 +14,7 @@ import { shownMeetingStatus } from './meeting-end';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { draftFromNotes, minutesFacts, normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
 import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
+import type { PdfBrand } from '../companies/company-branding';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -94,6 +95,8 @@ export interface MinutesRouteDeps {
    * action items; everything else here is the team's.
    */
   viewOf?: (userId: string, roles: string[], meetingId: string) => Promise<'full' | 'invitee' | null>;
+  /** Companies: the meeting's company brand on its minutes PDF — its name (2+ companies) and logo; absent: the site's. */
+  pdfBrand?: (meetingId: string) => Promise<PdfBrand>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
   notify?: {
     sendMinutes: (meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }) => Promise<{ sent: number; failed?: number }>;
@@ -271,7 +274,10 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
           approvedAt: approved && shown.approvedAt ? shown.approvedAt.toISOString() : null,
         }
       : null;
-    return { pdf: buildMinutesPdf({ ...data, final }), title, final: approved };
+    // Companies: the meeting's company name in the footer (2+ companies) and its logo in the header.
+    const company = deps.pdfBrand ? await deps.pdfBrand(id).catch(() => null) : null;
+    const branded = company?.companyName ? { ...data, brand: { ...data.brand, companyName: company.companyName } } : data;
+    return { pdf: buildMinutesPdf({ ...branded, final, ...(company?.logo ? { logo: company.logo } : {}) }), title, final: approved };
   }
 
   // ?version=final (older links) gets the same document: the final minutes are in it once approved.

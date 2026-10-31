@@ -836,3 +836,48 @@ describe('daily task emails: the administrators’ overview of a day', () => {
     expect(next.people[1]!.pending).toMatchObject({ state: 'DUE', dueAt: at('2026-10-22T02:00:00Z') });
   });
 });
+
+describe('one morning email per person, grouped by company, with their company’s brand (companies, MC1 Task 16)', () => {
+  const ALPHA = { id: 'c-a', name: 'Alpha LLC' };
+  const BETA = { id: 'c-b', name: 'Beta LLC' };
+  const inA: DailyTask['project'] = { ...RIG, id: 'p-a', company: ALPHA };
+  const inB: DailyTask['project'] = { ...RIG, id: 'p-b', code: 'BRG', name: 'Beta Rig', company: BETA };
+  function branded(pendingTasks: DailyTask[], brand?: { brand: { companyName: string }; fromName?: string }) {
+    const sent: Array<{ to: string; content: EmailContent; template: string; opts?: { fromName?: string } }> = [];
+    const brandOf = vi.fn(async () => brand);
+    const service = createDailyEmailService({
+      repo: memoryRepo(() => at('2026-10-21T02:00:00Z')).repo,
+      people: { list: async () => [person('cat')], find: async (id) => (id === 'cat' ? person('cat') : null) },
+      tasks: { pending: async () => pendingTasks, completedBetween: async () => [] },
+      send: async (to, content, template, opts) => {
+        sent.push({ to, content, template, opts });
+        return 'sent';
+      },
+      isConfigured: () => true,
+      companyTimeZone: TZ,
+      appUrl: 'https://task.example',
+      now: () => at('2026-10-21T02:00:00Z'),
+      emailOptions: brandOf,
+    });
+    return { service, sent, brandOf };
+  }
+
+  it('tasks in two companies: ONE email, a section per company, its primary company’s name and sender', async () => {
+    const t = branded([task('BRG-1', { project: inB }), task('RIG-1', { project: inA })], { brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' });
+    await t.service.runSweep();
+    expect(t.sent).toHaveLength(1);
+    const { content, opts } = t.sent[0]!;
+    expect(content.html.indexOf('>Alpha LLC</h2>')).toBeGreaterThan(-1);
+    expect(content.html.indexOf('>Alpha LLC</h2>')).toBeLessThan(content.html.indexOf('>Beta LLC</h2>'));
+    expect(content.html).toContain('© 2026 Beta LLC');
+    expect(opts).toEqual({ fromName: 'Beta Team' });
+    expect(t.brandOf).toHaveBeenCalledWith('cat');
+  });
+
+  it('tasks in one company: no headings, and without a brand nothing about the sender changes', async () => {
+    const t = branded([task('RIG-1', { project: inA }), task('RIG-2', { project: inA })]);
+    await t.service.runSweep();
+    expect(t.sent[0]!.content.html).not.toContain('</h2>');
+    expect(t.sent[0]!.opts).toBeUndefined();
+  });
+});

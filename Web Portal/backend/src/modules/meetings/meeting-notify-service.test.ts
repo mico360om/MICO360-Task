@@ -299,3 +299,51 @@ describe('MeetingNotifyService — attendee removed (MTG-02)', () => {
     expect(email.sendMeetingCancelled).not.toHaveBeenCalled();
   });
 });
+
+describe('MeetingNotifyService — the meeting’s company brand (companies)', () => {
+  const brand = { brand: { companyName: 'Alpha LLC' }, fromName: 'Alpha Team' };
+  function branded(emailOptions: (m: MeetingRecord) => Promise<unknown>) {
+    const email = {
+      sendMeetingInvite: vi.fn(async (..._args: unknown[]) => {}),
+      sendMeetingCancelled: vi.fn(async (..._args: unknown[]) => {}),
+      sendMeetingMinutes: vi.fn(async (..._args: unknown[]) => {}),
+    };
+    const row = meeting({ invitesSentAt: new Date('2026-10-04T10:00:00Z') });
+    const svc = createMeetingNotifyService({
+      meetings: { findById: async () => row, markInvitesSent: async () => {} } as never,
+      attendees: { listByMeeting: async () => [attendee({ userId: 'u2' })] },
+      email,
+      resolveUser: async (uid: string) => directory[uid] ?? null,
+      appUrl: 'https://app.mico360.test',
+      defaultTimeZone: 'Asia/Muscat',
+      now: () => new Date('2026-10-05T13:00:00Z'),
+      emailOptions: emailOptions as never,
+    });
+    return { svc, email };
+  }
+
+  it('invitations, cancellations, the minutes and the minutes preview carry it', async () => {
+    const asked: string[] = [];
+    const { svc, email } = branded(async (m) => {
+      asked.push(m.id);
+      return brand;
+    });
+    await svc.sendInvites('m1');
+    await svc.sendCancellation('m1');
+    await svc.sendMinutes('m1', Buffer.from('%PDF'));
+    for (const send of [email.sendMeetingInvite, email.sendMeetingCancelled, email.sendMeetingMinutes]) {
+      expect(send.mock.calls.length).toBeGreaterThan(0);
+      for (const call of send.mock.calls) expect(call[3]).toEqual(brand);
+    }
+    expect((await svc.previewMinutes('m1')).html).toContain('Alpha LLC');
+    expect(asked.every((id) => id === 'm1')).toBe(true);
+  });
+
+  it('without one (or when it can’t be read), the emails go exactly as before', async () => {
+    const { svc, email } = branded(async () => {
+      throw new Error('database away');
+    });
+    await svc.sendInvites('m1');
+    expect(email.sendMeetingInvite.mock.calls.every((c) => c.length === 3)).toBe(true);
+  });
+});

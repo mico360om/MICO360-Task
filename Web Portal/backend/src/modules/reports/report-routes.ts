@@ -12,6 +12,7 @@ import { shiftDayKey, todayKey } from '../../lib/due-date';
 import { calendarDay, idString } from '../tasks/validation';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import type { PdfBrand } from '../companies/company-branding';
 
 /** Names for the exported documents: the filters' project and member, and who generated it. */
 export interface ReportNames {
@@ -29,6 +30,11 @@ export interface ReportRouteDeps {
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: a company's people (its active members) — the workload rows with a pick. */
   companyPeople?: (companyId: string) => Promise<string[]>;
+  /**
+   * Companies: the PDF's company brand — the filtered project's main company, else the picked
+   * company, else the reader's primary company; absent: the site's.
+   */
+  pdfBrand?: (req: FastifyRequest, projectId: string | null) => Promise<PdfBrand>;
 }
 
 interface ReportDef {
@@ -176,7 +182,8 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
       const body = buildXlsx(reportSheets(bundle, meta, opts.sections), { title: opts.title, brand: BRAND }, meta.generatedAt);
       return download(reply, XLSX_CONTENT_TYPE, reportFileName(opts.file, meta, 'xlsx'), body);
     }
-    return download(reply, 'application/pdf', reportFileName(opts.file, meta, 'pdf'), reportPdf(bundle, meta, opts.sections));
+    const company = deps.pdfBrand ? await deps.pdfBrand(req, range.projectId ?? null).catch(() => null) : null;
+    return download(reply, 'application/pdf', reportFileName(opts.file, meta, 'pdf'), reportPdf(bundle, meta, opts.sections, company));
   }
 
   /** A CSV / .xls download's name, like the other exports: report + filters + the company day. */

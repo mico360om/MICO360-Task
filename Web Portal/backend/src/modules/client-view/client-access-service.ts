@@ -2,7 +2,8 @@ import { generateOtpCode, hashOtp, verifyOtp } from '../../lib/otp';
 import { ConflictError, HttpError, NotFoundError } from '../../lib/http-errors';
 import { resolveBrand } from '../email/brand';
 import type { CreateAuditData } from '../audit/audit-repository';
-import type { ClientCodeParams, ClientInvitationParams } from '../email/email-templates';
+import type { ClientCodeParams, ClientInvitationParams, TemplateOptions } from '../email/email-templates';
+import type { ClientPageCompany, PdfBrand } from '../companies/company-branding';
 import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore } from './client-share-store';
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
@@ -42,8 +43,15 @@ export type ClientAccessLimits = typeof CLIENT_ACCESS_LIMITS;
 export interface ClientMailer {
   isConfigured(): boolean;
   /** 'suppressed': the address is blocked (it bounced or was marked as spam), nothing was sent. */
-  sendClientInvitation(email: string, params: ClientInvitationParams): Promise<'sent' | 'suppressed'>;
-  sendClientCode(email: string, params: ClientCodeParams): Promise<void>;
+  sendClientInvitation(email: string, params: ClientInvitationParams, opts?: TemplateOptions): Promise<'sent' | 'suppressed'>;
+  sendClientCode(email: string, params: ClientCodeParams, opts?: TemplateOptions): Promise<void>;
+}
+
+/** Companies: a project's company brand as the client's emails, PDFs and page carry it (its main company's). */
+export interface ClientBranding {
+  email(projectId: string): Promise<TemplateOptions | undefined>;
+  pdf(projectId: string): Promise<PdfBrand>;
+  page(projectId: string): Promise<ClientPageCompany>;
 }
 
 export interface ClientAccessDeps {
@@ -73,6 +81,8 @@ export interface ClientAccessDeps {
     /** One report with its items and signatures (opened on the page, and its PDF). */
     one(projectId: string, inspectionId: string): Promise<ClientInspection | null>;
   };
+  /** Companies: the project's company brand (absent: the site's, as before). */
+  branding?: ClientBranding;
 }
 
 /** A client on the Share with client panel (never their link). */
@@ -134,6 +144,13 @@ export function createClientAccessService(deps: ClientAccessDeps) {
 
   const picture = (url: string | null) => (!url ? null : /^https?:\/\//i.test(url) ? url : url.startsWith('/') ? `${assetUrl}${url}` : null);
 
+  // Companies: the project's company brand; one that can't be read leaves the site's, as before.
+  const emailBrand = async (projectId: string) => (deps.branding ? ((await deps.branding.email(projectId).catch(() => undefined)) ?? null) : null);
+  const pdfBrand = async (projectId: string): Promise<PdfBrand> =>
+    deps.branding ? deps.branding.pdf(projectId).catch(() => ({ companyName: null, logo: null })) : { companyName: null, logo: null };
+  /** The site's PDF brand fields, with the company's name when it has one to print. */
+  const withCompany = <B extends { companyName: string }>(b: B, pdf: PdfBrand): B => (pdf.companyName ? { ...b, companyName: pdf.companyName } : b);
+
   /** A project that may still be shown to its clients: there, not deleted, not archived. */
   async function liveProject(projectId: string): Promise<ClientProjectSource | null> {
     const p = await source.project(projectId);
@@ -155,10 +172,11 @@ export function createClientAccessService(deps: ClientAccessDeps) {
   }
 
   async function invite(share: ClientShareRecord, project: ClientProjectSource, token: string, actorId: string, failed: string, replacesEarlier = false): Promise<Date> {
-    const sharedByName = (await deps.userName(actorId).catch(() => null)) || `The ${resolveBrand().companyName} team`;
+    const brand = await emailBrand(share.projectId);
+    const sharedByName = (await deps.userName(actorId).catch(() => null)) || `The ${brand?.brand?.companyName ?? resolveBrand().companyName} team`;
     let result: 'sent' | 'suppressed';
     try {
-      result = await mailer.sendClientInvitation(share.email, {
+      const params: ClientInvitationParams = {
         clientName: share.name,
         sharedByName,
         projectName: project.name,
@@ -168,7 +186,8 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         link: `${appUrl}/client/${token}`,
         email: share.email,
         ...(replacesEarlier ? { replacesEarlier: true } : {}),
-      });
+      };
+      result = brand ? await mailer.sendClientInvitation(share.email, params, brand) : await mailer.sendClientInvitation(share.email, params);
     } catch (err) {
       deps.logger?.warn('client view: an invitation could not be sent', { err, shareId: share.id });
       throw new HttpError(failed, 'EMAIL_FAILED', 502);
@@ -229,7 +248,11 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       }
       const code = generateOtpCode(limits.codeLength);
       await store.createCode({ shareId: share.id, codeHash: await hashOtp(code), expiresAt: new Date(at + limits.codeTtlMinutes * MINUTE) });
-      await mailer.sendClientCode(share.email, { code, projectName, expiresInMinutes: limits.codeTtlMinutes });
+      // Off the request path (runInBackground): reading the brand takes no time a client can measure.
+      const brand = await emailBrand(share.projectId);
+      const params = { code, projectName, expiresInMinutes: limits.codeTtlMinutes };
+      if (brand) await mailer.sendClientCode(share.email, params, brand);
+      else await mailer.sendClientCode(share.email, params);
     } finally {
       issuing.delete(share.id);
     }
@@ -361,13 +384,15 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       const { share, project } = await openSession(link, readSession);
       const at = now();
       if (!share.lastViewedAt || at.getTime() - share.lastViewedAt.getTime() >= MINUTE) await store.markViewed(share.id, at);
-      const [counts, items, minutes, inspections] = await Promise.all([
+      const [counts, items, minutes, inspections, company] = await Promise.all([
         source.counts(share.projectId),
         source.items(share.projectId),
         source.minutes(share.projectId),
         deps.inspections ? deps.inspections.list(share.projectId) : Promise.resolve([]),
+        // Companies: the project's main company, while the site has several (else null: the page is unchanged).
+        deps.branding ? deps.branding.page(share.projectId).catch(() => null) : Promise.resolve(null),
       ]);
-      return buildClientView({ viewer: { name: share.name, email: share.email }, project, counts, items, minutes, inspections, timeZone: deps.timeZone, now: at });
+      return buildClientView({ viewer: { name: share.name, email: share.email }, project, counts, items, minutes, inspections, timeZone: deps.timeZone, now: at, company });
     },
 
     /** The client copy of a shown meeting's approved minutes (never the staff PDF). */
@@ -376,16 +401,21 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       const m = typeof meetingId === 'string' && meetingId ? await source.minutesOf(share.projectId, meetingId) : null;
       if (!m || m.status !== 'APPROVED' || !m.clientVisible) throw new NotFoundError('These minutes aren’t shared with you.');
       const brand = resolveBrand();
+      const company = await pdfBrand(share.projectId);
       const image = project.imageUrl && deps.projectImage ? await deps.projectImage(project.imageUrl).catch(() => null) : null;
       const pdf = buildClientMinutesPdf({
-        brand: {
-          productName: brand.productName,
-          companyName: brand.companyName,
-          websiteUrl: brand.websiteUrl,
-          supportEmail: brand.supportEmail,
-          companyAddress: brand.companyAddress,
-          colors: { brand: brand.colors.brand, ink: brand.colors.ink, muted: brand.colors.ink2, line: brand.colors.line },
-        },
+        brand: withCompany(
+          {
+            productName: brand.productName,
+            companyName: brand.companyName,
+            websiteUrl: brand.websiteUrl,
+            supportEmail: brand.supportEmail,
+            companyAddress: brand.companyAddress,
+            colors: { brand: brand.colors.brand, ink: brand.colors.ink, muted: brand.colors.ink2, line: brand.colors.line },
+          },
+          company,
+        ),
+        ...(company.logo ? { logo: company.logo } : {}),
         project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
         meeting: { title: m.title, startAt: m.startAt.toISOString(), endAt: m.endAt ? m.endAt.toISOString() : null, timeZone: m.timeZone },
         approvedAt: m.approvedAt ? m.approvedAt.toISOString() : null,
@@ -416,8 +446,10 @@ export function createClientAccessService(deps: ClientAccessDeps) {
       const report = typeof inspectionId === 'string' && inspectionId && deps.inspections ? await deps.inspections.one(share.projectId, inspectionId) : null;
       if (!report) throw new NotFoundError('This inspection report isn’t shared with you.');
       const image = project.imageUrl && deps.projectImage ? await deps.projectImage(project.imageUrl).catch(() => null) : null;
+      const company = await pdfBrand(share.projectId);
       const pdf = buildInspectionPdf({
-        brand: reportBrand(),
+        brand: withCompany(reportBrand(), company),
+        ...(company.logo ? { logo: company.logo } : {}),
         project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
         report,
         timeZone: deps.timeZone,

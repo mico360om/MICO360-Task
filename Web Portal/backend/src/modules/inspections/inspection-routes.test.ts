@@ -276,3 +276,26 @@ describe('scheduled inspection routes', () => {
     expect((await call('GET', '/inspection-forms/nope/usage', owner)).statusCode).toBe(404);
   });
 });
+
+describe('inspection report PDF: the company (companies)', () => {
+  it('is read for that inspection, only once the reader may see its report', async () => {
+    const asked: string[] = [];
+    app = await buildApp({
+      tokenService,
+      authService,
+      rateLimitMax: 100_000,
+      inspections: { service: f.service, timeZone: 'Asia/Muscat', pdfBrand: async (id) => { asked.push(id); return { companyName: 'Alpha LLC', logo: null }; } },
+    });
+    const { insp, ids } = await startedByIvan();
+    await call('PUT', `/inspections/${insp.id}/answers`, inspector, { answers: ids.map((itemId, k) => ({ itemId, result: k === 0 ? null : 'PASS', reading: k === 0 ? '120.5' : null, note: null, editedAt: '2026-10-27T08:10:00Z' })) });
+    const seen = (await call('GET', `/inspections/${insp.id}`, inspector)).json().data.answers.map((a: { itemId: string; editedAt: string }) => ({ itemId: a.itemId, editedAt: a.editedAt }));
+    const body = { finishId: 'c0ffee00-finish', revision: 0, seen, signatures: [{ role: 'INSPECTOR', name: 'Ivan Inspector', method: 'DRAWN', image: await pngDataUrl(600, 200), signedAt: '2026-10-27T08:30:00Z' }] };
+    expect((await call('POST', `/inspections/${insp.id}/finish`, inspector, body)).statusCode).toBe(200);
+    expect((await call('GET', `/inspections/${insp.id}/report.pdf`, outsider)).statusCode).toBe(404);
+    expect(asked).toEqual([]);
+    const pdf = await call('GET', `/inspections/${insp.id}/report.pdf`, member);
+    expect(pdf.statusCode).toBe(200);
+    expect(asked).toEqual([insp.id]);
+    expect(inspectPdf(pdf.rawPayload).pages.flat().join('\n')).toContain('Alpha LLC');
+  });
+});
