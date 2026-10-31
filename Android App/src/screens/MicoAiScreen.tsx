@@ -39,7 +39,7 @@ export function MicoAiScreen(props: AppScreenProps<'MicoAi'>) {
   );
 }
 
-function Conversation(_props: AppScreenProps<'MicoAi'>) {
+function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const { baseUrl } = useServices();
@@ -121,6 +121,18 @@ function Conversation(_props: AppScreenProps<'MicoAi'>) {
     },
     [actions, chatId, gone],
   );
+
+  // "Ask MICO AI" from Search arrives as the screen's params: a new chat with that question, asked once.
+  // The params go first, so coming back to the screen asks nothing again (a link never carries them).
+  const asked = useRef<string | null>(null);
+  useEffect(() => {
+    const ask = route.params?.ask;
+    const askId = route.params?.askId;
+    if (!ask?.trim() || !askId || asked.current === route.params?.askId) return;
+    asked.current = askId;
+    navigation.setParams({ ask: undefined, askId: undefined });
+    void send(ask, { newChat: true });
+  }, [route.params?.ask, route.params?.askId, navigation, send]);
 
   const stop = async () => {
     if (!pending) return;
