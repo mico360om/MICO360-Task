@@ -24,7 +24,7 @@ const directory: Record<string, { name: string; email: string }> = {
   u2: { name: 'Khurram Admin', email: 'khurram@mico360.test' },
 };
 
-function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRecord[]; upcoming?: MeetingRecord[]; failFor?: (email: string) => Error | null } = {}) {
+function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRecord[]; failFor?: (email: string) => Error | null } = {}) {
   const row = over.meetingRow ?? meeting();
   // Mirrors the email service contract: a failed delivery throws (EmailDeliveryError).
   const maybeFail = (to: string) => {
@@ -33,15 +33,12 @@ function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRec
   };
   const email = {
     sendMeetingInvite: vi.fn(async (to: string, _params: unknown, _ics: unknown) => maybeFail(to)),
-    sendMeetingReminder: vi.fn(async (to: string, _params: unknown) => maybeFail(to)),
     sendMeetingCancelled: vi.fn(async (to: string, _params: unknown, _ics: unknown) => maybeFail(to)),
     sendMeetingMinutes: vi.fn(async (to: string, _params: unknown, _pdf: unknown) => maybeFail(to)),
   };
   const meetings = {
     findById: vi.fn(async (id: string) => (id === row.id ? row : null)),
     markInvitesSent: vi.fn(async () => {}),
-    markReminderSent: vi.fn(async () => {}),
-    listUpcomingWithoutReminder: vi.fn(async () => over.upcoming ?? []),
   };
   const attendees = { listByMeeting: vi.fn(async () => over.attendees ?? []), markInvited: vi.fn(async (_ids: string[], _at: Date) => {}) };
   const logger = { error: vi.fn(), warn: vi.fn() };
@@ -121,17 +118,6 @@ describe('MeetingNotifyService', () => {
     expect(preview.html).toContain('<img src="https://api.mico360.test/uploads/projects/falcon.png"');
   });
 
-  it('reminder sweep sends to upcoming meetings and marks each reminded', async () => {
-    const m = meeting({ id: 'm9' });
-    const { svc, email, meetings } = makeService({ meetingRow: m, upcoming: [m] });
-    // the sweep resolves attendees per meeting via the same attendees.listByMeeting
-    const res = await svc.runReminderSweep(60 * 60 * 1000);
-    expect(res.meetings).toBe(1);
-    expect(email.sendMeetingReminder).toHaveBeenCalled();
-    const params = email.sendMeetingReminder.mock.calls[0]![1] as { startsInLabel: string };
-    expect(params.startsInLabel).toMatch(/start/i);
-    expect(meetings.markReminderSent).toHaveBeenCalledWith('m9', expect.any(Date));
-  });
 });
 
 describe('MeetingNotifyService — delivery results (NTF-02)', () => {
@@ -169,12 +155,6 @@ describe('MeetingNotifyService — delivery results (NTF-02)', () => {
     expect(await svc.sendMinutes('m1', Buffer.from('%PDF'))).toMatchObject({ sent: 2, failed: 1 });
   });
 
-  it('leaves the reminder unmarked when every send failed, so the next sweep retries', async () => {
-    const m = meeting({ id: 'm9' });
-    const { svc, meetings } = makeService({ meetingRow: m, upcoming: [m], failFor: (to) => new EmailDeliveryError(to, 500) });
-    expect(await svc.runReminderSweep(60 * 60 * 1000)).toEqual({ meetings: 1, sent: 0, failed: 1 });
-    expect(meetings.markReminderSent).not.toHaveBeenCalled();
-  });
 });
 
 describe('MeetingNotifyService — checking before sending, and who got what', () => {
@@ -286,18 +266,6 @@ describe('MeetingNotifyService — time zones and resilience (MTG-01/03)', () =>
     const { svc, email } = makeService({ meetingRow: meeting({ timeZone: 'Muscat', startAt: new Date('2026-10-05T06:00:00Z'), endAt: null }) });
     await expect(svc.sendInvites('m1')).resolves.toMatchObject({ sent: 1, failed: 0 });
     expect((email.sendMeetingInvite.mock.calls[0]![1] as { whenLabel: string }).whenLabel).toBe('Monday 5 October 2026, 10:00 (GMT+4)');
-  });
-
-  it('keeps sweeping other meetings when one meeting fails', async () => {
-    const broken = meeting({ id: 'broken' });
-    const fine = meeting({ id: 'fine' });
-    const { svc, meetings, attendees, logger } = makeService({ upcoming: [broken, fine] });
-    attendees.listByMeeting.mockImplementationOnce(async () => { throw new Error('directory down'); });
-    const res = await svc.runReminderSweep(60 * 60 * 1000);
-    expect(res.meetings).toBe(2);
-    expect(meetings.markReminderSent).toHaveBeenCalledWith('fine', expect.any(Date));
-    expect(meetings.markReminderSent).not.toHaveBeenCalledWith('broken', expect.any(Date));
-    expect(logger.error).toHaveBeenCalledWith('meeting reminder failed', expect.objectContaining({ meetingId: 'broken' }));
   });
 
   it('anchors a recurring invitation in the meeting zone and omits a paused rule (MTG-09)', async () => {

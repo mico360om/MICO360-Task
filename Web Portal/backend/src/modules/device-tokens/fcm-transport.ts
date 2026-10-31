@@ -23,6 +23,9 @@ export interface FcmTransportDeps {
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const DEFAULT_TOKEN_URI = 'https://oauth2.googleapis.com/token';
+/** The Android app's own notification channels (adapters/push.ts creates them on launch). */
+export const DEFAULT_PUSH_CHANNEL = 'default';
+export const MEETING_PUSH_CHANNEL = 'meetings';
 /** Renew the OAuth token this long before Google says it expires. */
 const TOKEN_SLACK_MS = 60_000;
 
@@ -126,8 +129,13 @@ export function createFcmTransport({ serviceAccount, fetchImpl = fetch, now = ()
           token: message.to,
           notification: { title: message.title, ...(message.body ? { body: message.body } : {}) },
           data: stringData(message.data),
-          // 'default' is the notification channel the Android app creates on launch.
-          android: { priority: 'HIGH', notification: { channel_id: 'default' } },
+          // High priority so it shows at once, also when the app is closed. 'default' is the channel
+          // the Android app creates on launch (meeting reminders have their own, 'meetings').
+          android: {
+            priority: 'HIGH',
+            ...(message.ttlSeconds ? { ttl: `${Math.max(0, Math.round(message.ttlSeconds))}s` } : {}),
+            notification: { channel_id: message.channelId ?? DEFAULT_PUSH_CHANNEL, ...(message.tag ? { tag: message.tag } : {}) },
+          },
         },
       }),
     });

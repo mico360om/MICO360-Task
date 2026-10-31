@@ -38,7 +38,7 @@ export interface MeetingRecord {
   transcript: string | null;
   /** When calendar invitations were last sent to attendees (null = never). */
   invitesSentAt: Date | null;
-  /** When the pre-meeting reminder was sent (null = not yet). */
+  /** When the old one-hour reminder email was sent (no longer stamped: reminders are in meeting_reminder_sends). */
   reminderSentAt: Date | null;
   createdById: string;
   createdAt: Date;
@@ -98,11 +98,9 @@ export interface MeetingRepository {
   softDelete(id: string): Promise<void>;
   /** Access facts (organizer/creator/project + attendee user ids) for authorization. */
   accessCore(id: string): Promise<MeetingAccessCore | null>;
-  /** Stamp when invitations / a reminder were sent (for status + reminder dedup); null clears it. */
+  /** Stamp when invitations were sent (status + cancellation notices); markReminderSent clears the old one-hour reminder's stamp. */
   markInvitesSent(id: string, at: Date): Promise<void>;
   markReminderSent(id: string, at: Date | null): Promise<void>;
-  /** Active meetings starting within [now, now+leadMs] whose reminder hasn't been sent (for the sweep). */
-  listUpcomingWithoutReminder(now: Date, leadMs: number): Promise<MeetingRecord[]>;
 }
 
 /** What a repeating series needs on top of the plain meeting store. Records carry `deletedAt`. */
