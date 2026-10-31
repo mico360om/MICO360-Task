@@ -116,6 +116,11 @@ describe('editRefreshes', () => {
     expect(editRefreshes('t1', { title: 'x' })).toEqual([{ queryKey: ['task', 't1', 'activity'], exact: true }, { listsHolding: 't1' }, ...TASK_FIGURE_VIEWS]);
   });
 
+  it('S1: a new inspection form re-reads the task’s details (only GET /tasks/:id names the form)', () => {
+    expect(editRefreshes('t1', { inspectionFormId: 'f2' })).toContainEqual({ queryKey: ['task', 't1'], exact: true });
+    expect(editRefreshes('t1', { inspectionPlace: 'Rig 4' })).not.toContainEqual({ queryKey: ['task', 't1'], exact: true });
+  });
+
   it('adds the project progress for a due date or a column change', () => {
     expect(editRefreshes('t1', { dueDate: null })).toContainEqual({ progressFor: 't1' });
     expect(editRefreshes('t1', { columnId: 'c2' })).toContainEqual({ progressFor: 't1' });

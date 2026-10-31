@@ -46,9 +46,9 @@ export function useDueChecks(projectId: string) {
 }
 
 /** The inspection forms there are to start from (and whether the person may make one, on the website). */
-export function useInspectionForms() {
+export function useInspectionForms(enabled = true) {
   const { resources } = useServices();
-  return useQuery({ queryKey: ['inspection-forms'], queryFn: () => resources.inspections.listForms(), staleTime: 30_000 });
+  return useQuery({ queryKey: ['inspection-forms'], queryFn: () => resources.inspections.listForms(), staleTime: 30_000, enabled });
 }
 
 /** A project's inspection schedules (online only, as on the website: scheduling needs a connection). */

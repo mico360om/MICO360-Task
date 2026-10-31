@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 import { websiteSays } from '../testing/phone-words';
-import { followUpOfLine, showTaskInspections, taskCheckCard, TASK_CHECK_WORDS } from './task-checks';
+import { checkFormOf, followUpOfLine, showTaskInspections, taskCheckCard, TASK_CHECK_WORDS } from './task-checks';
 import { taskSections } from './task-detail';
 import { withTaskCards } from './task-cards';
 import { boardCard, cardView } from './board';
@@ -79,4 +79,12 @@ it('the chip is the word with the clipboard, on My Tasks too; Start goes through
   expect(card).toMatch(/navigate\('Inspection', \{ inspectionId/);
   expect(card).toMatch(/<StartInspectionSheet[^>]*fixedTask=/);
   expect(src('screens/TaskDetailScreen.tsx')).toMatch(/inspections: <TaskInspectionsCard/);
+});
+
+it('S1: the form a check carries is the details’ own only while it is the task’s form; else the company’s forms name it, or nothing', () => {
+  const t = { inspectionFormId: 'f2', inspectionForm: { id: 'f1', title: 'Old check', deleted: false } };
+  expect(checkFormOf(t, [{ id: 'f2', title: 'New check' }])).toEqual({ id: 'f2', title: 'New check', deleted: false });
+  expect(checkFormOf(t, undefined)).toBeNull();
+  expect(checkFormOf({ inspectionFormId: 'f1', inspectionForm: { id: 'f1', title: 'Old check', deleted: true } }, [])).toEqual({ id: 'f1', title: 'Old check', deleted: true });
+  expect(checkFormOf({ inspectionFormId: null, inspectionForm: { id: 'f1', title: 'x', deleted: false } }, [{ id: 'f1', title: 'x' }])).toBeNull();
 });

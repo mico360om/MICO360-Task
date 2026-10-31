@@ -7,7 +7,7 @@ import { useInspectionForms, useStartInspection, useTaskInspections } from '../.
 import { ApiError } from '../../lib/api-client';
 import { newIdempotencyKey } from '../../lib/idempotency';
 import { problemText } from '../../lib/inspection-words';
-import { followUpOfLine, showTaskInspections, taskCheckCard, TASK_CHECK_WORDS as W } from '../../lib/task-checks';
+import { checkFormOf, followUpOfLine, showTaskInspections, taskCheckCard, TASK_CHECK_WORDS as W } from '../../lib/task-checks';
 import type { ApiTask } from '../../lib/types';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
@@ -28,14 +28,17 @@ export function TaskInspectionsCard({ task, project }: { task: ApiTask; project:
   const s = useMemo(() => makeStyles(c), [c]);
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const q = useTaskInspections(task.id);
-  const formsQ = useInspectionForms();
+  const canStart = project?.status !== 'ARCHIVED';
+  // The form named by the task's own details, while it is still the task's form.
+  const carried = task.inspectionFormId && task.inspectionForm?.id === task.inspectionFormId ? task.inspectionForm : null;
+  // The company's forms: only when they could be used — to start one for a task, or to name a check's new form.
+  const formsQ = useInspectionForms(canStart && !carried);
   const startM = useStartInspection(task.projectId);
   const key = useRef(newIdempotencyKey());
   const [problem, setProblem] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const form = task.inspectionFormId ? task.inspectionForm ?? null : null;
+  const form = checkFormOf(task, formsQ.data?.forms);
   const place = task.inspectionPlace ?? null;
-  const canStart = project?.status !== 'ARCHIVED';
   const noForms = Array.isArray(formsQ.data?.forms) && formsQ.data.forms.length === 0;
   const attached = q.data?.attached ?? [];
   const of = followUpOfLine(q.data?.followUpOf ?? null);

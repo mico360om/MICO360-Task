@@ -38,6 +38,8 @@ export function editRefreshes(taskId: string, patch: object): Refresh[] {
   // A new day or repeat may put the task (or its copies to come) on a calendar range that didn't hold it (5a).
   if ('dueDate' in patch || 'recurrenceRule' in patch) targets.push({ queryKey: ['tasks', 'calendar'] });
   if ((patch as { scope?: unknown }).scope === 'series') targets.push({ queryKey: ['tasks'] }, { taskDetails: 'all' });
+  // A new inspection form (Stage 4): only the task's details (GET /tasks/:id) name the form it carries.
+  if ('inspectionFormId' in patch) targets.push({ queryKey: ['task', taskId], exact: true });
   targets.push(...TASK_FIGURE_VIEWS);
   return targets;
 }
@@ -118,7 +120,7 @@ export function afterTaskSaved(qc: QueryClient, taskId: string, saved: ApiTask |
   if (saved?.id === taskId && qc.getQueryData<ApiTask>(['task', taskId]) !== undefined) {
     // The server's copy is laid over the details shown.
     qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...saved } : prev));
-  } else {
+  } else if (!('inspectionFormId' in patch)) {
     targets.push({ queryKey: ['task', taskId], exact: true });
   }
   run(targets);

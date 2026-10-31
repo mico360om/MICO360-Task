@@ -1,4 +1,5 @@
 import type { FormRef, InspectionListItem } from './inspection-types';
+import type { ApiTask } from './types';
 
 /**
  * A task's Inspections card (the website's TaskInspections): a check (a task that carries a form)
@@ -25,6 +26,18 @@ export const TASK_CHECK_WORDS = {
   startFailed: 'Couldn’t start it. Check your connection and try again.',
   followsUp: 'Follows up “{item}” from the inspection',
 } as const;
+
+/**
+ * The form a check carries: the details' own (GET /tasks/:id names it, deleted or not) only while
+ * it is the task's form — an edit that changed the form leaves the old one there until the details
+ * are read again — else the company's forms name it, else nothing yet (never the old form's Start).
+ */
+export function checkFormOf(task: Pick<ApiTask, 'inspectionFormId' | 'inspectionForm'>, forms: ReadonlyArray<{ id: string; title: string }> | undefined): FormRef | null {
+  if (!task.inspectionFormId) return null;
+  if (task.inspectionForm && task.inspectionForm.id === task.inspectionFormId) return task.inspectionForm;
+  const f = forms?.find((x) => x.id === task.inspectionFormId);
+  return f ? { id: f.id, title: f.title, deleted: false } : null;
+}
 
 export type CheckMain = { kind: 'continue' | 'report'; inspectionId: string } | { kind: 'start' };
 
