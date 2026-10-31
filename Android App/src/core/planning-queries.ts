@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
-import { useQuery, useQueryClient, type Query } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import type { WeekStart } from '../lib/calendar';
 import { companyTodayKey } from '../lib/due-date';
 import type { WorkloadPerson, WorkloadTask } from '../lib/planning-api';
 import { refresh } from '../lib/refresh';
+import { samePersonPlaceholder } from '../lib/same-person';
 import { planningRoot, timelineKey, timelineTasksKey } from '../lib/timeline';
 import { appliedText, applyProblem, limitProblemText, workloadKey } from '../lib/workload';
 
@@ -15,15 +16,6 @@ import { appliedText, applyProblem, limitProblemText, workloadKey } from '../lib
  * of it. Read again whenever the screen opens (staleTime 0), with the company day in the key so a
  * new day reads again.
  */
-
-/**
- * TanStack's keepPreviousData, but only the same person's: while other weeks load the last ones stay
- * on screen — never someone else's (a key's second part is its person).
- */
-export const samePersonPlaceholder =
-  (userId: string) =>
-  <T>(previous: T | undefined, previousQuery: Query<T, Error, T, readonly unknown[]> | undefined): T | undefined =>
-    previousQuery?.queryKey[1] === userId ? previous : undefined;
 
 export function useTimeline(range: { from: string; to: string; weekStart: WeekStart }) {
   const { resources } = useServices();

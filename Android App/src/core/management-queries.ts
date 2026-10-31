@@ -1,7 +1,8 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useServices, useSession, useUserId } from './providers';
 import { managementAccessKey, managementAccessOf } from '../lib/management-access';
 import { ApiError } from '../lib/api-client';
+import { samePersonPlaceholder } from '../lib/same-person';
 import { managementItemsKey, managementOverviewKey } from '../lib/management';
 import type { ItemQuery, ManagementFilters } from '../lib/management-api';
 
@@ -42,7 +43,8 @@ export function useManagementOverview(f: ManagementFilters) {
     queryKey: managementOverviewKey(userId ?? '', f),
     queryFn: ({ signal }) => resources.management.overview(f, { asUser: userId ?? undefined, signal }),
     enabled: !!userId && allowed,
-    placeholderData: keepPreviousData,
+    // The last figures stay while new filters load — only this person's (final review P9).
+    placeholderData: samePersonPlaceholder(userId ?? ''),
     // Read again every five minutes while open (the website's REFRESH_MS).
     refetchInterval: 300_000,
     // A refusal is an answer, not a hiccup: a 403 is never asked again; anything else once more.

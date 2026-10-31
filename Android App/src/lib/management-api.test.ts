@@ -50,7 +50,7 @@ it('Management’s hooks ask as the person, keyed by them, only once the server 
   expect(q).toMatch(/function useManagementItems[^]*?enabled: !!userId && allowed && !!q/);
   expect(q.match(/asUser: userId/g)?.length).toBeGreaterThanOrEqual(2);
   expect(q).toMatch(/refetchInterval: 300_000/);
-  expect(q).toMatch(/placeholderData: keepPreviousData/);
+  expect(q).toMatch(/placeholderData: samePersonPlaceholder\(userId \?\? ''\)/);
   expect(q).toMatch(/retry: \(n, e\) => !\(e instanceof ApiError && e\.status === 403\) && n < 1/);
   expect(q).not.toMatch(/reads\.read|readCache|queueOnOffline|persist/);
   expect(src('lib/resources.ts')).toMatch(/management: managementApi\(client\),/);
