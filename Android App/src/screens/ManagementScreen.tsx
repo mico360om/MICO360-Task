@@ -8,6 +8,10 @@ import { useManagementAccess, useManagementOverview } from '../core/management-q
 import { Button, Card, ErrorNote, Muted, Skeleton, StatTile } from '../components/ui';
 import { ManagementFilters } from '../components/management/ManagementFilters';
 import { ItemsSheet } from '../components/management/ItemsSheet';
+import { HealthSection } from '../components/management/HealthSection';
+import { ApprovalsSection } from '../components/management/ApprovalsSection';
+import { InspectionsSection } from '../components/management/InspectionsSection';
+import { PeopleSection } from '../components/management/PeopleSection';
 import { usePullRefresh } from '../components/meeting/live';
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
@@ -170,6 +174,18 @@ export function ManagementScreen({ navigation }: AppScreenProps<'Management'>) {
                     </View>
                   ))}
                 </View>
+                <HealthSection
+                  rows={data.projects}
+                  today={data.today}
+                  timeZone={data.timeZone}
+                  onOpen={openList}
+                  chosenHidden={filters.projectIds.length > 0}
+                  noneAtAll={data.options.projects.length === 0}
+                  onGoToProjects={() => navigation.navigate('Tabs', { screen: 'Projects' })}
+                />
+                {data.approvals ? <ApprovalsSection approvals={data.approvals} onOpen={openList} /> : null}
+                <InspectionsSection data={data.inspections} onOpen={openList} />
+                <PeopleSection people={data.people} week={data.workload.week} limit={data.workload.limit} onOpen={openList} />
               </View>
             )}
           </>

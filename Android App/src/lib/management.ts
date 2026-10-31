@@ -4,7 +4,7 @@
  * the website's ManagementPage.tsx, ManagementFilters.tsx and ItemsSheet.tsx. Drift-tested against
  * those files. Every figure is the server's: nothing here recounts one.
  */
-import type { ItemList, ItemMetric, ItemQuery, ItemRow, ManagementFilters, ManagementOverview, OptionProject, ProjectStatus, Rag } from './management-api';
+import type { HealthRow, ItemList, ItemMetric, ItemQuery, ItemRow, ManagementFilters, ManagementOverview, OptionProject, PersonRow, ProjectStatus, Rag, RagReason } from './management-api';
 import { managementQuery } from './management-api';
 import type { NavAction } from '../navigation/nav-actions';
 import { isSafeId } from './ids';
@@ -204,3 +204,70 @@ export function managementView(i: { access: { allowed: boolean; ready: boolean; 
 export function tileColumns(width: number, fontScale: number): 1 | 2 {
   return width / Math.max(1, fontScale) >= 360 ? 2 : 1;
 }
+
+// ── The sections (Task 8): HealthSection.tsx, InspectionsSection.tsx and PeopleSection.tsx ──
+
+export type HealthSort = 'worst' | 'late' | 'done' | 'name';
+export const HEALTH_SORTS: { value: HealthSort; label: string }[] = [
+  { value: 'worst', label: 'Worst first' },
+  { value: 'late', label: 'Most late tasks' },
+  { value: 'done', label: 'Least done' },
+  { value: 'name', label: 'Name' },
+];
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/** The health rows in the chosen order: worst first is the server's own (red, amber, green; then most late; then name). */
+export function sortHealth<R extends Pick<HealthRow, 'name' | 'late' | 'completionPct'>>(rows: R[], sort: HealthSort): R[] {
+  if (sort === 'worst') return rows;
+  const copy = [...rows];
+  if (sort === 'name') return copy.sort((a, b) => collator.compare(a.name, b.name));
+  if (sort === 'late') return copy.sort((a, b) => b.late - a.late || collator.compare(a.name, b.name));
+  return copy.sort((a, b) => a.completionPct - b.completionPct || collator.compare(a.name, b.name));
+}
+
+/** A mark's badge tone (the word and its dot, never colour alone). */
+export const ragTone = (r: Rag): 'danger' | 'warning' | 'success' => (r === 'RED' ? 'danger' : r === 'AMBER' ? 'warning' : 'success');
+
+/** The list a reason is about, if it has one. */
+export function reasonQuery(code: RagReason['code'], projectId: string): ItemQuery | null {
+  if (code === 'MILESTONE_LATE') return { metric: 'late-milestones', projectId };
+  if (code === 'MANY_LATE' || code === 'LATE_TASKS') return { metric: 'late-tasks', projectId };
+  if (code === 'MANY_MISSING_CHECKS' || code === 'MISSING_CHECKS') return { metric: 'missing-checks', projectId };
+  return null;
+}
+
+export interface InspectionFigure {
+  label: string;
+  value: string;
+  help: string | null;
+  tone: 'neutral' | 'warning' | 'danger';
+  /** The list behind it — null at 0 (plain text, as the website's NumberButton) and for the pass rate. */
+  query: ItemQuery | null;
+  /** The list's name ("5 checks due in the period"). */
+  action: string;
+}
+
+/** The section's eight figures, in its order, the server's as sent. */
+export function inspectionFigures(i: ManagementOverview['inspections']): InspectionFigure[] {
+  const fig = (label: string, n: number, tone: InspectionFigure['tone'], query: ItemQuery, action: string, help: string | null = null): InspectionFigure => ({
+    label,
+    value: String(n),
+    help,
+    tone,
+    query: n === 0 ? null : query,
+    action,
+  });
+  return [
+    fig('Checks due', i.due, 'neutral', { metric: 'checks-due' }, `${plural(i.due, 'check')} due in the period`),
+    fig('Done', i.done, 'neutral', { metric: 'checks-done' }, `${plural(i.done, 'check')} done`, i.due ? `${Math.round((i.done / i.due) * 100)}% of those due` : null),
+    fig('Done late', i.doneLate, 'warning', { metric: 'checks-done-late' }, `${plural(i.doneLate, 'check')} done late`),
+    fig('Missing now', i.missing, 'danger', { metric: 'missing-checks' }, plural(i.missing, 'missing check')),
+    fig('Closed without a report', i.noReport, 'warning', { metric: 'checks-no-report' }, `${plural(i.noReport, 'check')} closed without a report`),
+    fig('Inspections finished', i.finished, 'neutral', { metric: 'inspections' }, `${plural(i.finished, 'inspection')} finished in the period`, i.passRate === null ? 'No items passed or failed yet' : `${i.passed} items passed · ${i.failed} failed`),
+    { label: 'Pass rate', value: i.passRate === null ? '—' : `${i.passRate}%`, help: 'Items passed of those passed or failed', tone: 'neutral', query: null, action: '' },
+    fig('Open follow-ups', i.openFollowUps, 'neutral', { metric: 'follow-ups' }, plural(i.openFollowUps, 'open follow-up task')),
+  ];
+}
+
+/** "Wed 28 Oct (7), Thu 29 Oct (6)": a person's days over the limit this week, with each day's count. */
+export const overloadedDaysText = (days: PersonRow['overloadedDays']) => days.map((d) => `${shortDay(d.date)} (${d.count})`).join(', ');

@@ -6,6 +6,12 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_FILTERS,
   DEFAULT_STATUSES,
+  HEALTH_SORTS,
+  inspectionFigures,
+  overloadedDaysText,
+  ragTone,
+  reasonQuery,
+  sortHealth,
   ITEM_UNITS,
   chooseProjects,
   dayMonth,
@@ -27,6 +33,7 @@ import {
   toggleStatus,
 } from './management';
 import * as appModule from './management';
+import type { HealthRow } from './management-api';
 import { ITEMS, OVERVIEW } from '../testing/management-fixtures';
 
 const app = appModule as unknown as Record<string, unknown>;
@@ -139,4 +146,51 @@ it('keeps each person’s figures and lists apart', () => {
   expect(managementItemsKey('u1', DEFAULT_FILTERS, q).slice(0, 2)).toEqual(managementRoot('u1'));
   expect(managementItemsKey('u1', DEFAULT_FILTERS, q)).not.toEqual(managementItemsKey('u2', DEFAULT_FILTERS, q));
   expect(managementItemsKey('u1', DEFAULT_FILTERS, q)).not.toEqual(managementItemsKey('u1', DEFAULT_FILTERS, { metric: 'late-tasks' }));
+});
+
+// ── Task 8: the sections' rules ──
+it('health sorts as the website’s table; worst first is the server’s order', () => {
+  const rows = [{ name: 'B', late: 1, completionPct: 50 }, { name: 'A', late: 3, completionPct: 80 }, { name: 'C', late: 3, completionPct: 10 }] as HealthRow[];
+  expect(sortHealth(rows, 'worst')).toBe(rows); expect(sortHealth(rows, 'late').map((r) => r.name)).toEqual(['A', 'C', 'B']); expect(sortHealth(rows, 'done').map((r) => r.name)).toEqual(['C', 'B', 'A']);
+  if (hasWeb('frontend/src/components/management/HealthSection.tsx')) expect(readWeb('frontend/src/components/management/HealthSection.tsx')).toContain("if (sort === 'late') return copy.sort((a, b) => b.late - a.late || collator.compare(a.name, b.name));");
+});
+it('health sorts by name the website’s way (numbers in order, case and accents alike), never changing the server’s list', () => {
+  const rows = [{ name: 'Rig 10' }, { name: 'rig 9' }, { name: 'Álpha' }, { name: 'alpha 2' }] as HealthRow[];
+  expect(sortHealth(rows, 'name').map((r) => r.name)).toEqual(['Álpha', 'alpha 2', 'rig 9', 'Rig 10']);
+  expect(rows.map((r) => r.name)).toEqual(['Rig 10', 'rig 9', 'Álpha', 'alpha 2']);
+  expect(HEALTH_SORTS).toEqual([{ value: 'worst', label: 'Worst first' }, { value: 'late', label: 'Most late tasks' }, { value: 'done', label: 'Least done' }, { value: 'name', label: 'Name' }]);
+  expect([ragTone('RED'), ragTone('AMBER'), ragTone('GREEN')]).toEqual(['danger', 'warning', 'success']);
+});
+it('reasons open their lists; the inspection figures are the website’s', () => {
+  expect(reasonQuery('MANY_LATE', 'p1')).toEqual({ metric: 'late-tasks', projectId: 'p1' }); expect(reasonQuery('NO_ACTIVITY', 'p1')).toBeNull();
+  const f = inspectionFigures({ ...OVERVIEW.inspections, due: 8, done: 6, passRate: null });
+  expect(f.find((x) => x.label === 'Done')).toMatchObject({ value: '6', help: '75% of those due', query: { metric: 'checks-done' } });
+  expect(f.find((x) => x.label === 'Pass rate')).toMatchObject({ value: '—', query: null });
+  expect(overloadedDaysText([{ date: '2026-10-28', count: 7, limit: 5 }, { date: '2026-10-29', count: 6, limit: 5 }])).toBe('Wed 28 Oct (7), Thu 29 Oct (6)');
+});
+it('every reason code and inspection figure, in the website’s order, opening nothing at 0', () => {
+  expect(reasonQuery('MILESTONE_LATE', 'p1')).toEqual({ metric: 'late-milestones', projectId: 'p1' });
+  expect(reasonQuery('LATE_TASKS', 'p1')).toEqual({ metric: 'late-tasks', projectId: 'p1' });
+  for (const code of ['MANY_MISSING_CHECKS', 'MISSING_CHECKS'] as const) expect(reasonQuery(code, 'p1')).toEqual({ metric: 'missing-checks', projectId: 'p1' });
+  expect(reasonQuery('ON_TRACK', 'p1')).toBeNull();
+  const f = inspectionFigures(OVERVIEW.inspections);
+  expect(f.map((x) => x.label)).toEqual(['Checks due', 'Done', 'Done late', 'Missing now', 'Closed without a report', 'Inspections finished', 'Pass rate', 'Open follow-ups']);
+  expect(f.map((x) => x.tone)).toEqual(['neutral', 'neutral', 'warning', 'danger', 'warning', 'neutral', 'neutral', 'neutral']);
+  expect(f.map((x) => x.value)).toEqual(['5', '3', '1', '2', '1', '4', '88%', '2']);
+  expect(f.map((x) => x.help)).toEqual([null, '60% of those due', null, null, null, '22 items passed · 3 failed', 'Items passed of those passed or failed', null]);
+  expect(f.map((x) => x.query?.metric ?? null)).toEqual(['checks-due', 'checks-done', 'checks-done-late', 'missing-checks', 'checks-no-report', 'inspections', null, 'follow-ups']);
+  expect(f.map((x) => x.action)).toEqual(['5 checks due in the period', '3 checks done', '1 check done late', '2 missing checks', '1 check closed without a report', '4 inspections finished in the period', '', '2 open follow-up tasks']);
+  const none = inspectionFigures({ ...OVERVIEW.inspections, due: 0, done: 0, noReport: 0, passRate: null });
+  expect(none.find((x) => x.label === 'Done')).toMatchObject({ value: '0', help: null, query: null });
+  expect(none.find((x) => x.label === 'Checks due')!.query).toBeNull();
+  expect(none.find((x) => x.label === 'Closed without a report')!.query).toBeNull();
+  expect(none.find((x) => x.label === 'Inspections finished')!.help).toBe('No items passed or failed yet');
+  expect(overloadedDaysText([])).toBe('');
+});
+describe.skipIf(!hasWeb('frontend/src/components/management/InspectionsSection.tsx'))('the inspection figures’ words', () => {
+  it('are the section’s labels, help and list names', () => {
+    const w = readWeb('frontend/src/components/management/InspectionsSection.tsx');
+    for (const x of inspectionFigures(OVERVIEW.inspections)) expect(w, x.label).toContain(`label="${x.label}"`);
+    for (const t of ['% of those due', 'No items passed or failed yet', 'items passed · ${data.failed} failed', 'help="Items passed of those passed or failed"', "'check')} due in the period", "'check')} closed without a report", "'inspection')} finished in the period", "'open follow-up task'"]) expect(w, t).toContain(t);
+  });
 });
