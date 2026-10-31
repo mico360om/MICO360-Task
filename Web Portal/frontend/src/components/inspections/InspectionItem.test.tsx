@@ -52,6 +52,22 @@ describe('a reading', () => {
     expect(onAnswer).toHaveBeenCalledWith({ result: null, reading: '162.5', note: null });
   });
 
+  it('a reading that can be below zero gets a keyboard with a minus sign, and is checked the same way (final pass, item 8)', async () => {
+    const freezer: FormItem = { id: 'f', kind: 'READING', label: 'Freezer', help: null, unit: '°C', min: -25, max: -15 };
+    const { onAnswer } = renderItem({ item: freezer });
+    const input = screen.getByRole('textbox', { name: 'Freezer, reading in °C' });
+    // The decimal pad has no "−" on many phone keyboards (iPhone's among them).
+    expect(input).toHaveAttribute('inputmode', 'text');
+    await userEvent.type(input, '-18.5');
+    expect(screen.getByText('Pass')).toBeInTheDocument();
+    fireEvent.blur(input);
+    expect(onAnswer).toHaveBeenCalledWith({ result: null, reading: '-18.5', note: null });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'cold');
+    fireEvent.blur(input);
+    expect(screen.getByText('Enter the reading as a number, like 12.5')).toBeInTheDocument();
+  });
+
   it('refuses something that isn’t a number, and saves nothing', async () => {
     const { onAnswer } = renderItem({ item: pressure });
     const input = screen.getByRole('textbox', { name: 'Pressure, reading in psi' });

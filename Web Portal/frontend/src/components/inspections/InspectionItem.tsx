@@ -190,7 +190,9 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
                     <input
                       id={ids.reading}
                       type="text"
-                      inputMode="decimal"
+                      // The decimal pad has no minus sign on many phone keyboards (iPhone's among them): a
+                      // reading that can be below zero gets the full keyboard; the check is the same.
+                      inputMode={item.min !== null && item.min < 0 ? 'text' : 'decimal'}
                       autoComplete="off"
                       dir="ltr"
                       value={readingDraft}
