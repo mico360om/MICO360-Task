@@ -6,6 +6,7 @@
  */
 import type { HealthRow, ItemList, ItemMetric, ItemQuery, ItemRow, ManagementFilters, ManagementOverview, OptionProject, PersonRow, ProjectStatus, Rag, RagReason, TrendRow } from './management-api';
 import { managementQuery } from './management-api';
+import { askedWeek } from './workload';
 import type { NavAction } from '../navigation/nav-actions';
 import { isSafeId } from './ids';
 import { ApiError } from './api-client';
@@ -154,7 +155,7 @@ export function finishedText(at: string, timeZone: string): string {
  * action item its meeting (or its task); an inspection its check task for now (Stage 4 opens the
  * inspection itself). An id that isn't one of the server's opens nothing.
  */
-export function itemTarget(row: ItemRow): NavAction | 'expand' | null {
+export function itemTarget(row: ItemRow, workloadWeek?: string): NavAction | 'expand' | null {
   const task = (id: string | null | undefined, title?: string): NavAction | null =>
     isSafeId(id) ? { type: 'stack', screen: 'TaskDetail', params: title === undefined ? { taskId: id } : { taskId: id, title } } : null;
   switch (row.kind) {
@@ -162,8 +163,11 @@ export function itemTarget(row: ItemRow): NavAction | 'expand' | null {
       return task(row.id, row.title);
     case 'project':
       return isSafeId(row.id) ? { type: 'stack', screen: 'ProjectDetail', params: { projectId: row.id, projectName: row.title } } : null;
-    case 'person':
-      return { type: 'stack', screen: 'Workload' };
+    case 'person': {
+      // The week Management counted (the overview's company week), as the website's /workload?week=.
+      const week = askedWeek(workloadWeek);
+      return week ? { type: 'stack', screen: 'Workload', params: { week } } : { type: 'stack', screen: 'Workload' };
+    }
     case 'day':
       return 'expand';
     case 'inspection':

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View, type ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -15,7 +15,7 @@ import { shiftDayKey, weekDays, weekStartOf } from '../lib/calendar';
 import { companyTodayKey } from '../lib/due-date';
 import type { WorkloadCell, WorkloadPerson, WorkloadTask } from '../lib/planning-api';
 import { cellLook } from '../lib/planning-look';
-import { filterPeople, footerLine, limitOptions, scopeLead, sortPeople, summaryLine, weekLabel, type CellTone } from '../lib/workload';
+import { askedWeek, filterPeople, footerLine, limitOptions, scopeLead, sortPeople, summaryLine, weekLabel, type CellTone } from '../lib/workload';
 import { radius, spacing, type Palette } from '../lib/theme';
 import { font, typeStyle } from '../lib/typography';
 import type { AppScreenProps } from '../navigation/types';
@@ -37,14 +37,19 @@ const LEGEND: { tone: CellTone; shows: string; words: string }[] = [
  * with room, or a lighter day), applied only when tapped. Administrators see everyone and set the
  * limit; a project manager sees their projects' teams; anyone else their own week.
  */
-export function WorkloadScreen(_props: AppScreenProps<'Workload'>) {
+export function WorkloadScreen({ route }: AppScreenProps<'Workload'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const focused = useIsFocused();
   const today = companyTodayKey(useMinuteNow(focused));
   const weekStart = weekStartOf(useDatePreferences().data);
   const thisWeek = weekDays(today, weekStart)[0]!;
-  const [asked, setAsked] = useState<string | null>(null);
+  // The week asked for (Management's company week, the website's /workload?week=), checked as a day.
+  const linkWeek = askedWeek(route.params?.week);
+  const [asked, setAsked] = useState<string | null>(linkWeek);
+  useEffect(() => {
+    if (linkWeek) setAsked(linkWeek);
+  }, [linkWeek]);
   const week = asked ?? thisWeek;
   const [projectId, setProjectId] = useState('');
   const [q, setQ] = useState('');

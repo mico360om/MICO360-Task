@@ -172,6 +172,14 @@ export function scopeLead(scope: 'everyone' | 'teams' | 'self'): string {
   return scope === 'teams' ? ' You see the people on the projects you manage, and only those projects’ tasks.' : scope === 'self' ? ' You see your own tasks.' : '';
 }
 
+/**
+ * The week a link or Management asks for (`week`: its first day), or null for this week: only a real
+ * day, as the website's isDay (WorkloadPage.tsx) — it goes into the request's address.
+ */
+export function askedWeek(v: unknown): string | null {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) ? v : null;
+}
+
 /** Under the people: the website's words, its "click" said as "tap" on the phone. */
 export function footerLine(scope: 'everyone' | 'teams' | 'self'): string {
   return scope === 'self'

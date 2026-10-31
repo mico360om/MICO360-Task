@@ -200,7 +200,7 @@ export function ManagementScreen({ navigation }: AppScreenProps<'Management'>) {
           <ManagementSkeleton columns={columns} />
         )}
       </ScrollView>
-      {view === 'show' && sheet ? <ItemsSheet filters={filters} query={sheet.query} label={sheet.label} timeZone={data?.timeZone ?? 'UTC'} onClose={() => setSheet(null)} /> : null}
+      {view === 'show' && sheet ? <ItemsSheet filters={filters} query={sheet.query} label={sheet.label} timeZone={data?.timeZone ?? 'UTC'} workloadWeek={data?.workload.week} onClose={() => setSheet(null)} /> : null}
     </SafeAreaView>
   );
 }

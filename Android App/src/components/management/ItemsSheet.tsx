@@ -54,6 +54,7 @@ export function ItemsSheet({
   query,
   label,
   timeZone,
+  workloadWeek,
   onClose,
 }: {
   filters: ManagementFilters;
@@ -61,6 +62,8 @@ export function ItemsSheet({
   label: string;
   /** The company's time zone (the overview's), for when an inspection finished. */
   timeZone: string;
+  /** The week Management counted (the overview's): a person opens Workload on it, as the website's sheet. */
+  workloadWeek?: string;
   onClose: () => void;
 }) {
   const c = useColors();
@@ -71,7 +74,7 @@ export function ItemsSheet({
   const footer = itemsFooter(list);
 
   const open = (row: ItemRow) => {
-    const target = itemTarget(row);
+    const target = itemTarget(row, workloadWeek);
     if (target === 'expand') return setExpanded((cur) => (cur === row.id ? null : row.id));
     if (!target) return;
     onClose();
@@ -96,7 +99,7 @@ export function ItemsSheet({
         <ErrorNote message="Couldn’t load this list." onRetry={() => void q.refetch()} retrying={q.isRefetching} />
       ) : list && list.rows.length ? (
         list.rows.map((row) => {
-          const target = itemTarget(row);
+          const target = itemTarget(row, workloadWeek);
           const day = target === 'expand';
           const isOpen = day && expanded === row.id;
           return (

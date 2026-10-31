@@ -27,7 +27,7 @@ export type NavAction =
   | { type: 'stack'; screen: 'Users'; params?: AppStackParamList['Users'] }
   /** Stage 3: the website's planning, Management and MICO AI pages as the app's own screens. */
   | { type: 'stack'; screen: 'Timeline' }
-  | { type: 'stack'; screen: 'Workload' }
+  | { type: 'stack'; screen: 'Workload'; params?: AppStackParamList['Workload'] }
   | { type: 'stack'; screen: 'Management' }
   | { type: 'stack'; screen: 'MicoAi'; params?: AppStackParamList['MicoAi'] }
   /** The bell's list (a stack screen since the top bar has the bell). */

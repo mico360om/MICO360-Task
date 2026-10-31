@@ -47,7 +47,7 @@ it('the list sheet: the server’s list and words, each row opening the app’s 
   expect(s).toMatch(/useManagementItems\(filters, query\)/);
   expect(s).toMatch(/itemsStatus\(list, q\.isLoading\)/);
   expect(s).toMatch(/itemsFooter\(list\)/);
-  expect(s).toMatch(/itemTarget\(row\)/);
+  expect(s).toMatch(/itemTarget\(row, workloadWeek\)/);
   expect(s).toMatch(/applyNavAction\(/);
   for (const w of ['Nothing to list.', 'Couldn’t load this list.', 'Close']) expect(s).toContain(w);
   expect(s).not.toMatch(/\.reduce\(/);

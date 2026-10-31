@@ -82,7 +82,7 @@ export function applyNavAction(action: NavAction): void {
       navigationRef.navigate('Timeline');
       break;
     case 'Workload':
-      navigationRef.navigate('Workload');
+      navigationRef.navigate('Workload', action.params);
       break;
     case 'Management':
       navigationRef.navigate('Management');

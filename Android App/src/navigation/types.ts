@@ -64,8 +64,11 @@ export type AppStackParamList = {
   UserForm: { userId?: string } | undefined;
   /** The website's Timeline: every project's dates, health and milestones (Stage 3). */
   Timeline: undefined;
-  /** The website's Workload: each person's tasks per day of a week (Stage 3). */
-  Workload: undefined;
+  /**
+   * The website's Workload: each person's tasks per day of a week (Stage 3). `week`: the week's first
+   * day to show (Management's company week, or the website's /workload?week=), checked as a day.
+   */
+  Workload: { week?: string } | undefined;
   /** The website's Management page: for administrators and whoever runs a project (Stage 3). */
   Management: undefined;
   /**
