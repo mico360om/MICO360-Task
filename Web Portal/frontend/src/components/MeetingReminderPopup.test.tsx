@@ -92,11 +92,12 @@ describe('MeetingReminderPopup: a meeting reminder pops up on the open website',
     expect(refreshed(UNREAD_COUNT_KEY)).toBe(true);
   });
 
-  it('is read out politely by screen readers, without taking the focus', () => {
+  it('is read out politely by screen readers, without taking the focus — and adds no empty landmark to every page', () => {
     mount();
-    const region = screen.getByRole('region', { name: 'Meeting reminders' });
-    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(screen.queryByRole('region')).toBeNull();
     act(() => handlers['notification:new']?.(reminder));
+    const card = screen.getByRole('group', { name: 'Meeting in 15 minutes: Core switch go-live review' });
+    expect(card.parentElement).toHaveAttribute('aria-live', 'polite');
     expect(document.activeElement).toBe(document.body);
   });
 });

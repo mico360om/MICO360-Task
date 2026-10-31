@@ -32,14 +32,13 @@ export function MeetingReminderPopup() {
   const dismiss = (id: string) => setPopups((list) => popupsWithout(list, id));
 
   return (
+    // Always there (a live region announces what is added to it), but no landmark while it is empty.
     <div
-      role="region"
-      aria-label="Meeting reminders"
       aria-live="polite"
       className="pointer-events-none fixed inset-x-2 bottom-2 z-50 flex flex-col items-stretch gap-2 sm:inset-x-auto sm:bottom-4 sm:end-4 sm:w-96"
     >
       {popups.map((n) => (
-        <div key={n.id} className="pointer-events-auto rounded-xl border border-line bg-surface p-3 shadow-lift">
+        <div key={n.id} role="group" aria-labelledby={`meeting-popup-${n.id}`} className="pointer-events-auto rounded-xl border border-line bg-surface p-3 shadow-lift">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-lg bg-brand/10 text-brand" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
