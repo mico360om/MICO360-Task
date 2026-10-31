@@ -35,7 +35,7 @@ export function OnThisPhoneCard({ projectId }: { projectId?: string }) {
               title={ON_PHONE_TEXT.open}
               variant="secondary"
               size="sm"
-              accessibilityLabel={`${ON_PHONE_TEXT.open} ${r.title}`}
+              accessibilityLabel={r.openLabel}
               onPress={() => navigation.navigate('Inspection', { inspectionId: r.inspectionId, title: r.title })}
             />
           </View>

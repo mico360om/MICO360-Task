@@ -25,6 +25,8 @@ export interface KeptRow {
   line: string;
   /** What TalkBack reads for the row. */
   label: string;
+  /** What TalkBack reads for its Open button: "Open Scaffold daily check, SITE-12" (re-check note b). */
+  openLabel: string;
 }
 
 /**
@@ -39,7 +41,15 @@ export function keptRows(views: readonly DraftView[], projectId?: string): KeptR
       const n = unsentChanges(v.pending);
       const line = v.pending.finish ? INSPECTION_WORDS.signedLocked : n > 0 ? changesWaiting(n) : INSPECTION_WORDS.inProgress;
       const taskKey = v.snapshot.task?.key ?? null;
-      const row: KeptRow = { inspectionId: v.inspectionId, projectId: v.projectId, title: v.title, taskKey, line, label: [v.title, taskKey, line].filter(Boolean).join(', ') };
+      const row: KeptRow = {
+        inspectionId: v.inspectionId,
+        projectId: v.projectId,
+        title: v.title,
+        taskKey,
+        line,
+        label: [v.title, taskKey, line].filter(Boolean).join(', '),
+        openLabel: `${ON_PHONE_TEXT.open} ${[v.title, taskKey].filter(Boolean).join(', ')}`,
+      };
       return { row, waiting: n > 0 };
     })
     .sort((a, b) => Number(b.waiting) - Number(a.waiting) || a.row.title.localeCompare(b.row.title, 'en'))

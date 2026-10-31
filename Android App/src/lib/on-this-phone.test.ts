@@ -33,8 +33,8 @@ it('lists the person’s kept inspections: changes waiting first, then the unfin
   o.saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: null });
   o.saveAnswer('u1', 'i1', { itemId: 'p', result: null, reading: '12', note: null });
   expect(keptRows(all.kept('u1'))).toEqual([
-    { inspectionId: 'i1', projectId: 'pr1', title: 'Rig check', taskKey: 'RIG-1', line: '2 changes waiting', label: 'Rig check, RIG-1, 2 changes waiting' },
-    { inspectionId: 'i2', projectId: 'pr1', title: 'Alpha walk', taskKey: 'RIG-2', line: 'In progress', label: 'Alpha walk, RIG-2, In progress' },
+    { inspectionId: 'i1', projectId: 'pr1', title: 'Rig check', taskKey: 'RIG-1', line: '2 changes waiting', label: 'Rig check, RIG-1, 2 changes waiting', openLabel: 'Open Rig check, RIG-1' },
+    { inspectionId: 'i2', projectId: 'pr1', title: 'Alpha walk', taskKey: 'RIG-2', line: 'In progress', label: 'Alpha walk, RIG-2, In progress', openLabel: 'Open Alpha walk, RIG-2' },
   ]);
 });
 
@@ -64,7 +64,7 @@ it('a finished inspection with nothing waiting isn’t listed; one without a tas
   const done = { ...detailView({ ...DETAIL, status: 'FINISHED' }) };
   expect(keptRows([done])).toEqual([]);
   const plain = detailView({ ...DETAIL, task: null });
-  expect(keptRows([plain])).toEqual([{ inspectionId: 'i1', projectId: 'pr1', title: 'Rig check', taskKey: null, line: 'In progress', label: 'Rig check, In progress' }]);
+  expect(keptRows([plain])).toEqual([{ inspectionId: 'i1', projectId: 'pr1', title: 'Rig check', taskKey: null, line: 'In progress', label: 'Rig check, In progress', openLabel: 'Open Rig check' }]);
 });
 
 it('says the changes in the app’s plain words', () => {
@@ -79,6 +79,8 @@ it('the Dashboard and a project’s Inspections tab show the card, each row open
   expect(card).toMatch(/const rows = useKeptInspections\(projectId\);/);
   expect(card).toMatch(/if \(!rows\.length\) return null;/);
   expect(card).toMatch(/navigation\.navigate\('Inspection', \{ inspectionId: r\.inspectionId, title: r\.title \}\)/);
+  // Open says which one, with its task's key (re-check note b): "Open Scaffold daily check, SITE-12".
+  expect(card).toMatch(/accessibilityLabel=\{r\.openLabel\}/);
   expect(src('core/inspection-sync.ts')).toMatch(/keptRows\(inspections\.kept\(ownerId\), projectId\)/);
   expect(src('screens/DashboardScreen.tsx')).toMatch(/<SyncStatus \/>\s*(\{\/\*[^]*?\*\/\}\s*)?<OnThisPhoneCard \/>/);
   const tab = src('components/project/InspectionsTab.tsx');
