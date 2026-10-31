@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useMovePreview, useMoveTargets, useMoveTasks } from '../../core/move-queries';
 import { Button } from '../ui';
-import { CardChoice, FieldLabel, InlinePicker, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
+import { CardChoice, InlinePicker, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
 import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, moveChanges, notOnTeamText } from '../../lib/task-move';
-import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTitle, previewProblem, refusedLines, submitLabel, type MoveTaskRef } from '../../lib/move-sheet';
+import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTitle, previewProblem, refusedLines, sheetTasks, submitLabel, type MoveTaskRef } from '../../lib/move-sheet';
 import { STATUS_NAME } from '../../lib/all-board';
 import { appTimeZone, companyTodayKey } from '../../lib/due-date';
 import { spacing, type Palette } from '../../lib/theme';
@@ -22,7 +22,7 @@ const statusLabel = (category: string): string => STATUS_NAME[category as Column
  * not. A bulk move with failures turns the sheet into its result until Done.
  */
 export function MoveTaskSheet({
-  tasks,
+  tasks: given,
   visible,
   onClose,
   onMoved,
@@ -38,6 +38,10 @@ export function MoveTaskSheet({
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
+  // The caller lets go of the tasks as it closes the sheet: it slides away still showing them.
+  const held = useRef<MoveTaskRef[]>(given);
+  if (given.length > 0) held.current = given;
+  const tasks = sheetTasks(given, held.current);
   const single = tasks.length === 1;
   const ids = useMemo(() => tasks.map((t) => t.id), [tasks]);
   const today = companyTodayKey(new Date(), appTimeZone());
@@ -129,7 +133,9 @@ export function MoveTaskSheet({
     return (
       <Sheet visible={visible} title={moveTitle(tasks.length)} subtitle={moveSubtitle(tasks)} onClose={onClose} footer={<Button title={MOVE_TEXT.done} onPress={onClose} style={s.flex} />}>
         <SheetMessage tone="info" text={bulkMovedText(outcome, preview?.project.name ?? '')} />
-        <FieldLabel>{MOVE_TEXT.notMoved}</FieldLabel>
+        <Text style={s.heading} accessibilityRole="header">
+          {MOVE_TEXT.notMoved}
+        </Text>
         {lines(failedLines(outcome, preview, tasks))}
       </Sheet>
     );
@@ -142,13 +148,18 @@ export function MoveTaskSheet({
       subtitle={moveSubtitle(tasks)}
       onClose={busy ? () => {} : onClose}
       footer={
-        <SheetButtons
-          onCancel={onClose}
-          confirm={submitLabel({ single, movable: movable.length || tasks.length, busy })}
-          onConfirm={() => void submit()}
-          busy={busy}
-          disabled={!preview || movable.length === 0}
-        />
+        <View style={s.footer}>
+          {choiceError ? <SheetMessage text={MOVE_TEXT.chooseTeam} /> : null}
+          <View style={s.footerRow}>
+            <SheetButtons
+              onCancel={onClose}
+              confirm={submitLabel({ single, movable: movable.length || tasks.length, busy })}
+              onConfirm={() => void submit()}
+              busy={busy}
+              disabled={!preview || movable.length === 0}
+            />
+          </View>
+        </View>
       }
     >
       <SheetMessage text={error} />
@@ -184,12 +195,12 @@ export function MoveTaskSheet({
 
           {preview.outsiders.length > 0 && labels ? (
             <>
-              {/* One question for the whole group (the website's): the CardChoice's hint has no words of its own. */}
+              {/* One question for the whole group (the website's): two answers, no hint under them. */}
               <CardChoice<AssigneeChoice | ''>
                 legend={notOnTeamText(preview.outsiders, preview.project.name)}
                 options={[
-                  { value: 'ADD_TO_TEAM', label: labels.add, hint: '' },
-                  { value: 'UNASSIGN', label: labels.unassign, hint: '' },
+                  { value: 'ADD_TO_TEAM', label: labels.add },
+                  { value: 'UNASSIGN', label: labels.unassign },
                 ]}
                 value={choice}
                 onChange={(v) => {
@@ -197,18 +208,22 @@ export function MoveTaskSheet({
                   setChoiceError(false);
                 }}
               />
-              {choiceError ? <SheetMessage text={MOVE_TEXT.chooseTeam} /> : null}
+              {/* No answer when Move is tapped: said by the buttons (final review A5), never scrolled out of view. */}
             </>
           ) : null}
 
-          <FieldLabel>{MOVE_TEXT.changes}</FieldLabel>
+          <Text style={s.heading} accessibilityRole="header">
+            {MOVE_TEXT.changes}
+          </Text>
           {lines(changes)}
         </>
       ) : null}
 
       {preview && !single && refused.length > 0 ? (
         <>
-          <FieldLabel>{MOVE_TEXT.cantMove}</FieldLabel>
+          <Text style={s.heading} accessibilityRole="header">
+            {MOVE_TEXT.cantMove}
+          </Text>
           {lines(refusedLines(preview))}
         </>
       ) : null}
@@ -219,7 +234,11 @@ export function MoveTaskSheet({
 const makeStyles = (c: Palette) =>
   StyleSheet.create({
     flex: { flex: 1 },
+    footer: { flex: 1, gap: spacing.xs },
+    footerRow: { flexDirection: 'row', gap: spacing.sm },
     hint: { ...typeStyle('caption'), color: c.ink2, marginBottom: spacing.sm },
+    // The website's eyebrow headings over its lists: TalkBack reads them first (final review A8).
+    heading: { ...typeStyle('eyebrow'), color: c.ink2, marginTop: spacing.sm, marginBottom: spacing.xs },
     line: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.xs },
     dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: c.ink2, marginTop: 7 },
     lineText: { flex: 1, ...typeStyle('body'), color: c.ink },

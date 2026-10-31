@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { assigneeChoiceLabels, notOnTeamText } from './task-move';
-import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTargetsOf, moveTitle, previewProblem, refusedLines, submitLabel, type MoveTaskRef } from './move-sheet';
+import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTargetsOf, moveTitle, previewProblem, refusedLines, sheetTasks, submitLabel, type MoveTaskRef } from './move-sheet';
 import { ApiError, NetworkError } from './api-client';
 import { hasWeb, readWeb } from '../testing/web-source';
 import type { BulkMoveResult, MovePreview, TaskMovePreview } from './types';
@@ -68,4 +68,13 @@ describe.skipIf(!hasWeb('frontend/src/components/MoveTaskDialog.tsx', 'frontend/
     // The website joins a fallback and the connection words: `${fallback} Check your connection and try again.`.
     expect(w).toContain('`${fallback} Check your connection and try again.`');
   });
+});
+
+// Final review A4: the caller lets go of the tasks as it closes the sheet; the sheet slides away still
+// showing them ("Move to another project", never "Move 0 tasks…").
+it('while it closes, the sheet keeps the tasks it was opened for', () => {
+  const one: MoveTaskRef[] = [{ id: 't1', key: 'RIG-4', title: 'Check pumps', projectId: 'p1' }];
+  expect(sheetTasks(one, [])).toBe(one);
+  expect(sheetTasks([], one)).toBe(one);
+  expect(moveTitle(sheetTasks([], one).length)).toBe('Move to another project');
 });

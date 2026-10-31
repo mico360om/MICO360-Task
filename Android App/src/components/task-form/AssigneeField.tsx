@@ -25,6 +25,7 @@ export function AssigneeField({
   addLabel = 'Add people',
   emptyText = 'No one is on this project yet',
   allChosenText = 'Everyone on this project is assigned.',
+  failedText = 'Couldn’t load the project’s people — you can still create the task, and assign people from it later.',
   labels,
 }: {
   people: readonly PersonOption[];
@@ -44,6 +45,8 @@ export function AssigneeField({
   emptyText?: string;
   /** In the list once everyone is picked. */
   allChosenText?: string;
+  /** Under it when the people couldn't be loaded (`status` 'failed'). */
+  failedText?: string;
   /** Its own words (a schedule's inspectors — Stage 4): the list's label, the picker's, and when everyone is chosen. */
   labels?: { list: string; add: string; allChosen: string };
 }) {
@@ -88,7 +91,7 @@ export function AssigneeField({
         emptyText={labels?.allChosen ?? allChosenText}
         disabled={disabled || people.length === 0}
       />
-      {status === 'failed' ? <Text style={[styles.note, { color: c.ink2 }]}>Couldn’t load the project’s people — you can still create the task, and assign people from it later.</Text> : null}
+      {status === 'failed' ? <Text style={[styles.note, { color: c.ink2 }]}>{failedText}</Text> : null}
       {note ? <Text style={[styles.note, { color: c.ink2 }]}>{note}</Text> : null}
     </View>
   );

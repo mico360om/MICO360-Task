@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useColors } from '../core/theme';
 import { useAdminTotals } from '../core/project-queries';
-import { ErrorNote } from './ui';
 import { completionBars } from '../lib/project-list';
 import { statusBars } from '../lib/reports';
 import { toneStyle } from '../lib/tone';
@@ -12,7 +11,8 @@ import { font } from '../lib/typography';
 /**
  * The administrators' Dashboard charts (5b), as the website's: the tasks by status, and each
  * project's completion coloured by how healthy it is. Their All tasks and Overdue are the Dashboard's
- * top tiles (Stage 2). It shows the last copy offline.
+ * top tiles (Stage 2), which also say when the totals couldn't load and offer Retry (fix pass B9).
+ * It shows the last copy offline.
  */
 export function AdminTotals() {
   const c = useColors();
@@ -25,7 +25,6 @@ export function AdminTotals() {
 
   return (
     <View style={s.wrap}>
-      {q.isError && !q.data ? <ErrorNote message="Couldn’t load the totals for all projects." onRetry={() => void q.refetch()} retrying={q.isRefetching} /> : null}
       {ready ? (
         <View style={s.card}>
           <Text style={s.cardTitle} accessibilityRole="header">

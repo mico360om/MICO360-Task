@@ -27,3 +27,43 @@ it('the task screen offers it with the reason, stays on the task and says where 
   expect(s).toMatch(/moveAvailability\(task\.projectId, moveTargets, projectQ\.data\?\.name\)/);
   expect(s).toMatch(/notice\(movedText\(/); expect(s).toMatch(/<MoveTaskSheet/);
 });
+
+it('final review A1: a move goes in the task’s lane (several: every task’s), noting the version it made', () => {
+  const s = src('core/move-queries.ts');
+  expect(s).toMatch(/liveTaskWrite\(taskWrites, id, undefined, [^]*\(result\) => result\.task\?\.version\)/);
+  expect(s).toMatch(/inTaskLanes\(taskWrites, ids, /);
+  expect(s).toMatch(/if \(item\.ok\) taskWrites\.note\(item\.taskId, item\.task\?\.version\)/);
+});
+
+it('final review A4: the sheet shows the tasks it was opened for until it has closed', () => {
+  const s = src('components/move/MoveTaskSheet.tsx');
+  expect(s).toMatch(/const held = useRef<MoveTaskRef\[\]>\(given\);\s*if \(given\.length > 0\) held\.current = given;\s*const tasks = sheetTasks\(given, held\.current\);/);
+});
+
+it('final review A5: tapping Move without the team answer says so by the buttons, where it is always seen', () => {
+  const s = src('components/move/MoveTaskSheet.tsx');
+  expect(s).toMatch(/footer=\{\s*<View style=\{s\.footer\}>\s*\{choiceError \? <SheetMessage text=\{MOVE_TEXT\.chooseTeam\} \/> : null\}\s*<View style=\{s\.footerRow\}>\s*<SheetButtons/);
+  expect(s.match(/MOVE_TEXT\.chooseTeam/g)).toHaveLength(1); // said once: by the buttons, not under the question scrolled out of view
+});
+
+it('final review A6: a choice card says a hint only when it has one; the team answers have none', () => {
+  const kit = src('components/meeting/sheet-kit.tsx');
+  expect(kit).toMatch(/options: \{ value: T; label: string; hint\?: string; disabled\?: boolean \}\[\]/);
+  expect(kit).toMatch(/accessibilityLabel=\{o\.hint \? `\$\{o\.label\}\. \$\{o\.hint\}` : o\.label\}/);
+  expect(kit).toMatch(/\{o\.hint \? <Text style=\{s\.cardHint\}>\{o\.hint\}<\/Text> : null\}/);
+  const sheet = src('components/move/MoveTaskSheet.tsx');
+  expect(sheet).not.toMatch(/hint: ''/);
+  expect(sheet).toMatch(/\{ value: 'ADD_TO_TEAM', label: labels\.add \}/);
+});
+
+it('final review A8: "What will change", "Can’t be moved" and "Couldn’t be moved" are headings TalkBack reads before their lists', () => {
+  const s = src('components/move/MoveTaskSheet.tsx');
+  for (const k of ['changes', 'cantMove', 'notMoved']) expect(s, k).toMatch(new RegExp(`<Text style=\\{s\\.heading\\} accessibilityRole="header">\\s*\\{MOVE_TEXT\\.${k}\\}\\s*</Text>\\s*\\{lines\\(`));
+  expect(s).not.toMatch(/<FieldLabel>\{MOVE_TEXT\.(changes|cantMove|notMoved)\}/);
+});
+
+it('final review A10: My Tasks reads where tasks can be moved as it opens, so the first "Move to project…" isn’t too early', () => {
+  const s = src('screens/MyTasksScreen.tsx');
+  expect(s).toMatch(/const moveTargets = useMoveTargets\(true\);/);
+  expect(s).not.toMatch(/useMoveTargets\(selected/);
+});

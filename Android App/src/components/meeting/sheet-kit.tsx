@@ -173,7 +173,7 @@ export function CheckRow({ label, checked, onChange, disabled }: { label: string
       accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled: !!disabled }}
-      style={({ pressed }) => [s.checkRow, pressed && s.pressed]}
+      style={({ pressed }) => [s.checkRow, disabled && s.disabled, pressed && s.pressed]}
     >
       <View style={[s.checkbox, checked && s.checkboxOn]}>{checked ? <Icon name="misc.check" size={14} color={c.onBrand} /> : null}</View>
       <Text style={s.checkText}>{label}</Text>
@@ -181,7 +181,7 @@ export function CheckRow({ label, checked, onChange, disabled }: { label: string
   );
 }
 
-/** Choices as cards with a hint each ("This meeting only" / "All upcoming meetings in the series"). */
+/** Choices as cards, each with a hint when it has one ("This meeting only" / "All upcoming meetings in the series"). */
 export function CardChoice<T extends string>({
   legend,
   options,
@@ -189,7 +189,7 @@ export function CardChoice<T extends string>({
   onChange,
 }: {
   legend: string;
-  options: { value: T; label: string; hint: string; disabled?: boolean }[];
+  options: { value: T; label: string; hint?: string; disabled?: boolean }[];
   value: T;
   onChange: (v: T) => void;
 }) {
@@ -205,14 +205,14 @@ export function CardChoice<T extends string>({
             onPress={() => onChange(o.value)}
             disabled={o.disabled}
             accessibilityRole="radio"
-            accessibilityLabel={`${o.label}. ${o.hint}`}
+            accessibilityLabel={o.hint ? `${o.label}. ${o.hint}` : o.label}
             accessibilityState={{ selected: on, checked: on, disabled: !!o.disabled }}
             style={({ pressed }) => [s.card, on && s.cardOn, o.disabled && s.disabled, pressed && s.pressed]}
           >
             <View style={[s.radio, on && s.radioOn]}>{on ? <View style={s.radioDot} /> : null}</View>
             <View style={s.flex}>
               <Text style={s.cardTitle}>{o.label}</Text>
-              <Text style={s.cardHint}>{o.hint}</Text>
+              {o.hint ? <Text style={s.cardHint}>{o.hint}</Text> : null}
             </View>
           </Pressable>
         );

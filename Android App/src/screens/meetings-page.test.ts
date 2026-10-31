@@ -25,3 +25,12 @@ it('the strip is one summary for TalkBack, two numbers a row, a 0 not a button',
 });
 
 it('the My action items row gives way to the strip (the menu still has My Action Items)', () => expect(src('screens/MeetingsScreen.tsx')).not.toMatch(/navigate\('MyActionItems'\)/));
+
+// Stage 2 fix pass B10: "Last meeting: <title>" was a link inside the sentence (a small target TalkBack
+// can't reach on its own). It is a row of its own to tap, 44 dp tall, read as one: what it opens.
+it('B10: the last meeting is a row of its own to tap, not a link inside the sentence', () => {
+  const s = src('components/meeting/NothingComingUp.tsx');
+  expect(s).not.toMatch(/<Text[^>]*onPress=/);
+  expect(s).toMatch(/<Pressable\s+onPress=\{onOpen\}\s+accessibilityRole="button"\s+accessibilityLabel=\{`Last meeting: \$\{last\.title\}, \$\{last\.when\}`\}\s+accessibilityHint="Opens the meeting"/);
+  expect(s).toMatch(/lastRow: \{[^}]*minHeight: 44/);
+});

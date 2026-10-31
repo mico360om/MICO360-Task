@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, TASK_FIGURE_VIEWS } from './task-cache';
-import { refresh } from './refresh';
+import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, DASHBOARD_VIEWS, TASK_FIGURE_VIEWS } from './task-cache';
+import { appSource } from '../testing/web-source';
+import { DASHBOARD_FIGURES, DUE_SOON_KEY, refresh } from './refresh';
 import type { ApiTask, MoveResult } from './types';
 import { formerKeysText } from './task-detail';
 
@@ -145,7 +146,7 @@ describe('createdTaskRefreshes', () => {
 // when they are next shown, as the website's TASK_FIGURE_KEYS / invalidateTaskQueries.
 describe('Timeline, Workload and Management after a task change', () => {
   it('are named by every task change: an edit, a new task, its people, a move, an approval decision, a move to another project and a delete', () => {
-    expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }]);
+    expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }, ...DASHBOARD_VIEWS]);
     // Stage 2's approval decisions and moves to another project too (Management counts what waits for approval; Timeline each project's tasks).
     const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
     for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
@@ -324,5 +325,67 @@ describe('several tasks moved at once (Stage 2)', () => {
     // One refresh for the group (refresh() reads now what is shown, and marks the rest): not one per task.
     expect(spy.mock.calls.length).toBeLessThanOrEqual(2);
     expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["task","t1"]', '["task","t2"]', '["tasks","mine"]', '["project","p1","progress"]', '["project","p2","progress"]']));
+  });
+});
+
+// Stage 2 final review A2: once decided (approved, sent back, or approval switched off) a task leaves
+// "To approve" and the Dashboard's card at once, so its buttons can't be tapped again before the list is read.
+describe('a decided task leaves the approvals list at once', () => {
+  it('Approve, Send back and switching off take it off the list now, and the list is still read again', () => {
+    for (const answer of [
+      { ...t('t1'), approvalRequestedAt: null, completedAt: '2026-10-30T08:00:00Z' }, // approved
+      { ...t('t1'), approvalRequestedAt: null }, // sent back
+      { ...t('t1'), approvalRequestedAt: null, needsApproval: false, completedAt: '2026-10-30T08:00:00Z' }, // switched off while it waited
+    ]) {
+      const qc = seeded();
+      qc.setQueryData(['approvals'], { canApprove: true, tasks: [{ ...t('t1'), project: { id: 'p1' } }, { ...t('t2'), project: { id: 'p1' } }] });
+      afterApprovalDecision(qc, 't1', answer);
+      expect(qc.getQueryData<{ tasks: { id: string }[] }>(['approvals'])?.tasks.map((x) => x.id)).toEqual(['t2']);
+      expect(qc.getQueryData<{ canApprove: boolean }>(['approvals'])?.canApprove).toBe(true);
+      expect(refreshedKeys(qc)).toContain('["approvals"]');
+    }
+  });
+  it('no list read yet: nothing is made', () => {
+    const qc = seeded();
+    afterApprovalDecision(qc, 't1', { ...t('t1'), approvalRequestedAt: null });
+    expect(qc.getQueryData(['approvals'])).toBeUndefined();
+  });
+});
+
+// Stage 2 final review A9: the Dashboard's admin totals, its activity feed and Due soon count tasks too —
+// every task change marks them out of date (read again when the Dashboard is next shown), as the
+// website's TASK_QUERY_ROOTS.
+describe('the Dashboard after a task change (final review A9)', () => {
+  it('admin totals, the activity feed and Due soon are named by every task change, with Timeline, Workload and Management', () => {
+    expect(DASHBOARD_VIEWS).toEqual([{ queryKey: ['tasks', 'due-soon'], exact: true, later: true }, { queryKey: ['activity'], later: true }, { queryKey: ['dashboard'], later: true }]);
+    // One list of the Dashboard's keys: lib/refresh's (which marks them for a change of a task's figures, B2).
+    expect(DASHBOARD_VIEWS).toEqual(DASHBOARD_FIGURES.map((v) => ({ ...v, later: true })));
+    expect(TASK_FIGURE_VIEWS).toEqual(expect.arrayContaining(DASHBOARD_VIEWS));
+    const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
+    for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
+      for (const v of DASHBOARD_VIEWS) expect(list).toContainEqual(v);
+    }
+  });
+  it('are marked out of date, not fetched at once — after an edit, a new task, a decision and a delete', () => {
+    for (const change of [
+      (qc: QueryClient) => refresh(qc, editRefreshes('t1', { title: 'x' })),
+      (qc: QueryClient) => refresh(qc, createdTaskRefreshes('p1')),
+      (qc: QueryClient) => afterApprovalDecision(qc, 't1', t('t1')),
+      (qc: QueryClient) => afterTaskDeleted(qc, 't1'),
+    ]) {
+      const qc = seeded();
+      qc.setQueryData(['dashboard', 'admin-totals'], { total: 3 });
+      qc.setQueryData(['activity'], []);
+      qc.setQueryData(['tasks', 'due-soon'], []);
+      change(qc);
+      const keys = refreshedKeys(qc);
+      for (const k of ['["dashboard","admin-totals"]', '["activity"]', '["tasks","due-soon"]']) expect(keys).toContain(k);
+      for (const key of [['dashboard'], ['activity'], ['tasks', 'due-soon']]) expect(qc.getQueryCache().findAll({ queryKey: key }).every((q) => q.state.fetchStatus === 'idle')).toBe(true);
+    }
+  });
+  it('Due soon is the Dashboard’s own key (lib/refresh DUE_SOON_KEY, which core/dashboard-queries reads)', () => {
+    expect(DASHBOARD_FIGURES[0]?.queryKey).toEqual([...DUE_SOON_KEY]);
+    expect(appSource('core/dashboard-queries.ts')).toMatch(/import \{ DUE_SOON_KEY \} from '\.\.\/lib\/refresh';/);
+    expect(appSource('lib/task-cache.ts')).toMatch(/import \{ DASHBOARD_FIGURES, refresh, type Refresh \} from '\.\/refresh';/);
   });
 });

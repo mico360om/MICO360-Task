@@ -162,9 +162,11 @@ export function projectPictureHref(apiBase: string, imageUrl: string | null | un
 export function ownerOptions(
   people: { id: string; username: string; firstName?: string; lastName?: string; active?: boolean }[],
   currentOwnerId: string | null | undefined,
+  /** "No owner" first (the website's ownerChoices allowNone: an administrator, or an edit). */
+  { allowNone = true }: { allowNone?: boolean } = {},
 ): { value: string; label: string; hint?: string }[] {
   return [
-    { value: '', label: 'No owner' },
+    ...(allowNone ? [{ value: '', label: 'No owner' }] : []),
     ...people.filter((u) => u.active !== false || u.id === currentOwnerId).map((u) => ({ value: u.id, label: displayName(u), hint: `@${u.username}` })),
   ];
 }

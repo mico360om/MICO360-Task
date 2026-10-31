@@ -27,3 +27,11 @@ it('the task screen shows the Approval section, first while it waits', () => {
   expect(s).toMatch(/taskSections\(\{ wide, waiting: isWaitingForApproval\(task\), approval: true \}\)/);
   expect(s).toMatch(/approval: <TaskApproval task=\{task\} \/>/);
 });
+
+it('final review A1: decisions go in the task’s lane, against the newest version, noting the one they make', () => {
+  const s = src('core/approval-queries.ts');
+  expect(s).toMatch(/liveTaskWrite\(taskWrites, t\.id, editBaseVersion\(undefined, qc\.getQueryData<ApiTask>\(\['task', t\.id\]\)\?\.version, t\.version\)/);
+  expect(s).toMatch(/approve: \(t\) => decide\(t, \(r, version\) => r\.tasks\.approve\(t\.id, version\)\)/);
+  expect(s).toMatch(/sendBack: \(t, reason\) => decide\(t, \(r, version\) => r\.tasks\.sendBack\(t\.id, reason, version\)\)/);
+  expect(s).toMatch(/setNeedsApproval: \(t, on\) => decide\(t, \(r, version\) => r\.tasks\.update\(t\.id, withExpectedVersion\(\{ needsApproval: on \}, version\)\)\)/);
+});

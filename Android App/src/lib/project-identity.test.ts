@@ -254,3 +254,12 @@ describe('drawn project icons, readable on every colour', () => {
     expect(ownerOptions(people as never, '')[1]).toEqual({ value: 'u1', label: 'Ann Lee', hint: '@ann' });
   });
 });
+
+// Stage 2 fix pass B3: "No owner" is offered only when it may be chosen (an administrator, or an edit),
+// as the website's ownerChoices(…, { allowNone }).
+it('B3: "No owner" only when it may be chosen', () => {
+  const people = [{ id: 'u1', username: 'ann', firstName: 'Ann', lastName: 'Lee' }];
+  expect(ownerOptions(people, 'u1', { allowNone: false }).map((o) => o.value)).toEqual(['u1']);
+  expect(ownerOptions(people, 'u1', { allowNone: true }).map((o) => o.value)).toEqual(['', 'u1']);
+  expect(ownerOptions(people, 'u1').map((o) => o.value)).toEqual(['', 'u1']);
+});

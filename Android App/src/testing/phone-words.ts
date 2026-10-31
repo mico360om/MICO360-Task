@@ -1,24 +1,33 @@
 /**
- * The website's words as the phone says them. Where a website sentence names a mouse ("click") or a
- * page reload, the app says its phone equivalent ("tap", "even if the app closes" — Stage 3 Task 17,
- * Stage 4 lead amendment 2). These are the ONLY changes a word drift test allows; every other word
- * is the website's, letter for letter. Test-only — nothing in the app imports this folder.
+ * The website's words as the phone says them. Where a website sentence names a mouse or a keyboard
+ * ("click" → "tap", Stage 3 Task 17; "press Enter" → "tap Add", Stage 2 final review A11) or a page
+ * reload ("even if the app closes", Stage 4 lead amendment 2), the app says its phone equivalent.
+ * These are the ONLY changes a word drift test allows; every other word is the website's, letter for
+ * letter. Each names the website file it comes from (its own drift test checks that file still says
+ * it). Test-only — nothing in the app imports this folder.
  */
 import { normalise } from './web-source';
 
-/** Website words → phone words for a mouse ("click" → "tap", Stage 3 Task 17). */
-export const PHONE_WORDS: readonly (readonly [web: string, phone: string])[] = [
-  // Workload's footer (WorkloadPage.tsx).
-  ['Nothing changes until you click.', 'Nothing changes until you tap.'],
+/** Website words → phone words for a mouse or a keyboard. */
+export const PHONE_WORDS: readonly (readonly [web: string, phone: string, file: string])[] = [
+  // Workload's footer.
+  ['Nothing changes until you click.', 'Nothing changes until you tap.', 'frontend/src/pages/WorkloadPage.tsx'],
+  // New task's checklist box: the phone's box has an Add button beside it (the keyboard's key adds too).
+  ['Add an item and press Enter', 'Add an item and tap Add', 'frontend/src/components/task-form/ChecklistField.tsx'],
 ];
 
 /** Website words → phone words for a page reload or a mouse in an inspection (Stage 4, lead amendment 2). */
-export const DEVICE_WORDS: readonly (readonly [web: string, phone: string])[] = [
-  ['even if the page reloads', 'even if the app closes'],
-  ['Draw with your finger or mouse.', 'Draw with your finger.'],
+export const DEVICE_WORDS: readonly (readonly [web: string, phone: string, file: string])[] = [
+  ['even if the page reloads', 'even if the app closes', 'frontend/src/pages/InspectionPage.tsx'],
+  ['Draw with your finger or mouse.', 'Draw with your finger.', 'frontend/src/components/inspections/SignaturePad.tsx'],
 ];
 
 const ALL_WORDS = [...PHONE_WORDS, ...DEVICE_WORDS];
+
+/** The substitutions for one website file. */
+export function phoneWordsIn(file: string): (readonly [web: string, phone: string, file: string])[] {
+  return ALL_WORDS.filter(([, , f]) => f === file);
+}
 
 /** The website's text as the phone words it: each substitution made wherever it appears. */
 export function onPhone(webText: string): string {

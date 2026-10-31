@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CHECKLIST_ITEM_MAX, CHECKLIST_MAX, CHECKLIST_TEXT, checklistItemLabel, checklistRemoveLabel, checklistRows, checklistTexts, newChecklistRow } from './checklist-draft';
 import { hasWeb, loadWebTsx, readWeb } from '../testing/web-source';
+import { onPhone, phoneWordsIn } from '../testing/phone-words';
 
 const CASES: Array<[string[], string]> = [[['  a ', '', 'b'], ''], [[], 'x\n\n y \r\nz'], [Array.from({ length: 99 }, (_, i) => `i${i}`), 'p\nq'], [[], 'w'.repeat(300)]];
 const FIELD = 'frontend/src/components/task-form/ChecklistField.tsx';
@@ -12,10 +13,14 @@ describe.skipIf(!hasWeb(FIELD, FORM))('the website’s checklist rules and words
     for (const [texts, pending] of CASES) expect(checklistTexts(checklistRows(texts), pending)).toEqual(web.checklistTexts(web.checklistRows(texts), pending));
     expect([web.CHECKLIST_ITEM_MAX, web.CHECKLIST_MAX]).toEqual([CHECKLIST_ITEM_MAX, CHECKLIST_MAX]);
   });
-  it('same words', () => {
+  it('same words — "press Enter" said as the phone’s "tap Add" (final review A11: testing/phone-words, exactly those substitutions)', () => {
     const w = readWeb(FIELD) + readWeb(FORM);
     const { full, ...rest } = CHECKLIST_TEXT;
-    for (const t of [...Object.values(rest), 'Checklist item ', 'from the checklist']) expect(w, t).toContain(t);
+    expect(phoneWordsIn(FIELD).length).toBeGreaterThan(0);
+    for (const [web] of phoneWordsIn(FIELD)) expect(readWeb(FIELD), web).toContain(web);
+    for (const t of [...Object.values(rest), 'Checklist item ', 'from the checklist']) expect(onPhone(w), t).toContain(t);
+    expect(CHECKLIST_TEXT.placeholder).toBe('Add an item and tap Add');
+    expect(CHECKLIST_TEXT.add).toBe('Add'); // the button the words name
     // The website writes its limit into the words: `A checklist holds up to ${CHECKLIST_MAX} items`.
     expect(readWeb(FIELD)).toContain('`A checklist holds up to ${CHECKLIST_MAX} items`');
     expect(full).toBe(`A checklist holds up to ${CHECKLIST_MAX} items`);

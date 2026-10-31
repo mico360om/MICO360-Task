@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { appSource as src, hasWeb, loadWebTs, readWeb } from '../testing/web-source';
 import { SUGGESTIONS, WORKLOAD } from '../testing/planning-fixtures';
-import { PHONE_WORDS, onPhone } from '../testing/phone-words';
+import { onPhone, phoneWordsIn } from '../testing/phone-words';
 import { ApiError, NetworkError } from './api-client';
 import {
   appliedText,
@@ -53,7 +53,7 @@ describe.skipIf(!hasWeb('frontend/src/lib/workload.ts', 'frontend/src/pages/Work
   it('the page’s and the popover’s own words', () => {
     const page = readWeb('frontend/src/pages/WorkloadPage.tsx');
     // The website's words with its "click" said as "tap" (testing/phone-words: exactly those substitutions).
-    for (const [web] of PHONE_WORDS) expect(page).toContain(web);
+    for (const [web] of phoneWordsIn('frontend/src/pages/WorkloadPage.tsx')) expect(page).toContain(web);
     for (const w of ['`Gave ${task.key} to ${s.to.name}.`', '`Moved ${task.key} to ${longDay(s.date)}.`', 'Couldn’t change the daily limit: ', 'the server couldn’t be reached', footerLine('self'), footerLine('everyone'), scopeLead('teams'), scopeLead('self')]) expect(onPhone(page)).toContain(w);
     expect(footerLine('self')).toBe('Suggestions name the next lighter day. Nothing changes until you tap.');
     expect(readWeb('frontend/src/components/workload/WorkloadPopover.tsx')).toContain('const listed = cell.over > 0 ? cell.tasks.slice(0, cell.over) : cell.tasks.slice(0, LISTED);');

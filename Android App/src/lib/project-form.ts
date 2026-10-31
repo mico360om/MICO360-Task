@@ -60,6 +60,8 @@ export const TEAM_TEXT = {
   all: 'Everyone is on the team.',
   adminNote: 'The owner joins the team too. You can add or remove people later on the Team tab.',
   otherNote: 'You’ll be on the team as a manager, so you can keep running it. The owner joins the team too.',
+  /** The phone's own: its list of people couldn't load (offline, never opened). */
+  failed: 'Couldn’t load the people — you can still create the project, and add people from its Team tab later.',
 } as const;
 
 /** Everyone who can be put on a team: the directory's active people, by name, with their pictures. */
@@ -108,7 +110,8 @@ export type PicturePart = { uri: string; name: string; type: string };
 /** The picture: as it is, removed, or a newly picked one (sent after the details). */
 export type PictureChoice = { kind: 'keep' } | { kind: 'remove' } | { kind: 'new'; part: PicturePart };
 
-export function draftOf(p?: ApiProject | null): ProjectDraft {
+/** A project's draft; a new one is owned by the person creating it (`newOwner`) unless they pick someone else. */
+export function draftOf(p?: ApiProject | null, newOwner = ''): ProjectDraft {
   return {
     name: p?.name ?? '',
     code: p?.code ?? '',
@@ -117,7 +120,7 @@ export function draftOf(p?: ApiProject | null): ProjectDraft {
     description: p?.description ?? '',
     status: p?.status ?? 'PLANNING',
     priority: p?.priority ?? 'NORMAL',
-    ownerId: p?.ownerId ?? '',
+    ownerId: p ? (p.ownerId ?? '') : newOwner,
     color: p?.color ?? DEFAULT_PROJECT_COLOR,
     icon: p?.icon ?? null,
     carryForward: p?.carryForward ?? PROJECT_TASK_DEFAULTS.carryForward,

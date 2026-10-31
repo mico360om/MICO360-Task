@@ -10,7 +10,8 @@ import { newIdempotencyKey } from '../lib/idempotency';
 import { itemLanes, sendItemWrite } from '../lib/item-lanes';
 import { refresh } from '../lib/refresh';
 import { afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
-import type { ApiColumn } from '../lib/types';
+import { editBaseVersion, liveTaskWrite, taskWrites, withExpectedVersion } from '../lib/task-writes';
+import type { ApiColumn, ApiTask } from '../lib/types';
 
 /**
  * The New task form's server side (4a): Describe, the project used last time, and sending — the
@@ -93,9 +94,13 @@ export function useSaveTaskEdit(taskId: string): (draft: TaskDraft, saved: TaskD
           afterTaskSaved(qc, taskId, done, patch);
         },
         // An edit that changes "Needs approval": sent now, never kept (online only) — as the person who
-        // saved it, against the version the form opened with.
+        // saved it, in the task's lane, against the version the form opened with or the one this phone's
+        // own last write made (so the entire-series repeat sent after it isn't refused: final review A1).
         updateLive: async (patch) => {
-          const done = await owned(services).resources.tasks.update(taskId, { ...patch, expectedVersion: openedVersion });
+          const w = owned(services);
+          const done = await liveTaskWrite(taskWrites, taskId, editBaseVersion(openedVersion, qc.getQueryData<ApiTask>(['task', taskId])?.version, undefined), (version) =>
+            w.resources.tasks.update(taskId, withExpectedVersion(patch, version)),
+          );
           afterTaskSaved(qc, taskId, done, patch);
         },
         move: async (columnId) => {

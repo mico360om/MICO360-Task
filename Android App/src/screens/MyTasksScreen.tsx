@@ -180,7 +180,8 @@ export function MyTasksScreen({ navigation, route }: TabScreenProps<'MyTasks'>) 
   const moveColumns = filters.project ? formColumns(moveColumnsQ.data).map((col) => ({ value: col.id, label: col.name, dot: col.color })) : [];
   const people = (dirQ.data ?? []).filter((u) => u.active !== false).map((u) => ({ value: u.id, label: displayName(u) }));
   // "Move to project…": one sheet for the whole selection (each task is checked there) — the website's.
-  const moveTargets = useMoveTargets(selected.size > 0);
+  // Where tasks can be moved is read as the screen opens, so the first tap isn't too early (final review A10).
+  const moveTargets = useMoveTargets(true);
   const [moveRefs, setMoveRefs] = useState<MoveTaskRef[] | null>(null);
   const openProjectMove = () => {
     if (chosen.length === 0 || busy) return;

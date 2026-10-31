@@ -3,6 +3,7 @@ import {
   DASHBOARD_ACTION_LABEL,
   DASHBOARD_TEXT,
   FIRST_STEPS_TEXT,
+  TILE_FAILED,
   activityRows,
   approvalsCardView,
   dashboardActionLabel,
@@ -111,5 +112,38 @@ describe.skipIf(!hasWeb('frontend/src/pages/DashboardPage.tsx', 'frontend/src/co
   it('every Dashboard word', () => {
     const w = ['frontend/src/pages/DashboardPage.tsx', 'frontend/src/components/FirstSteps.tsx', 'frontend/src/components/approvals/ApprovalsCard.tsx'].map(readWeb).join('\n');
     for (const t of [...Object.values(DASHBOARD_TEXT), ...Object.values(DASHBOARD_ACTION_LABEL), FIRST_STEPS_TEXT.admin.title, FIRST_STEPS_TEXT.admin.body, FIRST_STEPS_TEXT.employee.title, FIRST_STEPS_TEXT.employee.body, FIRST_STEPS_TEXT.createProject, FIRST_STEPS_TEXT.addTeam, 'Assigned to you', 'Active workspaces', 'Past their due day', 'Nothing late', 'No tasks yet', 'Today, the week’s last day', 'Nothing is waiting for your approval.', 'more on My Tasks.']) expect(w, t).toContain(t);
+  });
+});
+
+// Stage 2 fix pass B9: a figure whose list couldn't load (and nothing is kept on the phone) said "—"
+// and "loading" for ever. It says it couldn't load; the tiles offer Retry (DashboardTiles).
+describe('B9: a figure that couldn’t load says so', () => {
+  it('an administrator’s company totals', () => {
+    const tiles = dashboardTiles({ isAdmin: true, myTasks: [1], projects: [1], failed: { reports: true } });
+    expect(tiles.map((t) => [t.key, t.value, t.hint, t.failed ?? false])).toEqual([
+      ['myTasks', '1', 'Assigned to you', false],
+      ['projects', '1', 'Active workspaces', false],
+      ['allTasks', '—', 'Couldn’t load', true],
+      ['overdue', '—', 'Couldn’t load', true],
+    ]);
+  });
+
+  it('everyone else’s own tasks, and the projects', () => {
+    const tiles = dashboardTiles({ isAdmin: false, failed: { myTasks: true, projects: true } });
+    expect(tiles.map((t) => [t.value, t.hint, t.failed])).toEqual([
+      ['—', 'Couldn’t load', true],
+      ['—', 'Couldn’t load', true],
+      ['—', 'Couldn’t load', true],
+      ['—', 'Couldn’t load', true],
+    ]);
+  });
+
+  it('still loading is "—" with no hint; a list kept from before shows its figures', () => {
+    expect(dashboardTiles({ isAdmin: true }).every((t) => t.value === '—' && t.hint === undefined && !t.failed)).toBe(true);
+    // A failed refresh over a kept copy: the copy's figures, not "couldn't load".
+    const kept = dashboardTiles({ isAdmin: true, myTasks: [], projects: [], reportRows: [], failed: {} })[2]!;
+    expect(kept.value).toBe('0');
+    expect(kept.failed).toBeUndefined();
+    expect(TILE_FAILED).toEqual({ hint: 'Couldn’t load', spoken: 'couldn’t load', note: 'Couldn’t load these figures.' });
   });
 });

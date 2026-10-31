@@ -1,16 +1,26 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { ApiTask, MoveResult } from './types';
-import { refresh, type Refresh } from './refresh';
+import type { ApiTask, ApprovalsAnswer, MoveResult } from './types';
+import { DASHBOARD_FIGURES, refresh, type Refresh } from './refresh';
+
+/**
+ * What the Dashboard shows that counts or lists tasks (Stage 2): Due soon (lib/refresh DUE_SOON_KEY),
+ * the activity feed (['activity']) and an administrator's totals (['dashboard', …]) — lib/refresh's
+ * DASHBOARD_FIGURES, one list — marked out of date by every task change and read again when the
+ * Dashboard is next shown (its focus refetch), as the website's TASK_QUERY_ROOTS (final review A9).
+ */
+export const DASHBOARD_VIEWS: Refresh[] = DASHBOARD_FIGURES.map((f) => ({ ...f, later: true }));
 
 /**
  * The figures that count tasks on the Stage 3 screens — Timeline and Workload (['planning', …]) and
- * Management (['management', …]) — after any task change: marked out of date and read again when
- * next shown (those screens read again as they come back into view: core/focus-refetch), as the
- * website's TASK_FIGURE_KEYS / invalidateTaskQueries. Who may open Management is another key.
+ * Management (['management', …]) — and the Dashboard's (DASHBOARD_VIEWS), after any task change:
+ * marked out of date and read again when next shown (those screens read again as they come back into
+ * view: core/focus-refetch), as the website's TASK_FIGURE_KEYS / invalidateTaskQueries. Who may open
+ * Management is another key.
  */
 export const TASK_FIGURE_VIEWS: Refresh[] = [
   { queryKey: ['planning'], later: true },
   { queryKey: ['management'], later: true },
+  ...DASHBOARD_VIEWS,
 ];
 
 /**
@@ -159,11 +169,15 @@ export function approvalRefreshes(taskId: string): Refresh[] {
  * After an approval decision the server accepted: its copy of the task is laid over the details
  * shown at once (a load still on its way is called off first, as after an edit), then everything
  * it changed is refreshed. Details never loaded (a decision from To approve) are not made from the
- * answer — it lacks what only the details call returns — and load in full when opened.
+ * answer — it lacks what only the details call returns — and load in full when opened. Decided
+ * (approved, sent back, or approval switched off), it leaves the approvals list at once — To approve
+ * and the Dashboard's card — so it can't be decided twice before the list is read again (A2).
  */
 export function afterApprovalDecision(qc: QueryClient, taskId: string, answer: ApiTask): void {
   void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
   if (answer?.id === taskId) qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...answer } : prev));
+  void qc.cancelQueries({ queryKey: ['approvals'], exact: true });
+  qc.setQueryData<ApprovalsAnswer>(['approvals'], (prev) => (prev && Array.isArray(prev.tasks) ? { ...prev, tasks: prev.tasks.filter((x) => x.id !== taskId) } : prev));
   refresh(qc, approvalRefreshes(taskId));
 }
 

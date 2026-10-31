@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { PROJECTS_OVERVIEW_KEY, refresh } from './refresh';
+import { DUE_SOON_KEY, PROJECTS_OVERVIEW_KEY, refresh } from './refresh';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const clients: QueryClient[] = [];
@@ -209,5 +209,32 @@ describe('the Projects list’s figures (5b review #2)', () => {
     expect(PROJECTS_OVERVIEW_KEY).toEqual(['projects', 'overview']);
     expect(refreshed(qc, ['projects', 'overview'])).toBe(true);
     expect(spy.mock.calls.some(([filters]) => (filters as { refetchType?: string }).refetchType === 'none')).toBe(true);
+  });
+});
+
+// Stage 2 fix pass B2: a task change also moves the Dashboard's Due soon, Recent activity and the
+// administrators' totals — marked out of date with the Projects page's figures, and read again when
+// the Dashboard next comes into view (core/focus-refetch), never at once for every change.
+describe('the Dashboard after a task change (fix pass B2)', () => {
+  it('marks Due soon, the activity and the administrators’ totals out of date, to be fetched when next shown', () => {
+    const qc = client();
+    qc.setQueryData(['task', 't1'], task('t1', 'p1'));
+    qc.setQueryData(DUE_SOON_KEY, []);
+    qc.setQueryData(['activity'], []);
+    qc.setQueryData(['dashboard', 'admin-totals'], { projects: [], status: {} });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    refresh(qc, [{ progressFor: 't1' }]);
+    expect(DUE_SOON_KEY).toEqual(['tasks', 'due-soon']);
+    for (const key of [[...DUE_SOON_KEY], ['activity'], ['dashboard', 'admin-totals']]) expect(refreshed(qc, key), key.join('/')).toBe(true);
+    expect(spy.mock.calls.every(([filters]) => (filters as { refetchType?: string }).refetchType === 'none')).toBe(true);
+  });
+
+  it('a change that names no task leaves them as they are', () => {
+    const qc = client();
+    qc.setQueryData(DUE_SOON_KEY, []);
+    qc.setQueryData(['dashboard', 'admin-totals'], { projects: [], status: {} });
+    refresh(qc, [{ queryKey: ['meetings'] }]);
+    expect(refreshed(qc, [...DUE_SOON_KEY])).toBe(false);
+    expect(refreshed(qc, ['dashboard', 'admin-totals'])).toBe(false);
   });
 });

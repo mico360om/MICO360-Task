@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createTaskWrites, editBaseVersion, markReloaded, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
+import { createTaskWrites, editBaseVersion, inTaskLanes, liveTaskWrite, markReloaded, noteReplayed, withExpectedVersion, rebaseQueuedVersion, taskHoldsEdit } from './task-writes';
+import { saveTaskEdit, editTaskDraft, type EditDeps } from './task-form';
+import { ApiError } from './api-client';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QueuedMutation } from './sync-queue';
@@ -247,5 +249,84 @@ describe('editBaseVersion — a bulk edit isn’t refused over old details still
     const file = resolve(__dirname, '../core/queries.ts');
     const core = existsSync(file) ? readFileSync(file, 'utf8') : '';
     expect(core).toMatch(/const loaded = editBaseVersion\(pinnedVersion, qc\.getQueryData<ApiTask>\(\['task', taskId\]\)\?\.version, fallbackVersion\);/);
+  });
+});
+
+// Stage 2 final review A1: writes sent now and never kept (approval decisions, an Edit-task save that
+// changes "Needs approval", moves to another project) still go in the task's lane, against the newest
+// version this phone knows, and note the version they made.
+describe('liveTaskWrite — an online-only task write in the task’s lane', () => {
+  it('a decision while an inline edit is in flight waits for it and uses the version it made', async () => {
+    const writes = createTaskWrites();
+    let finish!: (t: { version: number }) => void;
+    // An inline edit on its way (sendTaskEdit: in the lane, notes the version it made).
+    const edit = writes.run('t1', async () => {
+      const t = await new Promise<{ version: number }>((r) => (finish = r));
+      writes.note('t1', t.version);
+      return t;
+    });
+    const sent: (number | undefined)[] = [];
+    const decision = liveTaskWrite(writes, 't1', 4, async (version) => {
+      sent.push(version);
+      return { version: (version ?? 0) + 1 };
+    });
+    await Promise.resolve();
+    expect(sent).toEqual([]); // not before the edit has finished
+    finish({ version: 5 });
+    await edit;
+    await expect(decision).resolves.toEqual({ version: 6 });
+    expect(sent).toEqual([5]);
+    expect(writes.expectedVersion('t1', 4)).toBe(6); // the next edit goes against the decision's version
+  });
+  it('a refused write notes nothing and lets the next one go', async () => {
+    const writes = createTaskWrites();
+    await expect(liveTaskWrite(writes, 't1', 4, () => Promise.reject(new ApiError(409, 'VERSION_CONFLICT', 'Changed.')))).rejects.toThrow('Changed.');
+    expect(writes.expectedVersion('t1', 4)).toBe(4);
+    await expect(liveTaskWrite(writes, 't1', 4, async (v) => ({ version: (v ?? 0) + 1 }))).resolves.toEqual({ version: 5 });
+  });
+  it('a move answers with its task: the version is read from it', async () => {
+    const writes = createTaskWrites();
+    await liveTaskWrite(writes, 't1', undefined, async () => ({ task: { version: 9 } }), (r) => r.task.version);
+    expect(writes.expectedVersion('t1', 3)).toBe(9);
+  });
+  it('Edit task: the tick and an entire-series repeat in one save — the repeat goes against the version the tick made', async () => {
+    const writes = createTaskWrites();
+    // A server that keeps the task's version and refuses an edit made against another.
+    const server = { version: 4, bodies: [] as Record<string, unknown>[] };
+    const update = async (body: Record<string, unknown>) => {
+      server.bodies.push(body);
+      if (body.expectedVersion !== server.version) throw new ApiError(409, 'VERSION_CONFLICT', 'Someone else changed this task.');
+      return { version: ++server.version };
+    };
+    const opened = 4;
+    // The two ways core/new-task sends an edit: kept (sendTaskEdit) and live (liveTaskWrite).
+    const deps: EditDeps = {
+      update: (patch) => writes.run('t1', async () => { const t = await update(withExpectedVersion(patch, writes.expectedVersion('t1', opened))); writes.note('t1', t.version); return t; }),
+      updateLive: (patch) => liveTaskWrite(writes, 't1', opened, (v) => update(withExpectedVersion(patch, v))),
+      move: async () => undefined,
+      assign: async () => undefined,
+      unassign: async () => undefined,
+    };
+    const saved = editTaskDraft({ id: 't1', key: 'RIG-7', title: 'Fix pump', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'NORMAL', startDate: null, dueDate: '2026-11-02T00:00:00.000Z', estimatedHours: null, progress: 0, completedAt: null, version: 4, recurrenceRule: { freq: 'DAILY', interval: 1 } }, [], 'Asia/Muscat');
+    const out = await saveTaskEdit(deps, { ...saved, needsApproval: true, rule: { freq: 'WEEKLY', interval: 1 } }, saved, { series: true, canRepeat: true });
+    expect(out.kind).toBe('saved');
+    expect(server.bodies).toEqual([{ needsApproval: true, scope: 'series', expectedVersion: 4 }, { recurrenceRule: { freq: 'WEEKLY', interval: 1 }, expectedVersion: 5 }]);
+  });
+});
+describe('inTaskLanes — one write for several tasks (a bulk move)', () => {
+  it('waits for each task’s earlier writes, whatever order the tasks are given in', async () => {
+    const writes = createTaskWrites();
+    const order: string[] = [];
+    let finishB!: () => void;
+    const editB = writes.run('b', () => new Promise<void>((r) => (finishB = () => { order.push('edit b'); r(); })));
+    const bulk = inTaskLanes(writes, ['c', 'b', 'a'], async () => { order.push('bulk'); return 1; });
+    await Promise.resolve();
+    expect(order).toEqual([]);
+    finishB();
+    await editB;
+    await expect(bulk).resolves.toBe(1);
+    expect(order).toEqual(['edit b', 'bulk']);
+    // And a write after it waits for it.
+    expect(await writes.run('a', async () => 'after')).toBe('after');
   });
 });
