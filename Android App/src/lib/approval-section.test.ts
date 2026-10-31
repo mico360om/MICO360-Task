@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { APPROVAL_SECTION_TEXT, SEND_BACK_TOO_LONG, approvalView, sendBackCheck } from './approval-section';
+import { APPROVAL_SECTION_TEXT, SEND_BACK_TOO_LONG, TO_APPROVE_SUB, approvalView, sendBackCheck, toApproveRows, toApproveTitle } from './approval-section';
+import type { ApprovalTask } from './types';
 import { APPROVAL_HINT, APPROVAL_LOCKED } from './approvals';
 import { failureText } from './task-detail';
 import { ApiError } from './api-client';
@@ -66,4 +67,27 @@ describe.skipIf(!hasWeb('frontend/src/components/approvals/TaskApproval.tsx', SE
     expect(SEND_BACK_TOO_LONG).toBe(`Keep the reason under ${max} characters.`);
     expect(s).toContain('Only the project’s managers can turn off approval for this task.');
   });
+});
+
+/** row(id, key, requestedAt): an ApprovalTask in project Rig, finished by Sara Ali at requestedAt. */
+const row = (id: string, key: string, requestedAt: string): ApprovalTask => ({
+  id, key, title: `Task ${key}`, description: null, projectId: 'p1', columnId: 'c-review', position: 0, priority: 'NORMAL', startDate: null, dueDate: null, estimatedHours: null, progress: 0, completedAt: null,
+  needsApproval: true, approvalRequestedAt: requestedAt, version: 2,
+  project: { id: 'p1', code: 'RIG', name: 'Rig', color: '#8B1E1E', icon: null, imageUrl: null },
+  requestedBy: { id: 'u2', name: 'Sara Ali' },
+});
+
+describe('To approve in My Tasks', () => {
+  it('To approve lists the server’s rows in its order, with the website’s words', () => {
+    const data = { canApprove: true, tasks: [row('t2', 'RIG-9', '2026-10-28T08:00:00Z'), row('t1', 'RIG-3', '2026-10-29T08:00:00Z')] };
+    expect(toApproveRows(data, NOW, TZ).map((r) => [r.task.id, r.approveLabel, r.sendBackLabel])).toEqual([['t2', 'Approve RIG-9', 'Send RIG-9 back'], ['t1', 'Approve RIG-3', 'Send RIG-3 back']]);
+    expect(toApproveRows(undefined, NOW, TZ)).toEqual([]); expect(toApproveTitle(2)).toBe('To approve (2)');
+  });
+  it('each row says who finished it and when, when the server names them', () => {
+    const data = { canApprove: true, tasks: [row('t2', 'RIG-9', '2026-10-28T08:00:00Z'), { ...row('t1', 'RIG-3', '2026-10-29T08:00:00Z'), requestedBy: null }] };
+    expect(toApproveRows(data, NOW, TZ).map((r) => r.finishedLine)).toEqual(['Finished by Sara Ali · 2d ago', null]);
+  });
+});
+describe.skipIf(!hasWeb('frontend/src/components/approvals/ToApproveSection.tsx'))('the website’s To approve words', () => {
+  it('heading and note', () => { const web = readWeb('frontend/src/components/approvals/ToApproveSection.tsx'); expect(web).toContain(TO_APPROVE_SUB); expect(web).toContain('To approve ('); });
 });

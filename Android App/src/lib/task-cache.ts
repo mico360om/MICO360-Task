@@ -149,8 +149,9 @@ export function afterApprovalDecision(qc: QueryClient, taskId: string, answer: A
 
 /**
  * After the server refused a decision (the task changed meanwhile, someone else decided first, the
- * person's rights changed): the task is read again, so a retry is from what is there now (the website's).
+ * person's rights changed): the task and the approvals list are read again, so a retry is from what
+ * is there now (the website's task panel and To approve).
  */
 export function afterApprovalRefused(qc: QueryClient, taskId: string): void {
-  refresh(qc, [{ queryKey: ['task', taskId], exact: true }]);
+  refresh(qc, [{ queryKey: ['task', taskId], exact: true }, { queryKey: ['approvals'] }]);
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDirectory, useMyTasks, useProjectColumns, useProjects } from '../core/queries';
@@ -12,6 +12,7 @@ import { Sheet } from '../components/meeting/sheet-kit';
 import { DayPicker } from '../components/calendar/CalendarSheets';
 import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
 import { MyTaskItem } from '../components/my-tasks/MyTaskItem';
+import { ToApproveSection } from '../components/approvals/ToApproveSection';
 import { notice } from '../components/notice';
 import {
   BUILT_IN_VIEWS,
@@ -55,16 +56,25 @@ const LIST_BOTTOM = spacing.xxl * 4;
 type BulkSheet = 'due' | 'priority' | 'assign' | 'move';
 
 /**
- * My Tasks (4d), as the website's page: everything assigned to you, across every project. The
+ * My Tasks (4d), as the website's page: everything assigned to you, across every project — under
+ * its title "To approve" for those who run a project (Stage 2), the tasks others finished. The
  * All / Open / Overdue / Completed chips; filters by project, status, priority, assignee and due
  * date; four sorts; saved views (the website's three, and your own, kept on this phone); and — for
  * the tasks you tick (only ones shown) — Complete, a due date (cleared after asking), a priority,
  * someone to assign, or a column of the project filtered to, each task through its own write
  * (kept on this phone offline). A virtualized list; the search box is this app's own.
  */
-export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
+export function MyTasksScreen({ navigation, route }: TabScreenProps<'MyTasks'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
+  const listRef = useRef<FlatList<MyTaskRow>>(null);
+  // Opened on To approve (the Dashboard's Approvals card): the list from its top, where To approve is.
+  useEffect(() => {
+    if (route.params?.show === 'to-approve') {
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      navigation.setParams({ show: undefined });
+    }
+  }, [route.params?.show, navigation]);
   const tasksQ = useMyTasks();
   const projectsQ = useProjects();
   const projects = useMemo(() => projectsQ.data ?? [], [projectsQ.data]);
@@ -180,6 +190,8 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
     <View style={s.head}>
       <PageHeader title="My Tasks" />
       <Text style={s.subtitle}>{MY_TASKS_TEXT.subtitle}</Text>
+      {/* Tasks waiting for my approval (people who run a project, and admins) — the website's place. */}
+      <ToApproveSection onOpen={(taskId) => navigation.navigate('TaskDetail', { taskId })} />
       <TextField value={q} onChangeText={setQ} placeholder="Search my tasks…" accessibilityLabel="Search my tasks" autoCapitalize="none" style={s.search} />
       {counts.total > 0 ? (
         <>
@@ -281,6 +293,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <FlatList
+        ref={listRef}
         data={shown}
         keyExtractor={(r) => r.task.id}
         renderItem={({ item }) => <MyTaskItem row={item} selected={selected.has(item.task.id)} onOpen={open} onToggle={toggle} />}

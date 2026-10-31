@@ -252,9 +252,10 @@ describe('approvals: Approve, Send back and the "Needs approval" switch (Stage 2
     expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
   });
 
-  it('a refused decision (changed meanwhile, decided by someone else) reloads the task, so a retry is from what is there now', () => {
+  it('a refused decision (changed meanwhile, decided by someone else) reloads the task and the approvals list, so a retry is from what is there now', () => {
     const qc = seeded();
+    qc.setQueryData(['approvals'], { canApprove: true, tasks: [] });
     afterApprovalRefused(qc, 't1');
-    expect(refreshedKeys(qc)).toEqual(['["task","t1"]']);
+    expect(refreshedKeys(qc)).toEqual(['["approvals"]', '["task","t1"]']);
   });
 });

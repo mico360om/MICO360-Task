@@ -31,6 +31,7 @@
 ## Daily work
 - In the Android app, the task screen lists comments before files and dependencies on a phone, as the website does, and shows "Formerly RIG-4", "Inspection" and "Visible to client" by the task's number.
 - In the Android app, a task waiting for approval opens on its Approval section: a project manager can Approve it or Send it back with a reason; others see whose approval it waits for. "Needs approval" can be turned on there by anyone and off only by the project's managers.
+- In the Android app, My Tasks starts with "To approve" for project managers: approve or send back the tasks others have finished.
 <!-- daily-work-tasks lines above this line -->
 
 <!-- daily-work-pages lines above this line -->

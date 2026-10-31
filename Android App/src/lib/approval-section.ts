@@ -5,9 +5,9 @@
  * switch, which anyone may turn on and only the project's managers (and administrators) may turn off.
  * The server decides all of it; these are its rules and the website's words. Pure.
  */
-import { APPROVAL_HINT, APPROVAL_LOCKED, DECISION_WORDS, REASON_MAX, isWaitingForApproval, waitingForText } from './approvals';
+import { APPROVAL_HINT, APPROVAL_LOCKED, DECISION_WORDS, REASON_MAX, approveLabel, isWaitingForApproval, sendBackLabel, waitingForText } from './approvals';
 import { relativeTime } from './relative-time';
-import type { ApiTask } from './types';
+import type { ApiTask, ApprovalTask, ApprovalsAnswer } from './types';
 
 /** The section's words, as the website's TaskApproval.tsx writes them. */
 export const APPROVAL_SECTION_TEXT = {
@@ -72,4 +72,31 @@ export function approvalView(task: Partial<ApprovalFields>, now: number, timeZon
     approvedLine: !waiting && task.completedAt && info?.approvedBy ? `Approved by ${info.approvedBy.name}${when(task.approvedAt)}` : null,
     tick: { on, locked, lockNote: locked ? APPROVAL_LOCKED : null, hint: APPROVAL_HINT },
   };
+}
+
+// ── To approve in My Tasks (the website's ToApproveSection) ──
+
+/** The note under "To approve (n)". */
+export const TO_APPROVE_SUB = 'Tasks others have finished, waiting for your OK. They don’t count as done until you approve them.';
+
+/** "To approve (3)". */
+export const toApproveTitle = (n: number): string => `To approve (${n})`;
+
+export interface ToApproveRow {
+  task: ApprovalTask;
+  /** "Finished by Sara Ali · 2d ago" (null when the server doesn't name them). */
+  finishedLine: string | null;
+  /** "Approve RIG-4", "Send RIG-4 back": the buttons' names, the task in them. */
+  approveLabel: string;
+  sendBackLabel: string;
+}
+
+/** The To approve rows: the server's order (the longest waiting first), never re-sorted; none without an answer. */
+export function toApproveRows(data: ApprovalsAnswer | undefined, now: number, timeZone: string): ToApproveRow[] {
+  return (data?.tasks ?? []).map((task) => ({
+    task,
+    finishedLine: task.requestedBy ? `Finished by ${task.requestedBy.name}${task.approvalRequestedAt ? ` · ${relativeTime(task.approvalRequestedAt, now, timeZone)}` : ''}` : null,
+    approveLabel: approveLabel(task.key),
+    sendBackLabel: sendBackLabel(task.key),
+  }));
 }
