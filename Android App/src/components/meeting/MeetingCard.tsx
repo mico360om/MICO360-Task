@@ -7,9 +7,10 @@ import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { zonedDayKey } from '../../lib/due-date';
 import { isRepeating, meetingPlace } from '../../lib/meetings';
 import { meetingStatusLabel, meetingStatusTone, meetingWhen, minutesBadge } from '../../lib/meeting-detail';
-import { dateLeafParts, isUnderWay, meetingCardLabel, peopleText, type ListContext } from '../../lib/meeting-list';
+import { dateLeafParts, isUnderWay, meetingCardLabel, type ListContext } from '../../lib/meeting-list';
 import type { ApiMeeting } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { MeetingFaces } from './MeetingFaces';
 
 type LeafTone = 'today' | 'upcoming' | 'muted';
 
@@ -31,7 +32,8 @@ export function DateLeaf({ iso, timeZone, tone }: { iso: string; timeZone: strin
 
 /**
  * A meeting in the Meetings list, as on the website: its day, title, time and place, project and
- * organizer; underneath, who's coming and how far it got — minutes, decisions, open action items.
+ * organizer; underneath, who's coming (their faces) and how far it got — minutes, decisions, open
+ * action items.
  * The whole card opens the meeting.
  */
 export const MeetingCard = memo(function MeetingCard({
@@ -95,7 +97,7 @@ export const MeetingCard = memo(function MeetingCard({
         </View>
       </View>
       <View style={s.foot}>
-        <Text style={s.people}>{peopleText(m)}</Text>
+        <MeetingFaces meeting={m} />
         <View style={s.badges}>
           {live ? <Badge label="Under way" tone="brand" /> : m.status !== 'SCHEDULED' && statusShown ? <Badge label={meetingStatusLabel(m.status)} tone={meetingStatusTone(m.status)} /> : null}
           {minutes ? <Badge label={minutes.label} tone={minutes.tone} /> : null}
@@ -134,7 +136,6 @@ const makeStyles = (c: Palette) =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
     },
-    people: { fontSize: fontSize.xs, color: c.ink2 },
     badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, flexShrink: 1, justifyContent: 'flex-end' },
     count: { fontSize: fontSize.xs, color: c.ink2 },
     leaf: { width: 52, alignItems: 'center', borderRadius: radius.input, borderWidth: 1, paddingVertical: spacing.xs },

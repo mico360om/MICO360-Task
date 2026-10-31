@@ -12,7 +12,7 @@ import { usePullRefresh } from '../components/meeting/live';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
 import {
-  EXPORT_REPORTS, REPORT_FORMATS, PERIOD_PRESETS, TREND_CHARTS, activePreset, csvAllowed, longRangeNote, onTimeText, periodDays, periodRange,
+  EXPORT_REPORTS, REPORT_FORMATS, PERIOD_PRESETS, TREND_CHARTS, activePreset, csvAllowed, longRangeNote, onTimeFigure, periodDays, periodRange,
   rangeProblem, readRange, reportDay, reportExportPath, reportFileName, statusBars, summarize, trendCharts, trendStats, workloadBars,
   type LineTone, type ReportFormat, type ReportKind, type TimeSeries, type TrendLine,
 } from '../lib/reports';
@@ -265,6 +265,8 @@ type SummaryData = NonNullable<ReturnType<typeof useReportSummary>['data']>;
 function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: string; c: Palette; s: Styles }) {
   const sum = summarize(data.projects, { projectId: projectId || undefined });
   const completion = data.completion;
+  // "—" until a task with a due date is finished (a 0% would say every one was late).
+  const onTime = onTimeFigure(completion);
   const bars = statusBars(data.status).map((b) => ({ label: b.label, value: b.value, color: categoryColorOf(c, b.category) }));
   // Two tiles a row only while every label fits (a large font gets one a row).
   const { width, fontScale } = useWindowDimensions();
@@ -283,13 +285,7 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
           <StatTile value={sum.overdue} label="Overdue" hint={sum.total ? `${sum.overduePct}% of tasks` : '—'} icon="ui.alert" tone="danger" />
         </View>
         <View style={tile}>
-          <StatTile
-            value={completion ? `${completion.onTimeRate}%` : '—'}
-            label="On-time rate"
-            hint={completion ? `${completion.onTime} on time · ${completion.late} late` : 'No completion data yet.'}
-            icon="kit.clock"
-            tone="info"
-          />
+          <StatTile value={onTime.value} spokenValue={onTime.value === '—' ? 'none yet' : undefined} label="On-time rate" hint={onTime.hint} icon="kit.clock" tone="info" />
         </View>
       </View>
 
@@ -308,9 +304,9 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
               <Big value={completion.unclassified} label="No due date" tone={c.ink2} s={s} />
             </View>
             <View style={s.onTimeTrack} importantForAccessibility="no-hide-descendants">
-              <View style={[s.onTimeFill, { width: `${Math.min(100, Math.max(0, completion.onTimeRate))}%` }]} />
+              <View style={[s.onTimeFill, { width: `${onTime.width}%` }]} />
             </View>
-            <Text style={s.onTimeText}>{onTimeText(completion)}</Text>
+            <Text style={s.onTimeText}>{onTime.text}</Text>
           </>
         ) : (
           <Muted>No completion data yet.</Muted>

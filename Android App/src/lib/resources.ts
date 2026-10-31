@@ -77,7 +77,7 @@ import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
 import type { ApiActivityRow } from './activity-page';
-import type { ApiAdminUser, UserStatus, WelcomeBatchResult, WelcomeOutcome, newUserBody, userPatch } from './users-admin';
+import type { ApiAdminUser, CreatedUser, UserStatus, WelcomeBatchResult, WelcomeOutcome, newUserBody, userPatch } from './users-admin';
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
 
@@ -579,8 +579,11 @@ export function resourcesApi(client: ApiClient) {
     /** User Management (administrators, 6b): the server refuses everyone else. Passwords are only passed on. */
     users: {
       list: () => data(client.get<Envelope<ApiAdminUser[]>>('/users')),
-      /** A new account; the try's key means a lost answer never makes two. */
-      create: (body: NewUserBody, idempotencyKey: string) => data(client.post<Envelope<ApiAdminUser>>('/users', body, idempotencyHeaders(idempotencyKey))),
+      /** A new account, and whether its welcome email went (null: none was asked for); the try's key means a lost answer never makes two. */
+      create: (body: NewUserBody, idempotencyKey?: string): Promise<CreatedUser> =>
+        client
+          .post<Envelope<ApiAdminUser> & { meta?: { welcome?: WelcomeOutcome } }>('/users', body, idempotencyHeaders(idempotencyKey))
+          .then((r) => ({ user: r.data, welcome: r.meta?.welcome ?? null })),
       update: (id: string, patch: UserPatchBody) => data(client.put<Envelope<ApiAdminUser>>(`/users/${seg(id)}`, patch)),
       setStatus: (id: string, status: UserStatus) => data(client.patch<Envelope<ApiAdminUser>>(`/users/${seg(id)}/status`, { status })),
       /** Lift a sign-in lock left by too many failed passwords. */

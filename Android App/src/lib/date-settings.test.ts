@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, createZoneList, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, unknownZoneNote, usableZone, webZoneName, withDatePatch } from './date-settings';
+import { DATE_PREFERENCES_KEY, WEEK_START_OPTIONS, calendarZoneNote, companyWeekStartButton, createZoneList, datePrefsSavedText, deviceTimeZone, loadDateSettings, weekStartHint, weekStartKnown, nextDateZones, parseDateZones, supportedTimeZones, timeZoneChoices, unknownZoneNote, usableZone, webZoneName, withDatePatch } from './date-settings';
+import { hasWeb, readWeb } from '../testing/web-source';
 
 const prev = { company: 'Asia/Dubai', own: 'Europe/London', companyWeekStart: 0 as const };
 
@@ -246,5 +247,24 @@ describe('the list of zones is worked out once per app run (6a review)', () => {
     expect(list()).toEqual(['Asia/Muscat', 'UTC']);
     expect(list()).toBe(list());
     expect(compute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('your week start and the company’s (the website’s DatePreferences)', () => {
+  it('says when your week is the company’s', () => {
+    expect(weekStartHint(null, 0)).toBe('The first day of your Calendar, Workload and Timeline weeks. The company’s: Sunday.');
+    expect(weekStartHint(1, 0)).toBe('The first day of your Calendar, Workload and Timeline weeks. Your own choice. The company’s week starts on Sunday.');
+    expect(weekStartHint(6, 6)).toBe('The first day of your Calendar, Workload and Timeline weeks. Your own choice. The company’s week starts on Saturday.');
+    expect([companyWeekStartButton(1, 6), companyWeekStartButton(6, 6), companyWeekStartButton(null, 6)]).toEqual(['Use the company’s (Saturday)', null, null]);
+    expect(companyWeekStartButton(0, 1)).toBe('Use the company’s (Monday)');
+  });
+});
+
+describe.skipIf(!hasWeb('frontend/src/components/DatePreferences.tsx'))('the website’s week-start words', () => {
+  it('same', () => {
+    const w = readWeb('frontend/src/components/DatePreferences.tsx');
+    for (const t of ['The first day of your Calendar, Workload and Timeline weeks.', 'The company’s: ', 'Your own choice. The company’s week starts on ', 'Use the company’s (']) expect(w, t).toContain(t);
+    // The button only for a choice of your own that differs from the company's.
+    expect(w).toContain('ownWeekStart !== null && ownWeekStart !== companyWeekStart ?');
   });
 });

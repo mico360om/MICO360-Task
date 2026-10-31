@@ -19,13 +19,32 @@ import {
   prefsSaveProblem,
   readDailyEmailTime,
   timeFieldKeyboard,
+  WEEKLY_SUMMARY_TEXT,
+  weeklySummaryOn,
   type NotificationPreferences,
 } from './notification-prefs';
 import { ApiError, NetworkError } from './api-client';
+import { hasWeb, loadWebTsx, readWeb } from '../testing/web-source';
 
 describe('notification preferences', () => {
-  it('offers the same six notification types as the web app', () => {
-    expect(NOTIFICATION_TYPES.map((t) => t.type)).toEqual(['TASK_ASSIGNED', 'TASK_STATUS', 'TASK_COMMENT', 'MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE']);
+  it('Approvals and Added to a project are there, in the website’s order; the weekly summary survives a save', () => {
+    expect(NOTIFICATION_TYPES.map((t) => t.type)).toEqual(['TASK_ASSIGNED', 'TASK_STATUS', 'TASK_APPROVAL', 'TASK_COMMENT', 'MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'PROJECT_ADDED']);
+    expect(NOTIFICATION_TYPES.map((n) => n.label)).toEqual(expect.arrayContaining(['Approvals', 'Added to a project']));
+    expect(mergePreferences({ muted: [], reminderLeadMinutes: 60, weeklySummary: false } as NotificationPreferences, { muted: ['MENTION'] }).weeklySummary).toBe(false);
+    expect(mergePreferences({ muted: [], reminderLeadMinutes: 60, weeklySummary: true } as NotificationPreferences, { weeklySummary: false }).weeklySummary).toBe(false);
+    expect(mergePreferences({ muted: ['MENTION'], reminderLeadMinutes: 60, dailyEmails: { pending: true, completed: false, time: '07:00' } }, { weeklySummary: false })).toEqual({
+      muted: ['MENTION'],
+      reminderLeadMinutes: 60,
+      dailyEmails: { pending: true, completed: false, time: '07:00' },
+      weeklySummary: false,
+    });
+  });
+
+  it('the weekly summary is on until you turn it off (an answer without it is on, as the server says)', () => {
+    expect(weeklySummaryOn(undefined)).toBe(true);
+    expect(weeklySummaryOn({ muted: [] })).toBe(true);
+    expect(weeklySummaryOn({ muted: [], weeklySummary: true })).toBe(true);
+    expect(weeklySummaryOn({ muted: [], weeklySummary: false })).toBe(false);
   });
 
   it('treats every type as on until muted, and toggles one without touching the rest', () => {
@@ -152,4 +171,20 @@ describe('typing the daily emails’ time on an Android keyboard (6a review)', (
     expect(readDailyEmailTime('1745')).toEqual({ ok: true, value: '17:45' });
     expect(readDailyEmailTime('2460')).toEqual({ ok: false, error: 'Choose a time, for example 06:00.' });
   });
+});
+
+/** JSX text wraps across lines; it reads as one space (as it renders). */
+const oneLine = (s: string) => s.replace(/\s+/g, ' ');
+
+describe.skipIf(!hasWeb('frontend/src/pages/SettingsPage.tsx', 'frontend/src/components/settings/WeeklySummarySettings.tsx'))('the website’s notification switches', () => {
+  it('same types, order, labels and descriptions', () => {
+    const { NOTIF_TYPES } = loadWebTsx('frontend/src/pages/SettingsPage.tsx', { expose: ['NOTIF_TYPES'] }).__exposed as { NOTIF_TYPES: Array<{ type: string; label: string; desc: string }> };
+    expect(NOTIF_TYPES.length).toBeGreaterThan(6);
+    expect(NOTIFICATION_TYPES.map((n) => [n.type, n.label, n.description])).toEqual(NOTIF_TYPES.map((n) => [n.type, n.label, n.desc]));
+  });
+  it('the weekly summary words', () => {
+    const w = oneLine(readWeb('frontend/src/components/settings/WeeklySummarySettings.tsx'));
+    for (const t of Object.values(WEEKLY_SUMMARY_TEXT)) expect(w, t).toContain(t);
+  });
+  it('the switch’s TalkBack label is the website’s “Notify me: …”', () => expect(readWeb('frontend/src/pages/SettingsPage.tsx')).toContain('label={`Notify me: ${n.label}`}'));
 });

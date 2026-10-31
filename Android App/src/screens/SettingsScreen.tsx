@@ -9,6 +9,7 @@ import { SyncStatus } from '../components/SyncStatus';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { DailyEmailSettings } from '../components/account/DailyEmailSettings';
 import { DateSettings } from '../components/account/DateSettings';
+import { WeeklySummarySettings } from '../components/account/WeeklySummarySettings';
 import { SignOutButton } from '../components/account/SignOutButton';
 import { getPushPermission, openAppSettings, type PushPermission } from '../adapters/push';
 import { useNotificationPreferences, useServerVersion } from '../core/queries';
@@ -240,7 +241,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
             ) : (
               NOTIFICATION_TYPES.map((n, i) => (
                 <View key={n.type} style={i > 0 ? styles.divided : null}>
-                  <Toggle label={n.label} on={isTypeOn(prefs, n.type)} disabled={!prefs} onChange={() => save(toggleType(prefs, n.type))} />
+                  <Toggle label={n.label} a11yLabel={`Notify me: ${n.label}`} on={isTypeOn(prefs, n.type)} disabled={!prefs} onChange={() => save(toggleType(prefs, n.type))} />
                   <Muted>{n.description}</Muted>
                 </View>
               ))
@@ -272,6 +273,9 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
 
         {/* Only a server that knows the daily emails (1.5.0 and later) is offered them. */}
         {prefs && hasDailyEmails(prefs) ? <DailyEmailSettings prefs={prefs} /> : null}
+
+        {/* For the people who can see the Management page (it shows nothing to anyone else). */}
+        <WeeklySummarySettings />
 
         <View ref={datesRef} onLayout={onDatesLayout} collapsable={false}>
           <DateSettings />
