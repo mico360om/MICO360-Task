@@ -72,3 +72,52 @@ describe('external contact changes waiting to sync, shown on the task', () => {
     expect(applyPending('task:t1', row, [item('contact.add', { id: 't1', contact: ahmed }, 'q1')]).data).toBe(row);
   });
 });
+
+describe('an older failed contact change that a newer synced one replaced (review: supersede)', () => {
+  const at = (kind, payload, id) => ({ id, kind, payload, userId: A, queuedAt: 1 });
+  const failed = (kind, payload) => ({ ...at(kind, payload, 'old'), status: 'failed', lastError: '500 — Server error' });
+
+  it('a later change keeps the older change’s other fields to try again; it is replaced only when none are left', async () => {
+    const { supersede, SUPERSEDED_MESSAGE } = await import('./task-writes.js');
+    const company = failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'OXY' }, name: 'Ahmed' });
+    const phone = at('contact.update', { id: 't1', contactId: 'x1', patch: { phone: '+968 1' }, name: 'Ahmed' }, 'new');
+    expect(supersede(phone, company)).toBe(company); // a {company} change failed, a {phone} change went: try the company again
+    const both = failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'OXY', phone: '+968 0' }, name: 'Ahmed' });
+    const rest = supersede(phone, both);
+    expect(rest.superseded).toBeFalsy();
+    expect(rest.payload.patch).toEqual({ company: 'OXY' });
+    expect(both.payload.patch).toEqual({ company: 'OXY', phone: '+968 0' }); // never changed in place
+    const onlyPhone = failed('contact.update', { id: 't1', contactId: 'x1', patch: { phone: '+968 0' }, name: 'Ahmed' });
+    expect(supersede(phone, onlyPhone)).toMatchObject({ superseded: true, lastError: SUPERSEDED_MESSAGE });
+    // Another contact's changes are never touched.
+    const other = failed('contact.update', { id: 't1', contactId: 'x2', patch: { phone: '+968 0' } });
+    expect(supersede(phone, other)).toBe(other);
+  });
+
+  it('a later removal replaces the older changes of that contact; a later change leaves an older removal alone', async () => {
+    const { supersede } = await import('./task-writes.js');
+    const del = at('contact.delete', { id: 't1', contactId: 'x1', name: 'Ahmed' }, 'new');
+    expect(supersede(del, failed('contact.update', { id: 't1', contactId: 'x1', patch: { company: 'OXY' } })).superseded).toBe(true);
+    expect(supersede(del, failed('contact.delete', { id: 't1', contactId: 'x1' })).superseded).toBe(true);
+    const olderDelete = failed('contact.delete', { id: 't1', contactId: 'x1' });
+    expect(supersede(at('contact.update', { id: 't1', contactId: 'x1', patch: { phone: '1' } }, 'new'), olderDelete)).toBe(olderDelete);
+  });
+});
+
+describe('adding a contact while a removal on the same task still waits to sync (review)', () => {
+  it('waits behind it, so the task is never refused as full while the removal is on its way', async () => {
+    const s = fakeStorage();
+    await enqueue(s, { kind: 'contact.delete', payload: { id: 't1', contactId: 'x1' }, userId: A });
+    const send = vi.fn(async () => jsonRes({ data: {} }, 201));
+    const sent = (kind, payload) => sendOrQueue({ kind, payload }, { doFetch: send, storage: s, userId: A });
+    expect((await sent('contact.add', { id: 't1', contact: ahmed })).queued).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    // Another task's, or with no removal waiting: at once.
+    await sent('contact.add', { id: 't2', contact: ahmed });
+    expect(send).toHaveBeenCalledTimes(1);
+    const s2 = fakeStorage();
+    await enqueue(s2, { kind: 'contact.update', payload: { id: 't1', contactId: 'x1', patch: { phone: '1' } }, userId: A });
+    const send2 = vi.fn(async () => jsonRes({ data: {} }, 201));
+    expect((await sendOrQueue({ kind: 'contact.add', payload: { id: 't1', contact: ahmed } }, { doFetch: send2, storage: s2, userId: A })).queued).toBe(false);
+  });
+});

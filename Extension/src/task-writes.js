@@ -51,7 +51,7 @@ const LANE = {
   'task.assign': 'people', 'task.unassign': 'people',
   'task.watch': 'watch', 'task.unwatch': 'watch',
   'comment.update': 'comment', 'comment.delete': 'comment',
-  'contact.update': 'contact', 'contact.delete': 'contact',
+  'contact.add': 'contact', 'contact.update': 'contact', 'contact.delete': 'contact',
   'chat.send': 'chat',
   'meeting.respond': 'answer',
 };
@@ -74,6 +74,9 @@ export function mustFollow(next, waiting) {
   const id = subjectOf(next);
   if (!id || !waiting || subjectOf(waiting) !== id) return false;
   if (next.kind === 'task.delete') return true;
+  // A contact added waits behind a removal of the task's contacts still waiting: until that one has
+  // gone, the task may still be at its limit (and the server would refuse the new one).
+  if (next.kind === 'contact.add') return waiting.kind === 'contact.delete';
   const lane = LANE[next.kind];
   if (!lane || LANE[waiting.kind] !== lane) return false;
   const field = ONE_OF[lane];
@@ -103,8 +106,8 @@ const superseded = (item) => ({ ...item, superseded: true, lastError: SUPERSEDED
  * `done` (a change of a task) has reached the server, after `older` — a change of the same thing
  * made before it — failed to sync. Sent late, `older` would undo `done`: tags or a person it put back,
  * watching again, an old comment text or column. Returns `older` itself when `done` didn't change what
- * it changes; for tags and people a copy without the names or people `done` changed, which can still
- * be tried; otherwise a copy marked `superseded`, which Settings offers to discard but not to try again.
+ * it changes; for tags, people and an external contact's fields a copy without the names, people or
+ * fields `done` changed, which can still be tried; otherwise a copy marked `superseded`, which Settings offers to discard but not to try again.
  * (An edit carries the version it was made against, so the server already refuses a stale one.)
  */
 export function supersede(done, older) {
@@ -130,6 +133,17 @@ export function supersede(done, older) {
     const userIds = peopleOf(older).filter((u) => !touched.has(u));
     if (userIds.length === peopleOf(older).length) return older;
     return userIds.length ? { ...older, payload: { ...older.payload, userIds } } : superseded(older);
+  }
+  if (lane === 'contact') {
+    // A removal replaces whatever was waiting for that contact. A change sends only the fields it
+    // changed: an older change keeps its other fields (to try again), and is replaced once none are left.
+    if (done.kind === 'contact.delete') return superseded(older);
+    if (older.kind !== 'contact.update') return older;
+    const newer = (done.payload && done.payload.patch) || {};
+    const patch = (older.payload && older.payload.patch) || {};
+    const left = Object.fromEntries(Object.entries(patch).filter(([field]) => !(field in newer)));
+    if (Object.keys(left).length === Object.keys(patch).length) return older;
+    return Object.keys(left).length ? { ...older, payload: { ...older.payload, patch: left } } : superseded(older);
   }
   return superseded(older); // watching; one comment's text; an answer to an invitation
 }

@@ -122,14 +122,32 @@ export function ExternalContactsSection(d) {
     render();
   }
 
+  /** Put the form away; focus goes back to that contact's Edit (found by its id, so a rename keeps it), else Add. */
   function closeForm() {
     const was = form;
     form = null;
-    if (was) {
-      const back = was.mode === 'add' ? () => [...node.querySelectorAll('button')].find((b) => b.textContent === W.add) : () => labelled(node, `${W.edit} ${(was.existing || {}).name}`);
-      focusNext = () => back()?.focus();
-    }
+    if (was) focusNext = () => (was.mode === 'add' ? focusAdd() : focusEdit(was.mode));
     render();
+  }
+
+  /** The section's heading, which takes focus when no button can (Add off at the limit). */
+  const heading = () => node.querySelector('h3');
+  function focusHeading() {
+    const h = heading();
+    if (!h) return;
+    h.setAttribute('tabindex', '-1');
+    h.focus();
+  }
+  function focusAdd() {
+    const add = [...node.querySelectorAll('button')].find((b) => b.textContent === W.add);
+    if (add && !add.disabled) add.focus();
+    else focusHeading();
+  }
+  function focusEdit(contactId) {
+    const row = [...node.querySelectorAll('li[data-row]')].find((li) => li.dataset.row === contactId);
+    const edit = row && [...row.querySelectorAll('button')].find((b) => b.textContent === W.edit);
+    if (edit && !edit.disabled) edit.focus();
+    else focusAdd();
   }
 
   function buildForm(mode, existing) {
@@ -219,7 +237,8 @@ export function ExternalContactsSection(d) {
     f.save.disabled = true;
     try {
       const r = await d.send('contact.add', { id: d.taskId, contact });
-      const rows = contacts();
+      // The task may have been read again meanwhile — from a server without contacts: nothing to show.
+      const rows = contacts() || [];
       rows.push(!r.queued && r.data && r.data.id ? r.data : { ...contact, id: r.item ? tempId(r.item) : `tmp-${Date.now()}`, taskId: d.taskId, position: rows.length, pending: true });
       d.announce('Contact added.');
       closeForm();
@@ -235,7 +254,7 @@ export function ExternalContactsSection(d) {
     f.save.disabled = true;
     try {
       const r = await d.send('contact.update', { id: d.taskId, contactId: before.id, name: patch.name ?? before.name, patch });
-      const rows = contacts();
+      const rows = contacts() || [];
       const i = rows.findIndex((c) => c.id === before.id);
       if (i >= 0) rows[i] = { ...rows[i], ...patch, ...(!r.queued && r.data && r.data.id ? r.data : {}) };
       d.announce('Contact saved.');
@@ -259,11 +278,11 @@ export function ExternalContactsSection(d) {
 
   async function remove(c) {
     asking = null;
-    const rows = contacts();
+    const rows = contacts() || [];
     const at = rows.findIndex((x) => x.id === c.id);
     if (at >= 0) rows.splice(at, 1);
     d.clearError();
-    focusNext = () => [...node.querySelectorAll('button')].find((b) => b.textContent === W.add)?.focus();
+    focusNext = focusAdd;
     render();
     try {
       await d.send('contact.delete', { id: d.taskId, contactId: c.id, name: c.name });
@@ -338,7 +357,8 @@ export function ExternalContactsSection(d) {
       } catch {
         found = []; // offline or refused: the name is typed in full
       }
-      if (mine !== asked || !input || !input.isConnected || input.value.trim() !== q) return;
+      // Too late: asked again since, the form gone, the text changed, or the Name box left meanwhile.
+      if (mine !== asked || !input || !input.isConnected || input.value.trim() !== q || input.ownerDocument.activeElement !== input) return;
       shown = (Array.isArray(found) ? found : []).filter((s) => s && typeof s.name === 'string').slice(0, 10);
       active = -1;
       draw();
@@ -350,12 +370,10 @@ export function ExternalContactsSection(d) {
       input.setAttribute('aria-autocomplete', 'list');
       input.setAttribute('aria-expanded', 'false');
       input.addEventListener('input', () => {
-        clearTimeout(timer);
+        // The list for what was typed before goes at once: it can't be picked while the next is asked for.
+        close();
         const q = input.value.trim();
-        if (!q || !d.online()) {
-          close();
-          return;
-        }
+        if (!q || !d.online()) return;
         timer = setTimeout(() => ask(q), SUGGEST_DELAY_MS);
       });
       input.addEventListener('blur', () => {

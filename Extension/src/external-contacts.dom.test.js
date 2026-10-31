@@ -386,3 +386,88 @@ describe('external contacts on board cards and task rows', () => {
     expect(taskRow({ id: 't2', key: 'OPS-8', title: 'x', priority: 'NORMAL', dueDate: null, progress: 0 }, () => {}).querySelector('.texternal')).toBeNull();
   });
 });
+
+describe('external contacts: focus and timing (review)', () => {
+  it('after a rename, focus goes back to that contact’s Edit button (by its new name)', async () => {
+    const root = await open();
+    byLabel(root, 'Edit Ahmed Al Said').click();
+    await settle();
+    const form = contacts(root).querySelector('form');
+    type(fieldOf(form, 'Name'), 'Ahmed Said');
+    form.requestSubmit();
+    await settle();
+    expect(document.activeElement).toBe(byLabel(root, 'Edit Ahmed Said'));
+  });
+
+  it('after adding the 20th contact (Add is off now), focus goes to the section’s heading', async () => {
+    const many = Array.from({ length: 19 }, (_, i) => ({ ...ahmed, id: `x${i}`, name: `Person ${i}` }));
+    const root = await open(drawerCtx({ task: { externalContacts: many } }));
+    byText(root, 'button', W.add).click();
+    await settle();
+    const form = contacts(root).querySelector('form');
+    type(fieldOf(form, 'Name'), 'Sara');
+    form.requestSubmit();
+    await settle();
+    expect(byText(contacts(root), 'button', W.add).disabled).toBe(true);
+    expect(document.activeElement).toBe(contacts(root).querySelector('h3'));
+  });
+
+  it('suggestions that arrive after the Name box was left are not shown', async () => {
+    const suggest = vi.fn(async () => [{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }]);
+    const root = await open(drawerCtx({ task: { externalContacts: [] }, suggest }));
+    byText(root, 'button', W.add).click();
+    await settle();
+    const form = contacts(root).querySelector('form');
+    type(fieldOf(form, 'Name'), 'Ahm');
+    fieldOf(form, 'Company').focus();
+    await waitFor(300);
+    await settle();
+    expect(form.querySelector('[role="listbox"]')).toBeNull();
+    expect(fieldOf(form, 'Name').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('typing again puts the old suggestions away at once, so they can’t be picked meanwhile', async () => {
+    const suggest = vi.fn(async (_p, q) => (q === 'Ahm' ? [{ name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: null, remarks: null }] : []));
+    const root = await open(drawerCtx({ task: { externalContacts: [] }, suggest }));
+    byText(root, 'button', W.add).click();
+    await settle();
+    const form = contacts(root).querySelector('form');
+    const name = fieldOf(form, 'Name');
+    name.focus();
+    type(name, 'Ahm');
+    await waitFor(300);
+    await settle();
+    expect(form.querySelector('[role="listbox"]')).not.toBeNull();
+    type(name, 'Ahmx');
+    expect(form.querySelector('[role="listbox"]')).toBeNull();
+    key(name, 'ArrowDown');
+    key(name, 'Enter');
+    expect(name.value).toBe('Ahmx');
+    expect(fieldOf(form, 'Company').value).toBe('');
+  });
+
+  it('an add that lands after the task was read again without contacts (an older server) is not called a failure', async () => {
+    let release;
+    const ctx = drawerCtx();
+    ctx.write = vi.fn(async (kind) => {
+      if (kind === 'task.update') throw new ApiError(409, 'Task t1 was changed by someone else.', 'VERSION_CONFLICT');
+      await new Promise((r) => { release = r; });
+      return { queued: false, data: { id: 'x9', taskId: 't1', name: 'Sara', company: null, designation: null, email: null, phone: null, remarks: null, position: 1 } };
+    });
+    const root = await open(ctx);
+    byText(root, 'button', W.add).click();
+    await settle();
+    const form = contacts(root).querySelector('form');
+    type(fieldOf(form, 'Name'), 'Sara');
+    form.requestSubmit();
+    await settle();
+    // Meanwhile the task is read again (a refused edit) from a server without external contacts.
+    ctx.api.tasks.get.mockResolvedValue({ data: { id: 't1', key: 'OPS-7', title: 'Inspect the rig', priority: 'NORMAL', projectId: 'p1', version: 4, tags: [] } });
+    byLabel(root, 'Milestone').click();
+    await settle();
+    release();
+    await settle();
+    expect(root.querySelector('[role="alert"]').textContent).not.toContain(W.addFailed);
+    expect(contacts(root)).toBeNull();
+  });
+});
