@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
-import { useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { hashKey, useQuery, useQueries, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { refetchAfterMove } from '../lib/task-status';
 import { editBaseVersion, taskWrites, withExpectedVersion } from '../lib/task-writes';
 import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, moveRefreshes } from '../lib/task-cache';
-import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
+import { CHAT_DIRECTORY_COPY, CHAT_INBOX_COPY, UNREAD_COUNT_COPY, chatMembersCopyKey, chatThreadCopyKey, projectTasksCopyKey, withoutOldDone } from '../lib/offline-copy';
 import { blockerSearchParams } from '../lib/blocker-search';
 import { refresh } from '../lib/refresh';
 import { resourcesApi } from '../lib/resources';
@@ -26,7 +26,7 @@ import { threadKey } from '../lib/chat-cache';
 import type { Services } from './services';
 import type { ApiChatMessage, ApiColumn, ApiMeetingAttendee, ApiTask, InvitationResponse } from '../lib/types';
 import type { ReportFilters } from '../lib/reports';
-import { ALERTS_POLL_MS, ALERTS_REFRESH, countAfterRead, markedRead, withPendingReads } from '../lib/alerts';
+import { ALERTS_POLL_MS, ALERTS_REFRESH, countAfterRead, markedRead, unreadAfterPendingReads, withPendingReads } from '../lib/alerts';
 import type { ApiNotification } from '../lib/types';
 
 /** Variables of a creating write, carrying the idempotency key minted for this user action (XP-06). */
@@ -556,13 +556,18 @@ export function useServerConfig() {
 /**
  * The unread alerts (the Alerts tab and the app icon, lib/alerts). With `poll` (one place only, the
  * app-wide alerts mount) it is asked for again every 30 s while the app is in front, as the website's
- * bell is; TanStack pauses it while the app is away.
+ * bell is; TanStack pauses it while the app is away. Read through the offline copy, so the bell keeps
+ * its last known number with no signal (device check N11) — less the alerts read here meanwhile; a
+ * count from the copy never reaches the app's icon (core/alerts).
  */
 export function useUnreadCount({ poll = false }: { poll?: boolean } = {}) {
-  const { resources } = useServices();
+  const { resources, reads, queue, currentUserId } = useServices();
   return useQuery({
     queryKey: ['notifications', 'unread'],
-    queryFn: () => resources.notifications.unreadCount(),
+    queryFn: ({ queryKey }) =>
+      reads.read(queryKey, UNREAD_COUNT_COPY, () => resources.notifications.unreadCount()).then((c) =>
+        reads.answeredFromCopy({ queryHash: hashKey(queryKey) }) ? { count: unreadAfterPendingReads(c.count, queue.pendingFor(currentUserId())) } : c,
+      ),
     refetchInterval: poll ? ALERTS_POLL_MS : false,
   });
 }

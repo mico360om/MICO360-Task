@@ -58,6 +58,11 @@ export const chatMembersCopyKey = (conversationId: string): string => `chat.memb
 const CHAT_THREAD = /^chat\.thread\.[^.]+$/;
 const CHAT_MEMBERS = /^chat\.members\.[^.]+$/;
 
+// ── Alerts (device check N11) ────────────────────────────────────────────────
+
+/** The unread count (the bell's number), kept so it shows offline too. */
+export const UNREAD_COUNT_COPY = 'notifications.unread';
+
 // ── Projects (5b review) ─────────────────────────────────────────────────────
 
 /** Boards whose progress figures are kept offline (the most recently opened). */

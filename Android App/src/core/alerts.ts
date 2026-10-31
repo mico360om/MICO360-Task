@@ -31,6 +31,7 @@ function refreshAlerts(qc: QueryClient): void {
  */
 export function useAlertsLive(): void {
   const qc = useQueryClient();
+  const { reads } = useServices();
   useUnreadCount({ poll: true });
 
   useEffect(() => {
@@ -39,7 +40,8 @@ export function useAlertsLive(): void {
     let last: number | undefined;
     const offCache = qc.getQueryCache().subscribe((event) => {
       const count = serverCount(event as Parameters<typeof serverCount>[0]);
-      if (count === undefined) return;
+      // The count kept on this phone (no signal) shows on the bell, never on the icon: the server's own answers only.
+      if (count === undefined || reads.answeredFromCopy(event.query)) return;
       if (listBehindCount(last, count)) void qc.invalidateQueries({ queryKey: ['notifications'], exact: true }, { cancelRefetch: false });
       last = count;
       launcherBadge.count(count);
@@ -58,7 +60,7 @@ export function useAlertsLive(): void {
       push.remove();
       app.remove();
     };
-  }, [qc]);
+  }, [qc, reads]);
 }
 
 /**

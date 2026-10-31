@@ -221,6 +221,19 @@ export function withPendingReads(
 }
 
 /**
+ * The unread count kept on this phone, less the alerts read here meanwhile that aren't sent yet —
+ * each once (device check N11: the bell keeps its number offline). Never below 0.
+ */
+export function unreadAfterPendingReads(count: number, pending: readonly Pick<QueuedMutation, 'kind' | 'payload'>[]): number {
+  const read = new Set<string>();
+  for (const m of pending) {
+    const id = m.kind === 'notification.read' ? (m.payload as { id?: unknown } | null)?.id : undefined;
+    if (typeof id === 'string') read.add(id);
+  }
+  return Math.max(0, count - read.size);
+}
+
+/**
  * Why "Mark all read" didn't happen. It isn't kept for later like reading one alert: sent later,
  * it would also mark alerts that came in meanwhile and were never seen.
  */

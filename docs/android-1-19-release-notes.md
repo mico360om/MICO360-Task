@@ -89,4 +89,5 @@
 - In the Android app, Workload opens each person's days on today, and the row fades at the edge where more days are hidden.
 - In the Android app, the signer's name under an optional signature (the client's or a supervisor's) no longer shows a required star.
 - In the Android app, an inspection with changes still waiting on the phone (signed with no signal, say) doesn't offer Delete until they have been sent.
+- In the Android app, the bell keeps its number of unread alerts with no signal, even after the app is restarted.
 <!-- final-pass lines above this line -->
