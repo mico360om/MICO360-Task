@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent, type LayoutRectangle, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, ErrorNote, IconButton, SkeletonList, TextField } from '../components/ui';
 import { ChatsSheet } from '../components/mico-ai/ChatsSheet';
 import { Composer, type ComposerHandle } from '../components/mico-ai/Composer';
@@ -37,9 +38,11 @@ export function MicoAiScreen(props: AppScreenProps<'MicoAi'>) {
   const userId = useUserId();
   const c = useColors();
   return (
-    <View key={userId ?? 'signed-out'} style={[styles.page, { backgroundColor: c.surface }]}>
-      <Conversation {...props} />
-    </View>
+    <SafeAreaView style={[styles.page, { backgroundColor: c.surface }]} edges={['bottom']}>
+      <View key={userId ?? 'signed-out'} style={styles.page}>
+        <Conversation {...props} />
+      </View>
+    </SafeAreaView>
   );
 }
 

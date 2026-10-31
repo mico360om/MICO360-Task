@@ -130,3 +130,8 @@ it('renaming in the header saves once: Enter and leaving the box both end it (fi
   expect(screen).toMatch(/const saveName = \(v: string\) => \{\s+if \(nameSaved\.current\) return;\s+nameSaved\.current = true;/);
   expect(screen).toMatch(/nameSaved\.current = false;\s+setName\(chat\.title\);\s+setRenaming\(true\);/);
 });
+
+it('the box stays above the phone’s own bottom bar, as on the other Stage 3 screens (final review A11)', () => {
+  expect(screen).toMatch(/import \{ SafeAreaView \} from 'react-native-safe-area-context'/);
+  expect(screen).toMatch(/<SafeAreaView style=\{\[styles\.page, \{ backgroundColor: c\.surface \}\]\} edges=\{\['bottom'\]\}>\s+<View key=\{userId/);
+});
