@@ -46,7 +46,8 @@ export function DaySheet({
   const openRest = () => {
     onClose();
     if (person.me) navigation.navigate('Tabs', { screen: 'MyTasks' });
-    else navigation.navigate('Calendar');
+    // That person's week on the calendar, as the website's link (final review P7).
+    else navigation.navigate('Calendar', { week: cell.date, person: person.id });
   };
   return (
     <Sheet

@@ -41,7 +41,11 @@ export type AppStackParamList = {
   /** The final minutes (Final MOM) of a meeting; `start` makes a first draft as it opens. */
   FinalMinutes: { meetingId: string; start?: 'ai' | 'notes' };
   MyActionItems: undefined;
-  Calendar: undefined;
+  /**
+   * The calendar. `week` (a day of the week to show) and `person` (an assignee filter): Workload's
+   * "Open in Calendar" for someone else, as the website's link (Stage 3 final review P7).
+   */
+  Calendar: { week?: string; person?: string } | undefined;
   Profile: undefined;
   Reports: undefined;
   /** Who did what across your projects, as the website's Activity page (5c). */
