@@ -36,6 +36,7 @@ import {
 } from '../lib/project-dashboard';
 import type { ApiTask } from '../lib/types';
 import { TEMPLATE_SAVE_WORDS } from '../lib/template-words';
+import { SHARE_ACTION_LABEL } from '../lib/client-share-words';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
@@ -172,6 +173,17 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
       <View style={s.actions}>
         {/* New task in this project (4a; the website's header New task starts in the project open). */}
         <Button title="New task" onPress={() => navigation.navigate('NewTask', { projectId })} style={s.action} />
+        {/* Share with client: whoever runs the project (the server checks too — Stage 4). */}
+        {canManage ? (
+          <Button
+            title="Share with client"
+            icon="misc.eye"
+            variant="secondary"
+            accessibilityHint={SHARE_ACTION_LABEL}
+            onPress={() => navigation.navigate('ClientShare', { projectId, projectName: project.name })}
+            style={s.action}
+          />
+        ) : null}
         {canManage ? (
           <Button
             title="Save as template"

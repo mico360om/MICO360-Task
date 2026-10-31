@@ -73,4 +73,5 @@
 <!-- inspections lines above this line -->
 - In the Android app, a new project can start from a project template: pick its start day and who fills each role, and see the tasks it will create.
 - In the Android app, the people who run a project can save it, or one of its tasks, as a template; templates are edited on the website.
+- In the Android app, the people who run a project can share it with a client (add, see when they last looked, Resend — which emails a new link, stops the old one and signs its devices out — and Remove); an archived project's sharing is read-only.
 <!-- templates-client lines above this line -->

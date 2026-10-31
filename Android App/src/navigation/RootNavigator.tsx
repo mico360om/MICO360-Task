@@ -75,6 +75,7 @@ import { WorkloadScreen } from '../screens/WorkloadScreen';
 import { ManagementScreen } from '../screens/ManagementScreen';
 import { MicoAiScreen } from '../screens/MicoAiScreen';
 import { InspectionScreen } from '../screens/InspectionScreen';
+import { ClientShareScreen } from '../screens/ClientShareScreen';
 import { useAlertsLive, usePushOpened } from '../core/alerts';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -384,6 +385,7 @@ export function RootNavigator() {
             <AppStack.Screen name="Management" component={ManagementScreen} options={{ title: 'Management' }} />
             <AppStack.Screen name="MicoAi" component={MicoAiScreen} options={{ title: 'MICO AI' }} />
             <AppStack.Screen name="Inspection" component={InspectionScreen} options={({ route }) => ({ title: route.params.title ?? 'Inspection' })} />
+            <AppStack.Screen name="ClientShare" component={ClientShareScreen} options={{ title: 'Share with client' }} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyNavAction} />
           <RealtimeMount />

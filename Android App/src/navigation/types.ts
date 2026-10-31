@@ -84,6 +84,8 @@ export type AppStackParamList = {
   MicoAi: { ask?: string; askId?: string } | undefined;
   /** An inspection: answered, signed and finished on the phone, with or without signal (Stage 4). */
   Inspection: { inspectionId: string; title?: string };
+  /** Share with client: the project's clients — add, last looked, Resend, Remove (Stage 4; whoever runs the project). */
+  ClientShare: { projectId: string; projectName?: string };
 };
 
 export type AuthScreenProps<T extends keyof AuthStackParamList> = NativeStackScreenProps<AuthStackParamList, T>;
