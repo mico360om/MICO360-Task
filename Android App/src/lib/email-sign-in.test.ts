@@ -8,6 +8,7 @@ import {
   createCodeStepMemory,
   fetchEmailEnabled,
   isCodeComplete,
+  maskIdentifier,
   NEW_CODE_SENT,
   normaliseCode,
   RESEND_AFTER_MS,
@@ -154,4 +155,28 @@ it('LoginScreen forgets the step on every sign-in and on going back (Review Focu
   expect(s).toMatch(/const codeSteps = useMemo\(\(\) => createCodeStepMemory\(asyncStore\), \[\]\)/);
   // Kept while /config hasn't answered; only a "no" takes the Email code step away.
   expect(s).toMatch(/emailEnabled === false && mode === 'otp'/);
+});
+
+// Final review L10 (RULING): on a shared phone the kept code step (AsyncStorage, 10 minutes) must not
+// show the next person whose address it was — a recalled step shows it masked.
+describe('a recalled code step shows the address masked', () => {
+  it('first letter, •••, and the domain; a username first letter and •••', () => {
+    expect(maskIdentifier('aisha.khan@mico360.com')).toBe('a•••@mico360.com');
+    expect(maskIdentifier('  Omar@site.co ')).toBe('O•••@site.co');
+    expect(maskIdentifier('aisha')).toBe('a•••');
+    expect(maskIdentifier('a')).toBe('a•••');
+    expect(maskIdentifier('@x.com')).toBe('•••@x.com');
+    expect(maskIdentifier('')).toBe('');
+  });
+
+  it('LoginScreen masks a recalled address until "Use a different email" (which clears it) or a sign-in', () => {
+    const s = src('screens/auth/LoginScreen.tsx');
+    expect(s).toMatch(/const \[recalled, setRecalled\] = useState\(false\);/);
+    expect(s).toMatch(/codeSteps\.recall\(\)\.then\(\(step\) => \{[^]*?setRecalled\(true\);/);
+    expect(s).toMatch(/value=\{recalled \? maskIdentifier\(identifier\) : identifier\}/);
+    // Leaving the recalled step (another address, or the Password tab) never shows the address in full.
+    expect(s).toMatch(/function resetCodeStep\(\) \{[^}]*if \(recalled\) setIdentifier\(''\);\s*setRecalled\(false\);/);
+    expect(s).toMatch(/function useDifferentAddress\(\)[^}]*resetCodeStep\(\)/);
+    expect(s).toMatch(/function choosePassword\(\)[^}]*resetCodeStep\(\)/);
+  });
 });

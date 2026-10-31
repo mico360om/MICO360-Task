@@ -17,7 +17,7 @@
 - In the Android app, weeks start on the company's week start (set on the website) unless you chose your own.
 - In the Android app, a task waiting for approval is never counted or shown as overdue — the same numbers as the website.
 - In the Android app, moving a task that needs approval to Done says it is waiting for a project manager, instead of showing it done and jumping back; bulk Complete says the same.
-- In the Android app, asking for another sign-in code too soon says so and when to ask again, and the code step is still there if Android closes the app while you read the email.
+- In the Android app, asking for another sign-in code too soon says so and when to ask again, and the code step is still there if Android closes the app while you read the email (with the address partly hidden, for a shared phone).
 - In the Android app, anyone can create a project, and a project's owner, its managers and administrators can change it, its team, its columns and delete its tasks — as on the website.
 - In the Android app, Timeline, Workload, Management, Templates and MICO AI found with Search open on the website (they used to do nothing), and Management is offered to the people who run a project, not only administrators.
 - In the Android app, a link that opens the app on a task, a meeting, a chat or another page (from an email or the website) has the Dashboard behind it: Back goes there instead of closing the app.

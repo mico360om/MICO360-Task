@@ -121,6 +121,18 @@ export function createCodeStepMemory(store: KeyValueStore, key: string = CODE_ST
   };
 }
 
+/**
+ * The address of a code step kept from before (a shared phone: the next person must not read whose
+ * it was): its first letter, "•••" and the domain — "a•••@mico360.com"; a username "a•••".
+ */
+export function maskIdentifier(identifier: string): string {
+  const id = identifier.trim();
+  if (!id) return '';
+  const at = id.indexOf('@');
+  const local = at === -1 ? id : id.slice(0, at);
+  return `${[...local].slice(0, 1).join('')}•••${at === -1 ? '' : id.slice(at)}`;
+}
+
 export function resendLabel(waitSeconds: number): string {
   if (waitSeconds <= 0) return 'Resend code';
   return `Resend code in ${Math.floor(waitSeconds / 60)}:${String(waitSeconds % 60).padStart(2, '0')}`;
