@@ -61,6 +61,28 @@ function shownText(file: string, source: string): string[] {
 }
 
 const STRINGS = new Map(FILES.map(([f, text]) => [f, shownText(f, text)]));
+
+/** A "+" standing in for the plus icon: "+ New…" (a plus, a space, a word) or a full-width "＋". "+3 more" is a number. */
+const PLUS_AS_ICON = /^\s*(?:\+\s+\p{L}|＋)/u;
+/** The props whose string is a button's or a control's words. */
+const LABEL_PROPS = new Set(['title', 'label']);
+
+/** JSX text and title/label strings that start with a "+" for an icon (R1). */
+function plusLabels(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const out: string[] = [];
+  const isText = (n: ts.Node | undefined): n is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral => !!n && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n));
+  const visit = (n: ts.Node): void => {
+    if (ts.isJsxText(n) && PLUS_AS_ICON.test(n.text)) out.push(n.text.trim());
+    if (ts.isJsxAttribute(n) && ts.isIdentifier(n.name) && LABEL_PROPS.has(n.name.text) && n.initializer) {
+      const v = ts.isJsxExpression(n.initializer) ? n.initializer.expression : n.initializer;
+      if (isText(v) && PLUS_AS_ICON.test(v.text)) out.push(v.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
 const matchesOf = (re: RegExp, text: string) => [...text.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))].map((m) => m[0]);
 
 interface Rule {
@@ -76,10 +98,13 @@ const RULES: Rule[] = [
     id: 'R1',
     says: 'no UI glyphs in shown text — use <Icon> (chat emoji are content: lib/emoji.ts; 📎 is the website’s chat preview word)',
     applies: (f) => f !== 'lib/emoji.ts',
-    breaks: (f) =>
-      STRINGS.get(f)!
+    breaks: (f, text) => [
+      ...STRINGS.get(f)!
         .flatMap((s) => matchesOf(GLYPH, s))
         .filter((g) => !NOT_A_GLYPH.has(g) && !(f === 'lib/chat-model.ts' && g === '📎')),
+      // "+ New meeting": the plus is the ui.plus icon (Button/IconButton `icon`), not a character.
+      ...plusLabels(f, text),
+    ],
   },
   {
     id: 'R2',
@@ -120,6 +145,16 @@ const RULES: Rule[] = [
     breaks: (_f, text) => matchesOf(/\bradius\.(?:sm|md|lg)\b/, text),
   },
 ];
+
+// Final review S9: R1 also finds a "+" standing in for the plus icon in JSX text and title/label props.
+it('R1 finds "+ New…" and "＋" in JSX text and title/label strings, not "+3 more"', () => {
+  expect(plusLabels('x.tsx', '<Button title="+ New meeting" />')).toEqual(['+ New meeting']);
+  expect(plusLabels('x.tsx', "<Chip label={'＋Tag'} />")).toEqual(['＋Tag']);
+  expect(plusLabels('x.tsx', '<Text>+ Add assignee</Text>')).toEqual(['+ Add assignee']);
+  expect(plusLabels('x.tsx', '<Text>+ {n} more</Text>')).toEqual([]);
+  expect(plusLabels('x.tsx', '<Text>+3 more</Text>')).toEqual([]);
+  expect(plusLabels('x.tsx', '<Field placeholder="+ 971 50 123 4567" />')).toEqual([]);
+});
 
 // Final review L11: R4 reads .ts files too (a style made in lib/ is still a style).
 it('R4 covers .ts as well as .tsx files, all but lib/typography.ts', () => {

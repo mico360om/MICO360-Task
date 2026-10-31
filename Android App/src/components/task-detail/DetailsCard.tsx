@@ -290,7 +290,8 @@ export function DetailsCard({
           ))}
           {!picking ? (
             <Pressable onPress={() => setPicking(true)} accessibilityRole="button" accessibilityLabel="Add assignee" style={s.addPerson}>
-              <Text style={s.addPersonText}>+ Add assignee</Text>
+              <Icon name="ui.plus" size={14} color={c.ink2} />
+              <Text style={s.addPersonText}>Add assignee</Text>
             </Pressable>
           ) : null}
         </View>
