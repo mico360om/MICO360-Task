@@ -1,4 +1,4 @@
-import type { ApiClient } from './api-client';
+import { ApiError, NetworkError, type ApiClient, type RequestOptions } from './api-client';
 import { idempotencyHeaders } from './idempotency';
 import type {
   AnswerOutcome,
@@ -23,7 +23,35 @@ import type { ApiTask } from './types';
  */
 const seg = encodeURIComponent;
 
-export function inspectionsApi(client: Pick<ApiClient, 'get' | 'post' | 'put' | 'del'>) {
+type Calls = Pick<ApiClient, 'get' | 'post' | 'put' | 'del'>;
+
+/**
+ * A reply that isn't the server's (Final I7): an error with no JSON of the server's — a proxy's,
+ * a firewall's or a Wi-Fi page. The client's errorFrom names those 'ERROR' / "Request failed (N)".
+ * A 401 stays: the client renews the session for it (the outbox's 'signed-out').
+ */
+export function notTheServersAnswer(e: unknown): boolean {
+  return e instanceof ApiError && e.status !== 401 && e.code === 'ERROR' && /^Request failed \(\d+\)$/.test(e.message);
+}
+
+/** The calls, with a page in the way read as no connection: the outbox keeps the changes and tries again. */
+function serverAnswers(raw: Calls): Calls {
+  const only = <T>(p: Promise<T>): Promise<T> =>
+    p.catch((e: unknown) => {
+      if (!notTheServersAnswer(e)) throw e;
+      const status = (e as ApiError).status;
+      throw new NetworkError('Something between the phone and the server answered instead of the server.', { cause: e, mayHaveArrived: status >= 500 });
+    });
+  return {
+    get: <T>(path: string, opts?: RequestOptions) => only(raw.get<T>(path, opts)),
+    post: <T>(path: string, body?: unknown, opts?: RequestOptions) => only(raw.post<T>(path, body, opts)),
+    put: <T>(path: string, body?: unknown, opts?: RequestOptions) => only(raw.put<T>(path, body, opts)),
+    del: <T>(path: string, opts?: RequestOptions) => only(raw.del<T>(path, opts)),
+  };
+}
+
+export function inspectionsApi(calls: Calls) {
+  const client = serverAnswers(calls);
   return {
     // Forms (to start one; editing them stays on the website)
     listForms: () => client.get<{ data: { forms: InspectionForm[]; canCreate: boolean } }>('/inspection-forms').then((r) => r.data),
