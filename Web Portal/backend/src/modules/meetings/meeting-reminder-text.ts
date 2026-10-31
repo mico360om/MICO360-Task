@@ -32,6 +32,10 @@ export interface ReminderWording {
   when: string;
 }
 
+/** The meeting's title is cut to this length, so the headline fits the bell (191 characters at most). */
+const TITLE_MAX = 140;
+const cut = (s: string) => (s.length > TITLE_MAX ? `${s.slice(0, TITLE_MAX - 1).trimEnd()}…` : s);
+
 /** Reminders a day or more ahead name the day ("tomorrow at 09:00"); nearer ones the time left. */
 const DAY_FORM_MINUTES = 24 * 60;
 
@@ -102,5 +106,5 @@ export function reminderWording({ meeting, meetingZone, personZone, offsetMinute
   const parts = [shortWhen, meeting.location?.trim() || null, meeting.onlineLink?.trim() ? 'Join online' : null].filter((p): p is string => !!p);
   const when = `${day.date}, ${range(meeting, meetingZone)} (${zone})${theirs ? ` — ${theirs} your time` : ''}`;
 
-  return { title: `Meeting ${headline}: ${meeting.title}`, body: parts.join(' · '), startsIn: `starts ${headline}`, when };
+  return { title: `Meeting ${headline}: ${cut(meeting.title)}`, body: parts.join(' · '), startsIn: `starts ${headline}`, when };
 }

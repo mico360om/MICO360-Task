@@ -121,8 +121,6 @@ export function AppShell() {
     <CurrentProjectProvider>
     <div className="flex min-h-screen">
       <ChatSoundNotifier />
-      {/* A meeting reminder pops up in the corner of every page; every new notification refreshes the bell. */}
-      <MeetingReminderPopup />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-brand focus:px-3 focus:py-2 focus:text-sm focus:text-white"
@@ -193,6 +191,10 @@ export function AppShell() {
 
       {/* Global task drawer — opened from search/command palette or any ?task= link */}
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={closeTask} /> : null}
+
+      {/* A meeting reminder pops up in the corner of every page (after the page in reading order, so
+          "Skip to content" stays first); every new notification refreshes the bell. */}
+      <MeetingReminderPopup />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

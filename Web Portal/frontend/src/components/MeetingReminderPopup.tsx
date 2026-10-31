@@ -35,6 +35,7 @@ export function MeetingReminderPopup() {
     // Always there (a live region announces what is added to it), but no landmark while it is empty.
     <div
       aria-live="polite"
+      data-meeting-reminders
       className="pointer-events-none fixed inset-x-2 bottom-2 z-50 flex flex-col items-stretch gap-2 sm:inset-x-auto sm:bottom-4 sm:end-4 sm:w-96"
     >
       {popups.map((n) => (

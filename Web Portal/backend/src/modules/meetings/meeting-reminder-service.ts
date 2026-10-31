@@ -1,5 +1,5 @@
 import type { Logger } from '../../lib/logger';
-import { EmailNotConfiguredError } from '../email/delivery-error';
+import { EmailDeliveryError, EmailNotConfiguredError } from '../email/delivery-error';
 import type { MeetingEmailParams } from '../email/email-templates';
 import { MEETING_PUSH_CHANNEL } from '../device-tokens/fcm-transport';
 import type { CreateNotificationData, NotificationRecord } from '../notifications/notification-repository';
@@ -9,7 +9,7 @@ import type { AttendeeRecord } from './attendee-repository';
 import type { MeetingRecord } from './meeting-repository';
 import { isValidTimeZone } from './meeting-validation';
 import { reminderWording } from './meeting-reminder-text';
-import { dueTimesFor, dueWindows, reminderRecipients, reminderSends, REMINDER_GRACE_MS, type ReminderChannel, type ReminderPerson } from './meeting-reminders';
+import { dueTimesFor, dueWindows, reminderRecipients, reminderSends, REMINDER_GRACE_MS, type ReminderChannel, type ReminderPerson, type ReminderSend } from './meeting-reminders';
 
 /** The notification type of a meeting reminder (Settings → Notifications → "Meeting reminders"). */
 export const MEETING_REMINDER_TYPE = 'MEETING_REMINDER';
@@ -38,7 +38,8 @@ export interface ReminderSendKey {
   channel: ReminderChannel;
 }
 
-export type ReminderSendStatus = 'SENT' | 'SKIPPED';
+/** SENT; SKIPPED (nothing to send, or a nearer reminder went instead); FAILED (refused for good, not tried again). */
+export type ReminderSendStatus = 'SENT' | 'SKIPPED' | 'FAILED';
 
 /**
  * Where each send is written down, under a UNIQUE (meeting, person, time, start, way): taken once,
@@ -49,7 +50,7 @@ export interface MeetingReminderStore {
   takenFor(meetingIds: string[]): Promise<Set<string>>;
   /** Take one send: the row's id, or null when it was taken already (by another sweep or server). */
   reserve(key: ReminderSendKey & { userId: string | null; email: string | null }): Promise<string | null>;
-  /** It went (SENT), or there was nothing to send (SKIPPED: switched off meanwhile, email not set up). */
+  /** It went (SENT); nothing to send (SKIPPED: switched off meanwhile, email not set up, a nearer one went); refused for good (FAILED). */
   finish(id: string, status: ReminderSendStatus, at: Date): Promise<void>;
   /** It failed before anything was sent: give it back, so a later sweep tries again while it is still due. */
   release(id: string): Promise<void>;
@@ -87,6 +88,11 @@ export interface ReminderSweepResult {
   failed: number;
 }
 
+/** A mail provider's 4xx answer other than "too many requests": the message itself is refused. */
+function refusedForGood(err: unknown): boolean {
+  return err instanceof EmailDeliveryError && typeof err.status === 'number' && err.status >= 400 && err.status < 500 && err.status !== 429;
+}
+
 /** The sends of meetings that started this long ago are forgotten (they can never be due again). */
 const KEEP_SENDS_MS = 30 * 24 * 60 * 60_000;
 const PRUNE_EVERY_MS = 60 * 60_000;
@@ -110,7 +116,20 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
   const zoneOr = (zone: string | null | undefined, fallback: string) => (zone && isValidTimeZone(zone) ? zone : fallback);
   let lastPrune = 0;
 
+  /** One sweep at a time on this server (a long one isn't joined by the next minute's). */
+  let running = false;
+
   async function runSweep(): Promise<ReminderSweepResult> {
+    if (running) return { meetings: 0, sent: 0, skipped: 0, failed: 0 };
+    running = true;
+    try {
+      return await sweep();
+    } finally {
+      running = false;
+    }
+  }
+
+  async function sweep(): Promise<ReminderSweepResult> {
     const result: ReminderSweepResult = { meetings: 0, sent: 0, skipped: 0, failed: 0 };
     const settings = await deps.settings();
     if (!settings.enabled || settings.times.length === 0) return result;
@@ -156,17 +175,39 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
     // Out of date once the meeting has started: a phone that was off doesn't show it afterwards.
     const ttlSeconds = Math.max(60, Math.ceil((m.startAt.getTime() - at.getTime()) / 1000));
 
+    // Each person's sends per way, nearest reminder time first: when several are due at once (a
+    // meeting made late, times close together), only the nearest goes; the others are written
+    // down as skipped, and a time due after a nearer one already went is skipped too.
+    const groups = new Map<string, Array<ReminderSend & { minutes: number }>>();
     for (const time of times) {
       for (const send of reminderSends(recipients, time)) {
-        const { recipient, channel } = send;
-        const key: ReminderSendKey = { meetingId: m.id, recipientKey: recipient.key, offsetMinutes: time.minutes, startAt: m.startAt, channel };
-        if (taken.has(reminderKey(key))) continue;
-        const id = await deps.store.reserve({ ...key, userId: recipient.kind === 'user' ? recipient.userId : null, email: channel === 'EMAIL' ? recipient.email : null });
-        if (!id) continue; // another sweep or server has it
-        taken.add(reminderKey(key));
-
+        const k = `${send.recipient.key}|${send.channel}`;
+        groups.set(k, [...(groups.get(k) ?? []), { ...send, minutes: time.minutes }]);
+      }
+    }
+    for (const group of groups.values()) {
+      let covered = false;
+      for (const { recipient, channel, minutes } of group.sort((a, b) => a.minutes - b.minutes)) {
+        const key: ReminderSendKey = { meetingId: m.id, recipientKey: recipient.key, offsetMinutes: minutes, startAt: m.startAt, channel };
+        if (taken.has(reminderKey(key))) {
+          covered = true;
+          continue;
+        }
         const personZone = recipient.kind === 'user' ? zoneOr(recipient.timeZone, companyZone) : null;
-        const words = reminderWording({ meeting: m, meetingZone, personZone, offsetMinutes: time.minutes, now: at });
+        const words = reminderWording({ meeting: m, meetingZone, personZone, offsetMinutes: minutes, now: at });
+        const id = await deps.store.reserve({ ...key, userId: recipient.kind === 'user' ? recipient.userId : null, email: channel === 'EMAIL' ? recipient.email : null });
+        if (!id) {
+          covered = true; // another sweep or server has it
+          continue;
+        }
+        taken.add(reminderKey(key));
+        if (covered) {
+          result.skipped++;
+          await deps.store.finish(id, 'SKIPPED', now()).catch((err) => deps.logger?.error('meeting reminder skip not recorded', { err, meetingId: m.id }));
+          continue;
+        }
+        covered = true;
+
         let outcome: ReminderSendStatus;
         try {
           if (channel === 'APP' && recipient.kind === 'user') {
@@ -196,9 +237,14 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
           if (err instanceof EmailNotConfiguredError) {
             // Email is off on this server: nothing to try again (the bell and the push still went).
             outcome = 'SKIPPED';
+          } else if (refusedForGood(err)) {
+            // The provider refused the message itself (not a busy moment): trying again would not help.
+            result.failed++;
+            deps.logger?.error('meeting reminder failed', { err, meetingId: m.id, channel, offsetMinutes: minutes });
+            outcome = 'FAILED';
           } else {
             result.failed++;
-            deps.logger?.error('meeting reminder failed', { err, meetingId: m.id, channel, offsetMinutes: time.minutes });
+            deps.logger?.error('meeting reminder failed', { err, meetingId: m.id, channel, offsetMinutes: minutes });
             // Nothing went out: the next sweep tries again while the reminder is still due.
             await deps.store.release(id).catch((e) => deps.logger?.error('meeting reminder could not be given back', { err: e, meetingId: m.id }));
             taken.delete(reminderKey(key));
@@ -206,8 +252,8 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
           }
         }
         if (outcome === 'SENT') result.sent++;
-        else result.skipped++;
-        // It went: whatever happens now, the row stays taken, so it is never sent twice.
+        else if (outcome === 'SKIPPED') result.skipped++;
+        // It went (or never will): whatever happens now, the row stays taken, so it is never sent twice.
         await deps.store.finish(id, outcome, now()).catch((err) => deps.logger?.error('meeting reminder sent but not recorded', { err, meetingId: m.id, channel }));
       }
     }

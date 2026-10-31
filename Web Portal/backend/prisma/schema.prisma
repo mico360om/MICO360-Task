@@ -918,6 +918,7 @@ enum MeetingReminderSendStatus {
   SENDING
   SENT
   SKIPPED
+  FAILED
 }
 
 model MeetingAttendee {

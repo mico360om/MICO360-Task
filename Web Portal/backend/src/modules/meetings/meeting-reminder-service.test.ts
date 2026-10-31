@@ -258,4 +258,45 @@ describe('the meeting reminder sweep', () => {
     expect(t.notify).toHaveBeenCalledTimes(2);
     expect(t.logger.error).toHaveBeenCalledWith('meeting reminder sent but not recorded', expect.objectContaining({ meetingId: 'm1' }));
   });
+
+  it('two reminder times due at once (a meeting made late): only the nearer one goes; the other is written down as skipped', async () => {
+    const t = setup({ settings: { enabled: true, times: [{ minutes: 20, email: true }, { minutes: 15, email: false }] }, now: new Date(START.getTime() - 14 * MIN) });
+    await t.svc.runSweep();
+    expect(t.notify.mock.calls.map((c) => [c[0].userId, c[0].title])).toEqual([
+      ['org', 'Meeting in 14 minutes: Core switch go-live review'],
+      ['ann', 'Meeting in 14 minutes: Core switch go-live review'],
+    ]);
+    // The 20-minute one is ticked for email (the 15-minute one isn't): the email still goes, once.
+    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['org@oxy.test', 'ann@oxy.test', 'guest@client.test']);
+    const skipped = [...t.store.rows.values()].filter((r) => r.status === 'SKIPPED').map((r) => `${r.key.recipientKey}/${r.key.offsetMinutes}/${r.key.channel}`);
+    expect(skipped.sort()).toEqual(['user:ann/20/APP', 'user:org/20/APP']);
+    t.setNow(new Date(START.getTime() - 13 * MIN));
+    await t.svc.runSweep();
+    expect(t.notify).toHaveBeenCalledTimes(2);
+    expect(t.sendMeetingReminder).toHaveBeenCalledTimes(3);
+  });
+
+  it('an address the mail provider refuses outright is not tried again (it is written down as failed)', async () => {
+    const t = setup({ now: new Date(START.getTime() - 24 * 60 * MIN), email: async (to) => { if (to === 'guest@client.test') throw new EmailDeliveryError(to, 400, 'bad address'); } });
+    const r = await t.svc.runSweep();
+    expect(r.failed).toBe(1);
+    t.setNow(new Date(START.getTime() - 24 * 60 * MIN + MIN));
+    await t.svc.runSweep();
+    expect(t.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'guest@client.test')).toHaveLength(1);
+    expect([...t.store.rows.values()].find((x) => x.key.recipientKey === 'guest:guest@client.test')!.status).toBe('FAILED');
+    // A busy provider (429) is tried again.
+    const u = setup({ now: new Date(START.getTime() - 24 * 60 * MIN), email: async (to) => { if (to === 'guest@client.test') throw new EmailDeliveryError(to, 429, 'slow down'); } });
+    await u.svc.runSweep();
+    u.setNow(new Date(START.getTime() - 24 * 60 * MIN + MIN));
+    await u.svc.runSweep();
+    expect(u.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'guest@client.test')).toHaveLength(2);
+  });
+
+  it('a sweep still running when the next one starts on the same server: the next one waits its turn', async () => {
+    const t = setup();
+    await Promise.all([t.svc.runSweep(), t.svc.runSweep()]);
+    expect(t.dueMeetings).toHaveBeenCalledTimes(1);
+    await t.svc.runSweep();
+    expect(t.dueMeetings).toHaveBeenCalledTimes(2);
+  });
 });

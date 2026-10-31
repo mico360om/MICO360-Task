@@ -10,7 +10,7 @@ CREATE TABLE `meeting_reminder_sends` (
     `offsetMinutes` INTEGER NOT NULL,
     `startAt` DATETIME(3) NOT NULL,
     `channel` ENUM('APP', 'EMAIL') NOT NULL,
-    `status` ENUM('SENDING', 'SENT', 'SKIPPED') NOT NULL DEFAULT 'SENDING',
+    `status` ENUM('SENDING', 'SENT', 'SKIPPED', 'FAILED') NOT NULL DEFAULT 'SENDING',
     `sentAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,

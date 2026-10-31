@@ -49,6 +49,17 @@ describe('AppShell', () => {
     expect(screen.getByText('Dashboard content')).toBeInTheDocument();
   });
 
+  it('the meeting reminder pop-up comes after the page in reading order (Skip to content stays first)', () => {
+    const { container } = renderShell();
+    const skip = screen.getByRole('link', { name: 'Skip to content' });
+    const main = container.querySelector('main')!;
+    const live = container.querySelector('[aria-live="polite"][data-meeting-reminders]')!;
+    expect(live).not.toBeNull();
+    expect(skip.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(main.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(main.contains(live)).toBe(false);
+  });
+
   it('logs the user out from the profile menu', async () => {
     renderShell();
     await userEvent.click(screen.getByRole('button', { name: /account menu/i }));

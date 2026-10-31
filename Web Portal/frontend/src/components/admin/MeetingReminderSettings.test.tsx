@@ -131,4 +131,31 @@ describe('System Settings: Meeting reminders', () => {
     expect(within(group).getAllByRole('spinbutton')).toHaveLength(3);
     expect(within(group).getAllByText('before')).toHaveLength(3);
   });
+
+  it('nothing can be saved until the stored times are read (a click must never save the defaults over them)', async () => {
+    let answer: (r: Response) => void = () => {};
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((r) => { answer = r; })));
+    renderIt();
+    expect(screen.getByRole('switch', { name: 'Meeting reminders' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save meeting reminders' })).toBeDisabled();
+    answer(json({ data: [{ key: 'meetings.reminders', value: { enabled: true, times: [{ minutes: 30, email: false }] } }] }));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Meeting reminders' })).toBeEnabled());
+    expect((amount(1) as HTMLInputElement).value).toBe('30');
+  });
+
+  it('when the settings can’t be read, it says so and offers Retry — and saves nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ error: { code: 'INTERNAL', message: 'down' } }, 500)));
+    renderIt();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the meeting reminders.');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Meeting reminders' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save meeting reminders' })).toBeDisabled();
+  });
+
+  it('switched off: the times stay readable and it says they wait for the switch', async () => {
+    stored = { enabled: false, times: [{ minutes: 15, email: false }] };
+    renderIt();
+    expect(await screen.findByText('Reminders are off for everyone. These times are kept for when you switch them back on.')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Reminder times' }).className).not.toMatch(/opacity/);
+  });
 });

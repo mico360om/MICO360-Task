@@ -92,4 +92,13 @@ describe('reminderWording: the words of a meeting reminder (bell, phone and emai
       'Sat 31 Oct 2026, 09:00–10:00 (GMT+4) — 30 Oct 2026, 19:00–20:00 your time',
     );
   });
+
+  it('a very long meeting title is shortened, so the headline always fits the bell (191 characters)', () => {
+    const long = { ...meeting, title: 'Quarterly '.repeat(19) + 'review' }; // 196 characters
+    for (const offset of [15, 720, 3 * 1440]) {
+      const w = reminderWording({ meeting: long, meetingZone: MUSCAT, personZone: MUSCAT, offsetMinutes: offset, now: new Date(long.startAt.getTime() - offset * 60_000) });
+      expect(w.title.length).toBeLessThanOrEqual(191);
+      expect(w.title).toMatch(/^Meeting (in|on) .+: Quarterly Quarterly .+…$/);
+    }
+  });
 });

@@ -5,6 +5,7 @@ import { systemSettingsApi } from '../../api/system-settings';
 import { ApiError } from '../../lib/api-client';
 import { Button } from '../ui/Button';
 import { Toggle } from '../ui/Toggle';
+import { LoadError } from '../ui/LoadError';
 import {
   DEFAULT_MEETING_REMINDERS,
   MAX_REMINDER_TIMES,
@@ -39,6 +40,9 @@ export function MeetingReminderSettings() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['system-settings'], queryFn: () => systemSettingsApi(apiClient).list() });
   const stored = Array.isArray(q.data) ? q.data.find((s) => s.key === MEETING_REMINDERS_KEY)?.value : undefined;
+  // Nothing is saved until the stored times are read: a save made from the defaults shown meanwhile
+  // would write them over the administrator's own times.
+  const ready = q.isSuccess;
   const saved: MeetingReminders = isMeetingReminders(stored) ? stored : DEFAULT_MEETING_REMINDERS;
   const [rows, setRows] = useState<DraftTime[]>(() => draftOf(saved));
   const [problem, setProblem] = useState<string | null>(null);
@@ -93,17 +97,19 @@ export function MeetingReminderSettings() {
         Each person can turn theirs off in Settings.
       </p>
       {problem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
+      {q.isError ? <LoadError what="the meeting reminders" onRetry={() => void q.refetch()} className="mb-3" /> : null}
 
       <div className="flex items-center justify-between gap-3 border-t border-line py-3">
         <div>
           <div className="text-sm font-medium text-ink">Send meeting reminders</div>
           <div className="text-xs text-ink-2">For every meeting, to everyone on it.</div>
         </div>
-        <Toggle on={saved.enabled} onChange={toggle} label="Meeting reminders" describedBy="meeting-reminders-help" disabled={save.isPending} />
+        <Toggle on={saved.enabled} onChange={toggle} label="Meeting reminders" describedBy="meeting-reminders-help" disabled={!ready || save.isPending} />
       </div>
 
-      <fieldset className={`border-t border-line pt-3 ${saved.enabled ? '' : 'opacity-60'}`}>
+      <fieldset className="border-t border-line pt-3">
         <legend className="mb-2 pt-3 text-sm font-medium text-ink">Reminder times</legend>
+        {ready && !saved.enabled ? <p className="mb-2 text-xs text-ink-2">Reminders are off for everyone. These times are kept for when you switch them back on.</p> : null}
         <ul className="mb-3 space-y-2">
           {rows.map((r, i) => {
             const n = i + 1;
@@ -158,7 +164,7 @@ export function MeetingReminderSettings() {
       </fieldset>
 
       <div className="flex items-center gap-3">
-        <Button onClick={submit} disabled={save.isPending} aria-label="Save meeting reminders">
+        <Button onClick={submit} disabled={!ready || save.isPending} aria-label="Save meeting reminders">
           {save.isPending ? 'Saving…' : 'Save'}
         </Button>
         {done ? <p role="status" className="text-sm text-ink-2">Saved.</p> : null}

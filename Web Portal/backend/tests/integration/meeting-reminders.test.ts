@@ -73,6 +73,13 @@ describe('the meeting reminder sends store (integration)', () => {
     await store.release(id); // only a send still being sent can be given back
     expect(await store.reserve(key(m.id))).toBeNull();
 
+    // An address refused for good is written down as failed, and stays taken.
+    const refused = (await store.reserve(key(m.id, { recipientKey: 'guest:bad@client.test', channel: 'EMAIL', userId: null })))!;
+    await store.finish(refused, 'FAILED', NOW);
+    expect(await prisma.meetingReminderSend.findUniqueOrThrow({ where: { id: refused } })).toMatchObject({ status: 'FAILED', sentAt: null });
+    await store.release(refused);
+    expect(await store.reserve(key(m.id, { recipientKey: 'guest:bad@client.test', channel: 'EMAIL', userId: null }))).toBeNull();
+
     const other = (await store.reserve(key(m.id, { channel: 'EMAIL' })))!;
     await store.release(other);
     expect(await store.reserve(key(m.id, { channel: 'EMAIL' }))).not.toBeNull();
