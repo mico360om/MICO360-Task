@@ -6,10 +6,12 @@ import { createMemoryStore } from './storage';
 
 /** One inspection outbox per person on the phone; sending; sign-out (Stage 4 Task 5, Review Focus 2). */
 
+const SERVER = 'https://task.mico360.com/api/v1';
+
 it('on a shared phone another person never sees, counts or sends the first person’s unsent inspection', async () => {
   let who: string | null = 'u1';
   const server = fakeInspectionServer({ detail: DETAIL });
-  const all = createInspectionOutboxes({ store: createMemoryStore(), api: fakeApiClient(server, () => who) });
+  const all = createInspectionOutboxes({ store: createMemoryStore(), api: fakeApiClient(server, () => who), server: SERVER });
   await all.ready;
   all.outboxFor('u1').remember('u1', DETAIL);
   all.outboxFor('u1').saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: 'Loose' });
@@ -27,7 +29,7 @@ it('on a shared phone another person never sees, counts or sends the first perso
 });
 
 it('the sign-out question counts unsent answers, follow-up requests and a waiting finish', async () => {
-  const all = createInspectionOutboxes({ store: createMemoryStore(), api: fakeApiClient(fakeInspectionServer(), () => 'u1') });
+  const all = createInspectionOutboxes({ store: createMemoryStore(), api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
   await all.ready;
   const o = all.outboxFor('u1');
   expect(all.outboxFor('u1')).toBe(o); // one outbox per person
@@ -43,7 +45,7 @@ it('the sign-out question counts unsent answers, follow-up requests and a waitin
 
 it('signing out on purpose removes only that person’s inspection records, kept or waiting, on the phone and in the app', async () => {
   const disk = createMemoryStore();
-  const all = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1') });
+  const all = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
   await all.ready;
   expect(all.isReady()).toBe(true);
   all.outboxFor('u1').remember('u1', DETAIL);
@@ -51,19 +53,19 @@ it('signing out on purpose removes only that person’s inspection records, kept
   all.outboxFor('u2').remember('u2', { ...DETAIL, id: 'i2' });
   await all.storage.settled();
   await all.clearOwner('u1');
-  expect(await disk.keys()).toEqual(['mico360.inspection.u2.i2']);
+  expect(await disk.keys()).toEqual([all.recordKey('u2', 'i2')]);
   expect(all.outboxFor('u1').waiting('u1')).toEqual([]);
   expect(all.outboxFor('u1').view('u1', 'i1')).toBeNull();
 });
 
 it('records kept on the phone are read back when the app starts again', async () => {
   const disk = createMemoryStore();
-  const first = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1') });
+  const first = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
   await first.ready;
   first.outboxFor('u1').remember('u1', DETAIL);
   first.outboxFor('u1').saveAnswer('u1', 'i1', { itemId: 'a', result: 'PASS', reading: null, note: null });
   await first.storage.settled();
-  const again = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1') });
+  const again = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
   expect(again.isReady()).toBe(false);
   await again.ready;
   expect(again.unsentCount('u1')).toBe(1);
@@ -95,3 +97,34 @@ it('Sign out asks first when inspection changes are unsent', () =>
   expect(src('components/account/SignOutButton.tsx')).toMatch(/signOutQuestion\(queued\.pending\.length \+ queued\.failed\.length \+ inspections\.unsentCount\(/));
 
 it('the app’s sign-out clears the person’s inspections', () => expect(src('core/services.ts')).toMatch(/clearInspections: \(id\) => inspections\.clearOwner\(id\)/));
+
+it('records are kept per server: one made for another server is never shown, counted or sent here (Final I6)', async () => {
+  const disk = createMemoryStore();
+  const serverA = fakeInspectionServer({ detail: DETAIL });
+  const a = createInspectionOutboxes({ store: disk, api: fakeApiClient(serverA, () => 'u1'), server: 'https://office.example.om/api/v1' });
+  await a.ready;
+  a.outboxFor('u1').remember('u1', DETAIL);
+  a.outboxFor('u1').saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: null });
+  await a.storage.settled();
+  // An inspection record in the old shape (before records named their server): kept, never sent.
+  await disk.setItem('mico360.inspection.u1.i7', JSON.stringify({ v: 1, ownerId: 'u1', inspectionId: 'i7', projectId: 'pr1', title: 'Old', snapshot: DETAIL, answers: { a: { itemId: 'a', result: 'PASS', reading: null, note: null, editedAt: '2026-10-30T08:00:00.000Z' } }, finish: null, followUps: {}, problem: null, savedAt: '', sentAt: null }));
+  const serverB = fakeInspectionServer({ detail: DETAIL });
+  const b = createInspectionOutboxes({ store: disk, api: fakeApiClient(serverB, () => 'u1'), server: SERVER });
+  await b.ready;
+  expect(b.outboxFor('u1').waiting('u1')).toEqual([]);
+  expect(b.outboxFor('u1').view('u1', 'i1')).toBeNull();
+  expect(b.outboxFor('u1').view('u1', 'i7')).toBeNull();
+  expect(b.unsentCount('u1')).toBe(0);
+  await b.outboxFor('u1').flushAll('u1', { force: true });
+  expect(serverB.calls).toEqual([]);
+  await b.clearOwner('u1');
+  expect((await disk.keys()).sort()).toEqual([a.recordKey('u1', 'i1'), 'mico360.inspection.u1.i7'].sort());
+  // Back on the first server, its record is there and goes.
+  const again = createInspectionOutboxes({ store: disk, api: fakeApiClient(serverA, () => 'u1'), server: 'https://office.example.om/api/v1' });
+  await again.ready;
+  expect(again.unsentCount('u1')).toBe(1);
+  expect((await again.outboxFor('u1').flush('u1', 'i1')).state).toBe('sent');
+  expect(serverA.calls.map((c) => c.kind)).toEqual(['answer']);
+  expect(a.recordKey('u1', 'i1')).not.toBe(b.recordKey('u1', 'i1'));
+  expect(a.recordKey('u1', 'i1')).toMatch(/^mico360\.inspection\.u1~[0-9a-z]+\.i1$/);
+});

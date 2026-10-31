@@ -254,7 +254,8 @@ export function createServices(opts: { apiBaseUrl?: string | null } = {}): Servi
   };
 
   // Inspection records kept on the phone (read back at start), each person's sent only with their session.
-  const inspections = createInspectionOutboxes({ store: asyncStore, api });
+  // Kept per server too (Final I6): a record made for another server is never sent to this one.
+  const inspections = createInspectionOutboxes({ store: asyncStore, api, server: baseUrl });
 
   const push = createPushRegistrar({
     getPushToken,
