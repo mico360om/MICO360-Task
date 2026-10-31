@@ -31,9 +31,13 @@ import {
   plural,
   shortDay,
   toggleStatus,
+  trendCharts,
+  trendNote,
+  trendTableRows,
+  trendToggleText,
 } from './management';
 import * as appModule from './management';
-import type { HealthRow } from './management-api';
+import type { HealthRow, TrendRow } from './management-api';
 import { ITEMS, OVERVIEW } from '../testing/management-fixtures';
 
 const app = appModule as unknown as Record<string, unknown>;
@@ -192,5 +196,50 @@ describe.skipIf(!hasWeb('frontend/src/components/management/InspectionsSection.t
     const w = readWeb('frontend/src/components/management/InspectionsSection.tsx');
     for (const x of inspectionFigures(OVERVIEW.inspections)) expect(w, x.label).toContain(`label="${x.label}"`);
     for (const t of ['% of those due', 'No items passed or failed yet', 'items passed · ${data.failed} failed', 'help="Items passed of those passed or failed"', "'check')} due in the period", "'check')} closed without a report", "'inspection')} finished in the period", "'open follow-up task'"]) expect(w, t).toContain(t);
+  });
+});
+
+// ── Task 9: the trends ──
+it('trends: the website’s charts, empties and table', () => {
+  const weeks = [{ start: '2026-10-04', label: '4 Oct', current: false, created: 0, completed: 0, late: 0, passed: 0, failed: 0, passRate: null }, { start: '2026-10-11', label: '11 Oct', current: true, created: 2, completed: 1, late: 1, passed: 3, failed: 1, passRate: 75 }] as TrendRow[];
+  const [made, late, pass] = trendCharts(weeks);
+  expect(made).toMatchObject({ title: 'Tasks created and completed', empty: null }); expect(pass!.lines[0]!.values).toEqual([null, 75]); expect(pass!.unit).toBe('%');
+  expect(trendCharts(weeks.map((w) => ({ ...w, late: 0 })))[1]!.empty).toBe('No task was late at a week’s end.');
+  expect(trendTableRows(weeks, false).map((r) => r.week)).toEqual(['11 Oct (this week)', '4 Oct']);
+  expect(trendNote(weeks)).toBe('2 weeks from 4 Oct; the last one is this week, still going.');
+  if (hasWeb('frontend/src/components/management/TrendsSection.tsx')) for (const w of ['Tasks created and completed', 'Late tasks at each week’s end', 'Inspection pass rate', 'No inspections finished in these weeks.', 'Show the latest ${SHOWN_WEEKS} weeks', 'Show all ${weeks.length} weeks']) expect(readWeb('frontend/src/components/management/TrendsSection.tsx')).toContain(w);
+});
+it('trends: the lines’ names, colours and shading; each chart’s words for TalkBack; the empties', () => {
+  const [made, late, pass] = trendCharts(OVERVIEW.trends);
+  expect(made!.lines).toEqual([{ name: 'Created', values: [5, 2], color: 'ink2' }, { name: 'Completed', values: [3, 4], color: 'success', area: true }]);
+  expect(late!.lines).toEqual([{ name: 'Late', values: [2, 4], color: 'danger', area: true }]);
+  expect(pass!.lines).toEqual([{ name: 'Pass rate', values: [83, null], color: 'info', dots: true }]);
+  expect([made!.unit, late!.unit]).toEqual([undefined, undefined]);
+  expect(made!.label).toBe('Tasks created and completed each week; this week 2 created, 4 completed. The figures are in the table below.');
+  expect(late!.label).toBe('Late tasks at the end of each week; now 4. The figures are in the table below.');
+  expect(pass!.label).toBe('Inspection pass rate each week (no point where a week had no finished inspection); latest 83%. The figures are in the table below.');
+  const quiet = trendCharts(OVERVIEW.trends.map((w) => ({ ...w, created: 0, completed: 0, late: 0, passRate: null })));
+  expect(quiet.map((x) => x.empty)).toEqual(['No tasks were created or completed in these weeks.', 'No task was late at a week’s end.', 'No inspections finished in these weeks.']);
+  expect(trendCharts([]).map((x) => x.empty)).toEqual(['No tasks were created or completed in these weeks.', 'No task was late at a week’s end.', 'No inspections finished in these weeks.']);
+  expect(trendNote([])).toBe('0 weeks; the last one is this week, still going.');
+});
+it('trends: the table, newest first, the latest 6 until all are asked for', () => {
+  const starts = ['2026-08-30', '2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27', '2026-10-04', '2026-10-11', '2026-10-18'];
+  const weeks = starts.map((start, i) => ({ ...OVERVIEW.trends[0]!, start, label: `w${i}`, current: i === starts.length - 1 }));
+  expect(trendTableRows(weeks, false)).toHaveLength(6);
+  expect(trendTableRows(weeks, true)).toHaveLength(8);
+  expect(trendTableRows(weeks, false)[0]!.week).toBe('18 Oct (this week)');
+  expect(trendTableRows(weeks, true).map((r) => r.start)).toEqual([...starts].reverse());
+  expect(weeks.map((w) => w.start)).toEqual(starts);
+  expect([trendToggleText(8, false), trendToggleText(8, true)]).toEqual(['Show all 8 weeks', 'Show the latest 6 weeks']);
+});
+describe.skipIf(!hasWeb('frontend/src/components/management/TrendsSection.tsx'))('the trends’ words', () => {
+  it('are the section’s', () => {
+    const w = readWeb('frontend/src/components/management/TrendsSection.tsx');
+    for (const t of ['No tasks were created or completed in these weeks.', 'No task was late at a week’s end.', "name: 'Created'", "name: 'Completed'", "name: 'Late'", "name: 'Pass rate'", 'unit="%"', 'const SHOWN_WEEKS = 6;', " weeks${weeks[0] ? ` from ${dayMonth(weeks[0].start)}` : ''}; the last one is this week, still going.", '(this week)', '{dayMonth(w.start)}',
+      "Tasks created and completed each week${last ? `; this week ${last.created} created, ${last.completed} completed` : ''}. The figures are in the table below.",
+      "Late tasks at the end of each week${last ? `; now ${last.late}` : ''}. The figures are in the table below.",
+      'Inspection pass rate each week (no point where a week had no finished inspection); latest ${rated.at(-1)!.passRate}%. The figures are in the table below.',
+      'Week of', 'Created', 'Completed', 'Late', 'Pass rate', "w.passRate === null ? '—'"]) expect(w, t).toContain(t);
   });
 });

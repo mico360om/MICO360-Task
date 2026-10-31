@@ -9,6 +9,7 @@ import {
   cumulative,
   dashed,
   gridValues,
+  lineRuns,
   lineSegments,
   niceCeil,
   sampleIndexes,
@@ -271,5 +272,27 @@ describe('a chart on a right-to-left phone (6b review)', () => {
     const onRight = (align: 'flex-end' | 'flex-start', d: ChartDirection) => (align === 'flex-end') !== d.rtl;
     expect(onRight(alignRight(RTL), RTL)).toBe(true);
     expect(onRight(alignRight(LTR), LTR)).toBe(true);
+  });
+});
+
+/** Management's trends (Stage 3 Task 9): a week with no figure is a gap in its line, as on the website. */
+describe('a null is a gap (Stage 3 Task 9)', () => {
+  it('a null is a gap in the line', () => { expect(lineRuns([1, null, 2, 3, null])).toEqual([[0], [2, 3]]); expect(lineRuns([null])).toEqual([]); expect(lineRuns([4, 5])).toEqual([[0, 1]]); });
+  it('every value is in exactly one run, in order; a run never crosses a gap', () => {
+    expect(lineRuns([])).toEqual([]);
+    expect(lineRuns([null, null, 7, null, 0, 0])).toEqual([[2], [4, 5]]);
+    expect(lineRuns([0, 1, 2])).toEqual([[0, 1, 2]]);
+  });
+  it('the numbers under a chart say “—” for a week with no figure', () => {
+    expect(chartRows(['4 Oct', '11 Oct'], [{ name: 'Pass rate', values: [null, 75] }]).map((r) => r.text)).toEqual(['Pass rate —', 'Pass rate 75']);
+  });
+  it('the line chart draws each run on its own, leaves gaps out of its scale, and can show a unit and dots', () => {
+    const charts = readFileSync(resolve(__dirname, '../components/charts.tsx'), 'utf8');
+    expect(charts).toMatch(/values: readonly \(number \| null\)\[\]/);
+    expect(charts).toMatch(/lineRuns\(l\.values\)/);
+    expect(charts).toMatch(/dots\?: boolean/);
+    expect(charts).toMatch(/unit\?: string/);
+    expect(charts).toMatch(/\{v\}\s*\{unit\}/);
+    expect(charts).toMatch(/v !== null/);
   });
 });

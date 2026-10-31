@@ -52,6 +52,23 @@ export function sampleIndexes(n: number, max: number): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
+/**
+ * The indexes of each unbroken run of numbers in a line (Stage 3: the website's LineChart `runsOf`):
+ * a null is a gap — no piece of the line crosses it.
+ */
+export function lineRuns(values: readonly (number | null)[]): number[][] {
+  const runs: number[][] = [];
+  let run: number[] = [];
+  values.forEach((v, i) => {
+    if (v === null) {
+      if (run.length) runs.push(run);
+      run = [];
+    } else run.push(i);
+  });
+  if (run.length) runs.push(run);
+  return runs;
+}
+
 /** One thin view of a line: placed by its top-left corner, `width` long, turned by `angle` (radians) about its centre. */
 export interface Segment {
   left: number;
@@ -66,7 +83,7 @@ export interface Segment {
  * `width` × `height` whose scale tops out at `top`. One point is a dot in its place.
  */
 export function lineSegments(
-  values: readonly number[],
+  values: readonly (number | null)[],
   indexes: readonly number[],
   { width, height, top, thickness = 2 }: { width: number; height: number; top: number; thickness?: number },
 ): Segment[] {
@@ -155,7 +172,8 @@ export function cumulative(vals: readonly number[]): number[] {
 
 export interface ChartSeries {
   name: string;
-  values: number[];
+  /** null: no figure there (a gap in the line — Management's pass rate in a week with no inspection). */
+  values: readonly (number | null)[];
 }
 
 const hasData = (labels: readonly string[], series: readonly ChartSeries[]) => labels.length > 0 && series.some((s) => s.values.length > 0);
@@ -169,7 +187,7 @@ export function chartSummary(title: string, labels: readonly string[], series: r
   const lines = series.map((s) => {
     const v0 = s.values[0] ?? 0;
     const vn = s.values[s.values.length - 1] ?? 0;
-    return `${s.name}: ${v0} on ${first}, ${vn} on ${last}, highest ${Math.max(0, ...s.values)}.`;
+    return `${s.name}: ${v0} on ${first}, ${vn} on ${last}, highest ${Math.max(0, ...s.values.filter((v): v is number => v !== null))}.`;
   });
   return `${title}, ${first} to ${last}. ${lines.join(' ')}`;
 }
@@ -179,7 +197,7 @@ export function chartSummary(title: string, labels: readonly string[], series: r
  * date (`keys`), never its label: "1 Jan" can be two days a year apart (5c review #10).
  */
 export function chartRows(labels: readonly string[], series: readonly ChartSeries[], keys?: readonly string[]): { key: string; label: string; text: string }[] {
-  return labels.map((label, i) => ({ key: keys?.[i] ?? String(i), label, text: series.map((s) => `${s.name} ${s.values[i] ?? 0}`).join(', ') }));
+  return labels.map((label, i) => ({ key: keys?.[i] ?? String(i), label, text: series.map((s) => `${s.name} ${s.values[i] === null ? '—' : s.values[i] ?? 0}`).join(', ') }));
 }
 
 /** A bar chart in words: "Tasks by status: To do 5, Done 3." */
@@ -226,7 +244,7 @@ export function dashedLine(segs: readonly Segment[], dash = 5, gap = 4): Segment
  * The points to draw (sampleIndexes), with each line's highest and lowest kept: leaving them out
  * would hide a spike the summary still names ("highest 50") — 5c review #13.
  */
-export function sampleWithPeaks(n: number, max: number, valueLists: readonly (readonly number[])[]): number[] {
+export function sampleWithPeaks(n: number, max: number, valueLists: readonly (readonly (number | null)[])[]): number[] {
   const out = new Set(sampleIndexes(n, max));
   if (out.size < n) {
     for (const values of valueLists) {

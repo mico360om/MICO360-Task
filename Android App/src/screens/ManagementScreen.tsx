@@ -12,6 +12,7 @@ import { HealthSection } from '../components/management/HealthSection';
 import { ApprovalsSection } from '../components/management/ApprovalsSection';
 import { InspectionsSection } from '../components/management/InspectionsSection';
 import { PeopleSection } from '../components/management/PeopleSection';
+import { TrendsSection } from '../components/management/TrendsSection';
 import { usePullRefresh } from '../components/meeting/live';
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
@@ -186,6 +187,7 @@ export function ManagementScreen({ navigation }: AppScreenProps<'Management'>) {
                 {data.approvals ? <ApprovalsSection approvals={data.approvals} onOpen={openList} /> : null}
                 <InspectionsSection data={data.inspections} onOpen={openList} />
                 <PeopleSection people={data.people} week={data.workload.week} limit={data.workload.limit} onOpen={openList} />
+                <TrendsSection weeks={data.trends} />
               </View>
             )}
           </>

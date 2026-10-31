@@ -30,4 +30,5 @@
 ## Planning and AI
 - In the Android app, Management is a real screen for administrators and the people who run a project: the website's figures for every project, with the list behind each number, its filters, and the same PDF.
 - In the Android app, Management shows each project's health with the reasons, the tasks waiting for approval, inspections and people, each number opening its list.
+- In the Android app, Management shows the trends of the last 4, 12 or 26 weeks: tasks created and completed, late tasks and the inspection pass rate.
 <!-- planning-and-ai lines above this line -->

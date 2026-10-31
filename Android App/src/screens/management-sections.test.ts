@@ -81,3 +81,18 @@ describe.skipIf(!hasWeb('frontend/src/components/management/HealthSection.tsx', 
       for (const w of words) { expect(src(`components/management/${file}.tsx`), `${file}: ${w}`).toContain(w); expect(readWeb(`frontend/src/components/management/${file}.tsx`), `${file}: ${w}`).toContain(w); }
   });
 });
+
+it('trends: each chart or its quiet words, then the weeks table; drawn last on the screen', () => {
+  const t = src('components/management/TrendsSection.tsx');
+  expect(t).toMatch(/trendCharts\(weeks\)/);
+  expect(t).toMatch(/chart\.empty \?/);
+  expect(t).toMatch(/<LineChart[^>]*unit=\{chart\.unit\}/);
+  expect(t).toMatch(/trendTableRows\(weeks, all\)/);
+  expect(t).toMatch(/trendToggleText\(weeks\.length, all\)/);
+  expect(t).toMatch(/weeks\.length > 6/);
+  expect(t).toMatch(/w\.passRate === null \? '—' : `\$\{w\.passRate\}%`/);
+  for (const w of ['Week of', 'Created', 'Completed', 'Late', 'Pass rate', 'Trends']) expect(t, w).toContain(w);
+  expect(t).not.toMatch(/\.reduce\(/);
+  const s = src('screens/ManagementScreen.tsx');
+  expect(s).toMatch(/<PeopleSection[^]*<TrendsSection weeks=\{data\.trends\} \/>/);
+});

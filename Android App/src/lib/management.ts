@@ -4,7 +4,7 @@
  * the website's ManagementPage.tsx, ManagementFilters.tsx and ItemsSheet.tsx. Drift-tested against
  * those files. Every figure is the server's: nothing here recounts one.
  */
-import type { HealthRow, ItemList, ItemMetric, ItemQuery, ItemRow, ManagementFilters, ManagementOverview, OptionProject, PersonRow, ProjectStatus, Rag, RagReason } from './management-api';
+import type { HealthRow, ItemList, ItemMetric, ItemQuery, ItemRow, ManagementFilters, ManagementOverview, OptionProject, PersonRow, ProjectStatus, Rag, RagReason, TrendRow } from './management-api';
 import { managementQuery } from './management-api';
 import type { NavAction } from '../navigation/nav-actions';
 import { isSafeId } from './ids';
@@ -271,3 +271,71 @@ export function inspectionFigures(i: ManagementOverview['inspections']): Inspect
 
 /** "Wed 28 Oct (7), Thu 29 Oct (6)": a person's days over the limit this week, with each day's count. */
 export const overloadedDaysText = (days: PersonRow['overloadedDays']) => days.map((d) => `${shortDay(d.date)} (${d.count})`).join(', ');
+
+// ── The trends (Task 9): TrendsSection.tsx ──
+
+/** The weekly table shows this many weeks (the latest) until all are asked for. */
+export const TREND_SHOWN_WEEKS = 6;
+
+/** "12 weeks from 9 Aug; the last one is this week, still going." */
+export const trendNote = (t: TrendRow[]) => `${t.length} weeks${t[0] ? ` from ${dayMonth(t[0].start)}` : ''}; the last one is this week, still going.`;
+
+export interface TrendLine {
+  name: string;
+  /** The server's figure each week; null: no figure that week (a gap). */
+  values: (number | null)[];
+  /** A palette colour, resolved by the screen (light or dark). */
+  color: 'ink2' | 'success' | 'danger' | 'info';
+  area?: true;
+  dots?: true;
+}
+
+export interface TrendChart {
+  title: string;
+  /** What TalkBack hears for the chart: the website's words for it. */
+  label: string;
+  unit?: string;
+  lines: TrendLine[];
+  /** The website's words in the chart's place when there is nothing to draw (a flat line would only show a made-up scale). */
+  empty: string | null;
+}
+
+/** The section's three charts over the same weeks: created against completed, late at each week's end, the inspection pass rate. */
+export function trendCharts(t: TrendRow[]): TrendChart[] {
+  const last = t.length ? t[t.length - 1]! : null;
+  const rated = t.filter((w) => w.passRate !== null);
+  const latestRate = rated.length ? rated[rated.length - 1]!.passRate : null;
+  return [
+    {
+      title: 'Tasks created and completed',
+      label: `Tasks created and completed each week${last ? `; this week ${last.created} created, ${last.completed} completed` : ''}. The figures are in the table below.`,
+      lines: [
+        { name: 'Created', values: t.map((w) => w.created), color: 'ink2' },
+        { name: 'Completed', values: t.map((w) => w.completed), color: 'success', area: true },
+      ],
+      empty: t.every((w) => !w.created && !w.completed) ? 'No tasks were created or completed in these weeks.' : null,
+    },
+    {
+      title: 'Late tasks at each week’s end',
+      label: `Late tasks at the end of each week${last ? `; now ${last.late}` : ''}. The figures are in the table below.`,
+      lines: [{ name: 'Late', values: t.map((w) => w.late), color: 'danger', area: true }],
+      empty: t.every((w) => !w.late) ? 'No task was late at a week’s end.' : null,
+    },
+    {
+      title: 'Inspection pass rate',
+      label: `Inspection pass rate each week (no point where a week had no finished inspection); latest ${latestRate ?? '—'}%. The figures are in the table below.`,
+      unit: '%',
+      lines: [{ name: 'Pass rate', values: t.map((w) => w.passRate), color: 'info', dots: true }],
+      empty: rated.length ? null : 'No inspections finished in these weeks.',
+    },
+  ];
+}
+
+/** The weekly table's rows: newest first, the latest 6 unless all; "25 Oct (this week)" for the one still going. */
+export function trendTableRows(t: TrendRow[], all: boolean): Array<TrendRow & { week: string }> {
+  const newestFirst = [...t].reverse();
+  return (all ? newestFirst : newestFirst.slice(0, TREND_SHOWN_WEEKS)).map((w) => ({ ...w, week: `${dayMonth(w.start)}${w.current ? ' (this week)' : ''}` }));
+}
+
+/** "Show all 12 weeks" / "Show the latest 6 weeks". */
+export const trendToggleText = (n: number, all: boolean) => (all ? `Show the latest ${TREND_SHOWN_WEEKS} weeks` : `Show all ${n} weeks`);
