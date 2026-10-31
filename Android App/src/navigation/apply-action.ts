@@ -45,6 +45,9 @@ export function applyNavAction(action: NavAction): void {
     case 'MeetingDetail':
       navigationRef.navigate('MeetingDetail', action.params);
       break;
+    case 'Inspection':
+      navigationRef.navigate('Inspection', action.params);
+      break;
     case 'ChatThread':
       navigationRef.navigate('ChatThread', action.params);
       break;

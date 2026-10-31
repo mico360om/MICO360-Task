@@ -15,6 +15,8 @@ export type NavAction =
   | { type: 'stack'; screen: 'AllBoard' }
   | { type: 'stack'; screen: 'ProjectDetail'; params: AppStackParamList['ProjectDetail'] }
   | { type: 'stack'; screen: 'MeetingDetail'; params: AppStackParamList['MeetingDetail'] }
+  /** An inspection (Stage 4): Management's inspection rows open it, as the website's /inspections/<id>. */
+  | { type: 'stack'; screen: 'Inspection'; params: AppStackParamList['Inspection'] }
   | { type: 'stack'; screen: 'ChatThread'; params: AppStackParamList['ChatThread'] }
   | { type: 'stack'; screen: 'MyActionItems' }
   | { type: 'stack'; screen: 'Calendar' }

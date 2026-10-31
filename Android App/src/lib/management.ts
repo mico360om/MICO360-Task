@@ -158,8 +158,8 @@ export function finishedText(at: string, timeZone: string): string {
 /**
  * Where a row of a list opens on the phone (ItemsSheet.tsx): a task its task, a project its project,
  * a person the Workload screen; an overloaded day lists its tasks in place ('expand'); a meeting's
- * action item its meeting (or its task); an inspection its check task for now (Stage 4 opens the
- * inspection itself). An id that isn't one of the server's opens nothing.
+ * action item its meeting (or its task); an inspection the inspection itself (Stage 4, as the
+ * website's /inspections/<inspectionId ?? id>). An id that isn't one of the server's opens nothing.
  */
 export function itemTarget(row: ItemRow, workloadWeek?: string): NavAction | 'expand' | null {
   const task = (id: string | null | undefined, title?: string): NavAction | null =>
@@ -176,8 +176,10 @@ export function itemTarget(row: ItemRow, workloadWeek?: string): NavAction | 'ex
     }
     case 'day':
       return 'expand';
-    case 'inspection':
-      return task(row.taskId);
+    case 'inspection': {
+      const inspectionId = row.inspectionId ?? row.id;
+      return isSafeId(inspectionId) ? { type: 'stack', screen: 'Inspection', params: { inspectionId, title: row.title } } : null;
+    }
     case 'action':
     default:
       if (row.meetingId) return isSafeId(row.meetingId) ? { type: 'stack', screen: 'MeetingDetail', params: { meetingId: row.meetingId } } : null;

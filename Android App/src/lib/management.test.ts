@@ -109,17 +109,18 @@ it('filters keep the website’s order and never change the defaults themselves'
 it('list rows open the app’s screens; anything unknown opens nothing', () => {
   expect(itemTarget({ kind: 'task', id: 't1', title: 'x' })).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't1', title: 'x' } });
   expect(itemTarget({ kind: 'action', id: 'a1', title: 'x', meetingId: 'm1' })).toMatchObject({ screen: 'MeetingDetail', params: { meetingId: 'm1' } });
-  expect(itemTarget({ kind: 'day', id: 'd', title: 'x', tasks: [] })).toBe('expand'); expect(itemTarget({ kind: 'inspection', id: 'i1', title: 'x' })).toBeNull();
+  expect(itemTarget({ kind: 'day', id: 'd', title: 'x', tasks: [] })).toBe('expand'); expect(itemTarget({ kind: 'inspection', id: 'i/1', title: 'x' })).toBeNull();
   expect(itemTarget({ kind: 'task', id: '../x', title: 'x' })).toBeNull();
 });
 
-it('every kind of row: a project, a person, an action with only a task, an inspection with its task', () => {
+it('every kind of row: a project, a person, an action with only a task, an inspection', () => {
   expect(itemTarget({ kind: 'project', id: 'p-amber', title: 'Slab pour' })).toEqual({ type: 'stack', screen: 'ProjectDetail', params: { projectId: 'p-amber', projectName: 'Slab pour' } });
   expect(itemTarget({ kind: 'person', id: 'u2', title: 'Omar Said' })).toEqual({ type: 'stack', screen: 'Workload' });
   expect(itemTarget({ kind: 'action', id: 'a2', title: 'x', taskId: 't7' })).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't7' } });
   expect(itemTarget({ kind: 'action', id: 'a3', title: 'x' })).toBeNull();
   expect(itemTarget({ kind: 'action', id: 'a4', title: 'x', meetingId: 'm/1', taskId: 't7' })).toBeNull();
-  expect(itemTarget({ kind: 'inspection', id: 'ins1', title: 'x', taskId: 't9' })).toEqual({ type: 'stack', screen: 'TaskDetail', params: { taskId: 't9' } });
+  // Stage 4: an inspection opens the inspection itself (it opened its check task before).
+  expect(itemTarget({ kind: 'inspection', id: 'ins1', title: 'x', taskId: 't9' })).toEqual({ type: 'stack', screen: 'Inspection', params: { inspectionId: 'ins1', title: 'x' } });
   expect(itemTarget({ kind: 'project', id: 'p 1', title: 'x' })).toBeNull();
 });
 

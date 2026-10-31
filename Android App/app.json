@@ -46,6 +46,7 @@
             { "scheme": "https", "host": "task.mico360.com", "path": "/calendar" },
             { "scheme": "https", "host": "task.mico360.com", "path": "/meetings" },
             { "scheme": "https", "host": "task.mico360.com", "pathPrefix": "/meetings/" },
+            { "scheme": "https", "host": "task.mico360.com", "pathPrefix": "/inspections/" },
             { "scheme": "https", "host": "task.mico360.com", "path": "/my-action-items" },
             { "scheme": "https", "host": "task.mico360.com", "path": "/chat" },
             { "scheme": "https", "host": "task.mico360.com", "path": "/activity" },

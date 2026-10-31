@@ -38,9 +38,9 @@ describe('the website addresses the app opens (App Links)', () => {
     }
   });
 
-  it('cover the website’s tasks, projects, meetings, chat and the pages the app has', () => {
+  it('cover the website’s tasks, projects, meetings, inspections (Stage 4), chat and the pages the app has', () => {
     for (const path of [
-      '/reset', '/dashboard', '/my-tasks', '/board', '/projects', '/projects/p1', '/calendar', '/meetings', '/meetings/m1', '/my-action-items',
+      '/reset', '/dashboard', '/my-tasks', '/board', '/projects', '/projects/p1', '/calendar', '/meetings', '/meetings/m1', '/inspections/i1', '/my-action-items',
       '/chat', '/activity', '/notifications', '/settings', '/profile', '/about', '/reports', '/admin/users',
       '/timeline', '/workload', '/management', '/mico-ai',
     ]) {
