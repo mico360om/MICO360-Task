@@ -28,4 +28,5 @@
 <!-- meetings-chat-account lines above this line -->
 
 ## Planning and AI
+- In the Android app, MICO AI is a real screen: your chats (new, rename, search, delete), questions and answers with tables and sources, Excel and PDF downloads, Stop, and quick replies when it asks which one you mean.
 <!-- planning-and-ai lines above this line -->
