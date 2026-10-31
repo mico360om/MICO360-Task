@@ -4,8 +4,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColors } from '../../core/theme';
 import { useInspectionForms, useStartInspection, useTaskInspections } from '../../core/inspection-queries';
-import { ApiError } from '../../lib/api-client';
 import { newIdempotencyKey } from '../../lib/idempotency';
+import { keepsKey } from '../../lib/pending-keys';
 import { problemText } from '../../lib/inspection-words';
 import { checkFormOf, followUpOfLine, showTaskInspections, taskCheckCard, TASK_CHECK_WORDS as W } from '../../lib/task-checks';
 import type { ApiTask } from '../../lib/types';
@@ -58,8 +58,8 @@ export function TaskInspectionsCard({ task, project }: { task: ApiTask; project:
           open(started.id, started.title);
         },
         onError: (e) => {
-          // The server answered (a refusal): the next tap is a new Start. A lost answer keeps its key.
-          if (e instanceof ApiError) key.current = newIdempotencyKey();
+          // A definite answer (a refusal): the next tap is a new Start. A lost answer, or one still being worked on, keeps its key.
+          if (!keepsKey(e)) key.current = newIdempotencyKey();
           setProblem(problemText(e, W.startFailed));
         },
       },

@@ -7,8 +7,8 @@ import { openWebsitePage } from '../../adapters/website';
 import { Button, Skeleton, TextField, Toggle } from '../ui';
 import { Icon } from '../Icon';
 import { Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
-import { ApiError } from '../../lib/api-client';
 import { newIdempotencyKey } from '../../lib/idempotency';
+import { keepsKey } from '../../lib/pending-keys';
 import { roleCounts } from '../../lib/role-counts';
 import { blockingProblem, personRoleNote, publishWarning, roleWontCount, rolesSummary, saveProjectLines, templateSaveReason, TEMPLATE_SAVE_WORDS as W } from '../../lib/template-words';
 import { fontSize, radius, spacing, type Palette } from '../../lib/theme';
@@ -70,8 +70,8 @@ export function SaveProjectTemplateSheet({ projectId, projectName, onClose }: { 
       });
       setSaved(t.name);
     } catch (e) {
-      // Refused: the next try is a new one. No answer: the same key, so it is never saved twice.
-      if (e instanceof ApiError) key.current = newIdempotencyKey();
+      // A definite answer (a refusal): the next try is a new one. No answer, or still being saved: the same key, so it is never saved twice.
+      if (!keepsKey(e)) key.current = newIdempotencyKey();
       setBanner(`${W.saveFailed}${templateSaveReason(e)}`);
     }
   }

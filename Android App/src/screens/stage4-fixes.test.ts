@@ -8,3 +8,11 @@ it('S1: a task whose form changed re-reads its details, and the card never start
   expect(card).toMatch(/checkFormOf\(task, formsQ\.data\?\.forms\)/);
   expect(card).not.toMatch(/task\.inspectionForm \?\? null/);
 });
+
+it('S2: a try the server is still on (or that got no answer) keeps its key; only a definite answer renews it', () => {
+  for (const f of ['components/templates/SaveProjectTemplateSheet.tsx', 'components/templates/SaveTaskTemplateSheet.tsx', 'components/inspections/TaskInspectionsCard.tsx', 'screens/ClientShareScreen.tsx']) {
+    const s = src(f);
+    expect(s, f).toMatch(/if \(!keepsKey\(e\)\) key\.current = newIdempotencyKey\(\);/);
+    expect(s, f).not.toMatch(/if \(e instanceof ApiError\) key\.current = newIdempotencyKey\(\)/);
+  }
+});

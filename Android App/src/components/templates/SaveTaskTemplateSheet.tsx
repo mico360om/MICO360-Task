@@ -7,8 +7,8 @@ import { openWebsitePage } from '../../adapters/website';
 import { Button, TextField, Toggle } from '../ui';
 import { Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
 import { TemplateSavedBody } from './SaveProjectTemplateSheet';
-import { ApiError } from '../../lib/api-client';
 import { newIdempotencyKey } from '../../lib/idempotency';
+import { keepsKey } from '../../lib/pending-keys';
 import { publishWarning, saveTaskLine, templateSaveReason, TEMPLATE_SAVE_WORDS as W } from '../../lib/template-words';
 import { fontSize, radius, spacing, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
@@ -56,7 +56,7 @@ export function SaveTaskTemplateSheet({
       const t = await save.mutateAsync({ input: { name: name.trim() || taskTitle, includeDescription: withDescription }, key: key.current });
       setSaved(t.name);
     } catch (e) {
-      if (e instanceof ApiError) key.current = newIdempotencyKey();
+      if (!keepsKey(e)) key.current = newIdempotencyKey();
       setBanner(`${W.saveFailed}${templateSaveReason(e)}`);
     }
   }

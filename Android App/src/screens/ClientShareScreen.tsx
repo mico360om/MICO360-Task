@@ -6,11 +6,11 @@ import { useClientShares, useShareMutations } from '../core/client-share-queries
 import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { Button, Card, ErrorNote, NoticeNote, SectionTitle, TextField } from '../components/ui';
-import { ApiError } from '../lib/api-client';
 import type { ClientShare } from '../lib/client-share';
 import { SHARE_WORDS, checkShare, removeTitle, shareNotice, shareSeen } from '../lib/client-share-words';
 import { dateZones, subscribeTimeZone } from '../lib/due-date';
 import { newIdempotencyKey } from '../lib/idempotency';
+import { keepsKey } from '../lib/pending-keys';
 import { problemText } from '../lib/inspection-words';
 import { fontSize, radius, spacing, type Palette } from '../lib/theme';
 import { font, typeStyle } from '../lib/typography';
@@ -67,8 +67,8 @@ export function ClientShareScreen({ route }: AppScreenProps<'ClientShare'>) {
           say(shareNotice('added', made));
         },
         onError: (e) => {
-          // Refused: the next Share is a new one. No answer: the same key, so they are never invited twice.
-          if (e instanceof ApiError) key.current = newIdempotencyKey();
+          // A definite answer (a refusal): the next Share is a new one. No answer, or still being saved: the same key, so they are never invited twice.
+          if (!keepsKey(e)) key.current = newIdempotencyKey();
           say(null, problemText(e, SHARE_WORDS.addFailed));
         },
       },
