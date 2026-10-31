@@ -15,7 +15,9 @@ function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { insp
   const ids = { title: useId(), intro: useId() };
   const dialogRef = useDialog(busy ? () => {} : onClose);
   const q = useQuery({ queryKey: ['inspection', inspectionId, 'client-preview'], queryFn: () => inspectionsApi(apiClient).clientPreview(inspectionId), staleTime: 0 });
-  const p = q.data;
+  // Read again each time it opens: while it is (or a re-read failed), the last copy isn't shown and
+  // can't be confirmed — the report may have changed since.
+  const p = q.isFetching || q.isError ? undefined : q.data;
   return (
     <ModalPortal>
       <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
@@ -37,7 +39,7 @@ function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { insp
             </p>
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-            {q.isLoading ? <p className="text-sm text-ink-2">Loading…</p> : null}
+            {q.isFetching ? <p className="text-sm text-ink-2">Loading…</p> : null}
             {q.isError ? <p role="alert" className="text-sm text-danger">{problemText(q.error, 'Couldn’t load the report. Close this and try again.')}</p> : null}
             {p ? (
               <>

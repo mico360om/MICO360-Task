@@ -207,6 +207,31 @@ describe('Final minutes: shown to the project’s client', () => {
     expect(calls.some((c) => c.method === 'PUT')).toBe(false);
   });
 
+  it('opened again, the preview is read again first: the old one can’t be confirmed meanwhile (final pass, item 7)', async () => {
+    current = final;
+    answer['GET /meetings/m1/client-visibility'] = () => json({ data: visibility() });
+    answer['GET /meetings/m1/client-visibility/preview'] = () => json({ data: preview });
+    renderSection();
+    const toggle = await within(await screen.findByRole('region', { name: /final mom/i })).findByRole('switch', { name: 'Show to client' });
+    await userEvent.click(toggle);
+    let dialog = await screen.findByRole('dialog', { name: 'Show these minutes to the client?' });
+    await within(dialog).findByText('Go-live moves to 1 November.');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // The minutes were reopened and changed meanwhile; the new preview takes a moment.
+    let release: () => void = () => {};
+    const changed = { ...preview, content: { ...preview.content, decisions: ['Go-live moves to 8 November.'] } };
+    answer['GET /meetings/m1/client-visibility/preview'] = () => new Promise<Response>((r) => { release = () => r(json({ data: changed })); }) as never;
+    await userEvent.click(toggle);
+    dialog = await screen.findByRole('dialog', { name: 'Show these minutes to the client?' });
+    expect(within(dialog).getByText('Loading…')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Go-live moves to 1 November.')).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Show to client' })).toBeDisabled();
+    release();
+    expect(await within(dialog).findByText('Go-live moves to 8 November.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Show to client' })).toBeEnabled();
+  });
+
   it('switching shown minutes off asks nothing', async () => {
     current = final;
     let shown = visibility({ clientVisible: true });
