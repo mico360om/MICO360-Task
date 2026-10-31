@@ -104,6 +104,8 @@ import { registerManagementRoutes, type ManagementRouteDeps } from './modules/ma
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import type { CompanyAccess } from './modules/companies/company-access';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
+import { registerCompanyRoutes } from './modules/companies/company-routes';
+import type { CompanyService } from './modules/companies/company-service';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -290,6 +292,8 @@ export interface AppDeps extends AuthRouteDeps {
    * project and people query is built from), and the company a request picked (X-Company-Id).
    */
   companyAccess?: CompanyAccess;
+  /** companies: System → Companies (administrators) and each person's own companies (GET /me/companies). */
+  companyService?: CompanyService;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -481,7 +485,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       await registerAuthRoutes(api, deps);
       if (deps.about) await registerAboutRoutes(api, { release: deps.about.release, guard });
       // Register multipart ONCE for the whole API (task/chat attachments + avatar/project images use req.file()).
-      if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage) {
+      if (deps.attachmentService || deps.chatService || deps.chatAttachmentStorage || deps.companyService /* companies: logos */) {
         await api.register(multipart, { limits: { fileSize: deps.attachmentMaxSizeBytes ?? 10 * 1024 * 1024, files: 1 } });
       }
       // Per-project authorization (T2.7). Defaults to admin-only when no manager lookup is wired.
@@ -802,6 +806,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.backups) {
         await registerBackupRoutes(api, { ...deps.backups, guard, audit: deps.auditService });
+      }
+      // companies: the Companies admin API and GET /me/companies.
+      if (deps.companyService) {
+        await registerCompanyRoutes(api, { service: deps.companyService, guard });
       }
     },
     { prefix: '/api/v1' },

@@ -32,6 +32,8 @@ import { createPrismaTemplateRepository } from './modules/templates/prisma-templ
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess } from './modules/companies/company-access';
+import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
+import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -919,6 +921,23 @@ async function main(): Promise<void> {
   onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
+  // companies: System → Companies and each person's companies (GET /me/companies). A company inherits
+  // the site's week start, working hours and sender name until it has its own; the site's time zone
+  // always. Logos go where uploads go, made at most 512 pixels on their long side.
+  // Late-bound: the realtime server re-checks whose access changed (MC1 Task 12 binds it).
+  // eslint-disable-next-line prefer-const -- companies: MC1 Task 12 assigns it once the realtime server exists
+  let onCompanyAccessChanged: OnCompanyAccessChanged = () => {};
+  const companyService = createCompanyService({
+    companies: createPrismaCompanyRepository(prisma),
+    site: async () => {
+      const [weekStart, workingHours] = await Promise.all([settingsService.companyWeekStart(), settingsService.workingHours()]);
+      return { timeZone: companyTz, weekStart, workingHours, senderName: mailFromName(env.MAIL_FROM) };
+    },
+    audit: auditService,
+    storage: attachmentStorage,
+    shrink: (content, mimeType) => imageShrinker.shrink(content, mimeType, 512),
+    onAccessChanged: (userIds, projectIds) => onCompanyAccessChanged(userIds, projectIds),
+  });
   // Provider API keys are encrypted at rest (SECRETS_ENCRYPTION_KEY, else derived from the JWT secret).
   const aiConfigRepository = createPrismaAiConfigRepository(prisma, { logger });
   const aiConfigService = createAiConfigService({ repo: aiConfigRepository, audit: auditService, allowPrivateHosts: env.AI_ALLOW_PRIVATE_HOSTS });
@@ -1492,6 +1511,7 @@ async function main(): Promise<void> {
     workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
     companyAccess,
+    companyService,
     columnService,
     memberService,
     projectAuthz,

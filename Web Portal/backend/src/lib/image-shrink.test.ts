@@ -67,6 +67,14 @@ describe('createImageShrinker', () => {
     expect(out.length).toBeLessThan(original.length);
   });
 
+  it('takes a smaller long side when asked (a company logo: 512 pixels), keeping a see-through PNG see-through', async () => {
+    const original = await photo(1500, 500).ensureAlpha(0.5).png({ compressionLevel: 0 }).toBuffer();
+    const out = await createImageShrinker(quiet()).shrink(original, 'image/png', 512);
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('png');
+    expect([meta.width, meta.height, meta.hasAlpha]).toEqual([512, 171, true]);
+  });
+
   it('turns the picture upright and removes its hidden details, such as the GPS location', async () => {
     const original = await photo(400, 300)
       .withExif({ IFD0: { Make: 'PhoneMaker' }, IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '23/1 35/1 0/1', GPSMapDatum: 'WGS-84' } })
