@@ -129,12 +129,19 @@ const SIGNED_OUT_SCREENS: readonly string[] = ['Login', 'Forgot', 'Reset'];
  * link, and a link that opens nothing pass straight through.
  */
 export function holdUntilSignedIn<S extends LinkState | undefined>(state: S, session: { signedIn: boolean; hold: (action: NavAction) => void }): S | undefined {
-  if (!state || session.signedIn || state.routes.every((r) => SIGNED_OUT_SCREENS.includes(r.name))) return state;
+  if (!state || session.signedIn) return state;
+  // The Tabs the config puts under a stack screen (initialRouteName) belong to the signed-in app.
+  const own = state.routes.filter((r, i) => !(i === 0 && state.routes.length > 1 && r.name === 'Tabs' && !r.params && !r.state));
+  if (own.every((r) => SIGNED_OUT_SCREENS.includes(r.name))) return own.length === state.routes.length ? state : ({ ...state, routes: own, index: own.length - 1 } as S);
   session.hold({ type: 'link', state });
   return undefined;
 }
 
 export const linkingConfig = {
+  // A stack screen opened cold from a link has the tabs underneath (Tabs first, its own first tab:
+  // the Dashboard), so Back lands there instead of leaving the app; while the app runs a link still
+  // just opens its screen (final review L9). The auth stack has no Tabs: holdUntilSignedIn drops it.
+  initialRouteName: 'Tabs',
   screens: {
     // Signed-out (auth stack)
     Login: 'login',

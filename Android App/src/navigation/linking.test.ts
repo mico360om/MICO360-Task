@@ -15,17 +15,17 @@ describe('linking config (MOB-09)', () => {
 
   it('routes reset?token= to the Reset screen with the token prefilled', () => {
     const state = getStateFromPath('reset?token=AbC_d-9', cfg);
-    expect(state?.routes[0]).toMatchObject({ name: 'Reset', params: { token: 'AbC_d-9' } });
+    expect(state?.routes.at(-1)).toMatchObject({ name: 'Reset', params: { token: 'AbC_d-9' } });
   });
 
   it('still routes task links; a project link opens the project’s dashboard (5c), /board its board', () => {
-    expect(getStateFromPath('task/t1', cfg)?.routes[0]).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
-    expect(getStateFromPath('project/p1', cfg)?.routes[0]).toMatchObject({ name: 'ProjectDetail', params: { projectId: 'p1' } });
-    expect(getStateFromPath('project/p1/board', cfg)?.routes[0]).toMatchObject({ name: 'Board', params: { projectId: 'p1' } });
+    expect(getStateFromPath('task/t1', cfg)?.routes.at(-1)).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+    expect(getStateFromPath('project/p1', cfg)?.routes.at(-1)).toMatchObject({ name: 'ProjectDetail', params: { projectId: 'p1' } });
+    expect(getStateFromPath('project/p1/board', cfg)?.routes.at(-1)).toMatchObject({ name: 'Board', params: { projectId: 'p1' } });
   });
 
   it('opens Activity from its link (5c)', () => {
-    expect(getStateFromPath('activity', cfg)?.routes[0]).toMatchObject({ name: 'Activity' });
+    expect(getStateFromPath('activity', cfg)?.routes.at(-1)).toMatchObject({ name: 'Activity' });
   });
 
   // The 3a rule (5c copy): an id that isn't an id (a path, spaces, too long) opens nothing.
@@ -36,22 +36,22 @@ describe('linking config (MOB-09)', () => {
     expect(open('project/p1%3Fx%3D1')).toBeUndefined();
     expect(open('project/..%2Fusers/board')).toBeUndefined();
     // Real ids (cuid, uuid) still open.
-    expect(open('project/cmg1abcdef0001xyz')?.routes[0]?.params).toEqual({ projectId: 'cmg1abcdef0001xyz' });
-    expect(open('task/3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c')?.routes[0]?.params).toEqual({ taskId: '3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c' });
+    expect(open('project/cmg1abcdef0001xyz')?.routes.at(-1)?.params).toEqual({ projectId: 'cmg1abcdef0001xyz' });
+    expect(open('task/3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c')?.routes.at(-1)?.params).toEqual({ taskId: '3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c' });
   });
 
   it('routes a meeting link to the meeting, and the meetings and action items paths to their screens', () => {
-    expect(getStateFromPath('meeting/m1', cfg)?.routes[0]).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
-    expect(getStateFromPath('my-action-items', cfg)?.routes[0]).toMatchObject({ name: 'MyActionItems' });
-    const tabs = getStateFromPath('meetings', cfg)?.routes[0];
+    expect(getStateFromPath('meeting/m1', cfg)?.routes.at(-1)).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm1' } });
+    expect(getStateFromPath('my-action-items', cfg)?.routes.at(-1)).toMatchObject({ name: 'MyActionItems' });
+    const tabs = getStateFromPath('meetings', cfg)?.routes.at(-1);
     expect(tabs).toMatchObject({ name: 'Tabs' });
     expect(tabs?.state?.routes[0]).toMatchObject({ name: 'Meetings' });
   });
 
   it('opens a conversation from a chat link (3a), without taking its title from the link', () => {
-    expect(getStateFromPath('chat/c1', cfg)?.routes[0]).toMatchObject({ name: 'ChatThread', params: { conversationId: 'c1' } });
+    expect(getStateFromPath('chat/c1', cfg)?.routes.at(-1)).toMatchObject({ name: 'ChatThread', params: { conversationId: 'c1' } });
     const state = withoutLinkTitles(getStateFromPath('chat/c1?title=Payroll', cfg));
-    expect(state?.routes[0]?.params).toEqual({ conversationId: 'c1' });
+    expect(state?.routes.at(-1)?.params).toEqual({ conversationId: 'c1' });
   });
 
   it('opens the website’s own meeting address (/meetings/<id>) as the meeting too', () => {
@@ -60,17 +60,17 @@ describe('linking config (MOB-09)', () => {
     expect(normalizeLinkPath('meetings')).toBe('meetings');
     expect(normalizeLinkPath('meetings?q=x')).toBe('meetings?q=x');
     expect(normalizeLinkPath('task/t1')).toBe('task/t1');
-    expect(getStateFromPath(normalizeLinkPath('meetings/m9'), cfg)?.routes[0]).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm9' } });
+    expect(getStateFromPath(normalizeLinkPath('meetings/m9'), cfg)?.routes.at(-1)).toMatchObject({ name: 'MeetingDetail', params: { meetingId: 'm9' } });
   });
 
   it('never takes a screen title from a link — only the app itself names a screen it opens', () => {
     const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
-    expect(open('meeting/m1?title=Pay%20now')?.routes[0]).toEqual(expect.objectContaining({ name: 'MeetingDetail', params: { meetingId: 'm1' } }));
-    expect(open('meetings/m2?title=x')?.routes[0]?.params).toEqual({ meetingId: 'm2' });
-    expect(open('task/t1?title=Urgent%3A%20call%20me')?.routes[0]?.params).toEqual({ taskId: 't1' });
-    expect(open('project/p1?projectName=Fake')?.routes[0]?.params).toEqual({ projectId: 'p1' });
-    // Everything else a link carries stays (the reset token), and a link without a state is left alone.
-    expect(open('reset?token=AbC')?.routes[0]?.params).toEqual({ token: 'AbC' });
+    expect(open('meeting/m1?title=Pay%20now')?.routes.at(-1)).toEqual(expect.objectContaining({ name: 'MeetingDetail', params: { meetingId: 'm1' } }));
+    expect(open('meetings/m2?title=x')?.routes.at(-1)?.params).toEqual({ meetingId: 'm2' });
+    expect(open('task/t1?title=Urgent%3A%20call%20me')?.routes.at(-1)?.params).toEqual({ taskId: 't1' });
+    expect(open('project/p1?projectName=Fake')?.routes.at(-1)?.params).toEqual({ projectId: 'p1' });
+    // The focused route (a stack screen has the tabs under it, L9). Everything else a link carries stays (the reset token), and a link without a state is left alone.
+    expect(open('reset?token=AbC')?.routes.at(-1)?.params).toEqual({ token: 'AbC' });
     expect(withoutLinkTitles(undefined)).toBeUndefined();
   });
 
@@ -82,8 +82,8 @@ describe('linking config (MOB-09)', () => {
     expect(open(`meeting/${'x'.repeat(65)}`)).toBeUndefined();
     expect(open('project/p1%3Fx%3D1')).toBeUndefined();
     // Real ids (cuid, uuid) still open.
-    expect(open('chat/cmg1abcdef0001xyz')?.routes[0]?.params).toEqual({ conversationId: 'cmg1abcdef0001xyz' });
-    expect(open('task/3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c')?.routes[0]?.params).toEqual({ taskId: '3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c' });
+    expect(open('chat/cmg1abcdef0001xyz')?.routes.at(-1)?.params).toEqual({ conversationId: 'cmg1abcdef0001xyz' });
+    expect(open('task/3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c')?.routes.at(-1)?.params).toEqual({ taskId: '3f2c1b9e-8f4a-4b7e-9a1d-2c3e4f5a6b7c' });
   });
 
   it('maps a parsed reset link to a signed-out navigation action', () => {
@@ -126,7 +126,7 @@ describe('createPendingAction (WEB-18 — push taps while signed out wait for si
  */
 describe('website addresses open in the app (6b)', () => {
   const open = (path: string) => withoutLinkTitles(getStateFromPath(normalizeLinkPath(path), cfg));
-  const first = (path: string) => open(path)?.routes[0];
+  const first = (path: string) => open(path)?.routes.at(-1);
   const tab = (path: string) => {
     const r = first(path);
     return r?.name === 'Tabs' ? r.state?.routes[0]?.name : undefined;
@@ -239,8 +239,46 @@ describe('a crafted long link opens nothing, at once (6b review)', () => {
     // Trailing slashes still drop, as before: a page with a slash at its end is the page.
     expect(normalizeLinkPath('/dashboard///')).toBe('/home');
     expect(normalizeLinkPath('/board/?project=p1')).toBe('/project/p1/board');
-    const task = open(`/my-tasks?task=t1&from=${'m'.repeat(MAX_LINK_LENGTH - 30)}`)?.routes[0];
+    const task = open(`/my-tasks?task=t1&from=${'m'.repeat(MAX_LINK_LENGTH - 30)}`)?.routes.at(-1);
     expect(task).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+  });
+});
+
+/**
+ * Final review L9 (RULING): a stack screen opened cold from a link has the tabs underneath, so Back
+ * from a cold `mico360://notifications` (or any other stack link) lands on the Dashboard tab instead
+ * of leaving the app. While the app runs, a link still just opens its screen.
+ */
+describe('a link opened cold keeps the tabs underneath (final review L9)', () => {
+  const AUTH = ['Login', 'Forgot', 'Reset'];
+  const stackLinks = Object.entries(linkingConfig.screens)
+    .filter(([name]) => name !== 'Tabs' && !AUTH.includes(name))
+    .map(([name, path]) => [name, (path as string).replace(/:\w+/g, 'x1')] as const);
+
+  it('the app stack starts at Tabs', () => expect(linkingConfig.initialRouteName).toBe('Tabs'));
+
+  it('every stack link: Tabs first (the Dashboard tab), then its screen on top', () => {
+    expect(stackLinks.length).toBeGreaterThanOrEqual(15);
+    for (const [name, path] of stackLinks) {
+      const s = getStateFromPath(path, cfg);
+      expect(s?.routes.map((r) => r.name), path).toEqual(['Tabs', name]);
+      expect(s?.index, path).toBe(1);
+      expect(s?.routes[0]?.state, path).toBeUndefined(); // the tabs' own first tab: Dashboard
+    }
+  });
+
+  it('a tab link is the tabs alone', () => {
+    const s = getStateFromPath('meetings', cfg);
+    expect(s?.routes.map((r) => r.name)).toEqual(['Tabs']);
+  });
+
+  it('while the app runs a link still opens just its screen (a navigate, not a reset)', () => {
+    expect(getActionFromState(getStateFromPath('notifications', cfg)!, cfg as Parameters<typeof getActionFromState>[1])).toMatchObject({ type: 'NAVIGATE', payload: { name: 'Notifications' } });
+  });
+
+  it('signed out, the reset link is the Reset screen alone, and nothing waits', () => {
+    const opens = holdUntilSignedIn(withoutLinkTitles(getStateFromPath('reset?token=AbC', cfg)), { signedIn: false, hold: () => { throw new Error('held'); } });
+    expect(opens?.routes.map((r) => r.name)).toEqual(['Reset']);
   });
 });
 
@@ -274,13 +312,13 @@ describe('a link tapped while signed out opens after the sign-in (6b review)', (
 
   it('the reset link opens at once while signed out (its screen is a signed-out one)', () => {
     const reset = tapped('reset?token=AbC', false);
-    expect(reset.opens?.routes[0]).toMatchObject({ name: 'Reset', params: { token: 'AbC' } });
+    expect(reset.opens?.routes.at(-1)).toMatchObject({ name: 'Reset', params: { token: 'AbC' } });
     expect(reset.held).toBeNull();
   });
 
   it('signed in, a link opens at once and nothing waits; a link that opens nothing holds nothing', () => {
     const task = tapped('/my-tasks?task=t1', true);
-    expect(task.opens?.routes[0]).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
+    expect(task.opens?.routes.at(-1)).toMatchObject({ name: 'TaskDetail', params: { taskId: 't1' } });
     expect(task.held).toBeNull();
     expect(tapped('/admin/ai', false)).toEqual({ opens: undefined, held: null });
     expect(tapped('/my-tasks?task=..%2Fusers', false)).toEqual({ opens: undefined, held: null });
