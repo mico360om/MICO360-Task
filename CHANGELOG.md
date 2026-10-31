@@ -135,6 +135,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - In the Android app, Meetings use the new look.
 - In the Android app, Chat, Notifications, Activity, Search, Settings, Profile, About and the
   sign-in screens use the new look.
+- Deleting a task: administrators and the people who run a project can delete a task only if they
+  created it or it's assigned to them alone; otherwise Delete is greyed out with the reason — on
+  the website, in the Android app and in the Chrome extension. Deleting the entire series of a
+  repeating task is only for the person who created it.
 
 ### Bug fixes
 - In the Android app, every date and time is written as on the website — "30 Oct 2026", "Fri 30
