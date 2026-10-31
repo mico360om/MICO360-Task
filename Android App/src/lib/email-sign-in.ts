@@ -126,6 +126,16 @@ export function resendLabel(waitSeconds: number): string {
   return `Resend code in ${Math.floor(waitSeconds / 60)}:${String(waitSeconds % 60).padStart(2, '0')}`;
 }
 
+/** What TalkBack says for Resend: the same wait as resendLabel, in words ("1 minute 15 seconds"). */
+export function resendA11yLabel(waitSeconds: number): string {
+  if (waitSeconds <= 0) return 'Resend code';
+  const m = Math.floor(waitSeconds / 60);
+  const sec = waitSeconds % 60;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const left = [m ? unit(m, 'minute') : null, sec ? unit(sec, 'second') : null].filter(Boolean).join(' ');
+  return `Resend code, available in ${left}`;
+}
+
 /** Digits only (a pasted "123 456" or "123-456" works), at most the longest code the server sends. */
 export function normaliseCode(text: string): string {
   // Arabic-Indic and Persian digits (an Arabic keyboard) count as the code's digits too.

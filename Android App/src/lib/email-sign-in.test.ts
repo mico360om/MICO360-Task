@@ -11,6 +11,7 @@ import {
   NEW_CODE_SENT,
   normaliseCode,
   RESEND_AFTER_MS,
+  resendA11yLabel,
   resendLabel,
   resendWaitSeconds,
   waitFromAnswer,
@@ -59,6 +60,24 @@ describe('resending a code', () => {
     expect(resendLabel(60)).toBe('Resend code in 1:00');
     expect(resendLabel(42)).toBe('Resend code in 0:42');
     expect(resendLabel(0)).toBe('Resend code');
+  });
+
+  // Final review S15: TalkBack hears the real wait (a server's longer wait, a recalled step), from
+  // the same count the button shows — not always "after a minute".
+  it('tells TalkBack the time left, in words', () => {
+    expect(resendA11yLabel(0)).toBe('Resend code');
+    expect(resendA11yLabel(1)).toBe('Resend code, available in 1 second');
+    expect(resendA11yLabel(42)).toBe('Resend code, available in 42 seconds');
+    expect(resendA11yLabel(60)).toBe('Resend code, available in 1 minute');
+    expect(resendA11yLabel(75)).toBe('Resend code, available in 1 minute 15 seconds');
+    expect(resendA11yLabel(181)).toBe('Resend code, available in 3 minutes 1 second');
+  });
+
+  it('the Resend button says it from the wait its text shows', () => {
+    const s = src('screens/auth/LoginScreen.tsx');
+    expect(s).toMatch(/accessibilityLabel=\{resendA11yLabel\(resendWait\)\}/);
+    expect(s).toMatch(/\{resendLabel\(resendWait\)\}/);
+    expect(s).not.toMatch(/available after a minute/);
   });
 });
 

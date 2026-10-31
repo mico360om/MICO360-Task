@@ -17,6 +17,7 @@ import {
   NEW_CODE_SENT,
   normaliseCode,
   RESEND_AFTER_MS,
+  resendA11yLabel,
   resendLabel,
   resendWaitSeconds,
   waitFromAnswer,
@@ -377,8 +378,8 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                           disabled={resendWait > 0 || busy}
                           accessibilityRole="button"
                           accessibilityState={{ disabled: resendWait > 0 || busy }}
-                          // A steady name while it waits: a label that changed every second would be re-read.
-                          accessibilityLabel={resendWait > 0 ? 'Resend code, available after a minute' : 'Resend code'}
+                          // The wait the button shows, in words (a server's longer wait and a recalled step included).
+                          accessibilityLabel={resendA11yLabel(resendWait)}
                           hitSlop={8}
                         >
                           <Text style={resendWait > 0 ? styles.linkMuted : styles.forgotText}>{resendLabel(resendWait)}</Text>
