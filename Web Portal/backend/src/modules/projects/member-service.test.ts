@@ -86,3 +86,19 @@ describe('MemberService — removal cuts task access', () => {
     expect(mem.removedLinks).toEqual([]);
   });
 });
+
+describe('MemberService — companies', () => {
+  it('a new member must be in one of the project’s companies (an existing team is never checked again)', async () => {
+    const people = {
+      async activeIds(ids: string[]) { return ids; },
+      async outsideCompanies(ids: string[], companyIds: string[]) { return companyIds.includes('A') ? ids.filter((id) => id === 'u2').map((id) => ({ id, name: 'Omar A' })) : []; },
+      async projectCompanyIds(projectId: string) { return projectId === 'p1' ? ['A'] : null; },
+    };
+    const s = createMemberService({ ...inMemory(['p1', 'old']), people });
+    await expect(s.addMembers('p1', ['u1', 'u2'])).rejects.toMatchObject({ status: 400, message: 'Omar A isn’t in any of this project’s companies.', details: { field: 'memberIds', userIds: ['u2'] } });
+    expect(await s.listMembers('p1')).toEqual([]); // nobody was added
+    expect((await s.addMembers('p1', ['u1'])).map((u) => u.id)).toEqual(['u1']);
+    // A project from before companies (none at all): no company rule to apply.
+    expect((await s.addMembers('old', ['u2'])).map((u) => u.id)).toEqual(['u2']);
+  });
+});

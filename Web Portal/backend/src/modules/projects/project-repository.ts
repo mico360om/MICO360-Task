@@ -52,6 +52,8 @@ export interface CreateProjectData {
   createdById: string;
   /** Its team from the start, written with the project in one go (one row per person). */
   members?: NewProjectMember[];
+  /** companies: its companies, written with it (`[0]` is its main company); the rules chose them. */
+  companyIds?: string[];
   /** A project made from a template: its board and tasks instead of DEFAULT_COLUMNS, in the same transaction. */
   startWith?: StartingContent;
 }
@@ -146,4 +148,8 @@ export interface ProjectRepository {
 export interface PeopleLookup {
   /** Those of `ids` who are active users, each once. */
   activeIds(ids: string[]): Promise<string[]>;
+  /** companies: of these people, the non-admins who belong to none of these companies' active ones (with their names). */
+  outsideCompanies?(userIds: string[], companyIds: string[]): Promise<{ id: string; name: string }[]>;
+  /** companies: the project's active companies; null when it has none at all (a project from before companies). */
+  projectCompanyIds?(projectId: string): Promise<string[] | null>;
 }

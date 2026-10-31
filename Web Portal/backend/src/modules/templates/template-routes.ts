@@ -66,6 +66,10 @@ export interface TemplateRouteDeps {
   audit?: AuditService;
   /** Tells the owner and the team of a project made from a template that they're on it. */
   notices?: ProjectNotices;
+  /** companies: the picked company (the new project's default company). */
+  pickOf?: import('../companies/company-pick').PickOf;
+  /** companies: the new project's companies in its payload. */
+  companies?: Pick<import('../companies/project-companies').ProjectCompanies, 'facts'>;
 }
 
 /** What the audit log keeps of a project template: enough to see what changed. */
@@ -149,6 +153,7 @@ export async function registerTemplateRoutes(app: FastifyInstance, deps: Templat
           startWith: prepared.startWith,
         },
         user,
+        deps.pickOf ? await deps.pickOf(req) : null,
       );
       const taskCount = prepared.startWith.tasks.length;
       await record(
@@ -171,7 +176,8 @@ export async function registerTemplateRoutes(app: FastifyInstance, deps: Templat
       );
       await deps.notices?.projectCreated({ actorId: user.id, project: created, userIds: team.map((m) => m.userId) });
       // Whoever creates a project runs it (an employee is on its team as a manager).
-      return reply.status(201).send({ data: { ...created, canManage: true, taskCount } });
+      const facts = deps.companies ? (await deps.companies.facts([created.id])).get(created.id) : undefined;
+      return reply.status(201).send({ data: { ...created, canManage: true, taskCount, ...facts } });
     });
   }
 

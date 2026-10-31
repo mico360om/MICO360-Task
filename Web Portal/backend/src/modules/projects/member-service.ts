@@ -27,7 +27,9 @@ export function createMemberService({ repo, projects, onMemberRemoved, people }:
 
   async function addMembers(projectId: string, userIds: string[]): Promise<MemberUser[]> {
     await ensureProject(projectId);
-    await requireActiveTeam(people, userIds);
+    // companies: a new member is an administrator or in one of the project's companies (MC1 Ruling 8).
+    const companyIds = people?.projectCompanyIds ? await people.projectCompanyIds(projectId) : null;
+    await requireActiveTeam(people, userIds, '', companyIds);
     for (const userId of userIds) await repo.add(projectId, userId);
     return repo.list(projectId);
   }

@@ -18,8 +18,11 @@ export interface ImageShrinkerOptions {
 }
 
 export interface ImageShrinker {
-  /** The picture made smaller; the same bytes when it isn't a picture, can't be, or wouldn't get smaller. */
-  shrink(content: Buffer, mimeType: string): Promise<Buffer>;
+  /**
+   * The picture made smaller (at most `maxSide` pixels on its long side, 1920 unless asked: a company
+   * logo takes 512); the same bytes when it isn't a picture, can't be, or wouldn't get smaller.
+   */
+  shrink(content: Buffer, mimeType: string, maxSide?: number): Promise<Buffer>;
   /** Whether pictures can be made smaller on this server (loads the library the first time). */
   check(): Promise<boolean>;
   /** What the last check found: null before anything has asked. */
@@ -91,7 +94,7 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
     return loading;
   }
 
-  async function shrink(content: Buffer, mimeType: string): Promise<Buffer> {
+  async function shrink(content: Buffer, mimeType: string, maxSide: number = SHRINK_MAX_SIDE): Promise<Buffer> {
     if (!SHRINKABLE.has(mimeType)) return content;
     if (mimeType === 'image/png' && isAnimatedPng(content)) return content;
     const sharp = await library();
@@ -101,7 +104,7 @@ export function createImageShrinker({ load = loadSharp, warn = () => {} }: Image
       if (mimeType === 'image/webp' && ((await sharp(content, input).metadata()).pages ?? 1) > 1) return content;
       const image = sharp(content, input)
         .rotate()
-        .resize({ width: SHRINK_MAX_SIDE, height: SHRINK_MAX_SIDE, fit: 'inside', withoutEnlargement: true });
+        .resize({ width: maxSide, height: maxSide, fit: 'inside', withoutEnlargement: true });
       const out = await (mimeType === 'image/jpeg'
         ? image.jpeg({ quality: 80, mozjpeg: true })
         : mimeType === 'image/png'

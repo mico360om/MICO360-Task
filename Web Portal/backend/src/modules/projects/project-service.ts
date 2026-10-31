@@ -2,7 +2,8 @@ import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-er
 import type { CreateProjectData, NewProjectMember, PeopleLookup, ProjectRecord, ProjectRepository, UpdateProjectData } from './project-repository';
 import { CODE_PATTERN, normalizeCode, suggestFreeCode } from './project-icons';
 import { PROJECT_TASK_DEFAULTS } from './project-task-settings';
-import { requireActiveTeam } from './active-people';
+import { requireActiveTeam, requireInCompanies } from './active-people';
+import type { CompanyChangePlan, ProjectCompanyRules } from '../companies/project-companies';
 
 export type { PeopleLookup } from './project-repository';
 
@@ -10,6 +11,8 @@ export interface ProjectServiceDeps {
   projects: ProjectRepository;
   /** Who may be picked as owner, manager or team (active people); without it, nobody is checked. */
   people?: PeopleLookup;
+  /** companies: which companies a project goes into and who may change them; without it, nothing is said about companies. */
+  companies?: ProjectCompanyRules;
 }
 
 /** Who is asking for a change: their id and roles. */
@@ -42,12 +45,18 @@ export function newProjectTeam({ creatorId, creatorIsAdmin, ownerId, memberIds }
 
 const isAdmin = (roles: string[]) => roles.includes('ADMIN');
 
-export function createProjectService({ projects, people }: ProjectServiceDeps) {
+export function createProjectService({ projects, people, companies }: ProjectServiceDeps) {
   /** Any project — deleted ones too — with this code. */
   const codeInUse = async (code: string) => (projects.codeInUse ? projects.codeInUse(code) : (await projects.findByCode(code)) !== null);
 
-  /** Owner, manager and team must be active people; anyone else is refused in plain words. */
-  async function requireActive({ ownerId, managerId, memberIds = [] }: { ownerId?: string | null; managerId?: string | null; memberIds?: string[] }): Promise<void> {
+  /**
+   * Owner, manager and team must be active people; anyone else is refused in plain words. companies:
+   * with `companyIds` (the project's), they must also be administrators or belong to one of them.
+   */
+  async function requireActive(
+    { ownerId, managerId, memberIds = [] }: { ownerId?: string | null; managerId?: string | null; memberIds?: string[] },
+    companyIds?: readonly string[] | null,
+  ): Promise<void> {
     if (!people) return;
     const named = [ownerId, managerId].filter((x): x is string => !!x);
     if (named.length) {
@@ -55,7 +64,9 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
       if (ownerId && !active.has(ownerId)) throw new ValidationError('The owner you picked isn’t an active user. Pick someone else.', { field: 'ownerId' });
       if (managerId && !active.has(managerId)) throw new ValidationError('The project manager you picked isn’t an active user. Pick someone else.', { field: 'managerId' });
     }
-    await requireActiveTeam(people, memberIds, ' for the team');
+    await requireActiveTeam(people, memberIds, ' for the team', companyIds);
+    if (ownerId) await requireInCompanies(people, [ownerId], companyIds, 'ownerId');
+    if (managerId) await requireInCompanies(people, [managerId], companyIds, 'managerId');
   }
 
   /**
@@ -64,8 +75,8 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
    * newProjectTeam). Without an `actor` it is created as an administrator would (as before).
    * Returns the project and the team it was given.
    */
-  async function createProject(input: NewProjectRequest, actor?: ProjectActor): Promise<ProjectRecord & { team: NewProjectMember[] }> {
-    const { memberIds: picked = [], ...data } = input;
+  async function createProject(input: NewProjectRequest, actor?: ProjectActor, pick?: string | null): Promise<ProjectRecord & { team: NewProjectMember[] }> {
+    const { memberIds: picked = [], companyIds: askedCompanies, ...data } = input;
     const memberIds = [...new Set(picked)];
     const byAdmin = actor ? isAdmin(actor.roles) : true;
     if (!byAdmin) {
@@ -80,12 +91,18 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
     if (await codeInUse(code)) throw new ConflictError(`The code ${code} is already used by another project (or a deleted one).`, 'DUPLICATE_PROJECT_CODE');
     // An employee's project always has an owner: them, unless they pick someone else.
     const ownerId = !byAdmin && !data.ownerId ? data.createdById : data.ownerId;
-    // The creator is signed in; everyone else they name must be an active user.
-    await requireActive({
-      ownerId: ownerId === data.createdById ? null : ownerId,
-      managerId: data.managerId === data.createdById ? null : data.managerId,
-      memberIds: memberIds.filter((id) => id !== data.createdById),
-    });
+    // companies: the ones named, else the picked company, else the creator's primary one, else the
+    // site's only one — refused when they aren't the person's to use (MC1 Ruling 12).
+    const companyIds = companies ? await companies.forNewProject(actor ?? { id: data.createdById, roles: ['ADMIN'] }, askedCompanies, pick ?? null) : askedCompanies;
+    // The creator is signed in; everyone else they name must be an active user (in one of its companies).
+    await requireActive(
+      {
+        ownerId: ownerId === data.createdById ? null : ownerId,
+        managerId: data.managerId === data.createdById ? null : data.managerId,
+        memberIds: memberIds.filter((id) => id !== data.createdById),
+      },
+      companyIds,
+    );
     const team = newProjectTeam({ creatorId: data.createdById, creatorIsAdmin: byAdmin, ownerId, memberIds });
     // Settings left out take what every project starts with (carry forward on, due today off).
     const created = await projects.create({
@@ -96,6 +113,7 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
       defaultDueToday: data.defaultDueToday ?? PROJECT_TASK_DEFAULTS.defaultDueToday,
       newTasksNeedApproval: data.newTasksNeedApproval ?? PROJECT_TASK_DEFAULTS.newTasksNeedApproval,
       ...(team.length ? { members: team } : {}),
+      ...(companyIds !== undefined ? { companyIds } : {}),
     });
     return { ...created, team };
   }
@@ -148,19 +166,28 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
    * ran, and an edit never leaves one that only an administrator can run. To step away, they leave
    * the team.
    */
-  async function editProject(id: string, input: UpdateProjectData, actor: ProjectActor): Promise<{ project: ProjectRecord; keptAsManagers: string[] }> {
+  async function editProject(
+    id: string,
+    input: UpdateProjectData & { companyIds?: string[] },
+    actor: ProjectActor,
+  ): Promise<{ project: ProjectRecord; keptAsManagers: string[]; companies: CompanyChangePlan | null }> {
     const before = await getProject(id);
-    const patch = { ...input };
+    const { companyIds: askedCompanies, ...patch } = input;
     if (patch.managerId !== undefined && !isAdmin(actor.roles)) {
       if (patch.managerId !== before.managerId) throw new ValidationError(MANAGER_IS_ADMINS, { field: 'managerId' });
       delete patch.managerId;
     }
     const ownerChanged = patch.ownerId !== undefined && patch.ownerId !== before.ownerId;
     const managerChanged = patch.managerId !== undefined && patch.managerId !== before.managerId;
-    await requireActive({ ownerId: ownerChanged ? patch.ownerId : null, managerId: managerChanged ? patch.managerId : null });
+    // companies: a change of its companies is checked before anything is written (refused: nothing saved).
+    const plan = askedCompanies !== undefined && companies ? await companies.planChange(id, actor, askedCompanies) : null;
+    // A new owner or manager must be in one of its companies (the new ones, when they change).
+    const scope = ownerChanged || managerChanged ? (plan?.after ?? (await people?.projectCompanyIds?.(id)) ?? null) : null;
+    await requireActive({ ownerId: ownerChanged ? patch.ownerId : null, managerId: managerChanged ? patch.managerId : null }, scope);
     const keep = [...new Set([ownerChanged ? before.ownerId : null, managerChanged ? before.managerId : null].filter((x): x is string => !!x))];
     const project = await projects.update(id, patch, keep.length ? { keepManagers: keep } : undefined);
-    return { project, keptAsManagers: keep };
+    if (plan) await companies!.applyChange(plan);
+    return { project, keptAsManagers: keep, companies: plan };
   }
 
   async function archiveProject(id: string): Promise<ProjectRecord> {

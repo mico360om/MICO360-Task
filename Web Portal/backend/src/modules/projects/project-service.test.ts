@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createProjectService, newProjectTeam } from './project-service';
-import type { ProjectRecord, ProjectRepository, CreateProjectData } from './project-repository';
+import type { ProjectRecord, ProjectRepository, CreateProjectData, PeopleLookup } from './project-repository';
+import type { CompanyChangePlan, ProjectCompanyRules } from '../companies/project-companies';
 import { ConflictError, NotFoundError } from '../../lib/http-errors';
 
 function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember(projectId: string, userId: string): void; inCompanies(projectId: string, ids: string[]): void } {
@@ -196,5 +197,83 @@ describe('newProjectTeam — who is on a new project’s team', () => {
       { userId: 'sara', role: 'MEMBER' },
       { userId: 'boss', role: 'MEMBER' },
     ]);
+  });
+});
+
+describe('ProjectService — companies', () => {
+  const admin = { id: 'admin', roles: ['ADMIN'] };
+  const cat = { id: 'cat', roles: ['EMPLOYEE'] };
+  const plan: CompanyChangePlan = { projectId: 'p0', before: ['A'], mainBefore: 'A', after: ['B', 'A'], added: [{ id: 'B', name: 'Beta Co' }], removed: [], main: { id: 'B', name: 'Beta Co' } };
+  function wired() {
+    const rules = {
+      forNewProject: vi.fn(async (_actor: unknown, ids: string[] | undefined, pick: string | null) => ids ?? (pick ? [pick] : ['B'])),
+      planChange: vi.fn(async (): Promise<CompanyChangePlan | null> => plan),
+      applyChange: vi.fn(async () => {}),
+    } satisfies ProjectCompanyRules;
+    // Everyone is active; bob belongs to none of the companies asked about.
+    const people: PeopleLookup = {
+      async activeIds(ids) { return ids; },
+      outsideCompanies: vi.fn(async (ids: string[]) => (ids.includes('bob') ? [{ id: 'bob', name: 'Bob Betaonly' }] : [])),
+      async projectCompanyIds() { return ['A']; },
+    };
+    const created = vi.spyOn(repo, 'create');
+    return { rules, people, created, svc: createProjectService({ projects: repo, people, companies: rules }) };
+  }
+
+  it('a new project goes into the companies the rules give it (named, the pick, the creator’s primary…)', async () => {
+    const { rules, created, svc: s } = wired();
+    await s.createProject({ code: 'CPA', name: 'Picked', createdById: 'cat' }, cat, 'A');
+    expect(rules.forNewProject).toHaveBeenLastCalledWith(cat, undefined, 'A');
+    expect(created.mock.lastCall![0]).toMatchObject({ companyIds: ['A'] });
+    await s.createProject({ code: 'CPB', name: 'Named', createdById: 'admin', companyIds: ['B', 'A'] }, admin);
+    expect(rules.forNewProject).toHaveBeenLastCalledWith(admin, ['B', 'A'], null);
+    expect(created.mock.lastCall![0]).toMatchObject({ companyIds: ['B', 'A'] });
+    expect(created.mock.lastCall![0]).not.toHaveProperty('pick');
+  });
+
+  it('without the companies rules nothing is said about companies (as before)', async () => {
+    const created = vi.spyOn(repo, 'create');
+    await svc.createProject({ code: 'CPC', name: 'Plain', createdById: 'admin' });
+    expect(created.mock.lastCall![0]).not.toHaveProperty('companyIds');
+  });
+
+  it('its owner, manager and team must be in one of those companies (nothing is made otherwise)', async () => {
+    const { people, svc: s } = wired();
+    await expect(s.createProject({ code: 'CPD', name: 'Owner', createdById: 'admin', ownerId: 'bob', companyIds: ['A'] }, admin)).rejects.toMatchObject({
+      status: 400,
+      message: 'Bob Betaonly isn’t in any of this project’s companies.',
+      details: { field: 'ownerId' },
+    });
+    expect(people.outsideCompanies).toHaveBeenLastCalledWith(['bob'], ['A']);
+    await expect(s.createProject({ code: 'CPE', name: 'Team', createdById: 'admin', memberIds: ['ana', 'bob'], companyIds: ['A'] }, admin)).rejects.toMatchObject({
+      message: 'Bob Betaonly isn’t in any of this project’s companies.',
+      details: { field: 'memberIds', userIds: ['bob'] },
+    });
+    await expect(s.createProject({ code: 'CPF', name: 'Manager', createdById: 'admin', managerId: 'bob', companyIds: ['A'] }, admin)).rejects.toMatchObject({ details: { field: 'managerId' } });
+    expect(repo.all()).toEqual([]);
+  });
+
+  it('an edit checks a companies change first, writes it after the other fields, and a new owner must be in the new companies', async () => {
+    const { rules, people, svc: s } = wired();
+    const p = await s.createProject({ code: 'CPG', name: 'Edit', createdById: 'admin', companyIds: ['A'] }, admin);
+    const out = await s.editProject(p.id, { companyIds: ['B', 'A'], ownerId: 'ana', name: 'Edited' }, admin);
+    expect(rules.planChange).toHaveBeenCalledWith(p.id, admin, ['B', 'A']);
+    expect(rules.applyChange).toHaveBeenCalledWith(plan);
+    expect(people.outsideCompanies).toHaveBeenLastCalledWith(['ana'], ['B', 'A']);
+    expect(out).toMatchObject({ project: { name: 'Edited', ownerId: 'ana' }, companies: plan });
+    await expect(s.editProject(p.id, { ownerId: 'bob' }, admin)).rejects.toMatchObject({ message: 'Bob Betaonly isn’t in any of this project’s companies.' });
+    expect(people.outsideCompanies).toHaveBeenLastCalledWith(['bob'], ['A']); // the project's own companies when they aren't changing
+  });
+
+  it('a refused companies change saves nothing', async () => {
+    const { rules, svc: s } = wired();
+    const p = await s.createProject({ code: 'CPH', name: 'Kept', createdById: 'admin', companyIds: ['A'] }, admin);
+    rules.planChange.mockRejectedValueOnce(Object.assign(new Error('You can only add or remove your own companies.'), { status: 403 }));
+    await expect(s.editProject(p.id, { companyIds: ['B'], name: 'Not saved' }, cat)).rejects.toMatchObject({ status: 403 });
+    expect((await s.getProject(p.id)).name).toBe('Kept');
+    expect(rules.applyChange).not.toHaveBeenCalled();
+    rules.planChange.mockResolvedValueOnce(null); // nothing to change
+    expect((await s.editProject(p.id, { companyIds: ['A'] }, admin)).companies).toBeNull();
+    expect(rules.applyChange).not.toHaveBeenCalled();
   });
 });

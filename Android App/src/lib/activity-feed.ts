@@ -172,6 +172,22 @@ function movedOutText(e: FeedEntry): string {
   return `moved ${str(e.meta?.key) ?? 'a task'} to ${to ?? 'another project'}`;
 }
 
+/** Company names in a line's details (anything else left out). */
+const companyNames = (v: unknown): string[] => (Array.isArray(v) ? v.filter((n): n is string => typeof n === 'string' && n !== '') : []);
+/**
+ * A project's companies changed (its history): "changed this project’s companies — added Beta Co;
+ * removed Gamma Co; main company now Alpha Co". Parts with nothing in them are left out.
+ */
+function companiesChangedText(e: FeedEntry): string {
+  const added = companyNames(e.meta?.added);
+  const removed = companyNames(e.meta?.removed);
+  const main = str(e.meta?.main);
+  const parts = [added.length ? `added ${listText(added)}` : null, removed.length ? `removed ${listText(removed)}` : null, main ? `main company now ${main}` : null].filter(
+    (p): p is string => p !== null,
+  );
+  return parts.length ? `changed this project’s companies — ${parts.join('; ')}` : 'changed this project’s companies';
+}
+
 interface Change {
   field: string;
   from?: unknown;
@@ -329,6 +345,7 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       // A move to another project is a line of its own (never merged with status moves or edits).
       if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
       if (newest.action === 'PROJECT_MOVED_OUT') return { ...base, text: movedOutText(newest) };
+      if (newest.action === 'PROJECT_COMPANIES_CHANGED') return { ...base, text: companiesChangedText(newest) };
       // Inspections: one carried out for this task, or the one whose failed item this task follows up.
       if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
       if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };

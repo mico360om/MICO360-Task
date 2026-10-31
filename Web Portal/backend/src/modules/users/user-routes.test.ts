@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildApp } from '../../app';
 import { createUserService } from './user-service';
 import { createMemoryUserRepository } from './memory-user-repository';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import type { AuditService } from '../audit/audit-service';
+import type { CompanyAccess } from '../companies/company-access';
+import { createCompanyMembership } from '../companies/company-membership';
+import type { OnCompanyAccessChanged } from '../companies/company-service';
 
 const tokenService = createTokenService({
   accessSecret: 'usr-access',
@@ -341,5 +344,112 @@ describe('Download my data (GET /users/me/export)', () => {
     const app = await exportApp({ calls: [] });
     const res = await app.inject({ method: 'GET', url: '/api/v1/users/me/export', headers: { authorization: `Bearer ${await tokenFor('gone', ['EMPLOYEE'])}` } });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('People’s companies (User Management)', () => {
+  /** A site with these companies (active unless said), people in them, and the membership rules wired. */
+  async function companiesApp(companies: { id: string; name: string; status?: 'ACTIVE' | 'ARCHIVED' }[]) {
+    const m = createMemoryUserRepository();
+    for (const c of companies) m.addCompany({ id: c.id, name: c.name, code: c.id.toUpperCase(), status: c.status });
+    const onAccess = vi.fn<OnCompanyAccessChanged>();
+    const records: { module: string; action: string; entityId: string | null; newValue?: unknown }[] = [];
+    const auditService = {
+      async record(d: { module: string; action: string; entityId?: string | null; newValue?: unknown }) {
+        records.push({ module: d.module, action: d.action, entityId: d.entityId ?? null, newValue: d.newValue });
+        return {} as never;
+      },
+      async list() {
+        return [];
+      },
+    } as unknown as AuditService;
+    const userService = createUserService({ users: m.repo });
+    const authService = createAuthService({
+      users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
+      maxAttempts: 5,
+    });
+    // The picked company is checked by the access module; here every pick is usable.
+    const companyAccess = { checkPick: async (_v: unknown, pick: string | null) => pick } as unknown as CompanyAccess;
+    const companyMembership = createCompanyMembership({ store: m.membershipStore, onAccessChanged: onAccess, audit: auditService });
+    const built = await buildApp({ authService, tokenService, userService, auditService, companyAccess, companyMembership });
+    const person = async (firstName: string, lastName: string, companyIds: string[], roleNames = ['EMPLOYEE']) =>
+      (await m.repo.create({ email: `${firstName}@x.co`, username: firstName.toLowerCase(), passwordHash: 'x', firstName, lastName, roleNames, companyIds, primaryCompanyId: companyIds[0] ?? null })).id;
+    return { app: built, mem: m, onAccess, records, person };
+  }
+  const adminHeaders = async (extra: Record<string, string> = {}) => ({ authorization: `Bearer ${await token(['ADMIN'])}`, ...extra });
+  const newEmployee = { email: 'nia@x.co', username: 'nia', password: 'Password1!', firstName: 'Nia', lastName: 'New' };
+  const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
+  const TWO = [{ id: 'A', name: 'Alpha Co' }, { id: 'B', name: 'Beta Co' }];
+
+  it('a new employee needs a company when the site has several; the picked company is the default', async () => {
+    const { app: a } = await companiesApp(TWO);
+    const refused = await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: newEmployee });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe('Choose at least one company.');
+    expect((await a.inject({ method: 'GET', url: '/api/v1/users', headers: await adminHeaders() })).json().data).toEqual([]); // no account was made
+    const made = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders({ 'x-company-id': 'B' }), payload: newEmployee })).json().data;
+    expect(made.companies.map((c: { id: string }) => c.id)).toEqual(['B']);
+    expect(made.primaryCompanyId).toBe('B');
+  });
+
+  it('with one active company a new person goes into it', async () => {
+    const { app: a } = await companiesApp([{ id: 'prolens', name: 'Prolens Projects LLC' }, { id: 'old', name: 'Old Co', status: 'ARCHIVED' }]);
+    const made = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: newEmployee })).json().data;
+    expect(made).toMatchObject({ companies: [{ id: 'prolens', name: 'Prolens Projects LLC', code: 'PROLENS' }], primaryCompanyId: 'prolens' });
+  });
+
+  it('companies and a primary company on create; the primary must be one of them', async () => {
+    const { app: a } = await companiesApp(TWO);
+    const made = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, companyIds: ['A', 'B'], primaryCompanyId: 'B' } })).json().data;
+    expect(made).toMatchObject({ companies: [{ id: 'A' }, { id: 'B' }], primaryCompanyId: 'B' });
+    const wrong = await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, email: 'z@x.co', username: 'z', companyIds: ['A'], primaryCompanyId: 'B' } });
+    expect(wrong.json().error.message).toBe('The primary company must be one of this person’s companies.');
+    const admin = (await a.inject({ method: 'POST', url: '/api/v1/users', headers: await adminHeaders(), payload: { ...newEmployee, email: 'ad@x.co', username: 'ad', roleNames: ['ADMIN'] } })).json().data;
+    expect(admin).toMatchObject({ companies: [], primaryCompanyId: null }); // administrators may have none
+  });
+
+  it('the primary company must be one of theirs; a change takes effect at once', async () => {
+    const { app: a, person, onAccess, records } = await companiesApp(TWO);
+    const ana = await person('Ana', 'Alpha', ['A']);
+    expect((await a.inject({ method: 'PUT', url: `/api/v1/users/${ana}`, headers: await adminHeaders(), payload: { primaryCompanyId: 'B' } })).json().error.message).toBe('The primary company must be one of this person’s companies.');
+    const both = (await a.inject({ method: 'PUT', url: `/api/v1/users/${ana}`, headers: await adminHeaders(), payload: { companyIds: ['A', 'B'], primaryCompanyId: 'B' } })).json().data;
+    expect(both).toMatchObject({ companies: [{ id: 'A' }, { id: 'B' }], primaryCompanyId: 'B' });
+    expect(onAccess).toHaveBeenLastCalledWith([ana]);
+    expect(records.at(-1)).toMatchObject({ module: 'users', action: 'user.update', entityId: ana });
+    expect(records.some((r) => r.action === 'user.companies' && r.entityId === ana)).toBe(true);
+  });
+
+  it('an employee keeps at least one company, and a refused change saves nothing', async () => {
+    const { app: a, person, mem: m } = await companiesApp(TWO);
+    const ana = await person('Ana', 'Alpha', ['A']);
+    const refused = await a.inject({ method: 'PUT', url: `/api/v1/users/${ana}`, headers: await adminHeaders(), payload: { firstName: 'Anna', companyIds: [] } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toEqual({ code: 'LAST_COMPANY', message: 'Ana Alpha must keep at least one company. Add another company first.' });
+    expect((await m.repo.findById(ana))!.firstName).toBe('Ana');
+  });
+
+  it('filters people by company, or those with none', async () => {
+    const { app: a, person } = await companiesApp(TWO);
+    const [ana, amy, cat, ben] = [await person('Ana', 'A', ['A']), await person('Amy', 'A', ['A']), await person('Cat', 'AB', ['A', 'B']), await person('Ben', 'B', ['B'])];
+    const adminId = await person('Root', 'Admin', [], ['ADMIN']);
+    expect(ids((await a.inject({ method: 'GET', url: '/api/v1/users?companyId=A', headers: await adminHeaders() })).json().data)).toEqual([ana, amy, cat].sort());
+    expect(ids((await a.inject({ method: 'GET', url: '/api/v1/users?companyId=B', headers: await adminHeaders() })).json().data)).toEqual([cat, ben].sort());
+    expect(ids((await a.inject({ method: 'GET', url: '/api/v1/users?companyId=none', headers: await adminHeaders() })).json().data)).toEqual([adminId]);
+    expect((await a.inject({ method: 'GET', url: '/api/v1/users', headers: await adminHeaders() })).json().data).toHaveLength(5);
+  });
+
+  it('bulk: adds and removes, and says who it couldn’t change', async () => {
+    const { app: a, person, records } = await companiesApp(TWO);
+    const ana = await person('Ana', 'Alpha', ['A']);
+    const bob = await person('Bob', 'Betaonly', ['B']);
+    const r = (await a.inject({ method: 'POST', url: '/api/v1/users/companies', headers: await adminHeaders(), payload: { userIds: [ana, bob], removeCompanyIds: ['A'] } })).json().data;
+    expect(r).toEqual({ changed: 0, refused: [{ userId: ana, name: 'Ana Alpha', reason: 'Ana Alpha must keep at least one company. Add another company first.' }] }); // bob isn't in A: nothing to change
+    const added = (await a.inject({ method: 'POST', url: '/api/v1/users/companies', headers: await adminHeaders(), payload: { userIds: [ana, bob], addCompanyIds: ['A', 'B'] } })).json().data;
+    expect(added).toEqual({ changed: 2, refused: [] });
+    expect(records.at(-1)).toMatchObject({ module: 'users', action: 'user.companies.bulk', newValue: { userIds: [ana, bob], addCompanyIds: ['A', 'B'], removeCompanyIds: [] } });
+    expect((await a.inject({ method: 'POST', url: '/api/v1/users/companies', headers: await adminHeaders(), payload: { userIds: Array(201).fill(ana) } })).statusCode).toBe(400);
+    expect((await a.inject({ method: 'POST', url: '/api/v1/users/companies', headers: await adminHeaders(), payload: { userIds: [ana] } })).statusCode).toBe(400); // nothing to add or remove
+    const employee = { authorization: `Bearer ${await tokenFor(ana, ['EMPLOYEE'])}` };
+    expect((await a.inject({ method: 'POST', url: '/api/v1/users/companies', headers: employee, payload: { userIds: [ana], addCompanyIds: ['B'] } })).statusCode).toBe(403);
   });
 });

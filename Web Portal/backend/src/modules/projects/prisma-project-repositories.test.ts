@@ -20,7 +20,7 @@ describe('createPrismaProjectRepository.create', () => {
   it('creates the default board columns in the same write as the project', async () => {
     const create = vi.fn(async () => projectRow);
     const repo = createPrismaProjectRepository({ project: { create }, ...oneCompany } as unknown as PrismaClient);
-    await repo.create({ code: 'MICO', name: 'MICO', createdById: 'admin' });
+    await repo.create({ code: 'MICO', name: 'MICO', createdById: 'admin', companyIds: ['company_prolens', 'B', 'company_prolens'] });
     const data = (create.mock.calls[0] as unknown as [{ data: { columns: { create: { name: string; category: string; position: number }[] }; mainCompanyId?: string; companies?: unknown } }])[0].data;
     expect(data.columns.create.map((c) => [c.name, c.category, c.position])).toEqual([
       ['Backlog', 'BACKLOG', 0],
@@ -29,9 +29,14 @@ describe('createPrismaProjectRepository.create', () => {
       ['Review', 'REVIEW', 3],
       ['Done', 'DONE', 4],
     ]);
-    // …and in the site's only company, in the same write.
+    // …and in the companies the rules chose (the first its main company), each once, in the same write.
     expect(data.mainCompanyId).toBe('company_prolens');
-    expect(data.companies).toEqual({ create: { companyId: 'company_prolens' } });
+    expect(data.companies).toEqual({ create: [{ companyId: 'company_prolens' }, { companyId: 'B' }] });
+    // The repository decides nothing: no companies given, none written (the project service's rules choose them).
+    await repo.create({ code: 'MICO2', name: 'MICO', createdById: 'admin' });
+    const plain = (create.mock.calls[1] as unknown as [{ data: Record<string, unknown> }])[0].data;
+    expect(plain).not.toHaveProperty('mainCompanyId');
+    expect(plain).not.toHaveProperty('companies');
   });
 
   it('reports a code taken by a (possibly deleted) project as a 409', async () => {

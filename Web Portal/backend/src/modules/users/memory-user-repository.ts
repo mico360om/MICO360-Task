@@ -1,4 +1,5 @@
 import type { CreateUserData, UserRepository, UserSummary } from './user-repository';
+import type { MembershipStore } from '../companies/company-membership';
 
 interface Row {
   user: UserSummary;
@@ -7,6 +8,16 @@ interface Row {
   failedLoginAttempts: number;
   lockedUntil: Date | null;
   deleted: boolean;
+  /** companies: their companies, oldest membership first. */
+  memberships: string[];
+}
+
+interface MemoryCompany {
+  id: string;
+  name: string;
+  code: string;
+  status: 'ACTIVE' | 'ARCHIVED';
+  createdAt: number;
 }
 
 /** In-memory user repository with the same rules as the Prisma one (tests / dev). */
@@ -14,9 +25,19 @@ export function createMemoryUserRepository() {
   const rows = new Map<string, Row>();
   let seq = 0;
   const linksEnded = new Map<string, number>();
+  // companies: the site's companies (tests add them) and who belongs to which.
+  const companies = new Map<string, MemoryCompany>();
+  let companySeq = 0;
+  const companiesOf = (r: Row) =>
+    r.memberships
+      .flatMap((id) => {
+        const c = companies.get(id);
+        return c ? [{ id: c.id, name: c.name, code: c.code }] : [];
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   const summary = (r: Row): UserSummary => {
     const locked = r.lockedUntil !== null && r.lockedUntil.getTime() > Date.now();
-    return { ...r.user, locked, lockedUntil: locked ? r.lockedUntil : null };
+    return { ...r.user, locked, lockedUntil: locked ? r.lockedUntil : null, companies: companiesOf(r), primaryCompanyId: r.user.primaryCompanyId ?? null };
   };
   const live = () => [...rows.values()].filter((r) => !r.deleted);
   const row = (id: string) => {
@@ -44,7 +65,8 @@ export function createMemoryUserRepository() {
       if ([...rows.values()].some((r) => r.user.email === data.email || r.user.username === data.username)) {
         throw new Error('unique constraint'); // like the database, deleted rows still hold their identity
       }
-      rows.set(id, { user, passwordHash: data.passwordHash, tokenVersion: 0, failedLoginAttempts: 0, lockedUntil: null, deleted: false });
+      user.primaryCompanyId = data.primaryCompanyId ?? null;
+      rows.set(id, { user, passwordHash: data.passwordHash, tokenVersion: 0, failedLoginAttempts: 0, lockedUntil: null, deleted: false, memberships: [...new Set(data.companyIds ?? [])] });
       return summary(rows.get(id)!);
     },
     async findById(id) {
@@ -55,8 +77,11 @@ export function createMemoryUserRepository() {
       const r = live().find((x) => x.user.email === email || x.user.username === username);
       return r ? summary(r) : null;
     },
-    async list() {
-      return live().map(summary);
+    async list(filter) {
+      const id = filter?.companyId;
+      return live()
+        .filter((r) => (!id ? true : id === 'none' ? r.memberships.length === 0 : r.memberships.includes(id)))
+        .map(summary);
     },
     async update(id, patch) {
       const r = row(id);
@@ -116,8 +141,37 @@ export function createMemoryUserRepository() {
     },
   };
 
+  // companies: the membership rules' store over these people (see company-membership.ts).
+  const membershipStore: MembershipStore = {
+    async people(userIds) {
+      return userIds.flatMap((id) => {
+        const r = rows.get(id);
+        if (!r || r.deleted) return [];
+        const u = r.user;
+        return [{ id, firstName: u.firstName, lastName: u.lastName, username: u.username, status: u.status, isAdmin: u.roles.includes('ADMIN'), primaryCompanyId: u.primaryCompanyId ?? null, memberships: [...r.memberships] }];
+      });
+    },
+    async existingCompanyIds(ids) {
+      return ids.filter((id) => companies.has(id));
+    },
+    async activeCompanyIds() {
+      return [...companies.values()].filter((c) => c.status === 'ACTIVE').sort((a, b) => a.createdAt - b.createdAt).map((c) => c.id);
+    },
+    async write(changes) {
+      for (const c of changes) {
+        const r = row(c.userId);
+        r.memberships = [...r.memberships.filter((id) => !c.remove.includes(id)), ...c.add.filter((id) => !r.memberships.includes(id))];
+        r.user = { ...r.user, primaryCompanyId: c.primaryCompanyId };
+      }
+    },
+  };
+
   return {
     repo,
+    membershipStore,
+    /** companies: a company on the site (again with the same id: its new name or status). */
+    addCompany: (c: { id: string; name: string; code: string; status?: 'ACTIVE' | 'ARCHIVED' }) =>
+      void companies.set(c.id, { ...c, status: c.status ?? 'ACTIVE', createdAt: companies.get(c.id)?.createdAt ?? ++companySeq }),
     hashOf: (id: string) => rows.get(id)?.passwordHash,
     tokenVersion: (id: string) => rows.get(id)?.tokenVersion ?? 0,
     /** How many times the person's unused set-password links (welcome, reset) were ended. */

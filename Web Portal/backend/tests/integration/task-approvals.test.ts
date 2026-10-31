@@ -9,11 +9,13 @@ import { createRecurrenceService } from '../../src/modules/tasks/recurrence-serv
 import { createPrismaApprovalSource } from '../../src/modules/tasks/prisma-approval-source';
 import { managesProject } from '../../src/modules/projects/project-managers';
 import { runBackfill } from './company-helpers';
+import { createProjectCompanies } from '../../src/modules/companies/project-companies';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
 const projects = createPrismaProjectRepository(prisma);
-const projectService = createProjectService({ projects });
+// companies: the rules choose a new project's companies, as on the server (here: its creator's primary company).
+const projectService = createProjectService({ projects, companies: createProjectCompanies(prisma, { site: async () => ({ timeZone: 'Asia/Muscat', weekStart: 0 }) }) });
 const TZ = 'Asia/Muscat';
 const NOW = new Date('2026-10-30T06:00:00Z');
 const recurrence = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => NOW }), timeZone: TZ, now: () => NOW });

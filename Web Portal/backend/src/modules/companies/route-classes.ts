@@ -338,4 +338,21 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // Full task search (merged from feat/android-1-19): its permissions are built in
   // search/task-search-scope.ts, where the picked companies go (MC1 Task 13).
   'GET /search/tasks': 'list',
+
+  // Companies admin API and the person's own companies (MC1 Task 5).
+  'GET /me/companies': 'own',
+  'GET /companies': 'admin',
+  'POST /companies': 'admin',
+  'GET /companies/:id': 'admin',
+  'PUT /companies/:id': 'admin',
+  'POST /companies/:id/logo': 'admin',
+  'DELETE /companies/:id/logo': 'admin',
+  'POST /companies/:id/archive': 'admin',
+  'POST /companies/:id/unarchive': 'admin',
+  'GET /companies/:id/people': 'admin',
+  'POST /companies/:id/people': 'admin',
+  'DELETE /companies/:id/people/:userId': 'admin',
+  'GET /companies/:id/projects': 'admin',
+  // People's companies: User Management's bulk assign (MC1 Task 6).
+  'POST /users/companies': 'admin',
 };

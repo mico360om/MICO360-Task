@@ -57,6 +57,14 @@ describe('buildTimeline: one readable line per event', () => {
     expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'A', 1, { toProject: 'Operations', toKey: 'OPS-17' })])[0]!.text).toBe('moved a task to Operations (OPS-17)');
     expect(buildTimeline([e('a1', 'PROJECT_MOVED_OUT', 'A', 1, { key: 'RIG-4' })])[0]!.text).toBe('moved RIG-4 to another project');
   });
+  it('says what changed in a project’s companies (parts with nothing in them left out)', () => {
+    const line = (meta?: Record<string, unknown>) => buildTimeline([e('a1', 'PROJECT_COMPANIES_CHANGED', 'Aisha Khan', 1, meta)])[0]!;
+    expect(line({ added: ['Beta Co'], removed: ['Gamma Co'], main: 'Alpha Co' })).toMatchObject({ kind: 'other', text: 'changed this project’s companies — added Beta Co; removed Gamma Co; main company now Alpha Co' });
+    expect(line({ added: ['Beta Co'], removed: [], main: 'Beta Co' }).text).toBe('changed this project’s companies — added Beta Co; main company now Beta Co');
+    expect(line({ added: ['Beta Co', 'Delta Co', 'Echo Co'], removed: [], main: null }).text).toBe('changed this project’s companies — added Beta Co, Delta Co and Echo Co');
+    expect(line({ added: [], removed: ['Gamma Co'], main: null }).text).toBe('changed this project’s companies — removed Gamma Co');
+    expect(line().text).toBe('changed this project’s companies');
+  });
   it('a milestone set or cleared', () => {
     const one = (change: Record<string, unknown>) => buildTimeline([e('a1', 'UPDATED', 'A', 1, { changes: [change] })])[0]!.text;
     expect(one({ field: 'milestone', from: true, to: false })).toBe('cleared its milestone');

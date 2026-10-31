@@ -7,6 +7,9 @@ import type { ProjectRecord } from './project-repository';
 import type { ProjectNotices } from './project-notices';
 import type { AuditService } from '../audit/audit-service';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
+import type { ActivityService } from '../activity/activity-service';
+import type { PickOf } from '../companies/company-pick';
+import type { OnProjectAudienceChanged, ProjectCompanies } from '../companies/project-companies';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ForbiddenError, ValidationError } from '../../lib/http-errors';
 import { computeProjectProgress, type ProgressTask } from './project-progress';
@@ -55,6 +58,9 @@ export const createSchema = z.object({
   newTasksNeedApproval: z.boolean().optional(),
   // New projects only: the people put on its team at once (the creator and the owner join anyway).
   memberIds: z.array(idString).max(500).optional(),
+  // companies: its companies, the first its main company (absent on create: the picked company, else
+  // the creator's primary one, else the site's only one; absent on update: unchanged).
+  companyIds: z.array(idString).min(1).max(20).optional(),
 });
 const updateSchema = createSchema.partial().omit({ code: true, memberIds: true });
 
@@ -82,6 +88,14 @@ export interface ProjectRouteDeps {
   authz?: ProjectAuthz;
   /** Tells the owner and the team of a new project that they're on it. */
   notices?: ProjectNotices;
+  /** companies: each project's companies, main company and archived state in its payload. */
+  companies?: Pick<ProjectCompanies, 'facts'>;
+  /** companies: the picked company (a new project's default company). */
+  pickOf?: PickOf;
+  /** companies: the project's history line when its companies change. */
+  activity?: Pick<ActivityService, 'record'>;
+  /** companies: a project's companies changed, so who may see it may have (the realtime server re-checks). */
+  onAudienceChanged?: OnProjectAudienceChanged;
 }
 
 export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectRouteDeps): Promise<void> {
@@ -94,8 +108,14 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     deps.authz ? deps.authz.canManageProject(user.id, user.roles, projectId) : Promise.resolve(isAdmin(user.roles));
   const manageable = async (user: { id: string; roles: string[] }, ids: string[]): Promise<Set<string>> =>
     deps.authz ? deps.authz.manageableProjectIds(user.id, user.roles, ids) : new Set(isAdmin(user.roles) ? ids : []);
-  /** A project as sent back: with whether the person asking may change it. */
-  const withCanManage = async (user: { id: string; roles: string[] }, project: ProjectRecord) => ({ ...project, canManage: await canManage(user, project.id) });
+  /** companies: the projects with their companies, main company and archived state (when wired). */
+  async function withCompanies<T extends { id: string }>(rows: T[]): Promise<T[]> {
+    if (!deps.companies || rows.length === 0) return rows;
+    const facts = await deps.companies.facts(rows.map((r) => r.id));
+    return rows.map((r) => ({ ...r, ...facts.get(r.id) }));
+  }
+  /** A project as sent back: with whether the person asking may change it, and its companies. */
+  const withCanManage = async (user: { id: string; roles: string[] }, project: ProjectRecord) => (await withCompanies([{ ...project, canManage: await canManage(user, project.id) }]))[0]!;
 
   /**
    * The project, if the person asking may change it: hidden (404) from someone who can't even see
@@ -113,7 +133,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const user = viewer(req);
     const projects = await projectService.listVisibleProjects(user);
     const can = await manageable(user, projects.map((p) => p.id));
-    return { data: projects.map((p) => ({ ...p, canManage: can.has(p.id) })) };
+    return { data: await withCompanies(projects.map((p) => ({ ...p, canManage: can.has(p.id) }))) };
   });
 
   // The Projects page: every project the caller may see, with only what its card shows — figures
@@ -159,7 +179,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
   app.post('/projects', { preHandler: guard.authenticate }, async (req, reply) => {
     const user = viewer(req);
     const body = createSchema.parse(req.body);
-    const { team, ...created } = await projectService.createProject({ ...body, createdById: user.id }, user);
+    const { team, ...created } = await projectService.createProject({ ...body, createdById: user.id }, user, deps.pickOf ? await deps.pickOf(req) : null);
     await logAudit(req, 'project.create', created.id, { code: created.code, name: created.name, createdById: user.id, ownerId: created.ownerId, team });
     await deps.notices?.projectCreated({ actorId: user.id, project: created, userIds: team.map((m) => m.userId) });
     return reply.status(201).send({ data: await withCanManage(user, created) });
@@ -171,8 +191,36 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const user = viewer(req);
     await projectToChange(req, id);
     const body = updateSchema.parse(req.body);
-    const { project, keptAsManagers } = await projectService.editProject(id, body, user);
+    const { project, keptAsManagers, companies } = await projectService.editProject(id, body, user);
     await logAudit(req, 'project.update', id, keptAsManagers.length ? { ...body, keptAsManagers } : body);
+    // companies: a change of its companies is in the audit log and the project's history, and its audience is re-checked.
+    if (companies) {
+      await deps.audit?.record({
+        userId: user.id,
+        ip: req.ip ?? null,
+        module: 'projects',
+        action: 'project.companies',
+        entityId: id,
+        oldValue: { companyIds: companies.before, mainCompanyId: companies.mainBefore },
+        newValue: { companyIds: companies.after, mainCompanyId: companies.after[0] ?? null },
+      });
+      try {
+        await deps.activity?.record({
+          projectId: id,
+          taskId: null,
+          userId: user.id,
+          action: 'PROJECT_COMPANIES_CHANGED',
+          meta: { added: companies.added.map((c) => c.name), removed: companies.removed.map((c) => c.name), main: companies.main?.name ?? null },
+        });
+      } catch {
+        // The change itself is saved; a missing history line is not worth an error.
+      }
+      try {
+        deps.onAudienceChanged?.(id);
+      } catch {
+        // Live updates are best effort: every request checks access again anyway.
+      }
+    }
     return { data: await withCanManage(user, project) };
   });
 
