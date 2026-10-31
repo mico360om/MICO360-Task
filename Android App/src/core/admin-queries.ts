@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
 import { owned } from './queries';
-import { userActions, type ApiAdminUser, type UserApi } from '../lib/users-admin';
+import { UserChangeNotSent, userActions, type ApiAdminUser, type UserApi, type WelcomeBatchResult, type WelcomeOutcome } from '../lib/users-admin';
 
 /** The user list's key; the people directory (chat names, pickers) follows the same changes. */
 export const USERS_KEY = ['admin', 'users'] as const;
@@ -72,4 +72,32 @@ export function useAfterUserChange() {
     },
     [qc],
   );
+}
+
+/**
+ * Welcome emails (1.13), as the website sends them: to one person, or to several (up to
+ * MAX_WELCOME_BATCH; the screen refuses more before sending). Sent now or not at all — never kept
+ * for later: offline, nothing is sent (UserChangeNotSent). Each send goes as the administrator who
+ * made it (lib/owned-write); afterwards the list is read again (its "Welcome email sent" lines).
+ */
+export function useWelcomeEmails(): {
+  sendOne(u: Pick<ApiAdminUser, 'id' | 'username' | 'email'>): Promise<WelcomeOutcome>;
+  sendMany(ids: string[]): Promise<WelcomeBatchResult>;
+} {
+  const services = useServices();
+  const qc = useQueryClient();
+  return useMemo(() => {
+    const send = async <T>(run: (users: ReturnType<typeof owned>['resources']['users']) => Promise<T>): Promise<T> => {
+      if (!services.connectivity.isOnline()) throw new UserChangeNotSent();
+      try {
+        return await run(owned(services).resources.users);
+      } finally {
+        void qc.invalidateQueries({ queryKey: USERS_KEY });
+      }
+    };
+    return {
+      sendOne: (u) => send((users) => users.sendWelcome(u.id)),
+      sendMany: (ids) => send((users) => users.sendWelcomes(ids)),
+    };
+  }, [services, qc]);
 }

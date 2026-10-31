@@ -825,7 +825,7 @@ describe('resourcesApi: User Management, search and About (6b)', () => {
     const { client, calls } = recorder();
     const users = resourcesApi(client).users;
     await users.list();
-    await users.create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Fake-pass-1', roleNames: ['EMPLOYEE'] }, 'key-1');
+    await users.create({ firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co', password: 'Fake-pass-1', roleNames: ['EMPLOYEE'], sendWelcome: false }, 'key-1');
     await users.update('u 1', { firstName: 'A', lastName: 'B', username: 'ab', email: 'a@b.co' });
     await users.setStatus('u1', 'SUSPENDED');
     await users.unlock('u1');
@@ -894,5 +894,14 @@ describe('resourcesApi — Stage 2 daily work: approvals, moving tasks, Projects
       ['GET', '/projects/overview', undefined], ['GET', '/templates/tasks', undefined],
       ['POST', '/users/u1/welcome-email', {}], ['POST', '/users/welcome-emails', { userIds: ['u1', 'u2'] }],
     ]);
+  });
+});
+
+describe('creating a user (1.13): the account and what happened to its welcome email', () => {
+  it('creating a user returns the account and what happened to its welcome email', async () => {
+    const client = { post: () => Promise.resolve({ data: { id: 'u1' }, meta: { welcome: { sent: true } } }) } as unknown as ApiClient;
+    expect(await resourcesApi(client).users.create({} as never)).toEqual({ user: { id: 'u1' }, welcome: { sent: true } });
+    const plain = { post: () => Promise.resolve({ data: { id: 'u2' } }) } as unknown as ApiClient;
+    expect(await resourcesApi(plain).users.create({} as never, 'k')).toEqual({ user: { id: 'u2' }, welcome: null });
   });
 });

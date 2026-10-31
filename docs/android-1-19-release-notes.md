@@ -36,4 +36,5 @@
 - In the Android app, Meetings shows the website's summary — Next 7 days, Open action items, Minutes to finish, Held this month; tap one to filter — "Nothing coming up" with the last meeting, people's faces on the cards and a compact header.
 - In the Android app, a finished meeting shows its Final MOM and action items first, and says "No notes were taken." when none were.
 - In the Android app, Settings has the Approvals and "Added to a project" notification switches, the weekly management summary switch for the people who get it, and says when your week follows the company's; Reports shows "—" for on time until a task with a due date is finished.
+- In the Android app, User Management shows each person's last sign-in, finds those who never signed in, sorts by last sign-in, and sends welcome emails — to one person, the ticked ones, or everyone who never signed in; a new account's temporary password is optional when a welcome email goes.
 <!-- daily-work-meetings-people lines above this line -->
