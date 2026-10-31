@@ -70,6 +70,9 @@ it('no code asks the phone for its language', () => {
   expect(files.length).toBeGreaterThan(100);
   for (const [file, text] of files) {
     expect(text, file).not.toMatch(/toLocale(Date|Time)String\(/);
+    // Numbers too (final review L3): "4,000" as on the website, not "٤٬٠٠٠" or "4.000" — a literal locale always.
+    expect(text, file).not.toMatch(/\.toLocaleString\(\s*(?!')/);
+    expect(text, file).not.toMatch(/Intl\.NumberFormat\(\s*(?!')/);
     expect(text, file).not.toMatch(/(?<!function )dateFormat\(\s*(?!')/); // the locale is always a literal
     if (!FIXED_LOCALE_MAKERS.includes(file)) expect(text, file).not.toMatch(/new Intl\.DateTimeFormat\(\s*(?!'|\)\.resolvedOptions)/);
     if (file !== 'lib/day-words.ts') {

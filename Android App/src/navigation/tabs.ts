@@ -1,4 +1,5 @@
 import type { IconName } from '../lib/icons';
+import { textWidthEm } from '../lib/font-metrics';
 
 /**
  * The bottom tabs, in order, as the website's phone layout: what each is called and its drawn
@@ -18,8 +19,22 @@ export type TabName = (typeof TAB_ITEMS)[number]['name'];
 /** The tab labels' size (dp, the website's 11 px tab text). */
 export const TAB_LABEL_SIZE = 11;
 
+/** The room a tab label has on a screen `width` dp wide: a fifth of it, less 2 dp on each side. */
+export function tabLabelRoom(width: number): number {
+  return width / TAB_ITEMS.length - 4;
+}
+
+const SCALE_STEPS = [1.3, 1.2, 1.15, 1.1, 1] as const;
+
 /**
- * How far the phone's font size may grow a tab label: the largest step at which all five still
- * fit a fifth of a 360 dp phone on one line (navigation/tab-fit.test).
+ * How far the phone's font size may grow a tab label on a screen `width` dp wide: the largest step
+ * at which all five still fit on one line (navigation/tab-fit.test) — 1.2 on a 360 dp phone, 1 at
+ * 320 dp (a larger Display size). Narrower than any step fits, the label shrinks to fit instead.
  */
-export const TAB_LABEL_MAX_SCALE = 1.2;
+export function tabLabelMaxScale(width: number): number {
+  const room = tabLabelRoom(width);
+  return SCALE_STEPS.find((s) => TAB_ITEMS.every((t) => textWidthEm(t.title) * TAB_LABEL_SIZE * s <= room)) ?? 1;
+}
+
+/** The cap on a 360 dp phone. */
+export const TAB_LABEL_MAX_SCALE = tabLabelMaxScale(360);

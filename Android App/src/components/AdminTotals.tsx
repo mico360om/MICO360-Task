@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { useColors } from '../core/theme';
 import { useAdminTotals } from '../core/project-queries';
 import { ErrorNote, SectionTitle, StatTile } from './ui';
@@ -8,6 +8,7 @@ import { statusBars } from '../lib/reports';
 import { toneStyle } from '../lib/tone';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { font } from '../lib/typography';
+import { statTileColumns } from '../lib/stat-grid';
 
 /**
  * Home for administrators (5b), as the website's dashboard: all tasks and the overdue ones across
@@ -23,6 +24,10 @@ export function AdminTotals({ onOpenReports }: { onOpenReports: () => void }) {
   const status = statusBars(q.data?.status ?? {});
   const bars = completionBars(rows);
   const ready = !!q.data;
+  // Two tiles a row only while every label fits (a large font gets one a row).
+  const { width, fontScale } = useWindowDimensions();
+  const cols = statTileColumns(tiles.map((t) => t.label), width, fontScale);
+  const tile = cols === 2 ? s.tile : s.tileFull;
 
   return (
     <View style={s.wrap}>
@@ -30,10 +35,11 @@ export function AdminTotals({ onOpenReports }: { onOpenReports: () => void }) {
       {q.isError && !q.data ? <ErrorNote message="Couldn’t load the totals for all projects." onRetry={() => void q.refetch()} retrying={q.isRefetching} /> : null}
       <View style={s.tiles}>
         {tiles.map((t) => (
-          <View key={t.key} style={s.tile}>
+          <View key={t.key} style={tile}>
             <StatTile
               label={t.label}
               value={ready ? t.value : '—'}
+              spokenValue={ready ? undefined : 'loading'}
               hint={ready ? t.hint : undefined}
               icon={t.key === 'overdue' ? 'ui.alert' : 'nav.tasks'}
               tone={t.tone === 'neutral' ? 'brand' : t.tone}
@@ -92,6 +98,7 @@ const makeStyles = (c: Palette) =>
     wrap: { gap: spacing.sm },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexGrow: 1, flexBasis: '47%' },
+    tileFull: { flexBasis: '100%' },
     card: { backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.lg, gap: spacing.sm },
     cardTitle: { fontSize: fontSize.sm, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink2 },
     muted: { fontSize: fontSize.sm, color: c.ink2 },

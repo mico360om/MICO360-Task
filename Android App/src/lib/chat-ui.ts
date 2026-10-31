@@ -176,11 +176,13 @@ export type ReceiptTicks = 'ui.tick' | 'ui.tickDouble';
  * Where my message stands, in the website's words (for TalkBack) and as drawn ticks; `seenBy` is the
  * number shown as text beside them (a group conversation: how many have seen it).
  */
-export function receiptText(r: { status: ReceiptStatus | string; seenBy?: number }): { label: string; ticks: ReceiptTicks | null; seenBy?: number } {
+export function receiptText(r: { status: ReceiptStatus | string; seenBy?: number }): { label: string; ticks: ReceiptTicks | null; seenBy?: number; read?: true } {
   const status = r.status as ReceiptStatus;
   const label = status === 'read' && r.seenBy ? `Seen by ${r.seenBy}` : RECEIPT_LABEL[status] ?? '';
   if (status === 'sent') return { label, ticks: 'ui.tick' };
-  if (status === 'delivered' || status === 'read') return { label, ticks: 'ui.tickDouble', ...(r.seenBy ? { seenBy: r.seenBy } : {}) };
+  if (status === 'delivered') return { label, ticks: 'ui.tickDouble', ...(r.seenBy ? { seenBy: r.seenBy } : {}) };
+  // Read (or seen by some): the website draws it in another colour with bold ticks.
+  if (status === 'read') return { label, ticks: 'ui.tickDouble', ...(r.seenBy ? { seenBy: r.seenBy } : {}), read: true };
   return { label, ticks: null };
 }
 

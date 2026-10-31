@@ -91,7 +91,7 @@ export function MyActionItemsScreen({ navigation }: AppScreenProps<'MyActionItem
   const header = (
     <View style={styles.header}>
       <Text style={styles.intro}>Everything assigned to you across meetings — with due dates and status in one place.</Text>
-      <View style={styles.scope} accessibilityRole="radiogroup" accessibilityLabel="Which action items">
+      <View style={styles.scope} accessibilityLabel="Which action items">
         <Chip label="Open" selected={scope === 'open'} onPress={() => setScope('open')} a11yLabel="Open action items" />
         <Chip label="All" selected={scope === 'all'} onPress={() => setScope('all')} a11yLabel="All action items" />
       </View>

@@ -105,7 +105,7 @@ export function ActivityScreen({ navigation }: AppScreenProps<'Activity'>) {
   const header = (
     <View style={s.header}>
       <Text style={s.intro}>Who did what, across your tasks and projects.</Text>
-      <View style={s.filters} accessibilityRole="radiogroup" accessibilityLabel="Show activity">
+      <View style={s.filters} accessibilityLabel="Show activity">
         {ACTIVITY_FILTERS.map((f) => (
           <Chip key={f.value || 'all'} label={f.label} selected={filter === f.value} onPress={() => setFilter(f.value)} a11yLabel={`${f.label} activity`} />
         ))}

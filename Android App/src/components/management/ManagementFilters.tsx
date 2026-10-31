@@ -59,7 +59,7 @@ export function ManagementFilters({ filters, projects, owners, onChange }: { fil
         placeholder="Owner: Anyone"
       />
 
-      <View style={s.row} accessibilityRole="radiogroup" accessibilityLabel="Period">
+      <View style={s.row} accessibilityLabel="Period">
         {PERIODS.map((w) => (
           <Chip key={w} label={`${w} weeks`} selected={filters.weeks === w} onPress={() => onChange({ ...filters, weeks: w })} />
         ))}

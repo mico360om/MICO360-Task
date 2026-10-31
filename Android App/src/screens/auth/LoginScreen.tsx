@@ -14,9 +14,11 @@ import {
   createCodeStepMemory,
   fetchEmailEnabled,
   isCodeComplete,
+  maskIdentifier,
   NEW_CODE_SENT,
   normaliseCode,
   RESEND_AFTER_MS,
+  resendA11yLabel,
   resendLabel,
   resendWaitSeconds,
   waitFromAnswer,
@@ -49,6 +51,8 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
+  // A code step kept from before (a shared phone): its address shows masked until it is left or works.
+  const [recalled, setRecalled] = useState(false);
   // When another code may be asked for (the server's limit, or its "asked too soon" wait), and a
   // clock that ticks while "Resend" waits.
   const [resendAt, setResendAt] = useState<number | null>(null);
@@ -72,6 +76,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
       if (!active || !step) return;
       setMode('otp');
       setIdentifier(step.identifier);
+      setRecalled(true);
       setCodeSent(true);
       setResendAt(step.resendAt);
       setNow(Date.now());
@@ -80,8 +85,10 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
     return () => { active = false; };
   }, [codeSteps]);
 
-  /** Back to the first step of "Email code" (the caller forgets the kept step too). */
+  /** Back to the first step of "Email code" (the caller forgets the kept step too). A recalled address goes too: it was never shown in full. */
   function resetCodeStep() {
+    if (recalled) setIdentifier('');
+    setRecalled(false);
     setCodeSent(false);
     setResendAt(null);
     setCode('');
@@ -322,7 +329,7 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
-              value={identifier}
+              value={recalled ? maskIdentifier(identifier) : identifier}
               onChangeText={setIdentifier}
               placeholder="you@company.com"
               maxLength={SIGN_IN_LIMITS.identifier}
@@ -377,8 +384,8 @@ export function LoginScreen({ navigation }: AuthScreenProps<'Login'>) {
                           disabled={resendWait > 0 || busy}
                           accessibilityRole="button"
                           accessibilityState={{ disabled: resendWait > 0 || busy }}
-                          // A steady name while it waits: a label that changed every second would be re-read.
-                          accessibilityLabel={resendWait > 0 ? 'Resend code, available after a minute' : 'Resend code'}
+                          // The wait the button shows, in words (a server's longer wait and a recalled step included).
+                          accessibilityLabel={resendA11yLabel(resendWait)}
                           hitSlop={8}
                         >
                           <Text style={resendWait > 0 ? styles.linkMuted : styles.forgotText}>{resendLabel(resendWait)}</Text>

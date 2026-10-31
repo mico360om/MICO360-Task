@@ -52,7 +52,7 @@ const makeStyles = (c: Palette) =>
     live: { borderColor: c.brand },
     eyebrow: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 0.8 },
     when: { color: c.ink, ...font('700'), letterSpacing: 0 },
-    title: { fontSize: fontSize.lg, ...font('800'), color: c.ink, marginTop: 2, textAlign: 'auto' },
+    title: { fontSize: fontSize.lg, ...font('700', 'display'), color: c.ink, marginTop: 2, textAlign: 'auto' },
     meta: { fontSize: fontSize.xs, color: c.ink2, marginTop: 2 },
     actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
     action: { flex: 1, minHeight: 44 },

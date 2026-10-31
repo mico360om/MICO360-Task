@@ -240,7 +240,7 @@ const makeStyles = (c: Palette) =>
     group: { fontSize: fontSize.xs, ...font('700'), letterSpacing: 1, textTransform: 'uppercase', color: c.ink3, marginTop: spacing.md, marginBottom: spacing.xs },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: c.surface, borderRadius: radius.input, borderWidth: 1, borderColor: c.line, marginBottom: spacing.xs },
     pressed: { opacity: 0.7 },
-    hint: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, fontFamily: 'monospace' },
+    hint: { fontSize: fontSize.xs, color: c.ink2, fontFamily: 'monospace' },
     primary: { fontSize: fontSize.md, color: c.ink, textAlign: 'auto' },
     secondary: { fontSize: fontSize.xs, color: c.ink3, textAlign: 'auto' },
   });

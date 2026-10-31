@@ -141,7 +141,7 @@ export function RsvpCard({
       <Text style={s.sectionTitle} accessibilityRole="header">
         GOING?
       </Text>
-      <View style={s.answers} accessibilityRole="radiogroup" accessibilityLabel="Your answer to the invitation">
+      <View style={s.answers} accessibilityLabel="Your answer to the invitation">
         {ANSWERS.map((a) => (
           <Chip
             key={a.value}
@@ -415,7 +415,7 @@ export function NoteFiltersRow({ notes, filter, onFilter, place }: { notes: ApiM
   const s = useDetailStyles();
   return (
     <SectionRow place={place}>
-      <View style={s.answers} accessibilityRole="radiogroup" accessibilityLabel="Show notes">
+      <View style={s.answers} accessibilityLabel="Show notes">
         {noteFilters(notes).map((f) => (
           <Chip key={f.key} label={`${f.label} ${f.count}`} selected={filter === f.key} onPress={() => onFilter(f.key)} a11yLabel={`${f.label}, ${f.count}`} />
         ))}
@@ -681,11 +681,11 @@ const makeStyles = (c: Palette) =>
     rowFirst: { borderTopWidth: 1, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, paddingTop: spacing.md },
     rowLast: { borderBottomWidth: 1, borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card, paddingBottom: spacing.md, marginBottom: spacing.md },
     titleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
-    sectionTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink2, letterSpacing: 0.8 },
+    sectionTitle: { fontSize: fontSize.xs, ...font('600', 'display'), color: c.ink2, letterSpacing: 0.8 },
     count: { color: c.ink3, ...font('700') },
     badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, marginTop: 2 },
     // User-written words (titles, notes, descriptions) read right to left in Arabic (Android picks the direction).
-    title: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'auto' },
+    title: { fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, textAlign: 'auto' },
     struck: { textDecorationLine: 'line-through', color: c.ink3 },
     facts: { gap: 4 },
     fact: { fontSize: fontSize.sm, color: c.ink2 },

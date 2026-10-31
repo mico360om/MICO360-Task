@@ -214,7 +214,7 @@ const makeStyles = (c: Palette) =>
     meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
     key: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 1, marginRight: spacing.xs },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-    title: { flex: 1, fontSize: fontSize.xl, ...font('800'), color: c.ink, paddingTop: spacing.xs },
+    title: { flex: 1, fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, paddingTop: spacing.xs },
     editActions: { flexDirection: 'row', gap: spacing.sm },
     flex: { flex: 1 },
     line: { flexDirection: 'row', alignItems: 'center', gap: 6 },

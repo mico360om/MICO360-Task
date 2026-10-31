@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- Metro bundles each font file named by a require(). */
+import { useEffect, useRef, useState } from 'react';
 import { useFonts } from 'expo-font';
 import type { FontFace } from '../lib/typography';
+import { FONT_WAIT_MS, fontGate, type FontGate } from '../lib/font-gate';
 
 /** The website's fonts, bundled with the app (assets/fonts, made by tools/fonts/convert-fonts.py). */
 export const FONT_ASSETS: Record<FontFace, number> = {
@@ -15,11 +17,18 @@ export const FONT_ASSETS: Record<FontFace, number> = {
 };
 
 /**
- * True once the fonts are loaded — or failed to load, so the app still opens (on the phone's own
- * font) rather than staying on the splash. Until then App renders nothing and the native splash
- * stays on screen.
+ * Which fonts the app starts on (lib/font-gate): 'wait' while the brand fonts load (App shows the
+ * splash), then 'brand' — or 'system' when they failed or took longer than FONT_WAIT_MS, so the app
+ * still opens on the phone's own fonts. The first answer is kept.
  */
-export function useBrandFonts(): boolean {
+export function useBrandFonts(): FontGate {
   const [loaded, error] = useFonts(FONT_ASSETS);
-  return loaded || error != null;
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setTimedOut(true), FONT_WAIT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  const decided = useRef<FontGate>('wait');
+  decided.current = fontGate(decided.current, { loaded, error: error != null, timedOut });
+  return decided.current;
 }

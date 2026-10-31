@@ -90,7 +90,11 @@ export const BoardCard = React.memo(function BoardCard({
         {card.title}
       </Text>
 
-      {view.waiting ? <ApprovalChip /> : null}
+      {view.waiting ? (
+        <View importantForAccessibility="no-hide-descendants">
+          <ApprovalChip />
+        </View>
+      ) : null}
 
       {view.hasDue || view.counts.length ? (
         <View style={s.meta} importantForAccessibility="no-hide-descendants">

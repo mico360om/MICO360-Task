@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 import { transformSync } from 'esbuild';
+import ts from 'typescript';
 
 /** The website's folder beside `Android App/` (absent when the app is checked out alone). */
 export const PORTAL: string = resolve(__dirname, '../../../Web Portal');
@@ -126,20 +127,27 @@ type Shape = import('../lib/icons').Shape;
 
 const isFilled = (fill: unknown) => fill !== undefined && fill !== null && fill !== 'none';
 
+/** What may sit inside an <svg> besides the shapes the app draws: a group and the svg's title. */
+const SVG_WRAPPERS = new Set([FRAGMENT, 'g', 'title']);
+
 /**
  * The drawing in a JSX tree from `loadWebTsx`: function components are called with their props
  * (children included), fragments and the `svg` unwrapped; path/circle/rect come back with numbers.
- * Also the svg's stroke width, viewBox and whether it is filled.
+ * Also the svg's stroke width, viewBox and whether it is filled. Any other element inside an svg
+ * (line, polyline, polygon, ellipse…) throws: the app's Icon can't draw it, so it is never skipped.
  */
 export function svgShapes(node: unknown): { shapes: Shape[]; strokeWidth?: number; viewBox?: string; filled?: boolean } {
   const out: { shapes: Shape[]; strokeWidth?: number; viewBox?: string; filled?: boolean } = { shapes: [] };
-  const visit = (n: unknown): void => {
-    if (Array.isArray(n)) return n.forEach(visit);
-    if (typeof n === 'function') return visit((n as () => unknown)());
+  const visit = (n: unknown, inSvg = false): void => {
+    if (Array.isArray(n)) return n.forEach((k) => visit(k, inSvg));
+    if (typeof n === 'function') return visit((n as () => unknown)(), inSvg);
     if (!n || typeof n !== 'object') return;
     const { type, props, children } = n as JsxNode;
     if (typeof type === 'function') {
-      return visit((type as (p: object) => unknown)({ ...props, children: children.length === 1 ? children[0] : children }));
+      return visit((type as (p: object) => unknown)({ ...props, children: children.length === 1 ? children[0] : children }), inSvg);
+    }
+    if (inSvg && typeof type === 'string' && !['path', 'circle', 'rect'].includes(type) && !SVG_WRAPPERS.has(type)) {
+      throw new Error(`svgShapes: <${type}> inside an svg — the app's Icon draws path, circle and rect only (lib/icons Shape)`);
     }
     if (type === 'svg') {
       if (props.strokeWidth !== undefined && out.strokeWidth === undefined) out.strokeWidth = Number(props.strokeWidth);
@@ -159,9 +167,47 @@ export function svgShapes(node: unknown): { shapes: Shape[]; strokeWidth?: numbe
       if (props.rx !== undefined) s.rx = Number(props.rx);
       out.shapes.push(s);
     }
-    children.forEach(visit);
+    children.forEach((k) => visit(k, inSvg || type === 'svg'));
   };
   visit(node);
+  return out;
+}
+
+/**
+ * Every <svg> written in a website TSX file, each read by svgShapes — without running the file
+ * (TypeScript's parser): for icons drawn inline inside a component that can't be called on its
+ * own (it has hooks). Attributes are read when literal ("2", {2.2}, "currentColor"); a computed
+ * one comes back as its source text, so it never equals a number by accident.
+ */
+export function svgDrawingsIn(rel: string): Array<ReturnType<typeof svgShapes>> {
+  const sf = ts.createSourceFile(rel, readWeb(rel), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const value = (init: ts.JsxAttributeValue | undefined): unknown => {
+    if (!init) return true;
+    if (ts.isStringLiteral(init)) return init.text;
+    if (ts.isJsxExpression(init) && init.expression) {
+      const e = init.expression;
+      if (ts.isNumericLiteral(e)) return Number(e.text);
+      if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+      return `{${e.getText(sf)}}`;
+    }
+    return `{${init.getText(sf)}}`;
+  };
+  const node = (el: ts.JsxElement | ts.JsxSelfClosingElement): JsxNode => {
+    const open = ts.isJsxElement(el) ? el.openingElement : el;
+    const props: Record<string, unknown> = {};
+    for (const a of open.attributes.properties) if (ts.isJsxAttribute(a)) props[a.name.getText(sf)] = value(a.initializer);
+    const children = ts.isJsxElement(el) ? el.children.filter((c): c is ts.JsxElement | ts.JsxSelfClosingElement => ts.isJsxElement(c) || ts.isJsxSelfClosingElement(c)).map(node) : [];
+    return { type: open.tagName.getText(sf), props, children };
+  };
+  const out: Array<ReturnType<typeof svgShapes>> = [];
+  const visit = (n: ts.Node): void => {
+    if ((ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) && (ts.isJsxElement(n) ? n.openingElement : n).tagName.getText(sf) === 'svg') {
+      out.push(svgShapes(node(n)));
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
   return out;
 }
 

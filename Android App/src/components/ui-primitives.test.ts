@@ -41,6 +41,14 @@ it('the chip is a button that says whether it is selected, with a 44 dp touch ta
   expect(s).toMatch(/hitSlop=\{\{ top: 6, bottom: 6 \}\}/);
 });
 
+// Final review S10 + L6: a chip nothing happens on (a task's tags) is words, not a button TalkBack offers to press.
+it('a chip without onPress is text, not a button; a disabled one says so', () => {
+  const s = src('components/ui/Chip.tsx');
+  expect(s).toMatch(/if \(!onPress\) \{\s*return \(\s*<View style=\{box\} accessible accessibilityRole="text" accessibilityLabel=\{name\} accessibilityState=\{selected \? \{ selected: true \} : undefined\}>/);
+  expect(s).toMatch(/<Pressable\s+onPress=\{onPress\}\s+disabled=\{!!disabled\}/);
+  expect(s).not.toMatch(/disabled=\{!!disabled \|\| !onPress\}/);
+});
+
 it('the skeleton stands still when the phone asks for less motion', () => expect(src('components/ui/Loading.tsx')).toMatch(/isReduceMotionEnabled\(\)/));
 
 it('the task kit’s chip is the shared one', () => {
@@ -81,6 +89,14 @@ it('the avatar shows only this server’s pictures and its initials otherwise', 
   expect(s).toMatch(/serverFileHref\(baseUrl, src\)/);
   expect(s).toMatch(/personInitials\(name\)/);
   expect(s).toMatch(/onError=\{\(\) => setBroken\(true\)\}/);
+});
+
+// Final review L5: a tile is one stop for TalkBack, read once — the label on the tappable card, or on
+// the row when the tile is not tappable, never on both.
+it('a stat tile is read once', () => {
+  const s = src('components/ui/StatTile.tsx');
+  expect(s).toMatch(/<Card onPress=\{onPress\} accessibilityLabel=\{onPress \? name : undefined\}/);
+  expect(s).toMatch(/accessible=\{!onPress\} accessibilityLabel=\{onPress \? undefined : name\}/);
 });
 
 it('the progress bar tells TalkBack how far along it is', () => {

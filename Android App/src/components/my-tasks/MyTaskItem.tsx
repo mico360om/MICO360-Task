@@ -58,7 +58,11 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
         <Text style={[s.title, row.done && s.titleDone]} numberOfLines={2} importantForAccessibility="no">
           {t.title}
         </Text>
-        {row.waiting ? <ApprovalChip /> : null}
+        {row.waiting ? (
+          <View importantForAccessibility="no-hide-descendants">
+            <ApprovalChip />
+          </View>
+        ) : null}
         <View style={s.dueRow} importantForAccessibility="no-hide-descendants">
           <Icon name="kit.calendar" size={12} color={row.overdue ? c.dangerText : row.dueToday ? c.warningText : t.dueDate ? c.ink2 : c.ink3} />
           <Text style={[s.due, row.overdue && s.dueLate, row.dueToday && !row.overdue && s.dueToday, !t.dueDate && s.noDue]}>{due}</Text>

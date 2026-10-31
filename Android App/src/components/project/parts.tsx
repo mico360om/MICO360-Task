@@ -159,7 +159,7 @@ const makeStyles = (c: Palette) =>
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexGrow: 1, flexBasis: '45%', backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.md },
     tileWide: { flexBasis: '100%' },
-    tileValue: { fontSize: fontSize.xl, ...font('800') },
+    tileValue: { fontSize: fontSize.xl, ...font('700', 'display') },
     tileLabel: { fontSize: fontSize.sm, ...font('600'), color: c.ink2, marginTop: 2 },
     tileHint: { fontSize: fontSize.xs, color: c.ink3 },
     tabs: { gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: c.line },

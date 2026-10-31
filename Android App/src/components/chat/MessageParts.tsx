@@ -63,7 +63,7 @@ function Body({ text, people, mine, style, onLongPress }: { text: string; people
     <Text style={style}>
       {parts.map((p, i) =>
         p.url ? (
-          <Text key={i} style={{ color: mine ? c.onBrand : c.brand, textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(p.url!)} onLongPress={onLongPress}>
+          <Text key={i} style={{ color: mine ? c.onBrand : c.brandText, textDecorationLine: 'underline' }} onPress={() => void Linking.openURL(p.url!)} onLongPress={onLongPress}>
             {p.text}
           </Text>
         ) : (
@@ -106,6 +106,7 @@ export const MessageBubble = memo(function MessageBubble({
   receiptLabel,
   receiptTicks,
   receiptSeenBy,
+  receiptRead,
   highlighted,
   baseUrl,
   handlers,
@@ -122,14 +123,15 @@ export const MessageBubble = memo(function MessageBubble({
   receiptLabel?: string;
   receiptTicks?: ReceiptTicks | null;
   receiptSeenBy?: number;
+  /** Read (or seen by some): drawn in readOnBrand with the bold ticks, as the website. */
+  receiptRead?: boolean;
   highlighted: boolean;
   baseUrl: string;
   handlers: BubbleHandlers;
 }) {
   const { c, s } = useChatStyles();
   const actions = messageActions(m, { myId, isAdmin });
-  const receipt = receiptLabel ? { label: receiptLabel, ticks: receiptTicks ?? null, seenBy: receiptSeenBy } : undefined;
-  const seen = !!receipt && (receipt.label.startsWith('Read') || receipt.label.startsWith('Seen'));
+  const receipt = receiptLabel ? { label: receiptLabel, ticks: receiptTicks ?? null, seenBy: receiptSeenBy, read: !!receiptRead } : undefined;
   const deleted = !!m.deletedAt;
   const text = deleted ? '' : m.body;
   const time = messageClock(m.createdAt);
@@ -234,10 +236,14 @@ export const MessageBubble = memo(function MessageBubble({
               {m.editedAt ? <Text style={[s.metaText, { color: quiet }]}>Edited ·</Text> : null}
               <Text style={[s.metaText, { color: quiet }]}>{time}</Text>
               {receipt?.ticks ? (
-                <>
-                  <Icon name={receipt.ticks} size={14} color={seen && !mine ? c.infoText : quiet} />
-                  {receipt.seenBy ? <Text style={[s.metaText, { color: quiet }]}>{receipt.seenBy}</Text> : null}
-                </>
+                // On my brand bubble (the website): read ticks in sky-200 and bold, the rest white at 80%.
+                // The "seen by" count is text: full-strength onBrand in both themes (sky-200 is 4.10:1 in dark).
+                <View style={s.receipt}>
+                  <View style={receipt.read ? null : s.quietReceipt}>
+                    <Icon name={receipt.ticks} size={14} color={receipt.read ? c.readOnBrand : c.onBrand} strokeWidth={receipt.read ? 2.6 : undefined} />
+                  </View>
+                  {receipt.seenBy ? <Text style={[s.metaText, { color: c.onBrand }]}>{receipt.seenBy}</Text> : null}
+                </View>
               ) : null}
             </View>
           </Pressable>
@@ -307,7 +313,7 @@ export const MessageBubble = memo(function MessageBubble({
           <Text style={[s.metaText, { color: c.ink2 }]}>{time}</Text>
           {receipt?.ticks ? (
             <>
-              <Icon name={receipt.ticks} size={14} color={seen ? c.infoText : c.ink2} />
+              <Icon name={receipt.ticks} size={14} color={receipt.read ? c.infoText : c.ink2} strokeWidth={receipt.read ? 2.6 : undefined} />
               {receipt.seenBy ? <Text style={[s.metaText, { color: c.ink2 }]}>{receipt.seenBy}</Text> : null}
             </>
           ) : null}
@@ -330,7 +336,7 @@ export const MessageBubble = memo(function MessageBubble({
                 accessibilityLabel={reactionLabel(r, myId, nameOf)}
               >
                 <Text style={s.chipEmoji}>{r.emoji}</Text>
-                <Text style={[s.chipCount, { color: mineToo ? c.brand : c.ink2 }]}>{r.userIds.length}</Text>
+                <Text style={[s.chipCount, { color: mineToo ? c.brandText : c.ink2 }]}>{r.userIds.length}</Text>
               </Pressable>
             );
           })}
@@ -525,7 +531,7 @@ export function EditMessageSheet({
       />
       {length > 3500 ? (
         <Text style={[s.hint, length > 4000 && { color: c.dangerText, ...font('700') }]} accessibilityLiveRegion="polite">
-          {length.toLocaleString()} / 4,000
+          {length.toLocaleString('en-US')} / 4,000
         </Text>
       ) : null}
       <SheetMessage text={note} tone="info" />
@@ -589,6 +595,8 @@ const makeStyles = (c: Palette) =>
     body: { fontSize: fontSize.md, lineHeight: 21 },
     meta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
     metaText: { fontSize: 11 },
+    receipt: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    quietReceipt: { opacity: 0.8 },
     metaAlone: { minHeight: 24, paddingHorizontal: spacing.xs },
     files: { gap: spacing.xs, maxWidth: '85%' },
     alignEnd: { alignSelf: 'flex-end' },
