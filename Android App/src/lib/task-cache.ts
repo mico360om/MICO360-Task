@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { ApiTask, MoveResult } from './types';
+import type { ApiTask, ApprovalsAnswer, MoveResult } from './types';
 import { refresh, type Refresh } from './refresh';
 
 /**
@@ -159,11 +159,15 @@ export function approvalRefreshes(taskId: string): Refresh[] {
  * After an approval decision the server accepted: its copy of the task is laid over the details
  * shown at once (a load still on its way is called off first, as after an edit), then everything
  * it changed is refreshed. Details never loaded (a decision from To approve) are not made from the
- * answer — it lacks what only the details call returns — and load in full when opened.
+ * answer — it lacks what only the details call returns — and load in full when opened. Decided
+ * (approved, sent back, or approval switched off), it leaves the approvals list at once — To approve
+ * and the Dashboard's card — so it can't be decided twice before the list is read again (A2).
  */
 export function afterApprovalDecision(qc: QueryClient, taskId: string, answer: ApiTask): void {
   void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
   if (answer?.id === taskId) qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...answer } : prev));
+  void qc.cancelQueries({ queryKey: ['approvals'], exact: true });
+  qc.setQueryData<ApprovalsAnswer>(['approvals'], (prev) => (prev && Array.isArray(prev.tasks) ? { ...prev, tasks: prev.tasks.filter((x) => x.id !== taskId) } : prev));
   refresh(qc, approvalRefreshes(taskId));
 }
 

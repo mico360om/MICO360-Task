@@ -326,3 +326,27 @@ describe('several tasks moved at once (Stage 2)', () => {
     expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["task","t1"]', '["task","t2"]', '["tasks","mine"]', '["project","p1","progress"]', '["project","p2","progress"]']));
   });
 });
+
+// Stage 2 final review A2: once decided (approved, sent back, or approval switched off) a task leaves
+// "To approve" and the Dashboard's card at once, so its buttons can't be tapped again before the list is read.
+describe('a decided task leaves the approvals list at once', () => {
+  it('Approve, Send back and switching off take it off the list now, and the list is still read again', () => {
+    for (const answer of [
+      { ...t('t1'), approvalRequestedAt: null, completedAt: '2026-10-30T08:00:00Z' }, // approved
+      { ...t('t1'), approvalRequestedAt: null }, // sent back
+      { ...t('t1'), approvalRequestedAt: null, needsApproval: false, completedAt: '2026-10-30T08:00:00Z' }, // switched off while it waited
+    ]) {
+      const qc = seeded();
+      qc.setQueryData(['approvals'], { canApprove: true, tasks: [{ ...t('t1'), project: { id: 'p1' } }, { ...t('t2'), project: { id: 'p1' } }] });
+      afterApprovalDecision(qc, 't1', answer);
+      expect(qc.getQueryData<{ tasks: { id: string }[] }>(['approvals'])?.tasks.map((x) => x.id)).toEqual(['t2']);
+      expect(qc.getQueryData<{ canApprove: boolean }>(['approvals'])?.canApprove).toBe(true);
+      expect(refreshedKeys(qc)).toContain('["approvals"]');
+    }
+  });
+  it('no list read yet: nothing is made', () => {
+    const qc = seeded();
+    afterApprovalDecision(qc, 't1', { ...t('t1'), approvalRequestedAt: null });
+    expect(qc.getQueryData(['approvals'])).toBeUndefined();
+  });
+});
