@@ -144,3 +144,11 @@ it('a question being sent never pulls the person back from a chat they opened me
   expect(send).toMatch(/\} else if \(stayed\) setChatId\(r\.chatId\);/);
   expect(send).not.toMatch(/\} else setChatId\(r\.chatId\);/);
 });
+
+it('Copy says when it couldn’t, and "working" is heard once (final review A13)', () => {
+  expect(view).toMatch(/copied === 'failed' \? 'Couldn’t copy'/);
+  expect(view).toMatch(/setCopied\(copyText\(copyTextOf\(message\)\) \? 'done' : 'failed'\)/);
+  // The screen's live region says MICO AI is working; the box's hint is not a second one.
+  expect(composer).not.toMatch(/accessibilityLiveRegion="polite"/);
+  expect(src('screens/ChatThreadScreen.tsx')).toContain('Couldn’t copy');
+});

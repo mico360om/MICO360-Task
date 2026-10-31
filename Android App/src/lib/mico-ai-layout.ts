@@ -24,3 +24,14 @@ export function answerColumnWidth(table: MicoAiTable, col: number, fontScale: nu
 
 /** The width of the labels' column in a change's "before → after" rows. */
 export const changeLabelWidth = (fontScale: number): number => Math.round(64 * Math.max(1, fontScale));
+
+/** What TalkBack reads for one table row: each cell with its column's name ("Owner: Bilal, Overdue: 3"); empty cells left out. */
+export function rowLabel(table: MicoAiTable, row: MicoAiTable['rows'][number]): string {
+  return table.columns
+    .map((c, i) => {
+      const v = cellDisplay(c.kind, row.cells[i] ?? null);
+      return v ? `${c.label}: ${v}` : null;
+    })
+    .filter((x): x is string => x !== null)
+    .join(', ');
+}

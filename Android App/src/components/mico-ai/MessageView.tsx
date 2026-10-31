@@ -155,10 +155,11 @@ export function MessageView({
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
-  const [copied, setCopied] = useState(false);
+  /** What Copy did a moment ago ('failed': the phone wouldn't take it), shown for 2 s. */
+  const [copied, setCopied] = useState<null | 'done' | 'failed'>(null);
   useEffect(() => {
     if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 2000);
+    const t = setTimeout(() => setCopied(null), 2000);
     return () => clearTimeout(t);
   }, [copied]);
 
@@ -229,12 +230,12 @@ export function MessageView({
             ) : null}
             {a && done ? (
               <Button
-                title={copied ? 'Copied' : 'Copy'}
-                icon={copied ? 'misc.check' : 'ui.copy'}
+                title={copied === 'failed' ? 'Couldn’t copy' : copied ? 'Copied' : 'Copy'}
+                icon={copied === 'done' ? 'misc.check' : 'ui.copy'}
                 variant="ghost"
                 size="sm"
                 onPress={() => {
-                  if (copyText(copyTextOf(message))) setCopied(true);
+                  setCopied(copyText(copyTextOf(message)) ? 'done' : 'failed');
                 }}
               />
             ) : null}

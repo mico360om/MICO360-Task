@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 import { useColors } from '../../core/theme';
 import { cellDisplay } from '../../lib/mico-ai';
 import type { CellKind, MicoAiTable } from '../../lib/mico-ai-api';
-import { answerColumnWidth } from '../../lib/mico-ai-layout';
+import { answerColumnWidth, rowLabel } from '../../lib/mico-ai-layout';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { Button } from '../ui';
@@ -35,7 +35,8 @@ export function AnswerTable({ table, onExcel, preparing = false, busy = false }:
         </Text>
         <ScrollView horizontal accessibilityLabel={table.title} showsHorizontalScrollIndicator>
           <View>
-            <View style={[s.row, s.head]}>
+            {/* Each row says its column names itself, so the header row isn't read on its own. */}
+            <View style={[s.row, s.head]} importantForAccessibility="no-hide-descendants">
               {table.columns.map((col, j) => (
                 <Text key={col.key} style={[s.headText, { width: widths[j] }, NUMERIC.has(col.kind) ? s.end : null]}>
                   {col.label}
@@ -43,7 +44,7 @@ export function AnswerTable({ table, onExcel, preparing = false, busy = false }:
               ))}
             </View>
             {rows.map((r, i) => (
-              <View key={i} style={[s.row, i > 0 ? s.rowLine : null, i % 2 === 1 ? s.even : null]}>
+              <View key={i} style={[s.row, i > 0 ? s.rowLine : null, i % 2 === 1 ? s.even : null]} accessible accessibilityLabel={rowLabel(table, r)}>
                 {r.cells.map((v, j) => {
                   const kind = table.columns[j]?.kind;
                   const text = cellDisplay(kind, v);

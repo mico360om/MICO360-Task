@@ -82,11 +82,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <IconButton icon="ui.send" label="Send" onPress={submit} disabled={!canAsk || !draft.trim()} color={c.brandText} />
         )}
       </View>
-      {hint ? (
-        <Text style={s.hint} accessibilityLiveRegion="polite">
-          {hint}
-        </Text>
-      ) : null}
+      {/* Not a live region: the screen's own says once that MICO AI is working. */}
+      {hint ? <Text style={s.hint}>{hint}</Text> : null}
       <Text style={s.note}>MICO AI answers only from MICO360 data you can see, and links its sources. Check important figures before sharing.</Text>
     </View>
   );
