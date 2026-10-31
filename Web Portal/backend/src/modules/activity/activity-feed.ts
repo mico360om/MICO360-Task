@@ -5,6 +5,7 @@
  * successive edits) into a single line. A change the person made through MICO AI (meta.via
  * "mico-ai") ends "via MICO AI", and never folds into a line they made by hand.
  */
+import { dayText as dayWords } from './day-words';
 
 export interface FeedEntry {
   id: string;
@@ -101,11 +102,9 @@ function runKey(entry: FeedEntry): string | null {
 /** Made through MICO AI (the person confirmed it there). */
 const viaMicoAi = (entry: FeedEntry) => entry.meta?.via === 'mico-ai';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** "2026-10-12" → "12 Oct 2026" (the same in every locale and time zone). */
+/** "2026-10-12" → "12 Oct 2026" (the website's day words, the same in every locale and time zone); anything else as it came. */
 function dayText(key: unknown): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(key ?? ''));
-  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1] ?? m[2]} ${m[1]}` : String(key ?? '');
+  return dayWords(String(key ?? '')) || String(key ?? '');
 }
 const titleCase = (s: unknown) => {
   const t = String(s ?? '');

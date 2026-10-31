@@ -16,4 +16,13 @@ describe('shared activity wording', () => {
     expect(existsSync(copy), 'the server keeps a copy of the web app’s activity wording').toBe(true);
     expect(read(copy)).toBe(read(web));
   });
+
+  // The wording writes days with the website's day words ("12 Oct 2026"), so the server keeps a copy
+  // of that module beside it too.
+  const webDays = resolve(repo, 'Web Portal/frontend/src/lib/day-words.ts');
+  const copyDays = resolve(here, 'day-words.ts');
+  it.skipIf(!existsSync(webDays))('src/modules/activity/day-words.ts matches Web Portal/frontend/src/lib/day-words.ts', () => {
+    expect(existsSync(copyDays), 'the server keeps a copy of the web app’s day words').toBe(true);
+    expect(read(copyDays)).toBe(read(webDays));
+  });
 });
