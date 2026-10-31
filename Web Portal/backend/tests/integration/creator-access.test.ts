@@ -54,6 +54,7 @@ beforeEach(async () => {
   // As an employee creates one with someone else as owner: they are on the team as a manager.
   const p = await projects.create({ code: CODE, name: 'Creator access', createdById: creator, ownerId: owner, members: [{ userId: creator, role: 'MANAGER' }, { userId: owner, role: 'MEMBER' }] });
   projectId = p.id;
+  await runBackfill(prisma); // companies: the project too (the repository writes only the companies it is given)
   const column = await prisma.kanbanColumn.findFirstOrThrow({ where: { projectId, category: 'TODO' } });
   taskId = (await prisma.task.create({ data: { key: `${CODE}-1`, title: 'Survey', projectId, columnId: column.id, createdById: creator } })).id;
   await prisma.taskAssignee.create({ data: { taskId, userId: creator } });

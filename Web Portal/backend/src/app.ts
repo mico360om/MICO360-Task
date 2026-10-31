@@ -107,6 +107,7 @@ import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/co
 import { registerCompanyRoutes } from './modules/companies/company-routes';
 import type { CompanyService } from './modules/companies/company-service';
 import type { CompanyMembership } from './modules/companies/company-membership';
+import type { OnProjectAudienceChanged, ProjectCompanies } from './modules/companies/project-companies';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -297,6 +298,10 @@ export interface AppDeps extends AuthRouteDeps {
   companyService?: CompanyService;
   /** companies: people's companies and primary company (User Management; the Companies page's people). */
   companyMembership?: CompanyMembership;
+  /** companies: projects' companies (their payload) — the project service holds the rules. */
+  projectCompanies?: ProjectCompanies;
+  /** companies: a project's companies changed (the realtime server re-checks who may see it). */
+  onProjectAudienceChanged?: OnProjectAudienceChanged;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -521,6 +526,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           imageMaxBytes: deps.attachmentMaxSizeBytes,
           authz: projectAuthz,
           notices: deps.projectNotices,
+          // companies: its companies in the payload, the picked company as a new project's default.
+          companies: deps.projectCompanies,
+          pickOf,
+          activity: deps.activityService,
+          onAudienceChanged: deps.onProjectAudienceChanged,
         });
       }
       if (deps.projectService && (deps.timelineSource || deps.workloadStore)) {
@@ -786,7 +796,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });
       }
       if (deps.templateService) {
-        await registerTemplateRoutes(api, { templateService: deps.templateService, guard, projectService: deps.projectService, audit: deps.auditService, notices: deps.projectNotices });
+        await registerTemplateRoutes(api, { templateService: deps.templateService, guard, projectService: deps.projectService, audit: deps.auditService, notices: deps.projectNotices, pickOf, companies: deps.projectCompanies });
       }
       if (deps.clientView) {
         await registerClientViewRoutes(api, {

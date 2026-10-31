@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { createPrismaPeopleLookup, createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';
 import { createPrismaMemberRepository, createPrismaProjectManagerLookup, projectRunnerIds } from '../../src/modules/projects/prisma-member-repository';
 import { runBackfill } from './company-helpers';
+import { DEFAULT_COMPANY } from '../../src/modules/companies/default-company';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -52,6 +53,8 @@ describe('Employee projects (integration)', () => {
       createdById: id.creator,
       ownerId: id.owner,
       members: [{ userId: id.creator, role: 'MANAGER' }, { userId: id.owner, role: 'MEMBER' }],
+      // companies: the one the rules give it on this site (the repository writes what it is given).
+      companyIds: [DEFAULT_COMPANY.id],
     });
     const rows = await prisma.projectMember.findMany({ where: { projectId: created.id }, select: { userId: true, role: true } });
     expect(Object.fromEntries(rows.map((r) => [r.userId, r.role]))).toEqual({ [id.creator]: 'MANAGER', [id.owner]: 'MEMBER' });

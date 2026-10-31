@@ -2,10 +2,11 @@ import { Prisma, type PrismaClient, type Project } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
 import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
 import { writeStartingTasks } from './prisma-starting-content';
-import { fallbackProjectCompanyId, pickedCompanyWhere, visibleProjectWhere } from '../companies/company-access';
+import { pickedCompanyWhere, visibleProjectWhere } from '../companies/company-access';
 
-/** companies: a new project's company rows (its main company is always one of them). */
-const companyLink = (companyId: string | null) => (companyId ? { mainCompanyId: companyId, companies: { create: { companyId } } } : {});
+/** companies: a new project's company rows, as the rules chose them (`[0]`, its main company, is always one of them). */
+const companyLink = (companyIds: readonly string[] | undefined) =>
+  companyIds?.length ? { mainCompanyId: companyIds[0]!, companies: { create: [...new Set(companyIds)].map((companyId) => ({ companyId })) } } : {};
 
 function toRecord(p: Project): ProjectRecord {
   return {
@@ -74,7 +75,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     async create(data: CreateProjectData) {
       try {
         const start = data.startWith;
-        const company = companyLink(await fallbackProjectCompanyId(prisma, data.createdById));
+        const company = companyLink(data.companyIds);
         // A project from a template: the project, the template's board, its tasks (with their
         // checklists and people) and the first team in one transaction — all of it or none of it.
         if (start) {
@@ -176,6 +177,26 @@ export function createPrismaPeopleLookup(prisma: PrismaClient): PeopleLookup {
       const rows = await prisma.user.findMany({ where: { id: { in: wanted }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
       const active = new Set(rows.map((r) => r.id));
       return wanted.filter((id) => active.has(id));
+    },
+    // companies: a project's team comes from its companies (administrators may always join).
+    async outsideCompanies(ids, companyIds) {
+      const wanted = [...new Set(ids)];
+      if (wanted.length === 0) return [];
+      const rows = await prisma.user.findMany({
+        where: {
+          id: { in: wanted },
+          roles: { none: { role: { name: 'ADMIN' } } },
+          companies: { none: { companyId: { in: companyIds }, company: { status: 'ACTIVE' } } },
+        },
+        select: { id: true, firstName: true, lastName: true, username: true },
+      });
+      const byId = new Map(rows.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim() || u.username]));
+      return wanted.filter((id) => byId.has(id)).map((id) => ({ id, name: byId.get(id)! }));
+    },
+    async projectCompanyIds(projectId) {
+      const rows = await prisma.projectCompany.findMany({ where: { projectId }, select: { companyId: true, company: { select: { status: true } } } });
+      if (rows.length === 0) return null;
+      return rows.filter((r) => r.company.status === 'ACTIVE').map((r) => r.companyId);
     },
   };
 }

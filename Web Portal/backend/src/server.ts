@@ -35,6 +35,7 @@ import { createCompanyAccess } from './modules/companies/company-access';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
+import { createProjectCompanies, type OnProjectAudienceChanged } from './modules/companies/project-companies';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -230,7 +231,18 @@ async function main(): Promise<void> {
   const projectRepository = createPrismaProjectRepository(prisma);
   // Who may be picked as a project's owner, manager or team: active people only.
   const peopleLookup = createPrismaPeopleLookup(prisma);
-  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup });
+  // companies: which companies a project goes into and who may change them, and the payload's
+  // companies (a company's week start, else the site's; read at most every 30 s; the site's zone).
+  let siteWeek: { at: number; value: Promise<0 | 1 | 6> } | null = null;
+  const siteWeekStart = () => {
+    if (!siteWeek || Date.now() - siteWeek.at > 30_000) siteWeek = { at: Date.now(), value: settingsService.companyWeekStart().catch(() => 0 as const) };
+    return siteWeek.value;
+  };
+  const projectCompanies = createProjectCompanies(prisma, { site: async () => ({ timeZone: companyTz, weekStart: await siteWeekStart() }) });
+  // Late-bound: the realtime server re-checks who may see a project whose companies changed (MC1 Task 12 binds it).
+  // eslint-disable-next-line prefer-const -- companies: MC1 Task 12 assigns it once the realtime server exists
+  let onProjectAudienceChanged: OnProjectAudienceChanged = () => {};
+  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup, companies: projectCompanies });
 
   const columnService = createColumnService({
     columns: createPrismaColumnRepository(prisma),
@@ -1522,6 +1534,8 @@ async function main(): Promise<void> {
     companyAccess,
     companyService,
     companyMembership,
+    projectCompanies,
+    onProjectAudienceChanged: (projectId) => onProjectAudienceChanged(projectId),
     columnService,
     memberService,
     projectAuthz,

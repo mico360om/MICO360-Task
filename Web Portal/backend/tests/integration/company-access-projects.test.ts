@@ -17,6 +17,7 @@ import { createPrismaManagementSource } from '../../src/modules/management/prism
 import { createPrismaUserRepository } from '../../src/modules/users/prisma-user-repository';
 import { DEFAULT_COMPANY } from '../../src/modules/companies/default-company';
 import { createCompanyMembership, createPrismaMembershipStore } from '../../src/modules/companies/company-membership';
+import { createProjectCompanies } from '../../src/modules/companies/project-companies';
 import { buildCompanyWorld, dropCompanyWorld, sorted, type CompanyWorld } from './company-world';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
@@ -139,8 +140,11 @@ describe('Project visibility follows companies (integration)', () => {
     expect((await weekly.find(w.people.ben))?.runsProjects).toBe(true);
   });
 
+  // Projects: the rules choose a new project's companies (MC1 Task 7); the repository writes what it is given.
+  const ruled = createProjectService({ projects: repo, companies: createProjectCompanies(prisma, { site: async () => ({ timeZone: 'Asia/Muscat', weekStart: 0 }) }) });
+
   it('a new project joins its creator’s primary company', async () => {
-    const p = await repo.create({ code: `NP${w.tag.toUpperCase()}`, name: 'New project', createdById: w.people.cat, members: [{ userId: w.people.cat, role: 'MANAGER' }] });
+    const p = await ruled.createProject({ code: `NP${w.tag.toUpperCase()}`, name: 'New project', createdById: w.people.cat }, w.as.cat);
     try {
       expect(await prisma.project.findUniqueOrThrow({ where: { id: p.id }, select: { mainCompanyId: true, companies: { select: { companyId: true } } } })).toEqual({
         mainCompanyId: w.companies.B,
@@ -169,7 +173,7 @@ describe('Project visibility follows companies (integration)', () => {
         primaryCompanyId: DEFAULT_COMPANY.id,
         companies: [{ companyId: DEFAULT_COMPANY.id }],
       });
-      const p = await repo.create({ code: `SP${w.tag.toUpperCase()}`, name: 'Solo project', createdById: w.people.admin, members: [{ userId: u.id, role: 'MEMBER' }] });
+      const p = await ruled.createProject({ code: `SP${w.tag.toUpperCase()}`, name: 'Solo project', createdById: w.people.admin, memberIds: [u.id] }, w.as.admin);
       made.projects.push(p.id);
       expect((await prisma.project.findUniqueOrThrow({ where: { id: p.id } })).mainCompanyId).toBe(DEFAULT_COMPANY.id);
       expect(await repo.isAccessibleTo(p.id, u.id)).toBe(true);
