@@ -83,7 +83,9 @@ export function useStartInspection(projectId: string) {
   return useMutation({
     mutationFn: (v: { formId: string; taskId?: string | null; place?: string | null; key: string }) =>
       resources.inspections.start(projectId, { formId: v.formId, taskId: v.taskId ?? null, place: v.place ?? null }, v.key),
-    onSuccess: (detail) => {
+    onSuccess: async (detail) => {
+      // Kept only once the phone's records are read (Final I1).
+      await inspections.ready;
       if (ownerId) inspections.outboxFor(ownerId).remember(ownerId, detail);
       refreshInspectionQueries(qc, detail.id, projectId);
     },

@@ -44,8 +44,12 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
   const recordMax = o.recordMax ?? RECORD_MAX_CHARS;
   const allMax = o.allMax ?? ALL_RECORDS_MAX_CHARS;
   const records = new Map<string, string>();
-  /** Changed in the app since it started: a stored value read later doesn't overwrite them. */
-  const touched = new Set<string>();
+  /**
+   * Changes asked for before the phone's records were read (Final I1): held, then applied once they
+   * are — a record kept on the phone wins over a write made before it was read (an inspection opened
+   * as the app starts must not replace the answers waiting in it); a removal still removes.
+   */
+  const early = new Map<string, string | null>();
   const failedKeys = new Set<string>();
   /** Per record: the last write asked for (each one waits for the one before it). */
   const chains = new Map<string, Promise<void>>();
@@ -78,7 +82,6 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
 
   /** A change: written at once, with any earlier write that failed. */
   function changed(key: string): void {
-    touched.add(key);
     writeOut(key);
     for (const k of [...failedKeys]) if (k !== key) writeOut(k);
   }
@@ -98,23 +101,47 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
         } catch {
           continue; // too long to read back, or unreadable: skipped
         }
-        if (value === null || touched.has(key)) continue;
+        if (value === null) continue;
         records.set(key, value);
         total += value.length;
       }
+      for (const [key, value] of early) {
+        const had = records.get(key);
+        if (value === null) {
+          if (had !== undefined) {
+            records.delete(key);
+            total -= had.length;
+          }
+          changed(key);
+        } else if (had === undefined && total + value.length <= allMax) {
+          records.set(key, value);
+          total += value.length;
+          changed(key);
+        }
+      }
+      early.clear();
       hydrated = true;
     },
     isHydrated: () => hydrated,
     get: (key) => records.get(key) ?? null,
     keys: () => [...records.keys()].filter((k) => k.startsWith(INSPECTION_RECORD_PREFIX)),
     set(key, value) {
+      if (value.length > recordMax) throw new StorageFullError();
+      if (!hydrated) {
+        early.set(key, value);
+        return;
+      }
       const had = records.get(key);
-      if (value.length > recordMax || total - (had?.length ?? 0) + value.length > allMax) throw new StorageFullError();
+      if (total - (had?.length ?? 0) + value.length > allMax) throw new StorageFullError();
       records.set(key, value);
       total += value.length - (had?.length ?? 0);
       changed(key);
     },
     remove(key) {
+      if (!hydrated) {
+        early.set(key, null);
+        return;
+      }
       const had = records.get(key);
       if (had !== undefined) {
         records.delete(key);

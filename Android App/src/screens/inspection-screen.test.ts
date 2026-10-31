@@ -87,3 +87,8 @@ it('throwing away what is on the phone asks first', () => {
   expect(s()).toMatch(/onDiscard=\{\(\) => confirmDiscard\(/);
   expect(src('components/inspections/InspectionActions.tsx')).toMatch(/export function confirmDiscard\([^]*Alert\.alert\(ACTION_WORDS\.discardTitle/);
 });
+
+it('keeps what it read only once the phone’s records are read (Final I1)', () => {
+  expect(s()).toMatch(/if \(!ready \|\| !q\.data \|\| !ownerId \|\| !outbox\) return;/);
+  expect(s()).toMatch(/\}, \[ready, q\.data, ownerId, outbox\]\);/);
+});

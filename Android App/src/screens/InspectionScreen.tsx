@@ -55,13 +55,14 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
   const viewRef = useRef(view);
   viewRef.current = view;
   const lastRead = useRef<InspectionDetail | null>(null);
+  // Only once the phone's records are read: a copy read earlier would hide the answers waiting here.
   useEffect(() => {
-    if (!q.data || !ownerId || !outbox) return;
+    if (!ready || !q.data || !ownerId || !outbox) return;
     const note = inspectionChangeNote(viewRef.current?.snapshot ?? lastRead.current, q.data, ownerId);
     if (note) setChangeNote(note);
     lastRead.current = q.data;
     outbox.remember(ownerId, q.data);
-  }, [q.data, ownerId, outbox]);
+  }, [ready, q.data, ownerId, outbox]);
 
   const shown: DraftView | null = view ?? (q.data ? detailView(q.data) : null);
   const title = shown?.snapshot.title;

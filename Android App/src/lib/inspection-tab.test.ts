@@ -70,7 +70,7 @@ it('the due checks and lists are read through the offline copy; schedules and fo
 
 it('a started inspection is kept on the phone at once, under one key per Start', () => {
   const q = src('core/inspection-queries.ts');
-  expect(q).toMatch(/onSuccess: \(detail[^]*outboxFor\(ownerId\)\.remember\(ownerId, detail\)/);
+  expect(q).toMatch(/onSuccess: async \(detail\) => \{\s*\/\/[^\n]*\n\s*await inspections\.ready;[^]*outboxFor\(ownerId\)\.remember\(ownerId, detail\)/);
   expect(q).toMatch(/resources\.inspections\.start\(projectId, [^)]*v\.key\)/);
   expect(src('components/inspections/StartInspectionSheet.tsx')).toMatch(/newIdempotencyKey\(\)/);
 });
