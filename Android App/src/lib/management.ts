@@ -8,6 +8,7 @@ import type { ItemList, ItemMetric, ItemQuery, ItemRow, ManagementFilters, Manag
 import { managementQuery } from './management-api';
 import type { NavAction } from '../navigation/nav-actions';
 import { isSafeId } from './ids';
+import { ApiError } from './api-client';
 import { zonedDayKey } from './due-date';
 import { clockText, dayText } from './day-words';
 
@@ -178,3 +179,28 @@ export const pdfFallbackName = (today: string) => `management-overview-${today}.
 export const managementRoot = (userId: string) => ['management', userId] as const;
 export const managementOverviewKey = (userId: string, f: ManagementFilters) => [...managementRoot(userId), 'overview', managementQuery(f)] as const;
 export const managementItemsKey = (userId: string, f: ManagementFilters, q: ItemQuery) => [...managementRoot(userId), 'items', managementQuery(f), JSON.stringify(q)] as const;
+
+export type ManagementView = 'checking' | 'check-failed' | 'leave' | 'no-longer' | 'show';
+
+/**
+ * What the Management screen shows (Review Focus 1), in this order: the access check failed (a
+ * network problem is not a "no") → say so with Try again; not answered yet → a skeleton; the
+ * server refused the figures (403) → "no longer"; no access → "no longer" for someone who had it
+ * here, else leave; otherwise the page. The figures are drawn only for 'show'.
+ */
+export function managementView(i: { access: { allowed: boolean; ready: boolean; failed: boolean }; overviewError: unknown; hadAccess: boolean }): ManagementView {
+  if (i.access.failed && !i.access.allowed) return 'check-failed';
+  if (!i.access.ready) return 'checking';
+  if (i.overviewError instanceof ApiError && i.overviewError.status === 403) return 'no-longer';
+  if (!i.access.allowed) return i.hadAccess ? 'no-longer' : 'leave';
+  return 'show';
+}
+
+/**
+ * Tiles to a row: two where a tile's label and hint fit in two lines each — at least 360 dp of
+ * width for each 1× of the font size (a 360 dp phone at the normal size) — else one, so a large font
+ * never cuts a label off.
+ */
+export function tileColumns(width: number, fontScale: number): 1 | 2 {
+  return width / Math.max(1, fontScale) >= 360 ? 2 : 1;
+}

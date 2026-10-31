@@ -28,4 +28,5 @@
 <!-- meetings-chat-account lines above this line -->
 
 ## Planning and AI
+- In the Android app, Management is a real screen for administrators and the people who run a project: the website's figures for every project, with the list behind each number, its filters, and the same PDF.
 <!-- planning-and-ai lines above this line -->
