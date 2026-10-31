@@ -16,9 +16,12 @@ export function StatTile({
   tone = 'brand',
   onPress,
   actionLabel,
+  spokenValue,
 }: {
   label: string;
   value: string | number;
+  /** What TalkBack says for the value when it differs from what shows, e.g. "loading" for a "—". */
+  spokenValue?: string;
   hint?: string;
   icon?: IconName;
   tone?: 'brand' | 'success' | 'warning' | 'info' | 'danger';
@@ -28,7 +31,7 @@ export function StatTile({
 }) {
   const c = useColors();
   const t = toneStyle(c, tone);
-  const name = `${label}: ${value}${hint ? `, ${hint}` : ''}`;
+  const name = `${label}: ${spokenValue ?? value}${hint ? `, ${hint}` : ''}`;
   return (
     <Card onPress={onPress} accessibilityLabel={onPress ? name : undefined} accessibilityHint={onPress ? actionLabel : undefined}>
       <View style={styles.row} accessible={!onPress} accessibilityLabel={onPress ? undefined : name}>

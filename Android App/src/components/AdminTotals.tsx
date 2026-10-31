@@ -39,6 +39,7 @@ export function AdminTotals({ onOpenReports }: { onOpenReports: () => void }) {
             <StatTile
               label={t.label}
               value={ready ? t.value : '—'}
+              spokenValue={ready ? undefined : 'loading'}
               hint={ready ? t.hint : undefined}
               icon={t.key === 'overdue' ? 'ui.alert' : 'nav.tasks'}
               tone={t.tone === 'neutral' ? 'brand' : t.tone}

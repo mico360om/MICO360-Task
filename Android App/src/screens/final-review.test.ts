@@ -132,3 +132,13 @@ it('no radiogroup holds Chips', () => {
   }
   expect(found).toEqual([]);
 });
+
+// Item 20 (S12): while the totals load, TalkBack hears "All tasks: loading" (as before the new look),
+// not "All tasks: —"; the tile still shows the dash.
+it('the administrators’ totals say "loading" while they load', () => {
+  const tile = src('components/ui/StatTile.tsx');
+  expect(tile).toMatch(/spokenValue\?: string;/);
+  expect(tile).toMatch(/const name = `\$\{label\}: \$\{spokenValue \?\? value\}/);
+  const totals = src('components/AdminTotals.tsx');
+  expect(totals).toMatch(/value=\{ready \? t\.value : '—'\}\s*spokenValue=\{ready \? undefined : 'loading'\}/);
+});
