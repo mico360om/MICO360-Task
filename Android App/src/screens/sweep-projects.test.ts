@@ -3,18 +3,22 @@ import { appSource as src } from '../testing/web-source';
 
 /** The Task 18 sweep: Projects, project pages, User Management and Reports in the website's look. */
 
+// Stage 2: the card is components/projects/ProjectCard.tsx (the website's ProjectCard).
 it('project progress is drawn in the project’s colour', () => {
-  const s = src('screens/ProjectsScreen.tsx');
+  const s = src('components/projects/ProjectCard.tsx');
   expect(s).toMatch(/<ProgressBar[^>]*color=\{/);
   expect(s).toMatch(/const color = p\.color && HEX_COLOR\.test\(p\.color\) \? p\.color : DEFAULT_PROJECT_COLOR;/);
   expect(s).not.toMatch(/'#8B1E1E'/);
 });
 
-it('a project card is a Card with its picture (md) and its status badge', () => {
-  const s = src('screens/ProjectsScreen.tsx');
+// Stage 2: the website's card has the large picture (lg, h-11) and its status as a dotted badge — a
+// menu in the badge's tone for whoever may change it.
+it('a project card is a Card with its picture (lg) and its status badge', () => {
+  const s = src('components/projects/ProjectCard.tsx');
   expect(s).toMatch(/<Card padded=\{false\} style=\{s\.card\}>/);
-  expect(s).toMatch(/<ProjectAvatar project=\{p\} size="md" \/>/);
-  expect(s).toMatch(/<Badge label=\{projectStatusLabel\(p\.status\)\} tone=\{projectStatusTone\(p\.status\)\} \/>/);
+  expect(s).toMatch(/<ProjectAvatar project=\{p\} size="lg" \/>/);
+  expect(s).toMatch(/const statusLabel = projectStatusLabel\(p\.status\);\s*const tone = projectStatusTone\(p\.status\);/);
+  expect(s).toMatch(/<Badge label=\{statusLabel\} tone=\{tone\} dot \/>/);
 });
 
 it('team and user rows use Avatar', () => {

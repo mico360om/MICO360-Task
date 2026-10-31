@@ -36,7 +36,7 @@ it('on my bubble the "seen by" count is full-strength onBrand; only the ticks ta
 it('titles and figures use the display face, as the website’s font-display', () => {
   const DISPLAY: Array<[file: string, style: string, weight: string, website: string]> = [
     ['components/task-detail/HeaderCard.tsx', 'title', '700', 'task-drawer/inline-text.tsx'],
-    ['screens/ProjectsScreen.tsx', 'name', '700', 'projects/ProjectCard.tsx'],
+    ['components/projects/ProjectCard.tsx', 'name', '700', 'projects/ProjectCard.tsx'],
     ['screens/ProjectDetailScreen.tsx', 'name', '700', 'pages/ProjectDetailPage.tsx'],
     ['components/project/parts.tsx', 'tileValue', '700', 'pages/ProjectDetailPage.tsx tiles'],
     ['components/meeting/MeetingDetailParts.tsx', 'title', '700', 'meeting/MeetingHeader.tsx'],
@@ -97,7 +97,7 @@ it('marks a row already speaks are hidden from TalkBack inside it', () => {
     ['components/board/BoardCard.tsx', '<ApprovalChip />'],
     ['components/my-tasks/MyTaskItem.tsx', '<ApprovalChip />'],
     ['screens/ChatScreen.tsx', '<Icon name="ui.starFilled"'],
-    ['screens/ProjectsScreen.tsx', '<ProgressBar value={meta.completedPct}'],
+    ['components/projects/ProjectCard.tsx', '<ProgressBar value={progress.pct}'],
   ];
   const bare = wrapped.filter(([file, inner]) => !new RegExp(HIDDEN + inner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(src(file)));
   expect(bare.map(([f, i]) => `${f}: ${i}`)).toEqual([]);

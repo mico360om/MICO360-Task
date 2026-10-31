@@ -32,6 +32,7 @@
 <!-- daily-work-tasks lines above this line -->
 
 - In the Android app, the Dashboard is the website's: the welcome band, the four tiles (your own, or the company's for administrators), tasks waiting for your approval, Due soon, Recent activity, and first steps for a new company.
+- In the Android app, Projects is the website's page: status tabs with counts, search, owner, sort and "Only my projects" for administrators, the website's project cards (Open, Overdue, Next due, team, owner, target), a status menu and Archive.
 <!-- daily-work-pages lines above this line -->
 
 <!-- daily-work-meetings-people lines above this line -->

@@ -8,7 +8,6 @@ import { summarizeTasks } from './tasks-summary';
 import { dueLabel, enrichMyTasks, myTaskCounts, myTaskLabel } from './my-tasks';
 import { boardCard, cardView } from './board';
 import { allBoardCard } from './all-board';
-import { projectCardFigures } from './project-list';
 import { filterCounts, milestoneNote, projectDeadlines, projectMilestones, taskStats, workload } from './project-dashboard';
 import { statusOf } from './calendar-model';
 import { dueState } from './task-detail';
@@ -42,7 +41,6 @@ it('is never counted or called overdue anywhere in the app', () => {
   expect(view.label).not.toMatch(/Overdue/);
   expect(view.dueText).toBe('29 Oct 2026');
   expect(allBoardCard(waiting, 'REVIEW', project, '#3A6EA5').awaitingApproval).toBe(true);
-  expect(projectCardFigures([waiting], NOW, TZ)[waiting.projectId]!.overdue).toBe(0);
   expect(taskStats([waiting], TODAY, TZ).overdue).toBe(0);
   expect(workload([waiting], TODAY, TZ)[0]).toMatchObject({ id: 'u1', open: 1, overdue: 0 });
   expect(projectMilestones([{ ...waiting, isMilestone: true }], TODAY, TZ)[0]!.state).toBe('waiting');
@@ -63,6 +61,9 @@ it('sent back (no longer waiting), it is late again', () => {
 
 it('the task screens and lists that show “Late” or “Overdue” read the waiting flag', async () => {
   const { appSource: src } = await import('../testing/web-source');
+  // Stage 2: the Projects page's Overdue is the server's stats.overdue (/projects/overview), which
+  // leaves waiting tasks out; the page counts nothing late itself.
+  expect(src('screens/ProjectsScreen.tsx') + src('components/projects/ProjectCard.tsx')).not.toMatch(/projectCardFigures|isOverdue\(|isTaskLate\(/);
   expect(src('components/project/OverviewTab.tsx')).toMatch(/d\.waiting/);
   expect(src('components/TaskRow.tsx')).toMatch(/isOverdue\(task\)/);
 });
