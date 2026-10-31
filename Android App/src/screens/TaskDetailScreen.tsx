@@ -47,7 +47,7 @@ import { loadTextPreview, previewMode } from '../lib/file-preview';
 import { checkTaskFiles } from '../lib/task-form';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
-import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem, taskSections } from '../lib/task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, conflictText, deleteChoice, dueState, meetingLine, taskLoadProblem, taskSections } from '../lib/task-detail';
 import { stillMatching } from '../lib/blocker-search';
 import { approvalNotice, isWaitingForApproval } from '../lib/approvals';
 import { notice } from '../components/notice';
@@ -200,6 +200,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const user = session?.user ?? null;
   const project = projectQ.data;
   const series = inSeries(task);
+  // Delete task: for whoever may delete tasks at all; someone else's task (not theirs alone) greyed out, saying why.
+  const del = deleteChoice(session?.user ?? null, projectQ.data, members, task, (assigneesQ.data ?? []).map((a) => a.id));
   const deps = depsQ.data ?? { blockedBy: [], blocks: [] };
 
   /** Save a field edit; `withScope` applies "entire series" when chosen (title, description, priority, estimate). */
@@ -278,7 +280,12 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
         },
       );
     };
-    if (series) {
+    if (series && del.seriesBlocked) {
+      Alert.alert('Delete this occurrence?', `${del.seriesBlocked} This occurrence can be deleted.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'This occurrence', style: 'destructive', onPress: () => void run() },
+      ]);
+    } else if (series) {
       Alert.alert('Delete this recurring task?', 'Delete just this occurrence, or the entire series?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'This occurrence', style: 'destructive', onPress: () => void run() },
@@ -459,10 +466,11 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
         ) : (
           show(layout.main)
         )}
-        {canDeleteTask(session?.user ?? null, projectQ.data, members) ? (
+        {del.offered ? (
           <View style={styles.danger}>
             <Text style={styles.dangerNote}>Deleting a task removes its checklist, comments and files.</Text>
-            <Button title="Delete task" variant="ghost" onPress={confirmDelete} loading={deleteTask.isPending} accessibilityLabel="Delete task" />
+            <Button title="Delete task" variant="ghost" onPress={confirmDelete} loading={deleteTask.isPending} disabled={!!del.blocked} accessibilityLabel="Delete task" accessibilityHint={del.blocked ?? undefined} />
+            {del.blocked ? <Text style={styles.dangerNote}>{del.blocked}</Text> : null}
           </View>
         ) : null}
       </KeyboardAwareScrollView>

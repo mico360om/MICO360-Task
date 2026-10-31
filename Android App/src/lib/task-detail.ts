@@ -5,6 +5,7 @@ import { dayText, instantDayText } from './day-words';
 import { isWaitingForApproval } from './approvals';
 import { canManageProject } from './project-team';
 import { ApiError, isNetworkError } from './api-client';
+import { DELETE_NOT_ALLOWED, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from './task-delete-rule';
 import type { FeedEntry } from './activity-feed';
 import type { ApiActivityEntry, ApiColumn, ApiTask, ApiTaskMeeting } from './types';
 
@@ -41,6 +42,27 @@ export function canDeleteTask(
   members: readonly { id: string; role: 'MEMBER' | 'MANAGER' }[] = [],
 ): boolean {
   return canManageProject(user, project, members);
+}
+
+/**
+ * Delete task on the task screen (the owner's rule, lib/task-delete-rule): offered to whoever may
+ * delete tasks at all ({@link canDeleteTask}); of those, greyed out with the reason for a task they
+ * didn't create that isn't assigned to them alone, and "the entire series" only for the series'
+ * creator. The server says (canDelete / canDeleteSeries); an older one doesn't: the same rule here.
+ */
+export function deleteChoice(
+  user: { id: string; roles: string[] } | null,
+  project: { canManage?: boolean } | null | undefined,
+  members: readonly { id: string; role: 'MEMBER' | 'MANAGER' }[],
+  task: Pick<ApiTask, 'createdById' | 'canDelete' | 'canDeleteSeries'>,
+  assigneeIds: readonly string[],
+): { offered: boolean; blocked: string | null; seriesBlocked: string | null } {
+  const offered = canDeleteTask(user, project, members);
+  if (!offered || !user) return { offered: false, blocked: null, seriesBlocked: null };
+  const facts = { viewerId: user.id, mayManage: true, createdById: task.createdById ?? '' };
+  const one = task.canDelete ?? mayDeleteTask({ ...facts, assigneeIds });
+  const all = task.canDeleteSeries ?? mayDeleteSeries({ ...facts, seriesCreatorId: facts.createdById });
+  return { offered, blocked: one ? null : DELETE_NOT_ALLOWED, seriesBlocked: all ? null : DELETE_SERIES_NOT_ALLOWED };
 }
 
 /**

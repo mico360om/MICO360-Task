@@ -95,6 +95,12 @@ export interface ApiTask {
   inspectionPlace?: string | null;
   /** The form a check carries, as GET /tasks/:id names it (still there when the form was deleted since — Stage 4). */
   inspectionForm?: { id: string; title: string; deleted: boolean } | null;
+  /** Who created it (older servers may leave it out). */
+  createdById?: string;
+  /** May the signed-in person delete it: its creator, or the one person it's assigned to (task details; lib/task-delete-rule). */
+  canDelete?: boolean;
+  /** May they delete its entire repeating series: only the series' creator (task details). */
+  canDeleteSeries?: boolean;
 }
 
 /** A person named on a task's approval (the website's api/tasks.ts). */

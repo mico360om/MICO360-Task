@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FORMERLY_HINT, activityFeed, aiFailureText, blockerRefs, canDeleteTask, conflictText, dueFieldValue, dueState, formerKeysText, meetingLine, moveBy, taskLoadProblem, taskSections } from './task-detail';
+import { FORMERLY_HINT, activityFeed, aiFailureText, blockerRefs, canDeleteTask, conflictText, deleteChoice, dueFieldValue, dueState, formerKeysText, meetingLine, moveBy, taskLoadProblem, taskSections } from './task-detail';
 import { hasWeb, readWeb } from '../testing/web-source';
 import { ApiError, NetworkError } from './api-client';
 import type { ApiActivityEntry, ApiColumn, ApiTask } from './types';
@@ -22,6 +22,31 @@ describe('canDeleteTask', () => {
     const emp = { id: 'u2', roles: ['EMPLOYEE'] };
     expect(canDeleteTask(emp, { canManage: true })).toBe(true);
     expect(canDeleteTask(emp, { canManage: false }, [{ id: 'u2', role: 'MANAGER' }])).toBe(false);
+  });
+});
+
+describe('deleteChoice (who may delete this task: its creator, or the one person it’s assigned to)', () => {
+  const REASON = 'Only the person who created this task, or the one person it’s assigned to, can delete it.';
+  const SERIES = 'Only the person who created this repeating task can delete the entire series.';
+  const runner = { id: 'u2', roles: ['EMPLOYEE'] };
+  const runs = { canManage: true };
+
+  it('not offered at all to someone who may not delete tasks (as before)', () => {
+    expect(deleteChoice({ id: 'u1', roles: ['EMPLOYEE'] }, { canManage: false }, [], { createdById: 'u1', canDelete: false }, ['u1'])).toEqual({ offered: false, blocked: null, seriesBlocked: null });
+    expect(deleteChoice(null, runs, [], { createdById: 'u1' }, [])).toEqual({ offered: false, blocked: null, seriesBlocked: null });
+  });
+
+  it('the server says: offered, greyed out with the reason when it says no', () => {
+    expect(deleteChoice(runner, runs, [], { createdById: 'u9', canDelete: false, canDeleteSeries: false }, ['u2'])).toEqual({ offered: true, blocked: REASON, seriesBlocked: SERIES });
+    expect(deleteChoice(runner, runs, [], { createdById: 'u9', canDelete: true, canDeleteSeries: false }, [])).toEqual({ offered: true, blocked: null, seriesBlocked: SERIES });
+    expect(deleteChoice(runner, runs, [], { createdById: 'u9', canDelete: true, canDeleteSeries: true }, [])).toEqual({ offered: true, blocked: null, seriesBlocked: null });
+  });
+
+  it('an older server that doesn’t say: the same rule from who created it and who it’s assigned to', () => {
+    expect(deleteChoice(runner, runs, [], { createdById: 'u2' }, ['a', 'b'])).toEqual({ offered: true, blocked: null, seriesBlocked: null });
+    expect(deleteChoice(runner, runs, [], { createdById: 'u9' }, ['u2'])).toEqual({ offered: true, blocked: null, seriesBlocked: SERIES });
+    expect(deleteChoice(runner, runs, [], { createdById: 'u9' }, ['u2', 'a'])).toEqual({ offered: true, blocked: REASON, seriesBlocked: SERIES });
+    expect(deleteChoice(runner, runs, [], {}, [])).toEqual({ offered: true, blocked: REASON, seriesBlocked: SERIES });
   });
 });
 
