@@ -12,6 +12,7 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import { useServices, useUserId } from '../core/providers';
 import { useProjects } from '../core/queries';
@@ -32,7 +33,7 @@ import { targetToAction, requiresSession, chatScreenId, meetingScreenId, taskScr
 import { createPendingAction } from './pending-action';
 import { LINKING_PREFIXES, holdUntilSignedIn, linkingConfig, normalizeLinkPath, withoutLinkTitles } from './linking';
 import type { AuthStackParamList, AppStackParamList, TabsParamList } from './types';
-import { TAB_ITEMS, tabLabelMaxScale, type TabName } from './tabs';
+import { TAB_ITEMS, tabBarFrame, tabLabelMaxScale, type TabName } from './tabs';
 import { AppDrawer } from '../components/AppDrawer';
 import { AppTopBar } from '../components/AppTopBar';
 import { Icon } from '../components/Icon';
@@ -179,6 +180,8 @@ function MainTabs() {
   // How far a label may grow with the phone's font size: as far as all five still fit this width.
   const { width } = useWindowDimensions();
   const labelScale = tabLabelMaxScale(width);
+  // A gap under the labels (or the phone's bottom inset): they never touch the system's own bar.
+  const insets = useSafeAreaInsets();
   return (
     <Tabs.Navigator
       screenOptions={({ route }) => ({
@@ -186,7 +189,7 @@ function MainTabs() {
         header: () => <AppTopBar />,
         tabBarActiveTintColor: colors.brandText,
         tabBarInactiveTintColor: colors.ink3,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, borderTopWidth: 1 },
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, borderTopWidth: 1, ...tabBarFrame(insets.bottom) },
         tabBarIcon: ({ color }) => <Icon name={TAB_ICON[route.name]} size={22} color={color} />,
         tabBarLabel: ({ color, position }) => (
           <Text style={[typeStyle('tab'), { color }, position === 'beside-icon' ? TAB_LABEL_BESIDE : null]} maxFontSizeMultiplier={labelScale} numberOfLines={1} adjustsFontSizeToFit>

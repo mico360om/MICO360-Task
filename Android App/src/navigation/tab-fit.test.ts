@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { TAB_ITEMS, TAB_LABEL_MAX_SCALE, TAB_LABEL_SIZE, tabLabelMaxScale, tabLabelRoom } from './tabs';
+import { TAB_BAR_LABEL_GAP, TAB_ITEMS, TAB_LABEL_MAX_SCALE, TAB_LABEL_SIZE, tabBarFrame, tabLabelMaxScale, tabLabelRoom } from './tabs';
 import { textWidthEm } from '../lib/font-metrics';
 import { appSource as src } from '../testing/web-source';
 
@@ -39,4 +39,17 @@ it('the tab label caps its font scale by the window width and stays on one line'
   const nav = src('navigation/RootNavigator.tsx');
   expect(nav).toMatch(/const labelScale = tabLabelMaxScale\(width\);/);
   expect(nav).toMatch(/maxFontSizeMultiplier=\{labelScale\}[^]*?numberOfLines=\{1\}/);
+});
+
+// Device check G (31 Oct): with no bottom inset (the phone's own navigation bar below the app) the
+// labels sat on the tab bar's bottom edge — the "y" of "My Tasks" touched the system bar. The bar
+// keeps a gap under its labels, or the phone's inset when that is larger, and grows by it.
+it('the tab bar keeps a gap under its labels (the bottom inset when larger) and grows by it', () => {
+  expect(TAB_BAR_LABEL_GAP).toBe(8);
+  expect(tabBarFrame(0)).toEqual({ height: 49 + 8, paddingBottom: 8 });
+  expect(tabBarFrame(5)).toEqual({ height: 49 + 8, paddingBottom: 8 });
+  expect(tabBarFrame(24)).toEqual({ height: 49 + 24, paddingBottom: 24 });
+  const nav = src('navigation/RootNavigator.tsx');
+  expect(nav).toMatch(/tabBarStyle: \{ backgroundColor: colors\.surface, borderTopColor: colors\.line, borderTopWidth: 1, \.\.\.tabBarFrame\(insets\.bottom\) \}/);
+  expect(nav).toMatch(/const insets = useSafeAreaInsets\(\);/);
 });

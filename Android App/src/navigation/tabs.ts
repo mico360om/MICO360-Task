@@ -38,3 +38,18 @@ export function tabLabelMaxScale(width: number): number {
 
 /** The cap on a 360 dp phone. */
 export const TAB_LABEL_MAX_SCALE = tabLabelMaxScale(360);
+
+/** The tab bar's own height (dp) without anything under its labels: React Navigation's. */
+const TAB_BAR_HEIGHT = 49;
+
+/** The gap kept under the tab labels (dp), so they never sit on the phone's own navigation bar. */
+export const TAB_BAR_LABEL_GAP = 8;
+
+/**
+ * The tab bar's height and bottom padding over a bottom inset of `insetBottom` dp: the inset, or
+ * TAB_BAR_LABEL_GAP when that is larger, under the labels — and the bar grows by it.
+ */
+export function tabBarFrame(insetBottom: number): { height: number; paddingBottom: number } {
+  const paddingBottom = Math.max(insetBottom, TAB_BAR_LABEL_GAP);
+  return { height: TAB_BAR_HEIGHT + paddingBottom, paddingBottom };
+}
