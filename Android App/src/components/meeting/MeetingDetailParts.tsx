@@ -141,7 +141,7 @@ export function RsvpCard({
       <Text style={s.sectionTitle} accessibilityRole="header">
         GOING?
       </Text>
-      <View style={s.answers} accessibilityRole="radiogroup" accessibilityLabel="Your answer to the invitation">
+      <View style={s.answers} accessibilityLabel="Your answer to the invitation">
         {ANSWERS.map((a) => (
           <Chip
             key={a.value}
@@ -415,7 +415,7 @@ export function NoteFiltersRow({ notes, filter, onFilter, place }: { notes: ApiM
   const s = useDetailStyles();
   return (
     <SectionRow place={place}>
-      <View style={s.answers} accessibilityRole="radiogroup" accessibilityLabel="Show notes">
+      <View style={s.answers} accessibilityLabel="Show notes">
         {noteFilters(notes).map((f) => (
           <Chip key={f.key} label={`${f.label} ${f.count}`} selected={filter === f.key} onPress={() => onFilter(f.key)} a11yLabel={`${f.label}, ${f.count}`} />
         ))}

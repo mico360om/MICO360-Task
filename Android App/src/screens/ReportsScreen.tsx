@@ -113,7 +113,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
             <Text style={s.intro}>Task delivery, project progress and team workload — with exports.</Text>
             <Card style={s.card}>
               <SectionTitle>Export</SectionTitle>
-              <View style={s.chips} accessibilityRole="radiogroup" accessibilityLabel="Report to export">
+              <View style={s.chips} accessibilityLabel="Report to export">
                 {EXPORT_REPORTS.map((r) => (
                   <Chip key={r.kind} label={r.label} selected={kind === r.kind} onPress={() => { setKind(r.kind); setMsg(null); }} />
                 ))}
@@ -186,7 +186,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
                 <Muted style={s.hint}>
                   {reportDay(range.from)} – {reportDay(range.to)} · {periodDays(range)} days · {scopeText}
                 </Muted>
-                <View style={s.chips} accessibilityRole="radiogroup" accessibilityLabel="Dates of the trend">
+                <View style={s.chips} accessibilityLabel="Dates of the trend">
                   {PERIOD_PRESETS.map((n) => (
                     <Chip key={n} label={`Last ${n} days`} selected={preset === n} onPress={() => choosePreset(n)} />
                   ))}

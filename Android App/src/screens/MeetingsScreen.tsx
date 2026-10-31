@@ -125,7 +125,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
         style={styles.search}
       />
       <View style={styles.controls}>
-        <View style={styles.scope} accessibilityRole="radiogroup" accessibilityLabel="Whose meetings">
+        <View style={styles.scope} accessibilityLabel="Whose meetings">
           <Chip label="All meetings" selected={scope === 'all'} onPress={() => setScope('all')} />
           <Chip label="Organized by me" selected={scope === 'mine'} onPress={() => setScope('mine')} />
         </View>

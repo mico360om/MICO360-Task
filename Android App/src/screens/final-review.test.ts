@@ -1,5 +1,6 @@
 import { it, expect } from 'vitest';
-import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
+import ts from 'typescript';
+import { appSource as src, appSources, hasWeb, readWeb } from '../testing/web-source';
 
 /** Fixes from the final review of Stage 1 that are checked in the source. */
 
@@ -107,4 +108,27 @@ it('the Profile photo is the website’s xl avatar and says what it shows', () =
     expect(web).toMatch(/className="h-28 w-28 rounded-full border border-line object-cover shadow-soft"/);
     expect(web).toMatch(/className="grid h-28 w-28 place-items-center rounded-full bg-brand-gradient text-3xl font-bold text-white shadow-brand"/);
   }
+});
+
+// Item 18 (S17): a Chip is a button that says "selected" (Task 4 ruling), so a row of Chips is no
+// radiogroup — TalkBack would announce radio buttons that are not there. Rows of real radios
+// (accessibilityRole="radio") keep theirs.
+it('no radiogroup holds Chips', () => {
+  const found: string[] = [];
+  for (const [file, text] of appSources().filter(([f]) => f.endsWith('.tsx'))) {
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const tags = (n: ts.Node, out: string[] = []): string[] => {
+      if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) out.push(n.tagName.getText(sf));
+      ts.forEachChild(n, (k) => void tags(k, out));
+      return out;
+    };
+    const visit = (n: ts.Node): void => {
+      if (ts.isJsxElement(n) && /accessibilityRole="radiogroup"/.test(n.openingElement.getText(sf)) && tags(n).slice(1).includes('Chip')) {
+        found.push(`${file}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  expect(found).toEqual([]);
 });
