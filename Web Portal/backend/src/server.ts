@@ -31,6 +31,7 @@ import { createTemplateService } from './modules/templates/template-service';
 import { createPrismaTemplateRepository } from './modules/templates/prisma-template-repository';
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
+import { createCompanyAccess } from './modules/companies/company-access';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
 import { createCarryForwardService } from './modules/tasks/carry-forward-service';
@@ -245,6 +246,8 @@ async function main(): Promise<void> {
     projects: projectRepository,
     managers: createPrismaProjectManagerLookup(prisma),
   });
+  // companies: the access rule module (memberships and project companies, read fresh on every request).
+  const companyAccess = createCompanyAccess(prisma);
 
   // Late-bound so moving a task to a DONE column can spawn the next recurring instance (below).
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
@@ -1413,6 +1416,7 @@ async function main(): Promise<void> {
     timelineSource: createPrismaTimelineSource(prisma),
     workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
+    companyAccess,
     columnService,
     memberService,
     projectAuthz,

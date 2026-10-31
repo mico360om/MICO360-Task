@@ -65,6 +65,18 @@ describe('CORS for trusted origins (the Chrome extension, a separately hosted we
     const res = await app.inject({ method: 'GET', url: '/api/v1/health', headers: { origin: 'chrome-extension://abc' } });
     expect(String(res.headers['access-control-expose-headers'])).toContain('Content-Disposition');
   });
+
+  // Companies: the picked company travels in X-Company-Id on every call (CORS reflects the asked-for
+  // headers; this pins it).
+  it('a browser may send X-Company-Id', async () => {
+    const app = await buildApp({ authService, tokenService, corsOrigins: ['chrome-extension://x'] });
+    const r = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/v1/projects',
+      headers: { origin: 'chrome-extension://x', 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization,x-company-id' },
+    });
+    expect(String(r.headers['access-control-allow-headers']).toLowerCase()).toContain('x-company-id');
+  });
 });
 
 describe('private data: caching and search engines', () => {

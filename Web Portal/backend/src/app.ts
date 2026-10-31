@@ -102,6 +102,8 @@ import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
+import type { CompanyAccess } from './modules/companies/company-access';
+import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -281,6 +283,11 @@ export interface AppDeps extends AuthRouteDeps {
   management?: Omit<ManagementRouteDeps, 'guard'>;
   /** System Settings → Backups: the copies, "Back up now", downloads and Google Drive (administrators only). */
   backups?: Omit<BackupRouteDeps, 'guard' | 'audit'>;
+  /**
+   * Companies: who belongs to which company and which projects each one sees (the access rule every
+   * project and people query is built from), and the company a request picked (X-Company-Id).
+   */
+  companyAccess?: CompanyAccess;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -488,6 +495,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const accessibleProjectIds = access ? (u: string, r: string[]) => access.accessibleProjectIds(u, r) : undefined;
       const mAccess = deps.meetingAccess;
       const canViewMeeting = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
+      // companies: the request's picked company (X-Company-Id), checked once per request; it narrows
+      // `list` routes only (see modules/companies/route-classes.ts). Without the module: no pick.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- companies: the list routes take it (MC1 Task 8)
+      const pickOf: PickOf = deps.companyAccess ? createPickResolver(deps.companyAccess) : NO_PICK;
       const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[]) => mAccess.accessibleProjectIds(u, r) : undefined;
       if (deps.projectService) {
         await registerProjectRoutes(api, {
