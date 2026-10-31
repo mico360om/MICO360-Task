@@ -24,3 +24,9 @@ it('S3: a preview shows "Loading…" (and can’t be confirmed) while it is read
 it('S4: a project made from a template refreshes My Tasks, the Dashboard and the Calendar (its tasks are new)', () => {
   expect(src('core/project-queries.ts')).toMatch(/over\?\.create && !o\.saved && \(out\.kind === 'done' \|\| out\.kind === 'partly'\)\) refresh\(qc, createdTaskRefreshes\(out\.project\.id\)\)/);
 });
+
+it('S6: a removed client leaves the list at once (and the list is read again)', () => {
+  const q = src('core/client-share-queries.ts');
+  expect(q).toMatch(/onSuccess: \(_r, share\) => \{[^}]*setQueryData<ClientShare\[\]>\(\['client-shares', projectId\][^]*filter\(\(s\) => s\.id !== share\.id\)/);
+  expect(q).toMatch(/remove = useMutation[^]*refresh\(\)/);
+});

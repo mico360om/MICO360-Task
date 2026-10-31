@@ -24,7 +24,14 @@ export function useShareMutations(projectId: string) {
     onSuccess: refresh,
   });
   const resend = useMutation({ mutationFn: (share: ClientShare) => resources.clientShares.resend(projectId, share.id), onSuccess: refresh });
-  const remove = useMutation({ mutationFn: (share: ClientShare) => resources.clientShares.remove(projectId, share.id), onSuccess: refresh });
+  // A removed client leaves the list at once (their access ended), then the list is read again.
+  const remove = useMutation({
+    mutationFn: (share: ClientShare) => resources.clientShares.remove(projectId, share.id),
+    onSuccess: (_r, share) => {
+      qc.setQueryData<ClientShare[]>(['client-shares', projectId], (old) => (Array.isArray(old) ? old.filter((s) => s.id !== share.id) : old));
+      refresh();
+    },
+  });
   return { add, resend, remove };
 }
 
