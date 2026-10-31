@@ -119,12 +119,12 @@ export function TimelineScreen({ navigation }: AppScreenProps<'Timeline'>) {
 
       <View style={s.tiles} accessibilityLabel="Summary">
         <View style={tile}>
-          <StatTile label="Open projects" value={ready ? summary.open : '–'} icon="nav.projects" tone="info" />
+          <StatTile label="Open projects" value={ready ? summary.open : '–'} spokenValue={ready ? undefined : 'loading'} icon="nav.projects" tone="info" />
         </View>
         <View style={tile}>
           <StatTile
             label="Late · target passed"
-            value={ready ? summary.late : '–'}
+            value={ready ? summary.late : '–'} spokenValue={ready ? undefined : 'loading'}
             icon="kit.clock"
             tone="danger"
             onPress={() => toggle('late')}
@@ -135,7 +135,7 @@ export function TimelineScreen({ navigation }: AppScreenProps<'Timeline'>) {
         <View style={tile}>
           <StatTile
             label="At risk"
-            value={ready ? summary.atRisk : '–'}
+            value={ready ? summary.atRisk : '–'} spokenValue={ready ? undefined : 'loading'}
             icon="ui.alert"
             tone="warning"
             onPress={() => toggle('at-risk')}
@@ -144,10 +144,10 @@ export function TimelineScreen({ navigation }: AppScreenProps<'Timeline'>) {
           />
         </View>
         <View style={tile}>
-          <StatTile label="Milestones in 30 days" value={ready ? summary.milestonesSoon : '–'} icon="misc.milestone" tone="brand" />
+          <StatTile label="Milestones in 30 days" value={ready ? summary.milestonesSoon : '–'} spokenValue={ready ? undefined : 'loading'} icon="misc.milestone" tone="brand" />
         </View>
         <View style={tile}>
-          <StatTile label="Meetings this week" value={ready ? summary.meetingsThisWeek : '–'} icon="nav.meetings" tone="info" />
+          <StatTile label="Meetings this week" value={ready ? summary.meetingsThisWeek : '–'} spokenValue={ready ? undefined : 'loading'} icon="nav.meetings" tone="info" />
         </View>
       </View>
 

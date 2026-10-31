@@ -80,7 +80,12 @@ export interface ManagementTile {
   query: ItemQuery | null;
   /** What it counts, in words ("6 late tasks in all projects"): the list's name. */
   action: string;
+  /** What TalkBack says for a value that is only a look: "none yet" for the pass rate's "—" (final review P5). */
+  spokenValue?: string;
 }
+
+/** What TalkBack says for a pass rate's "—" (no item passed or failed): "none yet". */
+export const NO_RATE_SPOKEN = 'none yet';
 
 /** The 8 tiles' labels, in order: what the screen's grid measures (lib/stat-grid statTileColumns). */
 export const MANAGEMENT_TILE_LABELS = ['Projects', 'In red', 'Late tasks', 'Missing checks', 'Checks done', 'Pass rate', 'Overloaded this week', 'Open follow-ups'] as const;
@@ -96,6 +101,7 @@ export function managementTiles(o: ManagementOverview): ManagementTile[] {
     tone: x.tone,
     query: x.query && x.count > 0 ? x.query : null,
     action: x.action,
+    ...(x.spokenValue ? { spokenValue: x.spokenValue } : {}),
   });
   return [
     tile({ label: 'Projects', value: t.projects, hint: `${t.red} red · ${t.amber} amber · ${t.green} green`, tone: 'brand', query: { metric: 'projects' }, count: t.projects, action: plural(t.projects, 'project') }),
@@ -104,7 +110,7 @@ export function managementTiles(o: ManagementOverview): ManagementTile[] {
     tile({ label: 'Missing checks', value: t.missingChecks, hint: 'Inspections not done on time', tone: 'warning', query: { metric: 'missing-checks' }, count: t.missingChecks, action: plural(t.missingChecks, 'missing check') }),
     tile({ label: 'Checks done', value: `${t.checksDone} of ${t.checksDue}`, hint: t.checksDoneLate ? `${t.checksDoneLate} done late` : 'In the period', tone: 'success', query: { metric: 'checks-due' }, count: t.checksDue, action: `${t.checksDone} of ${plural(t.checksDue, 'check')} done` }),
     // A percentage, not a list: shown, never opened.
-    tile({ label: 'Pass rate', value: t.passRate === null ? '—' : `${t.passRate}%`, hint: 'Items passed in the period', tone: 'info', query: null, count: 0, action: '' }),
+    tile({ label: 'Pass rate', value: t.passRate === null ? '—' : `${t.passRate}%`, hint: 'Items passed in the period', tone: 'info', query: null, count: 0, action: '', spokenValue: t.passRate === null ? NO_RATE_SPOKEN : undefined }),
     tile({ label: 'Overloaded this week', value: t.overloadedPeople, hint: `Over the daily limit of ${o.workload.limit}`, tone: 'warning', query: { metric: 'people-overloaded' }, count: t.overloadedPeople, action: `${plural(t.overloadedPeople, 'person', 'people')} overloaded this week` }),
     tile({ label: 'Open follow-ups', value: t.openFollowUps, hint: 'From failed inspection items', tone: 'brand', query: { metric: 'follow-ups' }, count: t.openFollowUps, action: plural(t.openFollowUps, 'open follow-up') }),
   ];
@@ -244,6 +250,8 @@ export interface InspectionFigure {
   query: ItemQuery | null;
   /** The list's name ("5 checks due in the period"). */
   action: string;
+  /** What TalkBack says for a value that is only a look ("none yet" for the pass rate's "—"). */
+  spoken?: string;
 }
 
 /** The section's eight figures, in its order, the server's as sent. */
@@ -263,7 +271,7 @@ export function inspectionFigures(i: ManagementOverview['inspections']): Inspect
     fig('Missing now', i.missing, 'danger', { metric: 'missing-checks' }, plural(i.missing, 'missing check')),
     fig('Closed without a report', i.noReport, 'warning', { metric: 'checks-no-report' }, `${plural(i.noReport, 'check')} closed without a report`),
     fig('Inspections finished', i.finished, 'neutral', { metric: 'inspections' }, `${plural(i.finished, 'inspection')} finished in the period`, i.passRate === null ? 'No items passed or failed yet' : `${i.passed} items passed · ${i.failed} failed`),
-    { label: 'Pass rate', value: i.passRate === null ? '—' : `${i.passRate}%`, help: 'Items passed of those passed or failed', tone: 'neutral', query: null, action: '' },
+    { label: 'Pass rate', value: i.passRate === null ? '—' : `${i.passRate}%`, help: 'Items passed of those passed or failed', tone: 'neutral', query: null, action: '', ...(i.passRate === null ? { spoken: NO_RATE_SPOKEN } : {}) },
     fig('Open follow-ups', i.openFollowUps, 'neutral', { metric: 'follow-ups' }, plural(i.openFollowUps, 'open follow-up task')),
   ];
 }
@@ -348,6 +356,10 @@ export function trendTableRows(t: TrendRow[], all: boolean): Array<TrendRow & { 
   const newestFirst = [...t].reverse();
   return (all ? newestFirst : newestFirst.slice(0, TREND_SHOWN_WEEKS)).map((w) => ({ ...w, week: `${dayMonth(w.start)}${w.current ? ' (this week)' : ''}` }));
 }
+
+/** A week of the table in words for TalkBack: "Week of 4 Oct: 2 created, 1 completed, 0 late, pass rate 75%" ("no inspection finished" for its "—"). */
+export const trendRowLabel = (w: TrendRow & { week: string }) =>
+  `Week of ${w.week}: ${w.created} created, ${w.completed} completed, ${w.late} late, ${w.passRate === null ? 'no inspection finished' : `pass rate ${w.passRate}%`}`;
 
 /** "Show all 12 weeks" / "Show the latest 6 weeks". */
 export const trendToggleText = (n: number, all: boolean) => (all ? `Show the latest ${TREND_SHOWN_WEEKS} weeks` : `Show all ${n} weeks`);

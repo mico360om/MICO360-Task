@@ -172,6 +172,7 @@ export function ManagementScreen({ navigation }: AppScreenProps<'Management'>) {
                       <StatTile
                         label={tile.label}
                         value={tile.value}
+                        spokenValue={tile.spokenValue}
                         hint={tile.hint}
                         tone={tile.tone}
                         onPress={tile.query ? () => openList(tile.query!, tile.label) : undefined}

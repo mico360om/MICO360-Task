@@ -36,7 +36,7 @@ export function InspectionsSection({ data, onOpen }: { data: ManagementOverview[
             {inspectionFigures(data).map((f) => (
               <View key={f.label} style={s.figureCell}>
                 <View style={s.figure}>
-                  <NumberButton value={f.value} label={f.action || `${f.label}: ${f.value}`} query={f.query} onOpen={onOpen} tone={f.tone} big />
+                  <NumberButton value={f.value} label={f.action || `${f.label}: ${f.spoken ?? f.value}`} query={f.query} onOpen={onOpen} tone={f.tone} big />
                   <Text style={s.figureLabel}>{f.label}</Text>
                   {f.help ? <Text style={s.help}>{f.help}</Text> : null}
                 </View>

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import { LineChart } from '../charts';
-import { TREND_COLUMNS, trendCharts, trendNote, trendTableRows, trendToggleText } from '../../lib/management';
+import { TREND_COLUMNS, trendCharts, trendNote, trendRowLabel, trendTableRows, trendToggleText } from '../../lib/management';
 import type { TrendRow } from '../../lib/management-api';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { typeStyle } from '../../lib/typography';
@@ -43,9 +43,8 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
           ))}
         </View>
         {trendTableRows(weeks, all).map((w) => {
-          const rate = w.passRate === null ? '—' : `${w.passRate}%`;
           return (
-            <View key={w.start} style={[s.tr, s.row]} accessible accessibilityLabel={`Week of ${w.week}: ${w.created} created, ${w.completed} completed, ${w.late} late, pass rate ${rate}`}>
+            <View key={w.start} style={[s.tr, s.row]} accessible accessibilityLabel={trendRowLabel(w)}>
               <Text style={[s.td, s.week, s.weekText, { flex: TREND_COLUMNS[0]!.flex }]}>{w.week}</Text>
               <Text style={[s.td, s.num, { flex: TREND_COLUMNS[1]!.flex }]}>{w.created}</Text>
               <Text style={[s.td, s.num, { flex: TREND_COLUMNS[2]!.flex }]}>{w.completed}</Text>
