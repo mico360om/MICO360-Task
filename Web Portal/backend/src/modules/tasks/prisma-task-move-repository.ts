@@ -3,9 +3,13 @@ import { createPrismaTaskRepository, firstFreeKey, highestKeyNumber, isTaskKeyCo
 import { TaskKeyConflictError } from './task-repository';
 import { TaskChangedConflictError, TaskMovedConflictError, type TaskMoveRepository } from './task-move-repository';
 import { moveHistory } from './task-move-history';
-import { managedProjectsWhere } from '../projects/project-managers';
+import { managedVisibleWhere } from '../projects/project-managers';
+import { ARCHIVE_SELECT, archivedOf, liveProjectWhere } from '../companies/project-archive';
 
-const projectSelect = { id: true, code: true, name: true, status: true, defaultDueToday: true, color: true, icon: true, imageUrl: true } as const;
+// companies: with its companies' statuses, so it says whether it counts as archived.
+const projectSelect = { id: true, code: true, name: true, status: true, defaultDueToday: true, color: true, icon: true, imageUrl: true, companies: ARCHIVE_SELECT.companies } as const;
+type ProjectRow = Prisma.ProjectGetPayload<{ select: typeof projectSelect }>;
+const toMoveProject = ({ companies, ...p }: ProjectRow) => ({ ...p, archived: archivedOf({ status: p.status, companies }) });
 const displayName = (u: { username: string; firstName: string | null; lastName: string | null }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
 /**
@@ -55,16 +59,20 @@ export function createPrismaTaskMoveRepository(prisma: PrismaClient): TaskMoveRe
     },
 
     async findProject(id) {
-      return prisma.project.findFirst({ where: { id, deletedAt: null }, select: projectSelect });
+      const p = await prisma.project.findFirst({ where: { id, deletedAt: null }, select: projectSelect });
+      return p ? toMoveProject(p) : null;
     },
 
     async listOpenProjects() {
-      return prisma.project.findMany({ where: { deletedAt: null, status: { notIn: ['COMPLETED', 'ARCHIVED'] } }, select: projectSelect, orderBy: { name: 'asc' } });
+      // companies: not completed, and live (not archived by its own status or by all its companies).
+      const rows = await prisma.project.findMany({ where: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }), select: projectSelect, orderBy: { name: 'asc' } });
+      return rows.map(toMoveProject);
     },
 
     async managedProjectIds(userId) {
-      // Its owner, its named manager or a MANAGER member (project-managers).
-      const rows = await prisma.project.findMany({ where: { deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
+      // Its owner, its named manager or a MANAGER member (project-managers), inside one of their
+      // active companies (companies: managedVisibleWhere — a company they lost takes its projects along).
+      const rows = await prisma.project.findMany({ where: { deletedAt: null, ...managedVisibleWhere(userId) }, select: { id: true } });
       return rows.map((r) => r.id);
     },
 

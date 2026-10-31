@@ -8,7 +8,6 @@ import type { ProjectNotices } from './project-notices';
 import type { AuditService } from '../audit/audit-service';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import type { ActivityService } from '../activity/activity-service';
-import type { PickOf } from '../companies/company-pick';
 import type { OnProjectAudienceChanged, ProjectCompanies } from '../companies/project-companies';
 import { storeImageUpload } from '../../lib/image-upload';
 import { ForbiddenError, ValidationError } from '../../lib/http-errors';
@@ -17,6 +16,7 @@ import { buildProjectOverview, type ProjectOverviewSource } from './project-over
 import { defaultCompanyTimeZone } from '../tasks/task-status';
 import { idString, longText, requiredText, shortText } from '../tasks/validation';
 import { CODE_PATTERN, CODE_RULE, HEX_COLOR, PROJECT_ICONS, normalizeCode } from './project-icons';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 /** Project pictures: what the web app's cropper sends, with room for a logo uploaded as is. */
 export const PROJECT_IMAGE_RULES = {
@@ -103,6 +103,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
   const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown) =>
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'projects', action, entityId, newValue });
   const viewer = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+  const pickOf = deps.pickOf ?? NO_PICK;
   const isAdmin = (roles: string[]) => roles.includes('ADMIN');
   const canManage = (user: { id: string; roles: string[] }, projectId: string) =>
     deps.authz ? deps.authz.canManageProject(user.id, user.roles, projectId) : Promise.resolve(isAdmin(user.roles));
@@ -131,7 +132,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
   app.get('/projects', { preHandler: guard.authenticate }, async (req) => {
     // Employees see only projects they own/manage/belong to; admins see everything.
     const user = viewer(req);
-    const projects = await projectService.listVisibleProjects(user);
+    const projects = await projectService.listVisibleProjects(user, await pickOf(req));
     const can = await manageable(user, projects.map((p) => p.id));
     return { data: await withCompanies(projects.map((p) => ({ ...p, canManage: can.has(p.id) }))) };
   });
@@ -143,7 +144,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
   if (deps.overview) {
     app.get('/projects/overview', { preHandler: guard.authenticate }, async (req) => {
       const user = viewer(req);
-      const projects = await projectService.listVisibleProjects(user);
+      const projects = await projectService.listVisibleProjects(user, await pickOf(req));
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
       const ids = projects.map((p) => p.id);
       const [rows, can] = await Promise.all([deps.overview!.load(ids, ownerIds), manageable(user, ids)]);

@@ -134,7 +134,18 @@ export function createPrismaMeetingRepository(
       if (filter.from || filter.to) where.startAt = { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lt: filter.to } : {}) };
       // Object-level scope: non-admins see meetings they organize/attend or in their accessible projects.
       const scope = filter.scope;
-      if (scope && scope.projectIds !== null) {
+      if (scope?.pick) {
+        // companies: the picked company's meetings only (see MeetingListFilter.scope). Its projects'
+        // ids only filter the person's own meetings; nothing of a project they can't see is returned.
+        const { companyId, everyone } = scope.pick;
+        const ofCompany = (await prisma.projectCompany.findMany({ where: { companyId }, select: { projectId: true } })).map((r) => r.projectId);
+        const own: Prisma.MeetingWhereInput = everyone ? {} : { OR: [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }] };
+        where.OR = [
+          { projectId: { in: scope.projectIds ?? [] } },
+          { projectId: { in: ofCompany }, ...own },
+          { projectId: null, companyId, ...own },
+        ];
+      } else if (scope && scope.projectIds !== null) {
         const or: Prisma.MeetingWhereInput[] = [
           { organizerId: scope.userId },
           { attendees: { some: { userId: scope.userId } } },

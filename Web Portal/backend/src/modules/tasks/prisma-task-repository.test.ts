@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { createPrismaTaskRepository, createPrismaCarryForwardRepo, isTaskKeyConflict } from './prisma-task-repository';
 import { createPrismaRecurrencePort } from './prisma-recurrence-port';
 import { TaskKeyConflictError } from './task-repository';
+import { liveProjectWhere } from '../companies/project-archive';
 
 // These tests pin the query shapes against a stand-in client (no database needed).
 
@@ -283,8 +284,10 @@ describe('createPrismaRecurrencePort', () => {
     ]);
     const where = (fake.task.findMany.mock.calls[0] as unknown as [{ where: Record<string, any> }])[0].where;
     expect(where.deletedAt).toBeNull();
-    // Archived or completed projects stop making on-schedule copies.
-    expect(where.project).toEqual({ is: { deletedAt: null, status: { notIn: ['ARCHIVED', 'COMPLETED'] } } });
+    // Archived or completed projects stop making on-schedule copies — archived by its own status or
+    // by all its companies (companies: liveProjectWhere).
+    expect(where.project).toEqual({ is: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }) });
+    expect(JSON.stringify(where.project)).toContain('"companies":{"some":{"company":{"status":"ACTIVE"}}}');
     expect(where.NOT).toEqual([{ recurrenceRule: { equals: Prisma.DbNull } }]);
   });
 });

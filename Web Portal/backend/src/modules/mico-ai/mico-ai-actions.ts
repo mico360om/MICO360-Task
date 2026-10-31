@@ -281,7 +281,8 @@ type Spec =
 export function createMicoAiActions({ data, port, timeZone, now = () => new Date(), maxChanges = MAX_CHANGES }: MicoAiActionsDeps) {
   async function scopeOf(viewer: Viewer): Promise<Scope> {
     const projectIds = await data.accessibleProjectIds(viewer);
-    const [projects, people] = await Promise.all([data.projects(projectIds), data.people()]);
+    // companies: the projects of the company the question was asked under, and the people they may know.
+    const [projects, people] = await Promise.all([data.projects(projectIds), data.people(viewer)]);
     const allowed = (projectId: string | null | undefined) => !!projectId && (projectIds === null || projectIds.includes(projectId));
     return { viewer, projectIds, projects: projects.filter((p) => allowed(p.id)), people, person: new Map(people.map((p) => [p.id, p])), allowed };
   }

@@ -5,6 +5,7 @@ import type { AuditService } from '../audit/audit-service';
 import type { Logger } from '../../lib/logger';
 import type { TaskService } from './task-service';
 import type { TaskRecord } from './task-repository';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 /** Someone asking about approvals. */
 export interface ApprovalViewer {
@@ -50,6 +51,10 @@ export interface ApprovalRouteDeps {
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   audit?: AuditService;
   logger?: Pick<Logger, 'error'>;
+  /** companies: the caller's project ids in a picked company — with a pick, the list keeps only those projects' tasks. */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 const approveSchema = z.object({ expectedVersion: z.number().int().optional() });
@@ -78,8 +83,15 @@ export async function registerTaskApprovalRoutes(app: FastifyInstance, deps: App
 
   app.get('/tasks/approvals', { preHandler: guard.authenticate }, async (req) => {
     const v = viewer(req);
-    const [canApprove, tasks] = await Promise.all([deps.source.canApproveAny(v), deps.source.list(v)]);
-    return { data: { canApprove, tasks } };
+    const pick = await (deps.pickOf ?? NO_PICK)(req);
+    const [canApprove, tasks, picked] = await Promise.all([
+      deps.source.canApproveAny(v),
+      deps.source.list(v),
+      // companies: with a pick, only that company's projects (none = all the person's companies).
+      pick && deps.accessibleProjectIds ? deps.accessibleProjectIds(v.id, v.roles, pick) : Promise.resolve(null),
+    ]);
+    const inPick = picked ? new Set(picked) : null;
+    return { data: { canApprove, tasks: inPick ? tasks.filter((t) => inPick.has(t.projectId)) : tasks } };
   });
 
   app.post('/tasks/:id/approve', { preHandler: guard.authenticate }, async (req, reply) => {

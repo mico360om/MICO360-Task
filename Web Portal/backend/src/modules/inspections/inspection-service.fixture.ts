@@ -39,7 +39,8 @@ export interface Fixture {
   tasks: Map<string, FakeTask>;
   activity: Array<{ taskId: string; userId: string; action: string; meta?: Record<string, unknown> }>;
   audit: Array<{ userId: string | null; action: string; module: string; entityId?: string | null; newValue?: unknown }>;
-  projects: Map<string, { status: string; ownerId: string | null; name: string; deleted: boolean }>;
+  /** `archived`: all its companies are archived (companies) — it counts as archived, whatever its status. */
+  projects: Map<string, { status: string; archived?: boolean; ownerId: string | null; name: string; deleted: boolean }>;
   now: { at: Date };
   /** Makes createTask wait for this before it answers (to send two requests at once). */
   gate: { wait: Promise<void> | null };
@@ -68,7 +69,7 @@ export const as = (id: string) => ({ id, roles: id === PEOPLE.admin ? ['ADMIN'] 
 export function makeFixture(): Fixture {
   const now = { at: new Date('2026-10-27T08:00:00Z') };
   const store = createMemoryInspectionStore({ now: () => now.at });
-  const projects = new Map([
+  const projects: Fixture['projects'] = new Map([
     ['P1', { status: 'ACTIVE', ownerId: PEOPLE.owner, name: 'Rig 3 overhaul', deleted: false }],
     ['P2', { status: 'ACTIVE', ownerId: 'u-elsewhere', name: 'Other project', deleted: false }],
   ]);
@@ -111,7 +112,7 @@ export function makeFixture(): Fixture {
     runsAnyProject: async (userId) => [...projects.keys()].some((p) => runs(userId, p)),
     project: async (projectId) => {
       const p = projects.get(projectId);
-      return p && !p.deleted ? { name: p.name, code: 'RIG', number: 'C-77', clientName: 'Oman Drilling Co.', color: '#8B1E1E', icon: null, imageUrl: null, status: p.status, ownerId: p.ownerId } : null;
+      return p && !p.deleted ? { name: p.name, code: 'RIG', number: 'C-77', clientName: 'Oman Drilling Co.', color: '#8B1E1E', icon: null, imageUrl: null, status: p.status, ...(p.archived !== undefined ? { archived: p.archived } : {}), ownerId: p.ownerId } : null;
     },
     task: async (taskId) => {
       const t = tasks.get(taskId);

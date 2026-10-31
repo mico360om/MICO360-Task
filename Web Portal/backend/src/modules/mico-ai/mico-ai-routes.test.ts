@@ -8,6 +8,8 @@ import { createMicoAiTools } from './mico-ai-tools';
 import { createMemoryMicoAiData, company, NOW } from './mico-ai-data.fixture';
 import { inspectXlsx } from '../../lib/xlsx-inspect';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import { CompanyNotAvailableError } from '../companies/company-pick';
+import type { CompanyAccess } from '../companies/company-access';
 
 const tokenService = createTokenService({
   accessSecret: 'mico-ai-access',
@@ -178,6 +180,31 @@ describe('MICO AI routes', () => {
     expect((await app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'x'.repeat(4001) } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'PATCH', url: `/api/v1/mico-ai/chats/${chatId}`, headers: omar, payload: { title: 'x'.repeat(201) } })).statusCode).toBe(400);
     await app.close();
+  });
+});
+
+describe('MICO AI routes: the picked company (companies)', () => {
+  it('a question is asked under the request’s picked company; a pick that isn’t yours is refused', async () => {
+    const asked: unknown[] = [];
+    const micoAiService = { ask: async (viewer: unknown) => (asked.push(viewer), { question: {}, answer: {} }) } as unknown as Parameters<typeof buildApp>[0]['micoAiService'];
+    const companyAccess = {
+      async checkPick(viewer: { id: string }, pick: string | null) {
+        if (pick !== null && !(viewer.id === 'u-omar' && pick === 'company-b')) throw new CompanyNotAvailableError();
+        return pick;
+      },
+    } as unknown as CompanyAccess;
+    const app = await buildApp({ authService, tokenService, micoAiService, companyAccess });
+    const omar = { authorization: `Bearer ${(await tokenService.issueTokens({ id: 'u-omar', roles: ['EMPLOYEE'] })).accessToken}` };
+    const ask = (headers: Record<string, string>) => app.inject({ method: 'POST', url: '/api/v1/mico-ai/chats/c1/messages', headers: { ...omar, ...headers }, payload: { text: 'How many tasks?' } });
+    expect((await ask({ 'x-company-id': 'company-b' })).statusCode).toBe(202);
+    expect((await ask({})).statusCode).toBe(202);
+    expect(asked).toEqual([
+      { userId: 'u-omar', roles: ['EMPLOYEE'], pick: 'company-b' },
+      { userId: 'u-omar', roles: ['EMPLOYEE'], pick: null },
+    ]);
+    const refused = await ask({ 'x-company-id': 'company-x' });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe('COMPANY_NOT_AVAILABLE');
   });
 });
 

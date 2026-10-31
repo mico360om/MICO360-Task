@@ -6,6 +6,7 @@ import { boardDateFromKey, boardDateKey } from './board-date';
 import { defaultCompanyTimeZone } from './task-status';
 import { firstFreeKey, highestKeyNumber, isRecurrenceCopyConflict, isTaskKeyConflict } from './prisma-task-repository';
 import { projectAudienceIds } from './prisma-assignee-repository';
+import { liveProjectWhere } from '../companies/project-archive';
 
 const KEY_ATTEMPTS = 5;
 
@@ -152,7 +153,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
         // An archived or completed project makes no more copies on schedule.
         where: {
           deletedAt: null,
-          project: { is: { deletedAt: null, status: { notIn: ['ARCHIVED', 'COMPLETED'] } } },
+          // companies: archived by its own status or by all its companies (liveProjectWhere).
+          project: { is: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }) },
           NOT: [{ recurrenceRule: { equals: Prisma.DbNull } }],
           // A scheduled check whose form was deleted makes no more checks.
           OR: [{ inspectionFormId: null }, { inspectionForm: { is: { deletedAt: null } } }],

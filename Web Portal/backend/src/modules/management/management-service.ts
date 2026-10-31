@@ -309,11 +309,17 @@ export function createManagementService(deps: ManagementServiceDeps) {
     return (await source.runCount(viewer.id)) > 0 ? { allowed: true, scope: 'RUN' } : { allowed: false, scope: null };
   }
 
-  /** The caller's projects (every live one for an administrator; else those they run), then the filters. */
-  async function scopeOf(viewer: ManagementViewer, f: ManagementFilters) {
+  /**
+   * The caller's projects (every live one for an administrator; else those they run), in the picked
+   * company (companies: X-Company-Id — someone who runs projects only elsewhere sees an empty page,
+   * not a refusal), then the filters.
+   */
+  async function scopeOf(viewer: ManagementViewer, f: ManagementFilters, pick: string | null = null) {
     const admin = isAdmin(viewer);
-    const runnable = await source.projects(admin ? null : viewer.id);
-    if (!admin && runnable.length === 0) throw new ForbiddenError('Only administrators and the people who run a project can see the Management page.');
+    const runnable = await source.projects(admin ? null : viewer.id, pick);
+    if (!admin && runnable.length === 0 && (!pick || (await source.runCount(viewer.id)) === 0)) {
+      throw new ForbiddenError('Only administrators and the people who run a project can see the Management page.');
+    }
     const known = new Set(runnable.map((p) => p.id));
     for (const id of f.projectIds) if (!known.has(id)) throw new NotFoundError('Project not found.');
     const projects = runnable.filter(
@@ -439,8 +445,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
       .map(({ last: _last, ...f }) => f);
   }
 
-  async function overview(viewer: ManagementViewer, filters: ManagementFilters): Promise<ManagementOverview> {
-    const s = await scopeOf(viewer, filters);
+  async function overview(viewer: ManagementViewer, filters: ManagementFilters, pick: string | null = null): Promise<ManagementOverview> {
+    const s = await scopeOf(viewer, filters, pick);
     const ctx = await contextOf(filters.weeks);
     const ids = s.projects.map((p) => p.id);
     const from = ctx.trend[0]!.from;
@@ -550,13 +556,13 @@ export function createManagementService(deps: ManagementServiceDeps) {
 
   // ── The lists behind the numbers ─────────────────────────────────────────────────────────────
 
-  async function items(viewer: ManagementViewer, filters: ManagementFilters, q: ItemQuery): Promise<ItemList> {
+  async function items(viewer: ManagementViewer, filters: ManagementFilters, q: ItemQuery, pick: string | null = null): Promise<ItemList> {
     if (!(ITEM_METRICS as readonly string[]).includes(q.metric)) throw new ValidationError('That list doesn’t exist.');
     const metric = q.metric as ItemMetric;
     const needsPerson = metric === 'person-overloaded';
     if (needsPerson && !q.personId) throw new ValidationError('Say whose list to show.');
     if (metric === 'failed-item' && !q.itemId) throw new ValidationError('Say which item.');
-    const s = await scopeOf(viewer, filters);
+    const s = await scopeOf(viewer, filters, pick);
     if (q.projectId && !s.projects.some((p) => p.id === q.projectId)) throw new NotFoundError('Project not found.');
     const projects = q.projectId ? s.projects.filter((p) => p.id === q.projectId) : s.projects;
     const ids = projects.map((p) => p.id);

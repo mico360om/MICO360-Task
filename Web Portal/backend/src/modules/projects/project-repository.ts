@@ -12,6 +12,12 @@ export interface ProjectRecord {
   managerId: string | null;
   ownerId: string | null;
   status: ProjectStatus;
+  /**
+   * companies: whether it counts as archived — its own status is ARCHIVED or every one of its
+   * companies is (companies/project-archive). Set by the database repository; absent (a test double)
+   * = its own status decides (`projectArchived`).
+   */
+  archived?: boolean;
   priority: Priority;
   color: string;
   /** One of PROJECT_ICONS, or null for the project's initials. */

@@ -13,6 +13,7 @@ import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from '../inspe
 import { clientMinutesContent } from './client-minutes-content';
 import { hashToken, isWellFormedToken, newToken, normalizeEmail, sameText } from './client-tokens';
 import { ClientCodeInvalidError, ClientEmailUnavailableError, ClientLinkEndedError, ClientSignInRequiredError } from './client-view-errors';
+import { projectArchived } from '../companies/project-archive';
 
 /**
  * Client view: a project's owner, managers and admins share it with a client by name and email.
@@ -136,14 +137,14 @@ export function createClientAccessService(deps: ClientAccessDeps) {
   /** A project that may still be shown to its clients: there, not deleted, not archived. */
   async function liveProject(projectId: string): Promise<ClientProjectSource | null> {
     const p = await source.project(projectId);
-    return p && !p.gone && p.status !== 'ARCHIVED' ? p : null;
+    return p && !p.gone && !projectArchived(p) ? p : null;
   }
 
   /** The project a staff member is sharing (404 when gone, 409 when archived). */
   async function projectToShare(projectId: string): Promise<ClientProjectSource> {
     const p = await source.project(projectId);
     if (!p || p.gone) throw new NotFoundError('Project not found.');
-    if (p.status === 'ARCHIVED') throw new ConflictError('This project is archived, so it can’t be shared with a client. Reopen it first.', 'PROJECT_ARCHIVED');
+    if (projectArchived(p)) throw new ConflictError('This project is archived, so it can’t be shared with a client. Reopen it first.', 'PROJECT_ARCHIVED');
     return p;
   }
 

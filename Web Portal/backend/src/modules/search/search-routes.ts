@@ -5,6 +5,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { TASK_STATUSES, type TaskSearchEngine } from './task-search-engine';
 import { createTaskSearchScope } from './task-search-scope';
 import { parseTaskQuery } from './task-search-query';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 const querySchema = z.object({ q: z.string().default('') });
 
@@ -39,24 +40,40 @@ function decodeCursor(cursor: string | undefined): number {
 export interface SearchRouteDeps {
   searchService: SearchService;
   guard: AuthGuard;
-  /** Project ids a user may see (`null` = admin, unscoped) — scopes task/project results. */
-  accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
+  /** Project ids a user may see (`null` = admin, unscoped) — scopes task/project results; with a pick, that company's. */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** The full task search (GET /search/tasks). */
   taskSearch?: Pick<TaskSearchEngine, 'search'>;
+  /** companies: the request's picked company (X-Company-Id); both searches follow it. Absent: no pick. */
+  pickOf?: PickOf;
+  /** companies: the people this person may find (colleagues; with a pick, that company's); null = everyone (an admin). */
+  peopleFor?: (viewer: { id: string; roles: string[] }, pick: string | null) => Promise<ReadonlySet<string> | null>;
+  /** companies: this person's active companies (a meeting they were only invited to shows no notes). */
+  companiesOf?: (userId: string) => Promise<string[]>;
 }
 
 export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRouteDeps): Promise<void> {
   const { searchService, guard } = deps;
+  // The one place both searches' project scope comes from (task-search-scope), with the pick.
+  const scopes = createTaskSearchScope({ accessibleProjectIds: deps.accessibleProjectIds });
+  const pickOf = deps.pickOf ?? NO_PICK;
   app.get('/search', { preHandler: guard.authenticate }, async (req) => {
     const { q } = querySchema.parse(req.query);
-    // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to.
-    const allowedProjectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null;
-    return { data: await searchService.search(q, { allowedProjectIds, userId: req.user!.id }) };
+    // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to —
+    // companies: in the picked company; people they may find; an invitation shows no notes.
+    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const pick = await pickOf(req);
+    const admin = viewer.roles.includes('ADMIN');
+    const [{ projectIds: allowedProjectIds }, people, companyIds] = await Promise.all([
+      scopes.forViewer(viewer, pick),
+      deps.peopleFor ? deps.peopleFor(viewer, pick) : Promise.resolve(null),
+      deps.companiesOf && !admin ? deps.companiesOf(viewer.id) : Promise.resolve(null),
+    ]);
+    return { data: await searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin, people, companyIds }) };
   });
 
   const taskSearch = deps.taskSearch;
   if (!taskSearch) return;
-  const scopes = createTaskSearchScope({ accessibleProjectIds: deps.accessibleProjectIds });
   /**
    * Every task matching the words that the person can open (see task-search-engine), a page at a
    * time: `nextCursor` asks for the next page; the first page also says how many there are
@@ -70,7 +87,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const user = req.user!;
     const result = await taskSearch.search({
       q: p.q,
-      scope: await scopes.forViewer({ id: user.id, roles: user.roles ?? [] }),
+      scope: await scopes.forViewer({ id: user.id, roles: user.roles ?? [] }, await pickOf(req)), // companies: the pick
       ...(p.projectId ? { projectId: p.projectId } : {}),
       ...(p.status?.length ? { statuses: p.status } : {}),
       ...(p.assigneeId ? { assigneeId: p.assigneeId === 'me' ? user.id : p.assigneeId } : {}),

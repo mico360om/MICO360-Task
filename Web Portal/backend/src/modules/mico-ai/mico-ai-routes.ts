@@ -5,10 +5,13 @@ import { NotFoundError } from '../../lib/http-errors';
 import { XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
 import type { MicoAiService } from './mico-ai-service';
 import { answerFileName, answerPdf, tableFileName, tablePdf, tableXlsx } from './mico-ai-export';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 export interface MicoAiRouteDeps {
   micoAiService: MicoAiService;
   guard: AuthGuard;
+  /** companies: the request's picked company (X-Company-Id) — a question is answered from that company only. Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 const id = z.string().min(1).max(64);
@@ -81,7 +84,8 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
   app.post('/mico-ai/chats/:chatId/messages', auth, async (req, reply) => {
     const { chatId } = chatParams.parse(req.params);
     const { text, retryOf } = askBody.parse(req.body);
-    return reply.status(202).send({ data: await svc.ask(viewer(req), chatId, text, { ip: req.ip ?? null, retryOf }) });
+    // companies: the pick goes with the question into its background answer.
+    return reply.status(202).send({ data: await svc.ask({ ...viewer(req), pick: await (deps.pickOf ?? NO_PICK)(req) }, chatId, text, { ip: req.ip ?? null, retryOf }) });
   });
 
   app.get('/mico-ai/chats/:chatId/messages/:messageId', auth, async (req) => {

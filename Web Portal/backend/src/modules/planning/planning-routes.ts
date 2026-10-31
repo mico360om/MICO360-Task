@@ -9,6 +9,8 @@ import { shiftDayKey, todayKey, zonedStartOfDay } from '../../lib/due-date';
 import { MAX_TIMELINE_WEEKS, MILESTONE_HORIZON_DAYS, buildTimeline, buildTimelineTasks, daysBetween, timelineRange, weekOf, type TimelineSource, type WeekStart } from './timeline';
 import { buildWorkload, resolveWorkloadScope } from './workload';
 import { loadWorkload, type WorkloadStore } from './workload-service';
+import { projectArchived } from '../companies/project-archive';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 export interface PlanningRouteDeps {
   guard: AuthGuard;
@@ -23,6 +25,10 @@ export interface PlanningRouteDeps {
   timeZone: string;
   /** The time now (tests pin it). */
   now?: () => Date;
+  /** companies: the request's picked company (X-Company-Id); both pages follow it. Absent: no pick. */
+  pickOf?: PickOf;
+  /** companies: a company's people (its active members) — an administrator's Workload with a pick shows them. */
+  companyPeople?: (companyId: string) => Promise<string[]>;
 }
 
 const weekStartParam = z.enum(['0', '1', '6']).optional().transform((v): WeekStart => (v === undefined ? 0 : (Number(v) as WeekStart)));
@@ -40,8 +46,8 @@ function dayParam(value: unknown, today: string, outOfReach: string, missing: st
 
 /** UTC midnight of a day: how a due date given as a day is stored. */
 const utcDay = (key: string) => new Date(`${key}T00:00:00.000Z`);
-/** Projects still going: the timeline leaves out completed and archived ones. */
-const isOpen = (status: string) => status !== 'COMPLETED' && status !== 'ARCHIVED';
+/** Projects still going: the timeline leaves out completed and archived ones (companies: archived by its own status or all its companies). */
+const isOpen = (p: { status: string; archived?: boolean }) => p.status !== 'COMPLETED' && !projectArchived(p);
 
 /**
  * The planning pages. GET /timeline: every open project the asker may see (as the projects list
@@ -55,6 +61,7 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
   const { guard, timeZone } = deps;
   const now = () => deps.now?.() ?? new Date();
   const viewerOf = (req: FastifyRequest) => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+  const pickOf = deps.pickOf ?? NO_PICK;
 
   if (deps.timeline) {
     const source = deps.timeline;
@@ -68,7 +75,8 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const weekStart = weekStartParam.parse(q.weekStart);
       const range = timelineRange(from, to, weekStart);
       if (!range) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
-      const projects = (await deps.projectService.listVisibleProjects(viewerOf(req))).filter((p) => isOpen(p.status));
+      // companies: the projects the person sees, in the picked company.
+      const projects = (await deps.projectService.listVisibleProjects(viewerOf(req), await pickOf(req))).filter(isOpen);
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
       // Each read in its own window: the shown weeks' markers, the next 30 days' milestones (a day
       // either side, for due dates kept as days) and this week's meetings (moments, company time).
@@ -96,7 +104,7 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const to = dayParam(q.to, today, reach, 'Say which days to show (from and to, YYYY-MM-DD).');
       if (to < from || daysBetween(from, to) >= MAX_TIMELINE_WEEKS * 7) throw new ValidationError(`Ask for 1 to ${MAX_TIMELINE_WEEKS} weeks, ending on or after the start.`);
       const project = await deps.projectService.getVisibleProject(id, viewerOf(req));
-      if (!isOpen(project.status)) throw new NotFoundError('Project not found.');
+      if (!isOpen(project)) throw new NotFoundError('Project not found.');
       // A day either side of each bound, for due dates kept as days; the builder places each on its own day.
       const rows = await source.projectTasks(project.id, {
         from: utcDay(shiftDayKey(from, -1)),
@@ -118,13 +126,18 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const today = todayKey(timeZone, at);
       const week = dayParam(q.week, today, 'Pick a week within two years of today.', 'Say which week to show (week=YYYY-MM-DD).');
       const asked = typeof q.projectId === 'string' && q.projectId.trim() ? q.projectId.trim().slice(0, 191) : null;
-      const [managed, visible, hours, limit] = await Promise.all([
+      // companies: with a picked company, only its projects (an administrator: its projects and people).
+      const pick = await pickOf(req);
+      const [managedAll, visible, hours, limit, pickPeople] = await Promise.all([
         admin ? Promise.resolve([]) : store.managedProjectIds(viewer.id),
-        admin ? Promise.resolve(null) : deps.projectService.listVisibleProjects(viewer).then((ps) => ps.map((p) => p.id)),
+        admin && !pick ? Promise.resolve(null) : deps.projectService.listVisibleProjects(viewer, pick).then((ps) => ps.map((p) => p.id)),
         deps.settings ? deps.settings.workingHours() : Promise.resolve(DEFAULT_WORKING_HOURS),
         deps.settings ? deps.settings.dailyLimit() : Promise.resolve(DEFAULT_DAILY_LIMIT),
+        admin && pick ? (deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([])) : Promise.resolve(null),
       ]);
-      const scope = resolveWorkloadScope(viewer, { managedProjectIds: managed, visibleProjectIds: visible });
+      const inPick = pick && visible ? new Set(visible) : null;
+      const managed = inPick ? managedAll.filter((id) => inPick.has(id)) : managedAll;
+      const scope = resolveWorkloadScope(viewer, { managedProjectIds: managed, visibleProjectIds: visible }, pickPeople ? { peopleIds: pickPeople } : null);
       const { rows, projectId } = await loadWorkload(store, { scope, viewerId: viewer.id, projectId: asked, week, today, timeZone });
       return {
         data: buildWorkload(rows, { week, timeZone, now: at, limit, workingDays: hours.days, viewerId: viewer.id, scope, projectId, canChangeLimit: admin }),

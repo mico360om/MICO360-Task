@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { normalizeFinalMinutes, type FinalMinutesContent } from '../meetings/final-minutes';
 import type { ClientMinutesSource, ClientProjectSource, ClientTaskSource } from './client-view-payload';
 import { nameVariants, type PersonName } from './client-minutes-content';
+import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 
 /** What the client page reads. Every query selects only the fields the page may show. */
 export interface ClientViewSource {
@@ -94,11 +95,12 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
     async project(projectId) {
       const p = await prisma.project.findUnique({
         where: { id: projectId },
-        select: { name: true, code: true, number: true, clientName: true, status: true, color: true, icon: true, imageUrl: true, startDate: true, targetDate: true, deletedAt: true },
+        select: { name: true, code: true, number: true, clientName: true, status: true, color: true, icon: true, imageUrl: true, startDate: true, targetDate: true, deletedAt: true, companies: ARCHIVE_SELECT.companies },
       });
       if (!p) return null;
-      const { deletedAt, ...look } = p;
-      return { ...look, gone: deletedAt !== null };
+      const { deletedAt, companies, ...look } = p;
+      // companies: archived by its own status or by all its companies.
+      return { ...look, archived: archivedOf({ status: p.status, companies }), gone: deletedAt !== null };
     },
     async counts(projectId) {
       const live = { projectId, deletedAt: null };

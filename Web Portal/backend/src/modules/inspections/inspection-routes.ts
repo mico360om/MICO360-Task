@@ -5,6 +5,7 @@ import type { AuthGuard } from '../auth/auth-guard';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from './inspection-report-pdf';
 import type { Actor, InspectionService } from './inspection-service';
 import type { InspectionScheduleService } from './inspection-schedules';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 export interface InspectionRouteDeps {
   service: InspectionService;
@@ -21,6 +22,10 @@ export interface InspectionRouteDeps {
   pdfsPerMinute?: number;
   /** Scheduled inspections: a project's schedules and due checks, and how much a form is used. */
   schedules?: InspectionScheduleService;
+  /** companies: the person's project ids (in a picked company) — a form's usage counts only those. */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 const visibleBody = z.object({ visible: z.boolean() });
@@ -61,7 +66,10 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
     // Company-wide counts, for the delete confirm: only to whoever may delete the form.
     app.get('/inspection-forms/:id/usage', auth, async (req) => {
       await service.assertMayDeleteForm(actor(req), params(req).id);
-      return { data: await schedules.formUsage(params(req).id) };
+      // companies: counted over the projects the person sees, in the picked company (admins without a pick: all).
+      const pick = await (deps.pickOf ?? NO_PICK)(req);
+      const projectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(actor(req).id, actor(req).roles, pick) : null;
+      return { data: await schedules.formUsage(params(req).id, projectIds) };
     });
     app.get('/projects/:id/inspection-schedules', auth, async (req) => ({ data: await schedules.schedules(actor(req), params(req).id) }));
     app.get('/projects/:id/inspection-checks', auth, async (req) => {

@@ -2,6 +2,7 @@ import { TaskKeyConflictError, type TaskRecord } from './task-repository';
 import { TaskChangedConflictError, TaskMovedConflictError, type MoveColumn, type MovePerson, type MoveProject, type ProjectMoveWrite, type TaskMoveRepository } from './task-move-repository';
 import { moveHistory } from './task-move-history';
 import { highestKeyNumberIn } from './task-keys';
+import { projectArchived } from '../companies/project-archive';
 
 /** A task held by the in-memory repository: the record plus what a move reads. */
 export interface MemoryMoveTask extends TaskRecord {
@@ -67,7 +68,7 @@ export function createMemoryTaskMoveRepository(state: MemoryMoveState): TaskMove
       return live(id);
     },
     async listOpenProjects() {
-      return state.projects.filter((p) => p.status !== 'COMPLETED' && p.status !== 'ARCHIVED');
+      return state.projects.filter((p) => p.status !== 'COMPLETED' && !projectArchived(p));
     },
     async managedProjectIds(userId) {
       return [...(state.managers.get(userId) ?? [])];

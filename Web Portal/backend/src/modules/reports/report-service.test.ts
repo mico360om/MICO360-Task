@@ -111,6 +111,13 @@ describe('applyReportFilter', () => {
     expect(applyReportFilter(tasks, { projectId: 'p1', userId: 'u2' }).map((t) => t.id)).toEqual(['2']);
     expect(applyReportFilter(tasks, {})).toHaveLength(3);
   });
+
+  it('keeps only a picked company’s projects (companies)', () => {
+    expect(applyReportFilter(tasks, { projectIds: ['p2'] }).map((t) => t.id)).toEqual(['3']);
+    expect(applyReportFilter(tasks, { projectIds: [] })).toEqual([]);
+    expect(applyReportFilter(tasks, { projectIds: null })).toHaveLength(3);
+    expect(applyReportFilter(tasks, { projectIds: ['p1'], userId: 'u2' }).map((t) => t.id)).toEqual(['2']);
+  });
 });
 
 describe('ReportService', () => {
@@ -119,6 +126,18 @@ describe('ReportService', () => {
       data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar' }]; } },
       timeZone: 'Asia/Muscat',
     });
+
+  it('with a picked company, the workload rows are its people and whoever has a task there (companies)', async () => {
+    const s = createReportService({
+      data: { async getTasks() { return tasks; }, async getUsers() { return [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar' }, { id: 'u3', username: 'zara' }, { id: 'u4', username: 'yusuf' }]; } },
+      timeZone: 'Asia/Muscat',
+    });
+    const people = (rows: { userId: string }[]) => rows.map((r) => r.userId).sort();
+    // u4 belongs to the company; u1 and u2 have tasks in its projects; u3 has neither.
+    expect(people(await s.workloadReport({ projectIds: ['p1'], peopleIds: ['u4'] }))).toEqual(['u1', 'u2', 'u4']);
+    expect(people(await s.workloadReport({ projectIds: [], peopleIds: [] }))).toEqual([]);
+    expect(people(await s.workloadReport({}))).toEqual(['u1', 'u2', 'u3', 'u4']);
+  });
 
   it('produces reports from the data source', async () => {
     const s = svc();

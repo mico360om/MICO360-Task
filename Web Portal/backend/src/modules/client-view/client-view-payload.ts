@@ -21,6 +21,8 @@ export interface ClientProjectSource {
   number: string | null;
   clientName: string | null;
   status: string;
+  /** companies: it counts as archived (its own status, or all its companies); absent = its own status decides. */
+  archived?: boolean;
   color: string;
   icon: string | null;
   imageUrl: string | null;

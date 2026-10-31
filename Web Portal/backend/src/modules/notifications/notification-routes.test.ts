@@ -151,15 +151,16 @@ describe('Mark all read up to the newest shown (5c review)', () => {
     const { app: a, markAllRead } = await appWithSpy();
     const res = await post(a, { upTo: '2026-10-21T10:00:00.000Z' });
     expect(res.statusCode).toBe(200);
-    expect(markAllRead).toHaveBeenCalledWith('u1', new Date('2026-10-21T10:00:00.000Z'));
+    // (the third argument is the companies scope: none without the company module wired)
+    expect(markAllRead).toHaveBeenCalledWith('u1', new Date('2026-10-21T10:00:00.000Z'), undefined);
   });
 
   it('without a time, reads everything, as before (older apps and pages)', async () => {
     const { app: a, markAllRead } = await appWithSpy();
     expect((await post(a)).statusCode).toBe(200);
-    expect(markAllRead).toHaveBeenCalledWith('u1', undefined);
+    expect(markAllRead).toHaveBeenCalledWith('u1', undefined, undefined);
     expect((await post(a, {})).statusCode).toBe(200);
-    expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined);
+    expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined, undefined);
   });
 
   it('refuses a time that isn’t one', async () => {

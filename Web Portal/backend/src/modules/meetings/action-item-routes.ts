@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ActionItemService } from './action-item-service';
 import type { ActionItemRecord } from './action-item-repository';
 import type { AuthGuard } from '../auth/auth-guard';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 const statusEnum = z.enum(['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED']);
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
@@ -39,6 +40,8 @@ export interface ActionItemRouteDeps {
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
   /** Board keys of linked tasks (id → key), so an item can name and open its task. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /** companies: the request's picked company (X-Company-Id); My Action Items follows it. Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 export async function registerActionItemRoutes(app: FastifyInstance, deps: ActionItemRouteDeps): Promise<void> {
@@ -77,7 +80,10 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   // ── Cross-meeting: the caller's own action items ("My Action Items") ──
   app.get('/me/action-items', { preHandler: guard.authenticate }, async (req) => {
     const q = mineQuery.parse(req.query);
-    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly })) };
+    // companies: with a pick, only that company's items (none = everything assigned to them, as before).
+    const pick = await (deps.pickOf ?? NO_PICK)(req);
+    const scope = pick ? { pick: { companyId: pick } } : {};
+    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope })) };
   });
 
   // ── Meeting-scoped register ──

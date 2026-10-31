@@ -51,36 +51,19 @@ export function sharesProjectCompanyWhere(projectId: string): Prisma.UserWhereIn
   return { companies: { some: { company: { status: 'ACTIVE', projects: { some: { projectId } } } } } };
 }
 
-/** A live project: its own status isn't ARCHIVED and at least one of its companies is active. */
+/**
+ * A live project: its own status isn't ARCHIVED and at least one of its companies is active — the
+ * opposite of isProjectArchived, so a project with no company (never on a migrated site) isn't
+ * archived by companies either (companies: the one rule, see project-archive.ts).
+ */
 export const LIVE_PROJECT_WHERE: Prisma.ProjectWhereInput = {
   status: { not: 'ARCHIVED' },
-  companies: { some: { company: { status: 'ACTIVE' } } },
+  OR: [{ companies: { none: {} } }, { companies: { some: { company: { status: 'ACTIVE' } } } }],
 };
 
 /** People who share an active company with the viewer (the viewer included; callers leave them out). */
 export function colleagueWhere(viewerId: string): Prisma.UserWhereInput {
   return { companies: { some: { company: { status: 'ACTIVE', members: { some: { userId: viewerId } } } } } };
-}
-
-type CompanyDb = Pick<PrismaClient, 'company' | 'companyMember'>;
-
-/** The one active company, when the site has exactly one (else null: there is a choice to make). */
-export async function onlyActiveCompanyId(db: CompanyDb): Promise<string | null> {
-  const active = await db.company.findMany({ where: { status: 'ACTIVE' }, select: { id: true }, take: 2 });
-  return active.length === 1 ? active[0]!.id : null;
-}
-
-/**
- * The company a new project goes into when none is named: its creator's primary company (while it
- * is active and they belong to it), else the site's only active company, else none. On a site with
- * one company that is always it, as before companies existed.
- */
-export async function fallbackProjectCompanyId(db: CompanyDb, creatorId: string): Promise<string | null> {
-  const primary = await db.companyMember.findFirst({
-    where: { userId: creatorId, company: { status: 'ACTIVE', primaryOf: { some: { id: creatorId } } } },
-    select: { companyId: true },
-  });
-  return primary?.companyId ?? onlyActiveCompanyId(db);
 }
 
 export interface CompanyAccess {

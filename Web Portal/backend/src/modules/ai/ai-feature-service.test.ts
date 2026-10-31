@@ -141,6 +141,8 @@ describe('AiFeatureService: describing a task in plain English', () => {
     { id: 'p1', code: 'RIG1', number: 'PDO-2026-014', name: 'Rig Inspection Portal', status: 'ACTIVE' as const },
     { id: 'p2', code: 'WEB', number: null, name: 'Company Website', status: 'ACTIVE' as const },
     { id: 'p3', code: 'OLD', number: '1999', name: 'Old Archive Project', status: 'ARCHIVED' as const },
+    // companies: all its companies archived — it counts as archived, whatever its status.
+    { id: 'p4', code: 'SHUT', number: '2001', name: 'Shut Company Project', status: 'ACTIVE' as const, archived: true },
   ];
   function describing(answer: Record<string, unknown>, opts: { withProjects?: boolean } = {}) {
     const prompts: string[] = [];
@@ -199,6 +201,22 @@ describe('AiFeatureService: describing a task in plain English', () => {
     expect(prompts[0]).toContain('PDO-2026-014');
     expect(prompts[0]).toContain('Company Website');
     expect(prompts[0]).not.toContain('Old Archive Project');
+    expect(prompts[0]).not.toContain('Shut Company Project');
+  });
+
+  it('asks for the person’s projects in the picked company (companies)', async () => {
+    const asked: unknown[] = [];
+    const svc = createAiFeatureService({
+      repo: createMemoryAiConfigRepository(config),
+      fetchImpl: (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ title: 'X' }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch,
+      listProjectsFor: async (user, pick) => {
+        asked.push([user.id, pick]);
+        return projects;
+      },
+    });
+    await svc.parseTask({ text: 'x', today: '2026-09-14' }, { ...me, pick: 'company-b' });
+    await svc.parseTask({ text: 'x', today: '2026-09-14' }, me);
+    expect(asked).toEqual([[me.userId, 'company-b'], [me.userId, null]]);
   });
 
   it('suggests the project the AI names, by code, number or name', async () => {

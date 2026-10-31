@@ -200,9 +200,28 @@ describe('Mark all read up to a time (5c review)', () => {
     const svc = createNotificationService({ notifications: repo });
     const upTo = new Date('2026-10-21T10:00:00.000Z');
     await svc.markAllRead('u1', upTo);
-    expect(markAllRead).toHaveBeenCalledWith('u1', upTo);
+    // (the third argument is the companies scope: null = every notification of theirs)
+    expect(markAllRead).toHaveBeenCalledWith('u1', upTo, null);
     await svc.markAllRead('u1');
-    expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined);
+    expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined, null);
+  });
+});
+
+describe('The bell follows the person’s projects and the picked company (companies)', () => {
+  it('passes the scope’s projects on to the list, the count and read-all; no scope = everything', async () => {
+    const repo = inMemory();
+    const list = vi.spyOn(repo, 'list');
+    const count = vi.spyOn(repo, 'unreadCount');
+    const readAll = vi.spyOn(repo, 'markAllRead');
+    const svc = createNotificationService({ notifications: repo });
+    await svc.listForUser('u1', { projectIds: ['p1'], pick: 'A' });
+    expect(list).toHaveBeenLastCalledWith('u1', ['p1']);
+    await svc.unreadCount('u1', { projectIds: [], pick: null });
+    expect(count).toHaveBeenLastCalledWith('u1', []);
+    await svc.markAllRead('u1', undefined, { projectIds: ['p2'], pick: 'B' });
+    expect(readAll).toHaveBeenLastCalledWith('u1', undefined, ['p2']);
+    await svc.listForUser('u1');
+    expect(list).toHaveBeenLastCalledWith('u1', null);
   });
 });
 

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AiFeatureService, DraftAgendaInput } from './ai-feature-service';
 import type { AuthGuard } from '../auth/auth-guard';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 // Bounded inputs: every field ends up in a paid prompt, so size is capped here (AI-02).
 const title = z.string().trim().min(1).max(300);
@@ -35,6 +36,8 @@ export interface AiFeatureRouteDeps {
   agendaSources?: AgendaSourcesFor;
   /** Names of the invited people (ids that aren't users are left out). */
   userNames?: (ids: string[]) => Promise<Map<string, string>>;
+  /** companies: the request's picked company (X-Company-Id) — "Describe it" picks its project among that company's. */
+  pickOf?: PickOf;
 }
 
 export type AgendaSourcesFor = (
@@ -55,7 +58,8 @@ export async function registerAiFeatureRoutes(app: FastifyInstance, deps: AiFeat
 
   app.post('/ai/parse-task', { preHandler: guard.authenticate }, async (req) => {
     const body = parseSchema.parse(req.body);
-    return { data: await aiFeatureService.parseTask(body, requester(req)) };
+    // companies: the project it suggests is one of the person's in the picked company.
+    return { data: await aiFeatureService.parseTask(body, { ...requester(req), pick: await (deps.pickOf ?? NO_PICK)(req) }) };
   });
 
   app.post('/ai/parse-meeting', { preHandler: guard.authenticate }, async (req) => {

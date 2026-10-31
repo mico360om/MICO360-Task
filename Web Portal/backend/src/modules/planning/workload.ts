@@ -60,7 +60,12 @@ export interface WorkloadRows {
  * can see; anyone else only themselves (in the projects they can see).
  */
 export type WorkloadScope =
-  | { kind: 'everyone'; projectIds: null }
+  /**
+   * companies: with a picked company an administrator's "everyone" is that company's — its
+   * projects (`projectIds`) and its people (`peopleIds`: its members; the teams of its projects are
+   * added by loadWorkload). Without a pick: every live project and every active person (null).
+   */
+  | { kind: 'everyone'; projectIds: string[] | null; peopleIds?: string[] }
   | { kind: 'teams'; projectIds: string[]; ownProjectIds: string[] }
   | { kind: 'self'; projectIds: string[] };
 
@@ -130,8 +135,10 @@ const urgentFirst = (a: WorkloadTaskRow, b: WorkloadTaskRow) => RANK[b.priority]
 export function resolveWorkloadScope(
   viewer: { id: string; roles: string[] },
   facts: { managedProjectIds: string[]; visibleProjectIds: string[] | null },
+  /** companies: the picked company's people (its members), when there is a pick — the administrator's "everyone". */
+  pick?: { peopleIds: string[] } | null,
 ): WorkloadScope {
-  if (viewer.roles.includes('ADMIN')) return { kind: 'everyone', projectIds: null };
+  if (viewer.roles.includes('ADMIN')) return pick ? { kind: 'everyone', projectIds: facts.visibleProjectIds ?? [], peopleIds: [...pick.peopleIds] } : { kind: 'everyone', projectIds: null };
   if (facts.managedProjectIds.length > 0) return { kind: 'teams', projectIds: [...facts.managedProjectIds], ownProjectIds: facts.visibleProjectIds ?? [] };
   return { kind: 'self', projectIds: facts.visibleProjectIds ?? [] };
 }

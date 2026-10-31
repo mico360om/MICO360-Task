@@ -1,6 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 import { noteText } from '../../lib/rich-text';
+import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { FinalMinutesRepository } from '../meetings/final-minutes-repository';
+import { createCompanyAccess } from '../companies/company-access';
 import type {
   AiActivityRec,
   AiMeetingRec,
@@ -18,7 +20,8 @@ import type {
  */
 export interface PrismaMicoAiDataDeps {
   prisma: PrismaClient;
-  projectAccess: { accessibleProjectIds(userId: string, roles: string[]): Promise<string[] | null> };
+  /** companies: with the viewer's pick (that company's projects; an admin: all of them). */
+  projectAccess: { accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null> };
   meetingAccess: {
     canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean>;
     /** Who may change a meeting (organizer, creator, its project's managers, admins): a draft Final MOM is theirs only. */
@@ -38,6 +41,8 @@ const isAdmin = (v: Viewer) => v.roles.includes('ADMIN');
 
 export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, conversationIdsFor, finalMinutes }: PrismaMicoAiDataDeps): MicoAiDataPort {
   const inScope = (ids: string[] | null) => (ids === null ? {} : { projectId: { in: ids } });
+  // companies: who a person may know, and their active companies — read fresh on every question.
+  const companies = createCompanyAccess(prisma);
 
   const taskInclude = { project: { select: { name: true } }, column: { select: { name: true, category: true } }, assignees: { select: { userId: true } } } as const;
   type TaskRow = Awaited<ReturnType<typeof prisma.task.findMany<{ include: typeof taskInclude }>>>[number];
@@ -85,7 +90,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
   const meetingInclude = { attendees: { select: { userId: true } } } as const;
   type MeetingRow = Awaited<ReturnType<typeof prisma.meeting.findMany<{ include: typeof meetingInclude }>>>[number];
   async function toMeetings(rows: MeetingRow[]): Promise<AiMeetingRec[]> {
-    const counts = await meetingCounts(rows.map((m) => m.id));
+    const [counts, companiesOf] = await Promise.all([meetingCounts(rows.map((m) => m.id)), meetingCompanies(rows)]);
     return rows.map((m) => ({
       id: m.id,
       title: m.title,
@@ -99,7 +104,17 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       location: m.location,
       decisions: counts.decisions.get(m.id) ?? 0,
       openActionItems: counts.open.get(m.id) ?? 0,
+      companyIds: companiesOf(m),
     }));
+  }
+
+  /** companies: each meeting's companies — its project's active companies, or (no project) its own company. */
+  async function meetingCompanies(rows: { projectId: string | null; companyId: string | null }[]): Promise<(m: { projectId: string | null; companyId: string | null }) => string[]> {
+    const projectIds = [...new Set(rows.map((m) => m.projectId).filter((p): p is string => !!p))];
+    const links = projectIds.length ? await prisma.projectCompany.findMany({ where: { projectId: { in: projectIds }, company: { status: 'ACTIVE' } }, select: { projectId: true, companyId: true } }) : [];
+    const byProject = new Map<string, string[]>();
+    for (const l of links) byProject.set(l.projectId, [...(byProject.get(l.projectId) ?? []), l.companyId]);
+    return (m) => (m.projectId ? (byProject.get(m.projectId) ?? []) : m.companyId ? [m.companyId] : []);
   }
 
   async function meetingCounts(ids: string[]) {
@@ -115,14 +130,16 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
   }
 
   return {
-    accessibleProjectIds: (v) => projectAccess.accessibleProjectIds(v.userId, v.roles),
+    // companies: in the company the question was asked under (v.pick).
+    accessibleProjectIds: (v) => projectAccess.accessibleProjectIds(v.userId, v.roles, v.pick ?? null),
 
     async projects(ids) {
       const rows = await prisma.project.findMany({
         where: { deletedAt: null, ...(ids === null ? {} : { id: { in: ids } }) },
-        select: { id: true, code: true, number: true, name: true, status: true, clientName: true, description: true, startDate: true, targetDate: true, managerId: true, ownerId: true },
+        select: { id: true, code: true, number: true, name: true, status: true, clientName: true, description: true, startDate: true, targetDate: true, managerId: true, ownerId: true, companies: ARCHIVE_SELECT.companies },
       });
-      return rows;
+      // companies: a project whose companies are all archived is described as Archived.
+      return rows.map(({ companies, ...p }) => ({ ...p, status: archivedOf({ status: p.status, companies }) ? ('ARCHIVED' as const) : p.status }));
     },
 
     async tasks({ projectIds, projectId, assigneeId }) {
@@ -228,8 +245,9 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
         (taskIds.length ? await prisma.task.findMany({ where: { id: { in: taskIds }, deletedAt: null }, select: { id: true, key: true } }) : []).map((t) => [t.id, t.key]),
       );
       const fm = finalMinutes ? await finalMinutes.get(m.id) : null;
-      const counts = await meetingCounts([m.id]);
+      const [counts, companiesOf] = await Promise.all([meetingCounts([m.id]), meetingCompanies([m])]);
       return {
+        companyIds: companiesOf(m),
         id: m.id,
         title: m.title,
         projectId: m.projectId,
@@ -306,10 +324,15 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       return { rows, total };
     },
 
-    async people() {
-      const rows = await prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, firstName: true, lastName: true, username: true, status: true }, take: 5000 });
+    async people(viewer) {
+      // companies: only the people this person may know (an administrator, or no viewer: everyone).
+      const known = viewer ? await companies.knownPeople({ id: viewer.userId, roles: viewer.roles }) : 'everyone';
+      const ids = known === 'everyone' ? null : [viewer!.userId, ...known.keys()];
+      const rows = await prisma.user.findMany({ where: { deletedAt: null, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, firstName: true, lastName: true, username: true, status: true }, take: 5000 });
       return rows.map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, username: u.username, active: u.status === 'ACTIVE' }));
     },
+
+    companiesOf: (viewer) => companies.activeCompanyIds(viewer.userId),
 
     async memberships(ids) {
       if (ids !== null && ids.length === 0) return [];

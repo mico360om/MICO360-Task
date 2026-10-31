@@ -980,7 +980,8 @@ async function main(): Promise<void> {
   const aiFeatureService = createAiFeatureService({
     repo: aiConfigRepository,
     // "Describe it in plain English" may suggest one of the projects the person can see.
-    listProjectsFor: (user) => projectService.listVisibleProjects(user),
+    // companies: …in the picked company, when the request has one.
+    listProjectsFor: (user, pick) => projectService.listVisibleProjects(user, pick),
     // Describing a meeting may invite active users (only their names and usernames reach the AI).
     listPeople: () =>
       prisma.user.findMany({

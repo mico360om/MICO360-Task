@@ -69,8 +69,11 @@ export interface InspectionScheduleSource {
   openChecks(projectId: string, limit: number): Promise<{ rows: CheckRow[]; total: number }>;
   /** Inspections in progress for these tasks. */
   inProgress(taskIds: string[]): Promise<Array<{ taskId: string; inspectionId: string; inspectorId: string }>>;
-  /** How many schedules use the form and how many of its checks are open; null when it isn't there. */
-  formUsage(formId: string): Promise<{ schedules: number; openChecks: number } | null>;
+  /**
+   * How many schedules use the form and how many of its checks are open; null when it isn't there.
+   * companies: `projectIds` counts only those projects' (the person's, in the picked company); null = all.
+   */
+  formUsage(formId: string, projectIds?: readonly string[] | null): Promise<{ schedules: number; openChecks: number } | null>;
   /** The company's working days (0 = Sunday): "Every working day" repeats on these. */
   workingDays(): Promise<number[]>;
 }
@@ -240,8 +243,8 @@ export function createInspectionScheduleService(deps: InspectionScheduleDeps) {
     },
 
     /** How much a form is used: shown before it is deleted ("2 schedules use this form; they'll stop."). */
-    async formUsage(formId: string): Promise<{ schedules: number; openChecks: number }> {
-      const usage = await source.formUsage(formId);
+    async formUsage(formId: string, projectIds?: readonly string[] | null): Promise<{ schedules: number; openChecks: number }> {
+      const usage = await source.formUsage(formId, projectIds);
       if (!usage) throw new NotFoundError('Form not found.');
       return usage;
     },

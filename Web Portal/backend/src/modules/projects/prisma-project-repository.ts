@@ -3,12 +3,16 @@ import { ConflictError } from '../../lib/http-errors';
 import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
 import { writeStartingTasks } from './prisma-starting-content';
 import { pickedCompanyWhere, visibleProjectWhere } from '../companies/company-access';
+import { ARCHIVE_INCLUDE, archivedOf } from '../companies/project-archive';
 
 /** companies: a new project's company rows, as the rules chose them (`[0]`, its main company, is always one of them). */
 const companyLink = (companyIds: readonly string[] | undefined) =>
   companyIds?.length ? { mainCompanyId: companyIds[0]!, companies: { create: [...new Set(companyIds)].map((companyId) => ({ companyId })) } } : {};
 
-function toRecord(p: Project): ProjectRecord {
+/** companies: every read takes its companies' statuses along, so the record says whether it counts as archived. */
+type ProjectRow = Project & { companies: { company: { status: 'ACTIVE' | 'ARCHIVED' } }[] };
+
+function toRecord(p: ProjectRow): ProjectRecord {
   return {
     id: p.id,
     code: p.code,
@@ -19,6 +23,7 @@ function toRecord(p: Project): ProjectRecord {
     managerId: p.managerId,
     ownerId: p.ownerId,
     status: p.status,
+    archived: archivedOf(p),
     priority: p.priority,
     color: p.color,
     icon: p.icon,
@@ -88,7 +93,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
                   columns: { create: start.columns.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
                   ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
                 },
-                include: { columns: { orderBy: { position: 'asc' }, select: { id: true, category: true } } },
+                include: { ...ARCHIVE_INCLUDE, columns: { orderBy: { position: 'asc' }, select: { id: true, category: true } } },
               });
               const column = p.columns[start.startColumn] ?? p.columns[0]!;
               await writeStartingTasks(tx, { id: p.id, code: p.code, ownerId: p.ownerId, createdById: p.createdById, newTasksNeedApproval: p.newTasksNeedApproval }, column, start);
@@ -106,6 +111,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
             // Its team in the same write: a project never exists without the people it was made with.
             ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
           },
+          include: ARCHIVE_INCLUDE,
         });
         return toRecord(p);
       } catch (err) {
@@ -117,11 +123,11 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
       }
     },
     async findById(id) {
-      const p = await prisma.project.findFirst({ where: { id, deletedAt: null } });
+      const p = await prisma.project.findFirst({ where: { id, deletedAt: null }, include: ARCHIVE_INCLUDE });
       return p ? toRecord(p) : null;
     },
     async findByCode(code) {
-      const p = await prisma.project.findFirst({ where: { code, deletedAt: null } });
+      const p = await prisma.project.findFirst({ where: { code, deletedAt: null }, include: ARCHIVE_INCLUDE });
       return p ? toRecord(p) : null;
     },
     async codeInUse(code) {
@@ -129,7 +135,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     },
     // Every project (an administrator's list), or with a picked company only that company's.
     async list(pick) {
-      const ps = await prisma.project.findMany({ where: { deletedAt: null, ...(pick ? { companies: { some: { companyId: pick } } } : {}) }, orderBy: { createdAt: 'desc' } });
+      const ps = await prisma.project.findMany({ where: { deletedAt: null, ...(pick ? { companies: { some: { companyId: pick } } } : {}) }, orderBy: { createdAt: 'desc' }, include: ARCHIVE_INCLUDE });
       return ps.map(toRecord);
     },
     // Who sees a project: its owner, its named manager and its team, inside one of the person's
@@ -139,6 +145,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
       const ps = await prisma.project.findMany({
         where: pick ? { AND: [visibleProjectWhere(userId), pickedCompanyWhere(userId, pick)] } : visibleProjectWhere(userId),
         orderBy: { createdAt: 'desc' },
+        include: ARCHIVE_INCLUDE,
       });
       return ps.map(toRecord);
     },
@@ -148,9 +155,9 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     },
     async update(id, patch: UpdateProjectData, opts) {
       const keep = [...new Set(opts?.keepManagers ?? [])];
-      if (keep.length === 0) return toRecord(await prisma.project.update({ where: { id }, data: patch }));
+      if (keep.length === 0) return toRecord(await prisma.project.update({ where: { id }, data: patch, include: ARCHIVE_INCLUDE }));
       return prisma.$transaction(async (tx) => {
-        const p = await tx.project.update({ where: { id }, data: patch });
+        const p = await tx.project.update({ where: { id }, data: patch, include: ARCHIVE_INCLUDE });
         const people = await tx.user.findMany({ where: { id: { in: keep }, deletedAt: null }, select: { id: true } });
         for (const { id: userId } of people) {
           await tx.projectMember.upsert({

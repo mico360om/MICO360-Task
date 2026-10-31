@@ -1,35 +1,37 @@
 import type { WorkloadStore } from './workload-service';
 import type { Priority } from './workload';
+import { projectArchived } from '../companies/project-archive';
 
 /** A small in-memory company for the Workload service's tests: no scoping of its own, as the real store. */
 export interface FakeCompany {
   users: { id: string; name: string; active?: boolean }[];
-  projects: { id: string; name?: string; status?: string; ownerId?: string | null; managerId?: string | null }[];
+  /** `archived`: counts as archived because all its companies are (companies), whatever its status. */
+  projects: { id: string; name?: string; status?: string; archived?: boolean; ownerId?: string | null; managerId?: string | null }[];
   members: { projectId: string; userId: string; role?: 'MEMBER' | 'MANAGER' }[];
   tasks: { id: string; projectId: string; due: string | Date; assignees: string[]; open?: boolean; priority?: Priority; key?: string; version?: number; waiting?: boolean }[];
 }
 
-const LIVE = (s?: string) => s !== 'COMPLETED' && s !== 'ARCHIVED';
+const LIVE = (p?: { status?: string; archived?: boolean }) => p?.status !== 'COMPLETED' && !projectArchived({ status: p?.status ?? 'ACTIVE', archived: p?.archived });
 const dueOf = (due: string | Date) => (due instanceof Date ? due : new Date(`${due}T00:00:00.000Z`));
 
 export function fakeWorkloadStore(c: FakeCompany): WorkloadStore & { calls: { name: string; args: unknown }[] } {
   const calls: { name: string; args: unknown }[] = [];
   const log = (name: string, args: unknown) => calls.push({ name, args });
   const active = (id: string) => c.users.find((u) => u.id === id)?.active !== false && c.users.some((u) => u.id === id);
-  const live = (id: string) => LIVE(c.projects.find((p) => p.id === id)?.status);
+  const live = (id: string) => LIVE(c.projects.find((p) => p.id === id));
   const open = c.tasks.filter((t) => t.open !== false);
   return {
     calls,
     async managedProjectIds(userId) {
       log('managedProjectIds', userId);
       return c.projects
-        .filter((p) => LIVE(p.status) && (p.managerId === userId || p.ownerId === userId || c.members.some((m) => m.projectId === p.id && m.userId === userId && m.role === 'MANAGER')))
+        .filter((p) => LIVE(p) && (p.managerId === userId || p.ownerId === userId || c.members.some((m) => m.projectId === p.id && m.userId === userId && m.role === 'MANAGER')))
         .map((p) => p.id);
     },
     async liveProjects(ids) {
       log('liveProjects', ids);
       return c.projects
-        .filter((p) => LIVE(p.status) && (!ids || ids.includes(p.id)))
+        .filter((p) => LIVE(p) && (!ids || ids.includes(p.id)))
         .map((p) => ({ id: p.id, code: p.id.toUpperCase(), name: p.name ?? p.id, color: '#000000', icon: null, imageUrl: null, ownerId: p.ownerId ?? null, managerId: p.managerId ?? null }));
     },
     async members(projectIds) {

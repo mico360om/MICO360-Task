@@ -11,6 +11,7 @@ import { ALL_SECTIONS, loadReportBundle, reportFileName, reportPdf, reportSheets
 import { shiftDayKey, todayKey } from '../../lib/due-date';
 import { calendarDay, idString } from '../tasks/validation';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 /** Names for the exported documents: the filters' project and member, and who generated it. */
 export interface ReportNames {
@@ -22,6 +23,12 @@ export interface ReportRouteDeps {
   reportService: ReportService;
   guard: AuthGuard;
   names?: ReportNames;
+  /** companies: the request's picked company (X-Company-Id); every report and export follows it. Absent: no pick. */
+  pickOf?: PickOf;
+  /** companies: the project ids an administrator's pick covers (that company's projects). */
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** companies: a company's people (its active members) — the workload rows with a pick. */
+  companyPeople?: (companyId: string) => Promise<string[]>;
 }
 
 interface ReportDef {
@@ -122,6 +129,22 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
   const timeZone = reportService.timeZone ?? defaultCompanyTimeZone();
   const names = deps.names;
 
+  /**
+   * companies: what a picked company limits every report to — its projects' tasks, and on the
+   * workload its people plus whoever has a task there. Without a pick: everything, as before.
+   */
+  async function pickScopeOf(req: FastifyRequest): Promise<Pick<ReportFilter, 'projectIds' | 'peopleIds'>> {
+    const pick = await (deps.pickOf ?? NO_PICK)(req);
+    if (!pick) return {};
+    const [projectIds, peopleIds] = await Promise.all([
+      deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : Promise.resolve([]),
+      deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([]),
+    ]);
+    return { projectIds: projectIds ?? [], peopleIds };
+  }
+  const filterOf = async (req: FastifyRequest): Promise<ReportFilter> => ({ ...resolveFilter(req.query), ...(await pickScopeOf(req)) });
+  const rangeOf = async (req: FastifyRequest) => ({ ...resolveRange(req.query, timeZone), ...(await pickScopeOf(req)) });
+
   /** What a branded export says about itself: the filters by name, the period, who and when. */
   async function metaFor(req: FastifyRequest, title: string): Promise<{ meta: ReportMeta; range: ReturnType<typeof resolveRange> }> {
     const range = resolveRange(req.query, timeZone);
@@ -147,7 +170,7 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
 
   async function exportReport(req: FastifyRequest, reply: FastifyReply, opts: { title: string; file: string; sections: ReportSection[]; format: 'xlsx' | 'pdf' }) {
     const { meta, range } = await metaFor(req, opts.title);
-    const filter = { ...(range.projectId ? { projectId: range.projectId } : {}), ...(range.userId ? { userId: range.userId } : {}) };
+    const filter = { ...(range.projectId ? { projectId: range.projectId } : {}), ...(range.userId ? { userId: range.userId } : {}), ...(await pickScopeOf(req)) };
     const bundle = await loadReportBundle(reportService, { filter, from: range.from, to: range.to });
     if (opts.format === 'xlsx') {
       const body = buildXlsx(reportSheets(bundle, meta, opts.sections), { title: opts.title, brand: BRAND }, meta.generatedAt);
@@ -167,17 +190,17 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
     });
   }
 
-  app.get('/reports/status', adminOnly, async (req) => ({ data: await reportService.taskStatusReport(resolveFilter(req.query)) }));
-  app.get('/reports/projects', adminOnly, async (req) => ({ data: await reportService.projectPerformanceReport(resolveFilter(req.query)) }));
-  app.get('/reports/workload', adminOnly, async (req) => ({ data: await reportService.workloadReport(resolveFilter(req.query)) }));
-  app.get('/reports/completion', adminOnly, async (req) => ({ data: await reportService.completionReport(resolveFilter(req.query)) }));
+  app.get('/reports/status', adminOnly, async (req) => ({ data: await reportService.taskStatusReport(await filterOf(req)) }));
+  app.get('/reports/projects', adminOnly, async (req) => ({ data: await reportService.projectPerformanceReport(await filterOf(req)) }));
+  app.get('/reports/workload', adminOnly, async (req) => ({ data: await reportService.workloadReport(await filterOf(req)) }));
+  app.get('/reports/completion', adminOnly, async (req) => ({ data: await reportService.completionReport(await filterOf(req)) }));
 
   // Time series (completion / overdue trend, burndown, velocity) over a ?from&to[&projectId&userId] range.
-  app.get('/reports/timeseries', adminOnly, async (req) => ({ data: await reportService.timeSeriesReport(resolveRange(req.query, timeZone)) }));
+  app.get('/reports/timeseries', adminOnly, async (req) => ({ data: await reportService.timeSeriesReport(await rangeOf(req)) }));
 
   // Time-series exports honour the same range and filter params; rows are the daily points.
-  const timeSeriesRows = async (req: { query: unknown }): Promise<Record<string, unknown>[]> =>
-    (await reportService.timeSeriesReport(resolveRange(req.query, timeZone))).points as unknown as Record<string, unknown>[];
+  const timeSeriesRows = async (req: FastifyRequest): Promise<Record<string, unknown>[]> =>
+    (await reportService.timeSeriesReport(await rangeOf(req))).points as unknown as Record<string, unknown>[];
   app.get('/reports/timeseries.csv', adminOnly, async (req, reply) =>
     download(reply, 'text/csv; charset=utf-8', await fileName(req, 'completion-trend', 'csv'), toCsv(await timeSeriesRows(req), TIME_SERIES_COLUMNS)),
   );
@@ -195,11 +218,11 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
   // branded PDF (T12.2), with the same filters as on screen.
   for (const def of REPORTS) {
     app.get(`/reports/${def.key}.csv`, adminOnly, async (req, reply) => {
-      const rows = await def.load(reportService, resolveFilter(req.query));
+      const rows = await def.load(reportService, await filterOf(req));
       return download(reply, 'text/csv; charset=utf-8', await fileName(req, def.file, 'csv'), toCsv(rows, def.columns));
     });
     app.get(`/reports/${def.key}.xls`, adminOnly, async (req, reply) => {
-      const rows = await def.load(reportService, resolveFilter(req.query));
+      const rows = await def.load(reportService, await filterOf(req));
       return download(reply, 'application/vnd.ms-excel; charset=utf-8', await fileName(req, def.file, 'xls'), toSpreadsheetXml(def.title, def.columns, rows));
     });
     app.get(`/reports/${def.key}.pdf`, adminOnly, async (req, reply) =>

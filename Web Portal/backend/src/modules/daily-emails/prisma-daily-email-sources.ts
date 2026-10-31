@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizePreferences } from '../notifications/notification-preferences';
 import type { DailyTask } from './daily-email-content';
 import type { DailyRecipient } from './daily-email-service';
+import { liveProjectWhere } from '../companies/project-archive';
 
 const personSelect = {
   id: true,
@@ -96,7 +97,8 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
             completedAt: null,
             assignees: { some: { userId } },
             column: { category: { not: 'DONE' } },
-            project: { deletedAt: null, status: { notIn: ['COMPLETED', 'ARCHIVED'] } },
+            // companies: archived by its own status or by all its companies (liveProjectWhere).
+            project: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' } }),
           },
           select: taskSelect,
           take: 500,

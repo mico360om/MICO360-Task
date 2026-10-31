@@ -69,6 +69,16 @@ describe('resolveWorkloadScope', () => {
     });
   });
 
+  it('with a picked company an administrator’s “everyone” is that company’s projects and people (companies)', () => {
+    expect(resolveWorkloadScope({ id: 'a', roles: ['ADMIN'] }, { managedProjectIds: [], visibleProjectIds: ['p1', 'p2'] }, { peopleIds: ['u1', 'u2'] })).toEqual({
+      kind: 'everyone',
+      projectIds: ['p1', 'p2'],
+      peopleIds: ['u1', 'u2'],
+    });
+    // A pick doesn't change a manager's or anyone else's kind: their facts are already the pick's.
+    expect(resolveWorkloadScope({ id: 'e', roles: ['EMPLOYEE'] }, { managedProjectIds: [], visibleProjectIds: ['p3'] }, { peopleIds: ['u1'] })).toEqual({ kind: 'self', projectIds: ['p3'] });
+  });
+
   it('shows anyone else only themselves, in the projects they can see', () => {
     expect(resolveWorkloadScope({ id: 'e', roles: ['EMPLOYEE'] }, { managedProjectIds: [], visibleProjectIds: ['p3'] })).toEqual({ kind: 'self', projectIds: ['p3'] });
     expect(resolveWorkloadScope({ id: 'e', roles: [] }, { managedProjectIds: [], visibleProjectIds: null })).toEqual({ kind: 'self', projectIds: [] });
