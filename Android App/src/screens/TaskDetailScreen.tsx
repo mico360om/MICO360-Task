@@ -472,7 +472,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
         }}
       />
       {savingTemplate ? (
-        <SaveTaskTemplateSheet taskId={task.id} taskTitle={task.title} description={task.description} checklistCount={checklistQ.data?.items?.length ?? 0} onClose={() => setSavingTemplate(false)} />
+        <SaveTaskTemplateSheet taskId={task.id} taskTitle={task.title} description={task.description} checklistCount={checklistQ.isLoading ? null : checklistQ.data?.items?.length ?? 0} onClose={() => setSavingTemplate(false)} />
       ) : null}
       <FilePreviewSheet
         file={previewing}

@@ -31,7 +31,8 @@ export function SaveTaskTemplateSheet({
   taskTitle: string;
   /** The task's description (with none, there is nothing to leave out). */
   description: string | null | undefined;
-  checklistCount: number;
+  /** null while the task's checklist is still loading. */
+  checklistCount: number | null;
   onClose: () => void;
 }) {
   const c = useColors();

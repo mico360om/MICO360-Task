@@ -49,3 +49,9 @@ it('S8: Remove, Retry and the follow-up link are 44 dp targets', () => {
   expect(card).toMatch(/<Pressable[^>]*onPress=\{\(\) => open\(of\.inspectionId, of\.title\)\}/);
   expect(card).toMatch(/followLink: \{ minHeight: 44,/);
 });
+
+it('S9: the checklist count isn’t shown as none while it loads; the forms are read only when Start could use them', () => {
+  expect(src('screens/TaskDetailScreen.tsx')).toMatch(/checklistCount=\{checklistQ\.isLoading \? null : checklistQ\.data\?\.items\?\.length \?\? 0\}/);
+  expect(src('components/inspections/TaskInspectionsCard.tsx')).toMatch(/useInspectionForms\(canStart && !carried\)/);
+  expect(src('core/inspection-queries.ts')).toMatch(/export function useInspectionForms\(enabled = true\)/);
+});

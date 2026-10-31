@@ -157,6 +157,8 @@ it('Save as template: what it saves, what it warns about, what stops it', () => 
   expect(publishWarning('task titles and checklists')).toBe('Everyone in the company will be able to see this template’s task titles and checklists.');
   expect(saveTaskLine({ description: 'Steps', checklistCount: 3 }, true)).toBe('Saves its title, description, priority and checklist (3 items). Its dates, people and project aren’t saved.');
   expect(saveTaskLine({ description: ' ', checklistCount: 0 }, true)).toBe('Saves its title, priority and checklist. Its dates, people and project aren’t saved.');
+  // S9: while the checklist loads its size isn't known — never said as none.
+  expect(saveTaskLine({ description: null, checklistCount: null }, true)).toBe('Saves its title, priority and checklist (…). Its dates, people and project aren’t saved.');
 });
 
 it('a failed save says why in the website’s words', () => {

@@ -210,10 +210,11 @@ export function personRoleNote(personId: string, role: string, c: RoleCounts, on
   return `${name} gets ${gets} of these ${onTasks} tasks; the others name another role first.`;
 }
 
-/** What "Save task as template" takes from the task. */
-export function saveTaskLine(t: { description?: string | null; checklistCount: number }, includeDescription: boolean): string {
+/** What "Save task as template" takes from the task (`checklistCount` null: the checklist is still loading — "…", never none). */
+export function saveTaskLine(t: { description?: string | null; checklistCount: number | null }, includeDescription: boolean): string {
   const withDescription = includeDescription && !!t.description?.trim();
-  return `Saves its title, ${withDescription ? 'description, ' : ''}priority and checklist${t.checklistCount ? ` (${count(t.checklistCount, 'item')})` : ''}. Its dates, people and project aren’t saved.`;
+  const items = t.checklistCount === null ? ' (…)' : t.checklistCount ? ` (${count(t.checklistCount, 'item')})` : '';
+  return `Saves its title, ${withDescription ? 'description, ' : ''}priority and checklist${items}. Its dates, people and project aren’t saved.`;
 }
 
 /** Why a save failed, as the website says it (the server's own words, else no answer, else try again). */
