@@ -1,5 +1,5 @@
 import type { ApiClient } from './api-client';
-import { INSPECTION_RECORD_PREFIX, createMirroredDraftStorage, type MirroredDraftStorage } from './draft-storage';
+import { INSPECTION_RECORD_PREFIX, createMirroredDraftStorage, type MirroredDraftStorage, type StorageProblem } from './draft-storage';
 import { createInspectionOutbox, removeOwnerRecords, type FlushState, type InspectionOutbox } from './inspection-outbox';
 import { inspectionsApi } from './inspections-api';
 import type { KeyValueStore } from './storage';
@@ -36,6 +36,10 @@ export interface InspectionOutboxes {
   recordKey(ownerId: string, inspectionId: string): string;
   /** The person's changes not sent yet: answers, follow-up requests and a waiting finish (the sign-out question). */
   unsentCount(ownerId: string | null | undefined): number;
+  /** The same, once the phone's records are read (before that the count would say 0 — Final I4). */
+  unsentCountWhenReady(ownerId: string | null | undefined): Promise<number>;
+  /** Why a person's record of an inspection is only in the app (too big, or the storage full / refused it). */
+  storageProblem(ownerId: string, inspectionId: string): StorageProblem | null;
   /** Signing out on purpose: the person's records go, on the phone and in the app. */
   clearOwner(ownerId: string): Promise<void>;
 }
@@ -79,9 +83,14 @@ interface ScopedOutbox {
  * its answer comes (`read() ?? d`), so a record thrown away meanwhile is thrown away again once
  * that send ends, and signing out stops new sends and waits for those on their way.
  */
-function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string): ScopedOutbox {
+function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string, storage: MirroredDraftStorage): ScopedOutbox {
   const flights = new Map<string, Promise<{ state: FlushState }>>();
   let stopped = false;
+  /**
+   * Kept on the phone only when the phone took it (Final I2): the outbox knows a write refused at
+   * once; one AsyncStorage refuses later is the storage's to say.
+   */
+  const onPhone = (o: string, id: string) => !storage.unwritten().includes(`${INSPECTION_RECORD_PREFIX}${owner(o)}.${id}`);
 
   const flush: InspectionOutbox['flush'] = (o, id, opts) => {
     if (stopped) return Promise.resolve({ state: 'signed-out' });
@@ -99,7 +108,10 @@ function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string
     subscribe: (listener) => inner.subscribe(listener),
     changedElsewhere: () => inner.changedElsewhere(),
     draft: (o, id) => inner.draft(owner(o), id),
-    view: (o, id) => inner.view(owner(o), id),
+    view: (o, id) => {
+      const v = inner.view(owner(o), id);
+      return v && v.persisted && !onPhone(o, id) ? { ...v, persisted: false } : v;
+    },
     remember: (o, detail) => inner.remember(owner(o), detail),
     saveAnswer: (o, id, value) => inner.saveAnswer(owner(o), id, value),
     queueFinish: (o, id, signatures) => inner.queueFinish(owner(o), id, signatures),
@@ -115,7 +127,7 @@ function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string
     ackFinished: (o, id) => inner.ackFinished(owner(o), id),
     ackFollowUpReport: (o, id) => inner.ackFollowUpReport(owner(o), id),
     flush,
-    waiting: (o) => inner.waiting(owner(o)),
+    waiting: (o) => inner.waiting(owner(o)).map((w) => (w.persisted && !onPhone(o, w.inspectionId) ? { ...w, persisted: false } : w)),
     // The website's flushAll, through this flush (so its sends are known, and stop when signing out).
     async flushAll(o, opts = {}) {
       let sent = 0;
@@ -146,10 +158,14 @@ export function createInspectionOutboxes(deps: {
   api: Pick<ApiClient, 'forUser'>;
   /** The server the app is connected to (its API address): records are kept per server. */
   server: string;
+  /** The storage's limits (tests). */
+  limits?: { recordMax?: number; allMax?: number };
+  /** A record on the phone that couldn't be read back, removed (dev logs). */
+  onDroppedRecord?: (key: string, why: string) => void;
   now?: () => Date;
   newId?: () => string;
 }): InspectionOutboxes {
-  const storage = createMirroredDraftStorage(deps.store);
+  const storage = createMirroredDraftStorage(deps.store, { ...deps.limits, ...(deps.onDroppedRecord ? { onDropped: deps.onDroppedRecord } : {}) });
   const ready = storage.hydrate();
   const outboxes = new Map<string, ScopedOutbox>();
   const scope = serverScope(deps.server);
@@ -159,12 +175,18 @@ export function createInspectionOutboxes(deps: {
     let o = outboxes.get(ownerId);
     if (!o) {
       const inner = createInspectionOutbox({ storage, api: inspectionsApi(deps.api.forUser(ownerId)), ...(deps.now ? { now: deps.now } : {}), ...(deps.newId ? { newId: deps.newId } : {}) });
-      o = scopedOutbox(inner, ownerKey);
+      o = scopedOutbox(inner, ownerKey, storage);
       outboxes.set(ownerId, o);
     }
     return o;
   }
   const outboxFor = (ownerId: string): InspectionOutbox => scoped(ownerId).outbox;
+  const unsentCount = (ownerId: string | null | undefined): number => {
+    if (!ownerId) return 0;
+    return outboxFor(ownerId)
+      .waiting(ownerId)
+      .reduce((n, w) => n + w.pending.answers + w.pending.followUps + (w.pending.finish ? 1 : 0), 0);
+  };
 
   return {
     storage,
@@ -173,11 +195,16 @@ export function createInspectionOutboxes(deps: {
     outboxFor,
     ownerKey,
     recordKey: (ownerId, inspectionId) => `${INSPECTION_RECORD_PREFIX}${ownerKey(ownerId)}.${inspectionId}`,
-    unsentCount(ownerId) {
-      if (!ownerId) return 0;
-      return outboxFor(ownerId)
-        .waiting(ownerId)
-        .reduce((n, w) => n + w.pending.answers + w.pending.followUps + (w.pending.finish ? 1 : 0), 0);
+    unsentCount,
+    async unsentCountWhenReady(ownerId) {
+      await ready;
+      return unsentCount(ownerId);
+    },
+    storageProblem(ownerId, inspectionId) {
+      const key = `${INSPECTION_RECORD_PREFIX}${ownerKey(ownerId)}.${inspectionId}`;
+      // A change refused at once (the outbox keeps it in the app) or one the storage refused later.
+      if (scoped(ownerId).outbox.view(ownerId, inspectionId)?.persisted !== false) return null;
+      return storage.problemOf(key) ?? 'full';
     },
     async clearOwner(ownerId) {
       await ready;

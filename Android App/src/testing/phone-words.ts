@@ -20,6 +20,13 @@ export const PHONE_WORDS: readonly (readonly [web: string, phone: string, file: 
 export const DEVICE_WORDS: readonly (readonly [web: string, phone: string, file: string])[] = [
   ['even if the page reloads', 'even if the app closes', 'frontend/src/pages/InspectionPage.tsx'],
   ['Draw with your finger or mouse.', 'Draw with your finger.', 'frontend/src/components/inspections/SignaturePad.tsx'],
+  // The sync banner (Final I10): the changes are in the app, kept while it is open; a record too big
+  // for the phone to keep is told apart from the phone's storage being full.
+  ['only in this page', 'only in the app', 'frontend/src/components/inspections/SyncBanner.tsx'],
+  ['Keep it open until', 'Keep the app open until', 'frontend/src/components/inspections/SyncBanner.tsx'],
+  ['will send when online', 'will send when you’re back online with the app open', 'frontend/src/components/inspections/SyncBanner.tsx'],
+  ['This phone’s storage is full, so', 'This inspection is too big to keep on the phone, so', 'frontend/src/components/inspections/SyncBanner.tsx'],
+  ['This phone’s storage is full:', 'This inspection is too big to keep on the phone:', 'frontend/src/components/inspections/SyncBanner.tsx'],
 ];
 
 const ALL_WORDS = [...PHONE_WORDS, ...DEVICE_WORDS];

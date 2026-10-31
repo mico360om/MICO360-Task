@@ -36,7 +36,7 @@ it('the banner tells TalkBack when the changes can’t be sent, and when they al
   expect(b).toMatch(/AccessibilityInfo\.announceForAccessibility\(/);
   expect(b).toContain('SYNC_ANNOUNCE[');
   expect(b).toContain('BACK_ONLINE');
-  expect(b).toMatch(/syncLine\(syncWord\(view, sync, online\), view\)/);
+  expect(b).toMatch(/syncLine\(syncWord\(view, sync, online\), view(, storageProblem)?\)/);
 });
 
 it('the screen is registered', () => expect(src('navigation/RootNavigator.tsx')).toMatch(/<AppStack\.Screen name="Inspection" component=\{InspectionScreen\}/));

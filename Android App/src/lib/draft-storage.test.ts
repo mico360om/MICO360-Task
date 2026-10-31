@@ -167,7 +167,7 @@ it('opening an inspection before the phone has read its records keeps the answer
 });
 
 it('a record the phone can’t read back is skipped, the others are read', async () => {
-  const disk = createMemoryStore({ 'mico360.inspection.u1.i1': 'one', 'mico360.inspection.u1.i2': 'two' });
+  const disk = createMemoryStore({ 'mico360.inspection.u1.i1': '{"v":1}', 'mico360.inspection.u1.i2': '{"v":2}' });
   const s = createMirroredDraftStorage({ ...disk, getItem: async (k: string) => (k.endsWith('i1') ? Promise.reject(new Error('Row too big')) : disk.getItem(k)) });
   await s.hydrate();
   expect(s.keys()).toEqual(['mico360.inspection.u1.i2']);
@@ -181,4 +181,36 @@ it('removing a person’s records removes them from the phone too', async () => 
   removeOwnerRecords(s, 'u1');
   await s.settled();
   expect(await disk.keys()).toEqual(['mico360.inspection.u2.i2']);
+});
+
+it('a write the phone refuses is known for that record, and heard (Final I2)', async () => {
+  const disk = createMemoryStore();
+  let refuse = true;
+  const flaky = { ...disk, setItem: async (k: string, v: string) => (refuse ? Promise.reject(new Error('SQLITE_FULL')) : disk.setItem(k, v)) };
+  const s = createMirroredDraftStorage(flaky, { recordMax: 10 });
+  await s.hydrate();
+  let heard = 0;
+  const stop = s.subscribe(() => (heard += 1));
+  s.set('mico360.inspection.u1.i1', 'abc');
+  await s.settled();
+  expect(s.problemOf('mico360.inspection.u1.i1')).toBe('full');
+  expect(heard).toBeGreaterThan(0);
+  expect(() => s.set('mico360.inspection.u1.i2', 'x'.repeat(11))).toThrow(StorageFullError);
+  expect(s.problemOf('mico360.inspection.u1.i2')).toBe('too-big');
+  refuse = false;
+  s.set('mico360.inspection.u1.i2', 'small');
+  await s.settled();
+  expect([s.problemOf('mico360.inspection.u1.i1'), s.problemOf('mico360.inspection.u1.i2')]).toEqual([null, null]);
+  stop();
+});
+
+it('a record the phone can’t read back, or that isn’t a record, is removed, not kept for ever (Final I11)', async () => {
+  const disk = createMemoryStore({ 'mico360.inspection.u1.i1': 'one', 'mico360.inspection.u1.i2': '{"v":1}', 'mico360.inspection.u1.i3': '{"v":1}' });
+  const dropped: string[] = [];
+  const s = createMirroredDraftStorage({ ...disk, getItem: async (k: string) => (k.endsWith('i3') ? Promise.reject(new Error('Row too big')) : disk.getItem(k)) }, { onDropped: (k) => dropped.push(k) });
+  await s.hydrate();
+  await s.settled();
+  expect(s.keys()).toEqual(['mico360.inspection.u1.i2']);
+  expect((await disk.keys()).sort()).toEqual(['mico360.inspection.u1.i2']);
+  expect(dropped.sort()).toEqual(['mico360.inspection.u1.i1', 'mico360.inspection.u1.i3']);
 });

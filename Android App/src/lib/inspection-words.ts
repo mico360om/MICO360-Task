@@ -1,4 +1,5 @@
 import { dateTimeText, instantDayText } from './day-words';
+import type { StorageProblem } from './draft-storage';
 import type { DraftView } from './inspection-outbox';
 import type { SyncState } from './inspection-outboxes';
 import { SIGNATURE_LABEL, type SignatureRole } from './inspection-rules';
@@ -62,12 +63,18 @@ export function pendingWords(p: DraftView['pending']): string {
   return [p.answers ? plural(p.answers, 'answer') : '', p.followUps ? plural(p.followUps, 'follow-up task request') : '', p.finish ? 'the signatures' : ''].filter(Boolean).join(', ');
 }
 
-/** The banner's line for a word (the website's banner, word for word). */
-export function syncLine(word: SyncWord, view: DraftView): string {
+/**
+ * The banner's line for a word: the website's banner, in the phone's words where it names the page
+ * (Final I10) — the changes are only in the app, kept while the app is open; an inspection too big
+ * for the phone to keep is told apart from the phone being full (`problem`).
+ */
+export function syncLine(word: SyncWord, view: DraftView, problem?: StorageProblem | null): string {
   const w = pendingWords(view.pending);
   switch (word) {
     case 'memory':
-      return 'This phone’s storage is full, so your changes are only in this page. Keep it open until they’re sent.';
+      return problem === 'too-big'
+        ? 'This inspection is too big to keep on the phone, so your changes are only in the app. Keep the app open until they’re sent.'
+        : 'This phone’s storage is full, so your changes are only in the app. Keep the app open until they’re sent.';
     case 'sent':
       return view.sentAt ? 'All changes sent.' : 'Saved.';
     case 'sending':
@@ -79,7 +86,7 @@ export function syncLine(word: SyncWord, view: DraftView): string {
     case 'retry':
       return `The server had a problem, will keep trying. Saved on this phone: ${w}.`;
     case 'offline':
-      return `Saved on this phone, will send when online: ${w}.`;
+      return `Saved on this phone, will send when you’re back online with the app open: ${w}.`;
     case 'soon':
       return `Saved on this phone: ${w}. Sending soon.`;
   }
@@ -90,9 +97,11 @@ export const SYNC_ANNOUNCE: Partial<Record<SyncWord, string>> = {
   offline: 'No signal. Changes are saved on this phone and sent when you’re back online.',
   unreachable: 'Can’t reach the server. Changes are saved on this phone; it keeps trying.',
   retry: 'The server had a problem. Changes are saved on this phone; it keeps trying.',
-  memory: 'This phone’s storage is full: changes are only in this page.',
+  memory: 'This phone’s storage is full: changes are only in the app.',
   'signed-out': 'Signed out. Changes are saved on this phone; sign in again to send them.',
 };
+/** What TalkBack is told when the changes are only in the app because the inspection is too big to keep. */
+export const MEMORY_TOO_BIG_ANNOUNCE = 'This inspection is too big to keep on the phone: changes are only in the app.';
 /** …and when they all went once that was over. */
 export const BACK_ONLINE = 'Back online: all changes sent.';
 

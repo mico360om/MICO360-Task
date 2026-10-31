@@ -22,11 +22,16 @@ export const RECORD_MAX_CHARS = MAX_COPY_CHARS;
 /** All records together (AsyncStorage's 6 MB is shared with the offline copy and the queue). */
 export const ALL_RECORDS_MAX_CHARS = 2_400_000;
 
+/** Why a record isn't on the phone: too big to keep (Android can't read it back), or the storage is full / refused it. */
+export type StorageProblem = 'too-big' | 'full';
+
 /** The phone's storage for inspections is full (the name the website's quota error has). */
 export class StorageFullError extends Error {
-  constructor(message = 'This phone’s storage for inspections is full.') {
-    super(message);
+  readonly reason: StorageProblem;
+  constructor(reason: StorageProblem = 'full') {
+    super(reason === 'too-big' ? 'This inspection is too big to keep on the phone.' : 'This phone’s storage for inspections is full.');
     this.name = 'QuotaExceededError';
+    this.reason = reason;
   }
 }
 
@@ -38,9 +43,26 @@ export interface MirroredDraftStorage extends DraftStorage {
   settled(): Promise<void>;
   /** Records whose newest change isn't on the phone yet (AsyncStorage refused it). */
   unwritten(): string[];
+  /** Why this record's newest change isn't on the phone (null: it is, or there is no record). */
+  problemOf(key: string): StorageProblem | null;
+  /** Hear each change of what is (not) on the phone — a refused write, one that went through after all. */
+  subscribe(listener: () => void): () => void;
 }
 
-export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?: number; allMax?: number } = {}): MirroredDraftStorage {
+/** A record is JSON (the outbox's own): anything else on the phone under its key is no record. */
+function isRecordText(text: string): boolean {
+  try {
+    const v: unknown = JSON.parse(text);
+    return !!v && typeof v === 'object';
+  } catch {
+    return false;
+  }
+}
+
+export function createMirroredDraftStorage(
+  store: KeyValueStore,
+  o: { recordMax?: number; allMax?: number; /** A record that couldn't be read back, removed (dev logs). */ onDropped?: (key: string, why: 'unreadable' | 'not-a-record') => void } = {},
+): MirroredDraftStorage {
   const recordMax = o.recordMax ?? RECORD_MAX_CHARS;
   const allMax = o.allMax ?? ALL_RECORDS_MAX_CHARS;
   const records = new Map<string, string>();
@@ -51,6 +73,10 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
    */
   const early = new Map<string, string | null>();
   const failedKeys = new Set<string>();
+  /** Writes refused at once (too big, the share full): the outbox keeps those changes in the app. */
+  const refused = new Map<string, StorageProblem>();
+  const listeners = new Set<() => void>();
+  const tell = () => listeners.forEach((l) => l());
   /** Per record: the last write asked for (each one waits for the one before it). */
   const chains = new Map<string, Promise<void>>();
   /** Records with a write asked for that hasn't started yet (one more would write the same). */
@@ -69,9 +95,12 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
       try {
         if (value === undefined) await store.deleteItem(key);
         else await store.setItem(key, value);
-        failedKeys.delete(key);
+        if (failedKeys.delete(key)) tell();
       } catch {
-        failedKeys.add(key);
+        if (!failedKeys.has(key)) {
+          failedKeys.add(key);
+          tell();
+        }
       }
     });
     chains.set(key, next);
@@ -99,9 +128,17 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
         try {
           value = await store.getItem(key);
         } catch {
-          continue; // too long to read back, or unreadable: skipped
+          // Too long for Android to read back, or unreadable: it would only take room (Final I11).
+          writeOut(key);
+          o.onDropped?.(key, 'unreadable');
+          continue;
         }
         if (value === null) continue;
+        if (!isRecordText(value)) {
+          writeOut(key);
+          o.onDropped?.(key, 'not-a-record');
+          continue;
+        }
         records.set(key, value);
         total += value.length;
       }
@@ -126,18 +163,27 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
     get: (key) => records.get(key) ?? null,
     keys: () => [...records.keys()].filter((k) => k.startsWith(INSPECTION_RECORD_PREFIX)),
     set(key, value) {
-      if (value.length > recordMax) throw new StorageFullError();
+      const refuse = (reason: StorageProblem) => {
+        if (refused.get(key) !== reason) {
+          refused.set(key, reason);
+          tell();
+        }
+        throw new StorageFullError(reason);
+      };
+      if (value.length > recordMax) refuse('too-big');
       if (!hydrated) {
         early.set(key, value);
         return;
       }
       const had = records.get(key);
-      if (total - (had?.length ?? 0) + value.length > allMax) throw new StorageFullError();
+      if (total - (had?.length ?? 0) + value.length > allMax) refuse('full');
+      if (refused.delete(key)) tell();
       records.set(key, value);
       total += value.length - (had?.length ?? 0);
       changed(key);
     },
     remove(key) {
+      if (refused.delete(key)) tell();
       if (!hydrated) {
         early.set(key, null);
         return;
@@ -154,5 +200,12 @@ export function createMirroredDraftStorage(store: KeyValueStore, o: { recordMax?
       while (chains.size > 0) await Promise.all([...chains.values()]);
     },
     unwritten: () => [...failedKeys],
+    problemOf: (key) => refused.get(key) ?? (failedKeys.has(key) ? 'full' : null),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }

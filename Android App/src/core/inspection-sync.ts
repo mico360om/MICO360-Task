@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import type { QueryClient } from '@tanstack/react-query';
 import { useServices, useUserId } from './providers';
 import { useOnline } from './chat';
+import type { StorageProblem } from '../lib/draft-storage';
 import type { DraftView, FlushState, InspectionOutbox, WaitingInspection } from '../lib/inspection-outbox';
 import { FLUSH_ALL_EVERY_MS, RETRY_EVERY_MS, SEND_DELAY_MS, type SyncState } from '../lib/inspection-outboxes';
 
@@ -20,6 +21,9 @@ export function refreshInspectionQueries(qc: QueryClient, inspectionId: string, 
   if (projectId) void qc.invalidateQueries({ queryKey: ['project-inspections', projectId] });
   void qc.invalidateQueries({ queryKey: ['task-inspections'] });
 }
+
+/** The storage's own change counter (a refused write is heard through it). */
+const storageVersion = { n: 0 };
 
 /** A change counter per outbox, so `useSyncExternalStore` sees each change. */
 const versions = new WeakMap<InspectionOutbox, { n: number }>();
@@ -49,8 +53,22 @@ function useOutbox(): { ownerId: string | null; outbox: InspectionOutbox | null;
       live = false;
     };
   }, [inspections]);
-  const subscribe = useCallback((cb: () => void) => (outbox ? outbox.subscribe(cb) : () => undefined), [outbox]);
-  const snapshot = useCallback(() => (outbox ? versionOf(outbox).n : 0), [outbox]);
+  // The outbox's changes, and the storage's (a write it refused later — Final I2).
+  const subscribe = useCallback(
+    (cb: () => void) => {
+      const stopOutbox = outbox ? outbox.subscribe(cb) : () => undefined;
+      const stopStorage = inspections.storage.subscribe(() => {
+        storageVersion.n += 1;
+        cb();
+      });
+      return () => {
+        stopOutbox();
+        stopStorage();
+      };
+    },
+    [outbox, inspections],
+  );
+  const snapshot = useCallback(() => (outbox ? versionOf(outbox).n : 0) * 1_000_003 + storageVersion.n, [outbox]);
   const version = useSyncExternalStore(subscribe, snapshot, snapshot);
   return { ownerId, outbox, ready, version };
 }
@@ -63,13 +81,15 @@ export function useInspectionDraft(inspectionId: string | undefined): {
   ownerId: string | null;
   ready: boolean;
   view: DraftView | null;
+  /** Why the changes are only in the app (too big, or the storage full) — the banner's words. */
+  storageProblem: StorageProblem | null;
   sync: SyncState;
   online: boolean;
   send(opts?: { force?: boolean }): Promise<FlushState>;
   sendSoon(): void;
   outbox: InspectionOutbox | null;
 } {
-  const { queryClient: qc, connectivity } = useServices();
+  const { queryClient: qc, connectivity, inspections } = useServices();
   const { ownerId, outbox, ready, version } = useOutbox();
   const online = useOnline();
   const view = useMemo(
@@ -124,7 +144,8 @@ export function useInspectionDraft(inspectionId: string | undefined): {
     };
   }, [connectivity, send, waiting]);
 
-  return { ownerId, ready, view, sync, online, send, sendSoon, outbox };
+  const storageProblem = view && !view.persisted && ownerId && inspectionId ? inspections.storageProblem(ownerId, inspectionId) : null;
+  return { ownerId, ready, view, storageProblem, sync, online, send, sendSoon, outbox };
 }
 
 /** The signed-in person's inspections with something waiting on this phone (or a problem to look at). */

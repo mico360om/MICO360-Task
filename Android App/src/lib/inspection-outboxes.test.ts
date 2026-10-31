@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 import { DETAIL, SIG_DRAWN, fakeApiClient, fakeInspectionServer } from '../testing/inspection-fixtures';
 import { FLUSH_ALL_EVERY_MS, RETRY_EVERY_MS, SEND_DELAY_MS, createInspectionOutboxes } from './inspection-outboxes';
+import { syncLine, syncWord } from './inspection-words';
 import { createMemoryStore } from './storage';
 
 /** One inspection outbox per person on the phone; sending; sign-out (Stage 4 Task 5, Review Focus 2). */
@@ -93,8 +94,7 @@ it('waiting inspections are sent on sign-in, back online, in front again and eve
 
 it('a person’s sends go only with their own session', () => expect(src('lib/inspection-outboxes.ts')).toMatch(/inspectionsApi\(deps\.api\.forUser\(ownerId\)\)/));
 
-it('Sign out asks first when inspection changes are unsent', () =>
-  expect(src('components/account/SignOutButton.tsx')).toMatch(/signOutQuestion\(queued\.pending\.length \+ queued\.failed\.length \+ inspections\.unsentCount\(/));
+
 
 it('the app’s sign-out clears the person’s inspections', () => expect(src('core/services.ts')).toMatch(/clearInspections: \(id\) => inspections\.clearOwner\(id\)/));
 
@@ -177,4 +177,70 @@ it('signing out waits for a send on its way, sends nothing more, and leaves noth
   o.saveAnswer('u1', 'i3', { itemId: 'a', result: 'PASS', reading: null, note: null });
   server.hold = null;
   expect((await o.flush('u1', 'i3')).state).toBe('sent');
+});
+
+it('a change the phone’s storage refused is not “saved on this phone”: the view says so, and why (Final I2)', async () => {
+  const disk = createMemoryStore();
+  let refuse = false;
+  const store = { ...disk, setItem: async (k: string, v: string) => (refuse ? Promise.reject(new Error('SQLITE_FULL')) : disk.setItem(k, v)) };
+  const all = createInspectionOutboxes({ store, api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
+  await all.ready;
+  const o = all.outboxFor('u1');
+  o.remember('u1', DETAIL);
+  refuse = true;
+  o.saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: null });
+  await all.storage.settled();
+  expect(o.view('u1', 'i1')).toMatchObject({ persisted: false, pending: { answers: 1 } });
+  expect(o.waiting('u1')).toEqual([expect.objectContaining({ inspectionId: 'i1', persisted: false })]);
+  expect(all.storageProblem('u1', 'i1')).toBe('full');
+  const v = o.view('u1', 'i1')!;
+  expect(syncLine(syncWord(v, 'idle', true), v, all.storageProblem('u1', 'i1'))).toBe('This phone’s storage is full, so your changes are only in the app. Keep the app open until they’re sent.');
+  refuse = false;
+  o.saveAnswer('u1', 'i1', { itemId: 'a', result: 'PASS', reading: null, note: null });
+  await all.storage.settled();
+  expect(o.view('u1', 'i1')!.persisted).toBe(true);
+});
+
+it('an inspection too big for the phone to keep says so, not that the phone is full (Final I2, I10)', async () => {
+  const roomy = createInspectionOutboxes({ store: createMemoryStore(), api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
+  await roomy.ready;
+  roomy.outboxFor('u1').remember('u1', DETAIL);
+  const size = roomy.storage.get(roomy.recordKey('u1', 'i1'))!.length;
+  const all = createInspectionOutboxes({ store: createMemoryStore(), api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER, limits: { recordMax: size + 200 } });
+  await all.ready;
+  const o = all.outboxFor('u1');
+  o.remember('u1', DETAIL);
+  o.saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: 'x'.repeat(400) });
+  const v = o.view('u1', 'i1')!;
+  expect(v.persisted).toBe(false);
+  expect(all.storageProblem('u1', 'i1')).toBe('too-big');
+  expect(syncLine('memory', v, 'too-big')).toBe('This inspection is too big to keep on the phone, so your changes are only in the app. Keep the app open until they’re sent.');
+});
+
+it('the sign-out question waits for the phone’s records before it counts (Final I4)', async () => {
+  const disk = createMemoryStore();
+  const first = createInspectionOutboxes({ store: disk, api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
+  await first.ready;
+  first.outboxFor('u1').remember('u1', DETAIL);
+  first.outboxFor('u1').saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: null });
+  await first.storage.settled();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const again = createInspectionOutboxes({ store: { ...disk, getItem: async (k: string) => (await gate, disk.getItem(k)) }, api: fakeApiClient(fakeInspectionServer(), () => 'u1'), server: SERVER });
+  expect(again.unsentCount('u1')).toBe(0); // not read yet
+  const counting = again.unsentCountWhenReady('u1');
+  release();
+  expect(await counting).toBe(1);
+  expect(await again.unsentCountWhenReady(null)).toBe(0);
+});
+
+it('Sign out counts inspection changes only once they are read', () => {
+  expect(src('components/account/SignOutButton.tsx')).toMatch(/await inspections\.unsentCountWhenReady\(userId\)/);
+  expect(src('components/account/SignOutButton.tsx')).toMatch(/signOutQuestion\(queued\.pending\.length \+ queued\.failed\.length \+ unsentInspections\)/);
+});
+
+it('the screen hears the storage too, and passes on why a change is only in the app', () => {
+  expect(src('core/inspection-sync.ts')).toMatch(/inspections\.storage\.subscribe\(/);
+  expect(src('screens/InspectionScreen.tsx')).toMatch(/storageProblem=\{storageProblem\}/);
+  expect(src('components/inspections/SyncBanner.tsx')).toMatch(/syncLine\(syncWord\(view, sync, online\), view, storageProblem\)/);
 });
