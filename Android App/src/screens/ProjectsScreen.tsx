@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import { View, Text, FlatList, Pressable, ScrollView, StyleSheet, RefreshControl, AccessibilityInfo } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProjectsOverview, useProjectStatus } from '../core/project-queries';
+import { useRefetchOnFocus } from '../core/focus-refetch';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { SkeletonList, EmptyState, ErrorNote, Button, Card, Chip, PageHeader, TextField, Toggle } from '../components/ui';
@@ -62,13 +62,10 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   const [problem, setProblem] = useState<string | null>(null);
   const changeStatus = useProjectStatus();
 
-  // Read again when the tab is shown and the list is out of date (a task change marks it so).
-  const { refetch, isStale, isFetching } = query;
-  useFocusEffect(
-    useCallback(() => {
-      if (isStale && !isFetching) void refetch();
-    }, [isStale, isFetching, refetch]),
-  );
+  // Read again as the tab comes into view, once, when the list it shows is out of date (a task change
+  // marks it so) and isn't being read — never again and again while a read fails (fix pass B1).
+  useRefetchOnFocus(query);
+  const { refetch } = query;
 
   const open = useCallback((p: ProjectOverview) => navigation.navigate('ProjectDetail', { projectId: p.id, projectName: p.name }), [navigation]);
   const board = useCallback((p: ProjectOverview) => navigation.navigate('Board', { projectId: p.id, projectName: p.name }), [navigation]);

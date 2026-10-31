@@ -30,8 +30,9 @@ export function useProjectsOverview() {
   return useQuery<ProjectOverview[]>({
     queryKey: PROJECTS_OVERVIEW_KEY,
     queryFn: ({ queryKey }) => reads.read(queryKey, PROJECTS_OVERVIEW_COPY, () => resources.projects.overview()),
-    // Fresh for a minute; a task or project change marks it out of date at once (lib/refresh, the status change).
-    staleTime: 60_000,
+    // Fresh for a minute once the server answered (an answer from the offline copy is out of date at
+    // once, as every list's: lib/query-client); a task or project change marks it out of date at once.
+    staleTime: (q) => (reads.answeredFromCopy(q) ? 0 : 60_000),
   });
 }
 

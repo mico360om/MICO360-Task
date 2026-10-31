@@ -68,3 +68,25 @@ it('the status sheet ticks the current status; Archived asks first', () => {
   expect(src('components/projects/ArchiveProjectSheet.tsx')).toMatch(/ARCHIVE_TEXT\.title\(project\.name\)/);
   expect(src('components/projects/ArchiveProjectSheet.tsx')).toMatch(/confirm=\{ARCHIVE_TEXT\.confirm\}/);
 });
+
+// Stage 2 fix pass B1: a failing list was read again in a loop (the focus effect re-ran on every
+// isFetching flip). It is read once per coming into view, only when shown, stale and not loading.
+it('B1: the list is read again once each time the tab comes into view, never in a loop', () => {
+  const s = src('screens/ProjectsScreen.tsx');
+  expect(s).toMatch(/useRefetchOnFocus\(query\);/);
+  expect(s).not.toMatch(/useFocusEffect/);
+});
+
+it('B1: no screen’s focus effect re-runs on isStale or isFetching', async () => {
+  const { appSources } = await import('../testing/web-source');
+  const looping = appSources()
+    .filter(([, text]) => text.includes('useFocusEffect('))
+    .flatMap(([file, text]) => [...text.matchAll(/useFocusEffect\(\s*useCallback\([^]*?\},\s*\[([^\]]*)\]/g)].filter((m) => /\b(isStale|isFetching)\b/.test(m[1]!)).map(() => file));
+  expect(looping).toEqual([]);
+});
+
+// Stage 2 fix pass B6: a list the offline copy answered is out of date at once (as every list's
+// default, lib/query-client), not fresh for a minute — so it is read again when the signal is back.
+it('B6: the overview is fresh for a minute only when the server answered it', () => {
+  expect(src('core/project-queries.ts')).toMatch(/queryKey: PROJECTS_OVERVIEW_KEY,[^]*?staleTime: \(q\) => \(reads\.answeredFromCopy\(q\) \? 0 : 60_000\)/);
+});
