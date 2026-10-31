@@ -30,3 +30,12 @@ it('S6: a removed client leaves the list at once (and the list is read again)', 
   expect(q).toMatch(/onSuccess: \(_r, share\) => \{[^}]*setQueryData<ClientShare\[\]>\(\['client-shares', projectId\][^]*filter\(\(s\) => s\.id !== share\.id\)/);
   expect(q).toMatch(/remove = useMutation[^]*refresh\(\)/);
 });
+
+it('S7: TalkBack hears each switch’s explanation with the switch, once', () => {
+  const task = src('components/client-share/TaskClientCard.tsx');
+  expect(task).toMatch(/<Toggle[^>]*hint=\{HINT\}/);
+  expect(task).toMatch(/importantForAccessibility="no">\s*\{HINT\}/);
+  const minutes = src('components/client-share/MinutesClientSwitch.tsx');
+  expect(minutes).toMatch(/<Toggle on=\{v\.clientVisible\}[^>]*hint=\{minutesHint\(v\)\}/);
+  expect(minutes).toMatch(/importantForAccessibility="no">\s*\{minutesHint\(v\)\}/);
+});

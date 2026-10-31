@@ -28,13 +28,17 @@ export function TaskClientCard({ task, canChange }: { task: Pick<ApiTask, 'id' |
       <Toggle
         on={on}
         label="Show to client"
+        hint={HINT}
         disabled={change.isPending}
         onChange={(visible) => {
           setProblem(null);
           change.mutate(visible, { onError: (e) => setProblem(problemText(e, 'Couldn’t change it. Please try again.')) });
         }}
       />
-      <Text style={s.hint}>Show to client: its title, status and due date appear on the project’s client page. Never people, comments, files or the description.</Text>
+      {/* Said with the switch (its hint), so TalkBack doesn't read it twice. */}
+      <Text style={s.hint} importantForAccessibility="no">
+        {HINT}
+      </Text>
       {problem ? (
         <Text style={s.problem} accessibilityRole="alert">
           {problem}
@@ -43,6 +47,9 @@ export function TaskClientCard({ task, canChange }: { task: Pick<ApiTask, 'id' |
     </Card>
   );
 }
+
+/** The website's hint under the switch (TaskDrawer's ClientViewSwitch), said with it by TalkBack. */
+const HINT = 'Show to client: its title, status and due date appear on the project’s client page. Never people, comments, files or the description.';
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({

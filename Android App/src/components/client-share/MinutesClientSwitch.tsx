@@ -80,8 +80,11 @@ export function MinutesClientSwitch({ meetingId, minutes }: { meetingId: string;
   const names = p?.names ?? [];
   return (
     <View style={[s.box, { borderColor: c.line }]}>
-      <Toggle on={v.clientVisible} onChange={turn} label={W.show} disabled={busy || !v.approved} />
-      <Text style={[typeStyle('caption'), { color: c.ink2 }]}>{minutesHint(v)}</Text>
+      <Toggle on={v.clientVisible} onChange={turn} label={W.show} hint={minutesHint(v)} disabled={busy || !v.approved} />
+      {/* Said with the switch (its hint), so TalkBack doesn't read it twice. */}
+      <Text style={[typeStyle('caption'), { color: c.ink2 }]} importantForAccessibility="no">
+        {minutesHint(v)}
+      </Text>
       {problem && !previewing ? (
         <Text style={[typeStyle('caption'), { color: c.dangerText }]} accessibilityRole="alert">
           {problem}
