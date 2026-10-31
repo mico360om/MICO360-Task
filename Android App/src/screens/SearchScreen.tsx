@@ -15,6 +15,7 @@ import type { IconName } from '../lib/icons';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { capLines } from '../components/ui/text-lines';
 
 const RESULT_GROUPS = new Set(['Tasks', 'Projects', 'People', 'Meetings']);
 
@@ -210,11 +211,11 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
               <Icon name={rowIcon(item)} size={18} color={c.ink2} />
               {item.hint && item.target.kind !== 'website' ? <Text style={s.hint}>{item.hint}</Text> : null}
               <View style={s.flex}>
-                <Text style={s.primary} numberOfLines={2}>
+                <Text style={s.primary} numberOfLines={capLines(2)}>
                   {item.primary}
                 </Text>
                 {item.secondary || item.target.kind === 'website' ? (
-                  <Text style={s.secondary} numberOfLines={2}>
+                  <Text style={s.secondary} numberOfLines={capLines(2)}>
                     {item.secondary ?? item.hint}
                   </Text>
                 ) : null}

@@ -6,6 +6,7 @@ import { isRepeating, meetingPlace, meetingRowLabel, meetingTime } from '../lib/
 import type { ApiMeeting } from '../lib/types';
 import { font } from '../lib/typography';
 import { Icon } from './Icon';
+import { capLines } from './ui/text-lines';
 
 type RowMeeting = Pick<ApiMeeting, 'id' | 'title' | 'status' | 'startAt' | 'endAt' | 'location' | 'onlineLink' | 'recurrenceRule' | 'recurrenceParentId'>;
 
@@ -31,7 +32,7 @@ export function MeetingRow({ meeting, showDate, timeZone, onPress }: { meeting: 
         <Icon name="kit.calendar" size={20} color={c.meeting} />
       </View>
       <View style={s.body}>
-        <Text style={[s.title, cancelled && s.struck]} numberOfLines={2}>
+        <Text style={[s.title, cancelled && s.struck]} numberOfLines={capLines(2)}>
           {meeting.title}
         </Text>
         <View style={s.meta}>

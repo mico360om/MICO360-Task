@@ -45,6 +45,7 @@ import {
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { capLines } from '../components/ui/text-lines';
 
 /**
  * User Management (6b, administrators), as the website's: everyone's account with their role,
@@ -385,7 +386,7 @@ const UserCard = React.memo(function UserCard({
         <View accessible accessibilityLabel={userCardLabel(u, isSelf)} style={[s.info, s.flex]}>
           <View style={s.topRow}>
             <Avatar name={name} src={u.avatarUrl} size="md" />
-            <Text style={[s.name, s.flex]} numberOfLines={2}>
+            <Text style={[s.name, s.flex]} numberOfLines={capLines(2)}>
               {name}
               {isSelf ? <Text style={s.you}> (you)</Text> : null}
             </Text>

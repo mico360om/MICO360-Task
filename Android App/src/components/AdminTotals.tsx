@@ -7,6 +7,7 @@ import { statusBars } from '../lib/reports';
 import { toneStyle } from '../lib/tone';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { font } from '../lib/typography';
+import { capLines } from './ui/text-lines';
 
 /**
  * The administrators' Dashboard charts (5b), as the website's: the tasks by status, and each
@@ -33,7 +34,7 @@ export function AdminTotals() {
           {status.length === 0 ? <Text style={s.muted}>No tasks yet.</Text> : null}
           {status.map((b) => (
             <View key={b.category} style={s.barRow} accessible accessibilityLabel={`${b.label}: ${b.value} tasks`}>
-              <Text style={s.barLabel} numberOfLines={2}>
+              <Text style={s.barLabel} numberOfLines={capLines(2)}>
                 {b.label}
               </Text>
               <View style={s.track}>
@@ -53,7 +54,7 @@ export function AdminTotals() {
           {bars.length === 0 ? <Text style={s.muted}>No projects yet.</Text> : null}
           {bars.map((b) => (
             <View key={b.id} style={s.barRow} accessible accessibilityLabel={`${b.label}: ${b.pct}% complete`}>
-              <Text style={s.barLabel} numberOfLines={2}>
+              <Text style={s.barLabel} numberOfLines={capLines(2)}>
                 {b.label}
               </Text>
               <View style={s.track}>

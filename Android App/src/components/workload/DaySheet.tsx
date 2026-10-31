@@ -10,6 +10,7 @@ import { useColors } from '../../core/theme';
 import type { AppStackParamList } from '../../navigation/types';
 import { Sheet } from '../meeting/sheet-kit';
 import { Button } from '../ui';
+import { capLines } from '../ui/text-lines';
 
 /**
  * One person's day on Workload (the website's WorkloadPopover, as a sheet): how it stands against
@@ -72,7 +73,7 @@ export function DaySheet({
                 <View style={s.keyBox}>
                   <Text style={s.key}>{task.key}</Text>
                 </View>
-                <Text style={s.title} numberOfLines={2}>
+                <Text style={s.title} numberOfLines={capLines(2)}>
                   {task.title}
                 </Text>
               </Pressable>

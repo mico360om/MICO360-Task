@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { typeStyle } from '../../lib/typography';
 import { useColors } from '../../core/theme';
+import { capLines } from './text-lines';
 
 /** A page's title in the content (the top bar carries the logo): title, subtitle, and actions that wrap below when there is no room. */
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
@@ -9,7 +10,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   return (
     <View style={styles.row}>
       <View style={styles.text}>
-        <Text style={[typeStyle('title'), { color: c.ink }]} accessibilityRole="header" numberOfLines={2}>
+        <Text style={[typeStyle('title'), { color: c.ink }]} accessibilityRole="header" numberOfLines={capLines(2)}>
           {title}
         </Text>
         {subtitle ? <Text style={[typeStyle('body'), { color: c.ink2 }]}>{subtitle}</Text> : null}

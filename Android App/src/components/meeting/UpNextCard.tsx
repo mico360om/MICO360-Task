@@ -9,6 +9,7 @@ import { isUnderWay, startsLabel, type ListContext } from '../../lib/meeting-lis
 import type { ApiMeeting } from '../../lib/types';
 import { font } from '../../lib/typography';
 import { MeetingFaces } from './MeetingFaces';
+import { capLines } from '../ui/text-lines';
 
 /**
  * The next meeting (or the one under way), on top of the list: when it starts, where, who's coming,
@@ -30,7 +31,7 @@ export function UpNextCard({ meeting: m, ctx, onOpen, onJoin }: { meeting: ApiMe
       <Text style={s.eyebrow} accessibilityRole="header">
         {heading.toUpperCase()} <Text style={s.when}>· {when}</Text>
       </Text>
-      <Text style={s.title} numberOfLines={2}>
+      <Text style={s.title} numberOfLines={capLines(2)}>
         {m.title}
       </Text>
       <Text style={s.meta}>

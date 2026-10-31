@@ -9,6 +9,7 @@ import { finishedText, itemTarget, itemsFooter, itemsStatus, plural, shortDay } 
 import type { ItemQuery, ItemRow, ManagementFilters } from '../../lib/management-api';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 /** A row's detail in its tone's TEXT colour (never a fill as text). */
 const toneText = (c: Palette, tone: ItemRow['tone']) =>
@@ -21,7 +22,7 @@ function RowBody({ row, timeZone, s, c }: { row: ItemRow; timeZone: string; s: R
     <>
       <View style={s.head}>
         {row.key ? <Text style={s.key}>{row.key}</Text> : null}
-        <Text style={s.title} numberOfLines={2}>
+        <Text style={s.title} numberOfLines={capLines(2)}>
           {row.title}
         </Text>
       </View>
@@ -124,7 +125,7 @@ export function ItemsSheet({
                   {row.tasks.map((t) => (
                     <Pressable key={t.id} onPress={() => openTask(t.id, t.title)} accessibilityRole="button" accessibilityLabel={`${t.key} ${t.title}`} style={({ pressed }) => [s.dayTask, pressed && s.pressed]}>
                       <Text style={s.key}>{t.key}</Text>
-                      <Text style={s.dayTaskTitle} numberOfLines={2}>
+                      <Text style={s.dayTaskTitle} numberOfLines={capLines(2)}>
                         {t.title}
                       </Text>
                     </Pressable>

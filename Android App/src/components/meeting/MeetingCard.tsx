@@ -11,6 +11,7 @@ import { dateLeafParts, isUnderWay, meetingCardLabel, type ListContext } from '.
 import type { ApiMeeting } from '../../lib/types';
 import { font } from '../../lib/typography';
 import { MeetingFaces } from './MeetingFaces';
+import { capLines } from '../ui/text-lines';
 
 type LeafTone = 'today' | 'upcoming' | 'muted';
 
@@ -73,7 +74,7 @@ export const MeetingCard = memo(function MeetingCard({
       <View style={s.top}>
         <DateLeaf iso={m.startAt} timeZone={ctx.timeZone} tone={tone} />
         <View style={s.body}>
-          <Text style={[s.title, cancelled && s.struck]} numberOfLines={2}>
+          <Text style={[s.title, cancelled && s.struck]} numberOfLines={capLines(2)}>
             {m.title}
           </Text>
           <Text style={s.when} numberOfLines={1}>

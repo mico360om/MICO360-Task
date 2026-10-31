@@ -18,3 +18,4 @@ export { ClientChip } from './ClientChip';
 export { ProgressBar } from './ProgressBar';
 export { BrandLogo } from './BrandLogo';
 export { PageHeader } from './PageHeader';
+export { capLines } from './text-lines';

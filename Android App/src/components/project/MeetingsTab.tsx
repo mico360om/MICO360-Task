@@ -12,6 +12,7 @@ import { recurrenceSummary } from '../../lib/recurrence-summary';
 import type { ApiProjectMeetingsOverview } from '../../lib/types';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 /** "Tue 20 Oct" for a 'YYYY-MM-DD' day (the website's day words), never shifted by the phone's time zone. */
 export function meetingDayLabel(date: string): string {
@@ -119,7 +120,7 @@ function ProjectMeetings({ overview, s, onOpen }: { overview: ApiProjectMeetings
                   <Icon name="kit.repeat" size={16} color={c.ink2} />
                 </View>
                 <View style={s.lineText}>
-                  <Text style={s.lineTitle} numberOfLines={2}>{sr.title}</Text>
+                  <Text style={s.lineTitle} numberOfLines={capLines(2)}>{sr.title}</Text>
                   <Text style={s.lineSub}>{when}</Text>
                 </View>
               </MeetingLine>
@@ -142,7 +143,7 @@ function ProjectMeetings({ overview, s, onOpen }: { overview: ApiProjectMeetings
                   <View style={s.openBox} />
                 </View>
                 <View style={s.lineText}>
-                  <Text style={s.lineTitle} numberOfLines={3}>{a.description}</Text>
+                  <Text style={s.lineTitle} numberOfLines={capLines(3)}>{a.description}</Text>
                   <Text style={[s.lineSub, a.overdue && s.overdue]}>{sub}</Text>
                 </View>
               </MeetingLine>

@@ -12,6 +12,7 @@ import { Avatar, Badge, Card, IconButton, ProgressBar } from '../ui';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { Icon } from '../Icon';
 import { ActionRowButton, Sheet, SheetButtons } from '../meeting/sheet-kit';
+import { capLines } from '../ui/text-lines';
 
 /**
  * One figure under the progress bar: the value above its label (TalkBack hears the label first), or —
@@ -107,7 +108,7 @@ export const ProjectCard = React.memo(function ProjectCard({
           <ProjectAvatar project={p} size="lg" />
           <View style={s.headText}>
             <Pressable onPress={() => onOpen(p)} accessibilityRole="button" accessibilityLabel={p.name} accessibilityHint="Opens the project" style={({ pressed }) => (pressed ? s.pressed : null)}>
-              <Text style={s.name} numberOfLines={2}>
+              <Text style={s.name} numberOfLines={capLines(2)}>
                 {p.name}
               </Text>
             </Pressable>

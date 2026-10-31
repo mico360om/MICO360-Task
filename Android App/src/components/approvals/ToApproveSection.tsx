@@ -14,6 +14,7 @@ import { appTimeZone } from '../../lib/due-date';
 import { fontSize, radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import type { ApprovalTask } from '../../lib/types';
+import { capLines } from '../ui/text-lines';
 
 /**
  * My Tasks' "To approve" (the website's ToApproveSection): the tasks finished by others that wait for
@@ -80,7 +81,7 @@ export function ToApproveSection({ onOpen }: { onOpen(taskId: string): void }) {
             style={({ pressed }) => [s.open, pressed && s.pressed]}
           >
             <Text style={s.key}>{row.task.key}</Text>
-            <Text style={s.taskTitle} numberOfLines={2}>
+            <Text style={s.taskTitle} numberOfLines={capLines(2)}>
               {row.task.title}
             </Text>
           </Pressable>

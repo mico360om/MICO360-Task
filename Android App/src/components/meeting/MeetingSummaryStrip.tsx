@@ -5,6 +5,7 @@ import { chipLook } from '../../lib/ui-kit';
 import { radius, spacing, shadow, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { FOCUSES, FOCUS_LABELS, type MeetingFocus, type MeetingSummary } from '../../lib/meeting-list';
+import { capLines } from '../ui/text-lines';
 
 /**
  * The website's four numbers over the meetings list (MeetingSummaryStrip.tsx) — still to come in the
@@ -24,7 +25,7 @@ export function MeetingSummaryStrip({ summary, focus, onFocus }: { summary: Meet
         const look = chipLook(c, pressed);
         const said = `${value} ${FOCUS_LABELS[key]}${key === 'actions' && summary.actions ? `, in ${plural(summary.actionMeetings, 'meeting', 'meetings')}` : ''}`;
         const body = (
-          <Text style={s.line} numberOfLines={2}>
+          <Text style={s.line} numberOfLines={capLines(2)}>
             <Text style={[s.value, { color: pressed ? look.fg : c.ink }]}>{value}</Text>
             <Text style={[s.label, { color: pressed ? look.fg : c.ink2 }]}> {FOCUS_LABELS[key]}</Text>
           </Text>

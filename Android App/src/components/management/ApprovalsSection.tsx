@@ -7,6 +7,7 @@ import type { ManagementOverview } from '../../lib/management-api';
 import { spacing, type Palette } from '../../lib/theme';
 import { typeStyle } from '../../lib/typography';
 import { NumberButton, Section, type OpenList } from './parts';
+import { capLines } from '../ui/text-lines';
 
 /**
  * Tasks waiting for approval (the website's ApprovalsSection.tsx): how many in all, and in each
@@ -34,7 +35,7 @@ export function ApprovalsSection({ approvals, onOpen }: { approvals: NonNullable
         <View>
           {approvals.projects.map((p, i) => (
             <View key={p.id} style={[s.row, i > 0 && s.divider]}>
-              <Text style={s.name} numberOfLines={2}>
+              <Text style={s.name} numberOfLines={capLines(2)}>
                 <Text style={s.code}>{p.code} </Text>
                 {p.name}
               </Text>

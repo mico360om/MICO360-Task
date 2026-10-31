@@ -13,6 +13,7 @@ import { displayName, type ApiDirectoryUser } from '../../lib/types';
 import type { WeekStart } from '../../lib/calendar';
 import { fontSize, radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -139,7 +140,7 @@ export function TemplateStartField({
                         <Text style={s.number}>{t.position + 1}</Text>
                         <View style={s.rowBody}>
                           <View style={s.titleLine}>
-                            <Text style={s.title} numberOfLines={2}>
+                            <Text style={s.title} numberOfLines={capLines(2)}>
                               {t.title}
                             </Text>
                             {t.priority !== 'NORMAL' ? <PriorityBadge priority={t.priority} /> : null}

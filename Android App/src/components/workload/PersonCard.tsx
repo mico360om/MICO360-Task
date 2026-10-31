@@ -8,6 +8,7 @@ import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { useColors } from '../../core/theme';
 import { Avatar, Card, ProgressBar } from '../ui';
+import { capLines } from '../ui/text-lines';
 
 /**
  * A day off's hatching (the website's hatch-off): stripes of a colour the day's words also read on
@@ -75,7 +76,7 @@ export function PersonCard({ person, week, today, onOpenDay }: { person: Workloa
               accessibilityHint={opens ? 'Shows the day’s tasks' : undefined}
               style={({ pressed }) => [s.day, isToday && s.todayColumn, opens && pressed && s.pressed]}
             >
-              <Text style={[s.dayHead, isToday && s.todayText]} numberOfLines={2} maxFontSizeMultiplier={DAY_HEAD_FONT_CAP}>
+              <Text style={[s.dayHead, isToday && s.todayText]} numberOfLines={capLines(2)} maxFontSizeMultiplier={DAY_HEAD_FONT_CAP}>
                 {dayHeading(cell.date, today)}
               </Text>
               <View style={[s.cell, { backgroundColor: look.bg, borderColor: look.border }, tone === 'over' && s.cellOver]}>

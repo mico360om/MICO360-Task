@@ -6,6 +6,7 @@ import type { IconName } from '../../lib/icons';
 import { useColors } from '../../core/theme';
 import { Icon } from '../Icon';
 import { Card } from './Card';
+import { capLines } from './text-lines';
 
 /** The website's Dashboard tile: a label, a big number, an optional hint and an icon bubble in its tone. */
 export function StatTile({
@@ -42,14 +43,14 @@ export function StatTile({
     >
       <View style={styles.row} accessible={!onPress} accessibilityLabel={onPress ? undefined : name}>
         <View style={styles.text}>
-          <Text style={[typeStyle('eyebrow'), { color: c.ink2 }]} numberOfLines={2}>
+          <Text style={[typeStyle('eyebrow'), { color: c.ink2 }]} numberOfLines={capLines(2)}>
             {label}
           </Text>
           <Text style={[typeStyle('display'), styles.value, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit>
             {value}
           </Text>
           {hint ? (
-            <Text style={[typeStyle('caption'), { color: c.ink2 }]} numberOfLines={2}>
+            <Text style={[typeStyle('caption'), { color: c.ink2 }]} numberOfLines={capLines(2)}>
               {hint}
             </Text>
           ) : null}

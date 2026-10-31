@@ -8,6 +8,7 @@ import { PREVIEW_TEXT, previewFailureText, type OfficePreview, type PreviewMode 
 import { formatFileSize, type ApiAttachment } from '../../lib/attachments';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 type View_ = { text?: { text: string; cut: boolean }; office?: OfficePreview; error?: string };
 
@@ -159,7 +160,7 @@ function OfficeView({ preview, sheet, onSheet, s }: { preview: OfficePreview; sh
               {current.rows.map((row, r) => (
                 <View key={r} style={[s.tr, r === 0 && s.th]}>
                   {row.map((cell, ci) => (
-                    <Text key={ci} style={s.td} numberOfLines={2}>
+                    <Text key={ci} style={s.td} numberOfLines={capLines(2)}>
                       {cell}
                     </Text>
                   ))}

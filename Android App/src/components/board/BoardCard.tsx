@@ -8,6 +8,7 @@ import { cardView, type BoardCard as Card } from '../../lib/board';
 import type { IconName } from '../../lib/icons';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 const COUNT_ICON: Record<'checklist' | 'comments' | 'files', IconName> = { checklist: 'misc.check', comments: 'ui.message', files: 'ui.paperclip' };
 
@@ -87,7 +88,7 @@ export const BoardCard = React.memo(function BoardCard({
         </View>
       </View>
 
-      <Text style={s.title} numberOfLines={3} importantForAccessibility="no">
+      <Text style={s.title} numberOfLines={capLines(3)} importantForAccessibility="no">
         {card.title}
       </Text>
 

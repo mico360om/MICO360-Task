@@ -8,6 +8,7 @@ import type { ApiTask, Priority } from '../lib/types';
 import { font } from '../lib/typography';
 import { Icon } from './Icon';
 import { PriorityBadge } from './ui';
+import { capLines } from './ui/text-lines';
 
 export function priorityColor(c: Palette, p: Priority): string {
   switch (p) {
@@ -53,7 +54,7 @@ export function TaskRow({ task, onPress, onLongPress }: { task: ApiTask; onPress
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.body}>
-        <Text style={[styles.title, done && styles.doneTitle]} numberOfLines={2}>
+        <Text style={[styles.title, done && styles.doneTitle]} numberOfLines={capLines(2)}>
           {task.title}
         </Text>
         <View style={styles.meta}>

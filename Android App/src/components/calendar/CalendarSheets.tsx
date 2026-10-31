@@ -11,6 +11,7 @@ import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { dueDayKey } from '../../lib/due-date';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 function useStyles() {
   const c = useColors();
@@ -115,7 +116,7 @@ export function MoveDaySheet({
       closeLabel="Close, without moving"
       footer={<SheetButtons onCancel={onClose} confirm={chosen ? `Move to ${dayLabel(chosen)}` : 'Move'} disabled={!chosen} onConfirm={() => chosen && onMove(item, chosen, scope)} />}
     >
-      <Text style={s.taskTitle} numberOfLines={3}>
+      <Text style={s.taskTitle} numberOfLines={capLines(3)}>
         {item.task.title}
       </Text>
       <DayPicker

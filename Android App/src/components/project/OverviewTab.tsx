@@ -34,6 +34,7 @@ import type { ApiMember, ApiProject, ApiProjectMeetingsOverview, ApiTask } from 
 import { displayName } from '../../lib/types';
 import type { Tone } from '../../lib/tone';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 const MILESTONE_TONE: Record<MilestoneState, Tone> = { done: 'success', waiting: 'warning', overdue: 'danger', upcoming: 'brand', undated: 'neutral' };
 
@@ -150,7 +151,7 @@ export function OverviewTab(p: OverviewProps) {
                   <Icon name="misc.milestone" size={16} color={toneColor(c, MILESTONE_TONE[m.state])} />
                 </View>
                 <View style={s.lineText}>
-                  <Text style={[s.lineTitle, m.state === 'done' && s.done]} numberOfLines={2}>
+                  <Text style={[s.lineTitle, m.state === 'done' && s.done]} numberOfLines={capLines(2)}>
                     {m.task.title}
                   </Text>
                   <Text style={[s.lineSub, m.state === 'overdue' && s.late]}>{note}</Text>
@@ -180,7 +181,7 @@ export function OverviewTab(p: OverviewProps) {
                 style={({ pressed }) => [s.line, pressed && s.pressed]}
               >
                 <Text style={s.key}>{d.task.key}</Text>
-                <Text style={[s.lineTitle, s.flex]} numberOfLines={2}>
+                <Text style={[s.lineTitle, s.flex]} numberOfLines={capLines(2)}>
                   {d.task.title}
                 </Text>
                 <Text style={[s.when, waitingLate ? s.soon : d.daysLeft < 0 ? s.late : d.daysLeft <= 2 ? s.soon : null]}>{when}</Text>
@@ -259,7 +260,7 @@ export function OverviewTab(p: OverviewProps) {
               return (
                 <View key={g.id} style={s.statusRow} accessible accessibilityLabel={`${g.name}: ${g.tasks.length} ${g.tasks.length === 1 ? 'task' : 'tasks'}`}>
                   <View style={[s.dot, { backgroundColor: color }]} />
-                  <Text style={s.statusName} numberOfLines={2}>
+                  <Text style={s.statusName} numberOfLines={capLines(2)}>
                     {g.name}
                   </Text>
                   <View style={s.statusTrack}>

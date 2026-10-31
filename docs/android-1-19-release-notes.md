@@ -85,4 +85,5 @@
 - In the Android app, the bottom tabs keep a little room under their names, so they no longer touch the phone's own buttons.
 - In the Android app, TalkBack reads Management's owner choice once — "Owner: Anyone" instead of "Owner: Owner: Anyone".
 - In the Android app, the "+N" after the faces on project, board and My Tasks cards is no longer cut off at the largest font size.
+- In the Android app, with a larger font size, project names, task titles and other text that is cut after a few lines is shown in full instead of losing its "…".
 <!-- final-pass lines above this line -->

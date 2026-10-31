@@ -9,6 +9,7 @@ import { TASK_FILTERS, shownProgress, taskPeople, taskPhase, tasksTabRowLabel, t
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 /** What the Tasks tab's list shows, row by row: a status column's heading, then its tasks. */
 export type TasksTabItem = { kind: 'group'; group: TaskGroup } | { kind: 'task'; task: ApiTask; group: TaskGroup };
@@ -85,7 +86,7 @@ export const TasksTabRow = React.memo(function TasksTabRow({ task, group, today,
             <Icon name="misc.milestone" size={14} color={c.brandText} />
           </View>
         ) : null}
-        <Text style={[s.title, phase === 'completed' && s.doneTitle]} numberOfLines={2}>
+        <Text style={[s.title, phase === 'completed' && s.doneTitle]} numberOfLines={capLines(2)}>
           {task.title}
         </Text>
         {/* Shown on the project's client page (Stage 4): the website's eye. */}

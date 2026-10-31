@@ -9,6 +9,7 @@ import type { ManagementOverview } from '../../lib/management-api';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { typeStyle } from '../../lib/typography';
 import { NumberButton, Section, type OpenList } from './parts';
+import { capLines } from '../ui/text-lines';
 
 /**
  * Inspections (the website's InspectionsSection.tsx): checks done against those due in the period,
@@ -54,7 +55,7 @@ export function InspectionsSection({ data, onOpen }: { data: ManagementOverview[
               {data.topItems.map((i, n) => (
                 <View key={`${i.formId}|${i.itemId}`} style={[s.row, n > 0 && s.divider]}>
                   <View style={s.flex}>
-                    <Text style={s.itemLabel} numberOfLines={2}>
+                    <Text style={s.itemLabel} numberOfLines={capLines(2)}>
                       {i.label}
                     </Text>
                     <Text style={s.formTitle} numberOfLines={1}>
@@ -85,7 +86,7 @@ export function InspectionsSection({ data, onOpen }: { data: ManagementOverview[
                 const formId = f.formId ?? 'none';
                 return (
                   <View key={f.formId ?? f.title} style={[s.form, n > 0 && s.divider]}>
-                    <Text style={s.itemLabel} numberOfLines={2}>
+                    <Text style={s.itemLabel} numberOfLines={capLines(2)}>
                       {f.title}
                     </Text>
                     <View style={s.formLine}>

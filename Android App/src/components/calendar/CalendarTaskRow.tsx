@@ -6,6 +6,7 @@ import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { moveButton } from '../../lib/calendar-reschedule';
 import { font } from '../../lib/typography';
 import { Icon } from '../Icon';
+import { capLines } from '../ui/text-lines';
 
 // Each status's sign is the website's calendar icon (lib/icons `cal.<status>`, from its calendar's
 // STATUS_META), with its words beside it — colour is never the only sign.
@@ -73,10 +74,10 @@ export function CalendarTaskRow({
         <Icon name={`cal.${item.status}`} size={18} color={tone} />
       </View>
       <View style={s.body}>
-        <Text style={[s.title, item.status === 'done' && s.doneTitle, projected && s.projectedTitle]} numberOfLines={2}>
+        <Text style={[s.title, item.status === 'done' && s.doneTitle, projected && s.projectedTitle]} numberOfLines={capLines(2)}>
           {item.task.title}
         </Text>
-        <Text style={s.meta} numberOfLines={2}>
+        <Text style={s.meta} numberOfLines={capLines(2)}>
           <Text style={[s.status, { color: tone }]}>{STATUS_LABEL[item.status]}</Text>
           {meta ? ` · ${meta}` : ''}
         </Text>

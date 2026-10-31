@@ -51,6 +51,7 @@ import { CalendarFiltersSheet } from '../components/calendar/CalendarFiltersShee
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { capLines } from '../components/ui/text-lines';
 
 const VIEWS: { v: CalendarView; label: string }[] = [
   { v: 'month', label: 'Month' },
@@ -365,7 +366,7 @@ export function CalendarScreen({ navigation, route }: AppScreenProps<'Calendar'>
           </Pressable>
           <IconButton icon="ui.back" rotate={180} label={`Next ${unit}`} variant="outlined" onPress={() => step(1)} />
           <Pressable onPress={() => setGoTo(true)} accessibilityRole="button" accessibilityLabel={`${period}. Go to a date`} style={({ pressed }) => [styles.periodButton, pressed && styles.pressed]}>
-            <Text style={styles.period} numberOfLines={2} accessibilityLiveRegion="polite">
+            <Text style={styles.period} numberOfLines={capLines(2)} accessibilityLiveRegion="polite">
               {period}
             </Text>
           </Pressable>

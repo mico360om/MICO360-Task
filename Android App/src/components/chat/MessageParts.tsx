@@ -15,6 +15,7 @@ import type { MentionPerson } from '../../lib/mentions';
 import { darkColors, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiChatAttachment, ReactionGroup } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 /**
  * A message in the thread (3b), as the website shows it: the answered message's quote (tap to show
@@ -217,7 +218,7 @@ export const MessageBubble = memo(function MessageBubble({
               <Text style={[s.quoteWho, { color: ink }]} numberOfLines={1}>
                 {nameOf(quote.userId)}
               </Text>
-              <Text style={[s.quoteText, { color: quiet }, quote.deleted && s.italic]} numberOfLines={2}>
+              <Text style={[s.quoteText, { color: quiet }, quote.deleted && s.italic]} numberOfLines={capLines(2)}>
                 {quoteText}
               </Text>
             </Pressable>

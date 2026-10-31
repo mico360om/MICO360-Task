@@ -48,7 +48,7 @@ describe('statTileColumns', () => {
 describe('measured the way the tiles are drawn', () => {
   it('the eyebrow label’s size, spacing and lines', () => {
     expect(typeStyle('eyebrow')).toMatchObject({ fontSize: STAT_GRID.labelSize, letterSpacing: STAT_GRID.labelSpacing, textTransform: 'uppercase' });
-    expect(src('components/ui/StatTile.tsx')).toMatch(/typeStyle\('eyebrow'\)[^>]*numberOfLines=\{2\}/);
+    expect(src('components/ui/StatTile.tsx')).toMatch(/typeStyle\('eyebrow'\)[^>]*numberOfLines=\{capLines\(2\)\}/); // cut only at the normal font size (lib/text-lines)
   });
 
   it('the card’s border and padding, the icon bubble and its gap', () => {

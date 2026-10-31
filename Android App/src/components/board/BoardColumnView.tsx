@@ -6,6 +6,7 @@ import { Icon } from '../Icon';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { columnFill, type BoardCard as Card } from '../../lib/board';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 /**
  * One column of a board (4b; the All projects board's statuses too, 4c): its colour, name, count
@@ -52,7 +53,7 @@ export const BoardColumnView = React.memo(function BoardColumnView({
       <View style={[s.columnStripe, { backgroundColor: color }]} />
       <View style={s.columnHead}>
         <View style={[s.dot, { backgroundColor: color }]} />
-        <Text style={s.columnName} numberOfLines={2} accessibilityRole="header">
+        <Text style={s.columnName} numberOfLines={capLines(2)} accessibilityRole="header">
           {name}
         </Text>
         <Text style={s.count} accessibilityLabel={`${cards.length} ${cards.length === 1 ? 'task' : 'tasks'}`}>

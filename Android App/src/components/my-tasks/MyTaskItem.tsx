@@ -9,6 +9,7 @@ import { dueLabel, myTaskLabel, selectTaskLabel, type MyTaskRow } from '../../li
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ColumnCategory } from '../../lib/types';
 import { font } from '../../lib/typography';
+import { capLines } from '../ui/text-lines';
 
 /**
  * One of my tasks (4d), as the website's My Tasks card: its box to select it, its project, priority,
@@ -57,7 +58,7 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
           {/* A check (a task carried out with an inspection form — Stage 4), as the website's My Tasks row. */}
           {row.inspection ? <InspectionChip /> : null}
         </View>
-        <Text style={[s.title, row.done && s.titleDone]} numberOfLines={2} importantForAccessibility="no">
+        <Text style={[s.title, row.done && s.titleDone]} numberOfLines={capLines(2)} importantForAccessibility="no">
           {t.title}
         </Text>
         {row.waiting ? (

@@ -9,6 +9,7 @@ import type { HealthRow } from '../../lib/management-api';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { typeStyle } from '../../lib/typography';
 import { ListButton, NumberButton, RagMark, Section, Term, type OpenList } from './parts';
+import { capLines } from '../ui/text-lines';
 
 /** Open a screen a row names (the ids checked: lib/management itemTarget). */
 const go = (row: Parameters<typeof itemTarget>[0]) => {
@@ -27,7 +28,7 @@ function Milestone({ row, onOpen, s, c }: { row: HealthRow; onOpen: OpenList; s:
   return (
     <View>
       <Pressable onPress={() => go({ kind: 'task', id: m.id, title: m.title })} accessibilityRole="button" accessibilityHint="Opens the milestone" style={({ pressed }) => [s.link, pressed && s.pressed]}>
-        <Text style={s.milestone} numberOfLines={2}>
+        <Text style={s.milestone} numberOfLines={capLines(2)}>
           {m.title}
         </Text>
       </Pressable>
@@ -106,7 +107,7 @@ export function HealthSection({
               <Pressable onPress={() => go({ kind: 'project', id: row.id, title: row.name })} accessibilityRole="button" accessibilityHint="Opens the project" style={({ pressed }) => [s.name, pressed && s.pressed]}>
                 <ProjectAvatar project={row} size="sm" />
                 <View style={s.flex}>
-                  <Text style={s.projectName} numberOfLines={2}>
+                  <Text style={s.projectName} numberOfLines={capLines(2)}>
                     {row.name}
                   </Text>
                   <Text style={s.code} numberOfLines={1}>

@@ -46,6 +46,6 @@ it('the count fits its cell and the heading its two lines, at 200% as at 100%', 
 
 it('the card caps them with those numbers', () => {
   const card = src('components/workload/PersonCard.tsx');
-  expect(card).toMatch(/style=\{\[s\.dayHead, isToday && s\.todayText\]\} numberOfLines=\{2\} maxFontSizeMultiplier=\{DAY_HEAD_FONT_CAP\}/);
+  expect(card).toMatch(/style=\{\[s\.dayHead, isToday && s\.todayText\]\} numberOfLines=\{capLines\(2\)\} maxFontSizeMultiplier=\{DAY_HEAD_FONT_CAP\}/);
   expect(card).toMatch(/style=\{\[s\.count, \{ color: look\.fg \}\]\} maxFontSizeMultiplier=\{DAY_COUNT_FONT_CAP\}/);
 });
