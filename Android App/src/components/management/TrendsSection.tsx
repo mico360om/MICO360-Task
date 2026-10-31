@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import { LineChart } from '../charts';
-import { trendCharts, trendNote, trendTableRows, trendToggleText } from '../../lib/management';
+import { TREND_COLUMNS, trendCharts, trendNote, trendTableRows, trendToggleText } from '../../lib/management';
 import type { TrendRow } from '../../lib/management-api';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { typeStyle } from '../../lib/typography';
@@ -36,21 +36,21 @@ export function TrendsSection({ weeks }: { weeks: TrendRow[] }) {
 
       <View style={s.table} accessibilityLabel="Weekly figures">
         <View style={[s.tr, s.thead]} importantForAccessibility="no-hide-descendants">
-          <Text style={[s.th, s.week]}>Week of</Text>
-          <Text style={[s.th, s.num]}>Created</Text>
-          <Text style={[s.th, s.num]}>Completed</Text>
-          <Text style={[s.th, s.num]}>Late</Text>
-          <Text style={[s.th, s.num]}>Pass rate</Text>
+          {TREND_COLUMNS.map((col, i) => (
+            <Text key={col.title} style={[s.th, i === 0 ? s.week : s.num, { flex: col.flex }]}>
+              {col.title}
+            </Text>
+          ))}
         </View>
         {trendTableRows(weeks, all).map((w) => {
           const rate = w.passRate === null ? '—' : `${w.passRate}%`;
           return (
             <View key={w.start} style={[s.tr, s.row]} accessible accessibilityLabel={`Week of ${w.week}: ${w.created} created, ${w.completed} completed, ${w.late} late, pass rate ${rate}`}>
-              <Text style={[s.td, s.week, s.weekText]}>{w.week}</Text>
-              <Text style={[s.td, s.num]}>{w.created}</Text>
-              <Text style={[s.td, s.num]}>{w.completed}</Text>
-              <Text style={[s.td, s.num, w.late ? s.late : null]}>{w.late}</Text>
-              <Text style={[s.td, s.num]}>{w.passRate === null ? '—' : `${w.passRate}%`}</Text>
+              <Text style={[s.td, s.week, s.weekText, { flex: TREND_COLUMNS[0]!.flex }]}>{w.week}</Text>
+              <Text style={[s.td, s.num, { flex: TREND_COLUMNS[1]!.flex }]}>{w.created}</Text>
+              <Text style={[s.td, s.num, { flex: TREND_COLUMNS[2]!.flex }]}>{w.completed}</Text>
+              <Text style={[s.td, s.num, { flex: TREND_COLUMNS[3]!.flex }, w.late ? s.late : null]}>{w.late}</Text>
+              <Text style={[s.td, s.num, { flex: TREND_COLUMNS[4]!.flex }]}>{w.passRate === null ? '—' : `${w.passRate}%`}</Text>
             </View>
           );
         })}
@@ -75,9 +75,10 @@ const makeStyles = (c: Palette) =>
     row: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line, paddingVertical: spacing.xs + 2 },
     th: { ...typeStyle('eyebrow'), color: c.ink3 },
     td: { ...typeStyle('number'), fontSize: 13, color: c.ink },
-    week: { flex: 1.6, minWidth: 0 },
+    // Each column's share of the row is TREND_COLUMNS' (measured so no header breaks in a word at 360 dp).
+    week: { minWidth: 0 },
     weekText: { ...typeStyle('label'), fontSize: 13 },
-    num: { flex: 1, textAlign: 'right' },
+    num: { minWidth: 0, textAlign: 'right' },
     late: { color: c.dangerText },
     toggle: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
     toggleText: { ...typeStyle('button'), color: c.brandText },

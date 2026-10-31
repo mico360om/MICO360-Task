@@ -91,7 +91,10 @@ it('trends: each chart or its quiet words, then the weeks table; drawn last on t
   expect(t).toMatch(/trendToggleText\(weeks\.length, all\)/);
   expect(t).toMatch(/weeks\.length > 6/);
   expect(t).toMatch(/w\.passRate === null \? '—' : `\$\{w\.passRate\}%`/);
-  for (const w of ['Week of', 'Created', 'Completed', 'Late', 'Pass rate', 'Trends']) expect(t, w).toContain(w);
+  expect(t).toContain('Trends');
+  // The table's headers are TREND_COLUMNS' (lib/management, measured for 360 dp: final review P4).
+  expect(t).toMatch(/TREND_COLUMNS\.map\(/);
+  for (const w of ['Week of', 'Created', 'Completed', 'Late', 'Pass rate']) expect(src('lib/management.ts'), w).toContain(`{ title: '${w}', flex: `);
   expect(t).not.toMatch(/\.reduce\(/);
   const s = src('screens/ManagementScreen.tsx');
   expect(s).toMatch(/<PeopleSection[^]*<TrendsSection weeks=\{data\.trends\} \/>/);

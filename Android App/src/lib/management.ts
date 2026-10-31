@@ -330,6 +330,19 @@ export function trendCharts(t: TrendRow[]): TrendChart[] {
   ];
 }
 
+/**
+ * The weekly table's columns (the website's TrendsSection headers) and their shares of a row: sized
+ * so every header word stays whole at 360 dp and the normal font size — "COMPLETED" needs the most
+ * room (final review P4, measured with lib/font-metrics: components/management/trends-table.test).
+ */
+export const TREND_COLUMNS = [
+  { title: 'Week of', flex: 1 },
+  { title: 'Created', flex: 1.1 },
+  { title: 'Completed', flex: 1.45 },
+  { title: 'Late', flex: 0.7 },
+  { title: 'Pass rate', flex: 0.85 },
+] as const;
+
 /** The weekly table's rows: newest first, the latest 6 unless all; "25 Oct (this week)" for the one still going. */
 export function trendTableRows(t: TrendRow[], all: boolean): Array<TrendRow & { week: string }> {
   const newestFirst = [...t].reverse();
