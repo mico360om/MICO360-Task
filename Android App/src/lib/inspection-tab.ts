@@ -1,5 +1,6 @@
 import { dueText, lateText, upcomingText } from './inspection-schedule';
 import { INSPECTION_LIMITS } from './inspection-rules';
+import { tryName } from './pending-keys';
 import type { DueCheck, Person } from './inspection-types';
 import type { WaitingInspection } from './inspection-outbox';
 
@@ -46,6 +47,14 @@ export function waitingBannerText(w: WaitingInspection[]): string | null {
 export function isFirstRun(o: { inspections: unknown[] | undefined; forms: unknown[] | undefined; checks: unknown[] | undefined; schedules: unknown[] | undefined; waiting: number }): boolean {
   const empty = (x: unknown[] | undefined) => Array.isArray(x) && x.length === 0;
   return empty(o.inspections) && empty(o.forms) && empty(o.checks) && empty(o.schedules) && o.waiting === 0;
+}
+
+/**
+ * One due check's Start as a try (lib/pending-keys): its key is kept from tap to tap until the
+ * server answers — a lost answer or "still on it" keeps it, a refusal or success lets it go (Final I8).
+ */
+export function startTry(projectId: string, c: Pick<DueCheck, 'taskId' | 'form' | 'place'>): string {
+  return tryName('inspection-start', projectId, c.taskId, c.form.id, c.place ?? null);
 }
 
 /** What is wrong with a Start (null: it can go). */

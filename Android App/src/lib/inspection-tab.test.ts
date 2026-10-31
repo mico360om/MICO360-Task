@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { appSource as src, hasWeb, readWeb } from '../testing/web-source';
 import { websiteSays } from '../testing/phone-words';
-import { INSPECTIONS_TAB_WORDS, dueCheckGroups, dueCheckWhen, inspectorsText, isFirstRun, startCheck, waitingBannerText } from './inspection-tab';
+import { INSPECTIONS_TAB_WORDS, dueCheckGroups, dueCheckWhen, inspectorsText, isFirstRun, startCheck, startTry, waitingBannerText } from './inspection-tab';
+import { createPendingKeys } from './pending-keys';
+import { ApiError, NetworkError } from './api-client';
 import type { DueCheck, Person } from './inspection-types';
 import type { WaitingInspection } from './inspection-outbox';
 
@@ -85,4 +87,23 @@ it('the project has an Inspections tab, which a link can open', () => {
 it('every inspection in the tab opens the Inspection screen', () => {
   for (const f of ['components/inspections/InspectionRow.tsx', 'components/inspections/DueChecksSection.tsx', 'components/project/InspectionsTab.tsx'])
     expect(src(f), f).toMatch(/navigate\('Inspection', \{ inspectionId/);
+});
+
+it('a due check keeps one Start key until the server answers: kept after a lost answer, new after a refusal (Final I8)', () => {
+  let n = 0;
+  const keys = createPendingKeys(() => `k${++n}`);
+  const c = check('c1', '2026-10-30');
+  const first = keys.keyFor(startTry('pr1', c));
+  keys.settle(startTry('pr1', c), new NetworkError('Network request failed.'));
+  expect(keys.keyFor(startTry('pr1', c))).toBe(first); // a second tap after no answer: the same Start
+  keys.settle(startTry('pr1', c), new ApiError(409, 'IDEMPOTENCY_IN_PROGRESS', 'Still on it'));
+  expect(keys.keyFor(startTry('pr1', c))).toBe(first);
+  keys.settle(startTry('pr1', c), new ApiError(422, 'FORM_DELETED', 'No'));
+  expect(keys.keyFor(startTry('pr1', c))).not.toBe(first); // refused: the next tap is a new Start
+  expect(startTry('pr1', c)).not.toBe(startTry('pr1', check('c2', '2026-10-30')));
+  const d = src('components/inspections/DueChecksSection.tsx');
+  expect(d).toMatch(/pendingKeys\.keyFor\(startTry\(projectId, check\)\)/);
+  expect(d).toMatch(/pendingKeys\.settle\(startTry\(projectId, check\)(, e)?\)/);
+  expect(d).not.toMatch(/newIdempotencyKey\(\)/);
+  expect(src('components/inspections/StartInspectionSheet.tsx')).toMatch(/if \(!keepsKey\(e\)\) setKey\(newIdempotencyKey\(\)\)/);
 });

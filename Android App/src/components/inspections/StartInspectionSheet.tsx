@@ -4,7 +4,7 @@ import { useServices } from '../../core/providers';
 import { useColors } from '../../core/theme';
 import { useInspectionForms, useStartInspection } from '../../core/inspection-queries';
 import { openWebsitePage } from '../../adapters/website';
-import { ApiError } from '../../lib/api-client';
+import { keepsKey } from '../../lib/pending-keys';
 import { newIdempotencyKey } from '../../lib/idempotency';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { INSPECTIONS_TAB_WORDS as W, startCheck } from '../../lib/inspection-tab';
@@ -64,8 +64,9 @@ export function StartInspectionSheet({
       {
         onSuccess: (started) => onStarted(started),
         onError: (e) => {
-          // The server answered (a refusal): the next try is a new Start. A lost answer keeps its key.
-          if (e instanceof ApiError) setKey(newIdempotencyKey());
+          // The server answered (a refusal): the next try is a new Start. A lost answer — or the
+          // server still on it — keeps its key (lib/pending-keys keepsKey).
+          if (!keepsKey(e)) setKey(newIdempotencyKey());
           setProblem(problemText(e, W.startFailed));
         },
       },
