@@ -5,6 +5,7 @@ import { HttpError, ValidationError } from '../../lib/http-errors';
 import { DEFAULT_STATUSES, PERIOD_WEEKS, PROJECT_STATUSES, type ProjectStatus } from './management-rules';
 import type { ManagementFilters, ManagementService, ManagementViewer } from './management-service';
 import { buildManagementPdf, managementPdfFileName } from './management-pdf';
+import { NO_PICK, type PickOf } from '../companies/company-pick';
 
 export interface ManagementRouteDeps {
   service: ManagementService;
@@ -17,6 +18,8 @@ export interface ManagementRouteDeps {
   pdfsPerMinute?: number;
   /** Overviews and lists per signed-in person a minute (default 120: plenty for refreshes on focus and opening lists). */
   readsPerMinute?: number;
+  /** companies: the request's picked company (X-Company-Id); the page, its lists and its PDF follow it. Absent: no pick. */
+  pickOf?: PickOf;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -90,6 +93,7 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
   const { service, guard } = deps;
   const auth = { preHandler: guard.authenticate };
   const viewer = (req: FastifyRequest): ManagementViewer => ({ id: req.user!.id, roles: req.user!.roles ?? [] });
+  const pickOf = deps.pickOf ?? NO_PICK;
 
   app.get('/management/access', auth, async (req) => ({ data: await service.access(viewer(req)) }));
 
@@ -100,7 +104,7 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
   app.get('/management/overview', auth, async (req) => {
     const who = viewer(req);
     if (!allowRead(who.id)) throw tooMany();
-    return { data: await service.overview(who, parseManagementFilters(req.query)) };
+    return { data: await service.overview(who, parseManagementFilters(req.query), await pickOf(req)) };
   });
 
   app.get('/management/items', auth, async (req) => {
@@ -108,7 +112,7 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
     const filters = parseManagementFilters(req.query);
     const parsed = itemQuery.safeParse(req.query ?? {});
     if (!parsed.success) throw new ValidationError('Say which list to show.', parsed.error.flatten());
-    return { data: await service.items(viewer(req), filters, parsed.data) };
+    return { data: await service.items(viewer(req), filters, parsed.data, await pickOf(req)) };
   });
 
   // A PDF takes real work to make: each person gets `pdfsPerMinute` a minute (counted after the
@@ -119,7 +123,7 @@ export async function registerManagementRoutes(app: FastifyInstance, deps: Manag
     const who = viewer(req);
     const filters = parseManagementFilters(req.query);
     if (!allowPdf(who.id)) throw new HttpError('Too many PDFs in a minute. Please wait a moment and try again.', 'RATE_LIMITED', 429);
-    const overview = await service.overview(who, filters);
+    const overview = await service.overview(who, filters, await pickOf(req));
     const generatedBy = (await deps.userName?.(who.id).catch(() => null)) ?? null;
     const pdf = buildManagementPdf(overview, { generatedBy });
     return reply

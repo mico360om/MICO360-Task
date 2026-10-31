@@ -125,8 +125,12 @@ export interface TrendBucket {
 }
 
 export interface ManagementSource {
-  /** Live (not deleted) projects of any status: every one (null), or those this person runs. */
-  projects(runBy: string | null): Promise<MgmtProject[]>;
+  /**
+   * Live (not deleted) projects of any status: every one (null), or those this person runs.
+   * companies — `pick`: only those of the picked company (for someone who runs projects, one of
+   * their own active companies).
+   */
+  projects(runBy: string | null, pick?: string | null): Promise<MgmtProject[]>;
   /** Live projects this person runs (owner, named manager, MANAGER member), counted. */
   runCount(userId: string): Promise<number>;
   /** These people's names and faces (deleted people are left out). */

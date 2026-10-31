@@ -77,6 +77,18 @@ describe('loadWorkload: who sees what', () => {
     ]);
   });
 
+  it('an administrator with a picked company: its people and its projects’ teams, only its projects’ tasks (companies)', async () => {
+    const store = fakeWorkloadStore(COMPANY);
+    const scope = resolveWorkloadScope({ id: 'admin', roles: ['ADMIN'] }, { managedProjectIds: [], visibleProjectIds: ['rig'] }, { peopleIds: ['yusuf'] });
+    const { rows } = await loadWorkload(store, { scope, viewerId: 'admin', projectId: null, week: WEEK, today: TODAY, timeZone: TZ });
+    // yusuf is the company's; the others are on rig's team (its members, owner and manager).
+    // (layla is on rig's team too, but inactive.)
+    expect(ids(rows.people)).toEqual(['hassan', 'omar', 'sara', 'yusuf']);
+    expect(ids(rows.people)).not.toContain('admin');
+    expect(ids(rows.projects)).toEqual(['rig']);
+    expect(rows.tasks.every((t) => t.projectId === 'rig')).toBe(true);
+  });
+
   it('a project manager: the team of the projects they manage with only those projects’ tasks — and their own tasks everywhere they can see', async () => {
     const store = fakeWorkloadStore(COMPANY);
     const scope = await scopeFor(store, 'sara', ['EMPLOYEE'], ['rig', 'mob']);

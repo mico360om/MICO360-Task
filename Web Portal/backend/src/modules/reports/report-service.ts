@@ -51,11 +51,22 @@ export interface ReportFilter {
   projectId?: string;
   /** A team member: only tasks assigned to them (and, for workload, only their row). */
   userId?: string;
+  /** companies: a picked company's projects — only their tasks (null/absent = every project). */
+  projectIds?: string[] | null;
+  /**
+   * companies: a picked company's people — the workload rows are these and whoever has a task in
+   * scope (null/absent = everyone).
+   */
+  peopleIds?: string[] | null;
 }
 
 export function applyReportFilter(tasks: ReportTask[], filter: ReportFilter = {}): ReportTask[] {
+  const inPick = filter.projectIds ? new Set(filter.projectIds) : null;
   return tasks.filter(
-    (t) => (!filter.projectId || t.projectId === filter.projectId) && (!filter.userId || t.assigneeIds.includes(filter.userId)),
+    (t) =>
+      (!filter.projectId || t.projectId === filter.projectId) &&
+      (!filter.userId || t.assigneeIds.includes(filter.userId)) &&
+      (!inPick || inPick.has(t.projectId)),
   );
 }
 
@@ -186,7 +197,10 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
   }
   async function workloadReport(filter?: ReportFilter): Promise<UserWorkload[]> {
     const [tasks, users] = await Promise.all([tasksFor(filter), data.getUsers()]);
-    return userWorkload(tasks, filter?.userId ? users.filter((u) => u.id === filter.userId) : users, timeZone, now());
+    // companies: with a picked company, its people and whoever has a task in its projects.
+    const shown = filter?.peopleIds ? new Set([...filter.peopleIds, ...tasks.flatMap((t) => t.assigneeIds)]) : null;
+    const rows = shown ? users.filter((u) => shown.has(u.id)) : users;
+    return userWorkload(tasks, filter?.userId ? rows.filter((u) => u.id === filter.userId) : rows, timeZone, now());
   }
   async function completionReport(filter?: ReportFilter): Promise<CompletionStats> {
     return completionStats(await tasksFor(filter), timeZone);

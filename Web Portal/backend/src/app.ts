@@ -502,6 +502,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // `list` routes only (see modules/companies/route-classes.ts). Without the module: no pick.
       const pickOf: PickOf = deps.companyAccess ? createPickResolver(deps.companyAccess) : NO_PICK;
       const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[], pick?: string | null) => mAccess.accessibleProjectIds(u, r, pick) : undefined;
+      // companies: a company's active people (an administrator's Workload and Reports with a pick show them).
+      const companies = deps.companyAccess;
+      const companyPeople = companies ? (companyId: string) => companies.projectCompanyPeople([companyId]) : undefined;
       if (deps.projectService) {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
@@ -526,6 +529,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           settings: deps.settingsService,
           timeZone: deps.appConfig?.timeZone ?? defaultCompanyTimeZone(),
           now: deps.planningNow,
+          pickOf, // companies: Timeline and Workload follow the pick
+          companyPeople,
         });
       }
       if (deps.columnService) {
@@ -709,7 +714,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerDeviceTokenRoutes(api, { deviceTokenService: deps.deviceTokenService, guard });
       }
       if (deps.reportService) {
-        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames });
+        // companies: every report and export follows the pick.
+        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pickOf, accessibleProjectIds, companyPeople });
       }
       if (deps.searchService) {
         await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch });
@@ -803,7 +809,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.management) {
-        await registerManagementRoutes(api, { ...deps.management, guard });
+        await registerManagementRoutes(api, { ...deps.management, guard, pickOf }); // companies: follows the pick
       }
       if (deps.inspections) {
         // companies: a form's usage counts follow the person's projects and the pick.

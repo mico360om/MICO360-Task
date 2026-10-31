@@ -58,7 +58,8 @@ export async function loadWorkload(
   const leads = projects.flatMap((p) => unique([p.ownerId, p.managerId]).map((userId) => ({ projectId: p.id, userId })));
   const people =
     scope.kind === 'everyone'
-      ? await store.activeUsers(null)
+      ? // companies: a picked company's members and the teams of its projects; else everyone.
+        await store.activeUsers(scope.peopleIds ? unique([...scope.peopleIds, ...members.map((m) => m.userId), ...leads.map((l) => l.userId)]) : null)
       : await store.activeUsers(scope.kind === 'teams' ? unique([viewerId, ...members.map((m) => m.userId), ...leads.map((l) => l.userId)]) : [viewerId]);
   const peopleIds = people.map((p) => p.id);
   const shown = new Set(peopleIds);
