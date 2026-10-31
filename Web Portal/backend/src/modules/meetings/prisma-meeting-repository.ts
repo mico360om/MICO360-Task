@@ -195,20 +195,6 @@ export function createPrismaMeetingRepository(
       await prisma.meeting.update({ where: { id }, data: { reminderSentAt: at } });
     },
 
-    async listUpcomingWithoutReminder(now, leadMs) {
-      const rows = await prisma.meeting.findMany({
-        where: {
-          deletedAt: null,
-          reminderSentAt: null,
-          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
-          startAt: { gte: now, lte: new Date(now.getTime() + leadMs) },
-        },
-        orderBy: { startAt: 'asc' },
-        take: 200,
-      });
-      return rows.map(toRecord);
-    },
-
     async busyBetween(userIds, from, to, excludeMeetingId) {
       if (userIds.length === 0) return [];
       const rows = await prisma.meeting.findMany({

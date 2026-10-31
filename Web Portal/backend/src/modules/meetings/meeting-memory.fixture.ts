@@ -85,9 +85,6 @@ export function memoryMeetings(): MemoryMeetings {
       const m = rows.get(id);
       if (m) rows.set(id, { ...m, reminderSentAt: at });
     },
-    async listUpcomingWithoutReminder() {
-      return [];
-    },
     async findAnyById(id) {
       const m = rows.get(id);
       return m ? { ...m } : null;

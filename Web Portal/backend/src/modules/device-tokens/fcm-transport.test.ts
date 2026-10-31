@@ -102,3 +102,24 @@ describe('createFcmTransport (NTF-01)', () => {
     await expect(transport.send([msg('tokA')])).rejects.toThrow(/FCM/);
   });
 });
+
+describe('a meeting reminder push (its own Android channel, gone once it is out of date)', () => {
+  it('names the channel, a time to live and a tag that replaces the meeting’s earlier reminder', async () => {
+    const { impl, calls } = fakeFetch(() => json(200, { name: 'projects/mico360-app/messages/1' }));
+    const transport = createFcmTransport({ serviceAccount: account, fetchImpl: impl, now: () => NOW });
+    await transport.send([{ ...msg('tokA'), channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1' }]);
+    const send = calls.find((c) => c.url.includes('fcm.googleapis.com'))!;
+    expect(JSON.parse(String(send.init.body)).message.android).toEqual({
+      priority: 'HIGH',
+      ttl: '900s',
+      notification: { channel_id: 'meetings', tag: 'meeting-m1' },
+    });
+  });
+
+  it('every other push keeps the default channel and no time limit', async () => {
+    const { impl, calls } = fakeFetch(() => json(200, {}));
+    await createFcmTransport({ serviceAccount: account, fetchImpl: impl, now: () => NOW }).send([msg('tokA')]);
+    const send = calls.find((c) => c.url.includes('fcm.googleapis.com'))!;
+    expect(JSON.parse(String(send.init.body)).message.android).toEqual({ priority: 'HIGH', notification: { channel_id: 'default' } });
+  });
+});

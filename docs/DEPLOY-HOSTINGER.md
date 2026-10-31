@@ -198,23 +198,29 @@ the admin from Step 4.
 ## Step 6 — Keep the scheduled jobs running (cron)
 
 The server does some work on a timer, whether or not anyone has an app open:
+- meeting reminders (24 hours, 12 hours and 15 minutes before each meeting by default — System
+  Settings → Meeting reminders), checked every minute;
 - the copies of recurring tasks set to "on each date";
 - due-date reminders and the daily digest;
 - the nightly carry-forward of open tasks;
 - the nightly backup copy at 02:00 ([BACKUPS.md](BACKUPS.md)).
 
 Hostinger starts the Node.js app on demand and may stop it when nobody has used the site for a
-while, which would pause those timers. A cron job that calls the site every 15 minutes keeps them
+while, which would pause those timers. A cron job that calls the site every 5 minutes keeps them
 running. Each call starts the app if it was stopped, and the jobs run at start-up.
 
-hPanel → **Advanced → Cron Jobs** → Custom, every 15 minutes (`*/15 * * * *`):
+hPanel → **Advanced → Cron Jobs** → Custom, every 5 minutes (`*/5 * * * *`):
 
 ```bash
 curl -fsS -o /dev/null https://task.mico360.com/api/v1/health
 ```
 
-The jobs can safely run more than once: a recurring task never gets two copies for one date, and
-reminders are sent once a day.
+Every 5 minutes, not 15: a meeting reminder is sent from its moment for 10 minutes and never
+after that (so the 15-minute one never arrives as the meeting starts). If the app were stopped for
+longer than that, the reminders due meanwhile would be missed.
+
+The jobs can safely run more than once: a recurring task never gets two copies for one date,
+due-date reminders are sent once a day, and each meeting reminder is sent once to each person.
 
 ---
 

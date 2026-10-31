@@ -205,3 +205,35 @@ describe('Mark all read up to a time (5c review)', () => {
     expect(markAllRead).toHaveBeenLastCalledWith('u1', undefined);
   });
 });
+
+describe('meeting reminders: push options and the live pop-up', () => {
+  it('passes push options (the meetings channel) to the phone push', async () => {
+    const sendToUser = vi.fn(async () => 1);
+    const svc = createNotificationService({ notifications: inMemory(), push: { sendToUser } });
+    const n = await svc.notify(
+      { userId: 'u1', type: 'MEETING_REMINDER', title: 'Meeting in 15 minutes: Review', body: '09:00–10:00', entityType: 'meeting', entityId: 'm1' },
+      { push: { channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1' } },
+    );
+    expect(sendToUser).toHaveBeenCalledWith('u1', {
+      title: 'Meeting in 15 minutes: Review', body: '09:00–10:00', entityType: 'meeting', entityId: 'm1', notificationId: n!.id, channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1',
+    });
+  });
+
+  it('tells the person’s open pages about each stored notification (not about muted ones)', async () => {
+    const onDelivered = vi.fn();
+    const svc = createNotificationService({
+      notifications: inMemory(),
+      preferences: { async get() { return { muted: ['TASK_COMMENT'] }; }, async set(_u, p) { return p; } },
+      onDelivered,
+    });
+    const n = await svc.notify({ userId: 'u1', type: 'MEETING_REMINDER', title: 'Meeting in 15 minutes: Review', entityType: 'meeting', entityId: 'm1' });
+    await svc.notify({ userId: 'u1', type: 'TASK_COMMENT', title: 'New comment' });
+    expect(onDelivered).toHaveBeenCalledTimes(1);
+    expect(onDelivered).toHaveBeenCalledWith(n);
+  });
+
+  it('a failing live hook never fails the notification', async () => {
+    const svc = createNotificationService({ notifications: inMemory(), onDelivered: () => { throw new Error('socket down'); } });
+    await expect(svc.notify({ userId: 'u1', type: 'X', title: 'a' })).resolves.not.toBeNull();
+  });
+});

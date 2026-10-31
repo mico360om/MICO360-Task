@@ -8,6 +8,11 @@ import type {
 
 type Row = MeetingAttendee;
 
+/** A stored attendee row as the meetings module reads it (also used by the reminders' source). */
+export function attendeeRecordOf(r: Row): AttendeeRecord {
+  return toRecord(r);
+}
+
 function toRecord(r: Row): AttendeeRecord {
   return {
     id: r.id,

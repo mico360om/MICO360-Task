@@ -4,6 +4,7 @@ import { Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { Sidebar, SidebarBody } from './Sidebar';
 import { useManagementLink } from '../lib/useManagementLink';
 import { ChatSoundNotifier } from './ChatSoundNotifier';
+import { MeetingReminderPopup } from './MeetingReminderPopup';
 import { GlobalSearch } from './GlobalSearch';
 import { TaskDrawerContainer } from './TaskDrawerContainer';
 import { SystemClock } from './SystemClock';
@@ -190,6 +191,10 @@ export function AppShell() {
 
       {/* Global task drawer — opened from search/command palette or any ?task= link */}
       {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={closeTask} /> : null}
+
+      {/* A meeting reminder pops up in the corner of every page (after the page in reading order, so
+          "Skip to content" stays first); every new notification refreshes the bell. */}
+      <MeetingReminderPopup />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

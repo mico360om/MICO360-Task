@@ -12,8 +12,9 @@ import { USER_DATA_KEYS } from './session.js';
 // chosen), it opens that notification's item, and Settings has the web's notification preferences.
 
 describe('notification preferences: the web’s list', () => {
-  it('the six kinds of notification and the reminder times, worded as on the web', () => {
-    expect(NOTIFICATION_TYPES.map((t) => t.type)).toEqual(['TASK_ASSIGNED', 'TASK_STATUS', 'TASK_COMMENT', 'MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE']);
+  it('the kinds of notification (meeting reminders too) and the reminder times, worded as on the web', () => {
+    expect(NOTIFICATION_TYPES.map((t) => t.type)).toEqual(['TASK_ASSIGNED', 'TASK_STATUS', 'TASK_COMMENT', 'MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'MEETING_REMINDER']);
+    expect(NOTIFICATION_TYPES.at(-1)).toEqual({ type: 'MEETING_REMINDER', label: 'Meeting reminders', desc: 'Before each meeting you organize or are invited to' });
     expect(NOTIFICATION_TYPES[0]).toEqual({ type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' });
     expect(REMINDER_OPTIONS.map((o) => o.value)).toEqual([null, 0, 60, 240, 1440, 2880, 10080]);
     expect(REMINDER_OPTIONS[0].label).toBe('Default (1 day)');
@@ -105,6 +106,17 @@ describe('the background poll', () => {
     await pollNotifications(d);
     expect(d.notifications.create).toHaveBeenCalledWith(NOTIFICATION_ID, expect.objectContaining({ title: 'Omar sent you a message', message: 'Pump is fixed', contextMessage: 'MICO360 Tasks' }));
     expect(d.session.data[ALERT_TARGET_KEY]).toEqual({ id: 'n2', entityType: 'conversation', entityId: 'c1', userId: 'me' });
+  });
+
+  it('a meeting reminder makes a desktop alert like any new notification, and its click opens the meeting', async () => {
+    const reminder = { id: 'n7', type: 'MEETING_REMINDER', title: 'Meeting in 15 minutes: Core switch go-live review', body: '09:00–10:00 · OXY HQ – Meeting room 2 · Join online', readAt: null, createdAt: '2026-10-31T04:45:00Z', entityType: 'meeting', entityId: 'm1' };
+    const { authedFetch } = server({ 'GET /notifications/unread-count': { data: { count: 2 } }, 'GET /notifications': { data: [reminder] }, 'GET /conversations': { data: [] } });
+    const d = deps({ authedFetch, local: { [DESKTOP_ALERTS_KEY]: { on: true, details: true } } });
+    await pollNotifications(d);
+    expect(d.notifications.create).toHaveBeenCalledWith(NOTIFICATION_ID, expect.objectContaining({ title: reminder.title, message: reminder.body }));
+    const open = vi.fn(async () => {});
+    await openAlert({ session: d.session, open, openUrl: vi.fn(), markRead: vi.fn(async () => {}), appBase: '', userId: 'me' });
+    expect(open).toHaveBeenCalledWith('#/meeting/m1');
   });
 
   it('alerts switched off: the badge only', async () => {

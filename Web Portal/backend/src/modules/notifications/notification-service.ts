@@ -9,12 +9,24 @@ import {
   type PreferenceStore,
 } from './notification-preferences';
 
+/** How the phone push of one notification is shown (see PushDeliveryOptions): its channel, how long it lasts, its tag. */
+export interface NotificationPushOptions {
+  channelId?: string;
+  ttlSeconds?: number;
+  tag?: string;
+}
+
 /** The slice of the push sender notify() needs (a phone push per delivered notification). */
 export interface NotificationPush {
   sendToUser(
     userId: string,
-    notification: { title: string; body?: string | null; entityType?: string | null; entityId?: string | null; notificationId?: string | null },
+    notification: { title: string; body?: string | null; entityType?: string | null; entityId?: string | null; notificationId?: string | null } & NotificationPushOptions,
   ): Promise<number>;
+}
+
+export interface NotifyOptions {
+  /** How the phone push is shown (meeting reminders: their own channel, out of date at the start). */
+  push?: NotificationPushOptions;
 }
 
 export interface NotificationServiceDeps {
@@ -25,12 +37,14 @@ export interface NotificationServiceDeps {
   push?: NotificationPush;
   /** Where failed pushes are reported. */
   logger?: Pick<Logger, 'error'>;
+  /** Each stored notification, for the person's open pages (the website's live pop-up). Best-effort. */
+  onDelivered?: (record: NotificationRecord) => void;
 }
 
-export function createNotificationService({ notifications, preferences, push, logger }: NotificationServiceDeps) {
+export function createNotificationService({ notifications, preferences, push, logger, onDelivered }: NotificationServiceDeps) {
   /** Create a notification unless the recipient has muted this type. Returns null when suppressed. */
-  async function notify(input: CreateNotificationData): Promise<NotificationRecord | null> {
-    return deliver(input, false);
+  async function notify(input: CreateNotificationData, opts?: NotifyOptions): Promise<NotificationRecord | null> {
+    return deliver(input, false, opts);
   }
 
   /**
@@ -54,8 +68,8 @@ export function createNotificationService({ notifications, preferences, push, lo
    */
   const inFlight = new Map<string, Promise<NotificationRecord | null>>();
 
-  async function deliver(input: CreateNotificationData, once: boolean): Promise<NotificationRecord | null> {
-    if (!once || !input.entityType || !input.entityId) return deliverNow(input, once);
+  async function deliver(input: CreateNotificationData, once: boolean, opts?: NotifyOptions): Promise<NotificationRecord | null> {
+    if (!once || !input.entityType || !input.entityId) return deliverNow(input, once, opts);
     const key = `${input.userId}|${input.type}|${input.entityType}|${input.entityId}`;
     const previous = inFlight.get(key) ?? Promise.resolve(null);
     const run = previous.then(
@@ -70,7 +84,7 @@ export function createNotificationService({ notifications, preferences, push, lo
     }
   }
 
-  async function deliverNow(input: CreateNotificationData, once: boolean): Promise<NotificationRecord | null> {
+  async function deliverNow(input: CreateNotificationData, once: boolean, opts?: NotifyOptions): Promise<NotificationRecord | null> {
     if (preferences) {
       const prefs = await preferences.get(input.userId);
       if (isMuted(prefs, input.type)) return null;
@@ -81,8 +95,20 @@ export function createNotificationService({ notifications, preferences, push, lo
     if (push) {
       push
         // The stored notification's id: a tap on the phone reads exactly this one (5c review).
-        .sendToUser(input.userId, { title: input.title, body: input.body ?? null, entityType: input.entityType ?? null, entityId: input.entityId ?? null, notificationId: record.id })
+        .sendToUser(input.userId, {
+          title: input.title,
+          body: input.body ?? null,
+          entityType: input.entityType ?? null,
+          entityId: input.entityId ?? null,
+          notificationId: record.id,
+          ...opts?.push,
+        })
         .catch((err) => logger?.error('push notification failed', { err, userId: input.userId, type: input.type }));
+    }
+    try {
+      onDelivered?.(record);
+    } catch (err) {
+      logger?.error('live notification failed', { err, userId: input.userId, type: input.type });
     }
     return record;
   }

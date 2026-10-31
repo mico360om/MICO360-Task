@@ -24,7 +24,7 @@ function inMemory(): MeetingRepository {
     async softDelete(id) { rows.delete(id); },
     async markInvitesSent() {},
     async markReminderSent(id, at) { const m = rows.get(id); if (m) rows.set(id, { ...m, reminderSentAt: at }); },
-    async listUpcomingWithoutReminder() { return []; },
+   
     async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
   };
 }

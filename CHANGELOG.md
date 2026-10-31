@@ -136,6 +136,20 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   were found ("Comment by Bilal · 28 Oct 2026: …the scaffold permit…"). "See all results" opens the
   new Search results page: every matching task, page by page, with filters for project, status,
   assignee and done or open, and "Include archived projects".
+- Automatic meeting reminders: 24 hours, 12 hours and 15 minutes before each scheduled meeting. The
+  organizer and everyone invited who hasn't declined get them on the website's bell (with a pop-up
+  while the site is open), as a phone notification in the Android app (also when the app is closed;
+  a tap opens the meeting) and as a Chrome extension desktop alert. The 24-hour one also comes by
+  email, and outside guests get only the emailed ones.
+- Administrators choose the reminder times in System Settings → Meeting reminders: switch them off
+  for everyone, or set up to five times from 5 minutes to 7 days before, each with "also by email".
+- Meeting reminders say the time in the meeting's time zone ("Meeting in 15 minutes: Core switch
+  go-live review · 09:00–10:00 · OXY HQ – Meeting room 2 · Join online"), with your own time added
+  when your time zone differs. Each one is sent once; a moved meeting is reminded at its new time,
+  and cancelled or draft meetings, people who declined and people taken off a meeting get none.
+  They replace the single reminder email an hour before.
+- Settings → Notifications on the website, in the Android app and in the Chrome extension has a
+  "Meeting reminders" switch, on until you turn it off.
 
 ### Improvements
 - In the Android app, colours are the website's in light and dark mode, and grey and amber text is

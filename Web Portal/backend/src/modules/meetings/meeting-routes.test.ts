@@ -47,7 +47,7 @@ function inMemory(attendeesOf: Record<string, string[]> = {}): MeetingRepository
     async softDelete(id) { rows.delete(id); },
     async markInvitesSent() {},
     async markReminderSent() {},
-    async listUpcomingWithoutReminder() { return []; },
+   
     async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: attendeesOf[id] ?? [] } : null; },
   };
 }

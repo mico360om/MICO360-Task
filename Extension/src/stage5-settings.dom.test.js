@@ -65,6 +65,8 @@ describe('Settings → Notifications: the web’s preferences', () => {
     expect(sw('Task assignments').getAttribute('aria-checked')).toBe('true');
     expect(sw('Status changes').getAttribute('aria-checked')).toBe('false');
     expect(box.textContent).toContain('When one of your tasks moves column');
+    expect(sw('Meeting reminders').getAttribute('aria-checked')).toBe('true'); // on until switched off
+    expect(box.textContent).toContain('Before each meeting you organize or are invited to');
     expect(byLabel(box, 'Reminder timing').value).toBe('60');
     expect([...byLabel(box, 'Reminder timing').options].map((o) => o.textContent)).toContain('Default (1 day)');
     expect(byLabel(box, 'Pending tasks email').getAttribute('aria-checked')).toBe('true');

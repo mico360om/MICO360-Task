@@ -79,6 +79,7 @@ import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
+import type { NotificationRecord } from './modules/notifications/notification-repository';
 import { planReminders } from './modules/notifications/reminder';
 import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
@@ -197,6 +198,8 @@ import { createPrismaResetUserRepo } from './modules/auth/prisma-reset-user-repo
 import { hashPassword } from './lib/password';
 import { createEmailService } from './modules/email/email-service';
 import { createMeetingNotifyService } from './modules/meetings/meeting-notify-service';
+import { createMeetingReminderService } from './modules/meetings/meeting-reminder-service';
+import { createPrismaMeetingReminderSource, createPrismaMeetingReminderStore } from './modules/meetings/prisma-meeting-reminders';
 import { configureBrand } from './modules/email/brand';
 import { chooseTransport } from './modules/email/outbox-transport';
 import { createEmailWebhookService } from './modules/email/email-webhook-service';
@@ -510,11 +513,15 @@ async function main(): Promise<void> {
     : undefined;
   if (!pushSender) logger.info('push notifications disabled (no FCM service account configured)');
 
+  // Each stored notification also reaches the person's open pages at once (the website's live
+  // pop-up for meeting reminders); late-bound to the realtime server, created further down.
+  let onNotificationDelivered: (record: NotificationRecord) => void = () => {};
   const notificationService = createNotificationService({
     notifications: createPrismaNotificationRepository(prisma),
     preferences: createPrismaPreferenceStore(prisma),
     push: pushSender,
     logger,
+    onDelivered: (record) => onNotificationDelivered(record),
   });
   const deviceTokenService = createDeviceTokenService({ deviceTokens: deviceTokenRepository });
 
@@ -1097,17 +1104,31 @@ async function main(): Promise<void> {
   void runMeetingSeriesTopUp();
   const meetingSeriesTimer = setInterval(() => void runMeetingSeriesTopUp(), 6 * 60 * 60 * 1000);
   meetingSeriesTimer.unref?.();
-  // Remind attendees of meetings starting within the next hour (one lease-locked instance, every 15 min).
-  const MEETING_REMINDER_LEAD_MS = 60 * 60 * 1000;
+  // Automatic meeting reminders (System Settings → Meeting reminders: by default 24 hours, 12 hours
+  // and 15 minutes before): every minute, one lease-locked instance sends the ones due — the bell,
+  // the phone push on its own channel, and the email for times ticked "also by email". Each send is
+  // a unique row, so overlapping runs and several servers never send one twice. The lease is under a
+  // minute (leases are held for their whole length) so the sweep really runs every minute.
+  const meetingReminderService = createMeetingReminderService({
+    settings: () => settingsService.meetingReminders(),
+    source: createPrismaMeetingReminderSource(prisma),
+    store: createPrismaMeetingReminderStore(prisma),
+    notify: (input, opts) => notificationService.notify(input, opts),
+    email: emailService,
+    appUrl: env.APP_URL,
+    defaultTimeZone: companyTz,
+    logger,
+  });
+  const MEETING_REMINDER_LEASE_MS = 55 * 1000;
   const runMeetingReminders = () =>
-    runExclusive(jobLock, 'meeting-reminder-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
-      await meetingNotifyService.runReminderSweep(MEETING_REMINDER_LEAD_MS);
+    runExclusive(jobLock, 'meeting-reminders', MEETING_REMINDER_LEASE_MS, () => new Date(), async () => {
+      await meetingReminderService.runSweep();
     }).catch((err) => {
       logger.error('meeting reminder sweep failed', { err });
       return false;
     });
   void runMeetingReminders();
-  const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 15 * 60 * 1000);
+  const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 60 * 1000);
   meetingReminderTimer.unref?.();
   // A meeting that is over is Completed (unless cancelled): every 5 minutes, one lease-locked
   // instance closes the ones whose end has passed. No emails; open pages refresh.
@@ -1659,6 +1680,11 @@ async function main(): Promise<void> {
   broadcast = realtime.broadcast;
   broadcastToUser = realtime.broadcastToUser;
   broadcastToAudience = realtime.broadcastToAudience;
+  // A new notification reaches its person's open pages (the bell refreshes; a meeting reminder pops up).
+  onNotificationDelivered = (n) =>
+    realtime.broadcastToUser(n.userId, 'notification:new', {
+      id: n.id, type: n.type, title: n.title, body: n.body, entityType: n.entityType, entityId: n.entityId, createdAt: n.createdAt.toISOString(),
+    });
   // Revoked sessions lose their live connections; removed members lose the project's room and
   // its chat channel (SEC-07).
   onSessionsRevoked = (userId) => realtime.disconnectUser(userId);

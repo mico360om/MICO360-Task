@@ -446,9 +446,9 @@ Backups: every night at 02:00 the server copies the database and the uploaded fi
 ~/mico360-data/backups (beside UPLOAD_DIR) and keeps about five weeks of copies; administrators download
 them from System Settings → Backups. Google Drive copies and restoring: docs/BACKUPS.md.
 
-Then add an hPanel cron job, every 15 minutes, so recurring tasks, reminders, the nightly
-carry-forward and the nightly backup keep running even when nobody has the site open (Hostinger may
-stop an idle app):
+Then add an hPanel cron job, every 5 minutes (*/5), so meeting reminders, recurring tasks, reminders,
+the nightly carry-forward and the nightly backup keep running even when nobody has the site open
+(Hostinger may stop an idle app; a meeting reminder missed by more than 10 minutes is not sent):
   curl -fsS -o /dev/null https://task.mico360.com/api/v1/health
 `,
   );

@@ -23,6 +23,37 @@ export const DEFAULT_DAILY_LIMIT = 5;
 /** Until an admin sets it: the company week starts on Sunday. */
 export const DEFAULT_COMPANY_WEEK_START = 0 as const;
 
+/** One automatic meeting reminder: how long before the start, and whether it also goes by email. */
+export interface MeetingReminderTime {
+  minutes: number;
+  email: boolean;
+}
+
+/** System Settings → Meeting reminders: the master switch and the reminder times (longest first). */
+export interface MeetingReminderSettings {
+  enabled: boolean;
+  times: MeetingReminderTime[];
+}
+
+/** Each reminder time: from 5 minutes to 7 days before the meeting; at most five of them. */
+export const MEETING_REMINDER_MIN_MINUTES = 5;
+export const MEETING_REMINDER_MAX_MINUTES = 7 * 24 * 60;
+export const MEETING_REMINDER_MAX_TIMES = 5;
+
+/** Until an admin changes them: 24 hours (also by email), 12 hours and 15 minutes before (owner, 31 Oct). */
+export const DEFAULT_MEETING_REMINDERS: MeetingReminderSettings = {
+  enabled: true,
+  times: [
+    { minutes: 24 * 60, email: true },
+    { minutes: 12 * 60, email: false },
+    { minutes: 15, email: false },
+  ],
+};
+
+const meetingReminderTime = z
+  .object({ minutes: z.number().int().min(MEETING_REMINDER_MIN_MINUTES).max(MEETING_REMINDER_MAX_MINUTES), email: z.boolean() })
+  .strict();
+
 /**
  * The system settings that can be read and written through the generic settings API, each with
  * its own schema. Anything else in system_settings (e.g. `ai.config`, which holds provider API
@@ -45,6 +76,15 @@ export const SETTING_SCHEMAS = {
   'company.weekStart': z.union([z.literal(0), z.literal(1), z.literal(6)]),
   // The weekly management summary email, for everyone who can see the Management page (each can turn theirs off).
   'weeklySummary.enabled': z.boolean(),
+  // Automatic meeting reminders: on/off and when (each also by email or not); one of each time, longest first.
+  'meetings.reminders': z
+    .object({ enabled: z.boolean(), times: z.array(meetingReminderTime).min(1).max(MEETING_REMINDER_MAX_TIMES) })
+    .strict()
+    .transform((r) => {
+      const seen = new Set<number>();
+      const times = r.times.filter((t) => (seen.has(t.minutes) ? false : (seen.add(t.minutes), true))).sort((a, b) => b.minutes - a.minutes);
+      return { enabled: r.enabled, times };
+    }),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;
@@ -119,6 +159,12 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return parsed.success ? parsed.data : true;
   }
 
+  /** The meeting reminder times in force: the saved ones, else the defaults (also when the stored value is broken). */
+  async function meetingReminders(): Promise<MeetingReminderSettings> {
+    const parsed = SETTING_SCHEMAS['meetings.reminders'].safeParse(await get('meetings.reminders'));
+    return parsed.success ? parsed.data : { enabled: DEFAULT_MEETING_REMINDERS.enabled, times: DEFAULT_MEETING_REMINDERS.times.map((t) => ({ ...t })) };
+  }
+
   /** The company week start and the weekly summary switch in one read (the public /config shows both). */
   async function companySettings(): Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }> {
     const all = await settings.getAll();
@@ -128,7 +174,7 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return { weekStart: week.success ? week.data : DEFAULT_COMPANY_WEEK_START, weeklySummaryEnabled: on.success ? on.data : true };
   }
 
-  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings };
+  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings, meetingReminders };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

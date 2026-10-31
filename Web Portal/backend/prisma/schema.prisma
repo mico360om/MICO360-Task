@@ -888,13 +888,14 @@ model Meeting {
   updatedAt          DateTime      @updatedAt
   deletedAt          DateTime?
 
-  attendees   MeetingAttendee[]
-  agendaItems AgendaItem[]
-  notes       MeetingNote[]
-  actionItems ActionItem[]
-  decisions   Decision[]
-  minutes     MeetingMinutes?
-  tasks       Task[]
+  attendees     MeetingAttendee[]
+  agendaItems   AgendaItem[]
+  notes         MeetingNote[]
+  actionItems   ActionItem[]
+  decisions     Decision[]
+  minutes       MeetingMinutes?
+  tasks         Task[]
+  reminderSends MeetingReminderSend[]
 
   @@index([projectId])
   @@index([organizerId])
@@ -903,6 +904,45 @@ model Meeting {
   // One meeting per place in a series, so a series is never filled in twice.
   @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
+}
+
+/// One automatic meeting reminder to one person one way (the bell with its phone push, or email):
+/// the guard against a second send. Unique per meeting, person, reminder time, the start it was for
+/// and way — so retries and several servers send it once, and a moved meeting is reminded again at
+/// its new time. `reminderSentAt` on meetings is no longer used (the one-hour email it stamped is gone).
+model MeetingReminderSend {
+  id            String                    @id @default(cuid())
+  meetingId     String
+  /// 'user:<id>' or 'guest:<lower-cased email>'.
+  recipientKey  String                    @db.VarChar(255)
+  userId        String?
+  email         String?                   @db.VarChar(255)
+  /// The System Settings reminder time: minutes before the start.
+  offsetMinutes Int
+  /// The meeting's start this reminder was for.
+  startAt       DateTime
+  channel       MeetingReminderChannel
+  status        MeetingReminderSendStatus @default(SENDING)
+  sentAt        DateTime?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  meeting       Meeting                   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, recipientKey, offsetMinutes, startAt, channel])
+  @@index([startAt])
+  @@map("meeting_reminder_sends")
+}
+
+enum MeetingReminderChannel {
+  APP
+  EMAIL
+}
+
+enum MeetingReminderSendStatus {
+  SENDING
+  SENT
+  SKIPPED
+  FAILED
 }
 
 model MeetingAttendee {
