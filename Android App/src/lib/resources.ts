@@ -72,6 +72,7 @@ import type { ApiActivityRow } from './activity-page';
 import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
+import { planningApi } from './planning-api';
 
 type NewUserBody = ReturnType<typeof newUserBody>;
 type UserPatchBody = ReturnType<typeof userPatch>;
@@ -562,6 +563,8 @@ export function resourcesApi(client: ApiClient) {
     management: {
       access: () => data(client.get<Envelope<{ allowed: boolean; scope: 'ALL' | 'RUN' | null }>>('/management/access')),
     },
+    /** Timeline and Workload (Stage 3): each request takes the person it is for (CallOpts) last. */
+    planning: planningApi(client),
     /** Search (6b): tasks, projects, people and meetings you may see. */
     search: (q: string) => data(client.get<Envelope<SearchResults>>(`/search?q=${encodeURIComponent(q)}`)),
     /** About (6b): the website's version (administrators get the details) and the version history. */

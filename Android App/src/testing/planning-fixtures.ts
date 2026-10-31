@@ -1,0 +1,224 @@
+/**
+ * Shared fixtures for the Timeline and Workload tests (Stage 3, Lane P). Test-only — nothing in the
+ * app imports this folder. The numbers deliberately disagree with what a recount would give (Review
+ * Focus 5): the app must show what the server sent.
+ */
+import type { TimelineProject, TimelineTask, TimelineTasksData, WorkloadCell, WorkloadData, WorkloadSuggestion, WorkloadTask } from '../lib/planning-api';
+
+/** The company's today in every fixture. */
+export const TODAY = '2026-10-30';
+
+const OMAR = { id: 'u-omar', name: 'Omar Said', avatarUrl: null };
+const SARA = { id: 'u-sara', name: 'Sara Ahmed', avatarUrl: null };
+
+const project = (over: Partial<TimelineProject> & Pick<TimelineProject, 'id' | 'name'>): TimelineProject => ({
+  code: over.id.toUpperCase(),
+  color: '#1E5A8B',
+  icon: null,
+  imageUrl: null,
+  status: 'ACTIVE',
+  owner: OMAR,
+  start: '2026-09-01',
+  startFrom: 'project',
+  startIsCreated: false,
+  target: '2026-12-10',
+  targetFrom: 'project',
+  tasks: { total: 10, done: 5, open: 5, overdue: 0 },
+  progress: 50,
+  timeUsed: 40,
+  health: 'on-track',
+  daysLate: 0,
+  dueByWeek: [0, 1, 2],
+  milestones: [],
+  nextMilestone: null,
+  milestoneCount: 0,
+  milestonesSoon: 0,
+  meetings: [],
+  meetingsThisWeek: 0,
+  ...over,
+});
+
+/** Five open projects, two owners (and one with none). */
+export const PROJECTS: TimelineProject[] = [
+  project({
+    id: 'p-late',
+    name: 'Rig 3 overhaul',
+    target: '2026-10-21',
+    daysLate: 9,
+    health: 'late',
+    progress: 70,
+    timeUsed: 100,
+    tasks: { total: 12, done: 8, open: 4, overdue: 2 },
+    nextMilestone: { id: 'm1', key: 'RIG-9', title: 'Pilot on rig 3', date: '2026-10-15', done: false },
+    milestoneCount: 2,
+    meetingsThisWeek: 1,
+  }),
+  project({
+    id: 'p-late-tasks',
+    name: 'Field CRM',
+    owner: SARA,
+    startFrom: 'tasks',
+    target: '2026-10-29',
+    targetFrom: 'tasks',
+    daysLate: 1,
+    health: 'late',
+    progress: 40,
+    tasks: { total: 5, done: 2, open: 3, overdue: 1 },
+    nextMilestone: { id: 'm2', key: 'CRM-4', title: 'Go live', date: '2026-11-12', done: false },
+    milestoneCount: 2,
+    milestonesSoon: 1,
+  }),
+  project({
+    id: 'p-risk',
+    name: 'Mobile app',
+    owner: SARA,
+    target: '2027-02-03',
+    progress: 9,
+    timeUsed: 45,
+    health: 'at-risk',
+    tasks: { total: 22, done: 2, open: 20, overdue: 3 },
+    milestoneCount: 3,
+    meetingsThisWeek: 2,
+  }),
+  project({
+    id: 'p-ok',
+    name: 'Office move',
+    progress: 62,
+    timeUsed: 30,
+    tasks: { total: 11, done: 1, open: 10, overdue: 0 },
+    nextMilestone: { id: 'm3', key: 'OFF-4', title: 'Beta build', date: '2026-11-06', done: false, waiting: true },
+    milestoneCount: 1,
+    milestonesSoon: 1,
+  }),
+  project({
+    id: 'p-none',
+    name: 'Archive scan',
+    owner: null,
+    target: null,
+    targetFrom: null,
+    timeUsed: null,
+    health: 'no-target',
+    progress: 0,
+    tasks: { total: 0, done: 0, open: 0, overdue: 0 },
+  }),
+];
+
+/** A project's task rows: done, waiting for approval (due before today), overdue, and open in another year. */
+export const TIMELINE_TASKS: TimelineTask[] = [
+  { id: 't-done', key: 'OFF-1', title: 'Book the movers', start: '2026-10-12', due: '2026-10-20', done: true, overdue: false, priority: 'NORMAL', isMilestone: false, assignees: [{ id: 'u-omar', name: 'Omar Said' }] },
+  { id: 't-wait', key: 'OFF-2', title: 'Sign the lease', start: null, due: '2026-10-29', done: false, overdue: false, waiting: true, priority: 'HIGH', isMilestone: false, assignees: [] },
+  {
+    id: 't-over',
+    key: 'OFF-3',
+    title: 'Order the desks',
+    start: null,
+    due: '2026-10-22',
+    done: false,
+    overdue: true,
+    priority: 'URGENT',
+    isMilestone: false,
+    assignees: [
+      { id: 'u-omar', name: 'Omar Said' },
+      { id: 'u-sara', name: 'Sara Ahmed' },
+      { id: 'u-hassan', name: 'Hassan Ahmed' },
+    ],
+  },
+  { id: 't-open', key: 'OFF-5', title: 'Hand back the keys', start: '2026-12-28', due: '2027-01-05', done: false, overdue: false, priority: 'LOW', isMilestone: true, assignees: [{ id: 'u-sara', name: 'Sara Ahmed' }] },
+];
+
+export const TASKS_DATA: TimelineTasksData = {
+  projectId: 'p-ok',
+  from: '2026-10-11',
+  to: '2027-01-09',
+  today: TODAY,
+  matched: 4,
+  open: 10,
+  undated: 0,
+  tasks: TIMELINE_TASKS,
+};
+
+/** A suggestion of each kind: a teammate with their number that day (an administrator sees it), one without, a lighter day inside the week shown and one after it. */
+export const SUGGESTIONS: WorkloadSuggestion[] = [
+  { kind: 'reassign', to: { id: 'u-hassan', name: 'Hassan Ahmed' }, count: 2 },
+  { kind: 'reassign', to: { id: 'u-sara', name: 'Sara Ahmed' }, count: null },
+  { kind: 'move', date: '2026-10-29' },
+  { kind: 'move', date: '2026-11-01' },
+  { kind: 'reassign', to: { id: 'u-sara', name: 'Sara Ahmed' }, count: 0 },
+];
+
+const wtask = (id: string, key: string, suggestion: WorkloadSuggestion | null = null): WorkloadTask => ({ id, key, title: `Task ${key}`, projectId: 'p-ok', priority: 'NORMAL', version: 3, suggestion });
+const day = (date: string, count: number, limit: number, tasks: WorkloadTask[] = []): WorkloadCell => ({ date, count, limit, over: limit > 0 ? Math.max(0, count - limit) : 0, tasks });
+
+/**
+ * The week of Sun 25 Oct 2026 (today Fri 30), limit 5, Friday and Saturday not working. Omar is
+ * over the limit on two days (with suggestions of both kinds), Hassan exactly at it on a day, and
+ * "me" has 2 tasks due on a day off and 2 overdue. The cells cover all six tones. Totals are the
+ * server's and deliberately not the sum of the days (Review Focus 5); a day lists fewer tasks than
+ * its count.
+ */
+export const WORKLOAD: WorkloadData = {
+  week: '2026-10-25',
+  today: TODAY,
+  days: ['2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31'].map((date) => ({ date, working: date < '2026-10-30' })),
+  limit: 5,
+  canChangeLimit: true,
+  scope: 'everyone',
+  projectId: null,
+  projects: [{ id: 'p-ok', code: 'OFF', name: 'Office move', color: '#1E5A8B', icon: null, imageUrl: null }],
+  people: [
+    {
+      id: 'u-aisha',
+      name: 'Aisha Khan',
+      avatarUrl: null,
+      me: true,
+      overdue: 2,
+      total: 6,
+      weekLimit: 25,
+      days: [
+        day('2026-10-25', 1, 5, [wtask('a1', 'OFF-21')]),
+        day('2026-10-26', 0, 5),
+        day('2026-10-27', 2, 5, [wtask('a2', 'OFF-22'), wtask('a3', 'OFF-23')]),
+        day('2026-10-28', 0, 5),
+        day('2026-10-29', 0, 5),
+        day('2026-10-30', 2, 0, [wtask('a4', 'OFF-24'), wtask('a5', 'OFF-25')]),
+        day('2026-10-31', 0, 0),
+      ],
+    },
+    {
+      id: 'u-omar',
+      name: 'Omar Said',
+      avatarUrl: null,
+      me: false,
+      overdue: 1,
+      total: 27,
+      weekLimit: 25,
+      days: [
+        day('2026-10-25', 0, 5),
+        day('2026-10-26', 8, 5, [wtask('o1', 'RIG-14', SUGGESTIONS[0]!), wtask('o2', 'RIG-15', SUGGESTIONS[2]!), wtask('o3', 'RIG-16')]),
+        day('2026-10-27', 3, 5, [wtask('o4', 'RIG-17'), wtask('o5', 'RIG-18'), wtask('o6', 'RIG-19')]),
+        day('2026-10-28', 7, 5, [wtask('o7', 'RIG-20', SUGGESTIONS[1]!), wtask('o8', 'RIG-21', SUGGESTIONS[3]!)]),
+        day('2026-10-29', 1, 5, [wtask('o9', 'RIG-22')]),
+        day('2026-10-30', 0, 0),
+        day('2026-10-31', 0, 0),
+      ],
+    },
+    {
+      id: 'u-hassan',
+      name: 'Hassan Ahmed',
+      avatarUrl: null,
+      me: false,
+      overdue: 0,
+      total: 25,
+      weekLimit: 25,
+      days: [
+        day('2026-10-25', 4, 5, [wtask('h1', 'CRM-1')]),
+        day('2026-10-26', 2, 5, [wtask('h2', 'CRM-2', SUGGESTIONS[4]!)]),
+        day('2026-10-27', 5, 5, [wtask('h3', 'CRM-3'), wtask('h4', 'CRM-4')]),
+        day('2026-10-28', 4, 5),
+        day('2026-10-29', 3, 5),
+        day('2026-10-30', 0, 0),
+        day('2026-10-31', 0, 0),
+      ],
+    },
+  ],
+};

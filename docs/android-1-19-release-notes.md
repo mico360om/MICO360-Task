@@ -28,4 +28,6 @@
 <!-- meetings-chat-account lines above this line -->
 
 ## Planning and AI
+- In the Android app, Timeline shows every open project's health, progress, next milestone and target, with Late and At risk filters and each project's tasks — as on the website's phone layout.
+- In the Android app, Workload shows each person's open tasks due each day of the week against the daily limit, with overdue tasks and days off; its suggestions give a task to a teammate or move it to a lighter day in one tap, and administrators can change the daily limit.
 <!-- planning-and-ai lines above this line -->

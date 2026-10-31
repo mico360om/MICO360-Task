@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, View, type AccessibilityState, type StyleProp, type ViewStyle } from 'react-native';
 import { radius, shadow } from '../../lib/theme';
 import { useColors } from '../../core/theme';
 
@@ -10,6 +10,7 @@ export function Card({
   onPress,
   accessibilityLabel,
   accessibilityHint,
+  accessibilityState,
   padded = true,
 }: {
   children: ReactNode;
@@ -18,6 +19,8 @@ export function Card({
   accessibilityLabel?: string;
   /** What tapping does (a tappable card only). */
   accessibilityHint?: string;
+  /** A tappable card's state (a tile that filters: selected). */
+  accessibilityState?: AccessibilityState;
   padded?: boolean;
 }) {
   const c = useColors();
@@ -36,6 +39,7 @@ export function Card({
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
+        accessibilityState={accessibilityState}
         style={({ pressed }) => [base, pressed ? { backgroundColor: c.surface2 } : null, style]}
       >
         {children}
