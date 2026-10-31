@@ -45,6 +45,7 @@ const PAGE_ICON: Record<string, IconName> = {
 
 /** The icon a row leads with: its group's (a task, a project, a person, a meeting), or the page's own. */
 function rowIcon(item: SearchItem): IconName {
+  if (item.target.kind === 'askMicoAi') return 'nav.ai';
   if (item.group === 'Tasks' || item.target.kind === 'openKey') return 'kit.task';
   if (item.group === 'Projects') return 'nav.projects';
   if (item.group === 'People') return 'kit.user';
@@ -113,6 +114,11 @@ export function SearchScreen({ navigation }: AppScreenProps<'Search'>) {
     }
     if (t.kind === 'directMessage') {
       void direct.open(t.userId, t.name);
+      return;
+    }
+    if (t.kind === 'askMicoAi') {
+      // A new chat with what was typed, asked once (askId makes each pick its own question).
+      navigation.navigate('MicoAi', { ask: t.text, askId: String(Date.now()) });
       return;
     }
     setBusy(item.id);

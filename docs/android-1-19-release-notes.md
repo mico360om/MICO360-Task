@@ -34,4 +34,8 @@
 - In the Android app, Management shows each project's health with the reasons, the tasks waiting for approval, inspections and people, each number opening its list.
 - In the Android app, Management shows the trends of the last 4, 12 or 26 weeks: tasks created and completed, late tasks and the inspection pass rate.
 - In the Android app, the calendar marks a task waiting for approval with an hourglass, as on the website.
+- In the Android app, MICO AI is a real screen: your chats (new, rename, search, delete), questions and answers with tables and sources, Excel and PDF downloads, Stop, and quick replies when it asks which one you mean.
+- In the Android app, changes MICO AI suggests (new tasks, task changes, final-minutes drafts, meetings) show as a card to tick, Confirm or Cancel, and Undo for 15 minutes; nothing changes until you confirm.
+- In the Android app, you can change what MICO AI suggests before confirming it — the title, project, dates, people, status, priority or the minutes' text.
+- In the Android app, Search offers "Ask MICO AI" with what you typed, opening a new chat with that question.
 <!-- planning-and-ai lines above this line -->
