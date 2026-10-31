@@ -16,7 +16,7 @@ describe('waitingReason — why a waiting change can be discarded (2c review fix
 });
 import { createTaskWrites, isReloaded, noteReplayed } from './task-writes';
 import { ApiError, NetworkError } from './api-client';
-import { moveRefreshes } from './task-cache';
+import { moveRefreshes, TASK_FIGURE_VIEWS } from './task-cache';
 import type { ResourcesApi } from './resources';
 import type { QueuedMutation } from './sync-queue';
 
@@ -189,11 +189,12 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
       { queryKey: ['tasks', 'mine'] },
       { queryKey: ['project', 'p1', 'progress'], exact: true },
       { queryKey: ['tasks', 'calendar'] },
+      ...TASK_FIGURE_VIEWS,
     ]);
   });
 
   it('a move: the task, its activity, the lists holding it, its project’s progress and My Action Items', () => {
-    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2' }))).toEqual([...task('t1'), { progressFor: 't1' }, { queryKey: ['action-items', 'mine'], later: true }]);
+    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2' }))).toEqual([...task('t1'), { progressFor: 't1' }, { queryKey: ['action-items', 'mine'], later: true }, ...TASK_FIGURE_VIEWS]);
   });
 
   it('a move queued with its project: what the same move made online refreshes, its project’s board days too', () => {
@@ -201,11 +202,11 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
     const replayed = refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: 'p1' }));
     expect(replayed).toContainEqual({ queryKey: ['tasks', 'project', 'p1'] });
     expect(replayed).toEqual(moveRefreshes('t1', 'p1'));
-    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: '' }))).toEqual([...task('t1'), { progressFor: 't1' }, { queryKey: ['action-items', 'mine'], later: true }]);
+    expect(refreshesAfterReplay(mut('task.move', { id: 't1', columnId: 'c2', projectId: '' }))).toEqual([...task('t1'), { progressFor: 't1' }, { queryKey: ['action-items', 'mine'], later: true }, ...TASK_FIGURE_VIEWS]);
   });
 
   it('an edit: what the edit changed', () => {
-    expect(refreshesAfterReplay(mut('task.update', { id: 't1', patch: { title: 'x', expectedVersion: 2 } }))).toEqual(task('t1'));
+    expect(refreshesAfterReplay(mut('task.update', { id: 't1', patch: { title: 'x', expectedVersion: 2 } }))).toEqual([...task('t1'), ...TASK_FIGURE_VIEWS]);
     expect(refreshesAfterReplay(mut('task.update', { id: 't1', patch: { dueDate: null } }))).toContainEqual({ progressFor: 't1' });
   });
 
@@ -215,6 +216,7 @@ describe('refreshesAfterReplay (what a replayed change refreshes, instead of eve
       { queryKey: ['task', 't1', 'activity'], exact: true },
       { queryKey: ['tasks', 'mine'] },
       { listsHolding: 't1' },
+      ...TASK_FIGURE_VIEWS,
     ]);
     expect(refreshesAfterReplay(mut('checklist.add', { id: 't1', text: 'x' }))).toEqual([
       { queryKey: ['task', 't1', 'checklist'], exact: true },

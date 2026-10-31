@@ -65,8 +65,8 @@ export const PROGRESS_KEPT = 20;
 
 const PROGRESS = /^progress\.[^.]+$/;
 
-/** The Projects list's card figures (one small copy, from one task list). */
-export const PROJECT_FIGURES_COPY = 'projects.figures';
+/** The Projects page's list with each card's figures (GET /projects/overview, one copy). */
+export const PROJECTS_OVERVIEW_COPY = 'projects.overview';
 
 // ── Inspections (Stage 4) ────────────────────────────────────────────────────
 /** A project's inspections, its due checks and a task's inspections kept offline (the most recently opened). */

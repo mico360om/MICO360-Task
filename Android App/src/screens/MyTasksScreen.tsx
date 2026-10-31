@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDirectory, useMyTasks, useProjectColumns, useProjects } from '../core/queries';
@@ -12,6 +12,11 @@ import { Sheet } from '../components/meeting/sheet-kit';
 import { DayPicker } from '../components/calendar/CalendarSheets';
 import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
 import { MyTaskItem } from '../components/my-tasks/MyTaskItem';
+import { ToApproveSection } from '../components/approvals/ToApproveSection';
+import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
+import { useMoveTargets } from '../core/move-queries';
+import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move';
+import { MOVE_TEXT, type MoveTaskRef } from '../lib/move-sheet';
 import { notice } from '../components/notice';
 import {
   BUILT_IN_VIEWS,
@@ -55,16 +60,25 @@ const LIST_BOTTOM = spacing.xxl * 4;
 type BulkSheet = 'due' | 'priority' | 'assign' | 'move';
 
 /**
- * My Tasks (4d), as the website's page: everything assigned to you, across every project. The
+ * My Tasks (4d), as the website's page: everything assigned to you, across every project — under
+ * its title "To approve" for those who run a project (Stage 2), the tasks others finished. The
  * All / Open / Overdue / Completed chips; filters by project, status, priority, assignee and due
  * date; four sorts; saved views (the website's three, and your own, kept on this phone); and — for
  * the tasks you tick (only ones shown) — Complete, a due date (cleared after asking), a priority,
  * someone to assign, or a column of the project filtered to, each task through its own write
  * (kept on this phone offline). A virtualized list; the search box is this app's own.
  */
-export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
+export function MyTasksScreen({ navigation, route }: TabScreenProps<'MyTasks'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
+  const listRef = useRef<FlatList<MyTaskRow>>(null);
+  // Opened on To approve (the Dashboard's Approvals card): the list from its top, where To approve is.
+  useEffect(() => {
+    if (route.params?.show === 'to-approve') {
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      navigation.setParams({ show: undefined });
+    }
+  }, [route.params?.show, navigation]);
   const tasksQ = useMyTasks();
   const projectsQ = useProjects();
   const projects = useMemo(() => projectsQ.data ?? [], [projectsQ.data]);
@@ -165,6 +179,18 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
   const moveColumnsQ = useProjectColumns(filters.project);
   const moveColumns = filters.project ? formColumns(moveColumnsQ.data).map((col) => ({ value: col.id, label: col.name, dot: col.color })) : [];
   const people = (dirQ.data ?? []).filter((u) => u.active !== false).map((u) => ({ value: u.id, label: displayName(u) }));
+  // "Move to project…": one sheet for the whole selection (each task is checked there) — the website's.
+  const moveTargets = useMoveTargets(selected.size > 0);
+  const [moveRefs, setMoveRefs] = useState<MoveTaskRef[] | null>(null);
+  const openProjectMove = () => {
+    if (chosen.length === 0 || busy) return;
+    const avail = bulkMoveAvailability(moveTargets);
+    if (!avail.canMove) {
+      if (avail.reason) notice(avail.reason);
+      return;
+    }
+    setMoveRefs(chosen.map((r) => ({ id: r.task.id, key: r.task.key, title: r.task.title, projectId: r.task.projectId })));
+  };
 
   const open = useCallback((r: MyTaskRow) => navigation.navigate('TaskDetail', { taskId: r.task.id, title: r.task.title }), [navigation]);
 
@@ -180,6 +206,8 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
     <View style={s.head}>
       <PageHeader title="My Tasks" />
       <Text style={s.subtitle}>{MY_TASKS_TEXT.subtitle}</Text>
+      {/* Tasks waiting for my approval (people who run a project, and admins) — the website's place. */}
+      <ToApproveSection onOpen={(taskId) => navigation.navigate('TaskDetail', { taskId })} />
       <TextField value={q} onChangeText={setQ} placeholder="Search my tasks…" accessibilityLabel="Search my tasks" autoCapitalize="none" style={s.search} />
       {counts.total > 0 ? (
         <>
@@ -281,6 +309,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <FlatList
+        ref={listRef}
         data={shown}
         keyExtractor={(r) => r.task.id}
         renderItem={({ item }) => <MyTaskItem row={item} selected={selected.has(item.task.id)} onOpen={open} onToggle={toggle} />}
@@ -323,6 +352,7 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
             <BulkButton label="Priority…" onPress={() => setBulkSheet('priority')} disabled={busy} s={s} />
             <BulkButton label="Assign to…" onPress={() => setBulkSheet('assign')} disabled={busy || people.length === 0} s={s} />
             {filters.project ? <BulkButton label="Move to…" onPress={() => setBulkSheet('move')} disabled={busy || moveColumns.length === 0} s={s} /> : null}
+            <BulkButton label={MOVE_TEXT.bulkButton} onPress={openProjectMove} disabled={busy} s={s} />
           </View>
         </View>
       ) : (
@@ -356,6 +386,25 @@ export function MyTasksScreen({ navigation }: TabScreenProps<'MyTasks'>) {
         onClose={() => setBulkSheet(null)}
       />
       <ChoiceSheet visible={bulkSheet === 'assign'} title="Assign to" options={people} onChoose={(userId) => void runBulkAction({ type: 'assign', userId }, BULK_LABELS.assign)} onClose={() => setBulkSheet(null)} />
+      <MoveTaskSheet
+        tasks={moveRefs ?? []}
+        visible={!!moveRefs}
+        onClose={() => setMoveRefs(null)}
+        // One task ticked: the one-task move.
+        onMoved={(r) => {
+          setSelected(new Set());
+          setMoveRefs(null);
+          notice(movedText(r));
+        }}
+        // All moved: done. Otherwise the sheet lists the ones that couldn't be, until Done.
+        onBulkMoved={(r, name) => {
+          setSelected(new Set());
+          if (r.failed === 0) {
+            setMoveRefs(null);
+            notice(bulkMovedText(r, name));
+          }
+        }}
+      />
       <ChoiceSheet visible={bulkSheet === 'move'} title="Move to" options={moveColumns} onChoose={(columnId) => void runBulkAction({ type: 'move', columnId }, BULK_LABELS.move)} onClose={() => setBulkSheet(null)} />
       <Sheet
         visible={bulkSheet === 'due'}

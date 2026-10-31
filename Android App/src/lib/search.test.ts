@@ -28,8 +28,8 @@ const results = (over: Partial<SearchResults> = {}): SearchResults => ({
 const ctx = { isAdmin: false, canLead: false, myId: 'me' };
 const groups = (items: { group: string }[]) => [...new Set(items.map((i) => i.group))];
 
-it('Timeline, Workload, Templates and MICO AI found by Search open on the website', () => {
-  for (const [q, path] of [['timeline', '/timeline'], ['workload', '/workload'], ['templates', '/templates'], ['mico ai', '/mico-ai']] as const) {
+it('Templates found by Search opens on the website', () => {
+  for (const [q, path] of [['templates', '/templates']] as const) {
     const item = searchItems({ raw: q, results: undefined, isAdmin: false, canLead: false, myId: 'u1' }).find((i) => i.target.kind === 'website');
     expect(item?.target, q).toEqual({ kind: 'website', path });
     expect(websitePageUrl('https://task.mico360.com/api/v1', path), q).not.toBeNull();
@@ -40,8 +40,8 @@ it('Management is offered to whoever runs a project, not only administrators', (
   const has = (canLead: boolean) => searchItems({ raw: 'management', results: undefined, isAdmin: false, canLead, myId: 'u1' }).some((i) => i.primary === 'Management');
   expect(has(false)).toBe(false);
   expect(has(true)).toBe(true);
-  // "go to management" too, and it opens on the website.
-  expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: true, myId: 'u1' })[0]).toMatchObject({ group: 'Command', target: { kind: 'website', path: '/management' } });
+  // "go to management" too, and it opens the app's Management screen (Stage 3).
+  expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: true, myId: 'u1' })[0]).toMatchObject({ group: 'Command', target: { kind: 'screen', action: { type: 'stack', screen: 'Management' } } });
   expect(searchItems({ raw: 'go to management', results: undefined, isAdmin: false, canLead: false, myId: 'u1' }).some((i) => i.group === 'Command')).toBe(false);
 });
 
@@ -70,8 +70,8 @@ describe('search: what the box offers before and while typing', () => {
   });
 
   it('pages match by name or keyword; the admin pages only for administrators, the rest on the website', () => {
-    expect(searchItems({ raw: 'rep', results: undefined, ...ctx }).map((i) => i.primary)).toEqual([]);
-    expect(searchItems({ raw: 'rep', results: undefined, isAdmin: true, canLead: true, myId: 'me' }).map((i) => i.primary)).toEqual(['Reports']);
+    expect(searchItems({ raw: 'rep', results: undefined, ...ctx }).map((i) => i.primary)).toEqual(['Ask MICO AI: “rep”']);
+    expect(searchItems({ raw: 'rep', results: undefined, isAdmin: true, canLead: true, myId: 'me' }).map((i) => i.primary)).toEqual(['Reports', 'Ask MICO AI: “rep”']);
     const ai = searchItems({ raw: 'models', results: undefined, isAdmin: true, canLead: true, myId: 'me' })[0]!;
     expect(ai).toMatchObject({ group: 'Go to', primary: 'AI Management', hint: 'On the website', target: { kind: 'website', path: '/admin/ai' }, label: 'AI Management, opens on the website' });
     expect(searchItems({ raw: 'users', results: undefined, isAdmin: true, canLead: true, myId: 'me' })[0]).toMatchObject({ primary: 'User Management', target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } });
@@ -88,7 +88,7 @@ describe('search: what the box offers before and while typing', () => {
     expect(missing).toEqual([]);
     // "board" finds the Kanban Board first, then the Dashboard, as the website ranks them.
     const board = searchItems({ raw: 'board', results: undefined, ...ctx });
-    expect(board.map((i) => i.primary)).toEqual(['Kanban Board', 'Dashboard']);
+    expect(board.map((i) => i.primary)).toEqual(['Kanban Board', 'Dashboard', 'Ask MICO AI: “board”']);
     // It opens the All projects board (4c), as the website's Kanban Board shows every project.
     expect(board[0]).toMatchObject({ group: 'Go to', label: 'Go to Kanban Board', target: { kind: 'screen', action: ALL_PROJECTS_BOARD } });
     expect(ALL_PROJECTS_BOARD).toEqual({ type: 'stack', screen: 'AllBoard' });
@@ -117,7 +117,7 @@ describe('search: the server’s results, in the website’s groups and numbers'
   it('tasks 6, projects 5, people 5 and meetings 6, after the commands and pages', () => {
     expect(SEARCH_LIMITS).toEqual({ tasks: 6, projects: 5, people: 5, meetings: 6, pages: 6, pagesEmpty: 5 });
     const items = searchItems({ raw: 'zz', results: r, ...ctx });
-    expect(groups(items)).toEqual(['Tasks', 'Projects', 'People', 'Meetings']);
+    expect(groups(items)).toEqual(['Tasks', 'Projects', 'People', 'Meetings', 'MICO AI']);
     const count = (g: string) => items.filter((i) => i.group === g).length;
     expect([count('Tasks'), count('Projects'), count('People'), count('Meetings')]).toEqual([6, 5, 5, 6]);
   });
@@ -150,12 +150,12 @@ describe('search: the server’s results, in the website’s groups and numbers'
       users: [{ id: 'u/2', username: 'bad', firstName: 'B', lastName: '' }],
       meetings: [{ id: 'm?x=1', title: 'Bad', projectId: null, snippet: '' }],
     });
-    expect(searchItems({ raw: 'bad', results: bad, ...ctx })).toEqual([]);
+    expect(searchItems({ raw: 'bad', results: bad, ...ctx }).map((i) => i.group)).toEqual(['MICO AI']);
   });
 
   it('a server without meetings in its results still works', () => {
     const old = { tasks: [], projects: [], users: [] } as unknown as SearchResults;
-    expect(searchItems({ raw: 'zz', results: old, ...ctx })).toEqual([]);
+    expect(searchItems({ raw: 'zz', results: old, ...ctx }).map((i) => i.group)).toEqual(['MICO AI']);
   });
 
   it('“Open KEY” opens only the task with exactly that key, never a longer one', () => {
@@ -228,5 +228,31 @@ describe.skipIf(!existsSync(webSearch))('the same groups, numbers and wait as th
     expect(source).toContain(`(r.meetings ?? []).slice(0, ${SEARCH_LIMITS.meetings})) out.push({ id: \`meeting-\${m.id}\`, group: 'Meetings'`);
     expect(source).toContain(`group: 'Projects'`);
     expect(source).toContain('No matches for “{debounced}”.');
+  });
+});
+
+// ── Ask MICO AI from Search (Stage 3 Task 16) ──
+const base = { results: undefined, isAdmin: false, canLead: false, myId: 'u1' };
+it('Search offers to ask MICO AI what was typed: last, from 2 letters, never for a command', () => {
+  expect(searchItems({ raw: ' late tasks in Rig 3 ', ...base }).at(-1)).toEqual({ id: 'ask-mico-ai', group: 'MICO AI', primary: 'Ask MICO AI: “late tasks in Rig 3”', label: 'Ask MICO AI: “late tasks in Rig 3”', target: { kind: 'askMicoAi', text: 'late tasks in Rig 3' } });
+  expect(searchItems({ raw: 'a', ...base }).some((i) => i.group === 'MICO AI')).toBe(false);
+  expect(searchItems({ raw: 'open MICO-7', ...base }).some((i) => i.group === 'MICO AI')).toBe(false);
+  expect(searchItems({ raw: 'pump', ...base, results: { tasks: [{ id: 't1', key: 'R-1', title: 'Pump', projectId: 'p' }], projects: [], users: [] } }).at(-1)!.group).toBe('MICO AI');
+});
+it('no command is offered to MICO AI: not "go to …", not the task-changing ones', () => {
+  for (const raw of ['go to calendar', 'complete MICO-7', 'assign MICO-7 to Omar', 'move MICO-7 to Done', 'mico-7']) expect(searchItems({ raw, ...base }).some((i) => i.group === 'MICO AI'), raw).toBe(false);
+  expect(searchItems({ raw: '  ', ...base }).some((i) => i.group === 'MICO AI')).toBe(false);
+  expect(searchItems({ raw: 'ab', ...base }).at(-1)!.target).toEqual({ kind: 'askMicoAi', text: 'ab' });
+});
+describe.skipIf(!existsSync(webSearch))('the website’s rule', () => {
+  it('same words and condition', () => { const g = readFileSync(webSearch, 'utf8'); expect(g).toContain('if (raw.length >= 2 && !parsed) {'); expect(g).toContain("group: 'MICO AI', primary: <>Ask MICO AI: “"); });
+});
+
+// Stage 2 Task 7 — Review Focus 3: a moved task's old key ("RIG-4") still opens it.
+describe('a task moved to another project', () => {
+  it('the old key still opens a moved task', () => {
+    const found = { tasks: [{ id: 't1', key: 'OPS-17', title: 'Check pumps', projectId: 'p2', formerKeys: ['RIG-4'] }], projects: [], users: [], meetings: [] } as unknown as SearchResults;
+    expect(searchItems({ raw: 'RIG-4', results: undefined, isAdmin: false, canLead: false, myId: 'u1' })[0]).toMatchObject({ target: { kind: 'openKey', key: 'RIG-4' } });
+    expect(exactTask(found, 'RIG-4')?.id).toBe('t1'); expect(exactTask(found, 'rig-4')?.id).toBe('t1');
   });
 });

@@ -6,6 +6,8 @@
 import { DEFAULT_FILTERS, type CalendarFilters, type CalItem } from './calendar-model';
 import type { CalMeeting } from './calendar-meetings';
 import { dayLabel, rangeLabel, shiftDayKey, type CalendarView, type WeekStart } from './calendar';
+import { isSafeId } from './ids';
+import { askedWeek } from './workload';
 
 /** Overdue tasks listed before "Show all" in the agenda (the website's number). */
 export const OVERDUE_PREVIEW = 8;
@@ -182,3 +184,16 @@ export function createPlaceMemory() {
 
 /** The app's one memory of where the calendar was. */
 export const calendarPlace = createPlaceMemory();
+
+/**
+ * The place Workload's "Open in Calendar" asks for (Stage 3 final review P7), as the website's
+ * /calendar?view=week&date=<day>&assignee=<id>&done=0&meetings=0: the week view on that day, that
+ * person's tasks only, open ones, no meetings. `week`: a day in the week (checked as a day);
+ * `person`: an id (anything else filters nobody). Null when no real day is asked for.
+ */
+export function askedCalendarPlace(params: { week?: unknown; person?: unknown } | undefined): CalendarPlace | null {
+  const date = askedWeek(params?.week);
+  if (!date) return null;
+  const person = params?.person;
+  return { view: 'week', date, filters: { ...DEFAULT_FILTERS, assigneeId: isSafeId(person) ? person : '', showCompleted: false, showMeetings: false } };
+}

@@ -138,6 +138,8 @@ export interface ServerConfig {
   androidAppUrl?: string | null;
   /** The version inside the app file the site offers (null: none); absent from older servers. */
   androidAppVersion?: string | null;
+  /** The company-wide switch for the weekly management summary (System Settings); absent from older servers. */
+  weeklySummaryEnabled?: boolean;
 }
 
 /** Your own date settings (GET /users/me/preferences), shared with the website. */
@@ -155,6 +157,23 @@ export const WEEK_START_OPTIONS: { value: 0 | 1 | 6; label: string }[] = [
   { value: 0, label: 'Sunday' },
   { value: 1, label: 'Monday' },
 ];
+
+/** A week start's day name ("Sunday"); an unknown value reads as Sunday, as everywhere else. */
+const weekDayName = (w: 0 | 1 | 6): string => WEEK_START_OPTIONS.find((o) => o.value === weekStartValue(w))!.label;
+
+/**
+ * What "Week starts on" says under it (the website's DatePreferences): which weeks it sets, and
+ * whether yours is the company's or a choice of your own (null: no choice — the company's).
+ */
+export function weekStartHint(own: 0 | 1 | 6 | null, company: 0 | 1 | 6): string {
+  const day = weekDayName(company);
+  return `The first day of your Calendar, Workload and Timeline weeks. ${own === null ? `The company’s: ${day}.` : `Your own choice. The company’s week starts on ${day}.`}`;
+}
+
+/** "Use the company’s (Sunday)" — offered only when you chose a day other than the company's. */
+export function companyWeekStartButton(own: 0 | 1 | 6 | null, company: 0 | 1 | 6): string | null {
+  return own !== null && own !== company ? `Use the company’s (${weekDayName(company)})` : null;
+}
 
 /** Your date settings with one choice changed (PUT /users/me/preferences changes only what it names). */
 export function withDatePatch(prev: DatePreferences | null | undefined, patch: Partial<DatePreferences>): DatePreferences {

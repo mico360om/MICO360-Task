@@ -116,3 +116,12 @@ it('the empty state has an icon bubble and an optional action', () => {
   expect(s).toMatch(/icon = 'misc\.inbox'/);
   expect(s).toMatch(/<Button title=\{action\.title\} onPress=\{action\.onPress\}/);
 });
+
+it('ui/index.ts exports the inspection and client marks', () => expect(exportsOf('components/ui/index.ts')).toEqual(expect.arrayContaining(['InspectionChip', 'ClientChip'])));
+
+it('the inspection and client marks are a word with a small icon, in the website’s tones and words', () => {
+  const insp = src('components/ui/InspectionChip.tsx');
+  for (const w of ['name="misc.inspection"', 'Inspection', 'accessibilityHint="Carried out with an inspection form"', 'c.brandWash', 'c.brandText', 'radius.badge']) expect(insp, w).toContain(w);
+  const client = src('components/ui/ClientChip.tsx');
+  for (const w of ['name="misc.eye"', 'Visible to client', 'accessibilityHint="Shown on the project’s client page"', 'c.infoSoft', 'c.infoText', 'radius.badge']) expect(client, w).toContain(w);
+});

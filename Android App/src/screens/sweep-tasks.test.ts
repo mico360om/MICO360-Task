@@ -17,14 +17,19 @@ it('priority is the website’s badge (Normal neutral), faces are Avatars', () =
   }
 });
 
-it('the Dashboard counts are stat tiles', () => expect(src('screens/DashboardScreen.tsx').match(/<StatTile /g)?.length).toBe(4));
+// Stage 2: the website's four tiles, one StatTile per tile (components/dashboard/DashboardTiles.tsx).
+it('the Dashboard counts are stat tiles', () => {
+  const s = src('components/dashboard/DashboardTiles.tsx');
+  expect(s).toMatch(/tiles\.map\(\(t\) => \([^]*?<StatTile/);
+  expect(s.match(/<StatTile/g)?.length).toBe(1);
+  expect(src('screens/DashboardScreen.tsx')).toMatch(/<DashboardTiles tiles=\{tiles\}/);
+});
 
-it('the Dashboard tiles: Overdue, Due today, Upcoming, Completed in their tones, and an empty day says so with an icon', () => {
-  const s = src('screens/DashboardScreen.tsx');
-  for (const [label, icon, tone] of [['Overdue', 'ui.alert', 'danger'], ['Due today', 'kit.calendar', 'warning'], ['Upcoming', 'kit.clock', 'info'], ['Completed', 'kit.checkCircle', 'success']]) {
-    expect(s, label).toMatch(new RegExp(`<StatTile label="${label}" value=\\{[^}]+\\} icon="${icon}" tone="${tone}" />`));
-  }
-  expect(s).toMatch(/<EmptyState icon="kit\.checkCircle" title="Nothing due today\." \/>/);
+// Stage 2: each tile's tone and drawn icon are the website's (lib/dashboard dashboardTiles, tested in
+// lib/dashboard.test.ts); an empty Due soon says so with the check icon.
+it('the Dashboard tiles in their tones and icons, and an empty Due soon says so with an icon', () => {
+  expect(src('components/dashboard/DashboardTiles.tsx')).toMatch(/icon=\{t\.icon\}\s*tone=\{t\.tone\}/);
+  expect(src('components/dashboard/DueSoonCard.tsx')).toMatch(/<Icon name="kit\.checkCircle" size=\{16\} color=\{c\.successText\} \/>\s*<Text[^>]*>\{DASHBOARD_TEXT\.allClear\}/);
 });
 
 it('day and month steppers are icon buttons: back, and back turned for next', () => {

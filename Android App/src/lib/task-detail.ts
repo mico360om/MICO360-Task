@@ -151,3 +151,28 @@ export function carryForward(log: readonly { from: unknown; to: unknown; at?: un
     lines: moves.map((m) => `${day(m.from)} → ${day(m.to)}`),
   };
 }
+
+/** A part of the task screen, in the website's TaskDrawer words. */
+export type TaskSection = 'approval' | 'description' | 'details' | 'checklist' | 'comments' | 'files' | 'blockers' | 'activity';
+
+/**
+ * The task screen's order, as the website's TaskDrawer (1.19): on a phone one column — the
+ * description, the details, the checklist and the comments first, then approval, files and blockers,
+ * then the history; on a wide screen the details, approval, files and blockers sit beside the work.
+ * A task waiting for approval opens on its Approval section (`top`, above everything), shown once;
+ * without `approval` the section isn't shown at all.
+ */
+export function taskSections(o: { wide: boolean; waiting: boolean; approval: boolean }): { top: TaskSection[]; main: TaskSection[]; side: TaskSection[] } {
+  const besideWork: TaskSection[] = o.approval && !o.waiting ? ['approval', 'files', 'blockers'] : ['files', 'blockers'];
+  const top: TaskSection[] = o.approval && o.waiting ? ['approval'] : [];
+  if (o.wide) return { top, main: ['description', 'checklist', 'comments', 'activity'], side: ['details', ...besideWork] };
+  return { top, main: ['description', 'details', 'checklist', 'comments', ...besideWork, 'activity'], side: [] };
+}
+
+/** What "Formerly RIG-4" means (the website's hint on it). */
+export const FORMERLY_HINT = 'Its old number still finds it in search';
+
+/** "Formerly RIG-4, OPS-2": the keys a task had before it moved to another project (oldest first); null for none. */
+export function formerKeysText(keys: readonly string[] | null | undefined): string | null {
+  return keys && keys.length > 0 ? `Formerly ${keys.join(', ')}` : null;
+}

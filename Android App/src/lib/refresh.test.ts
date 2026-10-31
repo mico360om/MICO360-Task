@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { refresh } from './refresh';
+import { PROJECTS_OVERVIEW_KEY, refresh } from './refresh';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const clients: QueryClient[] = [];
@@ -198,14 +198,16 @@ describe('refresh (one pass over the cache, each query at most once)', () => {
   });
 });
 
+// Stage 2: the figures are the Projects page's overview list (PROJECTS_OVERVIEW_KEY).
 describe('the Projects list’s figures (5b review #2)', () => {
   it('a task change marks them out of date, to be fetched when next shown — never at once for every change', () => {
     const qc = client();
     qc.setQueryData(['task', 't1'], task('t1', 'p1'));
-    qc.setQueryData(['projects', 'figures'], { p1: { total: 1, done: 0, overdue: 0, completionPct: 0 } });
+    qc.setQueryData(PROJECTS_OVERVIEW_KEY, []);
     const spy = vi.spyOn(qc, 'invalidateQueries');
     refresh(qc, [{ progressFor: 't1' }]);
-    expect(refreshed(qc, ['projects', 'figures'])).toBe(true);
+    expect(PROJECTS_OVERVIEW_KEY).toEqual(['projects', 'overview']);
+    expect(refreshed(qc, ['projects', 'overview'])).toBe(true);
     expect(spy.mock.calls.some(([filters]) => (filters as { refetchType?: string }).refetchType === 'none')).toBe(true);
   });
 });

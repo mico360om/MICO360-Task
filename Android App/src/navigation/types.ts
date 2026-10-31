@@ -11,7 +11,8 @@ export type AuthStackParamList = {
 
 export type TabsParamList = {
   Dashboard: undefined;
-  MyTasks: undefined;
+  /** `show: 'to-approve'` opens it on its To approve section (the Dashboard's Approvals card). */
+  MyTasks: { show?: 'to-approve' } | undefined;
   Projects: undefined;
   Meetings: undefined;
   Chat: undefined;
@@ -42,7 +43,11 @@ export type AppStackParamList = {
   /** The final minutes (Final MOM) of a meeting; `start` makes a first draft as it opens. */
   FinalMinutes: { meetingId: string; start?: 'ai' | 'notes' };
   MyActionItems: undefined;
-  Calendar: undefined;
+  /**
+   * The calendar. `week` (a day of the week to show) and `person` (an assignee filter): Workload's
+   * "Open in Calendar" for someone else, as the website's link (Stage 3 final review P7).
+   */
+  Calendar: { week?: string; person?: string } | undefined;
   Profile: undefined;
   Reports: undefined;
   /** Who did what across your projects, as the website's Activity page (5c). */
@@ -63,6 +68,20 @@ export type AppStackParamList = {
   Users: { q?: string } | undefined;
   /** New user (no id) or Manage account — administrators (6b). */
   UserForm: { userId?: string } | undefined;
+  /** The website's Timeline: every project's dates, health and milestones (Stage 3). */
+  Timeline: undefined;
+  /**
+   * The website's Workload: each person's tasks per day of a week (Stage 3). `week`: the week's first
+   * day to show (Management's company week, or the website's /workload?week=), checked as a day.
+   */
+  Workload: { week?: string } | undefined;
+  /** The website's Management page: for administrators and whoever runs a project (Stage 3). */
+  Management: undefined;
+  /**
+   * MICO AI (Stage 3). `ask`: a question to send once, as a new chat; `askId` makes each Search
+   * pick unique. Only Search sets them — never a link (linking APP_ONLY_PARAMS).
+   */
+  MicoAi: { ask?: string; askId?: string } | undefined;
   /** An inspection: answered, signed and finished on the phone, with or without signal (Stage 4). */
   Inspection: { inspectionId: string; title?: string };
 };

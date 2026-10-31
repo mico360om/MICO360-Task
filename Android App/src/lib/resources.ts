@@ -6,6 +6,7 @@ import type { DatePreferences, ServerConfig } from './date-settings';
 import type { ApiAccountUser } from './account';
 import { readTaskDraft } from './task-describe';
 import { readOfficePreview } from './file-preview';
+import { micoAiApi } from './mico-ai-api';
 import type {
   ApiAssignee,
   ApiChatMessage,
@@ -62,6 +63,14 @@ import type {
   Envelope,
   FreeTimesInput,
   FreeTimesReply,
+  ApprovalsAnswer,
+  BulkMoveResult,
+  MoveInput,
+  MovePreview,
+  MoveResult,
+  MoveTargets,
+  ProjectOverview,
+  TaskTemplate,
 } from './types';
 import type { CompletionStats, ProjectPerformanceRow, ReportFilters, TimeSeries, UserWorkloadRow } from './reports';
 import type { CalendarRange } from './calendar-data';
@@ -69,9 +78,11 @@ import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
 import type { ApiActivityRow } from './activity-page';
-import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
+import { managementApi } from './management-api';
+import type { ApiAdminUser, CreatedUser, UserStatus, WelcomeBatchResult, WelcomeOutcome, newUserBody, userPatch } from './users-admin';
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
+import { planningApi } from './planning-api';
 import { inspectionsApi } from './inspections-api';
 import { clientSharesApi } from './client-share';
 
@@ -188,6 +199,8 @@ export function resourcesApi(client: ApiClient) {
     clientShares: clientSharesApi(client),
     projects: {
       list: () => data(client.get<Envelope<ApiProject[]>>('/projects')),
+      /** Every project you may see, with its card figures, owner and team — the Projects page's list in one request. */
+      overview: () => data(client.get<Envelope<ProjectOverview[]>>('/projects/overview')),
       get: (id: string) => data(client.get<Envelope<ApiProject>>(`/projects/${seg(id)}`)),
       columns: (id: string) => data(client.get<Envelope<ApiColumn[]>>(`/projects/${seg(id)}/columns`)),
       /** Project members — the pool of users a task in this project can be assigned to. */
@@ -323,6 +336,27 @@ export function resourcesApi(client: ApiClient) {
       watch: (id: string) => data(client.post<Envelope<{ watching: boolean }>>(`/tasks/${seg(id)}/watch`)),
       unwatch: (id: string) => client.del<void>(`/tasks/${seg(id)}/watch`),
       watchers: (id: string) => data(client.get<Envelope<ApiWatcher[]>>(`/tasks/${seg(id)}/watchers`)),
+      // ── Approvals and moving tasks to another project (Stage 2): online only, never kept for later ──
+      /** The tasks waiting for the signed-in person's approval (oldest first), and whether they approve any project's tasks. */
+      approvals: () => data(client.get<Envelope<ApprovalsAnswer>>('/tasks/approvals')),
+      /** Approve a waiting task: it is done now. */
+      approve: (id: string, expectedVersion?: number) =>
+        data(client.post<Envelope<ApiTask>>(`/tasks/${seg(id)}/approve`, expectedVersion !== undefined ? { expectedVersion } : {})),
+      /** Send a waiting task back with a reason: it is in progress again. */
+      sendBack: (id: string, reason: string, expectedVersion?: number) =>
+        data(client.post<Envelope<ApiTask>>(`/tasks/${seg(id)}/send-back`, { reason, ...(expectedVersion !== undefined ? { expectedVersion } : {}) })),
+      /** Where the signed-in person may move tasks to, and whose tasks they may move. */
+      moveTargets: () => data(client.get<Envelope<MoveTargets>>('/tasks/move-targets')),
+      /** What moving these tasks to `projectId` would change (nothing is moved). */
+      movePreview: (taskIds: string[], projectId: string) => data(client.post<Envelope<MovePreview>>('/tasks/move-preview', { taskIds, projectId })),
+      /** Move one task to another project. */
+      moveToProject: (id: string, input: MoveInput) => data(client.post<Envelope<MoveResult>>(`/tasks/${seg(id)}/move-to-project`, input)),
+      /** Move several tasks to another project: a result for each. */
+      bulkMoveToProject: (taskIds: string[], input: MoveInput) => data(client.post<Envelope<BulkMoveResult>>('/tasks/move-to-project', { taskIds, ...input })),
+    },
+    /** Task templates (Stage 2): New task can start from one; making and editing them stays on the website. */
+    templates: {
+      listTasks: () => data(client.get<Envelope<TaskTemplate[]>>('/templates/tasks')),
     },
     /**
      * Meetings: taking part in them — the list, one meeting and its parts, your answer to the
@@ -554,8 +588,11 @@ export function resourcesApi(client: ApiClient) {
     /** User Management (administrators, 6b): the server refuses everyone else. Passwords are only passed on. */
     users: {
       list: () => data(client.get<Envelope<ApiAdminUser[]>>('/users')),
-      /** A new account; the try's key means a lost answer never makes two. */
-      create: (body: NewUserBody, idempotencyKey: string) => data(client.post<Envelope<ApiAdminUser>>('/users', body, idempotencyHeaders(idempotencyKey))),
+      /** A new account, and whether its welcome email went (null: none was asked for); the try's key means a lost answer never makes two. */
+      create: (body: NewUserBody, idempotencyKey?: string): Promise<CreatedUser> =>
+        client
+          .post<Envelope<ApiAdminUser> & { meta?: { welcome?: WelcomeOutcome } }>('/users', body, idempotencyHeaders(idempotencyKey))
+          .then((r) => ({ user: r.data, welcome: r.meta?.welcome ?? null })),
       update: (id: string, patch: UserPatchBody) => data(client.put<Envelope<ApiAdminUser>>(`/users/${seg(id)}`, patch)),
       setStatus: (id: string, status: UserStatus) => data(client.patch<Envelope<ApiAdminUser>>(`/users/${seg(id)}/status`, { status })),
       /** Lift a sign-in lock left by too many failed passwords. */
@@ -563,11 +600,18 @@ export function resourcesApi(client: ApiClient) {
       remove: (id: string) => client.del<void>(`/users/${seg(id)}`),
       /** Set a new password for someone (it also lifts a lock and ends their sessions). */
       resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${seg(id)}/password`, { password }),
+      /** Email one person a welcome (username + "Set your password" link). Refusals are errors with the reason. */
+      sendWelcome: (id: string) => data(client.post<Envelope<WelcomeOutcome>>(`/users/${seg(id)}/welcome-email`, {})),
+      /** Welcome emails for several people (up to 200); each one says whether it went. */
+      sendWelcomes: (userIds: string[]) => data(client.post<Envelope<WelcomeBatchResult>>('/users/welcome-emails', { userIds })),
     },
-    /** Management (the website's page): may the signed-in person open it — an administrator, or someone who runs a project. */
-    management: {
-      access: () => data(client.get<Envelope<{ allowed: boolean; scope: 'ALL' | 'RUN' | null }>>('/management/access')),
-    },
+    /**
+     * Management (the website's page, Stage 3): may the signed-in person open it (an administrator, or
+     * someone who runs a project), its overview, the list behind each number, and the PDF's path.
+     */
+    management: managementApi(client),
+    /** Timeline and Workload (Stage 3): each request takes the person it is for (CallOpts) last. */
+    planning: planningApi(client),
     /** Search (6b): tasks, projects, people and meetings you may see. */
     search: (q: string) => data(client.get<Envelope<SearchResults>>(`/search?q=${encodeURIComponent(q)}`)),
     /** About (6b): the website's version (administrators get the details) and the version history. */
@@ -637,6 +681,8 @@ export function resourcesApi(client: ApiClient) {
         client.del<void>(`/messages/${seg(messageId)}/reactions/${encodeURIComponent(emoji)}`),
       markRead: (conversationId: string) => client.post<void>(`/conversations/${seg(conversationId)}/read`, {}),
     },
+    /** MICO AI: the person's own chats with the assistant (Stage 3; lib/mico-ai-api). */
+    micoAi: micoAiApi(client),
   };
 }
 

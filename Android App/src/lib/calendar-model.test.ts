@@ -12,9 +12,12 @@ import {
   itemMeta,
   itemName,
   statusOf,
+  waits,
+  STATUS_LABEL,
   type CalendarFilters,
   type CalendarTask,
 } from './calendar-model';
+import { hasWeb, readWeb } from '../testing/web-source';
 
 const task = (over: Partial<CalendarTask>): CalendarTask => ({
   id: 't', key: 'MICO-1', title: 'Task', description: null, projectId: 'p1', columnId: 'c1', columnCategory: 'TODO', position: 0,
@@ -191,4 +194,34 @@ describe.skipIf(!existsSync(webModel))('the same as the website', () => {
     }
     expect(DEFAULT_FILTERS).toEqual(web.DEFAULT_FILTERS as unknown as CalendarFilters);
   });
+});
+
+/** Stage 3 Task 10: a task waiting for approval on the calendar, as the website's calendar-ui.tsx. */
+describe('waiting for approval on the calendar (Stage 3)', () => {
+  const CTX = { today: '2026-10-30', timeZone: 'Asia/Muscat', projectStatus: () => 'ACTIVE' };
+  const waitingTask = task({ dueDate: '2026-10-29', columnCategory: 'REVIEW', approvalRequestedAt: '2026-10-29T08:00:00Z', recurrenceRule: { freq: 'WEEKLY', interval: 1 }, priority: 'HIGH', title: 'Pump check' });
+  it('a waiting task says so to TalkBack, in the website’s order, and is never overdue', () => {
+    const [item] = buildItems({ tasks: [waitingTask], occurrences: [], series: [] }, CTX);
+    expect(waits(item!)).toBe(true); expect(item!.status).not.toBe('overdue');
+    expect(itemName(item!)).toBe(`Pump check, ${STATUS_LABEL['in-progress'].toLowerCase()}, repeats, waiting for approval, high priority`);
+    expect(itemName(item!)).toBe('Pump check, in progress, repeats, waiting for approval, high priority');
+    expect(waits({ ...item!, status: 'done' })).toBe(false);
+    if (hasWeb('frontend/src/components/calendar/calendar-ui.tsx')) expect(readWeb('frontend/src/components/calendar/calendar-ui.tsx')).toContain("if (waits(item)) parts.push('waiting for approval');");
+  });
+  it('a repeat not created yet never waits, nor does a task nobody asked to approve', () => {
+    const [item] = buildItems({ tasks: [task({ dueDate: '2026-10-31', approvalRequestedAt: null })], occurrences: [], series: [] }, CTX);
+    expect(waits(item!)).toBe(false);
+    expect(itemName(item!)).not.toContain('waiting for approval');
+    const [projected] = buildItems({ tasks: [], occurrences: [{ taskId: waitingTask.id, date: '2026-11-05' }] as never, series: [waitingTask] }, CTX);
+    expect(projected!.kind).toBe('projected');
+    expect(waits(projected!)).toBe(false);
+    expect(itemName(projected!)).not.toContain('waiting for approval');
+  });
+  it('a scheduled check (a task with an inspection form) shows like any task', () => {
+    const [item] = buildItems({ tasks: [task({ dueDate: '2026-10-31', inspectionFormId: 'f1' } as never)], occurrences: [], series: [] }, CTX);
+    expect(item).toMatchObject({ kind: 'task', date: '2026-10-31' });
+  });
+  if (hasWeb('frontend/src/components/calendar/calendar-ui.tsx')) {
+    it('waits is the website’s rule', () => expect(readWeb('frontend/src/components/calendar/calendar-ui.tsx')).toContain("const waits = (item: CalItem) => item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(item.task);"));
+  }
 });

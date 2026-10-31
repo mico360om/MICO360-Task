@@ -6,6 +6,7 @@ import { Button, TextField } from '../ui';
 import { findPlaces, moveTargets, placeChoices, placeOrder, stepOrder, type Place } from '../../lib/board-move';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { BoardColumn } from '../../lib/board';
+import { MOVE_TEXT } from '../../lib/move-sheet';
 import type { ApiTask } from '../../lib/types';
 import { font } from '../../lib/typography';
 import { Icon } from '../Icon';
@@ -14,7 +15,8 @@ import { Icon } from '../Icon';
  * Move a card (4b), opened by long-pressing it (or TalkBack's "Move…"). The phone has no drag and
  * drop, so this says what a drop on the website's board says: in its own column, up or down one, to
  * the top or the bottom; into another column, then where in it — at the top, after one of its
- * cards, or at the bottom.
+ * cards, or at the bottom. And — for someone who may — to another project (the card's ⋯ menu on the
+ * website).
  */
 export function MoveCardSheet({
   task,
@@ -22,7 +24,10 @@ export function MoveCardSheet({
   onReorder,
   onMove,
   onClose,
+  onMoveToProject,
 }: {
+  /** "Move to another project…", given only when the person may move this task (the website's rule). */
+  onMoveToProject?: () => void;
   task: ApiTask | null;
   /** The board's shown columns with their cards, in order. */
   board: BoardColumn[];
@@ -115,6 +120,7 @@ export function MoveCardSheet({
               );
             })}
           </View>
+          {onMoveToProject ? <MoveOption label={MOVE_TEXT.menuItem} onPress={onMoveToProject} next /> : null}
         </>
       )}
     </Sheet>

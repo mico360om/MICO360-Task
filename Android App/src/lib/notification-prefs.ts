@@ -17,6 +17,8 @@ export interface NotificationPreferences {
   reminderLeadMinutes?: number;
   /** The two morning emails and when they go (servers since 1.5.0 always send them). */
   dailyEmails?: DailyEmailPrefs;
+  /** The weekly management summary email (1.18): on unless turned off — see weeklySummaryOn. */
+  weeklySummary?: boolean;
 }
 
 /** Which morning emails you get, and when (HH:MM in your own time zone). */
@@ -31,16 +33,38 @@ export interface PreferencesUpdate {
   muted?: string[];
   reminderLeadMinutes?: number;
   dailyEmails?: Partial<DailyEmailPrefs>;
+  weeklySummary?: boolean;
 }
 
+/** The website's switches (SettingsPage NOTIF_TYPES), in its order and words. */
 export const NOTIFICATION_TYPES: { type: string; label: string; description: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', description: 'When a task is assigned to you' },
   { type: 'TASK_STATUS', label: 'Status changes', description: 'When one of your tasks moves column' },
+  { type: 'TASK_APPROVAL', label: 'Approvals', description: 'When a task waits for your approval, or yours is approved or sent back' },
   { type: 'TASK_COMMENT', label: 'Comments', description: 'New comments on tasks you’re on' },
   { type: 'MENTION', label: 'Mentions', description: 'When someone @mentions you' },
   { type: 'TASK_DUE_SOON', label: 'Due soon', description: 'A reminder shortly before a task is due' },
   { type: 'TASK_OVERDUE', label: 'Overdue', description: 'When one of your tasks becomes overdue' },
+  { type: 'PROJECT_ADDED', label: 'Added to a project', description: 'When someone puts you on a project’s team or makes you its owner' },
 ];
+
+// ── Weekly management summary (1.18) ─────────────────────────────────────────
+
+/** Settings → Weekly management summary, in the website's words (WeeklySummarySettings.tsx). */
+export const WEEKLY_SUMMARY_TEXT = {
+  heading: 'Weekly management summary',
+  body: 'A short email on the first working morning of each week, at your daily email time: which projects are red or amber and why, late tasks, missing checks and who has the most late work — with a link to the Management page.',
+  row: 'Send me the weekly summary',
+  rowHint: 'Only the projects you can see on the Management page.',
+  label: 'Weekly management summary email',
+  off: 'Your administrator has turned the weekly summary off for everyone.',
+  failed: 'Couldn’t save that change. Please try again.',
+} as const;
+
+/** Do you get the weekly summary? Yes unless you turned it off (the server's weeklySummaryOn). */
+export function weeklySummaryOn(prefs: NotificationPreferences | undefined): boolean {
+  return prefs?.weeklySummary !== false;
+}
 
 export const REMINDER_OPTIONS: { label: string; minutes: number | null }[] = [
   { label: 'Default (1 day)', minutes: null },
@@ -148,7 +172,8 @@ export function prefsSaveProblem(error: unknown): string {
 /**
  * The preferences after a PUT, as the server makes them: switches sent with the reminder time
  * replace both (a time left out is the default again); switches not sent keep both; daily email
- * settings sent are laid over the ones in force, and kept when not sent.
+ * settings sent are laid over the ones in force, and kept when not sent; the weekly summary is
+ * what was sent, else what it was.
  */
 export function mergePreferences(current: NotificationPreferences | undefined, body: PreferencesUpdate): NotificationPreferences {
   const cur = current ?? { muted: [] };
@@ -156,5 +181,7 @@ export function mergePreferences(current: NotificationPreferences | undefined, b
   const out: NotificationPreferences = { muted: body.muted ?? cur.muted, ...(lead !== undefined ? { reminderLeadMinutes: lead } : {}) };
   if (body.dailyEmails !== undefined) out.dailyEmails = { ...dailyEmailPrefs(cur), ...body.dailyEmails };
   else if (cur.dailyEmails) out.dailyEmails = cur.dailyEmails;
+  if (body.weeklySummary !== undefined) out.weeklySummary = body.weeklySummary;
+  else if (cur.weeklySummary !== undefined) out.weeklySummary = cur.weeklySummary;
   return out;
 }

@@ -1,17 +1,18 @@
 import React, { useMemo } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { View, Text, FlatList, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { useColors } from '../../core/theme';
 import { BoardCard } from './BoardCard';
 import { Icon } from '../Icon';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
-import type { BoardCard as Card } from '../../lib/board';
+import { columnFill, type BoardCard as Card } from '../../lib/board';
 import { font } from '../../lib/typography';
 
 /**
  * One column of a board (4b; the All projects board's statuses too, 4c): its colour, name, count
  * and "+", then its cards — a virtualized list as tall as the board, so it scrolls on its own. An
- * empty column is itself the way to start its first task (the website's). `steps`: whether a card
- * can be moved up or down here (not on the All projects board, whose cards keep their order).
+ * empty column is itself the way to start its first task (the website's) — on a phone only as tall as
+ * its "No tasks" (lib/board columnFill). `steps`: whether a card can be moved up or down here (not on
+ * the All projects board, whose cards keep their order).
  */
 export const BoardColumnView = React.memo(function BoardColumnView({
   id,
@@ -45,8 +46,9 @@ export const BoardColumnView = React.memo(function BoardColumnView({
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
+  const { width: screenWidth } = useWindowDimensions();
   return (
-    <View style={[s.column, { width }, height > 0 ? { height } : null]}>
+    <View style={[s.column, { width }, height > 0 && columnFill({ cards: cards.length, screenWidth }) === 'fill' ? { height } : null]}>
       <View style={[s.columnStripe, { backgroundColor: color }]} />
       <View style={s.columnHead}>
         <View style={[s.dot, { backgroundColor: color }]} />

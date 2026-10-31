@@ -29,10 +29,16 @@ describe('the white top bar and the page titles', () => {
 
   it('every tab shows the white top bar', () => expect(root).toMatch(/<Tabs\.Navigator\s+screenOptions=\{\(\{ route \}\) => \(\{[^]*?header: \(\) => <AppTopBar \/>,/));
 
-  it('each tab screen titles itself with PageHeader and sets no headerRight', () => {
+  // Stage 2: the Dashboard is titled by the website's welcome band (its greeting is the page's header);
+  // the other four tabs by PageHeader as before.
+  it('each tab screen titles itself (PageHeader, the Dashboard its welcome band) and sets no headerRight', () => {
     for (const [name, file] of tabScreenFiles()) {
       const title = TAB_ITEMS.find((t) => t.name === name)!.title;
-      expect(src(file), name).toMatch(new RegExp(`<PageHeader[^>]*title="${title}"`));
+      if (name === 'Dashboard') {
+        expect(src(file), name).toMatch(/<WelcomeBand /);
+        expect(src(file), name).not.toMatch(/<PageHeader/);
+        expect(src('components/dashboard/WelcomeBand.tsx')).toMatch(/accessibilityRole="header"/);
+      } else expect(src(file), name).toMatch(new RegExp(`<PageHeader[^>]*title="${title}"`));
       expect(src(file), name).not.toMatch(/headerRight/);
     }
   });

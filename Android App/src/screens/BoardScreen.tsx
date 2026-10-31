@@ -17,6 +17,9 @@ import { canManageProject } from '../lib/project-team';
 import { stillSignedIn } from '../lib/owned-write';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import { MoveCardSheet } from '../components/board/MoveCardSheet';
+import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
+import { useMoveTargets } from '../core/move-queries';
+import { moveAvailability, movedText } from '../lib/task-move';
 import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
 import { notice } from '../components/notice';
@@ -72,6 +75,9 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
 
   // ── Moving a card ──
   const [moving, setMoving] = useState<ApiTask | null>(null);
+  // To another project (the card's ⋯ on the website): offered only to someone who may move it.
+  const moveTargets = useMoveTargets(true);
+  const [movingProject, setMovingProject] = useState<ApiTask | null>(null);
   const move = useMoveTask(projectId);
   const reorder = useReorderColumn(projectId);
   const writes = useMemo(
@@ -203,6 +209,16 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
           if (moving) void moveToColumn(moving, toColumnId, place);
         }}
         onClose={() => setMoving(null)}
+        onMoveToProject={moving && moveAvailability(moving.projectId, moveTargets, projectQ.data?.name ?? projectName).canMove ? () => { setMovingProject(moving); setMoving(null); } : undefined}
+      />
+      <MoveTaskSheet
+        tasks={movingProject ? [{ id: movingProject.id, key: movingProject.key, title: movingProject.title, projectId: movingProject.projectId }] : []}
+        visible={!!movingProject}
+        onClose={() => setMovingProject(null)}
+        onMoved={(r) => {
+          setMovingProject(null);
+          notice(movedText(r));
+        }}
       />
 
     </View>
@@ -246,6 +262,7 @@ const makeStyles = (c: Palette) =>
     progressBarFill: { height: 8, backgroundColor: c.category.DONE },
     progressText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     boardList: { flex: 1 },
-    board: { padding: spacing.md, gap: spacing.md },
+    // Columns keep their own height (an empty one on a phone is only as tall as its "No tasks").
+    board: { padding: spacing.md, gap: spacing.md, alignItems: 'flex-start' },
     fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', elevation: 4 },
   });

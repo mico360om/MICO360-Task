@@ -1,6 +1,17 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { ApiTask } from './types';
+import type { ApiTask, MoveResult } from './types';
 import { refresh, type Refresh } from './refresh';
+
+/**
+ * The figures that count tasks on the Stage 3 screens — Timeline and Workload (['planning', …]) and
+ * Management (['management', …]) — after any task change: marked out of date and read again when
+ * next shown (those screens read again as they come back into view: core/focus-refetch), as the
+ * website's TASK_FIGURE_KEYS / invalidateTaskQueries. Who may open Management is another key.
+ */
+export const TASK_FIGURE_VIEWS: Refresh[] = [
+  { queryKey: ['planning'], later: true },
+  { queryKey: ['management'], later: true },
+];
 
 /**
  * What a saved edit changes besides the task itself: its activity (the timeline notes the edit) and
@@ -10,10 +21,14 @@ import { refresh, type Refresh } from './refresh';
  */
 export function editRefreshes(taskId: string, patch: object): Refresh[] {
   const targets: Refresh[] = [{ queryKey: ['task', taskId, 'activity'], exact: true }, { listsHolding: taskId }];
-  if ('dueDate' in patch || 'columnId' in patch) targets.push({ progressFor: taskId });
+  // "Needs approval" turned off while it waits marks it done: the project's figures change too.
+  if ('dueDate' in patch || 'columnId' in patch || 'needsApproval' in patch) targets.push({ progressFor: taskId });
+  // It joins or leaves the approvals list (My Tasks' To approve, the Dashboard's card).
+  if ('needsApproval' in patch) targets.push({ queryKey: ['approvals'] });
   // A new day or repeat may put the task (or its copies to come) on a calendar range that didn't hold it (5a).
   if ('dueDate' in patch || 'recurrenceRule' in patch) targets.push({ queryKey: ['tasks', 'calendar'] });
   if ((patch as { scope?: unknown }).scope === 'series') targets.push({ queryKey: ['tasks'] }, { taskDetails: 'all' });
+  targets.push(...TASK_FIGURE_VIEWS);
   return targets;
 }
 
@@ -35,6 +50,7 @@ export function createdTaskRefreshes(projectId: string): Refresh[] {
     { queryKey: ['tasks', 'mine'] },
     { queryKey: ['project', projectId, 'progress'], exact: true },
     { queryKey: ['tasks', 'calendar'] },
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -49,6 +65,7 @@ export function assignmentRefreshes(taskId: string): Refresh[] {
     { queryKey: ['task', taskId, 'activity'], exact: true },
     { queryKey: ['tasks', 'mine'] },
     { listsHolding: taskId },
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -67,6 +84,7 @@ export function moveRefreshes(taskId: string, projectId: string): Refresh[] {
     { listsHolding: taskId },
     { queryKey: ['project', projectId, 'progress'], exact: true },
     MY_ACTION_ITEMS,
+    ...TASK_FIGURE_VIEWS,
   ];
 }
 
@@ -112,7 +130,86 @@ export function afterTaskDeleted(qc: QueryClient, taskId: string, scope?: 'serie
   if (scope === 'series') {
     targets.push({ queryKey: projectId ? ['tasks', 'project', projectId] : ['tasks'] }, { queryKey: ['tasks', 'mine'] }, { taskDetails: 'all' });
   }
+  targets.push(...TASK_FIGURE_VIEWS);
   // Its own data goes first, so the deleted task is never asked for again.
   qc.removeQueries({ queryKey: ['task', taskId] });
   refresh(qc, targets);
+}
+
+/**
+ * What an approval decision changes (Approve, Send back, the "Needs approval" switch): the task, its
+ * comments (a send-back's reason is one) and history, the lists that show it, its project's progress,
+ * the approvals list (My Tasks' To approve, the Dashboard's card) and, when next shown, the projects'
+ * counts.
+ */
+export function approvalRefreshes(taskId: string): Refresh[] {
+  return [
+    { queryKey: ['task', taskId], exact: true },
+    { queryKey: ['task', taskId, 'comments'] },
+    { queryKey: ['task', taskId, 'activity'] },
+    { listsHolding: taskId },
+    { progressFor: taskId },
+    { queryKey: ['approvals'] },
+    { queryKey: ['projects'], later: true },
+    ...TASK_FIGURE_VIEWS,
+  ];
+}
+
+/**
+ * After an approval decision the server accepted: its copy of the task is laid over the details
+ * shown at once (a load still on its way is called off first, as after an edit), then everything
+ * it changed is refreshed. Details never loaded (a decision from To approve) are not made from the
+ * answer — it lacks what only the details call returns — and load in full when opened.
+ */
+export function afterApprovalDecision(qc: QueryClient, taskId: string, answer: ApiTask): void {
+  void qc.cancelQueries({ queryKey: ['task', taskId], exact: true });
+  if (answer?.id === taskId) qc.setQueryData<ApiTask>(['task', taskId], (prev) => (prev ? { ...prev, ...answer } : prev));
+  refresh(qc, approvalRefreshes(taskId));
+}
+
+/**
+ * After the server refused a decision (the task changed meanwhile, someone else decided first, the
+ * person's rights changed): the task and the approvals list are read again, so a retry is from what
+ * is there now (the website's task panel and To approve).
+ */
+export function afterApprovalRefused(qc: QueryClient, taskId: string): void {
+  refresh(qc, [{ queryKey: ['task', taskId], exact: true }, { queryKey: ['approvals'] }]);
+}
+
+/**
+ * What moving a task to another project changes: every task list (both projects' boards, My Tasks,
+ * the calendar), the projects and both projects' own data (progress, members, meetings), the task
+ * itself with its parts (its history notes the move), and the approvals list (it may wait in its new
+ * project for someone else's OK) — the website's invalidateTaskQueries.
+ */
+export function projectMoveRefreshes(r: Pick<MoveResult, 'task' | 'from' | 'to'>): Refresh[] {
+  return [
+    { queryKey: ['tasks'] },
+    { queryKey: ['projects'] },
+    { queryKey: ['project', r.from.projectId] },
+    { queryKey: ['project', r.to.projectId] },
+    { queryKey: ['task', r.task.id] },
+    { queryKey: ['approvals'] },
+    ...TASK_FIGURE_VIEWS,
+  ];
+}
+
+/**
+ * After a task moved to another project: the details shown take its new number and project at once
+ * ("Formerly RIG-4" too — the answer carries formerKeys), then everything the move changed is read
+ * again. Details never loaded are not made from the answer (as after an edit).
+ */
+export function afterTaskMoved(qc: QueryClient, r: MoveResult): void {
+  afterTasksMoved(qc, [r]);
+}
+
+/** Several tasks moved at once (My Tasks): each shows its new number, and what they changed is read again once. */
+export function afterTasksMoved(qc: QueryClient, moved: readonly MoveResult[]): void {
+  const targets = new Map<string, Refresh>();
+  for (const r of moved) {
+    void qc.cancelQueries({ queryKey: ['task', r.task.id], exact: true });
+    qc.setQueryData<ApiTask>(['task', r.task.id], (prev) => (prev ? { ...prev, ...r.task } : prev));
+    for (const t of projectMoveRefreshes(r)) targets.set(JSON.stringify(t), t);
+  }
+  if (targets.size) refresh(qc, [...targets.values()]);
 }

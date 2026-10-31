@@ -84,8 +84,12 @@ export function normalizeLinkPath(path: string): string {
   return path.replace(/^(\/?)meetings\/(?=[^/?#])/, '$1meeting/');
 }
 
-/** Params that name a screen in its header: set by the app as it opens one, never by a link. */
-const TITLE_PARAMS = ['title', 'projectName'];
+/**
+ * Params only the app sets, never a link: a screen's header name (`title`, `projectName`), and
+ * MICO AI's question from Search (`ask`, `askId`) — a link from an email or a web page never asks
+ * MICO AI anything as the person (Stage 3).
+ */
+const APP_ONLY_PARAMS = ['title', 'projectName', 'ask', 'askId'];
 
 /** Params a link fills with an id (they go into API paths). */
 const ID_PARAMS = ['taskId', 'projectId', 'meetingId', 'conversationId', 'inspectionId'];
@@ -105,9 +109,9 @@ function hasBadId(state: LinkState): boolean {
 /**
  * The navigation state a link gives, without any header title it carried (`?title=…`,
  * `?projectName=…`): a link from an email or a web page can't make a screen call itself something
- * else. The screen shows its own name until its data says otherwise. Everything else a link
- * carries (the ids, a reset token) stays — and a link whose id isn't an id (`chat/..%2F..%2Fx`)
- * opens nothing at all (3a review).
+ * else. The screen shows its own name until its data says otherwise; nor a question for MICO AI
+ * (`?ask=…`, APP_ONLY_PARAMS). Everything else a link carries (the ids, a reset token) stays — and
+ * a link whose id isn't an id (`chat/..%2F..%2Fx`) opens nothing at all (3a review).
  */
 export function withoutLinkTitles<S extends LinkState | undefined>(state: S): S {
   if (!state) return state;
@@ -115,7 +119,7 @@ export function withoutLinkTitles<S extends LinkState | undefined>(state: S): S 
   return {
     ...state,
     routes: state.routes.map((r) => {
-      const params = r.params ? Object.fromEntries(Object.entries(r.params).filter(([k]) => !TITLE_PARAMS.includes(k))) : r.params;
+      const params = r.params ? Object.fromEntries(Object.entries(r.params).filter(([k]) => !APP_ONLY_PARAMS.includes(k))) : r.params;
       return { ...r, params, ...(r.state ? { state: withoutLinkTitles(r.state) } : {}) };
     }),
   };
@@ -173,5 +177,10 @@ export const linkingConfig = {
     Reports: 'reports',
     About: 'about',
     Users: 'admin/users',
+    // Stage 3: the website's planning, Management and MICO AI pages.
+    Timeline: 'timeline',
+    Workload: 'workload',
+    Management: 'management',
+    MicoAi: 'mico-ai',
   },
 } as const;

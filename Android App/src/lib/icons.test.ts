@@ -98,6 +98,22 @@ describe.skipIf(!hasWeb('frontend/src/components/Sidebar.tsx', 'frontend/src/com
   });
 });
 
+// Stage 2 Task 1: the Dashboard draws its tile icons as `<StatIcon>{icon.tasks}</StatIcon>` — the
+// shapes sit in an `icon` map, the stroke on StatIcon's `<svg>{children}</svg>`; each map entry is
+// one drawing of the file, so the misc check above can compare them exactly.
+describe.skipIf(!hasWeb('frontend/src/pages/DashboardPage.tsx'))('svgDrawingsIn: an icon map drawn through a wrapper svg', () => {
+  it('reads each icon of the map inside the wrapper’s svg (its stroke), shapes in order', () => {
+    const drawings = svgDrawingsIn('frontend/src/pages/DashboardPage.tsx');
+    const alert = drawings.find((d) => d.shapes.length === 2 && d.shapes[0]!.el === 'path' && d.shapes[0]!.d === 'M12 9v4M12 17h.01');
+    expect(alert).toMatchObject({ strokeWidth: 1.9, shapes: [{ el: 'path', d: 'M12 9v4M12 17h.01' }, { el: 'path', d: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z' }] });
+    expect(drawings.find((d) => d.shapes[0]?.el === 'rect')).toMatchObject({ strokeWidth: 1.9, shapes: [{ el: 'rect', x: 3, y: 4.5, width: 18, height: 16, rx: 2 }, { el: 'path', d: 'M16 2.5v4M8 2.5v4M3 10h18M8 14.5h3' }] });
+  });
+});
+
+it('has the Dashboard’s, First steps’ and the inspection mark’s icons', () => {
+  for (const n of ['misc.tasks', 'misc.layers', 'misc.alertTriangle', 'misc.week', 'misc.flag', 'misc.inspection']) expect(isIconName(n), n).toBe(true);
+});
+
 it('the project icons are the app’s project-icon keys, in the same order', () => {
   expect(Object.keys(PROJECT_ICONS)).toEqual([...PROJECT_ICON_KEYS]);
 });

@@ -1,255 +1,253 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, AccessibilityInfo } from 'react-native';
+import { View, Text, FlatList, Pressable, ScrollView, StyleSheet, RefreshControl, AccessibilityInfo } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDirectory, useProjects } from '../core/queries';
-import { useProjectCardFigures, useProjectStatus } from '../core/project-queries';
+import { useProjectsOverview, useProjectStatus } from '../core/project-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
-import { SkeletonList, EmptyState, ErrorNote, Badge, Button, Card, PageHeader, ProgressBar } from '../components/ui';
-import { ProjectAvatar } from '../components/ProjectAvatar';
+import { SkeletonList, EmptyState, ErrorNote, Button, Card, Chip, PageHeader, TextField, Toggle } from '../components/ui';
 import { Icon } from '../components/Icon';
-import { ActionRowButton, Sheet, SheetButtons, SheetMessage } from '../components/meeting/sheet-kit';
-import { DEFAULT_PROJECT_COLOR, HEX_COLOR, PROJECT_STATUSES, projectStatusLabel, projectStatusTone } from '../lib/project-identity';
-import { boardProjects } from '../lib/all-board';
-import { emptyProjects, projectCardLabel, projectCardMeta, projectDates, projectFiguresFor, projectsSubtitle, statusChangeProblem, type ProjectCardMeta } from '../lib/project-list';
-import { ownerName } from '../lib/project-dashboard';
+import { ProjectCard } from '../components/projects/ProjectCard';
+import { ProjectStatusSheet } from '../components/projects/ProjectStatusSheet';
+import { ArchiveProjectSheet } from '../components/projects/ArchiveProjectSheet';
+import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
+import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
+import { projectStatusLabel } from '../lib/project-identity';
+import {
+  DEFAULT_LIST_STATE,
+  EMPTY_TAB,
+  PROJECTS_TEXT,
+  PROJECT_SORTS,
+  STATUS_TABS,
+  countLine,
+  filterProjects,
+  headerSummary,
+  inTab,
+  ownerOptions,
+  showAnotherProjectTile,
+  sortProjects,
+  tabCounts,
+  type ProjectListState,
+  type ProjectSort,
+} from '../lib/projects-page';
 import { canCreateProject, canManageProject } from '../lib/project-team';
-import { spacing, radius, fontSize, type Palette } from '../lib/theme';
-import type { ApiProject } from '../lib/types';
+import { spacing, radius, type Palette } from '../lib/theme';
+import { font, typeStyle } from '../lib/typography';
+import type { ProjectOverview } from '../lib/types';
 import type { TabScreenProps } from '../navigation/types';
-import { font } from '../lib/typography';
 
 /**
- * The Projects tab (5b), as the website's Projects page: each project's picture, code and number,
- * status in words, client, progress, task and overdue counts, dates and owner. A card opens the
- * project's dashboard; "Board" goes straight to its board. Anyone signed in can add a project; whoever
- * runs one (the server's canManage) can edit it and change its status (Archived goes through the
- * archive action). It shows the last copy offline; changes need a connection.
+ * Projects, as the website's page: find a project fast, see how each is doing, and manage them.
+ * Status tabs with counts (one row that scrolls sideways), one search box, owner and sort, and for
+ * administrators "Only my projects"; a card per project with its figures — the whole list from ONE
+ * request (/projects/overview), kept for offline. Anyone may create a project; a card offers its
+ * status menu, Edit and Archive to whoever may change it (an administrator, or the server's
+ * canManage). A status change shows at once and needs a connection.
  */
 export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const user = useSession()?.user ?? null;
-  const canCreate = canCreateProject(user);
-  const { data: projects, isLoading, isError, refetch, isRefetching } = useProjects();
-  const list = useMemo(() => projects ?? [], [projects]);
-  // One request for every card's figures (5b review), fetched again when the tab is shown and out of date.
-  const figuresQ = useProjectCardFigures();
-  const figures = figuresQ.data;
-  const refetchFigures = figuresQ.refetch;
-  const figuresStale = figuresQ.isStale;
+  const admin = !!user?.roles.includes('ADMIN');
+  const timeZone = useSyncExternalStore(subscribeTimeZone, dateZones).company;
+  const query = useProjectsOverview();
+  const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
+  const [state, setState] = useState<ProjectListState>(DEFAULT_LIST_STATE);
+  const update = useCallback((changes: Partial<ProjectListState>) => setState((st) => ({ ...st, ...changes })), []);
+  const [picker, setPicker] = useState<'owner' | 'sort' | null>(null);
+  const [statusFor, setStatusFor] = useState<ProjectOverview | null>(null);
+  const [archiving, setArchiving] = useState<ProjectOverview | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const changeStatus = useProjectStatus();
+
+  // Read again when the tab is shown and the list is out of date (a task change marks it so).
+  const { refetch, isStale, isFetching } = query;
   useFocusEffect(
     useCallback(() => {
-      if (figuresStale) void refetchFigures();
-    }, [figuresStale, refetchFigures]),
+      if (isStale && !isFetching) void refetch();
+    }, [isStale, isFetching, refetch]),
   );
-  const dirQ = useDirectory();
-  const people = useMemo(() => dirQ.data ?? [], [dirQ.data]);
-  const [statusFor, setStatusFor] = useState<ApiProject | null>(null);
 
-  const open = useCallback((p: ApiProject) => navigation.navigate('ProjectDetail', { projectId: p.id, projectName: p.name }), [navigation]);
-  const board = useCallback((p: ApiProject) => navigation.navigate('Board', { projectId: p.id, projectName: p.name }), [navigation]);
-  const edit = useCallback((p: ApiProject) => navigation.navigate('ProjectForm', { projectId: p.id }), [navigation]);
+  const open = useCallback((p: ProjectOverview) => navigation.navigate('ProjectDetail', { projectId: p.id, projectName: p.name }), [navigation]);
+  const board = useCallback((p: ProjectOverview) => navigation.navigate('Board', { projectId: p.id, projectName: p.name }), [navigation]);
+  const edit = useCallback((p: ProjectOverview) => navigation.navigate('ProjectForm', { projectId: p.id }), [navigation]);
+  const newProject = () => navigation.navigate('ProjectForm');
 
-  if (isLoading) return <SkeletonList rows={4} avatar />;
-  const empty = emptyProjects(canCreate);
+  const runStatus = async (project: ProjectOverview, status: string) => {
+    setProblem(null);
+    const out = await changeStatus(project, status);
+    if (out.ok) AccessibilityInfo.announceForAccessibility(`${project.name} is now ${projectStatusLabel(status).toLowerCase()}.`);
+    else {
+      setProblem(out.message);
+      AccessibilityInfo.announceForAccessibility(out.message);
+    }
+  };
+  const pickStatus = (project: ProjectOverview, status: string) => {
+    setStatusFor(null);
+    if (status === 'ARCHIVED') openArchive(project);
+    else void runStatus(project, status);
+  };
+  const openArchive = (project: ProjectOverview) => {
+    setArchiveError(null);
+    setArchiving(project);
+  };
+  const confirmArchive = async (project: ProjectOverview) => {
+    setArchiveBusy(true);
+    setArchiveError(null);
+    const out = await changeStatus(project, 'ARCHIVED');
+    setArchiveBusy(false);
+    if (out.ok) {
+      setArchiving(null);
+      AccessibilityInfo.announceForAccessibility(`${project.name} is now archived.`);
+    } else setArchiveError(out.message);
+  };
+
+  if (query.isLoading) return <SkeletonList rows={4} avatar />;
+
+  const now = new Date();
+  const today = companyTodayKey(now, timeZone);
+  const loaded = Array.isArray(query.data);
+  const failed = query.isError && !loaded;
+  // "Only my projects" is an administrator's filter; everyone else only sees theirs anyway.
+  const mine = admin && state.mine;
+  const owners = ownerOptions(all);
+  // An owner who owns none of the projects this person can see (any more) is ignored.
+  const owner = state.owner !== '' && !owners.some((o) => o.id === state.owner) ? '' : state.owner;
+  const filters: ProjectListState = { ...DEFAULT_LIST_STATE, q: state.q, owner, mine };
+  const counts = tabCounts(filterProjects(all, filters));
+  const visible = sortProjects(filterProjects(all, filters).filter((p) => inTab(p, state.status)), state.sort, today, timeZone);
+  const filtersOn = Boolean(state.q.trim() || owner || mine);
+  const summary = loaded && all.length > 0 ? headerSummary(all, today, timeZone) : undefined;
+  // No project at all yet: the tabs, search and filters have nothing to work on, so only the invitation shows.
+  const firstRun = loaded && !query.isError && all.length === 0;
+  const ownerName = owner ? (owners.find((o) => o.id === owner)?.name ?? PROJECTS_TEXT.anyone) : PROJECTS_TEXT.anyone;
+  const sortName = PROJECT_SORTS.find((x) => x.value === state.sort)!.label;
+  const clearFilters = () => update({ q: '', owner: '', mine: false });
+
+  const header = (
+    <View style={s.head}>
+      <PageHeader
+        title="Projects"
+        subtitle={summary}
+        actions={canCreateProject(user) ? <Button size="sm" icon="ui.plus" title="New project" onPress={newProject} /> : null}
+      />
+      {firstRun || failed ? null : (
+        <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel={PROJECTS_TEXT.tabs} contentContainerStyle={s.tabs}>
+            {STATUS_TABS.map((t) => (
+              <Chip key={t.value} label={t.label} selected={t.value === state.status} onPress={() => update({ status: t.value })} count={loaded ? counts[t.value] : undefined} />
+            ))}
+          </ScrollView>
+          <TextField
+            value={state.q}
+            onChangeText={(q) => update({ q })}
+            placeholder={PROJECTS_TEXT.search}
+            accessibilityLabel={PROJECTS_TEXT.searchLabel}
+            returnKeyType="search"
+            autoCorrect={false}
+          />
+          <View style={s.selects}>
+            <SelectBox label={PROJECTS_TEXT.owner} value={ownerName} onPress={() => setPicker('owner')} s={s} />
+            <SelectBox label={PROJECTS_TEXT.sort} value={sortName} onPress={() => setPicker('sort')} s={s} />
+          </View>
+          {admin ? <Toggle on={state.mine} onChange={(v) => update({ mine: v })} label={PROJECTS_TEXT.onlyMine} /> : null}
+          {problem ? <ErrorNote message={problem} /> : null}
+          <Text style={[typeStyle('body'), { color: c.ink2 }]} accessibilityLiveRegion="polite">
+            {countLine(visible.length, state.sort)}
+          </Text>
+        </>
+      )}
+    </View>
+  );
+
+  const empty = firstRun ? (
+    <EmptyState
+      icon="nav.projects"
+      title={PROJECTS_TEXT.firstRun}
+      subtitle={admin ? PROJECTS_TEXT.firstRunAdmin : PROJECTS_TEXT.firstRunOther}
+      action={canCreateProject(user) ? { title: 'New project', onPress: newProject } : undefined}
+    />
+  ) : failed ? (
+    <ErrorNote message="Couldn’t load projects." onRetry={() => void refetch()} retrying={query.isRefetching} />
+  ) : filtersOn ? (
+    <EmptyState title={PROJECTS_TEXT.noMatch} subtitle={PROJECTS_TEXT.noMatchBody} action={{ title: PROJECTS_TEXT.clear, onPress: clearFilters }} />
+  ) : (
+    <EmptyState title={EMPTY_TAB[state.status]} subtitle={state.status === 'archived' ? PROJECTS_TEXT.archivedNote : undefined} />
+  );
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
       <FlatList
-        data={isError && !projects ? [] : list}
+        data={firstRun || failed ? [] : visible}
         keyExtractor={(p) => p.id}
         contentContainerStyle={s.scroll}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={() => {
-              void refetch();
-              void refetchFigures();
-            }}
-          />
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void refetch()} />}
+        ListHeaderComponent={header}
+        ListEmptyComponent={empty}
+        ListFooterComponent={
+          canCreateProject(user) && showAnotherProjectTile({ filtered: filtersOn, shown: visible.length, tab: state.status }) ? (
+            <Card onPress={newProject} style={s.another} accessibilityLabel={`${PROJECTS_TEXT.another}. ${PROJECTS_TEXT.anotherBody}`}>
+              <View style={[s.anotherIcon, { backgroundColor: c.brandWash }]}>
+                <Icon name="ui.plus" size={20} color={c.brandText} />
+              </View>
+              <Text style={[typeStyle('bodyStrong'), { color: c.ink }]}>{PROJECTS_TEXT.another}</Text>
+              <Text style={[typeStyle('body'), s.center, { color: c.ink2 }]}>{PROJECTS_TEXT.anotherBody}</Text>
+            </Card>
+          ) : null
         }
-        ListHeaderComponent={
-          <View style={s.head}>
-            <PageHeader
-              title="Projects"
-              actions={canCreate ? <Button size="sm" icon="ui.plus" title="New project" onPress={() => navigation.navigate('ProjectForm')} /> : null}
-            />
-            <Text style={s.subtitle}>{projectsSubtitle(canCreate)}</Text>
-            {/* Every project on one board (4c) — offered when there is more than one, as on the website. */}
-            {boardProjects(list).length > 1 ? (
-              <Pressable
-                onPress={() => navigation.navigate('AllBoard')}
-                accessibilityRole="button"
-                accessibilityLabel="Board: all projects"
-                accessibilityHint="Every project’s tasks for the day, under six statuses"
-                style={({ pressed }) => [s.allBoard, pressed && s.pressed]}
-              >
-                <Icon name="nav.board" size={18} color={c.brandText} />
-                <Text style={s.allBoardText}>Board: all projects</Text>
-              </Pressable>
-            ) : null}
-            {isError && !projects ? <ErrorNote message="Couldn’t load your projects." onRetry={() => void refetch()} retrying={isRefetching} /> : null}
-          </View>
-        }
-        ListEmptyComponent={isError && !projects ? null : <EmptyState title={empty.title} subtitle={empty.subtitle} />}
         renderItem={({ item }) => (
           <ProjectCard
             project={item}
-            meta={projectCardMeta(projectFiguresFor(figures, item.id), item.ownerId && dirQ.data ? ownerName(item.ownerId, people) : null)}
-            canManage={canManageProject(user, item)}
+            today={today}
+            timeZone={timeZone}
+            now={now}
+            canChange={canManageProject(user, item)}
             onOpen={open}
-            onBoard={board}
             onEdit={edit}
+            onOpenBoard={board}
             onStatus={setStatusFor}
-            s={s}
+            onArchive={openArchive}
           />
         )}
       />
-      <StatusSheet project={statusFor} onClose={() => setStatusFor(null)} />
+      <ProjectStatusSheet project={statusFor} onChoose={pickStatus} onClose={() => setStatusFor(null)} />
+      <ArchiveProjectSheet project={archiving} busy={archiveBusy} error={archiveError} onConfirm={(p) => void confirmArchive(p)} onClose={() => setArchiving(null)} />
+      <ChoiceSheet
+        visible={picker === 'owner'}
+        title={PROJECTS_TEXT.owner}
+        options={[{ value: '', label: PROJECTS_TEXT.anyone }, ...owners.map((o) => ({ value: o.id, label: o.name }))]}
+        value={owner}
+        onChoose={(v) => update({ owner: v })}
+        onClose={() => setPicker(null)}
+      />
+      <ChoiceSheet
+        visible={picker === 'sort'}
+        title={PROJECTS_TEXT.sort}
+        options={PROJECT_SORTS.map((x) => ({ value: x.value, label: x.label }))}
+        value={state.sort}
+        onChoose={(v) => update({ sort: v as ProjectSort })}
+        onClose={() => setPicker(null)}
+      />
     </SafeAreaView>
   );
 }
 
 type Styles = ReturnType<typeof makeStyles>;
 
-const ProjectCard = React.memo(function ProjectCard({
-  project: p,
-  meta,
-  canManage,
-  onOpen,
-  onBoard,
-  onEdit,
-  onStatus,
-  s,
-}: {
-  project: ApiProject;
-  meta: ProjectCardMeta | null;
-  /** Whoever runs it (the server's canManage): its status and Edit. */
-  canManage: boolean;
-  onOpen: (p: ApiProject) => void;
-  onBoard: (p: ApiProject) => void;
-  onEdit: (p: ApiProject) => void;
-  onStatus: (p: ApiProject) => void;
-  s: Styles;
-}) {
-  const dates = projectDates(p.startDate, p.targetDate);
+/** Owner and Sort, as the website's two select boxes: the label, the choice, a chevron; a sheet to choose. */
+function SelectBox({ label, value, onPress, s }: { label: string; value: string; onPress: () => void; s: Styles }) {
   const c = useColors();
-  // The project's own colour (the website's maroon when it has none).
-  const color = p.color && HEX_COLOR.test(p.color) ? p.color : DEFAULT_PROJECT_COLOR;
   return (
-    <Card padded={false} style={s.card}>
-      <View style={[s.strip, { backgroundColor: color }]} />
-      <Pressable
-        onPress={() => onOpen(p)}
-        accessibilityRole="button"
-        accessibilityLabel={projectCardLabel(p, meta, dates)}
-        accessibilityHint="Opens the project"
-        style={({ pressed }) => [s.main, pressed && s.pressed]}
-      >
-        <View style={s.topRow}>
-          <View style={s.codes}>
-            <Text style={s.code}>{p.code}</Text>
-            {p.number ? <Text style={s.code}>{p.number}</Text> : null}
-          </View>
-          <Badge label={projectStatusLabel(p.status)} tone={projectStatusTone(p.status)} />
-        </View>
-        <View style={s.identity}>
-          <ProjectAvatar project={p} size="md" />
-          <View style={s.flex}>
-            <Text style={s.name} numberOfLines={2}>
-              {p.name}
-            </Text>
-            <Text style={p.clientName ? s.client : s.internal} numberOfLines={1}>
-              {p.clientName || 'Internal'}
-            </Text>
-          </View>
-        </View>
-        {meta?.hasProgress ? (
-          <View style={s.progressRow}>
-            <View style={s.track} importantForAccessibility="no-hide-descendants">
-              <ProgressBar value={meta.completedPct} color={color} label={`${p.name}: ${meta.completedPct}% done`} />
-            </View>
-            <Text style={s.pct}>{meta.completedPct}%</Text>
-          </View>
-        ) : null}
-        {meta || dates ? (
-          <View style={s.stats}>
-            {meta ? (
-              <View style={s.statItem}>
-                <Icon name="nav.tasks" size={14} color={c.ink2} />
-                <Text style={s.stat}>{meta.total} tasks</Text>
-              </View>
-            ) : null}
-            {meta ? (
-              <View style={s.statItem}>
-                <Icon name="ui.alert" size={14} color={meta.overdue > 0 ? c.dangerText : c.ink2} />
-                <Text style={[s.stat, meta.overdue > 0 && s.overdue]}>{meta.overdue} overdue</Text>
-              </View>
-            ) : null}
-            {dates ? (
-              <View style={s.statItem}>
-                <Icon name="kit.calendar" size={14} color={c.ink2} />
-                <Text style={s.stat}>{dates}</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-        {meta?.ownerName ? <Text style={s.owner}>Owner · {meta.ownerName}</Text> : null}
-      </Pressable>
-      <View style={s.footer}>
-        <FooterButton label="Board" a11y={`Board for ${p.name}`} onPress={() => onBoard(p)} s={s} />
-        {canManage ? <FooterButton label={`Status: ${projectStatusLabel(p.status)}`} a11y={`Status for ${p.name}: ${projectStatusLabel(p.status)}. Change it`} onPress={() => onStatus(p)} s={s} /> : null}
-        {canManage ? <FooterButton label="Edit" a11y={`Edit ${p.name}`} onPress={() => onEdit(p)} s={s} /> : null}
-      </View>
-    </Card>
-  );
-});
-
-function FooterButton({ label, a11y, onPress, s }: { label: string; a11y: string; onPress: () => void; s: Styles }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} style={({ pressed }) => [s.footerButton, pressed && s.pressed]}>
-      <Text style={s.footerText}>{label}</Text>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} accessibilityHint={`Choose the ${label.toLowerCase()}`} style={({ pressed }) => [s.select, pressed ? s.pressed : null]}>
+      <Text style={[typeStyle('body'), { color: c.ink2 }]}>{label}</Text>
+      <Text style={[typeStyle('label'), s.selectValue, { color: c.ink }]} numberOfLines={1}>
+        {value}
+      </Text>
+      <Icon name="kit.down" size={14} color={c.ink2} />
     </Pressable>
-  );
-}
-
-/** An administrator's status change: saved at once (Archived through the archive action). */
-function StatusSheet({ project, onClose }: { project: ApiProject | null; onClose: () => void }) {
-  const change = useProjectStatus();
-  const [problem, setProblem] = useState<string | null>(null);
-  const close = () => {
-    setProblem(null);
-    onClose();
-  };
-  return (
-    <Sheet visible={!!project} title="Project status" subtitle={project?.name} onClose={close} footer={<SheetButtons cancel="Close" onCancel={close} busy={change.isPending} />}>
-      {PROJECT_STATUSES.map((st) => (
-        <ActionRowButton
-          key={st}
-          label={`${projectStatusLabel(st)}${project?.status === st ? ' (current)' : ''}`}
-          hint={st === 'ARCHIVED' ? 'Archives the project' : undefined}
-          busy={change.isPending && change.variables?.status === st}
-          disabled={!project || project.status === st || change.isPending}
-          onPress={() => {
-            if (!project) return;
-            setProblem(null);
-            change.mutate(
-              { id: project.id, status: st },
-              {
-                onSuccess: () => {
-                  AccessibilityInfo.announceForAccessibility(`${project.name} is now ${projectStatusLabel(st).toLowerCase()}.`);
-                  close();
-                },
-                onError: (e) => setProblem(statusChangeProblem(e)),
-              },
-            );
-          }}
-        />
-      ))}
-      <SheetMessage text={problem} />
-    </Sheet>
   );
 }
 
@@ -258,30 +256,12 @@ const makeStyles = (c: Palette) =>
     safe: { flex: 1, backgroundColor: c.ground },
     scroll: { padding: spacing.lg, gap: spacing.md },
     head: { gap: spacing.sm },
-    subtitle: { fontSize: fontSize.sm, color: c.ink2 },
-    allBoard: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, paddingHorizontal: spacing.md, backgroundColor: c.surface },
-    allBoardText: { fontSize: fontSize.md, ...font('700'), color: c.brandText },
-    flex: { flex: 1 },
+    tabs: { gap: spacing.sm, paddingVertical: 6 },
+    selects: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+    select: { flexGrow: 1, flexBasis: 140, minWidth: 0, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: c.line, borderRadius: radius.button, backgroundColor: c.surface, paddingHorizontal: spacing.md },
+    selectValue: { flex: 1, ...font('500') },
     pressed: { opacity: 0.7 },
-    card: { overflow: 'hidden' },
-    strip: { height: 4 },
-    main: { padding: spacing.lg, gap: spacing.sm },
-    topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-    codes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, flexShrink: 1 },
-    code: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: spacing.sm, paddingVertical: 2, letterSpacing: 0.5 },
-    identity: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    name: { fontSize: fontSize.lg, ...font('700', 'display'), color: c.ink },
-    client: { fontSize: fontSize.sm, color: c.ink2 },
-    internal: { fontSize: fontSize.sm, color: c.ink3 },
-    progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    track: { flex: 1 },
-    pct: { fontSize: fontSize.sm, ...font('700'), color: c.ink2 },
-    stats: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md, rowGap: 4, borderTopWidth: 1, borderTopColor: c.line, paddingTop: spacing.sm },
-    statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    stat: { fontSize: fontSize.sm, color: c.ink2 },
-    overdue: { color: c.dangerText, ...font('700') },
-    owner: { fontSize: fontSize.sm, color: c.ink2 },
-    footer: { flexDirection: 'row', flexWrap: 'wrap', borderTopWidth: 1, borderTopColor: c.line },
-    footerButton: { flexGrow: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md },
-    footerText: { fontSize: fontSize.sm, ...font('700'), color: c.brandText, textAlign: 'center' },
+    another: { alignItems: 'center', gap: spacing.sm, borderStyle: 'dashed', borderWidth: 2, paddingVertical: spacing.xl },
+    anotherIcon: { width: 44, height: 44, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center' },
+    center: { textAlign: 'center', maxWidth: 260 },
   });

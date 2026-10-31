@@ -126,6 +126,12 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * What a Stage 3 request (Timeline, Workload, Management, MICO AI) takes as its last argument:
+ * whose request it is, its caller calling it off, and its own time limit.
+ */
+export type CallOpts = Pick<RequestOptions, 'asUser' | 'signal' | 'timeoutMs'>;
+
 /** A request its caller called off (RequestOptions signal). */
 function calledOffError(cause?: unknown): Error {
   const e = new Error('The request was called off.');

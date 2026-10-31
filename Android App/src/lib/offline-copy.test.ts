@@ -82,7 +82,7 @@ describe('the projects’ progress kept offline (5b review #2)', () => {
     const capOf = (key: string) => offlineCopyCaps().find((g) => g.matches(key));
     expect(capOf('progress.p1')?.keep).toBe(PROGRESS_KEPT);
     expect(capOf('progress.p1')?.name).toBe('progress');
-    expect(capOf('projects.figures')).toBeUndefined();
+    expect(capOf('projects.overview')).toBeUndefined();
     expect(PROGRESS_KEPT).toBe(20);
   });
 });

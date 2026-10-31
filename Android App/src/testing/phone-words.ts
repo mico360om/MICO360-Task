@@ -1,19 +1,33 @@
 /**
- * The website's words as the app says them (Stage 4, lead amendment 2): where a website sentence
- * names a mouse or a page reload, the phone says its own equivalent. These are the ONLY changes a
- * word drift test allows; every other word is the website's, letter for letter. Test-only.
+ * The website's words as the phone says them. Where a website sentence names a mouse ("click") or a
+ * page reload, the app says its phone equivalent ("tap", "even if the app closes" — Stage 3 Task 17,
+ * Stage 4 lead amendment 2). These are the ONLY changes a word drift test allows; every other word
+ * is the website's, letter for letter. Test-only — nothing in the app imports this folder.
  */
 import { normalise } from './web-source';
 
-/** Phone words → the website's words they stand for. */
-export const PHONE_WORDS: ReadonlyArray<{ phone: string; web: string }> = [
-  { phone: 'even if the app closes', web: 'even if the page reloads' },
-  { phone: 'Draw with your finger.', web: 'Draw with your finger or mouse.' },
+/** Website words → phone words for a mouse ("click" → "tap", Stage 3 Task 17). */
+export const PHONE_WORDS: readonly (readonly [web: string, phone: string])[] = [
+  // Workload's footer (WorkloadPage.tsx).
+  ['Nothing changes until you click.', 'Nothing changes until you tap.'],
 ];
+
+/** Website words → phone words for a page reload or a mouse in an inspection (Stage 4, lead amendment 2). */
+export const DEVICE_WORDS: readonly (readonly [web: string, phone: string])[] = [
+  ['even if the page reloads', 'even if the app closes'],
+  ['Draw with your finger or mouse.', 'Draw with your finger.'],
+];
+
+const ALL_WORDS = [...PHONE_WORDS, ...DEVICE_WORDS];
+
+/** The website's text as the phone words it: each substitution made wherever it appears. */
+export function onPhone(webText: string): string {
+  return ALL_WORDS.reduce((text, [web, phone]) => text.split(web).join(phone), webText);
+}
 
 /** An app word as the website writes it (each phone wording put back). */
 export function asWebsiteWords(word: string): string {
-  return PHONE_WORDS.reduce((w, { phone, web }) => w.split(phone).join(web), word);
+  return ALL_WORDS.reduce((w, [web, phone]) => w.split(phone).join(web), word);
 }
 
 /** The website's source as plain text: JSX tags (`<bdi>`, `<span …>`) out, spaces and line breaks as one space. */

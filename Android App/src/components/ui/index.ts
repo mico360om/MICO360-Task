@@ -13,6 +13,8 @@ export { EmptyState } from './EmptyState';
 export { Avatar } from './Avatar';
 export { StatTile } from './StatTile';
 export { ApprovalChip } from './ApprovalChip';
+export { InspectionChip } from './InspectionChip';
+export { ClientChip } from './ClientChip';
 export { ProgressBar } from './ProgressBar';
 export { BrandLogo } from './BrandLogo';
 export { PageHeader } from './PageHeader';

@@ -6,21 +6,26 @@ import { MoveOption } from './MoveCardSheet';
 import { STATUS_NAME, statusMoveTargets, statusOfTask } from '../../lib/all-board';
 import { categoryColorOf } from '../../lib/theme';
 import type { ApiTask, ColumnCategory } from '../../lib/types';
+import { MOVE_TEXT } from '../../lib/move-sheet';
 
 /**
  * Change a card's status on the All projects board (4c), opened by long-pressing it (or TalkBack's
  * "Move…"). The phone has no drag and drop, so this says what a drop on the website's board says:
  * one of the other statuses. The card goes into its own project's first column of that kind; a
- * status mixes projects, so its cards keep their order (due date, then priority).
+ * status mixes projects, so its cards keep their order (due date, then priority). And — for someone
+ * who may — to another project.
  */
 export function StatusMoveSheet({
   task,
   projectName,
   onMove,
   onClose,
+  onMoveToProject,
 }: {
   task: ApiTask | null;
   projectName: string | null;
+  /** "Move to another project…", given only when the person may move this task. */
+  onMoveToProject?: () => void;
   onMove: (status: ColumnCategory) => void;
   onClose: () => void;
 }) {
@@ -45,6 +50,7 @@ export function StatusMoveSheet({
           onPress={() => onMove(t.status)}
         />
       ))}
+      {onMoveToProject ? <MoveOption label={MOVE_TEXT.menuItem} onPress={onMoveToProject} next /> : null}
     </Sheet>
   );
 }

@@ -70,6 +70,10 @@ import { SearchScreen } from '../screens/SearchScreen';
 import { AboutScreen } from '../screens/AboutScreen';
 import { UsersScreen } from '../screens/UsersScreen';
 import { UserFormScreen } from '../screens/UserFormScreen';
+import { TimelineScreen } from '../screens/TimelineScreen';
+import { WorkloadScreen } from '../screens/WorkloadScreen';
+import { ManagementScreen } from '../screens/ManagementScreen';
+import { MicoAiScreen } from '../screens/MicoAiScreen';
 import { InspectionScreen } from '../screens/InspectionScreen';
 import { useAlertsLive, usePushOpened } from '../core/alerts';
 
@@ -375,6 +379,10 @@ export function RootNavigator() {
               component={UserFormScreen}
               options={({ route }) => ({ title: route.params?.userId ? 'Manage account' : 'New user' })}
             />
+            <AppStack.Screen name="Timeline" component={TimelineScreen} options={{ title: 'Timeline' }} />
+            <AppStack.Screen name="Workload" component={WorkloadScreen} options={{ title: 'Workload' }} />
+            <AppStack.Screen name="Management" component={ManagementScreen} options={{ title: 'Management' }} />
+            <AppStack.Screen name="MicoAi" component={MicoAiScreen} options={{ title: 'MICO AI' }} />
             <AppStack.Screen name="Inspection" component={InspectionScreen} options={({ route }) => ({ title: route.params.title ?? 'Inspection' })} />
           </AppStack.Navigator>
           <AppDrawer onNavigate={applyNavAction} />

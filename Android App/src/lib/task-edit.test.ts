@@ -28,6 +28,7 @@ const deps = (over: Partial<EditDeps> = {}) => {
   const calls: unknown[][] = [];
   const d: EditDeps = {
     update: vi.fn(async (patch) => void calls.push(['update', patch])),
+    updateLive: vi.fn(async (patch) => void calls.push(['updateLive', patch])),
     move: vi.fn(async (columnId) => void calls.push(['move', columnId])),
     assign: vi.fn(async (ids) => void calls.push(['assign', ids])),
     unassign: vi.fn(async (id) => void calls.push(['unassign', id])),
@@ -49,6 +50,9 @@ describe('Edit task (4d): New task’s form with what the task holds, as the web
       rule: null,
       assigneeIds: ['u1', 'u2'],
       milestone: false,
+      needsApproval: false,
+      checklist: [],
+      checklistPending: '',
     });
   });
 

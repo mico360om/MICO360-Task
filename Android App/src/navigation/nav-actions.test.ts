@@ -74,9 +74,10 @@ describe('five tabs and a menu grouped like the website’s sidebar', () => {
     expect(action('Calendar')).toEqual({ type: 'stack', screen: 'Calendar' });
     expect(action('Notifications')).toEqual({ type: 'stack', screen: 'Notifications' });
     expect(action('Profile')).toEqual({ type: 'stack', screen: 'Profile' });
-    for (const [key, path] of [['Timeline', '/timeline'], ['Workload', '/workload'], ['Templates', '/templates'], ['Management', '/management'], ['MicoAi', '/mico-ai'], ['website-ai', '/admin/ai'], ['website-settings', '/admin/settings'], ['website-audit', '/admin/audit']] as const) {
+    for (const [key, path] of [['Templates', '/templates'], ['website-ai', '/admin/ai'], ['website-settings', '/admin/settings'], ['website-audit', '/admin/audit']] as const) {
       expect(action(key), key).toEqual({ type: 'website', path });
     }
+    for (const key of ['Timeline', 'Workload', 'Management', 'MicoAi'] as const) expect(action(key), key).toEqual({ type: 'stack', screen: key });
     expect(action('Users')).toEqual({ type: 'stack', screen: 'Users' });
     expect(allItems.map((i) => i.key)).not.toContain('Search'); // Search is in the top bar on every tab
   });

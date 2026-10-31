@@ -1,8 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterTaskDeleted, afterTaskSaved, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
+import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, TASK_FIGURE_VIEWS } from './task-cache';
 import { refresh } from './refresh';
-import type { ApiTask } from './types';
+import type { ApiTask, MoveResult } from './types';
+import { formerKeysText } from './task-detail';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
   id,
@@ -111,7 +112,7 @@ describe('afterTaskSaved (an edit refreshes what it changed, not the whole task 
 
 describe('editRefreshes', () => {
   it('names the activity and the lists holding the task', () => {
-    expect(editRefreshes('t1', { title: 'x' })).toEqual([{ queryKey: ['task', 't1', 'activity'], exact: true }, { listsHolding: 't1' }]);
+    expect(editRefreshes('t1', { title: 'x' })).toEqual([{ queryKey: ['task', 't1', 'activity'], exact: true }, { listsHolding: 't1' }, ...TASK_FIGURE_VIEWS]);
   });
 
   it('adds the project progress for a due date or a column change', () => {
@@ -134,7 +135,35 @@ describe('createdTaskRefreshes', () => {
       { queryKey: ['tasks', 'mine'] },
       { queryKey: ['project', 'p1', 'progress'], exact: true },
       { queryKey: ['tasks', 'calendar'] },
+      ...TASK_FIGURE_VIEWS,
     ]);
+  });
+});
+
+// Stage 3 final review P1: a task changed on a screen opened from Timeline, Workload or Management
+// (a day's task, a project's task row) leaves their figures out of date — marked so and read again
+// when they are next shown, as the website's TASK_FIGURE_KEYS / invalidateTaskQueries.
+describe('Timeline, Workload and Management after a task change', () => {
+  it('are named by every task change: an edit, a new task, its people, a move, an approval decision, a move to another project and a delete', () => {
+    expect(TASK_FIGURE_VIEWS).toEqual([{ queryKey: ['planning'], later: true }, { queryKey: ['management'], later: true }]);
+    // Stage 2's approval decisions and moves to another project too (Management counts what waits for approval; Timeline each project's tasks).
+    const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
+    for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
+      for (const v of TASK_FIGURE_VIEWS) expect(list).toContainEqual(v);
+    }
+  });
+
+  it('are marked out of date, not fetched at once; who may open Management is left alone', () => {
+    const qc = seeded();
+    qc.setQueryData(['planning', 'u1', 'timeline', 'a', 'b', 1, '2026-10-31'], { projects: [] });
+    qc.setQueryData(['planning', 'u1', 'workload', '2026-10-25', '', '2026-10-31'], { people: [] });
+    qc.setQueryData(['management', 'u1', 'overview', 'weeks=12'], { tiles: {} });
+    qc.setQueryData(['management-access', 'u1'], { allowed: true });
+    afterTaskDeleted(qc, 't1');
+    const keys = refreshedKeys(qc);
+    for (const k of ['["planning","u1","timeline","a","b",1,"2026-10-31"]', '["planning","u1","workload","2026-10-25","","2026-10-31"]', '["management","u1","overview","weeks=12"]']) expect(keys).toContain(k);
+    expect(keys).not.toContain('["management-access","u1"]');
+    expect(qc.getQueryCache().findAll({ queryKey: ['planning'] }).every((q) => q.state.fetchStatus === 'idle')).toBe(true);
   });
 });
 
@@ -228,5 +257,72 @@ describe('assignmentRefreshes and the replay of a kept assignment', () => {
     const { refreshesAfterReplay } = await import('./perform-mutation');
     expect(refreshesAfterReplay({ kind: 'task.assign', payload: { id: 't1', userIds: ['u2'] } })).toEqual(assignmentRefreshes('t1'));
     expect(refreshesAfterReplay({ kind: 'task.unassign', payload: { id: 't1', userId: 'u2' } })).toEqual(assignmentRefreshes('t1'));
+  });
+});
+
+describe('approvals: Approve, Send back and the "Needs approval" switch (Stage 2)', () => {
+  it('a decision refreshes the task, its comments and history, the lists, the approvals and the project counts', () =>
+    expect(approvalRefreshes('t1')).toEqual([{ queryKey: ['task', 't1'], exact: true }, { queryKey: ['task', 't1', 'comments'] }, { queryKey: ['task', 't1', 'activity'] }, { listsHolding: 't1' }, { progressFor: 't1' }, { queryKey: ['approvals'] }, { queryKey: ['projects'], later: true }, ...TASK_FIGURE_VIEWS]));
+
+  it('shows the server’s answer at once over the details shown (keeping what only the details call returns), then refreshes', () => {
+    const qc = seeded();
+    qc.setQueryData(['approvals'], { canApprove: true, tasks: [] });
+    afterApprovalDecision(qc, 't1', { ...t('t1'), approvalRequestedAt: null, completedAt: '2026-10-30T08:00:00Z', version: 4 });
+    const detail = qc.getQueryData<ApiTask & { meeting?: unknown }>(['task', 't1']);
+    expect(detail).toMatchObject({ completedAt: '2026-10-30T08:00:00Z', approvalRequestedAt: null, version: 4 });
+    expect(detail?.meeting).toEqual({ id: 'm1', title: 'Weekly', startAt: null, canView: true });
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["task","t1"]', '["task","t1","comments"]', '["task","t1","activity"]', '["tasks","project","p1","2026-10-21"]', '["project","p1","progress"]', '["approvals"]']));
+  });
+
+  it('details never loaded (a decision from To approve) are not made from the answer: they load in full when opened', () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    afterApprovalDecision(qc, 't1', { ...t('t1'), version: 4 });
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+  });
+
+  it('a refused decision (changed meanwhile, decided by someone else) reloads the task and the approvals list, so a retry is from what is there now', () => {
+    const qc = seeded();
+    qc.setQueryData(['approvals'], { canApprove: true, tasks: [] });
+    afterApprovalRefused(qc, 't1');
+    expect(refreshedKeys(qc)).toEqual(['["approvals"]', '["task","t1"]']);
+  });
+});
+
+describe('editRefreshes and "Needs approval" (Stage 2)', () => {
+  it('turning it on or off refreshes the approvals list and the project’s progress (off while it waits marks it done)', () => {
+    expect(editRefreshes('t1', { needsApproval: false })).toEqual(expect.arrayContaining([{ queryKey: ['approvals'] }, { progressFor: 't1' }]));
+    expect(editRefreshes('t1', { title: 'x' })).not.toContainEqual({ queryKey: ['approvals'] });
+  });
+});
+
+describe('a task moved to another project (Stage 2)', () => {
+  it('Review Focus 3: after a move the task’s screen shows the new number and "Formerly", and both boards are read again', () => {
+    const qc = new QueryClient(); clients.push(qc);
+    qc.setQueryData(['task', 't1'], { id: 't1', key: 'RIG-4', projectId: 'p1', title: 'Check pumps' });
+    afterTaskMoved(qc, { task: { id: 't1', key: 'OPS-17', projectId: 'p2', formerKeys: ['RIG-4'] }, from: { projectId: 'p1', name: 'Rig', key: 'RIG-4' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } } as MoveResult);
+    const t = qc.getQueryData<ApiTask>(['task', 't1'])!; expect(t).toMatchObject({ key: 'OPS-17', projectId: 'p2', title: 'Check pumps' }); expect(formerKeysText(t.formerKeys)).toBe('Formerly RIG-4');
+    expect(projectMoveRefreshes({ task: t, from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult)).toEqual([{ queryKey: ['tasks'] }, { queryKey: ['projects'] }, { queryKey: ['project', 'p1'] }, { queryKey: ['project', 'p2'] }, { queryKey: ['task', 't1'] }, { queryKey: ['approvals'] }, ...TASK_FIGURE_VIEWS]);
+  });
+  it('lists of both projects are read again; a task never opened isn’t made from the answer', () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    afterTaskMoved(qc, { task: { ...t('t1'), key: 'OPS-17', projectId: 'p2' }, from: { projectId: 'p1', name: 'Rig', key: 'T-t1' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } } as MoveResult);
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["tasks","project","p1","2026-10-21"]', '["tasks","mine"]', '["project","p1","progress"]', '["project","p2","progress"]']));
+  });
+});
+
+describe('several tasks moved at once (Stage 2)', () => {
+  it('each moved task shows its new number; what they changed is read again once, not once per task', async () => {
+    const qc = seeded();
+    qc.setQueryData(['task', 't2'], { ...t('t2'), key: 'T-t2' });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const moved = (id: string, key: string) => ({ task: { ...t(id), key, projectId: 'p2' }, from: { projectId: 'p1', name: 'Rig', key: `T-${id}` }, to: { projectId: 'p2', name: 'Operations', key } }) as MoveResult;
+    afterTasksMoved(qc, [moved('t1', 'OPS-1'), moved('t2', 'OPS-2')]);
+    expect(qc.getQueryData<ApiTask>(['task', 't1'])?.key).toBe('OPS-1'); expect(qc.getQueryData<ApiTask>(['task', 't2'])?.key).toBe('OPS-2');
+    // One refresh for the group (refresh() reads now what is shown, and marks the rest): not one per task.
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["task","t1"]', '["task","t2"]', '["tasks","mine"]', '["project","p1","progress"]', '["project","p2","progress"]']));
   });
 });

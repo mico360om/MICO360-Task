@@ -23,6 +23,7 @@ import { activeFilterCount, applyFilters, buildItems, DEFAULT_FILTERS, groupByDa
 import { filterCalendarMeetings, groupMeetingsByDay, meetingItems } from '../lib/calendar-meetings';
 import { canReschedule, moveFailedText, movedText, planMove, planUndo, queuedMoveText, splitVersion, undoneText, type MoveScope } from '../lib/calendar-reschedule';
 import {
+  askedCalendarPlace,
   calendarPlace,
   calendarSections,
   canCreateIn,
@@ -69,7 +70,7 @@ const NO_TASKS: CalendarTask[] = [];
  * repeat not created yet explains itself and opens its current copy — or long-press it to move it
  * to another day (the website drags); "+" adds a task on a day.
  */
-export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
+export function CalendarScreen({ navigation, route }: AppScreenProps<'Calendar'>) {
   const c = useColors();
   const styles = useMemo(() => makeStyles(c), [c]);
   const insets = useSafeAreaInsets();
@@ -86,8 +87,15 @@ export function CalendarScreen({ navigation }: AppScreenProps<'Calendar'>) {
   const weekKnown = weekStartKnown(prefsQ);
 
   // The view, day and filters, kept while the app is open (the website keeps them in its address).
-  const [place, setPlace] = useState<CalendarPlace>(() => calendarPlace.get(userId));
+  const [place, setPlace] = useState<CalendarPlace>(() => askedCalendarPlace(route.params) ?? calendarPlace.get(userId));
   useEffect(() => calendarPlace.set(userId, place), [userId, place]);
+  // A person's week asked for while the calendar is open (Workload's "Open in Calendar": final review P7).
+  const askedWeekDay = route.params?.week;
+  const askedPerson = route.params?.person;
+  useEffect(() => {
+    const asked = askedCalendarPlace({ week: askedWeekDay, person: askedPerson });
+    if (asked) setPlace(asked);
+  }, [askedWeekDay, askedPerson]);
   const { view, filters } = place;
   const cursor = place.date ?? today;
   const [selected, setSelected] = useState<string | null>(null);

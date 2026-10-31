@@ -39,9 +39,11 @@ export type SearchTarget =
   /** "Open MICO-7": the task with exactly that key, found first. */
   | { kind: 'openKey'; key: string }
   /** Someone else: a conversation with them. */
-  | { kind: 'directMessage'; userId: string; name: string };
+  | { kind: 'directMessage'; userId: string; name: string }
+  /** Ask MICO AI what was typed, in a new chat (Stage 3). */
+  | { kind: 'askMicoAi'; text: string };
 
-export type SearchGroup = 'Command' | 'Go to' | 'Tasks' | 'Projects' | 'People' | 'Meetings';
+export type SearchGroup = 'Command' | 'Go to' | 'Tasks' | 'Projects' | 'People' | 'Meetings' | 'MICO AI';
 
 export interface SearchItem {
   id: string;
@@ -72,13 +74,14 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   profile: { target: { kind: 'screen', action: { type: 'stack', screen: 'Profile' } } },
   about: { target: { kind: 'screen', action: { type: 'stack', screen: 'About' } } },
   'admin-users': { target: { kind: 'screen', action: { type: 'stack', screen: 'Users' } } },
-  // Website pages the app has no screen for yet (planning, templates, MICO AI): they open on the website.
-  timeline: { target: { kind: 'website', path: '/timeline' } },
-  workload: { target: { kind: 'website', path: '/workload' } },
-  // For administrators and whoever runs a project (GET /management/access): on the website.
-  management: { target: { kind: 'website', path: '/management' } },
+  // The website's planning pages and MICO AI, as the app's own screens (Stage 3).
+  timeline: { target: { kind: 'screen', action: { type: 'stack', screen: 'Timeline' } } },
+  workload: { target: { kind: 'screen', action: { type: 'stack', screen: 'Workload' } } },
+  // For administrators and whoever runs a project (GET /management/access).
+  management: { target: { kind: 'screen', action: { type: 'stack', screen: 'Management' } } },
+  'mico-ai': { target: { kind: 'screen', action: { type: 'stack', screen: 'MicoAi' } } },
+  // A website page the app has no screen for yet (Stage 4): it opens on the website.
   templates: { target: { kind: 'website', path: '/templates' } },
-  'mico-ai': { target: { kind: 'website', path: '/mico-ai' } },
   'admin-ai': { target: { kind: 'website', path: '/admin/ai' } },
   'admin-settings': { target: { kind: 'website', path: '/admin/settings' } },
   'admin-audit': { target: { kind: 'website', path: '/admin/audit' } },
@@ -100,8 +103,9 @@ const personName = (u: { firstName?: string; lastName?: string; username: string
 
 /**
  * The list under the box: a command, then pages, then (from 2 letters, once the server answered)
- * tasks, projects, people and meetings. A result whose id isn't an id is left out — ids go into
- * the addresses the app asks the server for. `canLead`: may open Management (an administrator, or
+ * tasks, projects, people and meetings; last — from 2 letters, whatever was found, never for a
+ * command — "Ask MICO AI" with what was typed (the website's rule). A result whose id isn't an id
+ * is left out — ids go into the addresses the app asks the server for. `canLead`: may open Management (an administrator, or
  * someone who runs a project — the website's `leads`).
  */
 export function searchItems({
@@ -131,7 +135,9 @@ export function searchItems({
     out.push(pageItem(`nav-${p.command.id}`, 'Go to', p.label, p.page.target));
   }
 
-  if (!results) return out;
+  // Last, so the first result is still first: ask MICO AI what was typed (a new chat with it).
+  const ask: SearchItem[] = text.length >= 2 && !parsed ? [{ id: 'ask-mico-ai', group: 'MICO AI', primary: `Ask MICO AI: “${text}”`, label: `Ask MICO AI: “${text}”`, target: { kind: 'askMicoAi', text } }] : [];
+  if (!results) return [...out, ...ask];
   for (const t of (results.tasks ?? []).filter((x) => isSafeId(x.id)).slice(0, SEARCH_LIMITS.tasks)) {
     // A task that moved project shows the key it had too, as the website does: "OPS-17 (was RIG-4)".
     const hint = t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key;
@@ -175,7 +181,7 @@ export function searchItems({
       target: { kind: 'screen', action: { type: 'stack', screen: 'MeetingDetail', params: { meetingId: m.id, title: m.title } } },
     });
   }
-  return out;
+  return [...out, ...ask];
 }
 
 /**

@@ -91,7 +91,7 @@ describe('the cards follow the website’s card rules (drift)', () => {
     new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({ STATUS_META: {}, STATUS_ORDER: [] }));
     const columns = [col('c2', { position: 1, category: 'BLOCKED', color: '#B5432E' }), col('c1', { position: 0 }), col('off', { position: 2, enabled: false })];
     const tasks = [
-      task('1', { columnId: 'c1', position: 1, dueDate: '2026-10-20', assignees: [{ id: 'u1', name: 'Ann' }] as never }),
+      task('1', { columnId: 'c1', position: 1, dueDate: '2026-10-20', assignees: [{ id: 'u1', name: 'Ann' }] as never, clientVisible: true, inspectionFormId: 'f1' }),
       task('2', { columnId: 'c1', position: 0, recurrenceRule: { freq: 'DAILY', interval: 1 }, isMilestone: true }),
       task('3', { columnId: 'c2', completedAt: '2026-10-01T00:00:00Z', counts: { comments: 1, attachments: 0, checklistDone: 0, checklistTotal: 0 } }),
       task('4', { columnId: 'off' }),
@@ -100,7 +100,7 @@ describe('the cards follow the website’s card rules (drift)', () => {
     const theirs = mod.exports.composeBoard!(columns, tasks) as { id: string; color: string; tasks: Record<string, unknown>[] }[];
     const ours = composeBoard(columns, tasks).map((b) => ({ id: b.column.id, color: b.column.color, tasks: b.tasks.map((t) => boardCard(t, b.column)) }));
     expect(ours.map((c) => c.id)).toEqual(theirs.map((c) => c.id));
-    const fields = ['key', 'title', 'priority', 'dueDate', 'progress', 'assignees', 'counts', 'accentColor', 'blocked', 'recurring', 'milestone', 'awaitingApproval', 'done'] as const;
+    const fields = ['key', 'title', 'priority', 'dueDate', 'progress', 'assignees', 'counts', 'accentColor', 'blocked', 'recurring', 'milestone', 'clientVisible', 'inspection', 'awaitingApproval', 'done'] as const;
     theirs.forEach((column, i) => {
       expect(ours[i]!.color).toBe(column.color);
       const mine = ours[i]!.tasks.map((card: BoardCard) => Object.fromEntries(fields.map((f) => [f, card[f]])));

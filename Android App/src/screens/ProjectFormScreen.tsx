@@ -8,11 +8,12 @@ import { useCodeCheck, useSaveProject } from '../core/project-queries';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
-import { Button, ErrorNote, SkeletonList, TextField } from '../components/ui';
+import { Button, ErrorNote, SkeletonList, TextField, Toggle } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { ChipChoice, InlinePicker } from '../components/meeting/sheet-kit';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { IdentityPicker } from '../components/project/IdentityPicker';
+import { AssigneeField } from '../components/task-form/AssigneeField';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { canManageProject, PROJECT_CHANGE_REFUSED } from '../lib/project-team';
 import { ownerOptions } from '../lib/project-identity';
@@ -21,6 +22,10 @@ import {
   DESCRIPTION_MAX,
   PROJECT_FORM_TEXT,
   PROJECT_START_OVER,
+  PROJECT_TASK_TEXT,
+  TEAM_TEXT,
+  activePeople,
+  teamPool,
   afterCreateTry,
   tryBody,
   NAME_MAX,
@@ -50,9 +55,10 @@ import { font } from '../lib/typography';
 /**
  * New project (anyone signed in) and Edit project (whoever runs it: its owner, its managers, an
  * administrator — the server's canManage), as the website's form: the look (icon and
- * colour, or a picture), name and code, client, project number, description, status, priority and
- * owner. The code is suggested from the name until it is typed in, is checked as it is typed and
- * can't change later. Saving shows progress and can't be sent twice; what was typed stays after an
+ * colour, or a picture), name and code, client, project number, description, status, priority,
+ * owner, a new project's team, and how its tasks behave (the Tasks switches: carry unfinished tasks
+ * forward, new tasks due today, new tasks need approval). The code is suggested from the name until
+ * it is typed in, is checked as it is typed and can't change later. Saving shows progress and can't be sent twice; what was typed stays after an
  * error; leaving with changes asks first. It needs a connection, as on the website.
  */
 export function ProjectFormScreen({ route, navigation }: AppScreenProps<'ProjectForm'>) {
@@ -83,6 +89,8 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   const save = useSaveProject();
   const projectsQ = useProjects();
   const dirQ = useDirectory();
+  const user = useSession()?.user ?? null;
+  const isAdmin = !!user?.roles.includes('ADMIN');
 
   // After "create" succeeds but its picture doesn't, the form carries on editing the new project.
   const [saved, setSaved] = useState<ApiProject | null>(project);
@@ -127,6 +135,8 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   };
   const clients = useMemo(() => clientSuggestions(projectsQ.data ?? [], draft.clientName), [projectsQ.data, draft.clientName]);
   const owners = useMemo(() => ownerOptions(dirQ.data ?? [], draft.ownerId), [dirQ.data, draft.ownerId]);
+  // A new project's team: everyone active — except an employee themself, who joins as a manager anyway.
+  const teamPeople = useMemo(() => teamPool(activePeople(dirQ.data), { id: user?.id ?? '', isAdmin }), [dirQ.data, user?.id, isAdmin]);
   const look = {
     name: draft.name || 'New project',
     color: draft.color,
@@ -385,6 +395,52 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
           <InlinePicker label="Owner (optional)" options={owners} value={draft.ownerId} onChange={(v) => set({ ownerId: v })} placeholder="No owner" disabled={frozen} />
           <Text style={s.note}>New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.</Text>
         </View>
+
+        {!editing ? (
+          <AssigneeField
+            label={TEAM_TEXT.label}
+            listLabel="Team"
+            addLabel={TEAM_TEXT.add}
+            emptyText={TEAM_TEXT.none}
+            allChosenText={TEAM_TEXT.all}
+            people={teamPeople}
+            value={draft.memberIds}
+            onChange={(ids) => set({ memberIds: ids })}
+            note={isAdmin ? TEAM_TEXT.adminNote : TEAM_TEXT.otherNote}
+            disabled={frozen}
+          />
+        ) : null}
+
+        {/* How the project's tasks behave, as the website's "Tasks" fieldset. */}
+        <View style={s.tasks}>
+          <Text style={s.legend} accessibilityRole="header">
+            {PROJECT_TASK_TEXT.legend}
+          </Text>
+          <View style={s.switchRow}>
+            <Toggle on={draft.carryForward} onChange={(v) => set({ carryForward: v })} label={PROJECT_TASK_TEXT.carryForward.label} hint={PROJECT_TASK_TEXT.carryForward.hint} disabled={frozen} />
+            <Text style={s.note} importantForAccessibility="no">
+              {PROJECT_TASK_TEXT.carryForward.hint}
+            </Text>
+          </View>
+          <View style={[s.switchRow, s.switchLine]}>
+            <Toggle on={draft.defaultDueToday} onChange={(v) => set({ defaultDueToday: v })} label={PROJECT_TASK_TEXT.defaultDueToday.label} hint={PROJECT_TASK_TEXT.defaultDueToday.hint} disabled={frozen} />
+            <Text style={s.note} importantForAccessibility="no">
+              {PROJECT_TASK_TEXT.defaultDueToday.hint}
+            </Text>
+          </View>
+          <View style={[s.switchRow, s.switchLine]}>
+            <Toggle
+              on={draft.newTasksNeedApproval}
+              onChange={(v) => set({ newTasksNeedApproval: v })}
+              label={PROJECT_TASK_TEXT.newTasksNeedApproval.label}
+              hint={PROJECT_TASK_TEXT.newTasksNeedApproval.hint}
+              disabled={frozen}
+            />
+            <Text style={s.note} importantForAccessibility="no">
+              {PROJECT_TASK_TEXT.newTasksNeedApproval.hint}
+            </Text>
+          </View>
+        </View>
       </KeyboardAwareScrollView>
       <View style={s.footer}>
         <Button title="Cancel" variant="ghost" onPress={() => navigation.goBack()} disabled={saving} style={s.cancel} />
@@ -418,6 +474,10 @@ const makeStyles = (c: Palette) =>
     clientChip: { minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: c.line, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: c.surface },
     clientText: { fontSize: fontSize.sm, color: c.ink },
     description: { minHeight: 110, paddingTop: spacing.sm },
+    tasks: { borderWidth: 1, borderColor: c.line, borderRadius: radius.card, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, backgroundColor: c.surface },
+    legend: { fontSize: fontSize.sm, ...font('600'), color: c.ink, paddingBottom: spacing.xs },
+    switchRow: { paddingVertical: spacing.sm, gap: 2 },
+    switchLine: { borderTopWidth: 1, borderTopColor: c.line },
     lockRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     shrink: { flexShrink: 1 },
     lock: { gap: spacing.xs, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.md, backgroundColor: c.surface },

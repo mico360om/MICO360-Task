@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 import {
   EXPORT_REPORTS, csvAllowed, reportQuery, reportExportPath, reportFileName, periodRange, periodDays, summarize, statusBars,
   trendStats, taskExportPath, taskFileName, fileSlug, fileNameFromDisposition, mimeTypeFor,
-  MAX_TREND_DAYS, TREND_CHARTS, activePreset, isBackwards, isWholeDate, longRangeNote, onTimeText, rangeProblem, readRange,
-  reportDay, trendCharts, workloadBars,
+  MAX_TREND_DAYS, TREND_CHARTS, activePreset, isBackwards, isWholeDate, longRangeNote, onTimeFigure, rangeProblem, readRange,
+  reportDay, trendCharts, workloadBars, type CompletionStats,
 } from './reports';
 
 describe('report exports', () => {
@@ -156,7 +156,7 @@ describe('the trend charts (5c), as the website’s', () => {
   });
 
   it('says what the on-time bar means, and charts each team member’s assigned tasks, most first', () => {
-    expect(onTimeText({ total: 9, completed: 8, onTime: 6, late: 2, unclassified: 1, onTimeRate: 75 })).toBe('75% of completed tasks with a due date were delivered on time.');
+    expect(onTimeFigure({ total: 9, completed: 8, onTime: 6, late: 2, unclassified: 1, onTimeRate: 75 }).text).toBe('75% of completed tasks with a due date were delivered on time.');
     const rows = [
       { userId: 'u1', username: 'omar', name: 'Omar Ahmed', assigned: 2, completed: 1, overdue: 0 },
       { userId: 'u2', username: 'aisha', assigned: 5, completed: 5, overdue: 1 },
@@ -218,5 +218,23 @@ describe('days told apart over a range of more than one year (5c review #10)', (
   it('within one year the days stay short', () => {
     const t = trendCharts({ from: '2026-01-01', to: '2026-01-02', velocityPerWeek: 0, points: [point('2026-01-01'), point('2026-01-02')], velocity: [] } as never);
     expect(t.labels).toEqual(['1 Jan', '2 Jan']);
+  });
+});
+
+describe('the on-time rate (the website’s ReportsPage)', () => {
+  it('on time shows "—" until a task with a due date is finished', () => {
+    expect(onTimeFigure({ onTime: 0, late: 0, onTimeRate: 0 } as CompletionStats)).toEqual({ value: '—', hint: 'Nothing delivered yet', text: 'No completed tasks with a due date yet.', width: 0 });
+    expect(onTimeFigure({ onTime: 8, late: 2, onTimeRate: 80 } as CompletionStats)).toEqual({ value: '80%', hint: '8 on time · 2 late', text: '80% of completed tasks with a due date were delivered on time.', width: 80 });
+    expect(onTimeFigure(undefined)).toMatchObject({ value: '—', hint: undefined });
+    // Only tasks without a due date finished: nothing to rate yet.
+    expect(onTimeFigure({ total: 3, completed: 3, onTime: 0, late: 0, unclassified: 3, onTimeRate: 0 }).value).toBe('—');
+    expect(onTimeFigure({ onTime: 0, late: 4, onTimeRate: 0 } as CompletionStats)).toMatchObject({ value: '0%', hint: '0 on time · 4 late', width: 0 });
+  });
+});
+
+describe.skipIf(!existsSync(resolve(__dirname, '../../../Web Portal/frontend/src/pages/ReportsPage.tsx')))('the website’s on-time words', () => {
+  it('same rule and words', () => {
+    const w = readFileSync(resolve(__dirname, '../../../Web Portal/frontend/src/pages/ReportsPage.tsx'), 'utf8');
+    for (const t of ['const rated = !!completion && completion.onTime + completion.late > 0;', "'Nothing delivered yet'", 'No completed tasks with a due date yet.', 'of completed tasks with a due date were delivered on time.', "value={rated ? `${completion.onTimeRate}%` : '—'}"]) expect(w, t).toContain(t);
   });
 });

@@ -1,16 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Alert, AccessibilityInfo, AppState, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUserId } from '../core/providers';
 import { useColors } from '../core/theme';
+import { useServerConfig } from '../core/queries';
 import { useAdminUser, useAfterUserChange, useUserActions } from '../core/admin-queries';
-import { Button, Card, ErrorNote, SkeletonList, Muted, NoticeNote, SectionTitle, TextField } from '../components/ui';
+import { Button, Card, ErrorNote, SkeletonList, Muted, NoticeNote, SectionTitle, TextField, Toggle } from '../components/ui';
+import { notice } from '../components/notice';
+import { ApiError } from '../lib/api-client';
 import { KeyboardAwareScrollView, KeyboardGroup } from '../components/KeyboardAware';
 import { CheckRow, ChipChoice } from '../components/meeting/sheet-kit';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { SIGN_IN_LIMITS } from '../lib/auth';
 import { PASSWORD_RULE_HINT, createPasswordWipe } from '../lib/password-change';
 import {
+  NEW_USER_TEXT,
   RESET_DONE,
   ROLE_OPTIONS,
   StatusAfterSaveError,
@@ -19,6 +24,7 @@ import {
   checkResetPassword,
   checkUserEdit,
   createUserProblem,
+  createdNotice,
   editChanged,
   editFormOf,
   resetProblem,
@@ -43,7 +49,8 @@ const NAME_MAX = 191;
 
 /**
  * New user, or Manage account (6b, administrators), as the website's dialogs. New user: the name,
- * username, email, a temporary password and the role. Manage account: the details, the status and
+ * username, email, "Send a welcome email" (on unless email isn't set up on the server), a temporary
+ * password (optional while a welcome email goes: they set their own with its link) and the role. Manage account: the details, the status and
  * the roles (your own are read-only, as on the website), and "Reset password" to set a new one.
  * Passwords stay only in their fields: emptied once used, when you leave the screen, and after a
  * minute away from the app.
@@ -113,12 +120,15 @@ function useClearOnLeave(navigation: Nav, clear: () => void) {
   }, [navigation]);
 }
 
-const EMPTY: NewUserForm = { firstName: '', lastName: '', username: '', email: '', password: '', role: 'EMPLOYEE' };
+const EMPTY: NewUserForm = { firstName: '', lastName: '', username: '', email: '', password: '', role: 'EMPLOYEE', sendWelcome: true };
 
 function NewUserForm({ navigation }: { navigation: Nav }) {
   const s = useStyles();
   const actions = useUserActions();
   const after = useAfterUserChange();
+  const qc = useQueryClient();
+  // Welcome emails need email set up on the server (until /config answers, they're offered).
+  const emailEnabled = useServerConfig().data?.emailEnabled !== false;
   const [form, setForm] = useState<NewUserForm>(EMPTY);
   const [problem, setProblem] = useState<{ field: NewUserField | null; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -133,7 +143,9 @@ function NewUserForm({ navigation }: { navigation: Nav }) {
     email: useRef<TextInput>(null),
     password: useRef<TextInput>(null),
   };
-  const dirty = (Object.keys(EMPTY) as (keyof NewUserForm)[]).some((k) => k !== 'role' && form[k] !== '');
+  const dirty = (Object.keys(EMPTY) as (keyof NewUserForm)[]).some((k) => k !== 'role' && k !== 'sendWelcome' && form[k] !== '');
+  // What is sent: no welcome email while email isn't set up, whatever the switch was left on.
+  const toSend: NewUserForm = { ...form, sendWelcome: emailEnabled && form.sendWelcome };
   useLeaveGuard(navigation, dirty, busy, left, 'the new user');
   useClearOnLeave(navigation, () => setForm((f) => (f.password ? { ...f, password: '' } : f)));
 
@@ -145,25 +157,29 @@ function NewUserForm({ navigation }: { navigation: Nav }) {
 
   async function submit() {
     if (busy.current) return;
-    const bad = checkNewUser(form);
+    const bad = checkNewUser(toSend, { emailEnabled });
     if (bad) {
       setProblem(bad);
       refs[bad.field].current?.focus();
       return;
     }
-    const sent = JSON.stringify(form);
+    const sent = JSON.stringify(toSend);
     if (!key.current || key.current.sent !== sent) key.current = { key: newIdempotencyKey(), sent };
     busy.current = true;
     setSaving(true);
     setProblem(null);
     try {
-      const created = await actions.create(form, key.current.key);
+      const created = await actions.create(toSend, key.current.key);
       left.current = true;
-      after(created);
-      AccessibilityInfo.announceForAccessibility(`Account created for ${userFullName(created)}.`);
+      after(created.user);
+      AccessibilityInfo.announceForAccessibility(`Account created for ${userFullName(created.user)}.`);
+      // Back on the list, it says whether the welcome email went (and why not).
+      notice(createdNotice(created));
       navigation.goBack();
     } catch (e) {
       const p = createUserProblem(e);
+      // The phone thought email was set up: ask the server again, so the switch shows as unavailable.
+      if (e instanceof ApiError && e.code === 'EMAIL_NOT_CONFIGURED') void qc.invalidateQueries({ queryKey: ['server', 'config'] });
       // An answered refusal makes the next try a new one; no answer keeps the key for the same try again.
       if (!p.unsure) key.current = null;
       setProblem(p);
@@ -200,10 +216,20 @@ function NewUserForm({ navigation }: { navigation: Nav }) {
           {field('lastName', 'Last name', { onSubmitEditing: () => refs.username.current?.focus() })}
           {field('username', 'Username', { autoCapitalize: 'none', autoCorrect: false, onSubmitEditing: () => refs.email.current?.focus() })}
           {field('email', 'Email', { keyboardType: 'email-address', autoCapitalize: 'none', autoCorrect: false, autoComplete: 'email', onSubmitEditing: () => refs.password.current?.focus() })}
+          <View style={s.welcome}>
+            <Toggle
+              label={NEW_USER_TEXT.welcome}
+              on={toSend.sendWelcome}
+              disabled={!emailEnabled || saving}
+              hint={emailEnabled ? NEW_USER_TEXT.welcomeHint : NEW_USER_TEXT.welcomeOffHint}
+              onChange={(on) => set({ sendWelcome: on })}
+            />
+            <Muted>{emailEnabled ? NEW_USER_TEXT.welcomeHint : NEW_USER_TEXT.welcomeOffHint}</Muted>
+          </View>
           <TextField
             inputRef={refs.password}
-            label="Temp password"
-            required
+            label={`${NEW_USER_TEXT.password}${toSend.sendWelcome ? NEW_USER_TEXT.optional : ''}`}
+            required={!toSend.sendWelcome}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
@@ -223,6 +249,7 @@ function NewUserForm({ navigation }: { navigation: Nav }) {
               {PASSWORD_RULE_HINT}
             </Text>
           )}
+          {toSend.sendWelcome ? <Text style={s.hint}>{NEW_USER_TEXT.leaveEmpty}</Text> : null}
           <ChipChoice label="Role" options={[...ROLE_OPTIONS].reverse().map((r) => ({ value: r.value, label: r.label }))} value={form.role} onChange={(role) => set({ role })} disabled={saving} />
         </Card>
         <Button title={saving ? 'Creating…' : 'Create user'} accessibilityLabel="Create user" onPress={() => void submit()} loading={saving} />
@@ -427,6 +454,7 @@ const makeStyles = (c: Palette) =>
     hint: { marginTop: -spacing.sm, marginBottom: spacing.md, fontSize: fontSize.xs, color: c.ink2 },
     label: { fontSize: fontSize.sm, ...font('600'), color: c.ink, marginTop: spacing.sm, marginBottom: spacing.xs },
     role: { marginBottom: spacing.sm },
+    welcome: { marginBottom: spacing.md, gap: 2 },
     roleHint: { fontSize: fontSize.xs, color: c.ink2, marginLeft: 36 },
     selfNote: { marginBottom: spacing.md },
   });

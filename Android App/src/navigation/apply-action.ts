@@ -78,5 +78,17 @@ export function applyNavAction(action: NavAction): void {
     case 'Notifications':
       navigationRef.navigate('Notifications');
       break;
+    case 'Timeline':
+      navigationRef.navigate('Timeline');
+      break;
+    case 'Workload':
+      navigationRef.navigate('Workload', action.params);
+      break;
+    case 'Management':
+      navigationRef.navigate('Management');
+      break;
+    case 'MicoAi':
+      navigationRef.navigate('MicoAi', action.params);
+      break;
   }
 }

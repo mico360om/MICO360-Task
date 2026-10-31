@@ -172,6 +172,9 @@ export function groupByDay(items: CalItem[]): Map<string, CalItem[]> {
   return days;
 }
 
+/** A task finished but waiting for approval (never a projected copy, never a done one) — the website's calendar-ui.tsx. */
+export const waits = (item: CalItem): boolean => item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(item.task);
+
 /** What TalkBack reads for a task on the calendar (the website's words). */
 export function itemName(item: CalItem): string {
   const t = item.task;
@@ -179,6 +182,7 @@ export function itemName(item: CalItem): string {
   if (item.kind === 'projected') parts.push(`repeat, not created yet, ${dayLabel(item.date)}`);
   else parts.push(STATUS_LABEL[item.status].toLowerCase());
   if (item.kind === 'task' && item.recurring) parts.push('repeats');
+  if (waits(item)) parts.push('waiting for approval');
   if (t.priority === 'URGENT' || t.priority === 'HIGH') parts.push(`${PRIORITY_LABEL[t.priority].toLowerCase()} priority`);
   return parts.join(', ');
 }

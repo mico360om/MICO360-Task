@@ -54,7 +54,11 @@
             { "scheme": "https", "host": "task.mico360.com", "path": "/profile" },
             { "scheme": "https", "host": "task.mico360.com", "path": "/about" },
             { "scheme": "https", "host": "task.mico360.com", "path": "/reports" },
-            { "scheme": "https", "host": "task.mico360.com", "path": "/admin/users" }
+            { "scheme": "https", "host": "task.mico360.com", "path": "/admin/users" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/timeline" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/workload" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/management" },
+            { "scheme": "https", "host": "task.mico360.com", "path": "/mico-ai" }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
         }
