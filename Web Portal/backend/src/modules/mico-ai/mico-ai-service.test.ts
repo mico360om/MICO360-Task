@@ -97,6 +97,25 @@ describe('MICO AI service: asking', () => {
     expect(JSON.stringify(done)).not.toContain('"results"');
   });
 
+  it('companies: the pick goes with a question into its background answer', async () => {
+    // Every tool call of the answer reads the person's projects with the viewer the question came with.
+    const seen: unknown[] = [];
+    const data = createMemoryMicoAiData(company());
+    const spied = createMicoAiTools({ data: { ...data, accessibleProjectIds: async (v) => (seen.push(v), data.accessibleProjectIds(v)) }, timeZone: 'Asia/Muscat', now: () => NOW });
+    const withSpy = createMicoAiService({
+      repo: createMemoryMicoAiRepository(() => NOW),
+      tools: spied,
+      model: fakeModel([overdueTool, tableAnswer], true, 100),
+      timeZone: 'Asia/Muscat',
+      now: () => NOW,
+    });
+    const chat = await withSpy.createChat(OMAR, {});
+    const { answer } = await withSpy.ask({ ...OMAR, pick: 'company-b' }, chat.id, 'Which tasks are overdue in Rig Inspection?');
+    await withSpy.whenDone(answer.id);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((v) => (v as { pick?: string }).pick === 'company-b')).toBe(true);
+  });
+
   it('shows what it is doing while it works', async () => {
     let release!: () => void;
     const held = new Promise<void>((r) => (release = r));

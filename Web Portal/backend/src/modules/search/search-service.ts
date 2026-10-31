@@ -33,6 +33,10 @@ export interface SearchableMeeting {
   attendeeUserIds: string[];
   /** Searchable body: description + agenda item titles + note bodies + decision text. */
   content: string;
+  /** companies: a meeting without a project belongs to this company (null/absent: none, or it has a project). */
+  companyId?: string | null;
+  /** companies: what an invitee may search and see of it (description + agenda): never its notes or decisions. */
+  inviteeContent?: string;
 }
 
 export interface SearchMeetingResult {
@@ -63,6 +67,20 @@ export interface SearchScope {
   allowedProjectIds?: string[] | null;
   /** The caller's own id — lets them find standalone/attended meetings beyond project scope. */
   userId?: string;
+  /**
+   * companies: the picked company (X-Company-Id). Meetings follow it as the meetings list does: its
+   * projects' meetings, and the caller's own meetings filed under it (an administrator: every one).
+   */
+  pick?: string | null;
+  /** companies: an administrator (with a pick, every meeting of that company). */
+  admin?: boolean;
+  /** companies: the people the caller may find (colleagues; with a pick, that company's); null/absent = everyone. */
+  people?: ReadonlySet<string> | null;
+  /**
+   * companies: the caller's active companies. A meeting they attend whose project shares none of them
+   * is an invitation: only its description and agenda are searched and shown. Absent: no such rule.
+   */
+  companyIds?: readonly string[] | null;
 }
 
 /** At most this many task hits are returned per search (most recently updated first). */
@@ -89,37 +107,61 @@ export function taskMatches(task: Pick<SearchableTask, 'title' | 'key' | 'former
  * `allowedProjectIds` when a scope is given, so a member never sees another project's work.
  * People are matched on name/username only — email is not searchable or returned.
  */
-export function searchAll(query: string, data: SearchData, scope: SearchScope = {}): SearchResults {
+/**
+ * `projectCompanies` (companies): each project's active companies, read for this request (access is
+ * never cached); without it no company rule applies to meetings (older sources, unit tests).
+ */
+export function searchAll(query: string, data: SearchData, scope: SearchScope = {}, projectCompanies?: ReadonlyMap<string, readonly string[]> | null): SearchResults {
   const q = normalizeForSearch(query);
   if (!q) return { tasks: [], projects: [], users: [], meetings: [] };
   const allowed = scope.allowedProjectIds ? new Set(scope.allowedProjectIds) : null;
   const inScope = (projectId: string) => !allowed || allowed.has(projectId);
+  const own = (m: SearchableMeeting) => !!scope.userId && (m.organizerId === scope.userId || m.attendeeUserIds.includes(scope.userId));
+  // companies: a meeting's companies — its project's active ones, or (no project) its own.
+  const companiesOf = (m: SearchableMeeting): readonly string[] | null =>
+    !projectCompanies ? null : m.projectId ? (projectCompanies.get(m.projectId) ?? []) : m.companyId ? [m.companyId] : [];
+  // companies: a picked company keeps the meetings filed under it (its projects', or its own).
+  const inPick = (m: SearchableMeeting) => {
+    const ids = companiesOf(m);
+    return !scope.pick || !ids || ids.includes(scope.pick);
+  };
   // A meeting is visible if the caller is an admin, can see its project, or organizes/attends it.
   const canSeeMeeting = (m: SearchableMeeting): boolean => {
     if (!allowed) return true;
     if (m.projectId && allowed.has(m.projectId)) return true;
-    return !!scope.userId && (m.organizerId === scope.userId || m.attendeeUserIds.includes(scope.userId));
+    if (scope.pick && scope.admin) return inPick(m);
+    return own(m) && inPick(m);
   };
+  // companies: an invitee (attends a meeting whose project shares none of their companies) sees no notes or decisions.
+  const mine = scope.companyIds ? new Set(scope.companyIds) : null;
+  const invited = (m: SearchableMeeting) => {
+    const ids = companiesOf(m);
+    return !!mine && !!m.projectId && !!ids && !(allowed && allowed.has(m.projectId)) && !ids.some((c) => mine.has(c));
+  };
+  const contentOf = (m: SearchableMeeting) => (invited(m) ? (m.inviteeContent ?? '') : m.content);
   const rawQuery = query.trim().toLowerCase();
   return {
     tasks: data.tasks.filter((t) => inScope(t.projectId) && taskMatches(t, q)).slice(0, TASK_RESULT_LIMIT),
     projects: data.projects.filter((p) => inScope(p.id) && matchesNormalized(q, p.name, p.code)),
     users: data.users
-      .filter((u) => matchesNormalized(q, `${u.firstName} ${u.lastName} ${u.username}`))
+      // companies: only people the caller may find (colleagues; with a pick, that company's).
+      .filter((u) => (!scope.people || scope.people.has(u.id)) && matchesNormalized(q, `${u.firstName} ${u.lastName} ${u.username}`))
       .map(({ id, username, firstName, lastName }) => ({ id, username, firstName, lastName })),
     meetings: (data.meetings ?? [])
-      .filter((m) => canSeeMeeting(m) && matchesNormalized(q, m.title, m.content))
+      .filter((m) => canSeeMeeting(m) && matchesNormalized(q, m.title, contentOf(m)))
       .map((m) => ({
         id: m.id,
         title: m.title,
         projectId: m.projectId,
-        snippet: snippetAround(m.content || m.title, rawQuery),
+        snippet: snippetAround(contentOf(m) || m.title, rawQuery),
       })),
   };
 }
 
 export interface SearchDataSource {
   getSearchData(): Promise<SearchData>;
+  /** companies: each project's active companies — read on every search, never from the cached snapshot. */
+  projectCompanies?(): Promise<Map<string, string[]>>;
 }
 
 /** The global search's task group: the best few of the full task search (task-search-engine). */
@@ -141,6 +183,8 @@ export function createCachedSearchDataSource(inner: SearchDataSource, opts: { tt
   let cached: { at: number; data: SearchData } | null = null;
   let inflight: Promise<SearchData> | null = null;
   return {
+    // companies: who belongs where is access — passed through, never cached.
+    ...(inner.projectCompanies ? { projectCompanies: () => inner.projectCompanies!() } : {}),
     async getSearchData(): Promise<SearchData> {
       if (cached && now() - cached.at < opts.ttlMs) return cached.data;
       if (inflight) return inflight;
@@ -155,7 +199,8 @@ export function createCachedSearchDataSource(inner: SearchDataSource, opts: { tt
 
 export function createSearchService({ data, tasks }: { data: SearchDataSource; tasks?: GlobalTaskSearch }) {
   async function search(query: string, scope: SearchScope = {}): Promise<SearchResults> {
-    const results = searchAll(query, await data.getSearchData(), scope);
+    const [snapshot, projectCompanies] = await Promise.all([data.getSearchData(), data.projectCompanies ? data.projectCompanies() : Promise.resolve(null)]);
+    const results = searchAll(query, snapshot, scope, projectCompanies);
     if (tasks) {
       results.tasks = normalizeForSearch(query)
         ? (await tasks.search({ q: query, scope: { projectIds: scope.allowedProjectIds ?? null }, limit: GLOBAL_TASK_LIMIT })).hits

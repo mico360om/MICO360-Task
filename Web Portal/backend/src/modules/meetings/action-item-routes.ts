@@ -40,9 +40,7 @@ export interface ActionItemRouteDeps {
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
   /** Board keys of linked tasks (id → key), so an item can name and open its task. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
-  /** companies: the caller's project ids in a picked company (My Action Items follows the pick). */
-  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
-  /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
+  /** companies: the request's picked company (X-Company-Id); My Action Items follows it. Absent: no pick. */
   pickOf?: PickOf;
 }
 
@@ -84,8 +82,7 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
     const q = mineQuery.parse(req.query);
     // companies: with a pick, only that company's items (none = everything assigned to them, as before).
     const pick = await (deps.pickOf ?? NO_PICK)(req);
-    const projectIds = pick && deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : null;
-    const scope = pick ? { pick: { companyId: pick, projectIds: projectIds ?? [] } } : {};
+    const scope = pick ? { pick: { companyId: pick } } : {};
     return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope })) };
   });
 

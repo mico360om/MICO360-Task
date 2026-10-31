@@ -137,6 +137,22 @@ describe('lists follow companies and the pick (companies)', () => {
     expect(idsOf(await api.get(w.as.ana, '/me/action-items', { 'x-company-id': w.companies.A }))).toEqual([w.actionItems.MA_ana]);
   });
 
+  it('a colleague invited to a project meeting without being on its team keeps it under the pick', async () => {
+    const { amy } = w.as;
+    // amy (Alpha, not on PA's team) attends MA and has an item from it: Alpha's meeting, so it shows under Alpha.
+    const attendee = await prisma.meetingAttendee.create({ data: { meetingId: w.meetings.MA, userId: amy.id, invitedAt: new Date() } });
+    const item = await prisma.actionItem.create({ data: { meetingId: w.meetings.MA, projectId: w.projects.PA, description: 'ZZALPHA action for amy', assigneeId: amy.id, createdById: w.people.ana } });
+    try {
+      const a = { 'x-company-id': w.companies.A };
+      expect(idsOf(await api.get(amy, '/meetings', a))).toEqual(sorted([w.meetings.MA, w.meetings.MN_A]));
+      expect(idsOf(await api.get(amy, '/me/action-items', a))).toEqual([item.id]);
+      expect(idsOf(await api.get(amy, '/meetings'))).toEqual(sorted([w.meetings.MA, w.meetings.MN_A]));
+    } finally {
+      await prisma.actionItem.delete({ where: { id: item.id } });
+      await prisma.meetingAttendee.delete({ where: { id: attendee.id } });
+    }
+  });
+
   it('notifications: an old notice about TB1 is hidden from ana; the count agrees', async () => {
     const { ana } = w.as;
     await prisma.notification.create({ data: { userId: ana.id, type: 'TASK_COMMENT', title: 'ZZBETA', entityType: 'task', entityId: w.tasks.TB1, projectId: w.projects.PB } });

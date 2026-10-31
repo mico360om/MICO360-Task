@@ -505,6 +505,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // companies: a company's active people (an administrator's Workload and Reports with a pick show them).
       const companies = deps.companyAccess;
       const companyPeople = companies ? (companyId: string) => companies.projectCompanyPeople([companyId]) : undefined;
+      // companies: a person's active companies, and who a search may find (colleagues, the viewer too;
+      // with a pick that company's people; an administrator without a pick everyone: null).
+      const companiesOf = companies ? (userId: string) => companies.activeCompanyIds(userId) : undefined;
+      const searchPeople = companies
+        ? async (viewer: { id: string; roles: string[] }, pick: string | null): Promise<ReadonlySet<string> | null> => {
+            if (pick) return new Set(await companies.projectCompanyPeople([pick]));
+            const known = await companies.knownPeople(viewer);
+            if (known === 'everyone') return null;
+            return new Set([viewer.id, ...[...known].filter(([, k]) => k.colleague).map(([id]) => id)]);
+          }
+        : undefined;
       if (deps.projectService) {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
@@ -718,7 +729,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pickOf, accessibleProjectIds, companyPeople });
       }
       if (deps.searchService) {
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch });
+        // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, { meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, pickOf, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser });
@@ -736,8 +748,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canViewMeeting,
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
           resolveTaskKeys: deps.resolveTaskKeys,
-          accessibleProjectIds, // companies: My Action Items follows the pick
-          pickOf,
+          pickOf, // companies: My Action Items follows the pick
         });
       }
       if (deps.noteService) {
@@ -785,7 +796,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerAiFeatureRoutes(api, { aiFeatureService: deps.aiFeatureService, guard, agendaSources: deps.meetingAgendaSources, userNames: deps.resolveUserNames, pickOf });
       }
       if (deps.micoAiService) {
-        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard });
+        await registerMicoAiRoutes(api, { micoAiService: deps.micoAiService, guard, pickOf }); // companies: asking follows the pick
       }
       if (deps.emailWebhookService) {
         await registerEmailWebhookRoutes(api, { emailWebhookService: deps.emailWebhookService, token: deps.mailjetWebhookToken });

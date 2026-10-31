@@ -53,11 +53,11 @@ export interface AssigneeListFilter {
   /** Only items that are still actionable (not COMPLETED/CANCELLED). */
   openOnly?: boolean;
   /**
-   * companies: only the picked company's — items of `projectIds` (the person's projects in it, by
-   * the item's project or its meeting's), items of its meetings without a project, and items with
-   * neither a project nor a meeting. An invitee's items from another company's meeting drop out.
+   * companies: only the picked company's — items of its projects (by the item's project or its
+   * meeting's), items of its meetings without a project, and items with neither a project nor a
+   * meeting. An invitee's items from another company's meeting drop out.
    */
-  pick?: { companyId: string; projectIds: string[] };
+  pick?: { companyId: string };
 }
 
 export interface ActionItemRepository {

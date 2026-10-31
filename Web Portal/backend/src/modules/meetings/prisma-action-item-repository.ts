@@ -73,7 +73,9 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
       else if (filter.openOnly) where.status = { notIn: ['COMPLETED', 'CANCELLED'] };
       if (filter.pick) {
         // companies: the picked company's items only (see AssigneeListFilter.pick).
-        const { companyId, projectIds } = filter.pick;
+        const { companyId } = filter.pick;
+        // The company's projects (they're the person's own items: whether or not they're on its team).
+        const projectIds = (await prisma.projectCompany.findMany({ where: { companyId }, select: { projectId: true } })).map((r) => r.projectId);
         where.AND = [
           {
             OR: [

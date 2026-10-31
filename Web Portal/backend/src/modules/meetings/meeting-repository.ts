@@ -81,9 +81,10 @@ export interface MeetingListFilter {
   /**
    * Restrict to meetings the user organizes or attends, or in these project ids (null = no scope).
    * companies — `pick`: only the picked company's meetings: those of `projectIds` (the person's
-   * projects in that company), and meetings without a project filed under that company — the person's
-   * own (organizer or attendee), or every one for an administrator (`everyone`). A meeting someone
-   * was only invited to (its project isn't theirs) shows under "All my companies" only.
+   * projects in that company), and their own meetings (organizer or attendee) of any project of that
+   * company or without a project but filed under it — every one of those for an administrator
+   * (`everyone`). A meeting someone was only invited to (its project shares none of their companies)
+   * shows under "All my companies" only.
    */
   scope?: { userId: string; projectIds: string[] | null; pick?: { companyId: string; everyone: boolean } };
 }

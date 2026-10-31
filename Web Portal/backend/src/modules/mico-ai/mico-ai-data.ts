@@ -9,7 +9,16 @@ import type { ExternalContactFields } from '../tasks/external-contacts';
 export interface Viewer {
   userId: string;
   roles: string[];
+  /**
+   * companies: the company picked in the top bar when the question was asked (X-Company-Id; null or
+   * absent = all their companies). It goes with the question into its background answer: every
+   * tool and every proposed change answers from that company's projects only.
+   */
+  pick?: string | null;
 }
+
+/** companies: a viewer with the pick the question was asked under. */
+export type MicoAiViewer = Viewer & { pick: string | null };
 
 export interface AiProjectRec {
   id: string;
@@ -94,6 +103,11 @@ export interface AiMeetingRec {
   location: string | null;
   decisions: number;
   openActionItems: number;
+  /**
+   * companies: the companies it belongs to — its project's active companies, or (no project) its own
+   * company. Absent (older sources): no company rule applies to it.
+   */
+  companyIds?: string[];
 }
 
 export interface AiMeetingDetail extends AiMeetingRec {
@@ -198,8 +212,13 @@ export interface MicoAiDataPort {
   conversations(viewer: Viewer): Promise<AiConversationRec[]>;
   /** Newest first; `total` counts every match. */
   chatMessages(filter: { conversationIds: string[]; text?: string; senderIds?: string[]; from?: Date; to?: Date; limit: number }): Promise<Page<AiChatMessageRec>>;
-  /** The people directory every signed-in person sees (names and usernames only). */
-  people(): Promise<AiPersonRec[]>;
+  /**
+   * The people this person may know (names and usernames only): companies — colleagues, teammates
+   * on projects they see and direct-chat partners; an administrator everyone. Without a viewer: everyone.
+   */
+  people(viewer?: Viewer): Promise<AiPersonRec[]>;
+  /** companies: this person's active companies (a meeting they were only invited to shows no notes). Absent: no such rule. */
+  companiesOf?(viewer: Viewer): Promise<string[]>;
   /** Owners, managers and members of these projects (null: all). */
   memberships(projectIds: string[] | null): Promise<AiMembershipRec[]>;
 }

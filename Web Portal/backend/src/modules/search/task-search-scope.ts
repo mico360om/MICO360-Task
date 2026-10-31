@@ -9,19 +9,21 @@ export interface SearchViewer {
 
 /**
  * The tasks a person may find — the same as the tasks they may open: those of the projects they can
- * see (project-access: owner, named manager or on the team; an administrator sees every project).
- * Multi-company work adds its "only the picked companies" here, and in visibleTasksSql below — the
- * one place the visible-task filter is built for task search.
+ * see (project-access: owner, named manager or on the team, inside one of their active companies; an
+ * administrator sees every project) — and, with a picked company (X-Company-Id), only that company's
+ * projects (an administrator: all of that company's). This and visibleTasksSql below are the one
+ * place the visible-task filter is built for task search (the global search uses it too).
  */
 export interface TaskSearchScope {
   /** Project ids the person may see; `null` = every project (an administrator). */
   projectIds: string[] | null;
 }
 
-export function createTaskSearchScope({ accessibleProjectIds }: { accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null> }) {
+export function createTaskSearchScope({ accessibleProjectIds }: { accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null> }) {
   return {
-    async forViewer(viewer: SearchViewer): Promise<TaskSearchScope> {
-      return { projectIds: accessibleProjectIds ? await accessibleProjectIds(viewer.id, viewer.roles) : null };
+    /** companies: `pick` (the request's picked company, already checked) narrows to that company's projects. */
+    async forViewer(viewer: SearchViewer, pick: string | null = null): Promise<TaskSearchScope> {
+      return { projectIds: accessibleProjectIds ? await accessibleProjectIds(viewer.id, viewer.roles, pick) : null };
     },
   };
 }

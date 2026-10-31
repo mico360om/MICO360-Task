@@ -221,13 +221,20 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
   };
   const meetingRef = (m: Pick<AiMeetingRec, 'id' | 'title' | 'startAt'>): SourceRef => ({ type: 'meeting', id: m.id, label: `${clip(m.title, 50)} · ${shortDay(m.startAt)}`, url: `/meetings/${m.id}` });
 
-  /** Everything a tool needs to know about who is asking. */
+  /**
+   * Everything a tool needs to know about who is asking — companies: their projects in the company the
+   * question was asked under (viewer.pick), the people they may know, and their active companies.
+   */
   async function scopeOf(viewer: Viewer) {
     const projectIds = await data.accessibleProjectIds(viewer);
-    const [projects, people] = await Promise.all([data.projects(projectIds), data.people()]);
+    const [projects, people, companyIds] = await Promise.all([
+      data.projects(projectIds),
+      data.people(viewer),
+      data.companiesOf && !viewer.roles.includes('ADMIN') ? data.companiesOf(viewer) : Promise.resolve(null),
+    ]);
     const visible = projectIds === null ? projects : projects.filter((p) => projectIds.includes(p.id));
     const allowed = (projectId: string | null | undefined) => !!projectId && (projectIds === null || projectIds.includes(projectId));
-    return { viewer, projectIds, projects: visible, people, allowed, person: new Map(people.map((p) => [p.id, p])) };
+    return { viewer, pick: viewer.pick ?? null, companyIds, projectIds, projects: visible, people, allowed, person: new Map(people.map((p) => [p.id, p])) };
   }
   type Scope = Awaited<ReturnType<typeof scopeOf>>;
 
@@ -298,9 +305,17 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     return rows.filter((t) => s.allowed(t.projectId) && (!filter.projectId || t.projectId === filter.projectId) && (!filter.assigneeId || t.assigneeIds.includes(filter.assigneeId)));
   }
 
-  /** The meeting rule, on a listed meeting's own facts. */
+  const ownMeeting = (s: Scope, m: AiMeetingRec) => m.organizerId === s.viewer.userId || m.createdById === s.viewer.userId || m.attendeeUserIds.includes(s.viewer.userId);
+  /**
+   * The meeting rule, on a listed meeting's own facts — companies: with a pick, only meetings filed
+   * under it (its projects' meetings, and no-project meetings of that company); a meeting someone was
+   * only invited to shows under "All my companies".
+   */
   const meetingVisible = (s: Scope, m: AiMeetingRec) =>
-    s.viewer.roles.includes('ADMIN') || m.organizerId === s.viewer.userId || m.createdById === s.viewer.userId || m.attendeeUserIds.includes(s.viewer.userId) || s.allowed(m.projectId);
+    (s.viewer.roles.includes('ADMIN') || ownMeeting(s, m) || s.allowed(m.projectId)) && (!s.pick || s.allowed(m.projectId) || !m.companyIds || m.companyIds.includes(s.pick));
+  /** companies: invited to a meeting whose project shares none of their companies — no notes, decisions or others' items (§8.8). */
+  const invitedTo = (s: Scope, m: AiMeetingRec) =>
+    !!s.companyIds && !!m.projectId && !!m.companyIds && !s.allowed(m.projectId) && ownMeeting(s, m) && !m.companyIds.some((c) => s.companyIds!.includes(c));
 
   /** Meetings the person may see, nearest to today first (upcoming soonest, then the latest past); `total` counts all. */
   async function visibleMeetings(s: Scope, filter: { projectId?: string; from: Date; to: Date; text?: string }) {
@@ -584,6 +599,18 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         if (found.length === 1 && (await data.canViewMeeting(s.viewer, found[0]!.id))) m = await data.meetingDetail(found[0]!.id);
       }
       if (!m) throw new ToolProblem(`No meeting you can see matches “${said}”.`);
+      // companies: an invitee sees the meeting, its people, agenda and approved minutes, and their own
+      // action items — never its notes, decisions, drafts or linked tasks (§8.8, Ruling 10).
+      const invitee = invitedTo(s, m);
+      if (invitee) {
+        m = {
+          ...m,
+          notes: [],
+          decisionsList: [],
+          actionItems: m.actionItems.filter((i) => i.assigneeId === s.viewer.userId).map((i) => ({ ...i, taskId: null, taskKey: null })),
+          finalMinutes: m.finalMinutes?.status === 'APPROVED' ? m.finalMinutes : null,
+        };
+      }
       const who = (uid: string | null) => (uid ? nameOf(s.person.get(uid)) || null : null);
       const taskRefs = m.actionItems.filter((i) => i.taskId && i.taskKey).map((i) => ({ id: i.taskId!, key: i.taskKey! }));
       const visibleTaskRefs: SourceRef[] = [];
@@ -592,7 +619,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
         if (found && s.allowed(found.projectId)) visibleTaskRefs.push(taskRef(found));
       }
       // As the meeting page: final minutes for everyone who can see the meeting, a draft only for those who can change it.
-      const fm = m.finalMinutes && (m.finalMinutes.status === 'APPROVED' || (await data.canEditMeeting(s.viewer, m.id))) ? m.finalMinutes : null;
+      const fm = m.finalMinutes && (m.finalMinutes.status === 'APPROVED' || (!invitee && (await data.canEditMeeting(s.viewer, m.id)))) ? m.finalMinutes : null;
       const meeting = m;
       return {
         tool: 'meeting_details',
@@ -608,8 +635,9 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
               project: projectName(s, meeting.projectId) || null,
               organizer: who(meeting.organizerId),
               status: MEETING_STATUS[meeting.status] ?? meeting.status,
-              decisions: meeting.decisions,
-              openActions: meeting.openActionItems,
+              // companies: an invitee isn't told the team's figures.
+              decisions: invitee ? null : meeting.decisions,
+              openActions: invitee ? null : meeting.openActionItems,
             },
           },
         ],
@@ -660,7 +688,8 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       });
       // Each item's meeting is checked again with the meeting rule.
       const items = page.rows
-        .filter((i) => meetingVisible(s, i.meeting) && (!project || i.meeting.projectId === project.id) && i.meeting.startAt >= from && i.meeting.startAt <= to)
+        // companies: of a meeting they were only invited to, their own items only.
+        .filter((i) => meetingVisible(s, i.meeting) && (!invitedTo(s, i.meeting) || i.assigneeId === s.viewer.userId) && (!project || i.meeting.projectId === project.id) && i.meeting.startAt >= from && i.meeting.startAt <= to)
         .filter((i) => (!person || i.assigneeId === person.id) && (status === 'any' || (status === 'open' ? OPEN_ACTION.has(i.status) : !OPEN_ACTION.has(i.status))));
       const rows = items.slice(0, MAX_RESULT_ROWS).map((i): ResultRow => {
         const m = i.meeting;
@@ -859,8 +888,9 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const project = a.project ? resolveProject(s, a.project as string) : null;
       const memberships = (await data.memberships(project ? [project.id] : s.projectIds)).filter((m) => s.allowed(m.projectId) && (!project || m.projectId === project.id));
       const q = normalizeForSearch(a.name as string | undefined);
+      // companies: the people they may know; with a pick, those on the picked company's projects they see.
       const people = s.people
-        .filter((p) => (!project || memberships.some((m) => m.userId === p.id)) && (!q || matchesNormalized(q, `${p.firstName} ${p.lastName}`, p.username)))
+        .filter((p) => (!(project || s.pick) || memberships.some((m) => m.userId === p.id)) && (!q || matchesNormalized(q, `${p.firstName} ${p.lastName}`, p.username)))
         .sort((x, y) => nameOf(x).localeCompare(nameOf(y)));
       const rows = people.slice(0, MAX_RESULT_ROWS).map((p): ResultRow => {
         const roles = memberships
