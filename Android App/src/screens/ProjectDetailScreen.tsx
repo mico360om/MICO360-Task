@@ -15,6 +15,7 @@ import { OverviewTab } from '../components/project/OverviewTab';
 import { MeetingsTab } from '../components/project/MeetingsTab';
 import { TeamTab } from '../components/project/TeamTab';
 import { InspectionsTab } from '../components/project/InspectionsTab';
+import { SaveProjectTemplateSheet } from '../components/templates/SaveProjectTemplateSheet';
 import { TaskGroupHeading, TasksTabBar, TasksTabRow, tasksTabItems, type TasksTabItem } from '../components/project/TasksTab';
 import { ApiError } from '../lib/api-client';
 import { companyTodayKey } from '../lib/due-date';
@@ -34,6 +35,7 @@ import {
   type TaskFilter,
 } from '../lib/project-dashboard';
 import type { ApiTask } from '../lib/types';
+import { TEMPLATE_SAVE_WORDS } from '../lib/template-words';
 import { spacing, fontSize, radius, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
@@ -79,6 +81,8 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
   const chatError = chat.error;
   const openingChat = chat.opening === projectId;
   const [ownerProblem, setOwnerProblem] = useState<string | null>(null);
+  // Save as template: whoever runs the project (the server checks too — Stage 4).
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const ownerMut = useProjectOwner(projectId);
 
   const project = projectQ.data;
@@ -168,9 +172,20 @@ export function ProjectDetailScreen({ route, navigation }: AppScreenProps<'Proje
       <View style={s.actions}>
         {/* New task in this project (4a; the website's header New task starts in the project open). */}
         <Button title="New task" onPress={() => navigation.navigate('NewTask', { projectId })} style={s.action} />
+        {canManage ? (
+          <Button
+            title="Save as template"
+            icon="misc.templateSave"
+            variant="secondary"
+            accessibilityHint={TEMPLATE_SAVE_WORDS.projectActionHint}
+            onPress={() => setSavingTemplate(true)}
+            style={s.action}
+          />
+        ) : null}
         {canManage ? <Button title="Edit project" icon="ui.edit" accessibilityLabel="Edit project" variant="secondary" onPress={() => navigation.navigate('ProjectForm', { projectId })} style={s.action} /> : null}
       </View>
       <SheetMessage text={ownerProblem} />
+      {savingTemplate ? <SaveProjectTemplateSheet projectId={projectId} projectName={project.name} onClose={() => setSavingTemplate(false)} /> : null}
 
       <StatTiles tiles={statTiles(stats, statsReady)} />
       <ProgressBar value={statsReady ? stats.pct : 0} label="Completion" />

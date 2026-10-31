@@ -39,7 +39,13 @@ export function HeaderCard({
   onEdit,
   move,
   onMove,
+  canSaveTemplate,
+  onSaveTemplate,
 }: {
+  /** May the signed-in person save the task as a task template (whoever runs its project — Stage 4). */
+  canSaveTemplate?: boolean;
+  /** Opens "Save task as template". */
+  onSaveTemplate?: () => void;
   /** May the signed-in person move it to another project (the website's rule), and why not. */
   move?: MoveAvailability;
   /** Opens "Move to another project". */
@@ -233,6 +239,7 @@ export function HeaderCard({
                 </View>
               )
             ) : null}
+            {canSaveTemplate && onSaveTemplate ? action('Save as template…', onSaveTemplate) : null}
             {action('Cancel', () => {})}
           </View>
         </Pressable>

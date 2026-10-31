@@ -1,6 +1,6 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { PROJECT_TEMPLATES_KEY, TASK_TEMPLATES_KEY } from '../lib/templates-api';
+import { PROJECT_TEMPLATES_KEY, TASK_TEMPLATES_KEY, type TemplatesApi } from '../lib/templates-api';
 import { isWholeDate } from '../lib/reports';
 import type { TemplateChoice } from '../lib/template-choice';
 
@@ -40,5 +40,34 @@ export function useTemplatePlan(choice: TemplateChoice | null) {
     queryFn: () => resources.templates.plan(choice!.id, choice!.startDate),
     enabled: !!choice && isWholeDate(choice.startDate),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** What "Save as template" will take from a project (asked afresh each time the sheet opens). */
+export function useProjectTemplateDraft(projectId: string, enabled: boolean) {
+  const { resources } = useServices();
+  return useQuery({ queryKey: ['templates', 'from-project', projectId], queryFn: () => resources.templates.projectDraft(projectId), enabled, staleTime: 0 });
+}
+
+type SaveProjectInput = Parameters<TemplatesApi['saveProject']>[1];
+type SaveTaskInput = NonNullable<Parameters<TemplatesApi['saveTask']>[1]>;
+
+/** Save a project as a template (whoever runs it; the server checks too), under the sheet's key; the template lists refresh. */
+export function useSaveProjectTemplate(projectId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ input, key }: { input: SaveProjectInput; key: string }) => resources.templates.saveProject(projectId, input, key),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: PROJECT_TEMPLATES_KEY }),
+  });
+}
+
+/** Save a task as a task template (whoever runs its project), under the sheet's key; the task templates refresh. */
+export function useSaveTaskTemplate(taskId: string) {
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ input, key }: { input: SaveTaskInput; key: string }) => resources.templates.saveTask(taskId, input, key),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: TASK_TEMPLATES_KEY }),
   });
 }

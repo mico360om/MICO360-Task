@@ -55,6 +55,7 @@ import { withQueuedTicks } from '../lib/checklist-ticks';
 import type { AppScreenProps } from '../navigation/types';
 import { displayName } from '../lib/types';
 import { HeaderCard } from '../components/task-detail/HeaderCard';
+import { SaveTaskTemplateSheet } from '../components/templates/SaveTaskTemplateSheet';
 import { DetailsCard, type TaskPatch } from '../components/task-detail/DetailsCard';
 import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '../components/task-detail/WorkCards';
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
@@ -123,6 +124,7 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   // Moving it to another project (the ⋯ menu): where the person may move tasks, and the sheet.
   const moveTargets = useMoveTargets(true);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const directoryQ = useDirectory();
   const queued = useMyQueuedChanges();
   const { baseUrl, exporter, resources } = useServices();
@@ -187,6 +189,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const myRoles = session?.user.roles ?? [];
   const isAdmin = myRoles.includes('ADMIN');
   const members = membersQ.data ?? [];
+  const user = session?.user ?? null;
+  const project = projectQ.data;
   const series = inSeries(task);
   const deps = depsQ.data ?? { blockedBy: [], blocks: [] };
 
@@ -429,6 +433,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           onEdit={() => navigation.navigate('NewTask', { taskId: task.id })}
           move={moveAvailability(task.projectId, moveTargets, projectQ.data?.name)}
           onMove={() => setMoveOpen(true)}
+          // Save as template: whoever runs the project (the server checks too).
+          canSaveTemplate={canDeleteTask(user, project, members)}
+          onSaveTemplate={() => setSavingTemplate(true)}
         />
         {show(layout.top)}
         {wide ? (
@@ -456,6 +463,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           notice(movedText(r));
         }}
       />
+      {savingTemplate ? (
+        <SaveTaskTemplateSheet taskId={task.id} taskTitle={task.title} description={task.description} checklistCount={checklistQ.data?.items?.length ?? 0} onClose={() => setSavingTemplate(false)} />
+      ) : null}
       <FilePreviewSheet
         file={previewing}
         mode={previewing ? previewMode(previewing.mimeType, previewing.filename) : null}

@@ -72,4 +72,5 @@
 - In the Android app, a project's inspection schedules are listed with their repeat, next due and last done; people who can schedule may Schedule an inspection, edit a schedule or stop it.
 <!-- inspections lines above this line -->
 - In the Android app, a new project can start from a project template: pick its start day and who fills each role, and see the tasks it will create.
+- In the Android app, the people who run a project can save it, or one of its tasks, as a template; templates are edited on the website.
 <!-- templates-client lines above this line -->
