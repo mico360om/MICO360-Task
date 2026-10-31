@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { FONT_FACES } from './typography';
-import { PLEX_SEMIBOLD_ADVANCE, textWidthEm } from './font-metrics';
+import { ARCHIVO_BOLD_ADVANCE, PLEX_SEMIBOLD_ADVANCE, textWidthEm } from './font-metrics';
 import { appPath, appSource as src, hasWeb, sha256, webPath } from '../testing/web-source';
 
 it('bundles every face as a TrueType file that the app loads by name', () => {
@@ -31,6 +31,14 @@ it('has Plex SemiBold widths for every printable ASCII letter', () => {
   expect(w).toBeGreaterThan(4);
   expect(w).toBeLessThan(6);
   expect(textWidthEm('é')).toBe(0.6); // outside ASCII: the fallback width
+});
+
+// Stage 2 fix pass B5: the project card's figures (Archivo Bold, the display face) are measured too.
+it('has Archivo Bold widths for every printable ASCII letter, its digits all but equal', () => {
+  expect(Object.keys(ARCHIVO_BOLD_ADVANCE)).toHaveLength(95);
+  const digits = [...'0123456789'].map((d) => ARCHIVO_BOLD_ADVANCE[d]!);
+  expect(Math.max(...digits) - Math.min(...digits)).toBeLessThan(0.005);
+  expect(textWidthEm('Tomorrow', ARCHIVO_BOLD_ADVANCE)).toBeGreaterThan(textWidthEm('Today', ARCHIVO_BOLD_ADVANCE));
 });
 
 // Final review L4: while the fonts load the app shows the splash's own picture (rendering nothing showed

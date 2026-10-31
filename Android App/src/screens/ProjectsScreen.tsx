@@ -11,6 +11,7 @@ import { ProjectCard } from '../components/projects/ProjectCard';
 import { ProjectStatusSheet } from '../components/projects/ProjectStatusSheet';
 import { ArchiveProjectSheet } from '../components/projects/ArchiveProjectSheet';
 import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
+import { notice } from '../components/notice';
 import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
 import { projectStatusLabel } from '../lib/project-identity';
 import {
@@ -78,7 +79,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
     if (out.ok) AccessibilityInfo.announceForAccessibility(`${project.name} is now ${projectStatusLabel(status).toLowerCase()}.`);
     else {
       setProblem(out.message);
-      AccessibilityInfo.announceForAccessibility(out.message);
+      notice(out.message);
     }
   };
   const pickStatus = (project: ProjectOverview, status: string) => {
