@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { PEOPLE_FIRST, filterNotes, findMeeting, meetingDetailRows, noteFilters, type DetailInput, type DetailRow } from './meeting-screen';
+import {
+  AGENDA_EMPTY_ENDED,
+  NOTES_EMPTY,
+  PEOPLE_FIRST,
+  agendaEmptyText,
+  filterNotes,
+  findMeeting,
+  meetingDetailRows,
+  noteFilters,
+  notesEmptyText,
+  type DetailInput,
+  type DetailRow,
+} from './meeting-screen';
 import type { ApiActionItem, ApiAgendaItem, ApiFinalMinutes, ApiMeeting, ApiMeetingAttendee, ApiMeetingNote } from './types';
+import { hasWeb, readWeb } from '../testing/web-source';
 
 const meeting = (over: Partial<ApiMeeting> = {}): ApiMeeting => ({
   id: 'm1',
@@ -167,6 +180,89 @@ describe('meetingDetailRows (one FlatList: long notes and action items stay quic
     expect(title('actions')).toMatchObject({ title: 'Action items', count: '1 open of 2' });
     expect(title('agenda')).toMatchObject({ title: 'Agenda', count: '1' });
     expect(title('minutes')).toMatchObject({ title: 'Final MOM' });
+  });
+});
+
+/** The first kind of each section, in order ('header', 'about', then each part's name). */
+const sectionsOf = (rows: DetailRow[]) => {
+  const out: string[] = [];
+  for (const r of rows) {
+    const name = 'section' in r ? r.section : r.kind;
+    if (out[out.length - 1] !== name && name !== 'rsvp') out.push(name);
+  }
+  return out;
+};
+const emptyText = (rows: DetailRow[], section: string) => {
+  const row = rows.find((r) => r.kind === 'empty' && r.section === section);
+  return row && row.kind === 'empty' ? row.text : null;
+};
+
+describe('a finished meeting (the website’s order once it is COMPLETED)', () => {
+  it('a finished meeting opens on its Final MOM and action items', () => {
+    expect(sectionsOf(meetingDetailRows(input({ meeting: meeting({ status: 'COMPLETED' }) })))).toEqual(['header', 'about', 'minutes', 'actions', 'agenda', 'people', 'notes']);
+    expect(sectionsOf(meetingDetailRows(input({ meeting: meeting({ status: 'SCHEDULED' }) })))).toEqual(['header', 'about', 'agenda', 'people', 'notes', 'actions', 'minutes']);
+    // Each part's rows stay together, your answer stays under the header.
+    expect(kinds(meetingDetailRows(input({ canRsvp: true, meeting: meeting({ status: 'COMPLETED' }) })))).toEqual([
+      'header',
+      'rsvp',
+      'about',
+      '# minutes',
+      'minutes',
+      '# actions',
+      'action',
+      '# agenda',
+      'agenda',
+      '# people',
+      'person',
+      'person',
+      '# notes',
+      'noteFilters',
+      'note',
+    ]);
+  });
+
+  it('under way, cancelled or past its end without being finished, it keeps the planning order (as the website)', () => {
+    for (const status of ['IN_PROGRESS', 'CANCELLED', 'DRAFT'] as const) expect(sectionsOf(meetingDetailRows(input({ meeting: meeting({ status }) })))[2], status).toBe('agenda');
+    expect(sectionsOf(meetingDetailRows(input({ meeting: meeting({ status: 'SCHEDULED', startAt: '2026-01-01T06:00:00.000Z', endAt: '2026-01-01T07:00:00.000Z' }) })))[2]).toBe('agenda');
+  });
+
+  it('"No notes were taken." once the meeting has ended', () => {
+    expect(notesEmptyText({ ended: true, canEdit: false })).toBe('No notes were taken.');
+    expect(notesEmptyText({ ended: true, canEdit: true })).toBe('No notes were taken. Add what was discussed, decided and agreed: the Final MOM above can be drafted from them.');
+    expect(notesEmptyText({ ended: false, canEdit: true })).toBe('No notes yet. Capture discussion, decisions and actions as the meeting unfolds.');
+    expect(notesEmptyText({ ended: false, canEdit: false })).toBe('No notes yet. Capture discussion, decisions and actions as the meeting unfolds.');
+    expect(agendaEmptyText({ ended: true, canEdit: false })).toBe('No agenda was set for this meeting.');
+    expect(agendaEmptyText({ ended: true, canEdit: true })).toBe('No agenda was set for this meeting. You can still add the topics that were covered.');
+    expect(agendaEmptyText({ ended: false, canEdit: true })).toBeNull();
+  });
+
+  it('the empty notes and agenda of a finished meeting say so; a planned one keeps its words', () => {
+    const empty = { agenda: loaded([]), notes: loaded([]) };
+    const done = meeting({ status: 'COMPLETED' });
+    expect(emptyText(meetingDetailRows(input({ ...empty, meeting: done })), 'notes')).toBe('No notes were taken.');
+    expect(emptyText(meetingDetailRows(input({ ...empty, meeting: done, canEdit: true })), 'notes')).toBe(NOTES_EMPTY.notTaken + NOTES_EMPTY.notTakenEdit);
+    expect(emptyText(meetingDetailRows(input({ ...empty, meeting: done })), 'agenda')).toBe(AGENDA_EMPTY_ENDED.view);
+    expect(emptyText(meetingDetailRows(input({ ...empty, meeting: done, canEdit: true })), 'agenda')).toBe(AGENDA_EMPTY_ENDED.edit);
+    expect(emptyText(meetingDetailRows(input({ ...empty, canEdit: true })), 'agenda')).toBe('No agenda yet. Add the topics you plan to cover, who presents each and for how long.');
+    expect(emptyText(meetingDetailRows(input({ ...empty, canEdit: true })), 'notes')).toBe(NOTES_EMPTY.notYet);
+  });
+});
+
+describe.skipIf(!hasWeb('frontend/src/components/meeting/NotesSection.tsx', 'frontend/src/components/meeting/AgendaSection.tsx', 'frontend/src/pages/MeetingDetailPage.tsx'))('the website’s', () => {
+  it('words and finished order', () => {
+    const w = readWeb('frontend/src/components/meeting/NotesSection.tsx') + readWeb('frontend/src/components/meeting/AgendaSection.tsx');
+    // The website (31 Oct) still says "the Final MOM below" although a finished meeting shows it above
+    // the notes; the phone says "above" (its true place) — either is accepted until the website is fixed.
+    for (const t of [...Object.values(NOTES_EMPTY), ...Object.values(AGENDA_EMPTY_ENDED)]) {
+      const words = t.trim();
+      expect(w.includes(words) || w.includes(words.replace('the Final MOM above', 'the Final MOM below')), words).toBe(true);
+    }
+    const page = readWeb('frontend/src/pages/MeetingDetailPage.tsx');
+    expect(page).toMatch(/finished \? \[finalMom, actions, agenda, notes\]/);
+    // "Ended" for the notes and agenda words is the website's `finished`: the meeting is COMPLETED.
+    expect(page).toMatch(/const finished = meeting\.status === 'COMPLETED';/);
+    expect(page).toMatch(/<NotesSection[^>]*ended=\{finished\}/);
+    expect(page).toMatch(/<AgendaSection[^]*?ended=\{finished\}/);
   });
 });
 

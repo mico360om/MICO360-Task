@@ -34,4 +34,5 @@
 <!-- daily-work-pages lines above this line -->
 
 - In the Android app, Meetings shows the website's summary — Next 7 days, Open action items, Minutes to finish, Held this month; tap one to filter — "Nothing coming up" with the last meeting, people's faces on the cards and a compact header.
+- In the Android app, a finished meeting shows its Final MOM and action items first, and says "No notes were taken." when none were.
 <!-- daily-work-meetings-people lines above this line -->

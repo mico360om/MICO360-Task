@@ -2,7 +2,9 @@
  * The meeting details screen as one list of rows (a FlatList), so a meeting with a long run of
  * notes or action items stays quick: the header, your answer, about, then each part — agenda,
  * people, Live notes, action items, final minutes — as a title row and its own rows (or a loading,
- * failed or empty row). Pure, so the layout is tested without a device.
+ * failed or empty row). Once the meeting is finished, what came of it leads, as on the website:
+ * the Final MOM and the action items, above the agenda, people and notes they came from. Pure, so
+ * the layout is tested without a device.
  */
 import { NOTE_TYPE_LABELS, openActionCount } from './meeting-detail';
 import type { ApiActionItem, ApiAgendaItem, ApiFinalMinutes, ApiMeeting, ApiMeetingAttendee, ApiMeetingNote, MeetingNoteType } from './types';
@@ -51,6 +53,35 @@ export interface Part<T> {
 
 export type Section = 'agenda' | 'people' | 'notes' | 'actions' | 'minutes';
 
+/**
+ * The Live notes' empty words (the website's NotesSection.tsx). Once the meeting has ended, the
+ * person who runs it is told what to add and that the Final MOM can be drafted from it — "above":
+ * a finished meeting shows its Final MOM first (the website, 31 Oct, still says "below").
+ */
+export const NOTES_EMPTY = {
+  notTaken: 'No notes were taken.',
+  notTakenEdit: ' Add what was discussed, decided and agreed: the Final MOM above can be drafted from them.',
+  notYet: 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.',
+} as const;
+
+/** The empty notes' sentence: ended (with what to add, for whoever runs it), or not yet. */
+export function notesEmptyText({ ended, canEdit }: { ended: boolean; canEdit: boolean }): string {
+  if (!ended) return NOTES_EMPTY.notYet;
+  return canEdit ? NOTES_EMPTY.notTaken + NOTES_EMPTY.notTakenEdit : NOTES_EMPTY.notTaken;
+}
+
+/** An ended meeting's empty agenda (the website's AgendaSection.tsx). */
+export const AGENDA_EMPTY_ENDED = {
+  edit: 'No agenda was set for this meeting. You can still add the topics that were covered.',
+  view: 'No agenda was set for this meeting.',
+} as const;
+
+/** The empty agenda's sentence once the meeting has ended; null before (the planning words stay). */
+export function agendaEmptyText({ ended, canEdit }: { ended: boolean; canEdit: boolean }): string | null {
+  if (!ended) return null;
+  return canEdit ? AGENDA_EMPTY_ENDED.edit : AGENDA_EMPTY_ENDED.view;
+}
+
 export interface DetailInput {
   meeting: ApiMeeting;
   /** You're on the meeting and can still answer the invitation. */
@@ -93,43 +124,65 @@ function partRows<T>(section: Section, part: Part<T[]>, empty: string, rows: (it
 
 const title = (section: Section, text: string, count?: string): DetailRow => ({ kind: 'title', key: `${section}:title`, section, title: text, count });
 
-/** The details as rows, in reading order (see the module comment). */
+/**
+ * The details as rows, in reading order (see the module comment). "Finished" is the website's: the
+ * meeting is COMPLETED (MeetingDetailPage `finished`) — it decides the order and the ended words.
+ */
 export function meetingDetailRows(input: DetailInput): DetailRow[] {
   const { agenda, people, notes, actions, minutes } = input;
+  const finished = input.meeting.status === 'COMPLETED';
+  const canEdit = input.canEdit === true;
   const rows: DetailRow[] = [{ kind: 'header', key: 'header' }];
   if (input.canRsvp) rows.push({ kind: 'rsvp', key: 'rsvp' });
   rows.push({ kind: 'about', key: 'about' });
 
-  rows.push(title('agenda', 'Agenda', agenda.data?.length ? String(agenda.data.length) : undefined));
-  const canEdit = input.canEdit === true;
-  rows.push(...partRows('agenda', agenda, canEdit ? 'No agenda yet. Add the topics you plan to cover, who presents each and for how long.' : 'No agenda yet.', (items) => items.map((item, index) => ({ kind: 'agenda', key: `agenda:${item.id}`, section: 'agenda', item, index }))));
+  const agendaRows = (): DetailRow[] => [
+    title('agenda', 'Agenda', agenda.data?.length ? String(agenda.data.length) : undefined),
+    ...partRows(
+      'agenda',
+      agenda,
+      agendaEmptyText({ ended: finished, canEdit }) ?? (canEdit ? 'No agenda yet. Add the topics you plan to cover, who presents each and for how long.' : 'No agenda yet.'),
+      (items) => items.map((item, index) => ({ kind: 'agenda', key: `agenda:${item.id}`, section: 'agenda', item, index })),
+    ),
+  ];
 
-  rows.push(title('people', 'People', people.data?.length ? String(people.data.length) : undefined));
-  rows.push(
+  const peopleRows = (): DetailRow[] => [
+    title('people', 'People', people.data?.length ? String(people.data.length) : undefined),
     ...partRows('people', people, canEdit ? 'Nobody yet. Add team members or guests.' : 'Nobody has been added yet.', (list) => {
       const shown = input.showAllPeople ? list : list.slice(0, PEOPLE_FIRST);
       const out: DetailRow[] = shown.map((attendee) => ({ kind: 'person', key: `person:${attendee.id}`, section: 'people', attendee }));
       if (list.length > PEOPLE_FIRST) out.push({ kind: 'more', key: 'people:more', section: 'people', total: list.length, expanded: input.showAllPeople });
       return out;
     }),
-  );
+  ];
 
-  rows.push(title('notes', 'Live notes', notes.data?.length ? String(notes.data.length) : undefined));
-  rows.push(
-    ...partRows('notes', notes, 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.', (list) => {
+  const notesRows = (): DetailRow[] => [
+    title('notes', 'Live notes', notes.data?.length ? String(notes.data.length) : undefined),
+    ...partRows('notes', notes, notesEmptyText({ ended: finished, canEdit }), (list) => {
       const shown = filterNotes(list, input.noteFilter);
       const out: DetailRow[] = [{ kind: 'noteFilters', key: 'notes:filters', section: 'notes' }];
       if (shown.length === 0) out.push({ kind: 'empty', key: 'notes:empty', section: 'notes', text: 'No notes in this category.' });
       for (const note of shown) out.push({ kind: 'note', key: `note:${note.id}`, section: 'notes', note });
       return out;
     }),
-  );
+  ];
 
-  rows.push(title('actions', 'Action items', actions.data?.length ? `${openActionCount(actions.data)} open of ${actions.data.length}` : undefined));
-  rows.push(...partRows('actions', actions, 'No action items yet. Add them here, or turn an action note into a task.', (items) => items.map((item) => ({ kind: 'action', key: `action:${item.id}`, section: 'actions', item }))));
+  const actionRows = (): DetailRow[] => [
+    title('actions', 'Action items', actions.data?.length ? `${openActionCount(actions.data)} open of ${actions.data.length}` : undefined),
+    ...partRows('actions', actions, 'No action items yet. Add them here, or turn an action note into a task.', (items) => items.map((item) => ({ kind: 'action', key: `action:${item.id}`, section: 'actions', item }))),
+  ];
 
-  rows.push(title('minutes', 'Final MOM'));
-  if (minutes.data) rows.push({ kind: 'minutes', key: 'minutes', section: 'minutes', minutes: minutes.data });
-  else rows.push(minutes.failed ? { kind: 'failed', key: 'minutes:failed', section: 'minutes' } : { kind: 'loading', key: 'minutes:loading', section: 'minutes' });
+  const minutesRows = (): DetailRow[] => [
+    title('minutes', 'Final MOM'),
+    minutes.data
+      ? { kind: 'minutes', key: 'minutes', section: 'minutes', minutes: minutes.data }
+      : minutes.failed
+        ? { kind: 'failed', key: 'minutes:failed', section: 'minutes' }
+        : { kind: 'loading', key: 'minutes:loading', section: 'minutes' },
+  ];
+
+  // Planned or under way: the agenda and the notes lead. Finished: what came of it leads.
+  const parts = finished ? [minutesRows, actionRows, agendaRows, peopleRows, notesRows] : [agendaRows, peopleRows, notesRows, actionRows, minutesRows];
+  for (const part of parts) rows.push(...part());
   return rows;
 }
