@@ -1,6 +1,6 @@
 import { shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { instantOf } from '../meetings/meeting-series';
-import type { EmailContent } from '../email/email-templates';
+import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { dailyEmailPrefs, type NotificationPreferences } from '../notifications/notification-preferences';
 import { completedEmail, pendingEmail, type DailyTask } from './daily-email-content';
 import type { DailyEmailDayRow, DailyEmailFinish, DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
@@ -31,7 +31,12 @@ export interface DailyEmailServiceDeps {
    * Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked after a
    * bounce or spam complaint, so nothing was sent.
    */
-  send(to: string, content: EmailContent, template: string): Promise<'sent' | 'suppressed' | void>;
+  send(to: string, content: EmailContent, template: string, opts?: { fromName?: string }): Promise<'sent' | 'suppressed' | void>;
+  /**
+   * Companies: the person's brand — their primary company's name (2+ companies), logo and sender name;
+   * undefined: the site's. One email covers all their companies, grouped when there are several.
+   */
+  emailOptions?: (userId: string) => Promise<TemplateOptions | undefined>;
   /** False while no email provider is set up: nothing is attempted (and nothing piles up). */
   isConfigured(): boolean;
   companyTimeZone: string;
@@ -276,18 +281,37 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     return lastChecked && lastChecked > stored ? lastChecked : stored;
   }
 
-  async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date): Promise<{ count: number; content: EmailContent | null }> {
+  /** Companies: the person's brand (null: the site's; one that can't be read leaves the site's). */
+  const brandOf = async (person: DailyRecipient): Promise<TemplateOptions | null> =>
+    deps.emailOptions ? ((await deps.emailOptions(person.id).catch(() => undefined)) ?? null) : null;
+  /** Companies: tasks in 2+ companies (their projects' main companies) are grouped under each company's name. */
+  const inSeveralCompanies = (tasks: DailyTask[]) => new Set(tasks.map((t) => t.project.company?.id).filter(Boolean)).size >= 2;
+
+  async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date): Promise<{ count: number; content: EmailContent | null; fromName?: string }> {
     const timeZone = zoneOf(person);
+    const brand = await brandOf(person);
+    const opts = brand ?? undefined;
+    const sender = brand?.fromName ? { fromName: brand.fromName } : {};
     if (kind === 'PENDING') {
       const [tasks, awaitingApproval] = await Promise.all([deps.tasks.pending(person.id), deps.tasks.awaitingApproval?.(person.id) ?? Promise.resolve(0)]);
       // Sent when they have pending tasks of their own, or tasks waiting for their approval.
-      const content = tasks.length || awaitingApproval ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl, awaitingApproval }) : null;
-      return { count: tasks.length, content };
+      const content =
+        tasks.length || awaitingApproval
+          ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl, awaitingApproval, groupByCompany: inSeveralCompanies(tasks) }, opts)
+          : null;
+      return { count: tasks.length, content, ...sender };
     }
     const yesterday = shiftDayKey(day, -1);
     const tasks = await deps.tasks.completedBetween(person.id, zonedStartOfDay(yesterday, timeZone), zonedStartOfDay(day, timeZone));
-    return { count: tasks.length, content: tasks.length ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, appUrl: deps.appUrl, assetUrl: deps.assetUrl }) : null };
+    const content = tasks.length
+      ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, appUrl: deps.appUrl, assetUrl: deps.assetUrl, groupByCompany: inSeveralCompanies(tasks) }, opts)
+      : null;
+    return { count: tasks.length, content, ...sender };
   }
+
+  /** Sends a built email (with the company's sender name when it has one; as before without). */
+  const sendBuilt = (to: string, built: { content: EmailContent; fromName?: string }, template: string) =>
+    built.fromName ? deps.send(to, built.content, template, { fromName: built.fromName }) : deps.send(to, built.content, template);
 
   interface Attempted {
     status: 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
@@ -364,7 +388,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       return { status: 'SKIPPED', error, sentAt: again ? taken.sentAt : null, ...(error === BLOCKED_ADDRESS ? { blocked: true } : {}) };
     };
 
-    let built: { count: number; content: EmailContent | null } = { count: 0, content: null };
+    let built: { count: number; content: EmailContent | null; fromName?: string } = { count: 0, content: null };
     try {
       if (person.email && isOn(dailyEmailPrefs(person.prefs), taken.kind)) built = await build(taken.kind, person, taken.day, at);
     } catch (err) {
@@ -373,7 +397,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     if (!person.email || !built.content) return skipped(null); // turned off since it was due, or nothing in it
     let result: 'sent' | 'suppressed' | void;
     try {
-      result = await deps.send(person.email, built.content, TEMPLATE[taken.kind]);
+      result = await sendBuilt(person.email, { content: built.content, fromName: built.fromName }, TEMPLATE[taken.kind]);
     } catch (err) {
       return failed(err);
     }
@@ -438,9 +462,9 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     const { day } = localClock(at, zoneOf(person));
     const result: { pending: TestOutcome; completed: TestOutcome } = { pending: 'empty', completed: 'empty' };
     for (const kind of KINDS) {
-      const { content } = await build(kind, person, day, at);
+      const { content, fromName } = await build(kind, person, day, at);
       if (!content) continue;
-      const delivered = await deps.send(person.email, content, `${TEMPLATE[kind]}-test`);
+      const delivered = await sendBuilt(person.email, { content, fromName }, `${TEMPLATE[kind]}-test`);
       result[kind === 'PENDING' ? 'pending' : 'completed'] = delivered === 'suppressed' ? 'blocked' : 'sent';
     }
     return result;

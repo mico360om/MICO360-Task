@@ -765,7 +765,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
    * before it, also for someone whose morning comes before the company's (far east of it). Without
    * it, the week before the company's current week.
    */
-  async function digest(viewer: ManagementViewer, week?: string): Promise<WeeklyDigest | null> {
+  async function digest(viewer: ManagementViewer, week?: string, only?: readonly string[]): Promise<WeeklyDigest | null> {
     let s: Awaited<ReturnType<typeof scopeOf>>;
     try {
       s = await scopeOf(viewer, DEFAULT_FILTERS);
@@ -773,6 +773,8 @@ export function createManagementService(deps: ManagementServiceDeps) {
       if (err instanceof ForbiddenError) return null;
       throw err;
     }
+    // Companies: one company's section of the weekly summary — just those of the person's projects.
+    if (only) s = { ...s, projects: s.projects.filter((p) => only.includes(p.id)) };
     if (s.projects.length === 0) return null;
     const ctx = await contextOf(2, viewer);
     const last: Pick<TrendWeek, 'start' | 'end' | 'from' | 'to'> = week

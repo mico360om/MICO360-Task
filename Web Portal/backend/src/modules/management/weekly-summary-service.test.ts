@@ -337,3 +337,63 @@ describe('the weekly summary: each person’s week is their primary company’s 
     expect(t.lists()).toBe(0);
   });
 });
+
+describe('the weekly summary grouped by company, with the person’s company brand (companies, MC1 Task 16)', () => {
+  function grouped(groups: Array<{ company: { id: string; name: string }; projectIds: string[] }>) {
+    let clock = new Date(SUN_0600);
+    const sent: Array<{ to: string; content: EmailContent; opts?: { fromName?: string } }> = [];
+    const asked: string[] = [];
+    const repo = memoryRepo(() => clock);
+    const svc = createWeeklySummaryService({
+      repo,
+      people: { list: async () => [PEOPLE[1]!], find: async (id) => (id === 'sara' ? PEOPLE[1]! : null) },
+      digest: async (viewer, week, only) => {
+        asked.push(`${viewer.id}:${only ? only.join('+') : 'all'}`);
+        const d = digestOf(viewer.id)!;
+        return only ? { ...d, projects: only.length, worst: [{ ...d.worst[0]!, name: `Worst of ${only.join('+')}` }] } : d;
+      },
+      send: async (to, content, _template, opts) => void sent.push({ to, content, opts }),
+      isConfigured: () => true,
+      enabled: async () => true,
+      calendar: async () => ({ weekStart: 0, workingDays: SUN_THU }),
+      companyTimeZone: TZ,
+      appUrl: 'https://task.mico360.com',
+      now: () => clock,
+      groups: async () => groups,
+      emailOptions: async (userId) => (userId === 'sara' ? { brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' } : undefined),
+    });
+    return { svc, sent, asked, repo, at: (iso: string) => (clock = new Date(iso)) };
+  }
+
+  it('ONE summary: the totals, then a section per company in name order; its primary company’s brand', async () => {
+    const t = grouped([
+      { company: { id: 'b', name: 'Beta LLC' }, projectIds: ['ops'] },
+      { company: { id: 'a', name: 'Alpha LLC' }, projectIds: ['rig'] },
+    ]);
+    await t.svc.runSweep();
+    expect(t.sent).toHaveLength(1);
+    const { content, opts } = t.sent[0]!;
+    expect(content.html.indexOf('>Alpha LLC</h2>')).toBeLessThan(content.html.indexOf('>Beta LLC</h2>'));
+    expect(content.html.indexOf('Worst of rig')).toBeLessThan(content.html.indexOf('Worst of ops'));
+    expect(content.html).toContain('© 2026 Beta LLC');
+    expect(opts).toEqual({ fromName: 'Beta Team' });
+    expect(t.asked).toEqual(['sara:all', 'sara:rig', 'sara:ops']);
+  });
+
+  it('projects in one company: today’s summary, no headings', async () => {
+    const t = grouped([{ company: { id: 'a', name: 'Alpha LLC' }, projectIds: ['rig', 'ops'] }]);
+    await t.svc.runSweep();
+    expect(t.sent[0]!.content.html).not.toContain('</h2>');
+    expect(t.asked).toEqual(['sara:all']);
+  });
+
+  it('preview: the summary as it would go now, its week and week start — nothing sent or recorded', async () => {
+    const t = grouped([{ company: { id: 'a', name: 'Alpha LLC' }, projectIds: ['rig'] }]);
+    const p = await t.svc.preview('sara');
+    expect(p).toMatchObject({ week: '2026-10-25', weekStart: 0, subject: expect.stringContaining('Weekly summary') });
+    expect(p!.html).toContain('Rig Inspection Portal');
+    expect(t.sent).toEqual([]);
+    expect(t.repo.rows).toEqual([]);
+    expect(await t.svc.preview('nobody')).toBeNull();
+  });
+});

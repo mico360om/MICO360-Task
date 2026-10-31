@@ -118,3 +118,32 @@ describe('weeklySummaryEmail', () => {
     expect(mail.html).not.toMatch(/and \d+ more/);
   });
 });
+
+describe('weeklySummaryEmail grouped by company (companies, MC1 Task 16)', () => {
+  const alpha: WeeklyDigest = { ...DIGEST, projects: 2, red: 1, amber: 0, green: 1, worst: [DIGEST.worst[0]!], lateTasks: 4, approvals: { total: 2, projects: [DIGEST.approvals.projects[0]!] } };
+  const beta: WeeklyDigest = { ...DIGEST, projects: 1, red: 0, amber: 1, green: 0, worst: [DIGEST.worst[1]!], lateTasks: 1, mostLate: [{ id: 'bilal', name: 'Bilal Ahmed', lateTasks: 1 }], approvals: { total: 1, projects: [DIGEST.approvals.projects[1]!] } };
+  const companies = [
+    { name: 'Alpha LLC', digest: alpha },
+    { name: 'Beta LLC', digest: beta },
+  ];
+
+  it('one section per company under its heading, in name order; the totals and the subject for all of them', () => {
+    const mail = weeklySummaryEmail({ name: 'Sara Ahmed', digest: DIGEST, week: '2026-10-25', appUrl: 'https://task.mico360.com/', companies: [companies[1]!, companies[0]!] });
+    const at = (s: string) => mail.html.indexOf(s);
+    expect(at('>Alpha LLC</h2>')).toBeGreaterThan(-1);
+    expect(at('>Alpha LLC</h2>')).toBeLessThan(at('Rig Inspection Portal'));
+    expect(at('Rig Inspection Portal')).toBeLessThan(at('>Beta LLC</h2>'));
+    expect(at('>Beta LLC</h2>')).toBeLessThan(at('مشروع الحفر'));
+    expect(mail.subject).toBe('Weekly summary: 1 red, 1 amber · 5 late tasks');
+    expect(mail.text).toContain('Here is how the projects you run (3 projects) are doing.');
+    expect(mail.text.indexOf('== Alpha LLC ==')).toBeLessThan(mail.text.indexOf('== Beta LLC =='));
+    expect(mail.text.indexOf('Open the dashboard')).toBeGreaterThan(mail.text.indexOf('== Beta LLC =='));
+  });
+
+  it('with one company (or none given) it is exactly today’s email', () => {
+    const today = weeklySummaryEmail({ name: 'Sara Ahmed', digest: DIGEST, week: '2026-10-25', appUrl: 'https://task.mico360.com/' });
+    const one = weeklySummaryEmail({ name: 'Sara Ahmed', digest: DIGEST, week: '2026-10-25', appUrl: 'https://task.mico360.com/', companies: [{ name: 'Alpha LLC', digest: DIGEST }] });
+    expect(one.html.replace(/© \d{4}/, '')).toBe(today.html.replace(/© \d{4}/, ''));
+    expect(one.text).toBe(today.text);
+  });
+});

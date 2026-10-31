@@ -1276,7 +1276,9 @@ async function main(): Promise<void> {
     people: dailyEmailSources.people,
     // The pending email also says how many tasks wait for the person's approval.
     tasks: { ...dailyEmailSources.tasks, awaitingApproval: (userId) => approvalSource.countFor(userId) },
-    send: (to, content, template) => emailService.sendPrepared(template, to, content),
+    // companies: one email per person, under their primary company's brand and sender name (MC1 Task 16).
+    send: (to, content, template, opts) => emailService.sendPrepared(template, to, content, opts),
+    emailOptions: documentBrands.email.person,
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
@@ -1310,7 +1312,9 @@ async function main(): Promise<void> {
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
     settings: managementSettings,
-    send: (to, content, template) => emailService.sendPrepared(template, to, content),
+    // companies: one summary per person, a section per company, under their primary company's brand (MC1 Task 16).
+    send: (to, content, template, opts) => emailService.sendPrepared(template, to, content, opts),
+    emailOptions: documentBrands.email.person,
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,

@@ -1,11 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
 import { createPrismaWorkloadStore } from '../planning/prisma-workload-store';
 import type { SettingsService } from '../settings/settings-service';
-import type { EmailContent } from '../email/email-templates';
+import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { createManagementService, type ManagementService, type ManagementSettings } from './management-service';
 import type { CompanyCalendar } from '../companies/company-time';
 import { createPrismaManagementSource } from './prisma-management-source';
-import { createPrismaWeeklySummaryPeople, createPrismaWeeklySummaryRepository } from './prisma-weekly-summary';
+import { createPrismaCompanyGroups, createPrismaWeeklySummaryPeople, createPrismaWeeklySummaryRepository } from './prisma-weekly-summary';
 import { createWeeklySummaryService, type WeeklySummaryDeps } from './weekly-summary-service';
 
 /** System Settings — companies: the week start and working days may be asked with the reader (their company's). */
@@ -28,7 +28,7 @@ export function createWeeklySummaryFromPrisma(
   o: {
     management: ManagementService;
     settings: Settings;
-    send: (to: string, content: EmailContent, template: string) => Promise<'sent' | 'suppressed' | void>;
+    send: (to: string, content: EmailContent, template: string, opts?: { fromName?: string }) => Promise<'sent' | 'suppressed' | void>;
     isConfigured: () => boolean;
     companyTimeZone: string;
     appUrl: string;
@@ -37,12 +37,17 @@ export function createWeeklySummaryFromPrisma(
     /** Companies: a person's own week (their primary company's), and every calendar in use. */
     calendarOf?: (userId: string) => Promise<CompanyCalendar>;
     calendars?: () => Promise<CompanyCalendar[]>;
+    /** Companies: the person's brand (their primary company's name, logo and sender name). */
+    emailOptions?: (userId: string) => Promise<TemplateOptions | undefined>;
   },
 ) {
   return createWeeklySummaryService({
     repo: createPrismaWeeklySummaryRepository(prisma),
     people: createPrismaWeeklySummaryPeople(prisma),
-    digest: (viewer, week) => o.management.digest(viewer, week),
+    digest: (viewer, week, only) => o.management.digest(viewer, week, only),
+    // Companies: a section per company when the person's figures span several; their company's brand.
+    groups: createPrismaCompanyGroups(prisma),
+    ...(o.emailOptions ? { emailOptions: o.emailOptions } : {}),
     send: o.send,
     isConfigured: o.isConfigured,
     enabled: () => o.settings.weeklySummaryEnabled(),

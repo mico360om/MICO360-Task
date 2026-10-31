@@ -329,3 +329,76 @@ describe('one company: today’s output, pinned byte for byte (companies, MC1 Ta
     await expect(e.text).toMatchFileSnapshot('__snapshots__/single-company-completed.text.snap');
   });
 });
+
+describe('grouped by company (companies, MC1 Task 16)', () => {
+  const ALPHA = { id: 'c-a', name: 'Alpha LLC' };
+  const BETA = { id: 'c-b', name: 'Beta LLC' };
+  const BETA_RIG: DailyProject = { ...RIG, id: 'p-brig', code: 'BRG', name: 'Beta Rig', company: BETA };
+  const ALPHA_OPS: DailyProject = { ...OPS, company: ALPHA };
+  const ALPHA_RIG: DailyProject = { ...RIG, company: ALPHA };
+  const base = { name: 'Ada', timeZone: TZ, now: NOW, appUrl: APP, assetUrl: ASSETS };
+
+  it('a person with one company gets byte-identical emails (no headings)', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
+    try {
+      const fixture = {
+        ...base,
+        tasks: [
+          task('RIG-1', { dueDate: day('2026-10-19'), priority: 'URGENT', statusLabel: 'In Progress' }),
+          task('RIG-2', { dueDate: day('2026-10-21'), priority: 'HIGH' }),
+          task('OPS-1', { project: OPS, dueDate: day('2026-10-25') }),
+          task('OPS-2', { project: OPS }),
+          task('RIG-3', { waitingSince: new Date('2026-10-20T08:00:00Z') }),
+        ],
+        awaitingApproval: 2,
+      };
+      await expect(pendingEmail({ ...fixture, groupByCompany: false }).html).toMatchFileSnapshot('__snapshots__/single-company.html.snap');
+      await expect(pendingEmail({ ...fixture, groupByCompany: false }).text).toMatchFileSnapshot('__snapshots__/single-company.text.snap');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('two companies: a heading per company, companies in name order, each with its own projects', () => {
+    // Beta's task is the most urgent, but Alpha comes first (name order); inside a company, the usual order.
+    const e = pendingEmail({
+      ...base,
+      groupByCompany: true,
+      tasks: [
+        task('BRG-1', { project: BETA_RIG, dueDate: day('2026-10-18'), priority: 'URGENT' }),
+        task('OPS-1', { project: ALPHA_OPS, dueDate: day('2026-10-22') }),
+        task('RIG-1', { project: ALPHA_RIG, dueDate: day('2026-10-21') }),
+      ],
+    });
+    const at = (s: string) => e.html.indexOf(s);
+    expect(at('>Alpha LLC</h2>')).toBeGreaterThan(-1);
+    expect(at('>Alpha LLC</h2>')).toBeLessThan(at('>Beta LLC</h2>'));
+    expect(at('>Alpha LLC</h2>')).toBeLessThan(at('RIG-1'));
+    expect(at('RIG-1')).toBeLessThan(at('OPS-1'));
+    expect(at('OPS-1')).toBeLessThan(at('>Beta LLC</h2>'));
+    expect(at('>Beta LLC</h2>')).toBeLessThan(at('BRG-1'));
+    expect(e.text.indexOf('== Alpha LLC ==')).toBeLessThan(e.text.indexOf('== Beta LLC =='));
+    expect(e.subject).toBe('Your pending tasks: 3 (1 overdue)'); // the totals are for all companies
+  });
+
+  it('the completed email is grouped the same way', () => {
+    const e = completedEmail({
+      ...base,
+      day: '2026-10-20',
+      groupByCompany: true,
+      tasks: [
+        task('BRG-1', { project: BETA_RIG, completedAt: new Date('2026-10-20T05:00:00Z') }),
+        task('RIG-1', { project: ALPHA_RIG, completedAt: new Date('2026-10-20T07:00:00Z') }),
+      ],
+    });
+    expect(e.html.indexOf('>Alpha LLC</h2>')).toBeLessThan(e.html.indexOf('>Beta LLC</h2>'));
+    expect(e.html.indexOf('>Beta LLC</h2>')).toBeLessThan(e.html.indexOf('BRG-1'));
+  });
+
+  it('a heading names the company once, even when its projects are cut short', () => {
+    const many = Array.from({ length: 12 }, (_, i) => task(`RIG-${i + 1}`, { project: ALPHA_RIG }));
+    const e = pendingEmail({ ...base, groupByCompany: true, tasks: [...many, task('BRG-1', { project: BETA_RIG })] });
+    expect(e.html.split('>Alpha LLC</h2>')).toHaveLength(2);
+    expect(e.html.split('>Beta LLC</h2>')).toHaveLength(2);
+  });
+});

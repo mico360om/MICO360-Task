@@ -1,6 +1,6 @@
 import { shiftDayKey, zonedDayKey } from '../../lib/due-date';
 import { instantOf } from '../meetings/meeting-series';
-import type { EmailContent } from '../email/email-templates';
+import type { EmailContent, TemplateOptions } from '../email/email-templates';
 import { dailyEmailPrefs, weeklySummaryOn, type NotificationPreferences } from '../notifications/notification-preferences';
 import { RETRY_DELAYS_MIN, BLOCKED_ADDRESS } from '../daily-emails/daily-email-service';
 import { weekOf, type WeekStart } from '../planning/timeline';
@@ -26,10 +26,20 @@ export interface WeeklyRecipient {
 export interface WeeklySummaryDeps {
   repo: WeeklySummaryRepository;
   people: { list(): Promise<WeeklyRecipient[]>; find(id: string): Promise<WeeklyRecipient | null> };
-  /** The person's own figures (the Management page's, for their scope) for this company week; null: nothing in scope. */
-  digest(viewer: ManagementViewer, week: string): Promise<WeeklyDigest | null>;
+  /**
+   * The person's own figures (the Management page's, for their scope) for this company week; null:
+   * nothing in scope. `only` (companies): just these of their projects (one company's).
+   */
+  digest(viewer: ManagementViewer, week: string, only?: readonly string[]): Promise<WeeklyDigest | null>;
   /** Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked. */
-  send(to: string, content: EmailContent, template: string): Promise<'sent' | 'suppressed' | void>;
+  send(to: string, content: EmailContent, template: string, opts?: { fromName?: string }): Promise<'sent' | 'suppressed' | void>;
+  /**
+   * Companies: the projects a person may see, by main company. With figures in 2+ companies the
+   * summary has a section per company; absent (or one company): today's summary.
+   */
+  groups?(viewer: ManagementViewer): Promise<Array<{ company: { id: string; name: string }; projectIds: string[] }>>;
+  /** Companies: the person's brand (their primary company's name, logo and sender name); undefined: the site's. */
+  emailOptions?(userId: string): Promise<TemplateOptions | undefined>;
   /** False while no email provider is set up: nothing is attempted. */
   isConfigured(): boolean;
   /** The company-wide switch (System Settings). */
@@ -90,6 +100,34 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
   }
 
   type Outcome = 'SENT' | 'SKIPPED' | 'RETRY' | 'FAILED';
+  const byName = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+  interface Composed {
+    digest: WeeklyDigest;
+    content: EmailContent;
+    fromName?: string;
+  }
+
+  /**
+   * A person's summary for a week, or null with nothing in scope. Companies: with figures in 2+ of the
+   * companies their projects belong to, a section per company (each project under its main company),
+   * under their primary company's brand.
+   */
+  async function compose(person: WeeklyRecipient, week: string): Promise<Composed | null> {
+    const viewer = { id: person.id, roles: person.roles };
+    const digest = await deps.digest(viewer, week);
+    if (!digest) return null;
+    const groups = deps.groups ? await deps.groups(viewer) : [];
+    const companies: Array<{ name: string; digest: WeeklyDigest }> = [];
+    if (groups.length >= 2) {
+      for (const g of [...groups].sort((a, b) => byName.compare(a.company.name, b.company.name))) {
+        const d = await deps.digest(viewer, week, g.projectIds);
+        if (d) companies.push({ name: g.company.name, digest: d });
+      }
+    }
+    const brand = deps.emailOptions ? ((await deps.emailOptions(person.id).catch(() => undefined)) ?? undefined) : undefined;
+    const content = weeklySummaryEmail({ name: person.name, digest, week, appUrl: deps.appUrl, ...(companies.length >= 2 ? { companies } : {}) }, brand);
+    return { digest, content, ...(brand?.fromName ? { fromName: brand.fromName } : {}) };
+  }
 
   /**
    * Summaries that went but whose record couldn't be written (the database didn't answer): written at
@@ -127,17 +165,17 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     };
     // Gone, no address, turned off or no longer able to see the page since it was due: nothing goes.
     if (!person || !person.email || !weeklySummaryOn(person.prefs) || !canSee(person)) return skipped(person ? null : 'The account is no longer active.');
-    let digest: WeeklyDigest | null;
+    let composed: Composed | null;
     try {
-      digest = await deps.digest({ id: person.id, roles: person.roles }, taken.week);
+      composed = await compose(person, taken.week);
     } catch (err) {
       return failed(err);
     }
-    if (!digest) return skipped(null); // nothing in scope
-    const content = weeklySummaryEmail({ name: person.name, digest, week: taken.week, appUrl: deps.appUrl });
+    if (!composed) return skipped(null); // nothing in scope
+    const { digest, content, fromName } = composed;
     let result: 'sent' | 'suppressed' | void;
     try {
-      result = await deps.send(person.email, content, TEMPLATE);
+      result = fromName ? await deps.send(person.email, content, TEMPLATE, { fromName }) : await deps.send(person.email, content, TEMPLATE);
     } catch (err) {
       return failed(err);
     }
@@ -195,7 +233,20 @@ export function createWeeklySummaryService(deps: WeeklySummaryDeps) {
     return tally;
   }
 
-  return { runSweep };
+  /**
+   * The summary a person would get now (their current company week) — sent and recorded nowhere.
+   * Null: not someone who gets it (gone, or can't see the Management page), or nothing in scope.
+   */
+  async function preview(userId: string): Promise<{ userId: string; week: string; weekStart: WeekStart; subject: string; html: string; text: string; projectCount: number } | null> {
+    const person = await deps.people.find(userId);
+    if (!person || !canSee(person)) return null;
+    const cal = deps.calendars ? await deps.calendar(person) : await deps.calendar();
+    const { week } = timing(person, now(), cal);
+    const composed = await compose(person, week);
+    return composed ? { userId, week, weekStart: cal.weekStart, subject: composed.content.subject, html: composed.content.html, text: composed.content.text, projectCount: composed.digest.projects } : null;
+  }
+
+  return { runSweep, preview };
 }
 
 export type WeeklySummaryService = ReturnType<typeof createWeeklySummaryService>;

@@ -18,9 +18,8 @@ const WORD = { RED: 'Red', AMBER: 'Amber', GREEN: 'Green' } as const;
  * checks done late and pass rate, the people with the most late work, the tasks waiting for approval
  * (in all and per project, with a button to the To approve list) — and a button to the dashboard.
  */
-export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week: string; appUrl: string }, opts: TemplateOptions = {}): EmailContent {
-  const d = p.digest;
-  const app = base(p.appUrl);
+/** One digest's figures: its marks, worst projects, the numbers, the most late work and the approvals. */
+function figureBlocks(d: WeeklyDigest, app: string): Block[] {
   // The red and amber projects the email doesn't name (it names the worst few): counted, never dropped silently.
   const more = Math.max(0, d.red + d.amber - d.worst.length);
   const approvals = d.approvals ?? { total: 0, projects: [] };
@@ -29,8 +28,7 @@ export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week
     ...(d.amber ? [{ text: `${d.amber} amber`, tone: 'warning' as const }] : []),
     ...(d.green ? [{ text: `${d.green} green`, tone: 'success' as const }] : []),
   ];
-  const blocks: Block[] = [
-    { kind: 'text', text: `Here is how ${d.scope === 'ALL' ? 'all projects' : 'the projects you run'} (${plural(d.projects, 'project')}) are doing.` },
+  return [
     ...(chips.length ? [{ kind: 'chips' as const, items: chips }] : []),
     ...(d.worst.length
       ? d.worst.map((w): Block => ({ kind: 'callout', tone: w.rag === 'RED' ? 'danger' : 'warning', text: `${WORD[w.rag]}: ${w.name} (${w.code}): ${w.reasons.map((r) => r.text).join('; ')}` }))
@@ -59,6 +57,25 @@ export function weeklySummaryEmail(p: { name: string; digest: WeeklyDigest; week
           { kind: 'button' as const, label: 'Review them', href: `${app}/my-tasks#to-approve` },
         ]
       : []),
+  ];
+}
+
+const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+
+/**
+ * `companies` (companies, MC1 Task 16): the person's projects in 2+ companies — the totals first, then
+ * each company's figures under its name, companies in name order. With fewer it is today's email.
+ */
+export function weeklySummaryEmail(
+  p: { name: string; digest: WeeklyDigest; week: string; appUrl: string; companies?: Array<{ name: string; digest: WeeklyDigest }> },
+  opts: TemplateOptions = {},
+): EmailContent {
+  const d = p.digest;
+  const app = base(p.appUrl);
+  const companies = p.companies && p.companies.length >= 2 ? [...p.companies].sort((a, b) => collator.compare(a.name, b.name)) : null;
+  const blocks: Block[] = [
+    { kind: 'text', text: `Here is how ${d.scope === 'ALL' ? 'all projects' : 'the projects you run'} (${plural(d.projects, 'project')}) are doing.` },
+    ...(companies ? companies.flatMap((c): Block[] => [{ kind: 'heading', text: c.name }, ...figureBlocks(c.digest, app)]) : figureBlocks(d, app)),
     { kind: 'button', label: 'Open the dashboard', href: `${app}/management` },
     { kind: 'text', text: `You get this summary on the first working day of each week, at your daily email time. To turn it off, open Settings → Weekly management summary: ${app}/settings` },
   ];

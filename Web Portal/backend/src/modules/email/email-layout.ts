@@ -14,7 +14,9 @@ export type Block =
   | { kind: 'links'; items: Array<{ label: string; href: string }> }
   | { kind: 'chips'; items: EmailChip[] }
   | { kind: 'project'; project: EmailProjectCard; items: EmailTaskItem[]; more?: { text: string; href: string } }
-  | { kind: 'divider' };
+  | { kind: 'divider' }
+  /** Companies: a section heading (a company's name above its projects). */
+  | { kind: 'heading'; text: string };
 
 /** A label's colour: a tone, plain grey ('neutral'), quieter grey ('muted') or an outline. */
 export type ChipTone = Tone | 'neutral' | 'muted' | 'outline';
@@ -246,6 +248,8 @@ function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {
     }
     case 'divider':
       return `<hr class="email-divider" style="border:none;border-top:1px solid ${c.line};margin:8px 0 20px"/>`;
+    case 'heading':
+      return `<h2 class="email-text" style="margin:24px 0 10px;font-size:18px;line-height:1.3;font-weight:800;color:${c.ink}">${escapeHtml(block.text)}</h2>`;
   }
 }
 
@@ -280,6 +284,8 @@ function renderBlockText(block: Block): string {
     }
     case 'divider':
       return '----------------------------------------';
+    case 'heading':
+      return `== ${block.text} ==`;
   }
 }
 
