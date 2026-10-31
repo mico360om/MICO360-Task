@@ -43,6 +43,14 @@ export const MOVE_TEXT = {
   bulkButton: 'Move to project…',
 } as const;
 
+/**
+ * The tasks the sheet shows: the ones it is given, or — while it slides away after its caller let go
+ * of them — the last ones it had (final review A4: never "Move 0 tasks…" as it closes).
+ */
+export function sheetTasks(given: MoveTaskRef[], last: MoveTaskRef[]): MoveTaskRef[] {
+  return given.length > 0 ? given : last;
+}
+
 /** "Move to another project" / "Move 3 tasks to another project". */
 export function moveTitle(n: number): string {
   return n === 1 ? MOVE_TEXT.title : `Move ${n} tasks to another project`;

@@ -34,3 +34,8 @@ it('final review A1: a move goes in the task’s lane (several: every task’s),
   expect(s).toMatch(/inTaskLanes\(taskWrites, ids, /);
   expect(s).toMatch(/if \(item\.ok\) taskWrites\.note\(item\.taskId, item\.task\?\.version\)/);
 });
+
+it('final review A4: the sheet shows the tasks it was opened for until it has closed', () => {
+  const s = src('components/move/MoveTaskSheet.tsx');
+  expect(s).toMatch(/const held = useRef<MoveTaskRef\[\]>\(given\);\s*if \(given\.length > 0\) held\.current = given;\s*const tasks = sheetTasks\(given, held\.current\);/);
+});

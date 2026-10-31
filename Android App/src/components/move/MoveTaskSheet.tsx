@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useMovePreview, useMoveTargets, useMoveTasks } from '../../core/move-queries';
 import { Button } from '../ui';
 import { CardChoice, FieldLabel, InlinePicker, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
 import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, moveChanges, notOnTeamText } from '../../lib/task-move';
-import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTitle, previewProblem, refusedLines, submitLabel, type MoveTaskRef } from '../../lib/move-sheet';
+import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTitle, previewProblem, refusedLines, sheetTasks, submitLabel, type MoveTaskRef } from '../../lib/move-sheet';
 import { STATUS_NAME } from '../../lib/all-board';
 import { appTimeZone, companyTodayKey } from '../../lib/due-date';
 import { spacing, type Palette } from '../../lib/theme';
@@ -22,7 +22,7 @@ const statusLabel = (category: string): string => STATUS_NAME[category as Column
  * not. A bulk move with failures turns the sheet into its result until Done.
  */
 export function MoveTaskSheet({
-  tasks,
+  tasks: given,
   visible,
   onClose,
   onMoved,
@@ -38,6 +38,10 @@ export function MoveTaskSheet({
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
+  // The caller lets go of the tasks as it closes the sheet: it slides away still showing them.
+  const held = useRef<MoveTaskRef[]>(given);
+  if (given.length > 0) held.current = given;
+  const tasks = sheetTasks(given, held.current);
   const single = tasks.length === 1;
   const ids = useMemo(() => tasks.map((t) => t.id), [tasks]);
   const today = companyTodayKey(new Date(), appTimeZone());
