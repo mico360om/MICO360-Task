@@ -41,7 +41,7 @@ it('what happened is announced once', () => {
 
 it('the answer shows its card once it is written', () => {
   expect(src('components/mico-ai/MessageView.tsx')).toMatch(/a\?\.kind === 'proposal' && a\.proposal && done && chatId \? <ProposalCard chatId=\{chatId\} message=\{message\} \/>/);
-  expect(src('screens/MicoAiScreen.tsx')).toMatch(/<MessageView key=\{m\.id\} chatId=\{chatId\}/);
+  expect(src('screens/MicoAiScreen.tsx')).toMatch(/<MessageView chatId=\{chatId\} message=\{m\}/);
 });
 
 it('each kind’s summary shows everything Confirm will write', () => {

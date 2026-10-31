@@ -87,3 +87,19 @@ describe.skipIf(!hasWeb('frontend/src/pages/MicoAiPage.tsx'))('the website’s p
     for (const w of ['How can I help, ', 'How can I help?', 'I answer from your tasks, projects, meetings, reports and team chat.', 'MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.', 'Open AI Management', 'This chat was deleted.', 'Load earlier messages', 'Delete this chat?', 'and its messages will be deleted for good. This can’t be undone.', 'Delete chat', 'Rename this chat', 'Open chats', 'New chat', 'Suggested questions']) expect(p, w).toContain(w);
   });
 });
+
+it('the conversation scrolls only as the website’s rule says: never on growth the person caused (final review A1)', () => {
+  // A wish is set where the messages change and carried out when the content has its new size.
+  expect(screen).toMatch(/const w = scrollWant\(was, now, messages\.length, atEnd\.current\)/);
+  expect(screen).toMatch(/\[chatId, firstId, lastId, pending\?\.id, pending\?\.step, messages\.length\]/);
+  expect(screen).toMatch(/onContentSizeChange=\{applyWant\}/);
+  const apply = screen.slice(screen.indexOf('const applyWant'), screen.indexOf('const applyWant') + 900);
+  expect(apply).toMatch(/const w = want\.current;\s+if \(!w/);
+  // An answer taller than the view opens at its start.
+  expect(screen).toMatch(/box\.height > viewHeight\.current/);
+  expect(screen).toMatch(/onLayout=\{\(e\) => onMessageLayout\(m\.id, e\.nativeEvent\.layout\)\}/);
+  // The keyboard opening (the view getting shorter) keeps the newest message in view; a drag cancels any wish.
+  expect(screen).toMatch(/onLayout=\{onViewLayout\}/);
+  expect(screen).toMatch(/onScrollBeginDrag=\{\(\) => \{\s+want\.current = null;/);
+  expect(screen).not.toMatch(/if \(atEnd\.current\) scroller\.current\?\.scrollToEnd\(\{ animated: false \}\);\s+\}\}\s+maintainVisibleContentPosition/);
+});

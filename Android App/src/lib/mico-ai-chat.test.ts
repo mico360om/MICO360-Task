@@ -21,7 +21,9 @@ import {
   micoAiStatusKey,
   pendingAnswer,
   pollRetry,
+  scrollWant,
   sourceTarget,
+  type ScrollSeen,
   withEarlier,
   withMessage,
 } from './mico-ai-chat';
@@ -122,4 +124,24 @@ it('what a confirmed card can change is read again: the app’s own lists', () =
 
 describe.skipIf(!hasWeb('frontend/src/pages/MicoAiPage.tsx'))('the website’s words', () => {
   it('errors and announcements', () => { const p = readWeb('frontend/src/pages/MicoAiPage.tsx'); for (const w of ['Couldn’t reach the server. Check your connection and try again.', 'Something went wrong. Try again.', 'MICO AI is working on your question…', 'Nothing changes until you confirm them.', 'MICO AI stopped.', 'MICO AI couldn’t answer: ', 'MICO AI suggests changes: ', 'MICO AI answered: ', 'const MAX_QUESTION = 4000;', 'maxLength={200}']) expect(p, w).toContain(w); });
+});
+
+// ── Final review A1: where the conversation scrolls, as the website's MicoAiPage decides it ──
+describe('where the conversation scrolls (the website’s rule)', () => {
+  const seen = (over: Partial<ScrollSeen> = {}): ScrollSeen => ({ chatId: 'c1', first: 'm1', last: 'm4', pendingId: null, step: null, ...over });
+  it('another chat: its newest message (a new chat at its top)', () => {
+    expect(scrollWant(seen({ chatId: undefined }), seen(), 4, false)).toEqual({ kind: 'end' });
+    expect(scrollWant(seen(), seen({ chatId: null, first: null, last: null }), 0, true)).toEqual({ kind: 'top' });
+  });
+  it('older messages came in above: you stay where you were', () => expect(scrollWant(seen(), seen({ first: 'm0' }), 6, false)).toBeNull());
+  it('a new message at the end (you asked): the end', () => expect(scrollWant(seen(), seen({ last: 'm6', pendingId: 'm6' }), 6, false)).toEqual({ kind: 'end' }));
+  it('an answer finished while you followed it: its start (the screen checks whether it is taller than the view)', () => {
+    expect(scrollWant(seen({ pendingId: 'm4', step: 'Writing…' }), seen(), 4, true)).toEqual({ kind: 'start', id: 'm4' });
+    expect(scrollWant(seen({ pendingId: 'm4' }), seen(), 4, false)).toBeNull();
+  });
+  it('a new step: the end, only if you are already there; nothing else moves it', () => {
+    expect(scrollWant(seen({ pendingId: 'm4', step: 'Reading…' }), seen({ pendingId: 'm4', step: 'Writing…' }), 4, true)).toEqual({ kind: 'end' });
+    expect(scrollWant(seen({ pendingId: 'm4', step: 'Reading…' }), seen({ pendingId: 'm4', step: 'Writing…' }), 4, false)).toBeNull();
+    expect(scrollWant(seen(), seen(), 4, true)).toBeNull();
+  });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent, type LayoutRectangle, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Button, ErrorNote, IconButton, SkeletonList, TextField } from '../components/ui';
 import { ChatsSheet } from '../components/mico-ai/ChatsSheet';
 import { Composer, type ComposerHandle } from '../components/mico-ai/Composer';
@@ -11,7 +11,7 @@ import { useDirectory, useProjects } from '../core/queries';
 import { useAnswerPoll, useEarlierMessages, useMicoAiActions, useMicoAiChat, useMicoAiChats, useMicoAiStatus } from '../core/mico-ai-queries';
 import { chatTitle, suggestedQuestions } from '../lib/mico-ai';
 import type { MicoAiMessage } from '../lib/mico-ai-api';
-import { announce, CHAT_TITLE_MAX, errorText, pendingAnswer, withEarlier } from '../lib/mico-ai-chat';
+import { announce, CHAT_TITLE_MAX, errorText, pendingAnswer, scrollWant, withEarlier, type ScrollSeen, type ScrollWant } from '../lib/mico-ai-chat';
 import { radius, spacing, type Palette } from '../lib/theme';
 import { font, typeStyle } from '../lib/typography';
 import type { AppScreenProps } from '../navigation/types';
@@ -20,6 +20,10 @@ import type { AppScreenProps } from '../navigation/types';
 const SCOPE = ['Tasks', 'Meetings', 'Reports', 'Chat'];
 /** Within this many dp of the end, the conversation counts as "at the newest message". */
 const NEAR_END = 48;
+/** A wish to scroll lasts this long: the layout passes the change brings, not growth the person causes later. */
+const WISH_MS = 1000;
+/** Room above an answer scrolled to its start. */
+const ABOVE_ANSWER = 16;
 const NO_MESSAGES: MicoAiMessage[] = [];
 
 /**
@@ -170,14 +174,64 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
     [send, messages, actions],
   );
 
-  // The newest message stays in view: on another chat, a new message at the end, or a new step while
-  // you are already at the end. Older messages put in above keep your place (maintainVisibleContentPosition).
+  // Where the conversation scrolls, as the website decides it (lib/mico-ai-chat scrollWant): a wish is
+  // set where the messages change and carried out once the content has its new size. Growth the person
+  // caused (Edit, Show all rows, a section opened) moves nothing; a drag cancels any wish. Older
+  // messages put in above keep your place (maintainVisibleContentPosition).
   const scroller = useRef<ScrollView>(null);
   const atEnd = useRef(true);
+  const viewHeight = useRef(0);
+  const boxes = useRef(new Map<string, LayoutRectangle>());
+  const want = useRef<(NonNullable<ScrollWant> & { until: number }) | null>(null);
+  const seen = useRef<ScrollSeen>({ chatId: undefined, first: null, last: null, pendingId: null, step: null });
+  const firstId = messages[0]?.id ?? null;
   const lastId = messages[messages.length - 1]?.id ?? null;
+  const applyWant = () => {
+    const w = want.current;
+    if (!w || Date.now() > w.until) {
+      want.current = null;
+      return;
+    }
+    const el = scroller.current;
+    if (!el) return;
+    if (w.kind === 'end') {
+      el.scrollToEnd({ animated: false });
+      atEnd.current = true;
+    } else if (w.kind === 'top') {
+      el.scrollTo({ y: 0, animated: false });
+      atEnd.current = false;
+    } else {
+      // An answer that just finished: its start when it is taller than the view, else the end.
+      const box = boxes.current.get(w.id);
+      if (!box) return;
+      want.current = null;
+      if (box.height > viewHeight.current) {
+        el.scrollTo({ y: Math.max(0, box.y - ABOVE_ANSWER), animated: false });
+        atEnd.current = false;
+      } else {
+        el.scrollToEnd({ animated: false });
+        atEnd.current = true;
+      }
+    }
+  };
   useLayoutEffect(() => {
-    atEnd.current = true;
-  }, [chatId, lastId]);
+    const was = seen.current;
+    const now: ScrollSeen = { chatId, first: firstId, last: lastId, pendingId: pending?.id ?? null, step: pending?.step ?? null };
+    seen.current = now;
+    const w = scrollWant(was, now, messages.length, atEnd.current);
+    want.current = w ? { ...w, until: Date.now() + WISH_MS } : want.current;
+    // applyWant reads refs only, so it isn't a dependency.
+    applyWant();
+  }, [chatId, firstId, lastId, pending?.id, pending?.step, messages.length]);
+  const onMessageLayout = (id: string, box: LayoutRectangle) => {
+    boxes.current.set(id, box);
+    if (want.current?.kind === 'start' && want.current.id === id) applyWant();
+  };
+  const onViewLayout = (e: LayoutChangeEvent) => {
+    viewHeight.current = e.nativeEvent.layout.height;
+    // The view got shorter (the keyboard opened) while the newest message was in view: it stays in view.
+    if (atEnd.current) scroller.current?.scrollToEnd({ animated: false });
+  };
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     atEnd.current = contentSize.height - contentOffset.y - layoutMeasurement.height <= NEAR_END;
@@ -219,9 +273,11 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
         keyboardShouldPersistTaps="handled"
         onScroll={onScroll}
         scrollEventThrottle={64}
-        onContentSizeChange={() => {
-          if (atEnd.current) scroller.current?.scrollToEnd({ animated: false });
+        onLayout={onViewLayout}
+        onScrollBeginDrag={() => {
+          want.current = null;
         }}
+        onContentSizeChange={applyWant}
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
       >
         <View style={s.top}>
@@ -264,7 +320,9 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
           {chatId && chatQ.isLoading ? <SkeletonList rows={3} /> : null}
         </View>
         {messages.map((m) => (
-          <MessageView key={m.id} chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} />
+          <View key={m.id} onLayout={(e) => onMessageLayout(m.id, e.nativeEvent.layout)}>
+            <MessageView chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} />
+          </View>
         ))}
       </ScrollView>
 

@@ -170,3 +170,35 @@ export function announce(m: MicoAiMessage): string | null {
   if (m.answer?.kind === 'proposal') return `MICO AI suggests changes: ${m.text.slice(0, 300)} Nothing changes until you confirm them.`;
   return `MICO AI answered: ${copyTextOf(m).slice(0, 400)}`;
 }
+
+/** What the conversation showed at the last look: where it scrolls next is decided by what changed. */
+export interface ScrollSeen {
+  /** undefined: nothing seen yet. */
+  chatId: string | null | undefined;
+  first: string | null;
+  last: string | null;
+  pendingId: string | null;
+  step: string | null;
+}
+
+/** Where the conversation should scroll: to its end, its top, or the start of an answer. */
+export type ScrollWant = { kind: 'end' } | { kind: 'top' } | { kind: 'start'; id: string } | null;
+
+/**
+ * The website's MicoAiPage rule for where the conversation scrolls, by what changed since the last look:
+ * - another chat: its newest message (a new chat opens at its top: the greeting first);
+ * - older messages came in above ("Load earlier messages"): you stay where you were;
+ * - a new message at the end (you asked): the end;
+ * - an answer finished while you followed it: its start (the screen goes to the end instead when it
+ *   is no taller than the view);
+ * - a new progress step: the end, only if you are already there.
+ * Anything else — growth you caused (Edit, Show all rows, a section opened) — moves nothing.
+ */
+export function scrollWant(was: ScrollSeen, now: ScrollSeen, count: number, atEnd: boolean): ScrollWant {
+  if (now.chatId !== was.chatId) return count ? { kind: 'end' } : { kind: 'top' };
+  if (now.first !== was.first && now.last === was.last) return null;
+  if (now.last !== was.last) return count ? { kind: 'end' } : { kind: 'top' };
+  if (was.pendingId && was.pendingId !== now.pendingId) return atEnd ? { kind: 'start', id: was.pendingId } : null;
+  if (now.step !== was.step && atEnd) return { kind: 'end' };
+  return null;
+}
