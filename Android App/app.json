@@ -9,7 +9,7 @@
     "primaryColor": "#8B1E1E",
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/logo.png",
+      "image": "./assets/brand/logo-w.png",
       "resizeMode": "contain",
       "backgroundColor": "#8B1E1E"
     },

@@ -38,7 +38,11 @@ describe('app.json base manifest', () => {
   it('configures the splash screen so a clean prebuild keeps color/splashscreen_background (MOB-05)', () => {
     // Without a splash section `expo prebuild --clean` drops splashscreen_background from
     // colors.xml while the splash drawable still references it, and every release build fails.
-    expect(expo.splash).toEqual({ image: './assets/logo.png', resizeMode: 'contain', backgroundColor: '#8B1E1E' });
+    // Its picture is the website's white MICO360 logo (re-check J): the icon square's black triangle
+    // would show on an older phone's splash. The app's icon stays the icon.
+    expect(expo.splash).toEqual({ image: './assets/brand/logo-w.png', resizeMode: 'contain', backgroundColor: '#8B1E1E' });
+    expect(expo.icon).toBe('./assets/icon.png');
+    expect(expo.android.adaptiveIcon).toEqual({ foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#8B1E1E' });
   });
 
   it('blocks permissions the app does not use and keeps cached data out of cloud backups (MOB-12)', () => {
