@@ -1,0 +1,2 @@
+# The pinned emails are compared byte for byte: keep them LF on every checkout (autocrlf would add CR).
+* text eol=lf

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { completedEmail, pendingEmail, taskLink, type DailyProject, type DailyTask } from './daily-email-content';
 
 const TZ = 'Asia/Muscat';
@@ -276,5 +276,56 @@ describe('pendingEmail: the person’s own tasks waiting for approval (owner, 30
     const both = pendingEmail({ ...base, tasks: two, awaitingApproval: 3 });
     expect(both.subject).toBe('3 tasks waiting for your approval');
     expect(both.text).toContain('Waiting for approval (2)');
+  });
+});
+
+describe('one company: today’s output, pinned byte for byte (companies, MC1 Task 16)', () => {
+  // A person with one company and five tasks in two projects; the year in the footer is pinned too.
+  const fixture = {
+    name: 'Ada',
+    timeZone: TZ,
+    now: NOW,
+    appUrl: APP,
+    assetUrl: ASSETS,
+    tasks: [
+      task('RIG-1', { dueDate: day('2026-10-19'), priority: 'URGENT', statusLabel: 'In Progress' }),
+      task('RIG-2', { dueDate: day('2026-10-21'), priority: 'HIGH' }),
+      task('OPS-1', { project: OPS, dueDate: day('2026-10-25') }),
+      task('OPS-2', { project: OPS }),
+      task('RIG-3', { waitingSince: new Date('2026-10-20T08:00:00Z') }),
+    ],
+    awaitingApproval: 2,
+  };
+  const done = {
+    name: 'Ada',
+    timeZone: TZ,
+    day: '2026-10-20',
+    appUrl: APP,
+    assetUrl: ASSETS,
+    tasks: [
+      task('RIG-1', { dueDate: day('2026-10-21'), completedAt: new Date('2026-10-20T05:10:00Z') }),
+      task('RIG-2', { dueDate: day('2026-10-18'), completedAt: new Date('2026-10-20T07:00:00Z'), priority: 'HIGH' }),
+      task('OPS-1', { project: OPS, completedAt: new Date('2026-10-20T09:30:00Z') }),
+    ],
+  };
+  const pinned = <T>(fn: () => T): T => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
+    try {
+      return fn();
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it('the pending email', async () => {
+    const e = pinned(() => pendingEmail(fixture));
+    await expect(e.html).toMatchFileSnapshot('__snapshots__/single-company.html.snap');
+    await expect(e.text).toMatchFileSnapshot('__snapshots__/single-company.text.snap');
+  });
+
+  it('the completed email', async () => {
+    const e = pinned(() => completedEmail(done));
+    await expect(e.html).toMatchFileSnapshot('__snapshots__/single-company-completed.html.snap');
+    await expect(e.text).toMatchFileSnapshot('__snapshots__/single-company-completed.text.snap');
   });
 });
