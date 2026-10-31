@@ -21,6 +21,16 @@ it('read receipts on my bubble are told apart by colour and weight, as on the we
   expect(parts).not.toMatch(/label\.startsWith\('Read'\)/);
 });
 
+// Item 6 follow-up (lead's ruling): readOnBrand only for the read ticks (icons, ≥ 3:1); the small
+// "seen by" count is text — onBrand at full strength (≥ 4.5:1), outside the quiet 80% of sent/delivered.
+it('on my bubble the "seen by" count is full-strength onBrand; only the ticks take readOnBrand and the 80%', () => {
+  const parts = src('components/chat/MessageParts.tsx');
+  const mine = /<View style=\{s\.receipt\}>[^]*?<\/View>\s*\{receipt\.seenBy \? <Text style=\{\[s\.metaText, \{ color: c\.onBrand \}\]\}>\{receipt\.seenBy\}<\/Text> : null\}/.exec(parts)?.[0] ?? '';
+  expect(mine, 'count after the ticks, in onBrand').not.toBe('');
+  expect(mine).toMatch(/<View style=\{receipt\.read \? null : s\.quietReceipt\}>\s*<Icon name=\{receipt\.ticks\} size=\{14\} color=\{receipt\.read \? c\.readOnBrand : c\.onBrand\}/);
+  expect(parts).not.toMatch(/color: receipt\.read \? c\.readOnBrand : c\.onBrand/); // no text in readOnBrand
+});
+
 // Item 7 (S5): titles and figures in Archivo wherever the website sets the same element in font-display
 // (its weight: font-bold 700, font-semibold 600, font-extrabold 800).
 it('titles and figures use the display face, as the website’s font-display', () => {

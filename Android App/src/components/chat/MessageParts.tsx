@@ -236,10 +236,13 @@ export const MessageBubble = memo(function MessageBubble({
               {m.editedAt ? <Text style={[s.metaText, { color: quiet }]}>Edited ·</Text> : null}
               <Text style={[s.metaText, { color: quiet }]}>{time}</Text>
               {receipt?.ticks ? (
-                // On my brand bubble (the website): read in sky-200 with bold ticks, the rest white at 80%.
-                <View style={[s.receipt, receipt.read ? null : s.quietReceipt]}>
-                  <Icon name={receipt.ticks} size={14} color={receipt.read ? c.readOnBrand : c.onBrand} strokeWidth={receipt.read ? 2.6 : undefined} />
-                  {receipt.seenBy ? <Text style={[s.metaText, { color: receipt.read ? c.readOnBrand : c.onBrand }]}>{receipt.seenBy}</Text> : null}
+                // On my brand bubble (the website): read ticks in sky-200 and bold, the rest white at 80%.
+                // The "seen by" count is text: full-strength onBrand in both themes (sky-200 is 4.10:1 in dark).
+                <View style={s.receipt}>
+                  <View style={receipt.read ? null : s.quietReceipt}>
+                    <Icon name={receipt.ticks} size={14} color={receipt.read ? c.readOnBrand : c.onBrand} strokeWidth={receipt.read ? 2.6 : undefined} />
+                  </View>
+                  {receipt.seenBy ? <Text style={[s.metaText, { color: c.onBrand }]}>{receipt.seenBy}</Text> : null}
                 </View>
               ) : null}
             </View>
