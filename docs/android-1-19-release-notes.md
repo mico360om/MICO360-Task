@@ -81,4 +81,5 @@
 
 ## Final pass
 - In the Android app, search, filters and sorted lists work the same whatever language the phone is set to: on a phone in Turkish, "site" finds "SITE WALK" again, names sort in English order and a role typed in capitals is the same role.
+- In the Android app, Dashboard, My Tasks, Projects, Meetings, Notifications and Settings no longer start with an empty band under the top bar, and the side menu's logo sits at its top.
 <!-- final-pass lines above this line -->

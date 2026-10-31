@@ -172,7 +172,7 @@ export function SettingsScreen({ navigation }: AppScreenProps<'Settings'>) {
   const pushOff = pushPerm && pushPerm.status !== 'granted';
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       {/* The daily emails' time stays above the keyboard while typing. */}
       <KeyboardAwareScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         <SyncStatus />

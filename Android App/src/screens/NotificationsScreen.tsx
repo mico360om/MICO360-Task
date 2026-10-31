@@ -138,7 +138,7 @@ export function NotificationsScreen({ navigation }: AppScreenProps<'Notification
     );
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={[]}>
       <FlatList
         data={list}
         keyExtractor={(n) => n.id}

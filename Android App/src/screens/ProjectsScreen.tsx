@@ -176,7 +176,7 @@ export function ProjectsScreen({ navigation }: TabScreenProps<'Projects'>) {
   );
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={[]}>
       <FlatList
         data={firstRun || failed ? [] : visible}
         keyExtractor={(p) => p.id}

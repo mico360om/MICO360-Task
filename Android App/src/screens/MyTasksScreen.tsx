@@ -308,7 +308,7 @@ export function MyTasksScreen({ navigation, route }: TabScreenProps<'MyTasks'>) 
     );
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
+    <SafeAreaView style={s.safe} edges={[]}>
       <FlatList
         ref={listRef}
         data={shown}

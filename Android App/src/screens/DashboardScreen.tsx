@@ -82,7 +82,7 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const refreshing = myTasksQ.isRefetching || projectsQ.isRefetching || dueSoonQ.isRefetching || activityQ.isRefetching;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={

@@ -216,7 +216,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       <FlatList
         data={rows}
         keyExtractor={(r) => r.key}

@@ -108,7 +108,8 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
         <Animated.View style={[s.backdrop, { opacity: backdropOpacity }]}>
           <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Close menu" onPress={closeDrawer} />
         </Animated.View>
-        <Animated.View style={[s.panel, { paddingTop: insets.top, transform: [{ translateX }] }] as ViewStyle[]}>
+        {/* The Modal's window starts under the status bar (Android), so the panel adds no top inset. */}
+        <Animated.View style={[s.panel, { transform: [{ translateX }] }] as ViewStyle[]}>
           <View style={s.header}>
             <BrandLogo height={32} />
           </View>
