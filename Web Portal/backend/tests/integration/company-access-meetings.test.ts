@@ -106,6 +106,40 @@ describe('Meetings follow companies (integration)', () => {
     expect(seen).not.toContain(`ZZALPHA action for ${w.people.ana}`);
   });
 
+  it('the minutes email: bob, invited from Beta, gets his own copy once the minutes are final — the team the full one', async () => {
+    const { MA } = w.meetings;
+    const { ana, bob } = w.people;
+    const copies = new Map<string, Buffer | null | undefined>();
+    const notify = {
+      async sendMinutes(_id: string, _pdf: Buffer, opts?: { attachmentFor?: (userId: string) => Promise<Buffer | null | undefined> }) {
+        for (const userId of [ana, bob]) copies.set(userId, opts?.attachmentFor ? await opts.attachmentFor(userId) : undefined);
+        return { sent: 2, failed: 0 };
+      },
+      async previewMinutes() { return {}; },
+    };
+    const mailing = await buildPeopleApp(prisma, { meetingNotifyService: notify as never });
+    try {
+      // Not final yet: bob is sent nothing (in the app he can't open them yet either); ana the shared PDF.
+      expect((await mailing.post(w.as.ana, `/meetings/${MA}/minutes/send`, {})).status).toBe(200);
+      expect(copies.get(bob)).toBeNull();
+      expect(copies.get(ana)).toBeUndefined();
+      // Final: bob's own copy — the final minutes and his action items; not the live notes or ana's items.
+      expect((await mailing.post(w.as.ana, `/meetings/${MA}/final-minutes/approve`, { content: FINAL })).status).toBe(200);
+      expect((await mailing.post(w.as.ana, `/meetings/${MA}/minutes/send`, {})).status).toBe(200);
+      const theirs = copies.get(bob);
+      expect(Buffer.isBuffer(theirs)).toBe(true);
+      const text = pdfText(theirs as Buffer);
+      expect(text).toContain('Agreed ZZFINAL');
+      expect(text).toContain(`ZZALPHA action for ${bob}`);
+      expect(text).not.toContain('ZZALPHA note');
+      expect(text).not.toContain(`ZZALPHA action for ${ana}`);
+      expect(copies.get(ana)).toBeUndefined();
+    } finally {
+      await mailing.post(w.as.ana, `/meetings/${MA}/final-minutes/reopen`);
+      await mailing.close();
+    }
+  });
+
   it('ana (same company, on the team) and administrators keep the full view; a stranger sees nothing', async () => {
     expect((await h.get(w.as.ana, `/meetings/${w.meetings.MA}`)).data.view).toBe('full');
     expect((await h.get(w.as.ana, `/meetings/${w.meetings.MA}/notes`)).status).toBe(200);

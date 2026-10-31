@@ -218,10 +218,14 @@ describe('Minutes email route', () => {
     const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
     const res = await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth }, payload: { recipients: ['a@x.co'] } });
     expect(res.statusCode).toBe(200);
-    expect(notify.sendMinutes).toHaveBeenCalledWith(id, expect.any(Buffer), { only: ['a@x.co'] });
+    expect(notify.sendMinutes).toHaveBeenCalledWith(id, expect.any(Buffer), { only: ['a@x.co'], attachmentFor: expect.any(Function) });
+    // Companies: each of the meeting's users is asked about; without companies everyone sees it in
+    // full, so everyone gets the shared PDF (undefined), as before.
+    const { attachmentFor } = (notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer, { attachmentFor: (u: string) => Promise<unknown> }])[2];
+    expect(await attachmentFor('u1')).toBeUndefined();
     // No list = everyone, as before.
     await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth } });
-    expect(notify.sendMinutes).toHaveBeenLastCalledWith(id, expect.any(Buffer));
+    expect(notify.sendMinutes).toHaveBeenLastCalledWith(id, expect.any(Buffer), { attachmentFor: expect.any(Function) });
   });
 
   it('previews the minutes email for a meeting editor only', async () => {

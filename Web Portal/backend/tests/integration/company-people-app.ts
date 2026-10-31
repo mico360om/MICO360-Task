@@ -52,7 +52,7 @@ import { createMeetingCompanyRule } from '../../src/modules/meetings/meeting-com
  * The people and meetings parts of the server, wired from real Prisma services as server.ts wires
  * them (companies: MC1 Tasks 9–10), behind buildApp — so the DB tests ask over HTTP, as a browser does.
  */
-export async function buildPeopleApp(prisma: PrismaClient) {
+export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
   const tokenService = createTokenService({
     accessSecret: 'people-access',
     refreshSecret: 'people-refresh',
@@ -151,6 +151,7 @@ export async function buildPeopleApp(prisma: PrismaClient) {
     isActiveUser,
     meetingInvitees: createPrismaMeetingInvitees(prisma, { companyAccess, personOptions }),
     meetingCompany: createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) }),
+    ...extra,
   });
 
   type Answer = { status: number; data: any; error: any; body: string }; // eslint-disable-line @typescript-eslint/no-explicit-any

@@ -130,7 +130,12 @@ export interface MeetingNotifyService {
   sendAttendeeRemoved(meetingId: string, attendee: AttendeeRecord, opts?: { alsoFrom?: MeetingRecord[] }): Promise<DeliveryReport>;
   /** Email the minutes PDF; `only` limits it to some of the meeting's own recipients (by email). */
   /** `final`: the PDF is the approved final minutes (the attachment is named so). */
-  sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }): Promise<SendReport>;
+  /**
+   * Email the minutes PDF to the organizer and attendees. `attachmentFor` (companies) chooses one of
+   * the meeting's users' own copy: a Buffer is theirs, null sends them nothing, undefined the shared PDF
+   * (guests by email always get the shared PDF, as today).
+   */
+  sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean; attachmentFor?: (userId: string) => Promise<Buffer | null | undefined> }): Promise<SendReport>;
   /** The minutes email exactly as it would be sent, and to whom — sends nothing. */
   previewMinutes(meetingId: string, opts?: { final?: boolean }): Promise<MinutesPreview>;
 }
@@ -193,14 +198,18 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     missingEmail: Array<{ name: string; attendeeId: string }>;
     icsAttendees: IcsPerson[];
     organizer: NotifyPerson | null;
+    /** companies: the user behind each address (lower-cased), for the people who are users. */
+    userIdOf: Map<string, string>;
   }> {
     const byEmail = new Map<string, Recipient>();
+    const userIdOf = new Map<string, string>();
     const invited = new Map<string, boolean[]>();
     const missingEmail: Array<{ name: string; attendeeId: string }> = [];
     const icsAttendees: IcsPerson[] = [];
     const organizer = await deps.resolveUser(m.organizerId);
     if (organizer?.email) {
       byEmail.set(organizer.email.toLowerCase(), { name: organizer.name, email: organizer.email, kind: 'organizer', attendeeIds: [], alreadyInvited: false });
+      userIdOf.set(organizer.email.toLowerCase(), m.organizerId);
     }
 
     for (const a of await attendees.listByMeeting(m.id)) {
@@ -213,6 +222,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const r = byEmail.get(key) ?? { name: person.name, email: person.email, kind: a.userId ? 'member' : 'guest', attendeeIds: [], alreadyInvited: false };
       r.attendeeIds.push(a.id);
       byEmail.set(key, r);
+      if (a.userId && !userIdOf.has(key)) userIdOf.set(key, a.userId);
       invited.set(key, [...(invited.get(key) ?? []), a.invitedAt != null]);
       icsAttendees.push({ name: person.name, email: person.email, role: a.role });
     }
@@ -220,7 +230,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const rows = invited.get(key);
       return { ...r, alreadyInvited: rows ? rows.every(Boolean) : m.invitesSentAt != null };
     });
-    return { people: recipients.map((r) => ({ name: r.name, email: r.email })), recipients, missingEmail, icsAttendees, organizer };
+    return { people: recipients.map((r) => ({ name: r.name, email: r.email })), recipients, missingEmail, icsAttendees, organizer, userIdOf };
   }
 
   /** What to fix (error) or look at (warning) before invitations go out. */
@@ -584,15 +594,31 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
 
     async sendMinutes(meetingId, pdf, opts) {
       const m = await requireMeeting(meetingId);
-      const { recipients, missingEmail, organizer } = await recipientsFor(m);
+      const { recipients, missingEmail, organizer, userIdOf } = await recipientsFor(m);
       // Only the meeting's own people can be chosen — never an arbitrary address.
       const chosen = opts?.only ? new Set(opts.only.map((e) => e.trim().toLowerCase())) : null;
-      const targets = chosen ? recipients.filter((r) => chosen.has(r.email.toLowerCase())) : recipients;
-      if (chosen && targets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
+      const chosenTargets = chosen ? recipients.filter((r) => chosen.has(r.email.toLowerCase())) : recipients;
+      if (chosen && chosenTargets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
+      // companies: each of the meeting's users may have their own copy (someone invited from another
+      // company: the invitee minutes), or none yet — they aren't sent the shared PDF instead.
+      const own = new Map<string, Buffer>();
+      const targets: Recipient[] = [];
+      for (const r of chosenTargets) {
+        const userId = userIdOf.get(r.email.toLowerCase());
+        const theirs = userId && opts?.attachmentFor ? await opts.attachmentFor(userId) : undefined;
+        if (theirs === null) continue;
+        if (theirs) own.set(r.email.toLowerCase(), theirs);
+        targets.push(r);
+      }
       const params = { ...(await emailParams(m, organizer)), project: await projectLook(m) };
-      const attachment: EmailAttachment = { filename: minutesAttachmentName(m.title, opts?.final), contentType: 'application/pdf', content: pdf };
+      const filename = minutesAttachmentName(m.title, opts?.final);
+      const attachment: EmailAttachment = { filename, contentType: 'application/pdf', content: pdf };
+      const attachmentOf = (email: string): EmailAttachment => {
+        const theirs = own.get(email.toLowerCase());
+        return theirs ? { filename, contentType: 'application/pdf', content: theirs } : attachment;
+      };
       const mail = mailerFor(await brandOf(m));
-      const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => mail.sendMeetingMinutes(p.email, params, attachment)));
+      const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => mail.sendMeetingMinutes(p.email, params, attachmentOf(p.email))));
       return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, chosen ? [] : missingEmail);
     },
 

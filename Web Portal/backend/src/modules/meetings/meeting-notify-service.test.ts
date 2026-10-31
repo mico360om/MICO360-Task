@@ -109,6 +109,32 @@ describe('MeetingNotifyService', () => {
     expect(att.content).toBe(pdf);
   });
 
+  // Companies: someone invited from another company gets their own copy (the invitee minutes: no live
+  // notes, only their own action items), or nothing while the minutes aren't final.
+  it('companies: each of the meeting’s users gets their own copy of the minutes — another PDF, or none', async () => {
+    const { svc, email } = makeService({
+      attendees: [attendee({ id: 'a2', userId: 'u2' }), attendee({ id: 'a3', userId: 'u3' }), attendee({ id: 'a4', externalName: 'Guest', externalEmail: 'guest@ext.co' })],
+    });
+    directory.u3 = { name: 'Bob Betaonly', email: 'bob@beta.test' };
+    try {
+      const pdf = Buffer.from('%PDF full');
+      const theirs = Buffer.from('%PDF invitee u2');
+      const asked: string[] = [];
+      const res = await svc.sendMinutes('m1', pdf, {
+        attachmentFor: async (userId) => {
+          asked.push(userId);
+          return userId === 'u2' ? theirs : userId === 'u3' ? null : undefined;
+        },
+      });
+      const sent = Object.fromEntries(email.sendMeetingMinutes.mock.calls.map((c) => [c[0], (c[2] as { content: Buffer }).content.toString()]));
+      expect(sent).toEqual({ 'aisha@mico360.test': '%PDF full', 'khurram@mico360.test': '%PDF invitee u2', 'guest@ext.co': '%PDF full' });
+      expect(res.sent).toBe(3); // u3 gets nothing (not final yet for them)
+      expect(asked.sort()).toEqual(['u1', 'u2', 'u3']); // asked for each of the meeting's users, never for a guest
+    } finally {
+      delete directory.u3;
+    }
+  });
+
   it('heads the minutes email with the project’s picture, at an address email clients can load', async () => {
     const { svc, email } = makeService({ attendees: [attendee({ userId: 'u2' })] });
     await svc.sendMinutes('m1', Buffer.from('%PDF'));

@@ -95,11 +95,17 @@ export interface MinutesRouteDeps {
    * action items; everything else here is the team's.
    */
   viewOf?: (userId: string, roles: string[], meetingId: string) => Promise<'full' | 'invitee' | null>;
+  /** companies: a person's current roles — the minutes email asks viewOf for each of the meeting's users. */
+  rolesOf?: (userId: string) => Promise<string[]>;
   /** Companies: the meeting's company brand on its minutes PDF — its name (2+ companies) and logo; absent: the site's. */
   pdfBrand?: (meetingId: string) => Promise<PdfBrand>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
   notify?: {
-    sendMinutes: (meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }) => Promise<{ sent: number; failed?: number }>;
+    sendMinutes: (
+      meetingId: string,
+      pdf: Buffer,
+      opts?: { only?: string[]; final?: boolean; attachmentFor?: (userId: string) => Promise<Buffer | null | undefined> },
+    ) => Promise<{ sent: number; failed?: number }>;
     /** The minutes email as it would be sent, and to whom (enables GET /meetings/:id/minutes/preview). */
     previewMinutes?: (meetingId: string, opts?: { final?: boolean }) => Promise<unknown>;
   };
@@ -241,13 +247,16 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
   /** Assemble the minutes data of a meeting the caller may view (`alsoName`: more people to name). */
   const gatherFor = createMinutesData(deps);
   const gather = (req: FastifyRequest, id: string, alsoName: string[] = []) => gatherFor(req.user!.id, id, alsoName);
-  /** companies: an invitee's minutes — no live notes, only their own action items, no project tasks. */
-  const gatherForInvitee = (req: FastifyRequest, id: string, alsoName: string[] = []) =>
+  /**
+   * companies: an invitee's minutes — no live notes, only their own action items, no project tasks.
+   * `forUserId`: whose copy (the person asking, or a recipient of the minutes email).
+   */
+  const gatherForInvitee = (req: FastifyRequest, id: string, alsoName: string[] = [], forUserId: string = req.user!.id) =>
     createMinutesData({
       ...deps,
       noteService: { ...deps.noteService, listNotes: async () => [] },
       actionItemService: deps.actionItemService && {
-        listByMeeting: async (mid: string) => (await deps.actionItemService!.listByMeeting(mid)).filter((a) => a.assigneeId === req.user!.id).map((a) => ({ ...a, taskId: null })),
+        listByMeeting: async (mid: string) => (await deps.actionItemService!.listByMeeting(mid)).filter((a) => a.assigneeId === forUserId).map((a) => ({ ...a, taskId: null })),
       },
     })(req.user!.id, id, alsoName);
   const viewOf = async (req: FastifyRequest, id: string) =>
@@ -261,11 +270,12 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
    * marked final; a Final MOM still being written goes only into an editor's own copy, marked as a
    * draft (`withDraft`), never to anyone else or into an email.
    */
-  async function buildPdf(req: FastifyRequest, id: string, opts: { withDraft?: boolean; invitee?: boolean } = {}): Promise<{ pdf: Buffer; title: string; final: boolean }> {
+  async function buildPdf(req: FastifyRequest, id: string, opts: { withDraft?: boolean; invitee?: boolean; inviteeId?: string } = {}): Promise<{ pdf: Buffer; title: string; final: boolean }> {
     const rec = await finalOf(id);
     const approved = rec?.status === 'APPROVED';
     const shown = approved || (rec && opts.withDraft) ? rec : null;
-    const { data, title, nameOf } = await (opts.invitee ? gatherForInvitee : gather)(req, id, shown?.approvedById ? [shown.approvedById] : []);
+    const alsoName = shown?.approvedById ? [shown.approvedById] : [];
+    const { data, title, nameOf } = await (opts.invitee ? gatherForInvitee(req, id, alsoName, opts.inviteeId ?? req.user!.id) : gather(req, id, alsoName));
     const final = shown
       ? {
           content: shown.content,
@@ -307,7 +317,19 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     const body = sendBody.parse(req.body ?? {});
     // Once the minutes are final they open the PDF; a Final MOM still being written never goes out.
     const { pdf, final } = await buildPdf(req, id);
-    const opts = { ...(body.recipients ? { only: body.recipients } : {}), ...(final ? { final: true } : {}) };
+    // companies: someone invited from another company gets what the minutes route serves them — their
+    // own copy (no live notes, no one else's action items, no task keys), and only once the minutes
+    // are final; nothing before. The team (and guests by email) get the shared PDF, as before.
+    const viewOfMeeting = deps.viewOf;
+    const attachmentFor = viewOfMeeting
+      ? async (userId: string): Promise<Buffer | null | undefined> => {
+          const view = await viewOfMeeting(userId, deps.rolesOf ? await deps.rolesOf(userId) : [], id);
+          if (view === 'full') return undefined;
+          if (view === null || !final) return null;
+          return (await buildPdf(req, id, { invitee: true, inviteeId: userId })).pdf;
+        }
+      : undefined;
+    const opts = { ...(body.recipients ? { only: body.recipients } : {}), ...(final ? { final: true } : {}), ...(attachmentFor ? { attachmentFor } : {}) };
     const result = Object.keys(opts).length ? await deps.notify.sendMinutes(id, pdf, opts) : await deps.notify.sendMinutes(id, pdf);
     return { data: result };
   });

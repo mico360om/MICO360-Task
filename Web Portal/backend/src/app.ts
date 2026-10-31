@@ -846,6 +846,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,
           viewOf: meetingViewOf,
+          // companies: the minutes email asks each of the meeting's users' view with their current roles.
+          rolesOf: deps.userState ? async (userId: string) => (await deps.userState!(userId))?.roles ?? [] : undefined,
           // companies: the meeting's company on its minutes PDF (MC1 Task 14).
           pdfBrand: brands ? (meetingId) => brands.meeting(meetingId) : undefined,
         });
