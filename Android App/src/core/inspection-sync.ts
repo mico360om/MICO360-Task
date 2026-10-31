@@ -160,7 +160,7 @@ export function useWaitingInspections(): WaitingInspection[] {
 }
 
 /**
- * "Waiting on this phone" (lib/on-this-phone): the signed-in person's inspections with changes waiting
+ * "On this phone" (lib/on-this-phone): the signed-in person's inspections with changes waiting
  * or kept unfinished here, of one project when given — from the phone's records, so it works offline.
  */
 export function useKeptInspections(projectId?: string): KeptRow[] {

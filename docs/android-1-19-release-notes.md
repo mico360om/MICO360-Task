@@ -91,6 +91,6 @@
 - In the Android app, an inspection with changes still waiting on the phone (signed with no signal, say) doesn't offer Delete until they have been sent.
 - In the Android app, the bell keeps its number of unread alerts with no signal, even after the app is restarted.
 - In the Android app, starting the app shows the white MICO360 logo on maroon until the first screen is ready — no white or blank screen first, in light or dark mode.
-- In the Android app, "Waiting on this phone" on the Dashboard (and at the top of a project's Inspections tab) lists the inspections with changes still on the phone or not finished yet, each with Open — it works with no signal, even after the app is restarted; the task of an inspection you opened, and any task you looked at, opens with no signal too.
+- In the Android app, "On this phone" on the Dashboard (and at the top of a project's Inspections tab) lists the inspections with changes still on the phone or not finished yet, each with Open — it works with no signal, even after the app is restarted; the task of an inspection you opened, and any task you looked at, opens with no signal too.
 - In the Android app, the Chat tab's unread number is no longer cut off at the largest font size.
 <!-- final-pass lines above this line -->

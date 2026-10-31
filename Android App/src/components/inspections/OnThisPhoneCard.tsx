@@ -11,7 +11,7 @@ import { DashboardSection } from '../dashboard/DashboardSection';
 import { Button } from '../ui';
 
 /**
- * "Waiting on this phone" (device check B): each inspection the signed-in person has changes waiting
+ * "On this phone" (device check B): each inspection the signed-in person has changes waiting
  * for, or keeps on this phone unfinished — its title, its task's key and what waits — with Open. Read
  * from the phone's own records, so it works with no signal, even after the app was restarted. On the
  * Dashboard (all of them) and at the top of a project's Inspections tab (`projectId`'s); nothing

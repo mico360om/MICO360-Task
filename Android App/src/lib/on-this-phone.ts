@@ -3,11 +3,12 @@ import { unsentChanges } from './inspection-outboxes';
 import { INSPECTION_WORDS } from './inspection-words';
 
 /**
- * "Waiting on this phone" (device check B): the inspections the signed-in person has changes waiting
- * for, or keeps on this phone unfinished, read from the phone's own records — so the Dashboard (and a
- * project's Inspections tab) can open them with no signal, even after the app was restarted.
+ * "On this phone" (device check B): the inspections the signed-in person has changes waiting for, or
+ * keeps on this phone unfinished, read from the phone's own records — so the Dashboard (and a
+ * project's Inspections tab) can open them with no signal, even after the app was restarted. Not
+ * "Waiting on this phone": an unfinished one may have nothing waiting (re-check note a).
  */
-export const ON_PHONE_TEXT = { title: 'Waiting on this phone', open: 'Open' } as const;
+export const ON_PHONE_TEXT = { title: 'On this phone', open: 'Open' } as const;
 
 /** "1 change waiting", "3 changes waiting". */
 export function changesWaiting(n: number): string {

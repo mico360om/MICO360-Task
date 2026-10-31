@@ -10,7 +10,7 @@ import { createMemoryStore } from './storage';
 /**
  * Device check B (31 Oct): restarted with no signal, an unfinished inspection couldn't be reached —
  * its task said "Could not load this task" and Projects only offered Retry; only a link opened it.
- * (1) The Dashboard (and the top of a project's Inspections tab) lists "Waiting on this phone": each
+ * (1) The Dashboard (and the top of a project's Inspections tab) lists "On this phone": each
  * inspection the signed-in person has changes waiting for, or keeps on this phone unfinished, on
  * this server — read from the phone's own records, so it works with no signal — each with Open.
  * (2) A task's details are kept on the phone when it is read (an inspection's task is read when the
@@ -68,7 +68,8 @@ it('a finished inspection with nothing waiting isn’t listed; one without a tas
 });
 
 it('says the changes in the app’s plain words', () => {
-  expect(ON_PHONE_TEXT).toEqual({ title: 'Waiting on this phone', open: 'Open' });
+  // Headed "On this phone" (re-check note a): it lists unfinished ones with nothing waiting too.
+  expect(ON_PHONE_TEXT).toEqual({ title: 'On this phone', open: 'Open' });
   expect(changesWaiting(1)).toBe('1 change waiting');
   expect(changesWaiting(3)).toBe('3 changes waiting');
 });
