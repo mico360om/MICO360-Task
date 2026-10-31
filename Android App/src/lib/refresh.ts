@@ -11,8 +11,14 @@ export const DUE_SOON_KEY = ['tasks', 'due-soon'] as const;
  * shown (their screens read again as they come back into view — core/focus-refetch): the Projects
  * page's figures, and the Dashboard's Due soon, Recent activity and administrators' totals (fix pass B2).
  */
-const TASK_FIGURES: readonly KeyRefresh[] = [
-  { queryKey: PROJECTS_OVERVIEW_KEY, exact: true },
+const TASK_FIGURES: readonly KeyRefresh[] = [{ queryKey: PROJECTS_OVERVIEW_KEY, exact: true }];
+
+/**
+ * The Dashboard's views that count or list tasks: Due soon, Recent activity and administrators'
+ * totals — marked here for a change of a task's figures (TASK_FIGURES), and by every task change in
+ * lib/task-cache (DASHBOARD_VIEWS: an edit, a new task, its people, a move, a decision…), one list.
+ */
+export const DASHBOARD_FIGURES: readonly KeyRefresh[] = [
   { queryKey: [...DUE_SOON_KEY], exact: true },
   { queryKey: ['activity'] },
   { queryKey: ['dashboard'] },
@@ -127,7 +133,7 @@ export function refresh(qc: QueryClient, targets: Refresh[]): void {
   const later = targets.filter(isLater).map((t) => matcher(qc, t));
   // A task's change also moves the Projects page's figures and the Dashboard's (TASK_FIGURES): they
   // are marked out of date and fetched when next shown, never at once for each change (5b review, B2).
-  if (targets.some((t) => 'progressFor' in t)) for (const f of TASK_FIGURES) later.push((q) => matchQuery({ queryKey: f.queryKey, exact: f.exact }, q));
+  if (targets.some((t) => 'progressFor' in t)) for (const f of [...TASK_FIGURES, ...DASHBOARD_FIGURES]) later.push((q) => matchQuery({ queryKey: f.queryKey, exact: f.exact }, q));
   const all = qc.getQueryCache().getAll();
   const hits = new Set(all.filter((q) => now.some((test) => test(q))));
   const marks = new Set(all.filter((q) => !hits.has(q) && later.some((test) => test(q))));

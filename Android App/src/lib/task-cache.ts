@@ -1,18 +1,14 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { ApiTask, ApprovalsAnswer, MoveResult } from './types';
-import { refresh, type Refresh } from './refresh';
+import { DASHBOARD_FIGURES, refresh, type Refresh } from './refresh';
 
 /**
- * What the Dashboard shows that counts or lists tasks (Stage 2): an administrator's totals
- * (['dashboard', …]), the activity feed (['activity']) and Due soon (core/dashboard-queries
- * DUE_SOON_KEY) — marked out of date by every task change and read again when the Dashboard is next
- * shown, as the website's TASK_QUERY_ROOTS (final review A9).
+ * What the Dashboard shows that counts or lists tasks (Stage 2): Due soon (lib/refresh DUE_SOON_KEY),
+ * the activity feed (['activity']) and an administrator's totals (['dashboard', …]) — lib/refresh's
+ * DASHBOARD_FIGURES, one list — marked out of date by every task change and read again when the
+ * Dashboard is next shown (its focus refetch), as the website's TASK_QUERY_ROOTS (final review A9).
  */
-export const DASHBOARD_VIEWS: Refresh[] = [
-  { queryKey: ['dashboard'], later: true },
-  { queryKey: ['activity'], later: true },
-  { queryKey: ['tasks', 'due-soon'], later: true },
-];
+export const DASHBOARD_VIEWS: Refresh[] = DASHBOARD_FIGURES.map((f) => ({ ...f, later: true }));
 
 /**
  * The figures that count tasks on the Stage 3 screens — Timeline and Workload (['planning', …]) and

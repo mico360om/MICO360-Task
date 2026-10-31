@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes, DASHBOARD_VIEWS, TASK_FIGURE_VIEWS } from './task-cache';
 import { appSource } from '../testing/web-source';
-import { refresh } from './refresh';
+import { DASHBOARD_FIGURES, DUE_SOON_KEY, refresh } from './refresh';
 import type { ApiTask, MoveResult } from './types';
 import { formerKeysText } from './task-detail';
 
@@ -357,7 +357,9 @@ describe('a decided task leaves the approvals list at once', () => {
 // website's TASK_QUERY_ROOTS.
 describe('the Dashboard after a task change (final review A9)', () => {
   it('admin totals, the activity feed and Due soon are named by every task change, with Timeline, Workload and Management', () => {
-    expect(DASHBOARD_VIEWS).toEqual([{ queryKey: ['dashboard'], later: true }, { queryKey: ['activity'], later: true }, { queryKey: ['tasks', 'due-soon'], later: true }]);
+    expect(DASHBOARD_VIEWS).toEqual([{ queryKey: ['tasks', 'due-soon'], exact: true, later: true }, { queryKey: ['activity'], later: true }, { queryKey: ['dashboard'], later: true }]);
+    // One list of the Dashboard's keys: lib/refresh's (which marks them for a change of a task's figures, B2).
+    expect(DASHBOARD_VIEWS).toEqual(DASHBOARD_FIGURES.map((v) => ({ ...v, later: true })));
     expect(TASK_FIGURE_VIEWS).toEqual(expect.arrayContaining(DASHBOARD_VIEWS));
     const moved = { task: t('t1'), from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult;
     for (const list of [editRefreshes('t1', { title: 'x' }), createdTaskRefreshes('p1'), assignmentRefreshes('t1'), moveRefreshes('t1', 'p1'), approvalRefreshes('t1'), projectMoveRefreshes(moved)]) {
@@ -381,6 +383,9 @@ describe('the Dashboard after a task change (final review A9)', () => {
       for (const key of [['dashboard'], ['activity'], ['tasks', 'due-soon']]) expect(qc.getQueryCache().findAll({ queryKey: key }).every((q) => q.state.fetchStatus === 'idle')).toBe(true);
     }
   });
-  it('Due soon is the Dashboard’s own key (core/dashboard-queries DUE_SOON_KEY)', () =>
-    expect(appSource('core/dashboard-queries.ts')).toContain("export const DUE_SOON_KEY = ['tasks', 'due-soon'] as const;"));
+  it('Due soon is the Dashboard’s own key (lib/refresh DUE_SOON_KEY, which core/dashboard-queries reads)', () => {
+    expect(DASHBOARD_FIGURES[0]?.queryKey).toEqual([...DUE_SOON_KEY]);
+    expect(appSource('core/dashboard-queries.ts')).toMatch(/import \{ DUE_SOON_KEY \} from '\.\.\/lib\/refresh';/);
+    expect(appSource('lib/task-cache.ts')).toMatch(/import \{ DASHBOARD_FIGURES, refresh, type Refresh \} from '\.\/refresh';/);
+  });
 });
