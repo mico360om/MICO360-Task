@@ -61,3 +61,9 @@ it('final review A8: "What will change", "Can’t be moved" and "Couldn’t be m
   for (const k of ['changes', 'cantMove', 'notMoved']) expect(s, k).toMatch(new RegExp(`<Text style=\\{s\\.heading\\} accessibilityRole="header">\\s*\\{MOVE_TEXT\\.${k}\\}\\s*</Text>\\s*\\{lines\\(`));
   expect(s).not.toMatch(/<FieldLabel>\{MOVE_TEXT\.(changes|cantMove|notMoved)\}/);
 });
+
+it('final review A10: My Tasks reads where tasks can be moved as it opens, so the first "Move to project…" isn’t too early', () => {
+  const s = src('screens/MyTasksScreen.tsx');
+  expect(s).toMatch(/const moveTargets = useMoveTargets\(true\);/);
+  expect(s).not.toMatch(/useMoveTargets\(selected/);
+});
