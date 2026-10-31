@@ -38,7 +38,8 @@ export function checklistTexts(rows: ChecklistRow[], pending = ''): string[] {
 export const CHECKLIST_TEXT = {
   label: 'Checklist',
   addLabel: 'Add a checklist item',
-  placeholder: 'Add an item and press Enter',
+  // The website's "Add an item and press Enter", said for the phone's box and its Add button (testing/phone-words).
+  placeholder: 'Add an item and tap Add',
   full: `A checklist holds up to ${CHECKLIST_MAX} items`,
   add: 'Add',
 } as const;
