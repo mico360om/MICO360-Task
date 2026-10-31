@@ -69,6 +69,7 @@ import type { CalendarTask } from './calendar-model';
 import type { CodeCheck, ProjectInput, ProjectPatch } from './project-form';
 import type { SummaryRequest } from './project-dashboard';
 import type { ApiActivityRow } from './activity-page';
+import { managementApi } from './management-api';
 import type { ApiAdminUser, UserStatus, newUserBody, userPatch } from './users-admin';
 import type { SearchResults } from './search';
 import type { DeployedVersion, ReleaseEntry } from './about';
@@ -559,10 +560,11 @@ export function resourcesApi(client: ApiClient) {
       /** Set a new password for someone (it also lifts a lock and ends their sessions). */
       resetPassword: (id: string, password: string) => client.post<unknown>(`/users/${seg(id)}/password`, { password }),
     },
-    /** Management (the website's page): may the signed-in person open it — an administrator, or someone who runs a project. */
-    management: {
-      access: () => data(client.get<Envelope<{ allowed: boolean; scope: 'ALL' | 'RUN' | null }>>('/management/access')),
-    },
+    /**
+     * Management (the website's page, Stage 3): may the signed-in person open it (an administrator, or
+     * someone who runs a project), its overview, the list behind each number, and the PDF's path.
+     */
+    management: managementApi(client),
     /** Timeline and Workload (Stage 3): each request takes the person it is for (CallOpts) last. */
     planning: planningApi(client),
     /** Search (6b): tasks, projects, people and meetings you may see. */

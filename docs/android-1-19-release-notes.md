@@ -30,4 +30,8 @@
 ## Planning and AI
 - In the Android app, Timeline shows every open project's health, progress, next milestone and target, with Late and At risk filters and each project's tasks — as on the website's phone layout.
 - In the Android app, Workload shows each person's open tasks due each day of the week against the daily limit, with overdue tasks and days off; its suggestions give a task to a teammate or move it to a lighter day in one tap, and administrators can change the daily limit.
+- In the Android app, Management is a real screen for administrators and the people who run a project: the website's figures for every project, with the list behind each number, its filters, and the same PDF.
+- In the Android app, Management shows each project's health with the reasons, the tasks waiting for approval, inspections and people, each number opening its list.
+- In the Android app, Management shows the trends of the last 4, 12 or 26 weeks: tasks created and completed, late tasks and the inspection pass rate.
+- In the Android app, the calendar marks a task waiting for approval with an hourglass, as on the website.
 <!-- planning-and-ai lines above this line -->

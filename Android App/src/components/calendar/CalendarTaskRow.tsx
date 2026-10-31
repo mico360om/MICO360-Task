@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { STATUS_LABEL, itemMeta, itemName, type CalItem, type CalStatus } from '../../lib/calendar-model';
+import { STATUS_LABEL, itemMeta, itemName, waits, type CalItem, type CalStatus } from '../../lib/calendar-model';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { moveButton } from '../../lib/calendar-reschedule';
 import { font } from '../../lib/typography';
@@ -81,6 +81,8 @@ export function CalendarTaskRow({
           {meta ? ` · ${meta}` : ''}
         </Text>
       </View>
+      {/* Waiting for approval: the website's hourglass (its words are in the row's name; the icon itself is silent). */}
+      {waits(item) ? <Icon name="misc.waiting" size={13} color={c.warningText} /> : null}
       {item.kind === 'task' && item.recurring ? (
         <View importantForAccessibility="no-hide-descendants">
           <Icon name="kit.repeat" size={16} color={c.ink2} />
