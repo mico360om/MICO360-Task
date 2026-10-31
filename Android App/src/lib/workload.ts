@@ -95,6 +95,14 @@ export function weekLabel(week: string, today: string): string {
 }
 
 /** "Wed 28 · Today" over today's column, else "Thu 29". */
+/**
+ * How much a day's count ("12", "Off") and heading ("Wed 28 · Today") grow with the phone's font
+ * size: up to these, so they still fit the day's box at 200% (final review P8), as the calendar's day
+ * numbers; the day's full words are in its TalkBack name (cellLabel).
+ */
+export const DAY_COUNT_FONT_CAP = 1.4;
+export const DAY_HEAD_FONT_CAP = 1.3;
+
 export function dayHeading(date: string, today: string): string {
   return date === today ? `${weekdayDay(date)} · Today` : weekdayDay(date);
 }

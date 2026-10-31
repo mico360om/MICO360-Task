@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { WorkloadCell, WorkloadPerson } from '../../lib/planning-api';
 import { cellLook, weekBarColor } from '../../lib/planning-look';
-import { cellLabel, cellTone, dayHeading, weekBar } from '../../lib/workload';
+import { cellLabel, cellTone, dayHeading, DAY_COUNT_FONT_CAP, DAY_HEAD_FONT_CAP, weekBar } from '../../lib/workload';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { useColors } from '../../core/theme';
@@ -75,12 +75,12 @@ export function PersonCard({ person, week, today, onOpenDay }: { person: Workloa
               accessibilityHint={opens ? 'Shows the day’s tasks' : undefined}
               style={({ pressed }) => [s.day, isToday && s.todayColumn, opens && pressed && s.pressed]}
             >
-              <Text style={[s.dayHead, isToday && s.todayText]} numberOfLines={2}>
+              <Text style={[s.dayHead, isToday && s.todayText]} numberOfLines={2} maxFontSizeMultiplier={DAY_HEAD_FONT_CAP}>
                 {dayHeading(cell.date, today)}
               </Text>
               <View style={[s.cell, { backgroundColor: look.bg, borderColor: look.border }, tone === 'over' && s.cellOver]}>
                 {look.hatched ? <Hatch color={tone === 'off' ? c.ground2 : c.surface} /> : null}
-                <Text style={[s.count, { color: look.fg }]}>{cell.limit === 0 && cell.count === 0 ? 'Off' : cell.count}</Text>
+                <Text style={[s.count, { color: look.fg }]} maxFontSizeMultiplier={DAY_COUNT_FONT_CAP}>{cell.limit === 0 && cell.count === 0 ? 'Off' : cell.count}</Text>
                 {tone === 'over' ? (
                   <View style={s.bang} importantForAccessibility="no-hide-descendants">
                     <Text style={s.bangText} allowFontScaling={false}>
