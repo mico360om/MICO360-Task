@@ -3,7 +3,7 @@ import { Alert, RefreshControl, StyleSheet, Text, View, type ScrollView } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../core/theme';
 import { useServices } from '../core/providers';
-import { useInspectionDraft } from '../core/inspection-sync';
+import { refreshInspectionQueries, useInspectionDraft } from '../core/inspection-sync';
 import { useInspection } from '../core/inspection-queries';
 import { useProjectMembers, useProjects } from '../core/queries';
 import { usePullRefresh } from '../components/meeting/live';
@@ -16,6 +16,8 @@ import { FinishCard } from '../components/inspections/FinishCard';
 import { SignFinishSheet } from '../components/inspections/SignFinishSheet';
 import { EarlierRevisionsCard, SignaturesCard } from '../components/inspections/SignaturesCard';
 import { FailedItemsCard, askFollowUps } from '../components/inspections/FailedItemsCard';
+import { InspectionActions, confirmDiscard } from '../components/inspections/InspectionActions';
+import { InspectionClientSwitch } from '../components/inspections/InspectionClientSwitch';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { approvalNotice } from '../lib/approvals';
 import { instantDayText } from '../lib/day-words';
@@ -323,6 +325,7 @@ function InspectionContent({
           </Text>
         ) : null}
       </Card>
+      <InspectionActions detail={d} finished={finished} ownerId={ownerId} outbox={outbox} onProblem={setProblem} />
 
       {record ? (
         <SyncBanner
@@ -333,10 +336,7 @@ function InspectionContent({
             if (outbox && ownerId) outbox.clearProblem(ownerId, inspectionId);
             void send({ force: true });
           }}
-          onDiscard={() => {
-            if (outbox && ownerId) outbox.discard(ownerId, inspectionId);
-            refetch();
-          }}
+          onDiscard={() => confirmDiscard({ outbox, ownerId, inspectionId, onDone: refetch })}
           onLookAgain={() => {
             if (outbox && ownerId) outbox.clearProblem(ownerId, inspectionId);
             refetch();
@@ -406,7 +406,11 @@ function InspectionContent({
       {!finished && p.canFinish && record ? (
         <FinishCard view={view} canAnswer={canAnswer} onSign={() => setSigning(true)} onTakeBack={() => outbox && ownerId && outbox.cancelFinish(ownerId, inspectionId)} onJump={jumpTo} />
       ) : null}
-      {finished ? <SignaturesCard detail={d} timeZone={timeZone} /> : null}
+      {finished ? (
+        <SignaturesCard detail={d} timeZone={timeZone}>
+          <InspectionClientSwitch detail={d} archived={!!archived} onChanged={() => refreshInspectionQueries(qc, inspectionId, d.projectId)} />
+        </SignaturesCard>
+      ) : null}
       <EarlierRevisionsCard detail={d} timeZone={timeZone} />
 
       {signing ? (

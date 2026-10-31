@@ -33,5 +33,6 @@
 - In the Android app, the inspector — and the client or supervisor when the form asks — signs with a finger or types their name. Signing with no signal is kept on the phone and finishes the inspection when the signal is back; finishing offers to mark its task done.
 - In the Android app, each failed item of an inspection can become a follow-up task — one, or all at once, for the owner, a team member or nobody yet — even without signal (made once the phone is back online).
 - In the Android app, a project has an Inspections tab — due checks (late, today, upcoming), inspections in progress and finished reports — kept on the phone so it opens with no signal. Starting an inspection needs a connection (tap Start before you leave the office); after that it works without one.
+- In the Android app, a finished inspection's report downloads as a PDF and can be shown to the client (after seeing exactly what the client will see); an inspection can be reopened, taken over or deleted, as on the website.
 <!-- inspections lines above this line -->
 <!-- templates-client lines above this line -->

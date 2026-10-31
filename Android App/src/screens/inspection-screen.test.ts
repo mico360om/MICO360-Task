@@ -65,3 +65,25 @@ it('a finish that went through offers to mark its task done, once', () => {
 });
 
 it('the signed card can take the signatures back', () => expect(src('components/inspections/FinishCard.tsx')).toMatch(/INSPECTION_WORDS\.takeBack/));
+
+it('a report goes to the client only from the preview’s Show to client (Review Focus 5)', () => {
+  const sw = src('components/inspections/InspectionClientSwitch.tsx');
+  expect(sw).toMatch(/clientSwitchStep\(/);
+  expect(sw.match(/setClientVisible\([^)]*true\)/g)).toHaveLength(1);
+  expect(sw).toMatch(/onConfirm=\{[^}]*setClientVisible\([^)]*true\)/);
+  expect(sw).toMatch(/queryKey: \['inspection', detail\.id, 'client-preview'\]/);
+  expect(sw).toMatch(/staleTime: 0/);
+});
+
+it('the report downloads through the exporter, a delete forgets the phone’s copy', () => {
+  const a = src('components/inspections/InspectionActions.tsx');
+  expect(a).toMatch(/exportFile\(resources\.inspections\.reportPdfPath\(/);
+  expect(a).toMatch(/outbox\.discard\(ownerId, /);
+  expect(a).toMatch(/navigation\.replace\('ProjectDetail', \{ projectId: [^,]+, tab: 'inspections' \}\)/);
+  expect(a).toMatch(/outbox\.remember\(ownerId, result\)/);
+});
+
+it('throwing away what is on the phone asks first', () => {
+  expect(s()).toMatch(/onDiscard=\{\(\) => confirmDiscard\(/);
+  expect(src('components/inspections/InspectionActions.tsx')).toMatch(/export function confirmDiscard\([^]*Alert\.alert\(ACTION_WORDS\.discardTitle/);
+});

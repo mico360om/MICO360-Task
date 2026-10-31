@@ -59,14 +59,16 @@ const stubModule = (): unknown => new Proxy({}, { get: () => () => undefined });
 
 /**
  * Run a website TSX module without React: its JSX becomes plain `{ type, props, children }` nodes
- * (`type` '#fragment' for <>…</>), every import is a stub. `expose` also returns module-level
- * consts that are not exported (Sidebar's `I`) as `__exposed`.
+ * (`type` '#fragment' for <>…</>), every import is a stub — except a plain TS module named in
+ * `imports` (specifier → website path), which is loaded with `loadWebTs`. `expose` also returns
+ * module-level consts that are not exported (Sidebar's `I`) as `__exposed`.
  */
-export function loadWebTsx(rel: string, opts: { expose?: string[] } = {}): Record<string, unknown> {
+export function loadWebTsx(rel: string, opts: { expose?: string[]; imports?: Record<string, string> } = {}): Record<string, unknown> {
   let { code } = transformSync(readWeb(rel), { loader: 'tsx', jsx: 'transform', jsxFactory: '__h', jsxFragment: '__f', format: 'cjs' });
   if (opts.expose?.length) code += `\nmodule.exports.__exposed = { ${opts.expose.join(', ')} };`;
   const mod = { exports: {} as Record<string, unknown> };
-  new Function('module', 'exports', 'require', '__h', '__f', code)(mod, mod.exports, stubModule, jsx, FRAGMENT);
+  const load = (spec: string) => (opts.imports?.[spec] ? loadWebTs(opts.imports[spec]!) : stubModule());
+  new Function('module', 'exports', 'require', '__h', '__f', code)(mod, mod.exports, load, jsx, FRAGMENT);
   return mod.exports;
 }
 
