@@ -86,7 +86,7 @@
 - In the Android app, TalkBack reads Management's owner choice once — "Owner: Anyone" instead of "Owner: Owner: Anyone".
 - In the Android app, the "+N" after the faces on project, board and My Tasks cards is no longer cut off at the largest font size.
 - In the Android app, with a larger font size, project names, task titles and other text that is cut after a few lines is shown in full instead of losing its "…".
-- In the Android app, Workload opens each person's days on today, and the row fades at the edge where more days are hidden.
+- In the Android app, Workload opens each person's days on today (another week on its first day), and the row fades at the edge where more days are hidden.
 - In the Android app, the signer's name under an optional signature (the client's or a supervisor's) no longer shows a required star.
 - In the Android app, an inspection with changes still waiting on the phone (signed with no signal, say) doesn't offer Delete until they have been sent.
 - In the Android app, the bell keeps its number of unread alerts with no signal, even after the app is restarted.

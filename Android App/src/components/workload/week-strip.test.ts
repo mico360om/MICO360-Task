@@ -36,7 +36,11 @@ it('the person card scrolls each row to today once it is measured, and draws the
   const card = src('components/workload/PersonCard.tsx');
   expect(card).toMatch(/day: \{ width: WEEK_STRIP\.day,/);
   expect(card).toMatch(/days: \{ gap: WEEK_STRIP\.gap,/);
-  expect(card).toMatch(/<DaysRow key=\{week\} dates=\{person\.days\.map\(\(d\) => d\.date\)\} today=\{today\}>/); // a new week opens on today again
+  // Keyed by the week its days are for — not the week asked for: while the next week loads, the
+  // page still shows this week's days (placeholder), which would open on today and keep that scroll
+  // for the next week's days (re-check F, 31 Oct). Another week opens on its first day (x = 0).
+  expect(card).toMatch(/const dates = person\.days\.map\(\(d\) => d\.date\);/);
+  expect(card).toMatch(/<DaysRow key=\{dates\[0\] \?\? week\} dates=\{dates\} today=\{today\}>/);
   expect(card).toMatch(/const x = todayScrollX\(dates, today, viewport\);\s*scroll\.current\?\.scrollTo\(\{ x, animated: false \}\);/);
   expect(card).toMatch(/stripEdges\(/);
   expect(card).toMatch(/hexToRgba\(c\.surface, 0\)/);

@@ -41,8 +41,8 @@ const EDGE_FADE = 24;
 /**
  * A person's row of days (device check F): it opens with today in view — the first day shown, as far
  * as the row scrolls (lib/workload todayScrollX) — once its width and the days' are measured, and an
- * edge that hides more days fades into the card, so the row is seen to scroll. Keyed by the week: a
- * new week opens on today again.
+ * edge that hides more days fades into the card, so the row is seen to scroll. Keyed by the week its
+ * days are for: another week opens on its first day, this week on today again.
  */
 function DaysRow({ dates, today, children }: { dates: string[]; today: string; children: ReactNode }) {
   const c = useColors();
@@ -102,6 +102,7 @@ export function PersonCard({ person, week, today, onOpenDay }: { person: Workloa
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const bar = weekBar(person);
+  const dates = person.days.map((d) => d.date);
   return (
     <Card>
       <View style={s.head}>
@@ -119,7 +120,9 @@ export function PersonCard({ person, week, today, onOpenDay }: { person: Workloa
       <View style={s.bar}>
         <ProgressBar value={bar.pct} color={weekBarColor(c, bar.tone)} label={`${person.name}’s week: ${bar.text}, ${bar.note}`} />
       </View>
-      <DaysRow key={week} dates={person.days.map((d) => d.date)} today={today}>
+      {/* Keyed by the week its days are for (not the week asked for, whose days may still be loading):
+          each week's row opens anew — this week on today, another on its first day. */}
+      <DaysRow key={dates[0] ?? week} dates={dates} today={today}>
         {person.days.map((cell) => {
           const tone = cellTone(cell);
           const look = cellLook(c, tone);
