@@ -31,7 +31,9 @@ import { createTemplateService } from './modules/templates/template-service';
 import { createPrismaTemplateRepository } from './modules/templates/prisma-template-repository';
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
-import { createCompanyAccess } from './modules/companies/company-access';
+import { createCompanyAccess, fallbackProjectCompanyId } from './modules/companies/company-access';
+import { createPrismaMeetingInvitees } from './modules/meetings/meeting-invitees';
+import { createMeetingCompanyRule } from './modules/meetings/meeting-company';
 import { createPrismaPersonOptions, keepKnownPeople } from './modules/companies/person-options';
 import { createTaskService } from './modules/tasks/task-service';
 import { createPrismaTaskRepository, createPrismaProjectLookup, createPrismaCarryForwardRepo } from './modules/tasks/prisma-task-repository';
@@ -257,6 +259,7 @@ async function main(): Promise<void> {
   });
   // companies: the access rule module (memberships and project companies, read fresh on every request).
   const companyAccess = createCompanyAccess(prisma);
+  const personOptions = createPrismaPersonOptions(prisma);
 
   // Late-bound so moving a task to a DONE column can spawn the next recurring instance (below).
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
@@ -563,6 +566,8 @@ async function main(): Promise<void> {
       accessibleProjectIds: (userId, roles, pick?: string | null) => projectAccess.accessibleProjectIds(userId, roles, pick),
       canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
     },
+    // companies (MC1 Task 10): someone invited from outside the project's companies gets the invitee view.
+    meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);
   // Live meeting events reach the project's room AND the organizer, creator and internal attendees
@@ -1499,7 +1504,10 @@ async function main(): Promise<void> {
     projectAccess,
     companyAccess,
     // companies: people for pickers inside projects (team candidates, meeting invitations).
-    personOptions: createPrismaPersonOptions(prisma),
+    personOptions,
+    // companies (MC1 Task 10): who may be invited to a meeting, and a standalone meeting's company.
+    meetingInvitees: createPrismaMeetingInvitees(prisma, { companyAccess, personOptions }),
+    meetingCompany: createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) }),
     columnService,
     memberService,
     projectAuthz,

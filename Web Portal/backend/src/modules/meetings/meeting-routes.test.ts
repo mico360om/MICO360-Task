@@ -10,6 +10,9 @@ import { memoryAttendees, memoryMeetings } from './meeting-memory.fixture';
 import { createAttendeeService } from './attendee-service';
 import { createAgendaService } from './agenda-service';
 import type { AgendaItemRecord, AgendaRepository } from './agenda-repository';
+import { createMeetingCompanyRule } from './meeting-company';
+import { CompanyNotAvailableError } from '../companies/company-pick';
+import { ValidationError } from '../../lib/http-errors';
 
 function inMemory(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
@@ -19,7 +22,7 @@ function inMemory(attendeesOf: Record<string, string[]> = {}): MeetingRepository
       const now = new Date();
       const rec: MeetingRecord = {
         id: `m${seq++}`, title: d.title, description: d.description ?? null, category: d.category ?? null,
-        status: d.status ?? 'DRAFT', projectId: d.projectId ?? null, organizerId: d.organizerId,
+        status: d.status ?? 'DRAFT', projectId: d.projectId ?? null, companyId: d.companyId ?? null, organizerId: d.organizerId,
         location: d.location ?? null, onlineLink: d.onlineLink ?? null, startAt: d.startAt, endAt: d.endAt ?? null,
         timeZone: d.timeZone ?? null, recurrenceRule: d.recurrenceRule ?? null, recurrenceParentId: d.recurrenceParentId ?? null,
         templateId: d.templateId ?? null, transcript: null, invitesSentAt: null, reminderSentAt: null, createdById: d.createdById, createdAt: now, updatedAt: now,
@@ -594,5 +597,76 @@ describe('Meeting free times: what is read', () => {
     const t = await setup(rows, { logger: { error: vi.fn(), warn } });
     await t.ask({ userIds: ['u1', 'u2'], startAt: iso(at('2026-10-26 10:00')), minutes: 60 });
     expect(warn).toHaveBeenCalledWith('meeting free times: busy list cut short', expect.objectContaining({ limit: BUSY_ROWS_LIMIT }));
+  });
+});
+
+describe('Meeting routes and companies', () => {
+  // u1 runs p1's meetings; u5 is invited from another company (the invitee view); u2 is a stranger.
+  const mine: Record<string, string[]> = { u1: ['A', 'B'], u5: ['B'] };
+  const companyAccess = {
+    async checkPick(viewer: { id: string; roles: string[] }, pick: string | null) {
+      if (pick && !(mine[viewer.id] ?? []).includes(pick)) throw new CompanyNotAvailableError();
+      return pick;
+    },
+    async knownPeople() { return new Map<string, { colleague: boolean }>(); },
+  } as unknown as NonNullable<Parameters<typeof buildApp>[0]['companyAccess']>;
+  const asked: unknown[] = [];
+  async function companyApp() {
+    const meetings = inMemory();
+    const access = createMeetingAccess({
+      meetings: { accessCore: async (id) => { const core = await meetings.accessCore(id); return core && { ...core, attendeeUserIds: ['u5'] }; } },
+      projectAccess,
+      meetingView: async (viewer) => (viewer.id === 'u5' ? 'invitee' : 'full'),
+    });
+    const meetingService = createMeetingService({ meetings, access });
+    const app = await makeApp({
+      meetingService,
+      meetingAccess: access,
+      attendeeService: createAttendeeService({ attendees: memoryAttendees() }),
+      companyAccess,
+      meetingCompany: createMeetingCompanyRule({ checkPick: (v, id) => companyAccess.checkPick(v, id), fallbackCompanyId: async () => 'A' }),
+      meetingInvitees: {
+        async candidates(viewer, target) { asked.push(target); return [{ id: 'u1', firstName: 'Una', lastName: 'One', username: 'u1', avatarUrl: null }]; },
+        async assertInvitable(_viewer, _target, userIds) { if (userIds.includes('u9')) throw new ValidationError('Nine Nobody can’t be invited: they aren’t in this meeting’s companies.'); },
+      },
+    });
+    return app;
+  }
+  const as = async (id: string, roles = ['EMPLOYEE']) => ({ authorization: `Bearer ${await tokenFor(id, roles)}` });
+
+  it('someone invited from another company gets the invitee view: no transcript, nothing to change', async () => {
+    const app = await companyApp();
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: await as('u1'), payload: { title: 'Site walk', projectId: 'p1', startAt: '2026-11-03T06:00:00Z' } })).json().data.id;
+    const seen = (await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}`, headers: await as('u5') })).json().data;
+    expect(seen).toMatchObject({ id, view: 'invitee', canEdit: false, transcript: null });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}`, headers: await as('u1') })).json().data.view).toBe('full');
+    const put = await app.inject({ method: 'PUT', url: `/api/v1/meetings/${id}`, headers: await as('u5'), payload: { title: 'Mine now' } });
+    expect(put.statusCode).toBe(403);
+    expect(put.json().error).toEqual({ code: 'INVITEE_ONLY', message: 'You can see this meeting because you were invited; its notes stay with the project’s team.' });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}`, headers: await as('u2') })).statusCode).toBe(404);
+  });
+
+  it('a meeting without a project goes into the picked company; one you don’t belong to is refused', async () => {
+    const app = await companyApp();
+    const made = (headers: Record<string, string>, extra = {}) => app.inject({ method: 'POST', url: '/api/v1/meetings', headers, payload: { title: 'Sync', startAt: '2026-11-03T06:00:00Z', ...extra } });
+    expect((await made({ ...(await as('u1')), 'x-company-id': 'B' })).json().data.companyId).toBe('B');
+    expect((await made(await as('u1'))).json().data.companyId).toBe('A'); // the organizer's primary
+    expect((await made(await as('u1'), { projectId: 'p1' })).json().data.companyId).toBeNull();
+    const refused = await made(await as('u5'), { companyId: 'A' });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe('COMPANY_NOT_AVAILABLE');
+  });
+
+  it('invite candidates come from the meeting’s project or company; an invitation outside them is refused', async () => {
+    const app = await companyApp();
+    asked.length = 0;
+    const list = await app.inject({ method: 'GET', url: '/api/v1/meetings/invite-candidates?projectId=p1', headers: await as('u1') });
+    expect(list.json().data.map((p: { id: string }) => p.id)).toEqual(['u1']);
+    await app.inject({ method: 'GET', url: '/api/v1/meetings/invite-candidates?companyId=B', headers: await as('u1') });
+    expect(asked).toEqual([{ projectId: 'p1' }, { companyId: 'B' }]);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/meetings/invite-candidates', headers: await as('u1') })).statusCode).toBe(400);
+    const refused = await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: await as('u1'), payload: { title: 'Sync', startAt: '2026-11-03T06:00:00Z', attendees: [{ userId: 'u9' }] } });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe('Nine Nobody can’t be invited: they aren’t in this meeting’s companies.');
   });
 });

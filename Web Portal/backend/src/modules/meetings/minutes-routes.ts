@@ -88,6 +88,12 @@ export interface MinutesRouteDeps {
    * (and the lists showing how far its minutes are) see the change without reloading.
    */
   onFinalMinutesChanged?: (meetingId: string) => void;
+  /**
+   * companies: how a person sees the meeting. An invitee from another company gets the final minutes
+   * and the minutes PDF once approved (404 before), the PDF without the live notes or other people's
+   * action items; everything else here is the team's.
+   */
+  viewOf?: (userId: string, roles: string[], meetingId: string) => Promise<'full' | 'invitee' | null>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
   notify?: {
     sendMinutes: (meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }) => Promise<{ sent: number; failed?: number }>;
@@ -232,6 +238,17 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
   /** Assemble the minutes data of a meeting the caller may view (`alsoName`: more people to name). */
   const gatherFor = createMinutesData(deps);
   const gather = (req: FastifyRequest, id: string, alsoName: string[] = []) => gatherFor(req.user!.id, id, alsoName);
+  /** companies: an invitee's minutes — no live notes, only their own action items, no project tasks. */
+  const gatherForInvitee = (req: FastifyRequest, id: string, alsoName: string[] = []) =>
+    createMinutesData({
+      ...deps,
+      noteService: { ...deps.noteService, listNotes: async () => [] },
+      actionItemService: deps.actionItemService && {
+        listByMeeting: async (mid: string) => (await deps.actionItemService!.listByMeeting(mid)).filter((a) => a.assigneeId === req.user!.id).map((a) => ({ ...a, taskId: null })),
+      },
+    })(req.user!.id, id, alsoName);
+  const viewOf = async (req: FastifyRequest, id: string) =>
+    deps.viewOf ? deps.viewOf(req.user!.id, req.user!.roles ?? [], id) : (await canView(req, id)) ? ('full' as const) : null;
 
   /** The final minutes as stored, when this server keeps them. */
   const finalOf = async (id: string): Promise<FinalMinutesRecord | null> => (deps.finalMinutes ? deps.finalMinutes.get(id) : null);
@@ -241,11 +258,11 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
    * marked final; a Final MOM still being written goes only into an editor's own copy, marked as a
    * draft (`withDraft`), never to anyone else or into an email.
    */
-  async function buildPdf(req: FastifyRequest, id: string, opts: { withDraft?: boolean } = {}): Promise<{ pdf: Buffer; title: string; final: boolean }> {
+  async function buildPdf(req: FastifyRequest, id: string, opts: { withDraft?: boolean; invitee?: boolean } = {}): Promise<{ pdf: Buffer; title: string; final: boolean }> {
     const rec = await finalOf(id);
     const approved = rec?.status === 'APPROVED';
     const shown = approved || (rec && opts.withDraft) ? rec : null;
-    const { data, title, nameOf } = await gather(req, id, shown?.approvedById ? [shown.approvedById] : []);
+    const { data, title, nameOf } = await (opts.invitee ? gatherForInvitee : gather)(req, id, shown?.approvedById ? [shown.approvedById] : []);
     const final = shown
       ? {
           content: shown.content,
@@ -260,9 +277,12 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
   // ?version=final (older links) gets the same document: the final minutes are in it once approved.
   app.get('/meetings/:id/minutes.pdf', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
-    if (!(await canView(req, id))) return reply.status(404).send(notFound);
-    const editor = await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
-    const { pdf, title, final } = await buildPdf(req, id, { withDraft: editor });
+    const view = await viewOf(req, id);
+    if (!view) return reply.status(404).send(notFound);
+    // companies: an invitee from another company gets the minutes once they are final.
+    if (view === 'invitee' && (await finalOf(id))?.status !== 'APPROVED') return reply.status(404).send(notFound);
+    const editor = view === 'full' && (await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id));
+    const { pdf, title, final } = await buildPdf(req, id, { withDraft: editor, invitee: view === 'invitee' });
     return reply
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="minutes-${final ? 'final-' : ''}${slugify(title)}.pdf"`)
@@ -322,7 +342,14 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
 
     app.get('/meetings/:id/final-minutes', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
       const { id } = req.params as { id: string };
-      if (!(await canView(req, id))) return reply.status(404).send(notFound);
+      const seen = await viewOf(req, id);
+      if (!seen) return reply.status(404).send(notFound);
+      if (seen === 'invitee') {
+        // companies: an invitee from another company sees the minutes once they are final (404 before).
+        const rec = await store.get(id);
+        if (rec?.status !== 'APPROVED') return reply.status(404).send(notFound);
+        return { data: await view(rec, false) };
+      }
       return { data: await view(await store.get(id), await canEdit(req, id)) };
     });
 

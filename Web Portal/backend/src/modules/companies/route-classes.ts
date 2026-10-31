@@ -340,4 +340,6 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /search/tasks': 'list',
   // Lane P (MC1 Task 9): people for pickers inside projects.
   'GET /people/candidates': 'people',
+  // Lane P (MC1 Task 10): who may be invited to a meeting.
+  'GET /meetings/invite-candidates': 'people',
 };

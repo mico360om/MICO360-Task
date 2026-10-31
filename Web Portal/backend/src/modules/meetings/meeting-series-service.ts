@@ -45,7 +45,7 @@ export interface SeriesChange {
   history: boolean;
 }
 
-const DETAIL_FIELDS = ['title', 'description', 'category', 'location', 'onlineLink', 'projectId', 'organizerId'] as const;
+const DETAIL_FIELDS = ['title', 'description', 'category', 'location', 'onlineLink', 'projectId', 'companyId', 'organizerId'] as const;
 const OPEN = new Set(['DRAFT', 'SCHEDULED']);
 
 const DAY_MS = 86_400_000;
@@ -132,6 +132,7 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
         category: template.category,
         status: template.status === 'DRAFT' ? 'DRAFT' : 'SCHEDULED',
         projectId: template.projectId,
+        companyId: template.companyId ?? null, // companies: a standalone series keeps its company
         organizerId: template.organizerId,
         location: template.location,
         onlineLink: template.onlineLink,

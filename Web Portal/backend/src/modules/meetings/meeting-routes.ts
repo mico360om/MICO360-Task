@@ -21,6 +21,18 @@ export interface ProjectMeetingsDeps {
 import type { AuthGuard } from '../auth/auth-guard';
 import type { Logger } from '../../lib/logger';
 import { onlineLinkField, timeZoneField } from './meeting-validation';
+import type { MeetingViewOf } from './invitee-view';
+import type { MeetingCompanyRule } from './meeting-company';
+import { inviteTargetOf, type MeetingInvitees } from './meeting-invitees';
+import type { Viewer } from '../companies/company-access';
+import { CompanyNotAvailableError } from '../companies/company-pick';
+
+/** companies: a standalone meeting's company (the project's company otherwise). */
+const companyField = z.string().min(1).max(64).nullable().optional();
+/** companies: who may be invited to a project's meeting, or to a company's meeting without a project. */
+const inviteCandidatesQuery = z
+  .object({ projectId: z.string().min(1).max(64).optional(), companyId: z.string().min(1).max(64).optional() })
+  .refine((q) => !!q.projectId !== !!q.companyId, { message: 'Give a project or a company.' });
 
 const statusEnum = z.enum(['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']);
 const recurrenceSchema = z.object({
@@ -44,6 +56,7 @@ const createSchema = z.object({
   category: z.string().nullable().optional(),
   status: statusEnum.optional(),
   projectId: z.string().min(1).nullable().optional(),
+  companyId: companyField,
   organizerId: z.string().min(1).optional(),
   location: z.string().nullable().optional(),
   onlineLink: onlineLinkField,
@@ -84,6 +97,7 @@ const updateSchema = z.object({
   category: z.string().nullable().optional(),
   status: statusEnum.optional(),
   projectId: z.string().min(1).nullable().optional(),
+  companyId: companyField,
   organizerId: z.string().min(1).optional(),
   location: z.string().nullable().optional(),
   onlineLink: onlineLinkField,
@@ -139,6 +153,19 @@ export interface MeetingRouteDeps {
   agendaService?: Pick<AgendaService, 'addItem' | 'listAgenda'>;
   /** Is this an existing, active user? Checks the people sent with a new meeting. */
   isActiveUser?: (userId: string) => Promise<boolean>;
+  /**
+   * companies: how a person sees a meeting — 'full', 'invitee' (invited from outside its project's
+   * companies) or not at all. GET /meetings/:id serves the invitee view; `canViewMeeting` is the full one.
+   */
+  viewOf?: MeetingViewOf;
+  /** companies: the request's picked company (X-Company-Id): a new standalone meeting's default company. */
+  pickOf?: (req: FastifyRequest) => Promise<string | null>;
+  /** companies: the company of a meeting without a project. */
+  meetingCompany?: MeetingCompanyRule;
+  /** companies: who may be invited (GET /meetings/invite-candidates; checked for the people sent with a new meeting). */
+  invitees?: MeetingInvitees;
+  /** companies: of these people, the ones the asker knows (free times show only them). */
+  knownIds?: (viewer: Viewer, userIds: string[]) => Promise<string[]>;
 }
 
 export interface FreeTimesDeps {
@@ -226,6 +253,16 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     return { ...m, series: deps.series ? await deps.series.describe(m) : null };
   }
   const badRule = (message: string) => ({ error: { code: 'VALIDATION', message } });
+  /** companies: the picked company, or none when it can't be used (a write never fails on a stale pick). */
+  async function pickFor(req: FastifyRequest): Promise<string | null> {
+    if (!deps.pickOf) return null;
+    try {
+      return await deps.pickOf(req);
+    } catch (err) {
+      if (err instanceof CompanyNotAvailableError) return null;
+      throw err;
+    }
+  }
 
   async function canUseProject(req: FastifyRequest, projectId: string): Promise<boolean> {
     if (!deps.accessibleProjectIds) return true;
@@ -307,6 +344,9 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const problem = ruleProblem(body.recurrenceRule, body.startAt, body.timeZone || 'UTC');
     if (problem) return reply.status(400).send(badRule(problem));
     const organizerId = body.organizerId ?? req.user!.id;
+    // companies: a meeting without a project belongs to a company (chosen, picked, or the organizer's primary).
+    const { companyId: chosenCompany, ...fields } = body;
+    const companyId = deps.meetingCompany ? await deps.meetingCompany.forNew(actor(req), { projectId: body.projectId, companyId: chosenCompany, organizerId }, await pickFor(req)) : undefined;
 
     // People and agenda are checked before anything is saved, so a bad one creates nothing.
     const { attendeeService, agendaService } = deps;
@@ -323,12 +363,14 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       const active = await Promise.all(userIds.map((id) => deps.isActiveUser!(id)));
       if (active.includes(false)) return reply.status(400).send(badRule('Everyone invited must be an active user.'));
     }
+    // companies: colleagues in the meeting's project or company only (guests by email as before).
+    if (deps.invitees && userIds.length) await deps.invitees.assertInvitable(actor(req), inviteTargetOf({ projectId: body.projectId ?? null, companyId }), userIds);
     const leads = new Set([organizerId, ...userIds]);
     if (agendaItems.some((g) => g.ownerId && !leads.has(g.ownerId))) {
       return reply.status(400).send(badRule('An agenda lead must be one of the meeting’s people or the organizer.'));
     }
 
-    let meeting = await meetingService.createMeeting({ ...body, organizerId, createdById: req.user!.id });
+    let meeting = await meetingService.createMeeting({ ...fields, ...(companyId !== undefined ? { companyId } : {}), organizerId, createdById: req.user!.id });
     try {
       for (const p of people) {
         // A guest given only as an email is named from the part before the @.
@@ -357,7 +399,9 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const ft = deps.freeTimes;
     app.post('/meetings/free-times', { preHandler: guard.authenticate }, async (req) => {
       const body = freeTimesBody.parse(req.body);
-      const userIds = [...new Set(body.userIds)];
+      // companies: only the people the asker knows (colleagues, teammates, chat partners).
+      const asked = [...new Set(body.userIds)];
+      const userIds = deps.knownIds ? await deps.knownIds(actor(req), asked) : asked;
       const tz = ft.timeZone;
       const day = zonedDayKey(body.startAt, tz);
       const dayStart = zonedStartOfDay(day, tz);
@@ -406,11 +450,25 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     });
   }
 
+  // companies: who may be invited — a project's meeting (its companies, as far as the asker can see)
+  // or a company's meeting without a project.
+  if (deps.invitees) {
+    const invitees = deps.invitees;
+    app.get('/meetings/invite-candidates', { preHandler: guard.authenticate }, async (req) => {
+      const q = inviteCandidatesQuery.parse(req.query);
+      return { data: await invitees.candidates(actor(req), q.projectId ? { projectId: q.projectId } : { companyId: q.companyId! }) };
+    });
+  }
+
   app.get('/meetings/:id', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await canView(req, id))) return reply.status(404).send(notFound);
+    // companies: `view` says which: 'full', or 'invitee' (invited from outside the project's companies).
+    const view = deps.viewOf ? await deps.viewOf(req.user!.id, req.user!.roles ?? [], id) : (await canView(req, id)) ? 'full' : null;
+    if (!view) return reply.status(404).send(notFound);
     const [meeting] = await withEditFlags(req, [await meetingService.getMeeting(id)]);
-    return { data: await withSeries(meeting!) };
+    // An invitee sees the meeting itself: not its transcript, and nothing they could change.
+    const shown = view === 'invitee' ? { ...meeting!, transcript: null, canEdit: false } : meeting!;
+    return { data: { ...(await withSeries(shown)), view } };
   });
 
   app.put('/meetings/:id', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -431,13 +489,18 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (patch.projectId && patch.projectId !== before.projectId && !(await canUseProject(req, patch.projectId))) {
       return reply.status(403).send(noProject);
     }
+    // companies: a meeting without a project keeps (or gets) a company; one in a project has none.
+    if (deps.meetingCompany) {
+      const companyId = await deps.meetingCompany.forChange(actor(req), before, patch, await pickFor(req));
+      if (companyId === undefined) delete patch.companyId;
+      else patch.companyId = companyId;
+    } else delete patch.companyId;
     // The organizer can be handed over only to someone already in the meeting (attendee or project member).
     if (
       patch.organizerId &&
       patch.organizerId !== before.organizerId &&
       !actor(req).roles.includes('ADMIN') &&
-      deps.canViewMeeting &&
-      !(await deps.canViewMeeting(patch.organizerId, [], id))
+      (deps.viewOf ? (await deps.viewOf(patch.organizerId, [], id)) === null : deps.canViewMeeting && !(await deps.canViewMeeting(patch.organizerId, [], id)))
     ) {
       return reply.status(400).send({ error: { code: 'VALIDATION', message: 'The new organizer must be an attendee or a member of the meeting’s project.' } });
     }

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ActionItemService } from './action-item-service';
 import type { ActionItemRecord } from './action-item-repository';
 import type { AuthGuard } from '../auth/auth-guard';
+import type { MeetingViewOf } from './invitee-view';
 
 const statusEnum = z.enum(['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED']);
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
@@ -39,6 +40,8 @@ export interface ActionItemRouteDeps {
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
   /** Board keys of linked tasks (id → key), so an item can name and open its task. */
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /** companies: how a person sees the meeting — an invitee from another company sees only their own items. */
+  viewOf?: MeetingViewOf;
 }
 
 export async function registerActionItemRoutes(app: FastifyInstance, deps: ActionItemRouteDeps): Promise<void> {
@@ -83,8 +86,12 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   // ── Meeting-scoped register ──
   app.get('/meetings/:id/action-items', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await canViewMeeting(req, id))) return reply.status(404).send(notFound);
-    return { data: await withTaskKeys(await actionItemService.listByMeeting(id)) };
+    const view = deps.viewOf ? await deps.viewOf(req.user!.id, req.user!.roles ?? [], id) : (await canViewMeeting(req, id)) ? 'full' : null;
+    if (!view) return reply.status(404).send(notFound);
+    const items = await actionItemService.listByMeeting(id);
+    // companies: an invitee from another company sees their own items, without the project's tasks.
+    if (view === 'invitee') return { data: items.filter((i) => i.assigneeId === req.user!.id).map((i) => ({ ...i, taskId: null, taskKey: null })) };
+    return { data: await withTaskKeys(items) };
   });
 
   app.post('/meetings/:id/action-items', { preHandler: guard.authenticate }, async (req, reply) => {

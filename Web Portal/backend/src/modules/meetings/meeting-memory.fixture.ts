@@ -41,7 +41,7 @@ export function memoryMeetings(): MemoryMeetings {
       const now = new Date('2026-01-01T00:00:00Z');
       const rec: MeetingRecord = {
         id: `m${++seq}`, title: d.title, description: d.description ?? null, category: d.category ?? null,
-        status: d.status ?? 'DRAFT', projectId: d.projectId ?? null, organizerId: d.organizerId,
+        status: d.status ?? 'DRAFT', projectId: d.projectId ?? null, companyId: d.companyId ?? null, organizerId: d.organizerId,
         location: d.location ?? null, onlineLink: d.onlineLink ?? null, startAt: d.startAt, endAt: d.endAt ?? null,
         timeZone: d.timeZone ?? null, recurrenceRule: d.recurrenceRule ?? null, recurrenceParentId: d.recurrenceParentId ?? null,
         recurrenceStart: d.recurrenceStart ?? null, templateId: d.templateId ?? null, transcript: null,

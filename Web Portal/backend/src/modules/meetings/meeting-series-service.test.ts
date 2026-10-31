@@ -480,3 +480,13 @@ describe('meeting series: second review fixes', () => {
     expect(facts.upcoming).toHaveLength(list.length - 3);
   });
 });
+
+describe('meeting series: a standalone series keeps its company (companies)', () => {
+  it('every meeting of the series is in the first one’s company, and a series-wide change moves them all', async () => {
+    const t = setup(WEEKLY, { projectId: null, companyId: 'co-a' });
+    const root = await t.begin();
+    expect(t.alive(root.id).every((m) => m.companyId === 'co-a')).toBe(true);
+    await t.series.updateSeries(root.id, { companyId: 'co-b' });
+    expect(t.alive(root.id).every((m) => m.companyId === 'co-b')).toBe(true);
+  });
+});
