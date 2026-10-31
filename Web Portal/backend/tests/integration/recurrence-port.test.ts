@@ -96,6 +96,16 @@ describe('Recurring tasks on MySQL (integration)', () => {
     expect((await port.listSeriesHeads()).map((h) => h.id).filter((id) => id === source.id || id === copy.id)).toEqual([copy.id]);
   });
 
+  it('every copy keeps the series’ creator — who may delete the entire series (task-delete-rule)', async () => {
+    const source = await recurringTask({ freq: 'WEEKLY', interval: 1 }, '2026-09-28');
+    const first = await service.onTaskCompleted({ id: source.id, dueDate: source.dueDate, recurrenceRule: { freq: 'WEEKLY', interval: 1 }, recurrenceParentId: null });
+    const second = await service.onTaskCompleted({ id: first!.id, dueDate: new Date('2026-10-05T00:00:00.000Z'), recurrenceRule: { freq: 'WEEKLY', interval: 1 }, recurrenceParentId: source.id });
+    const series = await prisma.task.findMany({ where: { OR: [{ id: source.id }, { recurrenceParentId: source.id }] }, select: { id: true, createdById: true } });
+    expect(series.map((t) => t.id).sort()).toEqual([source.id, first!.id, second!.id].sort());
+    // Copies of copies too: each says who created the series, so any copy can be asked.
+    expect(new Set(series.map((t) => t.createdById))).toEqual(new Set([userId]));
+  });
+
   it('the next copy of a task shown to the client is shown too (same project)', async () => {
     const source = await recurringTask({ freq: 'WEEKLY', interval: 1 }, '2026-09-28');
     await prisma.task.update({ where: { id: source.id }, data: { clientVisible: true } });
