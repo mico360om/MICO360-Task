@@ -416,8 +416,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
       <ExternalContactsCard
         contacts={task.externalContacts}
         projectId={task.projectId}
-        onAdd={(fields) => contactM.add.mutateAsync(fields)}
-        onSave={(id, fields) => contactM.update.mutateAsync({ id, fields })}
+        onAdd={(fields, idempotencyKey) => contactM.add.mutateAsync({ fields, idempotencyKey })}
+        onSave={(id, patch) => contactM.update.mutateAsync({ id, patch })}
         onRemove={(id) => contactM.remove.mutateAsync(id)}
       />
     ) : null,

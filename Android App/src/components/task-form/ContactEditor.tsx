@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, type TextInput } from 'react-native';
+import { View, Text, Pressable, StyleSheet, AccessibilityInfo, type TextInput } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useExternalContactSuggestions } from '../../core/external-contact-queries';
 import { Button, TextField, capLines } from '../ui';
@@ -11,7 +11,7 @@ import {
   type ExternalContactField,
   type ExternalContactFields,
 } from '../../lib/external-contacts';
-import { contactFailureText, contactFieldProblems, draftOf, type ContactDraftText } from '../../lib/task-external-contacts';
+import { contactFailureText, contactFieldProblems, draftOf, firstProblem, freshSuggestions, type ContactDraftText } from '../../lib/task-external-contacts';
 import { spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
 
@@ -21,8 +21,9 @@ type Problems = Partial<Record<ExternalContactField, string>>;
  * One external contact being added or edited (the task screen's card and the task form's field —
  * the website's editor): name (required), company, designation, email, phone and remarks, checked
  * with the shared rules before it goes and marked with the server's word for each field when it is
- * refused. Typing a name suggests earlier contacts of the project; picking one fills all six boxes
- * (a copy — nothing is shared between tasks).
+ * refused — the first problem (whichever field) brought into view and said. Typing a name suggests
+ * earlier contacts of the project (only ever those for the name as it is now); picking one fills
+ * all six boxes (a copy — nothing is shared between tasks).
  */
 export function ContactEditor({
   title,
@@ -52,9 +53,17 @@ export function ContactEditor({
   // Suggestions follow the name being typed, until one is picked or another box is used (not on
   // leaving the name: a tap on a suggestion leaves it first, and the list must still be there).
   const [typing, setTyping] = useState(false);
-  const nameRef = useRef<TextInput>(null);
-  const suggestionsQ = useExternalContactSuggestions(projectId, typing ? draft.name : '');
-  const suggestions = typing && draft.name.trim() ? (suggestionsQ.data ?? []) : [];
+  const refs: Record<ExternalContactField, React.RefObject<TextInput>> = {
+    name: useRef<TextInput>(null),
+    company: useRef<TextInput>(null),
+    designation: useRef<TextInput>(null),
+    email: useRef<TextInput>(null),
+    phone: useRef<TextInput>(null),
+    remarks: useRef<TextInput>(null),
+  };
+  const suggestions = useExternalContactSuggestions(projectId, typing ? draft.name : '');
+  // Only the list asked for the name as it is now: while typing pauses, an earlier one is never offered.
+  const offered = typing ? freshSuggestions(draft.name, suggestions.forText, suggestions.data) : [];
   const busy = disabled || saving;
 
   const set = (field: ExternalContactField, value: string) => {
@@ -67,12 +76,20 @@ export function ContactEditor({
     setTyping(false);
   };
 
+  /** Mark each field's problem; the first is brought into view (its box focused) and said. */
+  const showProblems = (found: Problems) => {
+    setProblems(found);
+    const first = firstProblem(found);
+    if (!first) return;
+    refs[first.field].current?.focus();
+    AccessibilityInfo.announceForAccessibility(first.message);
+  };
+
   async function save() {
     if (busy) return;
     const check = checkExternalContact(draft);
     if (!check.ok) {
-      setProblems(check.problems);
-      if (check.problems.name) nameRef.current?.focus();
+      showProblems(check.problems);
       return;
     }
     setSaving(true);
@@ -81,7 +98,7 @@ export function ContactEditor({
       await onSubmit(check.contact);
     } catch (e) {
       const fields = contactFieldProblems(e);
-      setProblems(fields);
+      showProblems(fields);
       if (Object.keys(fields).length === 0) setFailure(contactFailureText(e, EXTERNAL_CONTACT_WORDS.saveFailed));
     } finally {
       setSaving(false);
@@ -95,7 +112,7 @@ export function ContactEditor({
         {title}
       </Text>
       <TextField
-        inputRef={nameRef}
+        inputRef={refs.name}
         label={L.name}
         required
         value={draft.name}
@@ -109,10 +126,13 @@ export function ContactEditor({
         autoCorrect={false}
         accessibilityHint={projectId ? EXTERNAL_CONTACT_WORDS.suggestionHint : undefined}
       />
-      {suggestions.length > 0 ? (
-        <View style={s.suggestions} accessibilityLabel={EXTERNAL_CONTACT_WORDS.suggestions}>
-          <Text style={s.suggestHead}>{EXTERNAL_CONTACT_WORDS.suggestions}</Text>
-          {suggestions.map((pick, i) => (
+      {offered.length > 0 ? (
+        <View style={s.suggestions}>
+          {/* Said when the list appears, and read as its heading. */}
+          <Text style={s.suggestHead} accessibilityRole="header" accessibilityLiveRegion="polite">
+            {EXTERNAL_CONTACT_WORDS.suggestions}
+          </Text>
+          {offered.map((pick, i) => (
             <Pressable
               key={`${pick.name}-${pick.company ?? ''}-${i}`}
               onPress={() => pickSuggestion(pick)}
@@ -128,9 +148,10 @@ export function ContactEditor({
           ))}
         </View>
       ) : null}
-      <TextField onFocus={() => setTyping(false)} label={L.company} value={draft.company} onChangeText={(v) => set('company', v)} maxLength={EXTERNAL_CONTACT_LIMITS.company} error={problems.company} editable={!busy} />
-      <TextField onFocus={() => setTyping(false)} label={L.designation} value={draft.designation} onChangeText={(v) => set('designation', v)} maxLength={EXTERNAL_CONTACT_LIMITS.designation} error={problems.designation} editable={!busy} />
+      <TextField inputRef={refs.company} onFocus={() => setTyping(false)} label={L.company} value={draft.company} onChangeText={(v) => set('company', v)} maxLength={EXTERNAL_CONTACT_LIMITS.company} error={problems.company} editable={!busy} />
+      <TextField inputRef={refs.designation} onFocus={() => setTyping(false)} label={L.designation} value={draft.designation} onChangeText={(v) => set('designation', v)} maxLength={EXTERNAL_CONTACT_LIMITS.designation} error={problems.designation} editable={!busy} />
       <TextField
+        inputRef={refs.email}
         label={L.email}
         onFocus={() => setTyping(false)}
         value={draft.email}
@@ -142,8 +163,9 @@ export function ContactEditor({
         autoCapitalize="none"
         autoCorrect={false}
       />
-      <TextField onFocus={() => setTyping(false)} label={L.phone} value={draft.phone} onChangeText={(v) => set('phone', v)} maxLength={EXTERNAL_CONTACT_LIMITS.phone} error={problems.phone} editable={!busy} keyboardType="phone-pad" />
+      <TextField inputRef={refs.phone} onFocus={() => setTyping(false)} label={L.phone} value={draft.phone} onChangeText={(v) => set('phone', v)} maxLength={EXTERNAL_CONTACT_LIMITS.phone} error={problems.phone} editable={!busy} keyboardType="phone-pad" />
       <TextField
+        inputRef={refs.remarks}
         label={L.remarks}
         onFocus={() => setTyping(false)}
         value={draft.remarks}

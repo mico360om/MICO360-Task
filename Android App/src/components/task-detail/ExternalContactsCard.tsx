@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert, Linking } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button, IconButton } from '../ui';
 import { Icon } from '../Icon';
 import { SectionCard } from './kit';
 import { ContactEditor } from '../task-form/ContactEditor';
-import { EXTERNAL_CONTACT_WORDS, MAX_EXTERNAL_CONTACTS, contactRoleLine, mailHref, phoneHref, type ExternalContactFields } from '../../lib/external-contacts';
-import { callLabel, contactFailureText, editContactLabel, emailLabel, removeContactLabel } from '../../lib/task-external-contacts';
+import { EXTERNAL_CONTACT_WORDS, MAX_EXTERNAL_CONTACTS, contactRoleLine, mailHref, phoneHref, type ExternalContactDraft, type ExternalContactFields } from '../../lib/external-contacts';
+import { callLabel, contactFailureText, contactPatch, editContactLabel, emailLabel, isContactGone, removeContactLabel } from '../../lib/task-external-contacts';
+import { newIdempotencyKey } from '../../lib/idempotency';
 import { spacing, fontSize, type Palette } from '../../lib/theme';
 import { font } from '../../lib/typography';
 
@@ -54,7 +55,9 @@ export function ExternalContactView({ contact: c, right }: { contact: ExternalCo
  * The task's External contacts (the website's section): the people outside the company responsible
  * for it, kept apart from its assignees. Anyone who can open the task may add one, edit one or
  * remove one (after "Remove this contact?"); the server has the last word and its refusal is shown.
- * Changes need a connection.
+ * Changes need a connection. A change sends only the fields that changed from what was shown; a new
+ * contact goes under one key until it is added (a retry after a lost answer adds it once); a
+ * contact someone else removed meanwhile counts as removed (each change refreshes the task).
  */
 export function ExternalContactsCard({
   contacts,
@@ -65,15 +68,33 @@ export function ExternalContactsCard({
 }: {
   contacts: (ExternalContactFields & { id: string })[];
   projectId: string;
-  onAdd: (contact: ExternalContactFields) => Promise<unknown>;
-  onSave: (id: string, contact: ExternalContactFields) => Promise<unknown>;
+  onAdd: (contact: ExternalContactFields, idempotencyKey: string) => Promise<unknown>;
+  /** Only the fields that changed. */
+  onSave: (id: string, patch: ExternalContactDraft) => Promise<unknown>;
   onRemove: (id: string) => Promise<unknown>;
 }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
-  // The contact being edited ('new': one being added), else none.
+  // The contact being edited ('new': one being added), else none — and none once that contact is gone.
   const [editing, setEditing] = useState<string | null>(null);
+  const open = editing === 'new' || contacts.some((x) => x.id === editing) ? editing : null;
+  // The new contact's key: one for each contact being added, the same on every try of it.
+  const addKey = useRef(newIdempotencyKey());
+  const startAdding = () => {
+    addKey.current = newIdempotencyKey();
+    setEditing('new');
+  };
   const full = contacts.length >= MAX_EXTERNAL_CONTACTS;
+
+  const add = async (fields: ExternalContactFields) => {
+    await onAdd(fields, addKey.current);
+    setEditing(null);
+  };
+  const save = async (contact: ExternalContactFields & { id: string }, fields: ExternalContactFields) => {
+    const patch = contactPatch(contact, fields);
+    if (Object.keys(patch).length > 0) await onSave(contact.id, patch);
+    setEditing(null);
+  };
 
   const confirmRemove = (contact: ExternalContactFields & { id: string }) =>
     Alert.alert(EXTERNAL_CONTACT_WORDS.confirmRemove, contactRoleLine(contact) ? `${contact.name} · ${contactRoleLine(contact)}` : contact.name, [
@@ -81,22 +102,26 @@ export function ExternalContactsCard({
       {
         text: EXTERNAL_CONTACT_WORDS.remove,
         style: 'destructive',
-        onPress: () => void onRemove(contact.id).catch((e) => Alert.alert(EXTERNAL_CONTACT_WORDS.removeFailed, contactFailureText(e, 'Please try again.'))),
+        // Someone else removed it already: it is gone (the refreshed task no longer shows it).
+        onPress: () =>
+          void onRemove(contact.id).catch((e) => {
+            if (!isContactGone(e)) Alert.alert(EXTERNAL_CONTACT_WORDS.removeFailed, contactFailureText(e, 'Please try again.'));
+          }),
       },
     ]);
 
   return (
     <SectionCard title={contacts.length ? `${EXTERNAL_CONTACT_WORDS.heading} (${contacts.length})` : EXTERNAL_CONTACT_WORDS.heading}>
       <Text style={s.hint}>{EXTERNAL_CONTACT_WORDS.hint}</Text>
-      {contacts.length === 0 && editing !== 'new' ? <Text style={s.none}>{EXTERNAL_CONTACT_WORDS.none}</Text> : null}
+      {contacts.length === 0 && open !== 'new' ? <Text style={s.none}>{EXTERNAL_CONTACT_WORDS.none}</Text> : null}
       {contacts.map((contact) =>
-        editing === contact.id ? (
+        open === contact.id ? (
           <ContactEditor
             key={contact.id}
             title={EXTERNAL_CONTACT_WORDS.editTitle}
             initial={contact}
             projectId={projectId}
-            onSubmit={(fields) => onSave(contact.id, fields).then(() => setEditing(null))}
+            onSubmit={(fields) => save(contact, fields)}
             onCancel={() => setEditing(null)}
           />
         ) : (
@@ -105,26 +130,26 @@ export function ExternalContactsCard({
             contact={contact}
             right={
               <>
-                <IconButton icon="kit.edit" label={editContactLabel(contact)} onPress={() => setEditing(contact.id)} disabled={editing !== null} />
-                <IconButton icon="ui.trash" label={removeContactLabel(contact)} onPress={() => confirmRemove(contact)} disabled={editing !== null} color={c.dangerText} />
+                <IconButton icon="kit.edit" label={editContactLabel(contact)} onPress={() => setEditing(contact.id)} disabled={open !== null} />
+                <IconButton icon="ui.trash" label={removeContactLabel(contact)} onPress={() => confirmRemove(contact)} disabled={open !== null} color={c.dangerText} />
               </>
             }
           />
         ),
       )}
-      {editing === 'new' ? (
+      {open === 'new' ? (
         <ContactEditor
           title={EXTERNAL_CONTACT_WORDS.addTitle}
           initial={null}
           projectId={projectId}
           submitLabel={EXTERNAL_CONTACT_WORDS.add}
-          onSubmit={(fields) => onAdd(fields).then(() => setEditing(null))}
+          onSubmit={add}
           onCancel={() => setEditing(null)}
         />
       ) : full ? (
         <Text style={s.hint}>{EXTERNAL_CONTACT_WORDS.full}</Text>
       ) : (
-        <Button title={EXTERNAL_CONTACT_WORDS.add} variant="secondary" onPress={() => setEditing('new')} disabled={editing !== null} accessibilityLabel={EXTERNAL_CONTACT_WORDS.addTitle} />
+        <Button title={EXTERNAL_CONTACT_WORDS.add} variant="secondary" onPress={startAdding} disabled={open !== null} accessibilityLabel={EXTERNAL_CONTACT_WORDS.addTitle} />
       )}
     </SectionCard>
   );

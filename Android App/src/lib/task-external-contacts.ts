@@ -6,7 +6,16 @@
  * this file is the app's own. Changing contacts needs a connection (they aren't kept offline).
  */
 import { ApiError, isNetworkError } from './api-client';
-import { EXTERNAL_CONTACT_LIMITS, EXTERNAL_CONTACT_WORDS, hasExternalCompany, type ExternalContactField, type ExternalContactFields, type ExternalContactSummary } from './external-contacts';
+import { newIdempotencyKey } from './idempotency';
+import {
+  EXTERNAL_CONTACT_LIMITS,
+  EXTERNAL_CONTACT_WORDS,
+  hasExternalCompany,
+  type ExternalContactDraft,
+  type ExternalContactField,
+  type ExternalContactFields,
+  type ExternalContactSummary,
+} from './external-contacts';
 import type { Refresh } from './refresh';
 import type { TaskPart } from './task-cards';
 
@@ -15,6 +24,8 @@ export interface ContactRow {
   key: string;
   id?: string;
   fields: ExternalContactFields;
+  /** A new contact's Idempotency-Key, kept until it is added: a retry after a lost answer never adds it twice. */
+  addKey?: string;
 }
 
 /** A contact as the server has it (what an Edit task form opened with, or has saved since). */
@@ -49,7 +60,7 @@ let seq = 0;
 /** A contact added in the form (not saved yet). */
 export function newContactRow(fields: ExternalContactFields): ContactRow {
   seq += 1;
-  return { key: `new-${Date.now().toString(36)}-${seq}`, fields };
+  return { key: `new-${Date.now().toString(36)}-${seq}`, fields, addKey: newIdempotencyKey() };
 }
 
 /** The task's contacts as the form's rows. */
@@ -76,8 +87,9 @@ export function contactsDirty(saved: readonly SavedContact[], rows: readonly Con
 
 export interface ContactPlan {
   remove: string[];
-  update: { id: string; fields: ExternalContactFields }[];
-  add: { key: string; fields: ExternalContactFields }[];
+  /** `patch`: only the fields that changed (PUT changes only those, so someone else's change to another field stays). */
+  update: { id: string; fields: ExternalContactFields; patch: ExternalContactDraft }[];
+  add: { key: string; addKey?: string; fields: ExternalContactFields }[];
 }
 const planCount = (p: ContactPlan) => p.remove.length + p.update.length + p.add.length;
 
@@ -87,15 +99,31 @@ export function planContactChanges(saved: readonly SavedContact[], rows: readonl
   const byId = new Map(saved.map((s) => [s.id, s.fields]));
   return {
     remove: saved.filter((s) => !kept.has(s.id)).map((s) => s.id),
-    update: rows.filter((r) => r.id && byId.has(r.id) && !same(byId.get(r.id)!, r.fields)).map((r) => ({ id: r.id!, fields: fieldsOf(r.fields) })),
-    add: rows.filter((r) => !r.id).map((r) => ({ key: r.key, fields: fieldsOf(r.fields) })),
+    update: rows
+      .filter((r) => r.id && byId.has(r.id) && !same(byId.get(r.id)!, r.fields))
+      .map((r) => ({ id: r.id!, fields: fieldsOf(r.fields), patch: contactPatch(byId.get(r.id!)!, r.fields) })),
+    add: rows.filter((r) => !r.id).map((r) => ({ key: r.key, addKey: r.addKey, fields: fieldsOf(r.fields) })),
   };
 }
 
 export interface ContactDeps {
   remove(id: string): Promise<unknown>;
-  update(id: string, fields: ExternalContactFields): Promise<unknown>;
-  add(fields: ExternalContactFields): Promise<{ id: string }>;
+  /** Only the fields that changed. */
+  update(id: string, patch: ExternalContactDraft): Promise<unknown>;
+  /** Under the contact's own key (the same on every try until it is added). */
+  add(fields: ExternalContactFields, idempotencyKey?: string): Promise<{ id: string }>;
+}
+
+/** The fields that differ from what was loaded (a cleared one as null): what a change sends. */
+export function contactPatch(before: ExternalContactFields, after: ExternalContactFields): ExternalContactDraft {
+  const out: ExternalContactDraft = {};
+  for (const k of FIELDS) if ((before[k] ?? null) !== (after[k] ?? null)) out[k] = after[k] ?? null;
+  return out;
+}
+
+/** The contact isn't on the task any more (someone removed it): a removal of it is done. */
+export function isContactGone(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 404;
 }
 
 /**
@@ -112,13 +140,13 @@ export async function saveContactChanges(deps: ContactDeps, saved: readonly Save
     try {
       await deps.remove(id);
     } catch (e) {
-      if (!(e instanceof ApiError && e.status === 404)) return fail(e, 'Couldn’t remove the contact.');
+      if (!isContactGone(e)) return fail(e, 'Couldn’t remove the contact.');
     }
     done = done.filter((s) => s.id !== id);
   }
   for (const u of plan.update) {
     try {
-      await deps.update(u.id, u.fields);
+      await deps.update(u.id, u.patch);
     } catch (e) {
       return fail(e, 'Couldn’t save the contact.');
     }
@@ -127,12 +155,12 @@ export async function saveContactChanges(deps: ContactDeps, saved: readonly Save
   for (const a of plan.add) {
     let id: string;
     try {
-      id = (await deps.add(a.fields)).id;
+      id = (await deps.add(a.fields, a.addKey)).id;
     } catch (e) {
       return fail(e, 'Couldn’t add the contact.');
     }
     done = [...done, { id, fields: a.fields }];
-    now = now.map((r) => (r.key === a.key ? { ...r, id } : r));
+    now = now.map((r) => (r.key === a.key ? { key: r.key, id, fields: r.fields } : r));
   }
   return { saved: done, rows: now, problem: null };
 }
@@ -193,4 +221,41 @@ export function companyFilterLabel(company: string): string {
 /** The company filter's choices: Any company, then each company (lib/external-contacts externalCompanyOptions). */
 export function companyChoices(companies: readonly string[]): { value: string; label: string }[] {
   return [{ value: '', label: EXTERNAL_CONTACT_WORDS.anyCompany }, ...companies.map((c) => ({ value: c, label: c }))];
+}
+
+/** Said when Create or Save is tapped while a contact is still open in its editor (the website's words). */
+export const CONTACT_STILL_OPEN = 'Save the external contact you’re working on, or cancel it, first.';
+
+/** The first field with a problem, in the editor's order (it is brought into view and said). */
+export function firstProblem(problems: Partial<Record<ExternalContactField, string>>): { field: ExternalContactField; message: string } | null {
+  for (const field of FIELDS) {
+    const message = problems[field];
+    if (message) return { field, message };
+  }
+  return null;
+}
+
+/**
+ * The suggestions to offer: only those asked for the name as it is typed now (`forText`: what they
+ * were asked for, lower case) — while typing pauses, the list for an earlier text is never offered.
+ */
+export function freshSuggestions<T>(typed: string, forText: string, list: readonly T[] | undefined): T[] {
+  const now = typed.trim().toLowerCase();
+  return now && now === forText && list ? [...list] : [];
+}
+
+/** Why an Edit task save stopped at its contacts — after saying, when they were, that the task's changes were kept on this phone. */
+export function editSaveProblem(out: { kind: string; message?: string }, problem: string): string {
+  return out.kind === 'kept' && out.message ? `${out.message} ${problem}` : problem;
+}
+
+/**
+ * A move into another column while the board shows one external company: to the bottom of the
+ * whole column (hidden cards counted), with no new order for the column — the hidden cards keep
+ * their places (an order from the shown cards only would push them about).
+ */
+export function moveWithoutOrder(destTasks: readonly { id: string; position: number }[], taskId: string): { index: number; orderedIds: string[]; at: number } {
+  const rest = destTasks.filter((t) => t.id !== taskId);
+  const last = rest.reduce<number | null>((top, t) => (top === null || t.position > top ? t.position : top), null);
+  return { index: rest.length, orderedIds: [], at: last === null ? 0 : last + 1 };
 }

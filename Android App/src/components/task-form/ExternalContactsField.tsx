@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useColors } from '../../core/theme';
 import { Button, IconButton } from '../ui';
@@ -13,13 +13,30 @@ import { spacing, fontSize, type Palette } from '../../lib/theme';
  * New task's and Edit task's optional External contacts (the website's field): the people outside
  * the company responsible for the task, each added, edited or removed here and saved with the form
  * (a new task sends them with the create; Edit task saves what changed on Save changes). Typing a
- * name suggests earlier contacts of the project.
+ * name suggests earlier contacts of the project. The form is told while a contact is open in its
+ * editor (`onOpenChange`): it isn't saved until it is, so Create and Save wait for it.
  */
-export function ExternalContactsField({ rows, onChange, projectId, disabled = false }: { rows: ContactRow[]; onChange: (rows: ContactRow[]) => void; projectId: string; disabled?: boolean }) {
+export function ExternalContactsField({
+  rows,
+  onChange,
+  projectId,
+  disabled = false,
+  onOpenChange,
+}: {
+  rows: ContactRow[];
+  onChange: (rows: ContactRow[]) => void;
+  projectId: string;
+  disabled?: boolean;
+  /** A contact is open in its editor (true) or none is (false). */
+  onOpenChange?: (open: boolean) => void;
+}) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   // The row being edited ('new': one being added), else none.
   const [editing, setEditing] = useState<string | null>(null);
+  useEffect(() => {
+    onOpenChange?.(editing !== null);
+  }, [editing, onOpenChange]);
   const full = rows.length >= MAX_EXTERNAL_CONTACTS;
 
   const confirmRemove = (row: ContactRow) =>

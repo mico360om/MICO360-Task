@@ -24,7 +24,7 @@ import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
 import { ExternalCompanyFilter } from '../components/board/ExternalCompanyFilter';
 import { externalCompanyOptions } from '../lib/external-contacts';
-import { filterByExternalCompany } from '../lib/task-external-contacts';
+import { filterByExternalCompany, moveWithoutOrder } from '../lib/task-external-contacts';
 import { notice } from '../components/notice';
 import { emptyBoardText } from '../lib/board-columns';
 import { SkeletonList, EmptyState, ErrorNote, Button } from '../components/ui';
@@ -75,6 +75,8 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const [company, setCompany] = useState('');
   const companies = useMemo(() => externalCompanyOptions(tasksQ.data ?? []), [tasksQ.data]);
   const board = useMemo(() => composeBoard(columnsQ.data ?? [], filterByExternalCompany(tasksQ.data ?? [], company)), [columnsQ.data, tasksQ.data, company]);
+  // Every card of the day (the filter's hidden ones too): where a column's bottom really is.
+  const fullBoard = useMemo(() => composeBoard(columnsQ.data ?? [], tasksQ.data ?? []), [columnsQ.data, tasksQ.data]);
   const byId = useMemo(() => new Map((tasksQ.data ?? []).map((t) => [t.id, t])), [tasksQ.data]);
   const photos = useMemo(() => new Map((dirQ.data ?? []).map((u) => [u.id, serverFileHref(baseUrl, u.avatarUrl)])), [dirQ.data, baseUrl]);
   const photoOf = useCallback((id: string) => photos.get(id) ?? null, [photos]);
@@ -97,6 +99,8 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
   const placeInColumn = useCallback(
     async (columnId: string, orderedIds: string[]) => {
       setMoving(null);
+      // While one company shows, the column's order isn't sent: it would be made from the shown cards only.
+      if (company) return;
       // Who moved it: how it went is said to them only (final review A5).
       const maker = currentUserId();
       const out = await reorderCards(writes, { columnId, orderedIds });
@@ -104,13 +108,15 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       if (out.kind === 'put-back') tell(out.message, true);
       else tell('Moved.');
     },
-    [writes, currentUserId],
+    [writes, currentUserId, company],
   );
   const moveToColumn = useCallback(
     async (task: ApiTask, toColumnId: string, place: Place) => {
       setMoving(null);
       const dest = board.find((b) => b.column.id === toColumnId);
-      const plan = movePlan((dest?.tasks ?? []).filter((t) => t.id !== task.id), task.id, place);
+      // While one company shows: to the bottom of the whole column, with no new order (the hidden cards keep their places).
+      const whole = fullBoard.find((b) => b.column.id === toColumnId);
+      const plan = company ? moveWithoutOrder(whole?.tasks ?? [], task.id) : movePlan((dest?.tasks ?? []).filter((t) => t.id !== task.id), task.id, place);
       const maker = currentUserId();
       const out = await moveCard(writes, { id: task.id, toColumnId, plan });
       if (!stillSignedIn(maker, currentUserId())) return;
@@ -121,16 +127,17 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
         if (out.kind === 'kept' || out.kind === 'waiting') notice(out.message);
       }
     },
-    [board, writes, currentUserId],
+    [board, fullBoard, company, writes, currentUserId],
   );
   const step = useCallback(
     (card: Card, dir: -1 | 1) => {
+      if (company) return;
       const t = byId.get(card.id);
       const col = t ? board.find((b) => b.column.id === t.columnId) : undefined;
       const order = col ? stepOrder(col.tasks, card.id, dir) : null;
       if (col && order) void placeInColumn(col.column.id, order);
     },
-    [byId, board, placeInColumn],
+    [byId, board, placeInColumn, company],
   );
   const openTask = useCallback((card: Card) => navigation.navigate('TaskDetail', { taskId: card.id, title: card.title }), [navigation]);
   const openActions = useCallback((card: Card) => setMoving(byId.get(card.id) ?? null), [byId]);
@@ -197,7 +204,7 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
           onLayout={(e) => setBoardHeight(e.nativeEvent.layout.height)}
           keyExtractor={(b) => b.column.id}
           renderItem={({ item }) => (
-            <ProjectColumn item={item} width={columnWidth} height={columnHeight} timeZone={timeZone} photoOf={photoOf} onAdd={addTask} onOpen={openTask} onActions={openActions} onStep={step} />
+            <ProjectColumn item={item} width={columnWidth} height={columnHeight} timeZone={timeZone} photoOf={photoOf} onAdd={addTask} onOpen={openTask} onActions={openActions} onStep={step} steps={!company} />
           )}
           contentContainerStyle={styles.board}
           showsHorizontalScrollIndicator={false}
@@ -215,6 +222,8 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       <MoveCardSheet
         task={moving}
         board={board}
+        // While one company shows, a card can't be put in a place among the shown ones: only into another column.
+        placesOff={!!company}
         onReorder={(columnId, orderedIds) => void placeInColumn(columnId, orderedIds)}
         onMove={(toColumnId, place) => {
           if (moving) void moveToColumn(moving, toColumnId, place);
@@ -245,6 +254,7 @@ function tell(text: string, show = false) {
 /** One of the project's columns, its cards made once per change (the shared column view draws it). */
 const ProjectColumn = React.memo(function ProjectColumn({
   item,
+  steps,
   ...rest
 }: {
   item: BoardColumn;
@@ -256,10 +266,12 @@ const ProjectColumn = React.memo(function ProjectColumn({
   onOpen: (card: Card) => void;
   onActions: (card: Card) => void;
   onStep: (card: Card, dir: -1 | 1) => void;
+  /** Up and down are offered (not while one external company shows). */
+  steps: boolean;
 }) {
   const { column, tasks } = item;
   const cards = useMemo(() => tasks.map((t) => boardCard(t, column)), [tasks, column]);
-  return <BoardColumnView id={column.id} name={column.name} color={column.color} cards={cards} {...rest} />;
+  return <BoardColumnView id={column.id} name={column.name} color={column.color} cards={cards} steps={steps} {...rest} />;
 });
 
 const makeStyles = (c: Palette) =>

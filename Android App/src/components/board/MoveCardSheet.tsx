@@ -11,6 +11,9 @@ import type { ApiTask } from '../../lib/types';
 import { font } from '../../lib/typography';
 import { Icon } from '../Icon';
 
+/** Said while the board shows one external company: a card goes to the bottom of a column. */
+export const PLACES_OFF_NOTE = 'While one external company is shown, a card goes to the bottom of the column you choose.';
+
 /**
  * Move a card (4b), opened by long-pressing it (or TalkBack's "Move…"). The phone has no drag and
  * drop, so this says what a drop on the website's board says: in its own column, up or down one, to
@@ -25,9 +28,15 @@ export function MoveCardSheet({
   onMove,
   onClose,
   onMoveToProject,
+  placesOff = false,
 }: {
   /** "Move to another project…", given only when the person may move this task (the website's rule). */
   onMoveToProject?: () => void;
+  /**
+   * No places to choose (the board shows one external company): no order in its own column, and a
+   * column tap moves the card to that column's bottom.
+   */
+  placesOff?: boolean;
   task: ApiTask | null;
   /** The board's shown columns with their cards, in order. */
   board: BoardColumn[];
@@ -94,7 +103,7 @@ export function MoveCardSheet({
         </>
       ) : (
         <>
-          {own && shownHere.length ? (
+          {!placesOff && own && shownHere.length ? (
             <View style={s.group}>
               <FieldLabel>In {own.column.name}</FieldLabel>
               {shownHere.map((h) => (
@@ -105,17 +114,18 @@ export function MoveCardSheet({
           <View style={s.group}>
             <FieldLabel>To another column</FieldLabel>
             {targets.length === 0 ? <Text style={s.none}>There is no other column to move it to.</Text> : null}
+            {placesOff && targets.length > 0 ? <Text style={s.none}>{PLACES_OFF_NOTE}</Text> : null}
             {targets.map((col) => {
               const count = board.find((b) => b.column.id === col.id)?.tasks.length ?? 0;
               return (
                 <MoveOption
                   key={col.id}
                   label={col.name}
-                  a11y={`Move to ${col.name}, ${count} ${count === 1 ? 'task' : 'tasks'}. Then choose where in it.`}
+                  a11y={placesOff ? `Move to the bottom of ${col.name}` : `Move to ${col.name}, ${count} ${count === 1 ? 'task' : 'tasks'}. Then choose where in it.`}
                   dot={col.color}
                   trailing={String(count)}
-                  next
-                  onPress={() => setTo(col.id)}
+                  next={!placesOff}
+                  onPress={() => (placesOff ? onMove(col.id, 'bottom') : setTo(col.id))}
                 />
               );
             })}

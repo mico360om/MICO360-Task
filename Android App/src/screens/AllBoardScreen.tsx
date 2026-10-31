@@ -69,7 +69,12 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
 
   // "External company": only the cards with an external contact from that company.
   const [company, setCompany] = useState('');
-  const companies = useMemo(() => externalCompanyOptions(tasksQ.data ?? []), [tasksQ.data]);
+  // The choices: the companies on the shown projects' tasks only.
+  const shownTasks = useMemo(() => {
+    const shownIds = new Set(shownProjects.filter((p) => !hidden.has(p.id)).map((p) => p.id));
+    return (tasksQ.data ?? []).filter((t) => shownIds.has(t.projectId));
+  }, [tasksQ.data, shownProjects, hidden]);
+  const companies = useMemo(() => externalCompanyOptions(shownTasks), [shownTasks]);
   const board = useMemo(() => composeAllProjectsBoard(filterByExternalCompany(tasksQ.data ?? [], company), projects, { hidden }), [tasksQ.data, projects, hidden, company]);
   const byId = useMemo(() => new Map((tasksQ.data ?? []).map((t) => [t.id, t])), [tasksQ.data]);
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);

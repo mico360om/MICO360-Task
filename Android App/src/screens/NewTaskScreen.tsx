@@ -30,7 +30,7 @@ import { DueDateField } from '../components/task-form/DueDateField';
 import { FilesField } from '../components/task-form/FilesField';
 import { ExternalContactsField } from '../components/task-form/ExternalContactsField';
 import { useExternalContactMutations } from '../core/external-contact-queries';
-import { contactInputs, contactRowsOf, contactsDirty, saveContactChanges, savedContactsOf, type ContactRow, type SavedContact } from '../lib/task-external-contacts';
+import { CONTACT_STILL_OPEN, contactInputs, contactRowsOf, contactsDirty, editSaveProblem, saveContactChanges, savedContactsOf, type ContactRow, type SavedContact } from '../lib/task-external-contacts';
 import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
 import { weekStartOf } from '../lib/calendar';
 import { PRIORITY_LABEL } from '../lib/calendar-model';
@@ -141,6 +141,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   // task — the task's as saved (only what changed is saved, after the task's own changes).
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [savedContacts, setSavedContacts] = useState<SavedContact[]>([]);
+  // A contact still open in its editor: not saved yet, so Create / Save changes wait for it.
+  const [contactOpen, setContactOpen] = useState(false);
   const fileSeq = useRef({ n: 0 });
   const [titleError, setTitleError] = useState<string | null>(null);
   const [repeatError, setRepeatError] = useState<string | null>(null);
@@ -364,7 +366,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   );
 
   // ── Leaving ──
-  const dirty = isDraftDirty(draft, saved, { placeChosen, files: files.length }) || contactsDirty(savedContacts, contacts);
+  const dirty = isDraftDirty(draft, saved, { placeChosen, files: files.length }) || contactsDirty(savedContacts, contacts) || contactOpen;
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
@@ -436,7 +438,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           setContacts(sent.rows);
         }
         if (sent.problem) {
-          if (mounted.current) setBanner(sent.problem);
+          // Task changes kept on this phone (no connection): said too, with why the contacts weren't saved.
+          if (mounted.current) setBanner(editSaveProblem(out, sent.problem));
           return;
         }
       }
@@ -453,6 +456,11 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const send = useSendNewTask();
   async function submit() {
     if (busy.current) return;
+    // A contact still open in its editor would be lost: it is saved (or cancelled) first.
+    if (contactOpen) {
+      setBanner(CONTACT_STILL_OPEN);
+      return;
+    }
     if (editing) return saveEdit();
     if (created) return leave(); // the task exists already: never a second one
     const check = checkNewTask(draft, { noProjects, boardDate: params.boardDate, project });
@@ -786,7 +794,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
         {/* The people outside the company responsible for it — apart from the people it is assigned to. */}
         {!editing || editTask?.externalContacts ? (
-          <ExternalContactsField rows={contacts} onChange={(rows) => !frozen && setContacts(rows)} projectId={draft.projectId} disabled={frozen} />
+          <ExternalContactsField rows={contacts} onChange={(rows) => !frozen && setContacts(rows)} projectId={draft.projectId} disabled={frozen} onOpenChange={setContactOpen} />
         ) : null}
 
         {!editing ? <FilesField files={files} onPickFiles={() => void pick(false)} onPickPictures={() => void pick(true)} onRemove={removeFile} busy={saving || !!created} /> : null}
