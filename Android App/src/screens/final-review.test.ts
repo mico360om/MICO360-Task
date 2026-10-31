@@ -166,5 +166,6 @@ it('the administrators’ totals say "loading" while they load', () => {
   expect(tile).toMatch(/spokenValue\?: string;/);
   expect(tile).toMatch(/const name = `\$\{label\}: \$\{spokenValue \?\? value\}/);
   const tiles = src('components/dashboard/DashboardTiles.tsx');
-  expect(tiles).toMatch(/value=\{t\.value\}\s*spokenValue=\{t\.value === '—' \? 'loading' : undefined\}/);
+  // Stage 2 fix pass B9: one that couldn't load says so instead.
+  expect(tiles).toMatch(/value=\{t\.value\}\s*spokenValue=\{t\.failed \? TILE_FAILED\.spoken : t\.value === '—' \? 'loading' : undefined\}/);
 });

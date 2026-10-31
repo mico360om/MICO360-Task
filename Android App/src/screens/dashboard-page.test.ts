@@ -26,7 +26,7 @@ it('the tiles: two to a row while every label fits, each opening its page', () =
   expect(s).toMatch(/statTileColumns\(tiles\.map\(\(t\) => t\.label\), width, fontScale\)/);
   expect(s).toMatch(/tiles\.map\(/);
   expect(s).toMatch(/<StatTile/);
-  expect(s).toMatch(/spokenValue=\{t\.value === '—' \? 'loading' : undefined\}/);
+  expect(s).toMatch(/spokenValue=\{t\.failed \? TILE_FAILED\.spoken : t\.value === '—' \? 'loading' : undefined\}/);
   // A tile opens its tab (My Tasks, Projects) or Reports.
   expect(src('screens/DashboardScreen.tsx')).toMatch(/onOpen=\{openTile\}/);
   expect(src('screens/DashboardScreen.tsx')).toMatch(/'tab' in to/);
@@ -64,7 +64,7 @@ it('the cards’ links: View all → My Tasks and Activity, Calendar; Due soon r
   expect(screen).toMatch(/<DueSoonCard[^]*?onCalendar=\{\(\) => navigation\.navigate\('Calendar'\)\}/);
   expect(screen).toMatch(/<RecentActivityCard[^]*?onViewAll=\{\(\) => navigation\.navigate\('Activity'\)\}/);
   expect(src('core/dashboard-queries.ts')).toMatch(/reads\.read\(queryKey, 'tasks\.due-soon', \(\) => resources\.tasks\.list\(\{ category: 'BACKLOG,TODO,IN_PROGRESS,BLOCKED,REVIEW', sort: 'dueDate', order: 'asc', limit: 20 \}\)\)/);
-  expect(src('core/dashboard-queries.ts')).toMatch(/DUE_SOON_KEY = \['tasks', 'due-soon'\] as const/);
+  expect(src('lib/refresh.ts')).toMatch(/DUE_SOON_KEY = \['tasks', 'due-soon'\] as const/);
 });
 
 it('the administrators’ charts stay; their two tiles and the "Across all projects" title are the top tiles now', () => {
@@ -72,4 +72,27 @@ it('the administrators’ charts stay; their two tiles and the "Across all proje
   expect(s).not.toMatch(/<StatTile|Across all projects/);
   expect(s).toContain('Tasks by status');
   expect(s).toContain('Project completion');
+});
+
+// Stage 2 fix pass B2: back on the Dashboard after a task changed elsewhere, its cards are read again —
+// once per coming into view, only what it shows, out of date and not being read (core/focus-refetch).
+it('B2: the Dashboard reads Due soon, the activity and the administrators’ totals again as it comes into view', () => {
+  const s = src('screens/DashboardScreen.tsx');
+  expect(s).toMatch(/import \{ useRefetchOnFocus \} from '\.\.\/core\/focus-refetch';/);
+  for (const m of ['useRefetchOnFocus(adminQ, admin);', 'useRefetchOnFocus(activityQ);', 'useRefetchOnFocus(dueSoonQ);']) expect(s, m).toContain(m);
+  // One key for Due soon: the lists that refresh it (lib) and the query (core) use the same.
+  expect(src('core/dashboard-queries.ts')).toMatch(/import \{ DUE_SOON_KEY \} from '\.\.\/lib\/refresh';/);
+  expect(src('core/dashboard-queries.ts')).toMatch(/export \{ DUE_SOON_KEY \};/);
+});
+
+// Stage 2 fix pass B9: the tiles say a figure couldn't load (visible, and to TalkBack) and offer Retry;
+// the screen tells them which lists failed with nothing kept, and Retry reads those again.
+it('B9: tiles that couldn’t load say so, with a Retry under them', () => {
+  const tiles = src('components/dashboard/DashboardTiles.tsx');
+  expect(tiles).toMatch(/tiles\.some\(\(t\) => t\.failed\) \? <ErrorNote message=\{TILE_FAILED\.note\} onRetry=\{onRetry\} retrying=\{retrying\} \/> : null/);
+  const screen = src('screens/DashboardScreen.tsx');
+  expect(screen).toMatch(/failed: \{ myTasks: myTasksQ\.isError && !myTasksQ\.data, projects: projectsQ\.isError && !projectsQ\.data, reports: admin && adminQ\.isError && !adminQ\.data \}/);
+  expect(screen).toMatch(/<DashboardTiles tiles=\{tiles\} onOpen=\{openTile\} onRetry=\{retryTiles\} retrying=\{/);
+  // One Retry for the totals: the charts below no longer repeat it.
+  expect(src('components/AdminTotals.tsx')).not.toMatch(/<ErrorNote/);
 });

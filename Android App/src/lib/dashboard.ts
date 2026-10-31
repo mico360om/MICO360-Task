@@ -31,9 +31,24 @@ export interface DashboardTile {
   tone: 'brand' | 'info' | 'success' | 'danger' | 'warning';
   icon: IconName;
   to: DashboardLink;
+  /** Its list couldn't load and nothing is kept on the phone: "—" that says so (fix pass B9). */
+  failed?: boolean;
 }
 
 const NOT_YET = '—';
+
+/** A figure whose list couldn't load: the tile's hint, what TalkBack says for it, and the note with Retry. */
+export const TILE_FAILED = { hint: 'Couldn’t load', spoken: 'couldn’t load', note: 'Couldn’t load these figures.' } as const;
+
+/** Which lists the tiles read failed with nothing kept (a kept copy still shows its figures). */
+export interface TileFailures {
+  myTasks?: boolean;
+  projects?: boolean;
+  reports?: boolean;
+}
+
+/** A tile not loaded: "—", and when its list failed, "Couldn’t load". */
+const notLoaded = (failed: boolean | undefined) => (failed ? { hint: TILE_FAILED.hint, failed: true } : {});
 
 /** "Today, the week’s last day" or "Today – Sat 31 Oct": the Due this week tile's hint. */
 export function weekHint(c: MyDueCounts): string {
@@ -45,20 +60,29 @@ export function weekHint(c: MyDueCounts): string {
  * company's All tasks and Overdue (the server's report totals, each opening Reports); everyone else:
  * their own Overdue and Due this week (`mine`, opening My Tasks).
  */
-export function dashboardTiles(o: { isAdmin: boolean; myTasks?: readonly unknown[]; projects?: readonly unknown[]; reportRows?: readonly ProjectPerformanceRow[]; mine?: MyDueCounts }): DashboardTile[] {
+export function dashboardTiles(o: {
+  isAdmin: boolean;
+  myTasks?: readonly unknown[];
+  projects?: readonly unknown[];
+  reportRows?: readonly ProjectPerformanceRow[];
+  mine?: MyDueCounts;
+  /** Lists that failed with nothing kept: their tiles say so instead of "loading" for ever. */
+  failed?: TileFailures;
+}): DashboardTile[] {
+  const f = o.failed ?? {};
   const tiles: DashboardTile[] = [
-    { key: 'myTasks', label: 'My tasks', value: o.myTasks ? String(o.myTasks.length) : NOT_YET, ...(o.myTasks ? { hint: 'Assigned to you' } : {}), tone: 'brand', icon: 'misc.tasks', to: { tab: 'MyTasks' } },
-    { key: 'projects', label: 'Projects', value: o.projects ? String(o.projects.length) : NOT_YET, ...(o.projects ? { hint: 'Active workspaces' } : {}), tone: 'info', icon: 'nav.projects', to: { tab: 'Projects' } },
+    { key: 'myTasks', label: 'My tasks', value: o.myTasks ? String(o.myTasks.length) : NOT_YET, ...(o.myTasks ? { hint: 'Assigned to you' } : notLoaded(f.myTasks)), tone: 'brand', icon: 'misc.tasks', to: { tab: 'MyTasks' } },
+    { key: 'projects', label: 'Projects', value: o.projects ? String(o.projects.length) : NOT_YET, ...(o.projects ? { hint: 'Active workspaces' } : notLoaded(f.projects)), tone: 'info', icon: 'nav.projects', to: { tab: 'Projects' } },
   ];
   if (o.isAdmin) {
     const totals = o.reportRows ? reportTotals(o.reportRows) : null;
     tiles.push(
-      { key: 'allTasks', label: 'All tasks', value: totals ? String(totals.total) : NOT_YET, ...(totals ? { hint: `${totals.completed} completed` } : {}), tone: 'success', icon: 'misc.layers', to: { screen: 'Reports' } },
+      { key: 'allTasks', label: 'All tasks', value: totals ? String(totals.total) : NOT_YET, ...(totals ? { hint: `${totals.completed} completed` } : notLoaded(f.reports)), tone: 'success', icon: 'misc.layers', to: { screen: 'Reports' } },
       {
         key: 'overdue',
         label: 'Overdue',
         value: totals ? String(totals.overdue) : NOT_YET,
-        ...(totals ? { hint: totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet' } : {}),
+        ...(totals ? { hint: totals.total ? `${Math.round((totals.overdue / totals.total) * 100)}% of tasks` : 'No tasks yet' } : notLoaded(f.reports)),
         tone: 'danger',
         icon: 'misc.alertTriangle',
         to: { screen: 'Reports' },
@@ -67,8 +91,8 @@ export function dashboardTiles(o: { isAdmin: boolean; myTasks?: readonly unknown
   } else {
     const mine = o.mine;
     tiles.push(
-      { key: 'overdue', label: 'Overdue', value: mine ? String(mine.overdue) : NOT_YET, ...(mine ? { hint: mine.overdue ? 'Past their due day' : 'Nothing late' } : {}), tone: 'danger', icon: 'misc.alertTriangle', to: { tab: 'MyTasks' } },
-      { key: 'dueThisWeek', label: 'Due this week', value: mine ? String(mine.dueThisWeek) : NOT_YET, ...(mine ? { hint: weekHint(mine) } : {}), tone: 'warning', icon: 'misc.week', to: { tab: 'MyTasks' } },
+      { key: 'overdue', label: 'Overdue', value: mine ? String(mine.overdue) : NOT_YET, ...(mine ? { hint: mine.overdue ? 'Past their due day' : 'Nothing late' } : notLoaded(f.myTasks)), tone: 'danger', icon: 'misc.alertTriangle', to: { tab: 'MyTasks' } },
+      { key: 'dueThisWeek', label: 'Due this week', value: mine ? String(mine.dueThisWeek) : NOT_YET, ...(mine ? { hint: weekHint(mine) } : notLoaded(f.myTasks)), tone: 'warning', icon: 'misc.week', to: { tab: 'MyTasks' } },
     );
   }
   return tiles;

@@ -6,6 +6,7 @@ import { useAdminTotals } from '../core/project-queries';
 import { useActivityFeed } from '../core/activity-queries';
 import { useApprovals } from '../core/approval-queries';
 import { useDueSoonTasks } from '../core/dashboard-queries';
+import { useRefetchOnFocus } from '../core/focus-refetch';
 import { useSession } from '../core/providers';
 import { useColors } from '../core/theme';
 import { SkeletonList } from '../components/ui';
@@ -45,6 +46,11 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   const activityQ = useActivityFeed();
   const approvalsQ = useApprovals();
   const adminQ = useAdminTotals(admin);
+  // Back on the Dashboard after a task changed elsewhere: what it shows is read again once, when out of
+  // date and not being read (a task change marks them so — lib/refresh; fix pass B2).
+  useRefetchOnFocus(adminQ, admin);
+  useRefetchOnFocus(activityQ);
+  useRefetchOnFocus(dueSoonQ);
 
   const mine = useMemo(
     () => (myTasksQ.data ? myDueCounts(myTasksQ.data, { timeZone: zones.company, weekStart: zones.companyWeekStart }) : undefined),
@@ -54,7 +60,20 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
   if (myTasksQ.isLoading) return <SkeletonList rows={6} />;
 
   const now = new Date();
-  const tiles = dashboardTiles({ isAdmin: admin, myTasks: myTasksQ.data, projects: projectsQ.data, reportRows: adminQ.data?.projects, mine });
+  const tiles = dashboardTiles({
+    isAdmin: admin,
+    myTasks: myTasksQ.data,
+    projects: projectsQ.data,
+    reportRows: adminQ.data?.projects,
+    mine,
+    // A list that failed with nothing kept: its tiles say so, with Retry (fix pass B9).
+    failed: { myTasks: myTasksQ.isError && !myTasksQ.data, projects: projectsQ.isError && !projectsQ.data, reports: admin && adminQ.isError && !adminQ.data },
+  });
+  const retryTiles = () => {
+    if (myTasksQ.isError) void myTasksQ.refetch();
+    if (projectsQ.isError) void projectsQ.refetch();
+    if (admin && adminQ.isError) void adminQ.refetch();
+  };
   const firstDay = isFirstDay({ projects: projectsQ.data, myTasks: myTasksQ.data, dueSoon: dueSoonQ.data });
   const band = welcomeBand({ firstDay, username: session?.user.username, now, timeZone: zones.company });
   const openTask = (taskId: string, title?: string) => navigation.navigate('TaskDetail', { taskId, title });
@@ -84,7 +103,7 @@ export function DashboardScreen({ navigation }: TabScreenProps<'Dashboard'>) {
 
         <SyncStatus />
 
-        <DashboardTiles tiles={tiles} onOpen={openTile} />
+        <DashboardTiles tiles={tiles} onOpen={openTile} onRetry={retryTiles} retrying={myTasksQ.isRefetching || projectsQ.isRefetching || adminQ.isRefetching} />
 
         {firstDay ? (
           <FirstSteps isAdmin={admin} onCreateProject={() => navigation.navigate('ProjectForm')} onAddTeam={() => navigation.navigate('UserForm')} />

@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useServices } from './providers';
+import { DUE_SOON_KEY } from '../lib/refresh';
 
-/** Due soon's cache key: under ['tasks'], so every task change refreshes it. */
-export const DUE_SOON_KEY = ['tasks', 'due-soon'] as const;
+/** Due soon's cache key (lib/refresh, where task changes mark it out of date): under ['tasks']. */
+export { DUE_SOON_KEY };
 
 /**
  * The Dashboard's Due soon rows: open tasks by due day, earliest first (the server puts tasks without
