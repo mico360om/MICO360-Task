@@ -37,6 +37,22 @@ describe('SystemSettingsPage — backups', () => {
   });
 });
 
+describe('SystemSettingsPage — meeting reminders', () => {
+  it('has the meeting reminders card, beside the meeting hours', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Meeting reminders' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Meeting reminders' })).toBeInTheDocument();
+  });
+
+  it('lists the reminder times among the current settings, in words (a broken value is not shown)', () => {
+    const value = { enabled: true, times: [{ minutes: 1440, email: true }, { minutes: 15, email: false }] };
+    expect(displayableSettings([{ key: 'meetings.reminders', value }]).rows).toEqual([
+      { key: 'meetings.reminders', label: 'Meeting reminders', value: 'On: 24 hours (also by email) and 15 minutes before' },
+    ]);
+    expect(displayableSettings([{ key: 'meetings.reminders', value: { enabled: 'x' } }])).toEqual({ rows: [], hidden: 1 });
+  });
+});
+
 describe('SystemSettingsPage — meeting hours', () => {
   it('has the meeting hours card', async () => {
     renderPage();

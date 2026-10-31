@@ -16,9 +16,11 @@ export interface CommentServiceDeps {
   onMention?: (taskId: string, authorId: string, usernames: string[], body?: string) => void | Promise<void>;
   /** Fired on every new comment (used to notify the task's assignees, excluding the author). */
   onComment?: (taskId: string, authorId: string, commentId: string) => void | Promise<void>;
+  /** After a change to the words of a task (the task search index re-reads it). */
+  onChanged?: (taskId: string) => void | Promise<void>;
 }
 
-export function createCommentService({ repo, taskLookup, onMention, onComment }: CommentServiceDeps) {
+export function createCommentService({ repo, taskLookup, onMention, onComment, onChanged }: CommentServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -36,6 +38,7 @@ export function createCommentService({ repo, taskLookup, onMention, onComment }:
       if (!parent || parent.taskId !== taskId) throw new NotFoundError('Parent comment not found.');
     }
     const comment = await repo.create(taskId, userId, body, parentId ?? null);
+    await onChanged?.(taskId);
     // Match mentions against the real usernames of people who can open this task, so a partial
     // name, an email address or an outsider never gets notified.
     let mentions: string[] = [];
@@ -57,13 +60,16 @@ export function createCommentService({ repo, taskLookup, onMention, onComment }:
   async function editComment(commentId: string, userId: string, body: string): Promise<CommentRecord> {
     const comment = await loadComment(commentId);
     if (comment.userId !== userId) throw new ForbiddenError('You can only edit your own comment.');
-    return repo.update(commentId, body);
+    const edited = await repo.update(commentId, body);
+    await onChanged?.(comment.taskId);
+    return edited;
   }
 
   async function deleteComment(commentId: string, userId: string, isAdmin: boolean): Promise<CommentRecord> {
     const comment = await loadComment(commentId);
     if (comment.userId !== userId && !isAdmin) throw new ForbiddenError('You can only delete your own comment.');
     await repo.delete(commentId);
+    await onChanged?.(comment.taskId);
     return comment; // returned so callers can scope a realtime broadcast to its task/project
   }
 

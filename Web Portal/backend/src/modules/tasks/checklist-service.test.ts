@@ -134,3 +134,15 @@ describe('checklist progress is reported, so the task (and its board card) can s
   });
 });
 
+
+describe('ChecklistService — the task search index follows its items', () => {
+  it('tells onChanged about the task after an item is added, reworded or removed', async () => {
+    const changed: string[] = [];
+    const svc = createChecklistService({ ...inMemory(['t1']), onChanged: (taskId) => void changed.push(taskId) });
+    const item = await svc.addItem('t1', 'Photograph the plates');
+    await svc.editItem(item.id, 'Photograph the base plates');
+    await svc.toggleItem(item.id, true); // ticking changes no words
+    await svc.removeItem(item.id);
+    expect(changed).toEqual(['t1', 't1', 't1']);
+  });
+});

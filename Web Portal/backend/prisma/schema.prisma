@@ -400,6 +400,8 @@ model Task {
   /// Inspections carried out for this task, and the failed item this task follows up (if any).
   inspections        Inspection[]        @relation("InspectionTask")
   inspectionFollowUp InspectionFollowUp? @relation("InspectionFollowUpTask")
+  /// Its entry in the task search index (derived; rebuilt by `npm run search:rebuild`).
+  searchIndex        TaskSearchIndex?
 
   @@index([projectId])
   /// A project's checks (scheduled inspections): its tasks that carry a form.
@@ -418,6 +420,28 @@ model Task {
   @@index([approvedById])
   @@fulltext([title, description])
   @@map("tasks")
+}
+
+/// Task search: one normalised text per task — its keys (old ones too), title, description, live
+/// comments and replies, checklist items, assignees' names, external contacts, tags and file names —
+/// folded as text-normalize folds a query (case, Arabic letter forms, diacritics). Binary columns,
+/// so `LIKE '%part%'` compares bytes: fast, and exact for normalised text. Derived data: the services
+/// refresh a task's row after each change, a sweep heals what any other path changed (`stamp` is a
+/// fingerprint of the sources), and `npm run search:rebuild` rebuilds it all.
+model TaskSearchIndex {
+  taskId    String   @id
+  /// A line break, each key on its own line, then the title.
+  head      Bytes    @db.Blob
+  /// The head, then every other field, one item per line.
+  doc       Bytes    @db.MediumBlob
+  /// What the sources looked like when indexed (task-search-index stampSql).
+  stamp     String   @db.VarChar(512)
+  /// SEARCH_INDEX_VERSION it was built with: an older one is rebuilt.
+  version   Int
+  indexedAt DateTime @db.DateTime(3)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("task_search_index")
 }
 
 /// A task's old key, kept when it moved to another project (RIG-4 became OPS-17): looking up RIG-4
@@ -938,16 +962,17 @@ model Meeting {
   updatedAt          DateTime      @updatedAt
   deletedAt          DateTime?
 
-  attendees   MeetingAttendee[]
-  agendaItems AgendaItem[]
-  notes       MeetingNote[]
-  actionItems ActionItem[]
-  decisions   Decision[]
-  minutes     MeetingMinutes?
-  tasks       Task[]
+  attendees     MeetingAttendee[]
+  agendaItems   AgendaItem[]
+  notes         MeetingNote[]
+  actionItems   ActionItem[]
+  decisions     Decision[]
+  minutes       MeetingMinutes?
+  tasks         Task[]
+  reminderSends MeetingReminderSend[]
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
-  companyId   String?
-  company     Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId     String?
+  company       Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([organizerId])
@@ -957,6 +982,45 @@ model Meeting {
   // One meeting per place in a series, so a series is never filled in twice.
   @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
+}
+
+/// One automatic meeting reminder to one person one way (the bell with its phone push, or email):
+/// the guard against a second send. Unique per meeting, person, reminder time, the start it was for
+/// and way — so retries and several servers send it once, and a moved meeting is reminded again at
+/// its new time. `reminderSentAt` on meetings is no longer used (the one-hour email it stamped is gone).
+model MeetingReminderSend {
+  id            String                    @id @default(cuid())
+  meetingId     String
+  /// 'user:<id>' or 'guest:<lower-cased email>'.
+  recipientKey  String                    @db.VarChar(255)
+  userId        String?
+  email         String?                   @db.VarChar(255)
+  /// The System Settings reminder time: minutes before the start.
+  offsetMinutes Int
+  /// The meeting's start this reminder was for.
+  startAt       DateTime
+  channel       MeetingReminderChannel
+  status        MeetingReminderSendStatus @default(SENDING)
+  sentAt        DateTime?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  meeting       Meeting                   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, recipientKey, offsetMinutes, startAt, channel])
+  @@index([startAt])
+  @@map("meeting_reminder_sends")
+}
+
+enum MeetingReminderChannel {
+  APP
+  EMAIL
+}
+
+enum MeetingReminderSendStatus {
+  SENDING
+  SENT
+  SKIPPED
+  FAILED
 }
 
 model MeetingAttendee {

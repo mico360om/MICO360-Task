@@ -2,9 +2,10 @@ import { Linking, Platform } from 'react-native';
 import { lightColors } from '../lib/theme';
 import * as Notifications from 'expo-notifications';
 import { notificationsAbout, pushPresentation, viewingConversation } from '../lib/chat-viewing';
+import { DEFAULT_PUSH_CHANNEL_ID, PUSH_CHANNELS } from '../lib/push-channels';
 
-/** Android channel the backend should target (`android.notification.channel_id`). */
-export const PUSH_CHANNEL_ID = 'default';
+/** Android channel the backend targets by default (`android.notification.channel_id`). */
+export const PUSH_CHANNEL_ID = DEFAULT_PUSH_CHANNEL_ID;
 
 export type PushPermission = 'granted' | 'denied' | 'undetermined';
 
@@ -13,7 +14,8 @@ let configured = false;
 /**
  * One-time notification setup (NTF-01): show pushes that arrive while the app is open — except one
  * about the conversation open on screen (3a, its messages are already there) — and create the
- * Android channel with high importance so they appear as heads-up notifications.
+ * Android channels (lib/push-channels: everything else, and meeting reminders) with high importance
+ * so they appear as heads-up notifications, also when the app is closed or in the background.
  */
 export function configureNotifications(): void {
   if (configured) return;
@@ -24,12 +26,15 @@ export function configureNotifications(): void {
         pushPresentation(n.request.content.data as Record<string, unknown> | null | undefined, viewingConversation()),
     });
     if (Platform.OS === 'android') {
-      void Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
-        name: 'MICO360 Tasks',
-        importance: Notifications.AndroidImportance.HIGH,
-        // The notification light is the brand colour (a colour string the channel needs).
-        lightColor: lightColors.brand,
-      }).catch(() => {});
+      for (const ch of PUSH_CHANNELS) {
+        void Notifications.setNotificationChannelAsync(ch.id, {
+          name: ch.name,
+          ...(ch.description ? { description: ch.description } : {}),
+          importance: Notifications.AndroidImportance.HIGH,
+          // The notification light is the brand colour (a colour string the channel needs).
+          lightColor: lightColors.brand,
+        }).catch(() => {});
+      }
     }
   } catch {
     /* notifications unavailable (e.g. Expo Go on some devices) — the app works without them */

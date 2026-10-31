@@ -83,11 +83,6 @@ export function taskMatches(task: Pick<SearchableTask, 'title' | 'key' | 'former
   return matchesNormalized(normalizedQuery, task.title, task.key, ...(task.formerKeys ?? []), ...(task.external ?? []));
 }
 
-/** Is the task's key, or one of its old keys, exactly the (normalised) query? Such a task is listed first. */
-export function isExactKeyMatch(task: Pick<SearchableTask, 'key' | 'formerKeys'>, normalizedQuery: string): boolean {
-  return [task.key, ...(task.formerKeys ?? [])].some((k) => normalizeForSearch(k) === normalizedQuery);
-}
-
 /**
  * Substring search over tasks/projects/people/meetings, with one shared normaliser on both sides
  * (case, Arabic letter variants, diacritics). Tasks and projects are restricted to
@@ -125,18 +120,21 @@ export function searchAll(query: string, data: SearchData, scope: SearchScope = 
 
 export interface SearchDataSource {
   getSearchData(): Promise<SearchData>;
-  /**
-   * Search tasks in the database for one request: scoped to the caller's projects, most recently
-   * updated first, at most `limit` hits. When present it replaces `SearchData.tasks`.
-   */
-  searchTasks?(query: string, allowedProjectIds: string[] | null, limit: number): Promise<SearchableTask[]>;
+}
+
+/** The global search's task group: the best few of the full task search (task-search-engine). */
+export const GLOBAL_TASK_LIMIT = 5;
+
+/** The task search the global search uses for its tasks (task-search-engine's `search`). */
+export interface GlobalTaskSearch {
+  search(input: { q: string; scope: { projectIds: string[] | null }; limit: number }): Promise<{ hits: SearchableTask[] }>;
 }
 
 /**
  * Wrap a data source with a short TTL cache + single-flight loading. On a low-resource server
  * this collapses a burst of (debounced) searches into one database read instead of reloading
  * every meeting/note per keystroke. Failed loads are not cached, so a transient DB error
- * doesn't get stuck. Per-request task search passes straight through (it is already narrow).
+ * doesn't get stuck. Tasks are not in the snapshot: they are searched per request (GlobalTaskSearch).
  */
 export function createCachedSearchDataSource(inner: SearchDataSource, opts: { ttlMs: number; now?: () => number }): SearchDataSource {
   const now = opts.now ?? (() => Date.now());
@@ -152,15 +150,16 @@ export function createCachedSearchDataSource(inner: SearchDataSource, opts: { tt
       );
       return inflight;
     },
-    ...(inner.searchTasks ? { searchTasks: inner.searchTasks.bind(inner) } : {}),
   };
 }
 
-export function createSearchService({ data }: { data: SearchDataSource }) {
+export function createSearchService({ data, tasks }: { data: SearchDataSource; tasks?: GlobalTaskSearch }) {
   async function search(query: string, scope: SearchScope = {}): Promise<SearchResults> {
     const results = searchAll(query, await data.getSearchData(), scope);
-    if (data.searchTasks && normalizeForSearch(query)) {
-      results.tasks = await data.searchTasks(query, scope.allowedProjectIds ?? null, TASK_RESULT_LIMIT);
+    if (tasks) {
+      results.tasks = normalizeForSearch(query)
+        ? (await tasks.search({ q: query, scope: { projectIds: scope.allowedProjectIds ?? null }, limit: GLOBAL_TASK_LIMIT })).hits
+        : [];
     }
     return results;
   }

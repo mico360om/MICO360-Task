@@ -25,6 +25,8 @@ export interface UserServiceDeps {
   forgetDevices?: (userId: string) => Promise<void>;
   /** After a user is deleted: remove what only they could see (their MICO AI chats). */
   onDeleted?: (userId: string) => Promise<void>;
+  /** After a person's first name, last name or username changed (the task search finds them by it). */
+  onRenamed?: (userId: string) => void | Promise<void>;
 }
 
 const ADMIN = 'ADMIN';
@@ -36,7 +38,7 @@ const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every
 /** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
 const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
 
-export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted }: UserServiceDeps) {
+export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed }: UserServiceDeps) {
   /** Never leave the system without an administrator who can sign in. */
   async function ensureAnotherActiveAdmin(id: string): Promise<void> {
     if ((await users.countActiveAdmins(id)) === 0) {
@@ -137,6 +139,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     if (patch.email !== undefined && patch.email.trim().toLowerCase() !== current.email.trim().toLowerCase()) await users.endPasswordLinks(id);
     // Roles are embedded in access tokens: a real change ends the user's current sessions.
     if (next.roleNames !== undefined && !sameRoles(current.roles, updated.roles)) await revokeAccess(id);
+    if (updated.firstName !== current.firstName || updated.lastName !== current.lastName || updated.username !== current.username) await onRenamed?.(id);
     return updated;
   }
 

@@ -21,14 +21,13 @@ export interface NotifyPerson {
 /** The email surface this service needs (a subset of EmailService). Sends throw when delivery fails. */
 export interface MeetingMailer {
   sendMeetingInvite(email: string, params: MeetingEmailParams, ics: EmailAttachment): Promise<void>;
-  sendMeetingReminder(email: string, params: MeetingEmailParams & { startsInLabel: string }): Promise<void>;
   sendMeetingCancelled(email: string, params: MeetingEmailParams, ics: EmailAttachment): Promise<void>;
   sendMeetingMinutes(email: string, params: MeetingEmailParams, pdf: EmailAttachment): Promise<void>;
 }
 
 export interface MeetingNotifyDeps {
   /** With the series store, a repeating series is sent as one calendar series (else meeting by meeting). */
-  meetings: Pick<MeetingRepository, 'findById' | 'markInvitesSent' | 'markReminderSent' | 'listUpcomingWithoutReminder'> &
+  meetings: Pick<MeetingRepository, 'findById' | 'markInvitesSent'> &
     Partial<Pick<MeetingSeriesStore, 'listSeries'>>;
   attendees: {
     listByMeeting(meetingId: string): Promise<AttendeeRecord[]>;
@@ -48,7 +47,7 @@ export interface MeetingNotifyDeps {
   appUrl: string;
   /** Company time zone — used to show times for meetings stored without one. */
   defaultTimeZone?: string;
-  /** Where per-recipient failures and sweep errors are reported. */
+  /** Where per-recipient failures are reported. */
   logger?: Pick<Logger, 'error' | 'warn'>;
   now?: () => Date;
 }
@@ -132,7 +131,6 @@ export interface MeetingNotifyService {
   sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean }): Promise<SendReport>;
   /** The minutes email exactly as it would be sent, and to whom — sends nothing. */
   previewMinutes(meetingId: string, opts?: { final?: boolean }): Promise<MinutesPreview>;
-  runReminderSweep(leadMs: number): Promise<{ meetings: number; sent: number; failed: number }>;
 }
 
 /** One meeting of a repeating series, or all of it. */
@@ -140,14 +138,6 @@ export type SeriesScope = 'one' | 'series';
 
 function slugify(title: string): string {
   return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'meeting';
-}
-
-function startsInLabel(m: MeetingRecord, now: Date): string {
-  const mins = Math.round((m.startAt.getTime() - now.getTime()) / 60000);
-  if (mins <= 0) return 'is starting now';
-  if (mins < 60) return `starts in ${mins} minute${mins === 1 ? '' : 's'}`;
-  const hours = Math.round(mins / 60);
-  return `starts in about ${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
 export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNotifyService {
@@ -594,28 +584,6 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const { recipients, missingEmail, organizer } = await recipientsFor(m);
       const content = meetingMinutesEmail({ ...(await emailParams(m, organizer)), project: await projectLook(m) });
       return { subject: content.subject, html: content.html, text: content.text, attachmentName: minutesAttachmentName(m.title, opts?.final), recipients, missingEmail };
-    },
-
-    async runReminderSweep(leadMs) {
-      const due = await meetings.listUpcomingWithoutReminder(now(), leadMs);
-      let sent = 0;
-      let failed = 0;
-      for (const m of due) {
-        // One bad meeting (unreachable directory, broken data) must not stop the others' reminders.
-        try {
-          const { people, organizer } = await recipientsFor(m);
-          const base = await emailParams(m, organizer);
-          const params = { ...base, startsInLabel: startsInLabel(m, now()) };
-          const r = await deliver(m, 'reminder', people, (p) => email.sendMeetingReminder(p.email, params));
-          sent += r.sent;
-          failed += r.failed;
-          // Leave the marker unset when every send failed, so the next sweep retries.
-          if (r.sent > 0 || r.failed === 0) await meetings.markReminderSent(m.id, now());
-        } catch (err) {
-          deps.logger?.error('meeting reminder failed', { err, meetingId: m.id });
-        }
-      }
-      return { meetings: due.length, sent, failed };
     },
   };
 }

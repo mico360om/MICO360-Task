@@ -20,9 +20,11 @@ export interface ChecklistServiceDeps {
   taskLookup: TaskLookup;
   /** Told the checklist's new percentage after every change, so the task's own progress can follow it. */
   onProgress?: (taskId: string, percent: number) => void | Promise<void>;
+  /** After a change to the words of a task (the task search index re-reads it). */
+  onChanged?: (taskId: string) => void | Promise<void>;
 }
 
-export function createChecklistService({ repo, taskLookup, onProgress }: ChecklistServiceDeps) {
+export function createChecklistService({ repo, taskLookup, onProgress, onChanged }: ChecklistServiceDeps) {
   /** Best effort: a checklist change is never undone because the progress could not be passed on. */
   async function report(taskId: string): Promise<void> {
     if (!onProgress) return;
@@ -42,6 +44,7 @@ export function createChecklistService({ repo, taskLookup, onProgress }: Checkli
     const items = await repo.list(taskId);
     const added = await repo.add(taskId, text, items.length);
     await report(taskId);
+    await onChanged?.(taskId);
     return added;
   }
 
@@ -62,8 +65,10 @@ export function createChecklistService({ repo, taskLookup, onProgress }: Checkli
   async function editItem(itemId: string, text: string): Promise<ChecklistItemRecord> {
     const clean = text.trim();
     if (!clean) throw new ValidationError('Checklist item text cannot be empty.');
-    await getItem(itemId);
-    return repo.editText(itemId, clean);
+    const { taskId } = await getItem(itemId);
+    const edited = await repo.editText(itemId, clean);
+    await onChanged?.(taskId);
+    return edited;
   }
 
   async function reorderItems(taskId: string, orderedIds: string[]): Promise<ChecklistItemRecord[]> {
@@ -80,6 +85,7 @@ export function createChecklistService({ repo, taskLookup, onProgress }: Checkli
     const { taskId } = await getItem(itemId);
     const removed = await repo.remove(itemId);
     await report(taskId);
+    await onChanged?.(taskId);
     return removed;
   }
 

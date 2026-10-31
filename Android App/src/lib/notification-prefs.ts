@@ -46,6 +46,7 @@ export const NOTIFICATION_TYPES: { type: string; label: string; description: str
   { type: 'TASK_DUE_SOON', label: 'Due soon', description: 'A reminder shortly before a task is due' },
   { type: 'TASK_OVERDUE', label: 'Overdue', description: 'When one of your tasks becomes overdue' },
   { type: 'PROJECT_ADDED', label: 'Added to a project', description: 'When someone puts you on a project’s team or makes you its owner' },
+  { type: 'MEETING_REMINDER', label: 'Meeting reminders', description: 'Before each meeting you organize or are invited to' },
 ];
 
 // ── Weekly management summary (1.18) ─────────────────────────────────────────

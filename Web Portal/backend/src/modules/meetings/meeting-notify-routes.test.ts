@@ -26,7 +26,7 @@ function meetingRepo() {
     async softDelete(id) { rows.delete(id); },
     async markInvitesSent(id, at) { const r = rows.get(id); if (r) r.invitesSentAt = at; },
     async markReminderSent(id, at) { const r = rows.get(id); if (r) r.reminderSentAt = at; },
-    async listUpcomingWithoutReminder() { return []; },
+   
     async accessCore(id) { const m = rows.get(id); return m ? { organizerId: m.organizerId, createdById: m.createdById, projectId: m.projectId, attendeeUserIds: [] } : null; },
   };
   return repo;
@@ -49,7 +49,6 @@ async function makeApp(withNotify: boolean) {
     sendCancellation: vi.fn(async () => ({ sent: 3, failed: 0 })),
     sendAttendeeRemoved: vi.fn(async () => ({ sent: 1, failed: 0 })),
     sendMinutes: vi.fn(async () => ({ sent: 3, failed: 0 })),
-    runReminderSweep: vi.fn(async () => ({ meetings: 0, sent: 0, failed: 0 })),
   } as unknown as MeetingNotifyService;
   const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, ...(withNotify ? { meetingNotifyService: notify } : {}) });
   return { app, notify, meetings };

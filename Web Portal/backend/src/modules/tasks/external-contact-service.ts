@@ -35,9 +35,11 @@ const personKey = (c: ExternalContactFields) => [c.name, c.company ?? ''].map((v
 export interface ExternalContactServiceDeps {
   repo: ExternalContactRepository;
   taskLookup: TaskLookup;
+  /** After a change to the words of a task (the task search index re-reads it). */
+  onChanged?: (taskId: string) => void | Promise<void>;
 }
 
-export function createExternalContactService({ repo, taskLookup }: ExternalContactServiceDeps) {
+export function createExternalContactService({ repo, taskLookup, onChanged }: ExternalContactServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -60,6 +62,7 @@ export function createExternalContactService({ repo, taskLookup }: ExternalConta
     await ensureTask(taskId);
     const added = await repo.add(taskId, fields, userId, MAX_EXTERNAL_CONTACTS);
     if (!added) throw new ConflictError(TOO_MANY, 'TOO_MANY_EXTERNAL_CONTACTS');
+    await onChanged?.(taskId);
     return added;
   }
 
@@ -73,6 +76,7 @@ export function createExternalContactService({ repo, taskLookup }: ExternalConta
     if (!changed) return { before, after: before, changed };
     const after = await repo.update(contactId, fields);
     if (!after) throw new NotFoundError(GONE);
+    await onChanged?.(after.taskId);
     return { before, after, changed };
   }
 
@@ -80,6 +84,7 @@ export function createExternalContactService({ repo, taskLookup }: ExternalConta
   async function remove(contactId: string): Promise<ExternalContactRecord> {
     const contact = await get(contactId);
     if (!(await repo.remove(contactId))) throw new NotFoundError(GONE);
+    await onChanged?.(contact.taskId);
     return contact;
   }
 

@@ -329,3 +329,17 @@ describe('UserService — a user’s phones are forgotten when their access is r
     expect(forgotten).toEqual([]);
   });
 });
+
+describe('UserService — a new name reaches the task search', () => {
+  it('tells onRenamed when the first name, last name or username changes — not for other edits', async () => {
+    const renamed: string[] = [];
+    const { svc } = make({ onRenamed: (id) => void renamed.push(id) });
+    const u = await svc.createUser(person());
+    await svc.updateUser(u.id, { firstName: 'Ada' }); // the same name
+    await svc.updateUser(u.id, { email: 'ada@new.example' });
+    expect(renamed).toEqual([]);
+    await svc.updateUser(u.id, { lastName: 'Lovelace' });
+    await svc.updateUser(u.id, { username: 'ada.l' });
+    expect(renamed).toEqual([u.id, u.id]);
+  });
+});

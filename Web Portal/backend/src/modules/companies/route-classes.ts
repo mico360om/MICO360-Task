@@ -333,4 +333,9 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'DELETE /inspection-forms/:id': 'shared',
   'GET /tags': 'shared',
   'GET /projects/code-check': 'shared',
+
+  // ---- appended -------------------------------------------------------------------------------
+  // Full task search (merged from feat/android-1-19): its permissions are built in
+  // search/task-search-scope.ts, where the picked companies go (MC1 Task 13).
+  'GET /search/tasks': 'list',
 };

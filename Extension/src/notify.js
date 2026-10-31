@@ -31,6 +31,8 @@ export const NOTIFICATION_TYPES = Object.freeze([
   { type: 'MENTION', label: 'Mentions', desc: 'When someone @mentions you' },
   { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },
   { type: 'TASK_OVERDUE', label: 'Overdue', desc: 'When one of your tasks becomes overdue' },
+  // Automatic meeting reminders (24 h, 12 h, 15 min before by default): the desktop alert shows them like any new notification.
+  { type: 'MEETING_REMINDER', label: 'Meeting reminders', desc: 'Before each meeting you organize or are invited to' },
 ]);
 
 /** "Remind me before due" (minutes before a task's due time); null = the workspace default. */

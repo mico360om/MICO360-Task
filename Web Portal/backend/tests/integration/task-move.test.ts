@@ -7,7 +7,8 @@ import { createTaskMoveService } from '../../src/modules/tasks/task-move-service
 import { TaskChangedConflictError, TaskMovedConflictError } from '../../src/modules/tasks/task-move-repository';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
-import { createPrismaSearchDataSource } from '../../src/modules/search/prisma-search-data-source';
+import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
+import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -20,7 +21,9 @@ const taskService = createTaskService({ tasks: tasksRepo, projects: createPrisma
 const moveRepo = createPrismaTaskMoveRepository(prisma);
 const moves = createTaskMoveService({ repo: moveRepo, timeZone: TZ, now: () => NOW });
 const recurrence = createRecurrenceService({ tasks: createPrismaRecurrencePort(prisma, { timeZone: TZ, now: () => NOW }), timeZone: TZ, now: () => NOW });
-const search = createPrismaSearchDataSource(prisma);
+const searchIndex = createTaskSearchIndex({ prisma });
+const engine = createTaskSearchEngine({ prisma, timeZone: TZ });
+const search = (q: string, projectIds: string[] | null) => engine.search({ q, scope: { projectIds }, limit: 50 }).then((r) => r.hits);
 
 const CODES = ['MVRIG', 'MVOPS'];
 const EMAILS = ['move-manager@mico360.test', 'move-mate@mico360.test', 'move-outsider@mico360.test', 'move-owner@mico360.test', 'move-named@mico360.test'];
@@ -257,11 +260,12 @@ describe('Moving a task to another project (integration)', () => {
   it('the old key still finds the task: search, and the task’s own details', async () => {
     const task = await newTask('Inspect the rig');
     await moves.moveTask(manager, task.id, { projectId: ops.id });
-    const hits = await search.searchTasks!('MVRIG-1', null, 50);
+    await searchIndex.taskChanged(task.id);
+    const hits = await search('MVRIG-1', null);
     expect(hits).toEqual([expect.objectContaining({ id: task.id, key: 'MVOPS-1', formerKeys: ['MVRIG-1'] })]);
-    expect((await search.searchTasks!('mvrig-1', [ops.id], 50)).map((t) => t.id)).toEqual([task.id]);
+    expect((await search('mvrig-1', [ops.id])).map((t) => t.id)).toEqual([task.id]);
     // Scoped to the old project only, it is gone: it isn't there any more.
-    expect(await search.searchTasks!('MVRIG-1', [rig.id], 50)).toEqual([]);
+    expect(await search('MVRIG-1', [rig.id])).toEqual([]);
     expect((await tasksRepo.findById(task.id))!.formerKeys).toEqual(['MVRIG-1']);
   });
 

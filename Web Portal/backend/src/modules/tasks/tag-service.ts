@@ -9,6 +9,8 @@ const MAX_TAG_LENGTH = 40;
 export interface TagServiceDeps {
   repo: TagRepository;
   taskLookup: TaskLookup;
+  /** After a change to the words of a task (the task search index re-reads it). */
+  onChanged?: (taskId: string) => void | Promise<void>;
 }
 
 /** Trim, collapse internal whitespace and cap the length of a tag name. */
@@ -37,7 +39,7 @@ export function normalizeTagNames(names: string[]): string[] {
   return clean;
 }
 
-export function createTagService({ repo, taskLookup }: TagServiceDeps) {
+export function createTagService({ repo, taskLookup, onChanged }: TagServiceDeps) {
   async function ensureTask(taskId: string): Promise<void> {
     if (!(await taskLookup.exists(taskId))) throw new NotFoundError('Task not found.');
   }
@@ -62,12 +64,14 @@ export function createTagService({ repo, taskLookup }: TagServiceDeps) {
     const tags: TagRecord[] = [];
     for (const name of clean) tags.push(await repo.findOrCreateByName(name));
     await repo.setForTask(taskId, tags.map((t) => t.id));
+    await onChanged?.(taskId);
     return repo.listForTask(taskId);
   }
 
   async function removeTaskTag(taskId: string, tagId: string): Promise<void> {
     await ensureTask(taskId);
     await repo.removeFromTask(taskId, tagId);
+    await onChanged?.(taskId);
   }
 
   return { listCatalog, getTaskTags, setTaskTags, removeTaskTag };

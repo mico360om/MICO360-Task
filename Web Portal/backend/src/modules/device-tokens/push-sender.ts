@@ -1,6 +1,16 @@
 import type { DeviceTokenRepository } from './device-token-repository';
 
-export interface PushMessage {
+/** How a push is shown and kept on the phone (all optional: the default channel, kept until delivered). */
+export interface PushDeliveryOptions {
+  /** The Android notification channel (the app creates it); omitted = 'default'. */
+  channelId?: string;
+  /** Drop the push if it can't be delivered within this many seconds (out of date by then). */
+  ttlSeconds?: number;
+  /** A newer push with the same tag replaces the older one on the phone's list. */
+  tag?: string;
+}
+
+export interface PushMessage extends PushDeliveryOptions {
   to: string;
   title: string;
   body: string;
@@ -19,7 +29,7 @@ export interface PushTransport {
   send(messages: PushMessage[]): Promise<PushSendResult | void>;
 }
 
-export interface PushNotificationInput {
+export interface PushNotificationInput extends PushDeliveryOptions {
   title: string;
   body?: string | null;
   entityType?: string | null;
@@ -52,6 +62,9 @@ export function createPushSender({ deviceTokens, transport }: PushSenderDeps) {
         ...(notification.entityId ? { entityId: notification.entityId } : {}),
         ...(notification.notificationId ? { notificationId: notification.notificationId } : {}),
       },
+      ...(notification.channelId ? { channelId: notification.channelId } : {}),
+      ...(notification.ttlSeconds ? { ttlSeconds: notification.ttlSeconds } : {}),
+      ...(notification.tag ? { tag: notification.tag } : {}),
     }));
 
     let result: PushSendResult | void;

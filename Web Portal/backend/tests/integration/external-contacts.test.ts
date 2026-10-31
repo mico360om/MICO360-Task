@@ -4,7 +4,8 @@ import { createPrismaExternalContactRepository } from '../../src/modules/tasks/p
 import { createPrismaTaskRepository } from '../../src/modules/tasks/prisma-task-repository';
 import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recurrence-port';
 import { createPrismaTaskExportSource } from '../../src/modules/tasks/task-export';
-import { createPrismaSearchDataSource } from '../../src/modules/search/prisma-search-data-source';
+import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
+import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
 import { createPrismaMicoAiData } from '../../src/modules/mico-ai/prisma-mico-ai-data';
 import type { ExternalContactFields } from '../../src/modules/tasks/external-contacts';
 
@@ -156,10 +157,12 @@ describe('External contacts on MySQL (integration)', () => {
 
   it('search finds a task by a contact’s name or company', async () => {
     await repo.add(taskId, fields('Ahmed Al Said', { company: 'Occidental Oman' }), userId, 20);
-    const search = createPrismaSearchDataSource(prisma);
-    expect((await search.searchTasks!('occidental', [projectId], 50)).map((t) => t.key)).toEqual(['XCON-1']);
-    expect((await search.searchTasks!('ahmed', [projectId], 50)).map((t) => t.key)).toEqual(['XCON-1']);
-    expect(await search.searchTasks!('ahmed', [otherProjectId], 50)).toEqual([]);
+    await createTaskSearchIndex({ prisma }).taskChanged(taskId);
+    const engine = createTaskSearchEngine({ prisma, timeZone: 'Asia/Muscat' });
+    const keys = async (q: string, projectIds: string[]) => (await engine.search({ q, scope: { projectIds }, limit: 50 })).hits.map((t) => t.key);
+    expect(await keys('occidental', [projectId])).toEqual(['XCON-1']);
+    expect(await keys('ahmed', [projectId])).toEqual(['XCON-1']);
+    expect(await keys('ahmed', [otherProjectId])).toEqual([]);
   });
 
   it('MICO AI reads a task’s contacts with its other details', async () => {

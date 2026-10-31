@@ -80,6 +80,7 @@ import { createUserService } from './modules/users/user-service';
 import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './modules/users/prisma-user-repository';
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
+import type { NotificationRecord } from './modules/notifications/notification-repository';
 import { planReminders } from './modules/notifications/reminder';
 import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
@@ -150,6 +151,9 @@ import { createPrismaTaskExportSource } from './modules/tasks/task-export';
 import { createPrismaReportDataSource } from './modules/reports/prisma-report-data-source';
 import { createSearchService, createCachedSearchDataSource } from './modules/search/search-service';
 import { createPrismaSearchDataSource } from './modules/search/prisma-search-data-source';
+import { createTaskSearchIndex } from './modules/search/task-search-index';
+import { createTaskSearchEngine } from './modules/search/task-search-engine';
+import { startTaskSearchSweeps } from './modules/search/task-search-sweeps';
 import { createPrismaMeetingRepository } from './modules/meetings/prisma-meeting-repository';
 import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
@@ -195,6 +199,8 @@ import { createPrismaResetUserRepo } from './modules/auth/prisma-reset-user-repo
 import { hashPassword } from './lib/password';
 import { createEmailService } from './modules/email/email-service';
 import { createMeetingNotifyService } from './modules/meetings/meeting-notify-service';
+import { createMeetingReminderService } from './modules/meetings/meeting-reminder-service';
+import { createPrismaMeetingReminderSource, createPrismaMeetingReminderStore } from './modules/meetings/prisma-meeting-reminders';
 import { configureBrand } from './modules/email/brand';
 import { chooseTransport } from './modules/email/outbox-transport';
 import { createEmailWebhookService } from './modules/email/email-webhook-service';
@@ -257,6 +263,11 @@ async function main(): Promise<void> {
   let onTaskUpdated: (before: TaskRec, after: TaskRec, actorId?: string) => Promise<void> = async () => {};
 
   const companyTz = resolveTimeZone(env.COMPANY_TIMEZONE);
+  // Task search: one normalised text per task (task_search_index), refreshed after every change the
+  // services make (the hooks below call taskChanged), healed by the sweeps further down, and searched
+  // by the top-bar search and the Search results page (GET /search/tasks).
+  const taskSearchIndex = createTaskSearchIndex({ prisma, logger });
+  const taskSearchEngine = createTaskSearchEngine({ prisma, index: taskSearchIndex, timeZone: companyTz });
   // Task approvals: who may approve a project's tasks is who may manage it (admins, owner, named
   // manager, MANAGER members) — the person's current roles, read at the moment they act.
   const roleNamesOf = async (userId: string): Promise<string[]> => {
@@ -365,6 +376,7 @@ async function main(): Promise<void> {
   const tagService = createTagService({
     repo: createPrismaTagRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
+    onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
   });
 
   const checklistService = createChecklistService({
@@ -375,6 +387,7 @@ async function main(): Promise<void> {
     onProgress: async (taskId, percent) => {
       await prisma.task.updateMany({ where: { id: taskId, completedAt: null }, data: { progress: percent } });
     },
+    onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
   });
 
   // External contacts on tasks: the people outside the company responsible for a task. Never
@@ -382,6 +395,7 @@ async function main(): Promise<void> {
   const externalContactService = createExternalContactService({
     repo: createPrismaExternalContactRepository(prisma),
     taskLookup: createPrismaTaskLookup(prisma),
+    onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
   });
 
   // Late-bound so a comment @mention can notify the mentioned users once notifications exist (below).
@@ -394,6 +408,7 @@ async function main(): Promise<void> {
     taskLookup: createPrismaTaskLookup(prisma),
     onMention: (taskId, authorId, usernames, body) => onCommentMention(taskId, authorId, usernames, body),
     onComment: (taskId, authorId, commentId) => onComment(taskId, authorId, commentId),
+    onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
   });
 
   // Late-bound chat notification hooks (wired once notifications exist, below).
@@ -435,6 +450,7 @@ async function main(): Promise<void> {
     allowedMimeTypes: attachmentAllowedMime,
     maxTotalBytesPerTask: env.UPLOAD_MAX_TOTAL_BYTES_PER_TASK,
     shrinkImage: imageShrinker.shrink,
+    onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
   });
 
   const dependencyService = createDependencyService({
@@ -463,6 +479,8 @@ async function main(): Promise<void> {
     // The device-token repository is created below; this runs only when access is revoked.
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     onDeleted: (userId) => micoAiRepository.deleteAllForUser(userId).then(() => undefined),
+    // Their tasks are found by their name: re-read those tasks with the new one.
+    onRenamed: (userId) => taskSearchIndex.refreshForUser(userId).then(() => undefined, (err) => logger.error('task search: indexing a renamed person’s tasks failed', { err, userId })),
   });
   // Resolve user/project ids → display names for server-rendered documents (meeting minutes).
   const resolveUserNames = async (ids: string[]): Promise<Map<string, string>> => {
@@ -502,11 +520,15 @@ async function main(): Promise<void> {
     : undefined;
   if (!pushSender) logger.info('push notifications disabled (no FCM service account configured)');
 
+  // Each stored notification also reaches the person's open pages at once (the website's live
+  // pop-up for meeting reminders); late-bound to the realtime server, created further down.
+  let onNotificationDelivered: (record: NotificationRecord) => void = () => {};
   const notificationService = createNotificationService({
     notifications: createPrismaNotificationRepository(prisma),
     preferences: createPrismaPreferenceStore(prisma),
     push: pushSender,
     logger,
+    onDelivered: (record) => onNotificationDelivered(record),
   });
   const deviceTokenService = createDeviceTokenService({ deviceTokens: deviceTokenRepository });
 
@@ -516,6 +538,8 @@ async function main(): Promise<void> {
   // reload every meeting/note/task per keystroke — important on low-memory hosts.
   const searchService = createSearchService({
     data: createCachedSearchDataSource(createPrismaSearchDataSource(prisma), { ttlMs: 15_000 }),
+    // Its tasks: the best few of the full task search, per request.
+    tasks: taskSearchEngine,
   });
 
   // Meetings & Meeting Notes module (project-linked and standalone).
@@ -630,6 +654,7 @@ async function main(): Promise<void> {
 
   // Now that notifications + activity exist, make task assignment actually fire them.
   onTaskAssigned = async (taskId, userIds, actorId) => {
+    await taskSearchIndex.taskChanged(taskId);
     const about = await taskNotice(taskId);
     // Self-assignment isn't news to the person who did it.
     for (const userId of await visibleTaskRecipients(taskId, userIds, actorId)) {
@@ -658,6 +683,7 @@ async function main(): Promise<void> {
 
   // Taking someone off a task: one activity row naming them, attributed to whoever did it.
   onTaskUnassigned = async (taskId, userId, actorId) => {
+    await taskSearchIndex.taskChanged(taskId);
     if (!actorId) return;
     const [t, u] = await Promise.all([
       prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } }),
@@ -669,6 +695,10 @@ async function main(): Promise<void> {
 
   // An edit: one activity row listing what changed (old → new), so the timeline can say it.
   onTaskUpdated = async (before, after, actorId) => {
+    await taskSearchIndex.taskChanged(after.id);
+    // An edit to the whole repeating series changes the words of its other copies too.
+    const series = after.recurrenceParentId ?? (after.recurrenceRule ? after.id : null);
+    if (series && (before.title !== after.title || before.description !== after.description)) await taskSearchIndex.refreshSeries(series).catch((err) => logger.error('task search: indexing a series failed', { err, taskId: after.id }));
     if (!actorId) return;
     const meta = updateActivity(before, after, companyTz);
     if (!meta) return;
@@ -676,6 +706,7 @@ async function main(): Promise<void> {
   };
 
   onTaskCreated = async (task) => {
+    await taskSearchIndex.taskChanged(task.id);
     await activityService.record({ taskId: task.id, projectId: task.projectId, userId: task.createdById, action: 'CREATED', meta: { title: task.title } });
   };
 
@@ -686,7 +717,10 @@ async function main(): Promise<void> {
     nextCopy: (task) =>
       recurrenceService.onTaskCompleted({ id: task.id, dueDate: task.dueDate, recurrenceRule: task.recurrenceRule, recurrenceParentId: task.recurrenceParentId }),
     // Open boards show the new occurrence at once (its CREATED activity is written by the port).
-    announceCopy: async (copyId, projectId) => broadcast(projectId, 'task:created', await taskService.getTask(copyId)),
+    announceCopy: async (copyId, projectId) => {
+      await taskSearchIndex.taskChanged(copyId);
+      broadcast(projectId, 'task:created', await taskService.getTask(copyId));
+    },
     followActionItems: (taskId, done) => actionItemService.followTask(taskId, done).then(() => undefined),
     recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId),
     // Approvals: a task starting to wait tells whoever runs its project (else the admins); approved and
@@ -697,7 +731,11 @@ async function main(): Promise<void> {
       return visibleTaskRecipients(task.id, [...assignees.map((a) => a.userId), ...(requestedById ? [requestedById] : [])], actorId);
     },
     // The reason a task was sent back is the approver's comment on it (its notice is the sent-back one).
-    sentBackComment: (task, actorId, reason) => prisma.comment.create({ data: { taskId: task.id, userId: actorId, body: reason } }),
+    sentBackComment: async (task, actorId, reason) => {
+      const comment = await prisma.comment.create({ data: { taskId: task.id, userId: actorId, body: reason } });
+      await taskSearchIndex.taskChanged(task.id);
+      return comment;
+    },
     // Approval turned off on one waiting copy: the series' next copy still needs approval.
     keepApprovalOnCopy: (copyId) => prisma.task.update({ where: { id: copyId }, data: { needsApproval: true } }),
     notify: (n) => notificationService.notify(n),
@@ -717,7 +755,10 @@ async function main(): Promise<void> {
       recurrenceRule: task.recurrenceRule,
       recurrenceParentId: task.recurrenceParentId,
     });
-    if (next) broadcast(task.projectId, 'task:created', await taskService.getTask(next.id));
+    if (next) {
+      await taskSearchIndex.taskChanged(next.id);
+      broadcast(task.projectId, 'task:created', await taskService.getTask(next.id));
+    }
   };
 
   // Deadline reminders: notify assignees of overdue + soon-due tasks. Runs at startup
@@ -829,7 +870,12 @@ async function main(): Promise<void> {
 
   // A task moved to another project: the people following it (assignees and watchers who can still
   // open it) hear where it went — never the person who moved it.
-  onTaskProjectMoved = createMoveNotifier({ recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId), notify: (n) => notificationService.notify(n) });
+  const notifyProjectMove = createMoveNotifier({ recipients: (taskId, actorId) => taskRecipientIds(taskId, actorId), notify: (n) => notificationService.notify(n) });
+  // Its new key (the old one stays findable) and the people taken off it change its words.
+  onTaskProjectMoved = async (move) => {
+    await taskSearchIndex.taskChanged(move.task.id);
+    await notifyProjectMove(move);
+  };
 
   // A chat @mention notifies each mentioned (real, active) user who can read the conversation —
   // never someone outside the DM or project, and never the author.
@@ -1076,17 +1122,31 @@ async function main(): Promise<void> {
   void runMeetingSeriesTopUp();
   const meetingSeriesTimer = setInterval(() => void runMeetingSeriesTopUp(), 6 * 60 * 60 * 1000);
   meetingSeriesTimer.unref?.();
-  // Remind attendees of meetings starting within the next hour (one lease-locked instance, every 15 min).
-  const MEETING_REMINDER_LEAD_MS = 60 * 60 * 1000;
+  // Automatic meeting reminders (System Settings → Meeting reminders: by default 24 hours, 12 hours
+  // and 15 minutes before): every minute, one lease-locked instance sends the ones due — the bell,
+  // the phone push on its own channel, and the email for times ticked "also by email". Each send is
+  // a unique row, so overlapping runs and several servers never send one twice. The lease is under a
+  // minute (leases are held for their whole length) so the sweep really runs every minute.
+  const meetingReminderService = createMeetingReminderService({
+    settings: () => settingsService.meetingReminders(),
+    source: createPrismaMeetingReminderSource(prisma),
+    store: createPrismaMeetingReminderStore(prisma),
+    notify: (input, opts) => notificationService.notify(input, opts),
+    email: emailService,
+    appUrl: env.APP_URL,
+    defaultTimeZone: companyTz,
+    logger,
+  });
+  const MEETING_REMINDER_LEASE_MS = 55 * 1000;
   const runMeetingReminders = () =>
-    runExclusive(jobLock, 'meeting-reminder-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
-      await meetingNotifyService.runReminderSweep(MEETING_REMINDER_LEAD_MS);
+    runExclusive(jobLock, 'meeting-reminders', MEETING_REMINDER_LEASE_MS, () => new Date(), async () => {
+      await meetingReminderService.runSweep();
     }).catch((err) => {
       logger.error('meeting reminder sweep failed', { err });
       return false;
     });
   void runMeetingReminders();
-  const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 15 * 60 * 1000);
+  const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 60 * 1000);
   meetingReminderTimer.unref?.();
   // A meeting that is over is Completed (unless cancelled): every 5 minutes, one lease-locked
   // instance closes the ones whose end has passed. No emails; open pages refresh.
@@ -1482,6 +1542,7 @@ async function main(): Promise<void> {
       },
     },
     searchService,
+    taskSearch: taskSearchEngine,
     meetingService,
     meetingSeriesService,
     projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: companyTz },
@@ -1638,6 +1699,11 @@ async function main(): Promise<void> {
   broadcast = realtime.broadcast;
   broadcastToUser = realtime.broadcastToUser;
   broadcastToAudience = realtime.broadcastToAudience;
+  // A new notification reaches its person's open pages (the bell refreshes; a meeting reminder pops up).
+  onNotificationDelivered = (n) =>
+    realtime.broadcastToUser(n.userId, 'notification:new', {
+      id: n.id, type: n.type, title: n.title, body: n.body, entityType: n.entityType, entityId: n.entityId, createdAt: n.createdAt.toISOString(),
+    });
   // Revoked sessions lose their live connections; removed members lose the project's room and
   // its chat channel (SEC-07).
   onSessionsRevoked = (userId) => realtime.disconnectUser(userId);
@@ -1652,6 +1718,7 @@ async function main(): Promise<void> {
   const runRecurrenceSchedule = () =>
     runExclusive(jobLock, 'recurrence-schedule-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       for (const made of await recurrenceService.runSchedule()) {
+        await taskSearchIndex.taskChanged(made.id);
         const task = await taskService.getTask(made.id);
         broadcast(task.projectId, 'task:created', task);
         for (const userId of await taskRecipientIds(task.id)) {
@@ -1665,6 +1732,12 @@ async function main(): Promise<void> {
   void runRecurrenceSchedule();
   const recurrenceTimer = setInterval(() => void runRecurrenceSchedule(), 60 * 60 * 1000);
   recurrenceTimer.unref?.();
+
+  // Task search heals what changed without a refresh: every minute the tasks with no entry (made in
+  // bulk — a project from a template, a restored backup) or edited since they were read; at startup
+  // and every six hours every task whose words changed any other way (a removed comment, a renamed
+  // tag) — and an index built with an older version is rebuilt (task-search-sweeps).
+  startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

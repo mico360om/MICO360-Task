@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import { ZodError } from 'zod';
-import { createSettingsService, DEFAULT_DAILY_LIMIT, DEFAULT_WORKING_HOURS } from './settings-service';
+import { createSettingsService, DEFAULT_DAILY_LIMIT, DEFAULT_MEETING_REMINDERS, DEFAULT_WORKING_HOURS } from './settings-service';
 import { registerSettingsRoutes } from './settings-routes';
 import { createAuthGuard } from '../auth/auth-guard';
 import { createTokenService } from '../auth/token-service';
@@ -221,5 +221,53 @@ describe('SettingsService: the company week and the weekly management summary', 
     await expect(svc.set('weeklySummary.enabled', 'no')).rejects.toMatchObject({ code: 'VALIDATION' });
     // A broken stored value never turns it off by accident.
     expect(await createSettingsService({ settings: inMemory({ 'weeklySummary.enabled': 'off' }) }).weeklySummaryEnabled()).toBe(true);
+  });
+});
+
+describe('SettingsService: meeting reminders (System Settings → Meeting reminders)', () => {
+  it('until an admin changes them: on, 24 hours (also by email), 12 hours and 15 minutes before', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(await svc.meetingReminders()).toEqual({
+      enabled: true,
+      times: [
+        { minutes: 1440, email: true },
+        { minutes: 720, email: false },
+        { minutes: 15, email: false },
+      ],
+    });
+    expect(DEFAULT_MEETING_REMINDERS.times).toHaveLength(3);
+  });
+
+  it('stores the switch and up to five times, longest first, one of each, between 5 minutes and 7 days', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    const saved = await svc.set('meetings.reminders', {
+      enabled: false,
+      times: [
+        { minutes: 15, email: false },
+        { minutes: 10080, email: true },
+        { minutes: 15, email: true },
+        { minutes: 60, email: false },
+      ],
+    });
+    expect(saved.value).toEqual({ enabled: false, times: [{ minutes: 10080, email: true }, { minutes: 60, email: false }, { minutes: 15, email: false }] });
+    expect(await svc.meetingReminders()).toEqual(saved.value);
+  });
+
+  it('refuses a time under 5 minutes or over 7 days, more than five times, none at all, or a broken shape', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    const t = (minutes: number) => ({ minutes, email: false });
+    await expect(svc.set('meetings.reminders', { enabled: true, times: [t(4)] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.reminders', { enabled: true, times: [t(10081)] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.reminders', { enabled: true, times: [t(15.5)] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.reminders', { enabled: true, times: [t(5), t(10), t(15), t(20), t(25), t(30)] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.reminders', { enabled: true, times: [] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.reminders', { enabled: 'yes', times: [t(15)] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(svc.set('meetings.reminders', { enabled: true, times: [{ minutes: 15 }] })).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect((await svc.set('meetings.reminders', { enabled: true, times: [t(5), t(10080)] })).value).toEqual({ enabled: true, times: [t(10080), t(5)] });
+  });
+
+  it('a broken stored value falls back to the defaults (reminders keep going)', async () => {
+    const svc = createSettingsService({ settings: inMemory({ 'meetings.reminders': { enabled: 'off', times: 'x' } }) });
+    expect(await svc.meetingReminders()).toEqual(DEFAULT_MEETING_REMINDERS);
   });
 });

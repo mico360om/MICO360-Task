@@ -67,3 +67,20 @@ describe('the push names its notification (5c review)', () => {
     expect((send.mock.calls[1]![0] as { data: unknown }[])[0]!.data).toEqual({});
   });
 });
+
+describe('push delivery options (meeting reminders)', () => {
+  it('passes the channel, time to live and tag on to every device’s message', async () => {
+    const send = vi.fn(async (_messages: unknown) => {});
+    const sender = createPushSender({ deviceTokens: repoWith(['tokA', 'tokB']), transport: { send } });
+    await sender.sendToUser('u1', { title: 'Meeting in 15 minutes: Review', entityType: 'meeting', entityId: 'm1', channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1' });
+    const messages = send.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    for (const m of messages) expect(m).toMatchObject({ channelId: 'meetings', ttlSeconds: 900, tag: 'meeting-m1' });
+  });
+
+  it('leaves them out when not asked for', async () => {
+    const send = vi.fn(async (_messages: unknown) => {});
+    await createPushSender({ deviceTokens: repoWith(['tokA']), transport: { send } }).sendToUser('u1', { title: 'x' });
+    const [m] = send.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    expect(Object.keys(m!).sort()).toEqual(['body', 'data', 'title', 'to']);
+  });
+});

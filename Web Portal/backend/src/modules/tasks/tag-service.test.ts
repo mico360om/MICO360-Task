@@ -85,3 +85,14 @@ describe('normalizeTagNames', () => {
     expect(() => normalizeTagNames(Array.from({ length: 11 }, (_, i) => `t${i}`))).toThrow(ValidationError);
   });
 });
+
+describe('TagService — the task search index follows its tags', () => {
+  it('tells onChanged about the task after its tags are set or one is removed', async () => {
+    const changed: string[] = [];
+    const tagRepo = createMemoryTagRepository();
+    const tags = createTagService({ repo: tagRepo, taskLookup: { async exists() { return true; } }, onChanged: (taskId) => void changed.push(taskId) });
+    const [safety] = await tags.setTaskTags('t1', ['safety']);
+    await tags.removeTaskTag('t1', safety!.id);
+    expect(changed).toEqual(['t1', 't1']);
+  });
+});

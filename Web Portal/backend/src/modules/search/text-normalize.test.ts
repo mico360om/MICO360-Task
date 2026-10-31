@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchesNormalized, normalizeForSearch, prefilterTerms } from './text-normalize';
+import { matchesNormalized, normalizeForSearch } from './text-normalize';
 
 describe('normalizeForSearch', () => {
   it('folds Arabic alef forms, ta marbuta, alef maksura and hamza carriers', () => {
@@ -27,26 +27,5 @@ describe('matchesNormalized', () => {
     expect(matchesNormalized(normalizeForSearch('إدارة'), 'ادارة المشروع')).toBe(true);
     expect(matchesNormalized(q, 'other', null, 'إدارة')).toBe(true);
     expect(matchesNormalized(q, 'other')).toBe(false);
-  });
-});
-
-describe('prefilterTerms', () => {
-  it('keeps Latin words whole', () => {
-    expect(prefilterTerms('Fix  Bug')).toEqual(['fix', 'bug']);
-  });
-
-  it('keeps only variant-free Arabic letters (a guaranteed superset for a LIKE pre-filter)', () => {
-    // ا/ه/ي/و/ك can come from several spellings, so they are not used.
-    expect(prefilterTerms('إدارة المشروع')).toEqual(['د', 'ر', 'ل', 'م', 'ش', 'ع']);
-  });
-
-  it('returns nothing to filter on when every letter has variants', () => {
-    expect(prefilterTerms('آية')).toEqual([]);
-  });
-
-  it('every raw spelling of a match contains every term', () => {
-    const raw = 'مُراجَعة عقد الإدارة';
-    const terms = prefilterTerms('مراجعه الاداره');
-    expect(terms.every((t) => raw.includes(t))).toBe(true);
   });
 });

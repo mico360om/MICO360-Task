@@ -164,3 +164,23 @@ describe('CommentService', () => {
     expect(calls).toEqual([{ taskId: 't1', authorId: 'u1', commentId: c.id }]);
   });
 });
+
+describe('CommentService — the task search index follows its comments', () => {
+  it('tells onChanged about the task after a comment is added, edited or deleted', async () => {
+    const changed: string[] = [];
+    const svc = createCommentService({ ...inMemory(['t1']), onChanged: (taskId) => void changed.push(taskId) });
+    const c = await svc.addComment('t1', 'u1', 'scaffold');
+    await svc.editComment(c.id, 'u1', 'scaffold permit');
+    await svc.deleteComment(c.id, 'u1', false);
+    expect(changed).toEqual(['t1', 't1', 't1']);
+  });
+
+  it('a refused change tells nothing', async () => {
+    const changed: string[] = [];
+    const svc = createCommentService({ ...inMemory(['t1']), onChanged: (taskId) => void changed.push(taskId) });
+    const c = await svc.addComment('t1', 'u1', 'mine');
+    await expect(svc.editComment(c.id, 'u2', 'not yours')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(svc.deleteComment(c.id, 'u2', false)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(changed).toEqual(['t1']);
+  });
+});
