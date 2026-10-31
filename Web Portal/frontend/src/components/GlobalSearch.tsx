@@ -16,6 +16,8 @@ import { useAuthStore } from '../stores/auth-store';
 import { useShortcut, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { ariaKeyshortcuts, shortcutLabel } from '../lib/shortcuts';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { resultsQuery, type TaskSearchHit } from '../lib/search-highlight';
+import { Highlighted } from './ui/Highlighted';
 
 interface PaletteItem {
   id: string;
@@ -24,8 +26,8 @@ interface PaletteItem {
   hint?: string;
   /** Optional picture before the text (a project's). */
   icon?: React.ReactNode;
-  /** Optional muted second line (e.g. a meeting search snippet). */
-  secondary?: string;
+  /** Optional muted second line (a meeting's snippet, where a task matched). */
+  secondary?: React.ReactNode;
   run: () => void | Promise<void>;
 }
 
@@ -151,12 +153,11 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     });
 
   /** A found task's key — with the key it had, for a task that moved project ("OPS-17 (was RIG-4)"). */
-  const keyHint = (t: { key: string; title: string; formerKeys?: string[]; external?: string[] }) => {
-    const key = t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key;
-    // Found by one of its external contacts (not its title): say which, so the hit makes sense.
-    const words = debounced.trim().toLowerCase();
-    const contact = words && !t.title.toLowerCase().includes(words) ? t.external?.find((x) => x.toLowerCase().includes(words)) : undefined;
-    return contact ? `${key} · External: ${contact}` : key;
+  const keyHint = (t: { key: string; formerKeys?: string[] }) => (t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key);
+  /** Where else a found task matched (its first place): "Comment by Bilal · 28 Oct 2026: …the scaffold permit…". */
+  const whereMatched = (t: TaskSearchHit) => {
+    const m = t.matches?.[0];
+    return m ? <><span className="font-medium text-ink-2">{m.label}: </span><Highlighted text={m.snippet} ranges={m.ranges} /></> : undefined;
   };
 
   const reset = () => {
@@ -185,7 +186,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
 
     const r = q.data;
     if (searchEnabled && r) {
-      for (const t of r.tasks.slice(0, 6)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: t.title, hint: keyHint(t), run: () => openTask(t.id) });
+      for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, hint: keyHint(t), secondary: whereMatched(t), run: () => openTask(t.id) });
+      // Every match, with filters, on the Search results page.
+      if (r.tasks.length > 0) out.push({ id: 'task-see-all', group: 'Tasks', primary: 'See all results', run: () => { navigate(`/search?${resultsQuery({ q: debounced })}`); reset(); } });
       const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
       for (const p of r.projects.slice(0, 5)) {
         const look = looks.find((x) => x.id === p.id);
@@ -308,7 +311,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}
                         <span className="min-w-0 flex-1">
                           <span dir="auto" className="block truncate text-start">{it.primary}</span>
-                          {it.secondary ? <span dir="auto" className="block truncate text-start text-xs text-ink-3">{it.secondary}</span> : null}
+                          {it.secondary ? <span dir="auto" className="block text-start text-xs text-ink-3 line-clamp-2 [overflow-wrap:anywhere]">{it.secondary}</span> : null}
                         </span>
                       </button>
                     );

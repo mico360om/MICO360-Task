@@ -114,12 +114,12 @@ describe('search: the server’s results, in the website’s groups and numbers'
     meetings: many(8, (i) => ({ id: `m${i}`, title: `Meeting ${i}`, projectId: null, snippet: `…said ${i}…` })),
   });
 
-  it('tasks 6, projects 5, people 5 and meetings 6, after the commands and pages', () => {
-    expect(SEARCH_LIMITS).toEqual({ tasks: 6, projects: 5, people: 5, meetings: 6, pages: 6, pagesEmpty: 5 });
+  it('tasks 5, projects 5, people 5 and meetings 6, after the commands and pages', () => {
+    expect(SEARCH_LIMITS).toEqual({ tasks: 5, projects: 5, people: 5, meetings: 6, pages: 6, pagesEmpty: 5 });
     const items = searchItems({ raw: 'zz', results: r, ...ctx });
     expect(groups(items)).toEqual(['Tasks', 'Projects', 'People', 'Meetings', 'MICO AI']);
     const count = (g: string) => items.filter((i) => i.group === g).length;
-    expect([count('Tasks'), count('Projects'), count('People'), count('Meetings')]).toEqual([6, 5, 5, 6]);
+    expect([count('Tasks'), count('Projects'), count('People'), count('Meetings')]).toEqual([5, 5, 5, 6]);
   });
 
   it('a task opens the task, a project its dashboard, a meeting the meeting', () => {

@@ -25,6 +25,7 @@ describe('pageMetaFor', () => {
       '/chat': 'Chat',
       '/mico-ai': 'MICO AI',
       '/activity': 'Activity',
+      '/search': 'Search results',
       '/notifications': 'Notifications',
       '/settings': 'Settings',
       '/profile': 'Your profile',

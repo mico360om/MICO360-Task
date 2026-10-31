@@ -31,6 +31,7 @@ const AuditPage = lazyPage(() => import('./pages/AuditPage'), 'AuditPage');
 const SystemSettingsPage = lazyPage(() => import('./pages/SystemSettingsPage'), 'SystemSettingsPage');
 const AiSettingsPage = lazyPage(() => import('./pages/AiSettingsPage'), 'AiSettingsPage');
 const ActivityPage = lazyPage(() => import('./pages/ActivityPage'), 'ActivityPage');
+const SearchPage = lazyPage(() => import('./pages/SearchPage'), 'SearchPage');
 const CalendarPage = lazyPage(() => import('./pages/CalendarPage'), 'CalendarPage');
 const TimelinePage = lazyPage(() => import('./pages/TimelinePage'), 'TimelinePage');
 const WorkloadPage = lazyPage(() => import('./pages/WorkloadPage'), 'WorkloadPage');
@@ -116,6 +117,7 @@ export function App() {
             <Route path="/chat" element={<ChatRoute />} />
             <Route path="/mico-ai" element={<MicoAiPage />} />
             <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/search" element={<SearchPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />

@@ -27,7 +27,7 @@ export interface SearchResults {
 export const SEARCH_DEBOUNCE_MS = 250;
 
 /** How many of each the website's box shows. */
-export const SEARCH_LIMITS = { tasks: 6, projects: 5, people: 5, meetings: 6, pages: 6, pagesEmpty: 5 } as const;
+export const SEARCH_LIMITS = { tasks: 5, projects: 5, people: 5, meetings: 6, pages: 6, pagesEmpty: 5 } as const;
 
 /** The server is asked from 2 letters on. */
 export const searchEnabled = (debounced: string): boolean => debounced.trim().length >= 2;

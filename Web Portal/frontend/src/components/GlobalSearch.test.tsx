@@ -156,10 +156,46 @@ describe('GlobalSearch', () => {
   });
 
   it('a task found by one of its external contacts says which one', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't5', key: 'RIG-5', title: 'Inspect the rig', projectId: 'p2', external: ['Ahmed Al Said', 'Occidental Oman'] }], projects: [], users: [] } }))));
+    const contact = { field: 'contact', label: 'External contact', snippet: 'Ahmed Al Said · Occidental Oman', ranges: [{ start: 16, end: 26 }] };
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't5', key: 'RIG-5', title: 'Inspect the rig', projectId: 'p2', external: ['Ahmed Al Said', 'Occidental Oman'], matches: [contact] }], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);
     await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'occidental');
-    expect(await screen.findByText('RIG-5 · External: Occidental Oman')).toBeInTheDocument();
+    const line = await screen.findByText((_, el) => el?.textContent === 'External contact: Ahmed Al Said · Occidental Oman' && el.tagName === 'SPAN' && el.classList.contains('block'));
+    expect(line.querySelector('mark')?.textContent).toBe('Occidental');
+  });
+
+  describe('tasks found by the full task search', () => {
+    const hit = (n: number, extra: Record<string, unknown> = {}) => ({ id: `t${n}`, key: `RIG-${n}`, title: `Check the scaffold ${n}`, titleRanges: [{ start: 10, end: 15 }], projectId: 'p1', matches: [], ...extra });
+    const comment = { field: 'comment', label: 'Comment by Bilal · 28 Oct 2026', snippet: '…who has the scaffold permit?', ranges: [{ start: 13, end: 18 }] };
+    // A row by its text (marks inside a word split its accessible name in jsdom, not in a browser).
+    const taskRow = (text: string) => screen.findByText((_, el) => el?.tagName === 'BUTTON' && !!el.textContent?.includes(text));
+
+    it('marks the words in the title and says where else it matched', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [hit(1, { matches: [comment] })], projects: [], users: [] } }))));
+      setup(<GlobalSearch debounceMs={0} />);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'scaff');
+      const row = await taskRow('Check the scaffold 1');
+      expect([...row.querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['scaff', 'scaff']);
+      expect(row).toHaveTextContent('Comment by Bilal · 28 Oct 2026: …who has the scaffold permit?');
+    });
+
+    it('shows the best five, then “See all results”, which opens the Search results page', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [1, 2, 3, 4, 5, 6].map((n) => hit(n)), projects: [], users: [] } }))));
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'scaff permit');
+      await taskRow('Check the scaffold 5');
+      expect(screen.queryByText((_, el) => el?.tagName === 'BUTTON' && !!el.textContent?.includes('Check the scaffold 6'))).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'See all results' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/search?q=scaff+permit');
+    });
+
+    it('no “See all results” when no task was found', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [{ id: 'p1', code: 'SCF', name: 'Scaffolds' }], users: [] } }))));
+      setup(<GlobalSearch debounceMs={0} />);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'scaff');
+      await screen.findByRole('button', { name: /Scaffolds/ });
+      expect(screen.queryByRole('button', { name: 'See all results' })).toBeNull();
+    });
   });
 
   describe('a person in the results', () => {
@@ -192,13 +228,15 @@ describe('GlobalSearch', () => {
   });
 
   describe('keyboard and mouse together', () => {
-    const many = { tasks: Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, key: `MICO-${i}`, title: `Task ${i}`, projectId: 'p1' })), projects: [], users: [] };
+    // Five tasks (the search's best five) and “See all results”: six rows.
+    const many = { tasks: Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, key: `MICO-${i}`, title: `Task ${i}`, projectId: 'p1' })), projects: [], users: [] };
+    const ROWS = ['Task 0', 'Task 1', 'Task 2', 'Task 3', 'Task 4', 'See all results'];
     const type = async (text: string) => {
       vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: many }))));
       setup(<GlobalSearch debounceMs={0} />);
       const box = screen.getByRole('searchbox', { name: /search/i });
       await userEvent.type(box, text);
-      await screen.findByText('Task 5');
+      await screen.findByText('Task 4');
       return box;
     };
     const row = (title: string) => screen.getByText(title).closest('button')!;
@@ -211,13 +249,13 @@ describe('GlobalSearch', () => {
       list.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 300, width: 300, height: 100, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
       for (let i = 0; i < 6; i++) {
         const top = i * 40;
-        row(`Task ${i}`).getBoundingClientRect = () => ({ top: top - list.scrollTop, bottom: top + 40 - list.scrollTop, left: 0, right: 300, width: 300, height: 40, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+        row(ROWS[i]!).getBoundingClientRect = () => ({ top: top - list.scrollTop, bottom: top + 40 - list.scrollTop, left: 0, right: 300, width: 300, height: 40, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
       }
       const first = [...list.querySelectorAll('button')].indexOf(row('Task 0'));
-      for (let i = 0; i < first + 5; i++) fireEvent.keyDown(box, { key: 'ArrowDown' }); // onto "Task 5" (rows before it are "Go to" items)
-      expect(row('Task 5').className).toContain('bg-brand/10');
+      for (let i = 0; i < first + 5; i++) fireEvent.keyDown(box, { key: 'ArrowDown' }); // onto "See all results" (rows before it are "Go to" items)
+      expect(row('See all results').className).toContain('bg-brand/10');
       expect(list.scrollTop).toBeGreaterThan(0);
-      const at = row('Task 5').getBoundingClientRect();
+      const at = row('See all results').getBoundingClientRect();
       expect(at.bottom).toBeLessThanOrEqual(100);
     });
 

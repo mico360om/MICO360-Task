@@ -127,6 +127,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The task's PDF and Excel export list its external contacts with all their details, its history
   says who added, changed or removed one, and a repeating task's next copy keeps them. They are never
   emailed and never shown on the client page.
+- On the website, search finds a task by everything it holds: its title, number (an old one too),
+  description, comments and replies, checklist items, the people it is assigned to, its external
+  contacts, tags and file names. Part of a word is enough ("scaff" finds "scaffold"), capitals and
+  Arabic letter forms don't matter, a task must hold every word typed, and "a phrase in quotes" is
+  found as written. Only tasks you can open are found, open ones first.
+- The top-bar search (Ctrl+K) shows the best five tasks with the words highlighted and where they
+  were found ("Comment by Bilal · 28 Oct 2026: …the scaffold permit…"). "See all results" opens the
+  new Search results page: every matching task, page by page, with filters for project, status,
+  assignee and done or open, and "Include archived projects".
 
 ### Improvements
 - In the Android app, colours are the website's in light and dark mode, and grey and amber text is
