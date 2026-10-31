@@ -64,3 +64,10 @@ it('a meeting time typed wrong stays on the card and holds Confirm back (final r
   expect(e).toMatch(/function TimeField[^]*keyboardType="default"[^]*placeholder="HH:MM"/);
   expect(e).toMatch(/value=\{draftTime \?\? value \?\? ''\}/);
 });
+
+it('a second tap while an action runs changes nothing on the card, not even its busy words (final review A5)', () => {
+  const run = s.slice(s.indexOf('async function run('));
+  expect(run).toMatch(/^async function run\(.*\) \{\s+if \(running\.current\) return;\s+running\.current = true;/);
+  expect(run).toMatch(/finally \{\s+running\.current = false;/);
+  expect(s).toMatch(/const running = useRef\(false\)/);
+});

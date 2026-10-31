@@ -76,6 +76,8 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
   const [live, setLive] = useState('');
   /** What this card asked for, so its outcome is announced once. */
   const acted = useRef<null | 'confirm' | 'cancel' | 'undo'>(null);
+  /** An action of this card is on its way (set at the first tap, before any state changes). */
+  const running = useRef(false);
 
   const status = proposal.status;
   const proposed = status === 'proposed';
@@ -126,16 +128,25 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
       return n;
     });
 
+  /**
+   * One action at a time, from the first tap (as the website's busyRef): a second tap while one runs
+   * returns before touching anything — it can't clear the first one's "Making the changes…".
+   */
   async function run(kind: 'confirm' | 'cancel' | 'undo', call: () => Promise<string | null>) {
-    if (busy) return;
+    if (running.current) return;
+    running.current = true;
     setActing(kind);
     setError(null);
     acted.current = kind;
-    const problem = await call();
-    setActing(null);
-    if (problem) {
-      acted.current = null;
-      setError(problem);
+    try {
+      const problem = await call();
+      if (problem) {
+        acted.current = null;
+        setError(problem);
+      }
+    } finally {
+      running.current = false;
+      setActing(null);
     }
   }
 
