@@ -15,6 +15,7 @@ import {
   errorText,
   goneCopy,
   isGoneError,
+  keepSlidOut,
   linkTarget,
   micoAiChatKey,
   micoAiChatsKey,
@@ -170,4 +171,18 @@ it('a question whose answer was lost is read back: kept if it arrived, put back 
   expect(afterReadBack(false)).toEqual({ restoreDraft: true, clearError: false });
   // The read-back failed too: nobody knows, so the question goes back in the box (sending it is the person's choice).
   expect(afterReadBack(null)).toEqual({ restoreDraft: true, clearError: false });
+});
+
+it('messages the newest page lets go of move to the older page above, so none vanishes (final review A9)', () => {
+  const m = (id: string) => ({ ...QUESTION, id });
+  const earlier = { messages: [m('m1'), m('m2')], hasMore: true };
+  // The newest page was m3–m6; a question and its answer push m3 and m4 out of it.
+  const next = keepSlidOut(earlier, [m('m3'), m('m4'), m('m5'), m('m6')], [m('m5'), m('m6'), m('m7'), m('m8')]);
+  expect(next!.messages.map((x) => x.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+  expect(next!.hasMore).toBe(true);
+  expect(withEarlier([m('m5'), m('m6'), m('m7'), m('m8')], next!.messages).map((x) => x.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8']);
+  // Nothing let go, or no older page loaded: unchanged (the server keeps the rest behind "Load earlier").
+  expect(keepSlidOut(earlier, [m('m3')], [m('m3'), m('m4')])).toBe(earlier);
+  expect(keepSlidOut(undefined, [m('m3')], [m('m4')])).toBeUndefined();
+  expect(keepSlidOut(earlier, [m('m2'), m('m3')], [m('m3')])).toBe(earlier);
 });

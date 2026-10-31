@@ -44,3 +44,10 @@ it('a question whose answer was lost is read back at once and put back in the bo
   expect(s).toMatch(/arrived = askArrived\(before, view\.messages\)/);
   expect(s).toMatch(/if \(back\.clearError\) return \{ chatId: id \};/);
 });
+
+it('every read of a chat keeps what slid out of its newest page above it (final review A9)', () => {
+  expect(s).toMatch(/function keepSlidOutMessages[^]*keepSlidOut\(p, prev, view\.messages\)/);
+  expect(s).toMatch(/function useMicoAiChat[^]*const view = await resources\.micoAi\.chat\(chatId!, \{ asUser: userId, signal \}\);\s+keepSlidOutMessages\(qc, userId, chatId!, view\);/);
+  // The read-back after a lost answer too.
+  expect(s).toMatch(/const view = await resources\.micoAi\.chat\(id, \{ asUser: userId \}\);[^]*keepSlidOutMessages\(qc, userId, id, view\);/);
+});

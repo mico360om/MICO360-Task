@@ -64,6 +64,17 @@ export function withMessage(view: ChatView | undefined, m: MicoAiMessage): ChatV
   return { ...view, messages: view.messages.map((x, i) => (i === at ? m : x)) };
 }
 
+/**
+ * The older page once the chat's newest page let go of some messages (a question and its answer push
+ * the oldest out of it): they go to the end of the older page, so nothing vanishes between the two.
+ * Without an older page nothing is kept — the server has them behind "Load earlier messages".
+ */
+export function keepSlidOut(earlier: EarlierPage | undefined, previous: readonly MicoAiMessage[], latest: readonly MicoAiMessage[]): EarlierPage | undefined {
+  if (!earlier) return earlier;
+  const slid = previous.filter((m) => !latest.some((x) => x.id === m.id) && !earlier.messages.some((x) => x.id === m.id));
+  return slid.length ? { ...earlier, messages: [...earlier.messages, ...slid] } : earlier;
+}
+
 /** The same for the older messages kept above the latest ones. */
 export function earlierWithMessage(page: EarlierPage | undefined, m: MicoAiMessage): EarlierPage | undefined {
   if (!page) return page;

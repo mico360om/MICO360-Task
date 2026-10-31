@@ -18,6 +18,7 @@ import {
   errorText,
   goneCopy,
   isGoneError,
+  keepSlidOut,
   micoAiChatKey,
   micoAiChatsKey,
   micoAiChatsRoot,
@@ -47,6 +48,12 @@ function mustBeSignedIn(userId: string | null): asserts userId is string {
 function putMessage(qc: QueryClient, userId: string, chatId: string, m: MicoAiMessage): void {
   qc.setQueryData<ChatView>(micoAiChatKey(userId, chatId), (v) => withMessage(v, m));
   qc.setQueryData<EarlierPage>(micoAiEarlierKey(userId, chatId), (p) => earlierWithMessage(p, m));
+}
+
+/** A chat read again: what slid out of its newest page goes to the older page above it (none vanishes). */
+function keepSlidOutMessages(qc: QueryClient, userId: string, chatId: string, view: ChatView): void {
+  const prev = qc.getQueryData<ChatView>(micoAiChatKey(userId, chatId))?.messages;
+  if (prev) qc.setQueryData<EarlierPage>(micoAiEarlierKey(userId, chatId), (p) => keepSlidOut(p, prev, view.messages));
 }
 
 /** Is MICO AI set up (an AI service in AI Management)? */
@@ -83,11 +90,14 @@ export function useMicoAiChats(q: string) {
 export function useMicoAiChat(chatId: string | null) {
   const { resources } = useServices();
   const userId = useUserId();
+  const qc = useQueryClient();
   return useQuery({
     queryKey: micoAiChatKey(userId, chatId ?? ''),
     queryFn: async ({ signal }) => {
       mustBeSignedIn(userId);
-      return resources.micoAi.chat(chatId!, { asUser: userId, signal });
+      const view = await resources.micoAi.chat(chatId!, { asUser: userId, signal });
+      keepSlidOutMessages(qc, userId, chatId!, view);
+      return view;
     },
     enabled: !!userId && !!chatId,
     staleTime: 10_000,
@@ -260,6 +270,7 @@ export function useMicoAiActions(chatId: string | null) {
           try {
             const view = await resources.micoAi.chat(id, { asUser: userId });
             await qc.cancelQueries({ queryKey: micoAiChatKey(userId, id) });
+            keepSlidOutMessages(qc, userId, id, view);
             qc.setQueryData<ChatView>(micoAiChatKey(userId, id), view);
             arrived = askArrived(before, view.messages);
           } catch {
