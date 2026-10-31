@@ -89,6 +89,8 @@ export function fakeInspectionServer(o: { detail?: InspectionDetail } = {}) {
     offline: false,
     /** The next call of this kind is done, then its reply is lost (a time-out). */
     loseNextReply: null as CallKind | null,
+    /** While set, every call waits for it before the server does anything (a request on its way). */
+    hold: null as Promise<void> | null,
     answersOf: (id: string): Record<string, AnswerView> => Object.fromEntries(of(id).answers),
     followUpTasks: (id: string): string[] => [...of(id).tasks.keys()],
     signaturesOf: (id: string): SignatureInput[] => of(id).signatures,
@@ -97,6 +99,7 @@ export function fakeInspectionServer(o: { detail?: InspectionDetail } = {}) {
 
   const call = async <T>(kind: CallKind, id: string, body: unknown, work: () => T): Promise<T> => {
     if (server.offline) throw new NetworkError('Network request failed.');
+    if (server.hold) await server.hold;
     server.calls.push({ kind, id, body });
     const out = work();
     if (server.loseNextReply === kind) {

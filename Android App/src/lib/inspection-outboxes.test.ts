@@ -128,3 +128,53 @@ it('records are kept per server: one made for another server is never shown, cou
   expect(a.recordKey('u1', 'i1')).not.toBe(b.recordKey('u1', 'i1'));
   expect(a.recordKey('u1', 'i1')).toMatch(/^mico360\.inspection\.u1~[0-9a-z]+\.i1$/);
 });
+
+/** An inspection with both items answered and sent, and signed: its finish is the next send. */
+async function signedAndReady(store = createMemoryStore()) {
+  const server = fakeInspectionServer({ detail: DETAIL });
+  const all = createInspectionOutboxes({ store, api: fakeApiClient(server, () => 'u1'), server: SERVER });
+  await all.ready;
+  const o = all.outboxFor('u1');
+  o.remember('u1', DETAIL);
+  o.saveAnswer('u1', 'i1', { itemId: 'a', result: 'PASS', reading: null, note: null });
+  o.saveAnswer('u1', 'i1', { itemId: 'p', result: null, reading: '12', note: null });
+  expect((await o.flush('u1', 'i1')).state).toBe('sent');
+  o.queueFinish('u1', 'i1', [SIG_DRAWN]);
+  let release!: () => void;
+  server.hold = new Promise<void>((r) => (release = r));
+  return { server, all, o, store, release };
+}
+
+it('a finish on its way when the person throws the record away doesn’t bring it back (Final I5)', async () => {
+  const { all, o, store, release } = await signedAndReady();
+  const going = o.flush('u1', 'i1');
+  await new Promise((r) => setTimeout(r, 5)); // the finish has reached the server, its answer is on its way
+  o.discard('u1', 'i1');
+  release();
+  expect((await going).state).toBe('sent');
+  await Promise.resolve();
+  await all.storage.settled();
+  expect(o.view('u1', 'i1')).toBeNull();
+  expect(await store.keys()).toEqual([]);
+});
+
+it('signing out waits for a send on its way, sends nothing more, and leaves nothing behind (Final I5)', async () => {
+  const { server, all, o, store, release } = await signedAndReady();
+  const going = o.flush('u1', 'i1');
+  let cleared = false;
+  const clearing = all.clearOwner('u1').then(() => (cleared = true));
+  await new Promise((r) => setTimeout(r, 5));
+  expect(cleared).toBe(false); // it waits for the finish on its way
+  expect((await o.flush('u1', 'i2')).state).toBe('signed-out'); // and nothing new is sent meanwhile
+  release();
+  await going;
+  await clearing;
+  expect(o.view('u1', 'i1')).toBeNull();
+  expect(await store.keys()).toEqual([]);
+  expect(server.calls.filter((c) => c.kind === 'finish')).toHaveLength(1);
+  // The same person signing in again can send again.
+  o.remember('u1', { ...DETAIL, id: 'i3' });
+  o.saveAnswer('u1', 'i3', { itemId: 'a', result: 'PASS', reading: null, note: null });
+  server.hold = null;
+  expect((await o.flush('u1', 'i3')).state).toBe('sent');
+});

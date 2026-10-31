@@ -57,13 +57,45 @@ function serverScope(server: string): string {
   return (h >>> 0).toString(36);
 }
 
+/** How long signing out waits for a send on its way before it removes the records anyway. */
+export const CLEAR_WAIT_MS = 25_000;
+
+/** One person's outbox on this server, and what signing out needs of it. */
+interface ScopedOutbox {
+  outbox: InspectionOutbox;
+  /** No more sends (signing out): every send answers 'signed-out' until `resume`. */
+  stop(): void;
+  resume(): void;
+  /** The sends on their way now. */
+  inFlight(): Promise<unknown>[];
+}
+
 /**
  * The website's outbox as one person's on this server: each method takes the person's id and works
  * on the records kept under `owner(person)`, so a record made for another server (or one in the old
  * shape, before records named their server) is never shown, counted or sent here — it is kept.
+ *
+ * It also knows the sends on their way (Final I5): the website's finish writes its record back when
+ * its answer comes (`read() ?? d`), so a record thrown away meanwhile is thrown away again once
+ * that send ends, and signing out stops new sends and waits for those on their way.
  */
-function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string): InspectionOutbox {
-  return {
+function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string): ScopedOutbox {
+  const flights = new Map<string, Promise<{ state: FlushState }>>();
+  let stopped = false;
+
+  const flush: InspectionOutbox['flush'] = (o, id, opts) => {
+    if (stopped) return Promise.resolve({ state: 'signed-out' });
+    const p = inner.flush(owner(o), id, opts);
+    if (flights.get(id) !== p) {
+      flights.set(id, p);
+      p.finally(() => {
+        if (flights.get(id) === p) flights.delete(id);
+      }).catch(() => undefined);
+    }
+    return p;
+  };
+
+  const outbox: InspectionOutbox = {
     subscribe: (listener) => inner.subscribe(listener),
     changedElsewhere: () => inner.changedElsewhere(),
     draft: (o, id) => inner.draft(owner(o), id),
@@ -75,12 +107,37 @@ function scopedOutbox(inner: InspectionOutbox, owner: (person: string) => string
     queueFollowUps: (o, id, itemIds, assigneeId, detail) => inner.queueFollowUps(owner(o), id, itemIds, assigneeId, detail),
     clearProblem: (o, id) => inner.clearProblem(owner(o), id),
     forgetUnsaved: (o) => inner.forgetUnsaved(owner(o)),
-    discard: (o, id) => inner.discard(owner(o), id),
+    discard: (o, id) => {
+      inner.discard(owner(o), id);
+      const going = flights.get(id);
+      if (going) void going.then(() => inner.discard(owner(o), id), () => inner.discard(owner(o), id));
+    },
     ackFinished: (o, id) => inner.ackFinished(owner(o), id),
     ackFollowUpReport: (o, id) => inner.ackFollowUpReport(owner(o), id),
-    flush: (o, id, opts) => inner.flush(owner(o), id, opts),
+    flush,
     waiting: (o) => inner.waiting(owner(o)),
-    flushAll: (o, opts) => inner.flushAll(owner(o), opts),
+    // The website's flushAll, through this flush (so its sends are known, and stop when signing out).
+    async flushAll(o, opts = {}) {
+      let sent = 0;
+      for (const w of inner.waiting(owner(o))) {
+        if (w.problem?.stage === 'answers') continue;
+        const r = await flush(o, w.inspectionId, opts);
+        if (r.state === 'sent') sent += 1;
+        if (r.state === 'offline' || r.state === 'unreachable' || r.state === 'signed-out') break;
+      }
+      return { sent, waiting: inner.waiting(owner(o)).length };
+    },
+  };
+
+  return {
+    outbox,
+    stop: () => {
+      stopped = true;
+    },
+    resume: () => {
+      stopped = false;
+    },
+    inFlight: () => [...flights.values()],
   };
 }
 
@@ -94,11 +151,11 @@ export function createInspectionOutboxes(deps: {
 }): InspectionOutboxes {
   const storage = createMirroredDraftStorage(deps.store);
   const ready = storage.hydrate();
-  const outboxes = new Map<string, InspectionOutbox>();
+  const outboxes = new Map<string, ScopedOutbox>();
   const scope = serverScope(deps.server);
   const ownerKey = (ownerId: string) => `${ownerId}~${scope}`;
 
-  function outboxFor(ownerId: string): InspectionOutbox {
+  function scoped(ownerId: string): ScopedOutbox {
     let o = outboxes.get(ownerId);
     if (!o) {
       const inner = createInspectionOutbox({ storage, api: inspectionsApi(deps.api.forUser(ownerId)), ...(deps.now ? { now: deps.now } : {}), ...(deps.newId ? { newId: deps.newId } : {}) });
@@ -107,6 +164,7 @@ export function createInspectionOutboxes(deps: {
     }
     return o;
   }
+  const outboxFor = (ownerId: string): InspectionOutbox => scoped(ownerId).outbox;
 
   return {
     storage,
@@ -123,9 +181,25 @@ export function createInspectionOutboxes(deps: {
     },
     async clearOwner(ownerId) {
       await ready;
-      removeOwnerRecords(storage, ownerKey(ownerId));
-      outboxFor(ownerId).forgetUnsaved(ownerId);
-      await storage.settled();
+      const person = scoped(ownerId);
+      // Nothing more is sent, and a send on its way ends first: its answer would write the record back.
+      person.stop();
+      try {
+        const going = person.inFlight();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([Promise.allSettled(going), new Promise<void>((r) => (timer = setTimeout(r, CLEAR_WAIT_MS)))]);
+        if (timer) clearTimeout(timer);
+        const clear = () => {
+          removeOwnerRecords(storage, ownerKey(ownerId));
+          person.outbox.forgetUnsaved(ownerId);
+        };
+        clear();
+        // One still on its way after the wait is cleared after it too.
+        for (const p of going) void p.then(clear, clear);
+        await storage.settled();
+      } finally {
+        person.resume();
+      }
     },
   };
 }
