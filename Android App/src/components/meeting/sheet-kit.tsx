@@ -240,8 +240,11 @@ export function InlinePicker({
   emptyText = 'Nothing to choose from.',
   disabled,
   limit = PICKER_LIMIT,
+  a11yName,
 }: {
   label: string;
+  /** What TalkBack calls the choice when it differs from the label shown ("Person for Inspector"). */
+  a11yName?: string;
   options: PickOption[];
   value: string;
   onChange: (v: string) => void;
@@ -265,7 +268,7 @@ export function InlinePicker({
         onPress={() => setOpen((v) => !v)}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel={`${label}: ${chosen?.label ?? placeholder}`}
+        accessibilityLabel={`${a11yName ?? label}: ${chosen?.label ?? placeholder}`}
         accessibilityHint={open ? 'Closes the list' : 'Opens the list to choose from'}
         accessibilityState={{ expanded: open, disabled: !!disabled }}
         style={({ pressed }) => [s.pickerRow, pressed && s.pressed, disabled && s.disabled]}

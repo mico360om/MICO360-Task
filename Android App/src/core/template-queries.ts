@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useServices } from './providers';
-import { TASK_TEMPLATES_KEY } from '../lib/templates-api';
+import { PROJECT_TEMPLATES_KEY, TASK_TEMPLATES_KEY } from '../lib/templates-api';
+import { isWholeDate } from '../lib/reports';
+import type { TemplateChoice } from '../lib/template-choice';
 
 /** The task templates' cache key (the website's TASK_TEMPLATES_KEY; lib/templates-api holds both keys). */
 export { TASK_TEMPLATES_KEY };
@@ -17,5 +19,26 @@ export function useTaskTemplates(enabled: boolean) {
     queryFn: ({ queryKey }) => reads.read(queryKey, 'templates.tasks', () => resources.templates.listTasks()),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+/** The project templates a new project can start from (GET /templates/projects) — online, as the New project form needs a connection anyway. */
+export function useProjectTemplates() {
+  const { resources } = useServices();
+  return useQuery({ queryKey: PROJECT_TEMPLATES_KEY, queryFn: () => resources.templates.listProjects() });
+}
+
+/**
+ * The chosen template's tasks for its start day (the form's preview, and what Create checks the
+ * template against). Under PROJECT_TEMPLATES_KEY, so refreshing the list refreshes it; the last
+ * preview stays shown while the next day's loads.
+ */
+export function useTemplatePlan(choice: TemplateChoice | null) {
+  const { resources } = useServices();
+  return useQuery({
+    queryKey: ['templates', 'projects', choice?.id, 'plan', choice?.startDate],
+    queryFn: () => resources.templates.plan(choice!.id, choice!.startDate),
+    enabled: !!choice && isWholeDate(choice.startDate),
+    placeholderData: keepPreviousData,
   });
 }

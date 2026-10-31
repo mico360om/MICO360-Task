@@ -1,11 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Alert, AccessibilityInfo, type TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { pickedFiles } from '../adapters/picked-files';
 import { useDirectory, useProject, useProjects } from '../core/queries';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCodeCheck, useSaveProject } from '../core/project-queries';
-import { useSession } from '../core/providers';
+import { useServices, useSession } from '../core/providers';
+import { useTemplatePlan } from '../core/template-queries';
+import { useDatePreferences } from '../core/calendar-queries';
 import { useColors } from '../core/theme';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { Button, ErrorNote, SkeletonList, TextField, Toggle } from '../components/ui';
@@ -14,6 +17,7 @@ import { ChipChoice, InlinePicker } from '../components/meeting/sheet-kit';
 import { ProjectAvatar } from '../components/ProjectAvatar';
 import { IdentityPicker } from '../components/project/IdentityPicker';
 import { AssigneeField } from '../components/task-form/AssigneeField';
+import { TemplateStartField } from '../components/templates/TemplateStartField';
 import { newIdempotencyKey } from '../lib/idempotency';
 import { canManageProject, PROJECT_CHANGE_REFUSED } from '../lib/project-team';
 import { ownerOptions } from '../lib/project-identity';
@@ -46,7 +50,14 @@ import {
   typedCode,
   type PictureChoice,
   type ProjectDraft,
+  type ProjectSaveApi,
 } from '../lib/project-form';
+import { planFor, type TemplateChoice } from '../lib/template-choice';
+import { keepRoles, templateCreateProblem, TEMPLATE_START_WORDS } from '../lib/template-words';
+import { PROJECT_TEMPLATES_KEY } from '../lib/templates-api';
+import { isWholeDate } from '../lib/reports';
+import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
+import { weekStartOf } from '../lib/calendar';
 import type { ApiProject } from '../lib/types';
 import { spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
@@ -91,6 +102,12 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   const dirQ = useDirectory();
   const user = useSession()?.user ?? null;
   const isAdmin = !!user?.roles.includes('ADMIN');
+  const { resources } = useServices();
+  const qc = useQueryClient();
+  // The company's today and week (a template's start date is a company calendar day).
+  const timeZone = useSyncExternalStore(subscribeTimeZone, dateZones, dateZones).company;
+  const today = companyTodayKey(new Date(), timeZone);
+  const weekStart = weekStartOf(useDatePreferences().data);
 
   // After "create" succeeds but its picture doesn't, the form carries on editing the new project.
   const [saved, setSaved] = useState<ApiProject | null>(project);
@@ -129,7 +146,11 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
   const check = !editing && codeQ.data && codeQ.data.code === draft.code ? codeQ.data : null;
   const codeErr = errors.code ?? codeError(draft.code, { editing, check, serverError: serverCodeError });
   const note = codeNote({ editing, code: draft.code, error: codeErr, check });
-  const dirty = isDirty(initial, draft, picture);
+  // New projects only: the template it starts from, its start day and who fills each role (Stage 4).
+  const [choice, setChoice] = useState<TemplateChoice | null>(null);
+  const planQ = useTemplatePlan(editing ? null : choice);
+  const plan = planFor(planQ.data, choice);
+  const dirty = isDirty(initial, draft, picture) || (!editing && choice !== null);
   const set = (patch: Partial<ProjectDraft>) => {
     if (!frozen) setDraft((d) => ({ ...d, ...patch }));
   };
@@ -235,11 +256,47 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
     setErrors(problems);
     if (problems.name) return nameRef.current?.focus();
     if (problems.code) return codeRef.current?.focus();
+    if (!saved && choice && !isWholeDate(choice.startDate)) {
+      setBanner(TEMPLATE_START_WORDS.noWholeDate);
+      return;
+    }
+    // The template as its preview shows it: Create waits for the preview (a change since is refused, not made unseen).
+    if (!saved && choice && !plan) {
+      setBanner(planQ.isError ? TEMPLATE_START_WORDS.planFailed : `${TEMPLATE_START_WORDS.planLoading}…`);
+      return;
+    }
     busy.current = true;
     setSaving(true);
     setBanner(null);
     try {
-      const out = await save({ saved, initial, draft, picture, idempotencyKey: key.current, keptBody: keptBody.current, afterLostAnswer: lostAnswer.current });
+      // From a template: the project, its board, its tasks and its team in one request.
+      let refused: unknown = null;
+      const keep = (e: unknown): never => {
+        refused = e;
+        throw e;
+      };
+      const fromTemplate: Pick<ProjectSaveApi, 'create'> | undefined =
+        !saved && choice && plan
+          ? {
+              create: (input, key) => resources.templates.createProject(choice.id, { ...input, startDate: choice.startDate, roles: choice.roles, expectedUpdatedAt: plan.template.updatedAt }, key).catch(keep),
+            }
+          : undefined;
+      const out = await save({ saved, initial, draft, picture, idempotencyKey: key.current, keptBody: keptBody.current, afterLostAnswer: lostAnswer.current }, fromTemplate);
+      const templateProblem = out.kind === 'failed' || out.kind === 'code-taken' ? templateCreateProblem(refused) : null;
+      if (templateProblem) {
+        // The template was deleted or changed meanwhile: show it as it is now; people picked for
+        // roles it still has stay picked. Nothing was created, so the next try is a new one.
+        key.current = newIdempotencyKey();
+        keptBody.current = null;
+        setLocked(false);
+        void qc.invalidateQueries({ queryKey: PROJECT_TEMPLATES_KEY });
+        void planQ.refetch().then((r) => {
+          const still = templateProblem.kind === 'gone' ? [] : planFor(r.data, choice)?.template.roles ?? [];
+          setChoice((t) => (t ? { ...t, roles: keepRoles(t.roles, still) } : t));
+        });
+        setBanner(templateProblem.message);
+        return;
+      }
       if (out.kind === 'done') {
         left.current = true;
         AccessibilityInfo.announceForAccessibility(editing ? 'Changes saved.' : 'Project created.');
@@ -298,6 +355,21 @@ function ProjectForm({ project, navigation }: { project: ApiProject | null; navi
             </View>
             <Button title={PROJECT_START_OVER.label} variant="ghost" onPress={startOver} disabled={saving} accessibilityLabel="Start over: unlock the form. The project may already be created — check the Projects list first." />
           </View>
+        ) : null}
+
+        {!editing ? (
+          <TemplateStartField
+            choice={choice}
+            onChange={setChoice}
+            people={dirQ.data ?? []}
+            ownerId={draft.ownerId}
+            today={today}
+            weekStart={weekStart}
+            plan={planQ.data}
+            planError={planQ.isError}
+            onRetry={() => void planQ.refetch()}
+            disabled={frozen}
+          />
         ) : null}
 
         <View style={s.identity}>

@@ -167,6 +167,10 @@ const MISC_DATA = {
   week: { source: 'pages/DashboardPage.tsx', strokeWidth: 1.9, shapes: [r(3, 4.5, 18, 16, 2), p('M16 2.5v4M8 2.5v4M3 10h18M8 14.5h3')] },
   flag: { source: 'components/FirstSteps.tsx', strokeWidth: 1.8, shapes: [p('M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z'), p('M4 22v-7')] },
   inspection: { source: 'components/inspections/inspection-ui.tsx', strokeWidth: 2.2, shapes: [r(5, 4, 14, 17, 2), p('M9 4V3h6v1M9 12l2 2 4-4')] },
+  // Templates (Stage 4): the website's TemplateGlyph — a project template, a task template, and "Save as template".
+  templateProject: { source: 'components/templates/TemplateCard.tsx', strokeWidth: 1.8, shapes: [r(6, 3, 15, 14, 2), p('M3 7v11a3 3 0 0 0 3 3h11'), p('M11 3v14M16 3v14')] },
+  templateTask: { source: 'components/templates/TemplateCard.tsx', strokeWidth: 1.8, shapes: [r(6, 3, 15, 14, 2), p('M3 7v11a3 3 0 0 0 3 3h11'), p('m9.5 10 2 2 4-4.5')] },
+  templateSave: { source: 'components/templates/TemplateCard.tsx', strokeWidth: 1.8, shapes: [r(6, 3, 15, 14, 2), p('M3 7v11a3 3 0 0 0 3 3h11'), p('M13.5 7v6M10.5 10h6')] },
 } satisfies Record<string, IconDef & { source: string }>;
 export type MiscKey = keyof typeof MISC_DATA;
 export const MISC_ICONS: Record<MiscKey, IconDef & { source: string }> = MISC_DATA;

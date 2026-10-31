@@ -199,10 +199,36 @@ export function svgDrawingsIn(rel: string): Array<ReturnType<typeof svgShapes>> 
     }
     return `{${init.getText(sf)}}`;
   };
+  // A spread of a module-level object of literals (TemplateCard's `<svg {...ICON}>`): its literal values, in place.
+  const literal = (e: ts.Expression): unknown => {
+    if (ts.isAsExpression(e) || ts.isParenthesizedExpression(e)) return literal(e.expression);
+    if (ts.isNumericLiteral(e)) return Number(e.text);
+    if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+    if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+    if (e.kind === ts.SyntaxKind.FalseKeyword) return false;
+    return `{${e.getText(sf)}}`;
+  };
+  const spread = (name: string): Record<string, unknown> => {
+    for (const st of sf.statements) {
+      if (!ts.isVariableStatement(st)) continue;
+      for (const d of st.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name) || d.name.text !== name || !d.initializer) continue;
+        const init = ts.isAsExpression(d.initializer) ? d.initializer.expression : d.initializer;
+        if (!ts.isObjectLiteralExpression(init)) return {};
+        const out: Record<string, unknown> = {};
+        for (const pr of init.properties) if (ts.isPropertyAssignment(pr) && (ts.isIdentifier(pr.name) || ts.isStringLiteral(pr.name))) out[pr.name.text] = literal(pr.initializer);
+        return out;
+      }
+    }
+    return {};
+  };
   const node = (el: ts.JsxElement | ts.JsxSelfClosingElement): JsxNode => {
     const open = ts.isJsxElement(el) ? el.openingElement : el;
     const props: Record<string, unknown> = {};
-    for (const a of open.attributes.properties) if (ts.isJsxAttribute(a)) props[a.name.getText(sf)] = value(a.initializer);
+    for (const a of open.attributes.properties) {
+      if (ts.isJsxAttribute(a)) props[a.name.getText(sf)] = value(a.initializer);
+      else if (ts.isJsxSpreadAttribute(a) && ts.isIdentifier(a.expression)) Object.assign(props, spread(a.expression.text));
+    }
     const children = ts.isJsxElement(el) ? el.children.filter((c): c is ts.JsxElement | ts.JsxSelfClosingElement => ts.isJsxElement(c) || ts.isJsxSelfClosingElement(c)).map(node) : [];
     return { type: open.tagName.getText(sf), props, children };
   };

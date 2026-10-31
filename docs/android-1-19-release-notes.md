@@ -71,4 +71,5 @@
 - In the Android app, a finished inspection's report downloads as a PDF and can be shown to the client (after seeing exactly what the client will see); an inspection can be reopened, taken over or deleted, as on the website.
 - In the Android app, a project's inspection schedules are listed with their repeat, next due and last done; people who can schedule may Schedule an inspection, edit a schedule or stop it.
 <!-- inspections lines above this line -->
+- In the Android app, a new project can start from a project template: pick its start day and who fills each role, and see the tasks it will create.
 <!-- templates-client lines above this line -->

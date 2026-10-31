@@ -6,7 +6,7 @@ import { useDebouncedValue } from './useDebounced';
 import { PROJECTS_OVERVIEW_COPY } from '../lib/offline-copy';
 import { PROJECTS_OVERVIEW_KEY } from '../lib/refresh';
 import { codeProblem } from '../lib/project-identity';
-import { saveProject, type SaveOutcome } from '../lib/project-form';
+import { saveProject, type ProjectSaveApi, type SaveOutcome } from '../lib/project-form';
 import { changeProjectStatus, type StatusChangeOutcome } from '../lib/project-status';
 import type { ApiMember, ApiProject, ProjectOverview } from '../lib/types';
 
@@ -67,10 +67,11 @@ export function useSaveProject() {
   const { resources } = useServices();
   const refreshed = useProjectRefresh();
   return useCallback(
-    async (o: Parameters<typeof saveProject>[1]): Promise<SaveOutcome> => {
+    async (o: Parameters<typeof saveProject>[1], over?: Pick<ProjectSaveApi, 'create'>): Promise<SaveOutcome> => {
       const out = await saveProject(
         {
-          create: (input, key) => resources.projects.create(input, key),
+          // A new project from a template is created through the template's endpoint (Stage 4).
+          create: over?.create ?? ((input, key) => resources.projects.create(input, key)),
           update: (id, patch) => resources.projects.update(id, patch),
           uploadImage: (id, part) => resources.projects.uploadImage(id, part),
           removeImage: (id) => resources.projects.removeImage(id),
