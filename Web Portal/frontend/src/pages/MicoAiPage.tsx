@@ -34,6 +34,11 @@ const WORKING = 'MICO AI is working on your question…';
 /** What a confirmed (or undone) card can change: these lists are read again, so open views show it. */
 const CHANGED_BY_CARDS = new Set(['tasks', 'task', 'board', 'project-tasks', 'my-tasks', 'calendar', 'task-activity', 'assignees', 'workload', 'project', 'meetings', 'meeting', 'my-action-items']);
 
+/** The chat isn't there any more (deleted in another tab or on another device). */
+const isGoneError = (err: unknown): boolean => err instanceof ApiError && err.status === 404;
+/** An answer a chat that is gone was writing: stopped, so no dots are left turning for it. */
+const stoppedIfPending = (m: MicoAiMessage): MicoAiMessage => (m.status === 'pending' ? { ...m, status: 'stopped', step: null } : m);
+
 /** Our sentence for a request that failed: the server's own words for a refusal, else a plain cause. */
 function errorText(err: unknown): string {
   if (err instanceof ApiError && err.status < 500 && err.message && !/^Request failed/.test(err.message)) return err.message;
@@ -187,9 +192,13 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
   const chats = Array.isArray(listQ.data) ? listQ.data : [];
   const latest = chatQ.data?.messages ?? [];
   const older = earlier && earlier.chatId === chatId ? earlier : null;
-  const messages = older ? [...older.messages.filter((o) => !latest.some((x) => x.id === o.id)), ...latest] : latest;
+  // Deleted elsewhere: the answer's poll or the chat's own read says so (a 404).
+  const isGone = !!chatId && (gone === chatId || isGoneError(chatQ.error));
+  const loaded = older ? [...older.messages.filter((o) => !latest.some((x) => x.id === o.id)), ...latest] : latest;
+  // A chat that is gone follows no answer: the one it was writing shows as stopped, the box is free
+  // again, and the next question starts a new chat.
+  const messages = isGone ? loaded.map(stoppedIfPending) : loaded;
   const hasMore = older ? older.hasMore : !!chatQ.data?.hasMore;
-  const isGone = !!chatId && gone === chatId;
   // The list is reloaded after every question, so its entry has the name the first question gave the chat.
   const chat = chats.find((c) => c.id === chatId) ?? chatQ.data?.chat ?? null;
   const pending = messages.find((m) => m.role === 'assistant' && m.status === 'pending') ?? null;
@@ -256,16 +265,15 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     enabled: !!chatId && !!pending && !isGone,
     refetchInterval: pollMs,
     gcTime: 0,
-    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+    retry: (count, err) => !isGoneError(err) && count < 2,
   });
   // The chat was deleted somewhere else (another tab): stop following its answer and say so.
   useEffect(() => {
-    const err = pollQ.error;
-    if (chatId && err instanceof ApiError && err.status === 404) {
+    if (chatId && (isGoneError(pollQ.error) || isGoneError(chatQ.error))) {
       setGone(chatId);
       refreshList();
     }
-  }, [pollQ.error, chatId, refreshList]);
+  }, [pollQ.error, chatQ.error, chatId, refreshList]);
   useEffect(() => {
     const m = pollQ.data;
     if (!m || !chatId || m.id !== pending?.id) return;
@@ -395,7 +403,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
       setSending(true);
       setError(null);
       // A chat deleted elsewhere can't take a question: a new one starts.
-      let id = opts.newChat || (chatId && gone === chatId) ? null : chatId;
+      let id = opts.newChat || isGone ? null : chatId;
       let created = false;
       try {
         if (!id) {
@@ -429,7 +437,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
         composer.current?.focus();
       }
     },
-    [chatId, sending, qc, goTo, refreshList, chats, gone],
+    [chatId, sending, qc, goTo, refreshList, chats, isGone],
   );
 
   // "Ask MICO AI" from Ctrl+K arrives as the page's state: a new chat with that question, asked once.
@@ -606,7 +614,7 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
                   {loadingEarlier ? 'Loading…' : 'Load earlier messages'}
                 </button>
               ) : null}
-              {chatId && chatQ.isError ? (
+              {chatId && chatQ.isError && !isGone ? (
                 <p className="rounded-2xl border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">{errorText(chatQ.error)}</p>
               ) : null}
               {welcome ? (

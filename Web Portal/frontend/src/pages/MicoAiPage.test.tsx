@@ -402,6 +402,26 @@ describe('MICO AI page: review fixes', () => {
     expect(polls()).toBe(seen);
   });
 
+  it('a chat deleted elsewhere leaves no answer turning: the box is free again and the next question starts a new chat (final pass, item 5)', async () => {
+    chats = [{ id: 'c9', title: 'Gone soon', lastMessageAt: now, messages: [
+      { id: 'q1', role: 'user', status: 'done', text: 'question', createdAt: now, step: null },
+      { id: 'a1', role: 'assistant', status: 'pending', text: '', createdAt: now, step: 'Checking tasks…' },
+    ] }];
+    renderPage('/mico-ai?chat=c9');
+    await screen.findByText('Checking tasks…');
+    chats = [];
+    await screen.findByText('This chat was deleted.');
+    await waitFor(() => expect(screen.queryByText('Checking tasks…')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
+    // The chat's own read fails too (404): said once, as "deleted", not as an error.
+    expect(screen.queryByText('This chat doesn’t exist, or it isn’t yours.')).not.toBeInTheDocument();
+    await userEvent.type(box(), 'Anything new?{Enter}');
+    await waitFor(() => expect(posted('/mico-ai/chats')).toHaveLength(1));
+    await waitFor(() => expect(posted('/mico-ai/chats/c1/messages')).toHaveLength(1));
+    expect(posted('/mico-ai/chats/c1/messages')[0]!.body).toEqual({ text: 'Anything new?' });
+    expect(screen.getByTestId('where')).toHaveTextContent('/mico-ai?chat=c1');
+  });
+
   it('after Stop, focus moves to the answer (not the page)', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
