@@ -17,6 +17,11 @@ it('the website’s order: a template first, then Describe; the checklist right 
 });
 it('the task templates are read through the person’s offline copy', () =>
   expect(src('core/template-queries.ts')).toMatch(/queryKey: TASK_TEMPLATES_KEY[^]*reads\.read\(queryKey, 'templates\.tasks', \(\) => resources\.templates\.listTasks\(\)\)[^]*enabled/));
+it('final review A3: the templates from the offline copy are out of date at once (a server’s answer for 30 s)', () => {
+  const s = src('core/template-queries.ts');
+  expect(s).toMatch(/staleTime: \(q\) => \(reads\.answeredFromCopy\(q\) \? 0 : 30_000\)/);
+  expect(s).not.toMatch(/staleTime: 30_000/);
+});
 it('the checklist field: each item named, removable, an emptied one leaves; the add box adds on return, on leaving, and line by line', () => {
   const s = src('components/task-form/ChecklistField.tsx');
   expect(s).toMatch(/accessibilityLabel=\{checklistItemLabel\(i \+ 1\)\}/);

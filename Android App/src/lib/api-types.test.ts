@@ -76,8 +76,9 @@ describe.skipIf(!hasWeb(...PAIRS.map(([f]) => f)))('the app’s copies of the we
 });
 // (ProjectOverview's Pick<…> part is checked by the ApiProject test; fieldsOf reads only the braces.)
 
-it('reads approvals through the offline copy, refreshed every 30 s', () =>
-  expect(src('core/approval-queries.ts')).toMatch(/queryKey: APPROVALS_KEY[^]*reads\.read\(queryKey, 'approvals', \(\) => resources\.tasks\.approvals\(\)\)[^]*staleTime: 30_000/));
+// Final review A3: an answer from the offline copy is out of date at once (the query client's rule), a server's for 30 s.
+it('reads approvals through the offline copy, refreshed every 30 s — at once when the copy answered', () =>
+  expect(src('core/approval-queries.ts')).toMatch(/queryKey: APPROVALS_KEY[^]*reads\.read\(queryKey, 'approvals', \(\) => resources\.tasks\.approvals\(\)\)[^]*staleTime: \(q\) => \(reads\.answeredFromCopy\(q\) \? 0 : 30_000\)/));
 
 it('My Tasks can be opened on its To approve section', () =>
   expect(src('navigation/types.ts')).toMatch(/MyTasks: \{ show\?: 'to-approve' \} \| undefined;/));
