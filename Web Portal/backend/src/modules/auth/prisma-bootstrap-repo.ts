@@ -21,6 +21,9 @@ export function createPrismaBootstrapRepo(prisma: PrismaClient): BootstrapUserRe
         update: {},
         create: { name: 'ADMIN', description: 'Full system access' },
       });
+      // Companies: the first admin joins the oldest active company (on a fresh site, the one the
+      // backfill made), which becomes their primary company.
+      const company = await prisma.company.findFirst({ where: { status: 'ACTIVE' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } });
       const user = await prisma.user.create({
         data: {
           email: data.email,
@@ -30,6 +33,7 @@ export function createPrismaBootstrapRepo(prisma: PrismaClient): BootstrapUserRe
           lastName: data.lastName,
           status: 'ACTIVE',
           roles: { create: { roleId: role.id } },
+          ...(company ? { primaryCompanyId: company.id, companies: { create: { companyId: company.id } } } : {}),
         },
         select: { id: true },
       });

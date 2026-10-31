@@ -1,6 +1,7 @@
 import { PrismaClient, Priority, ProjectStatus, ColumnCategory, UserStatus } from '@prisma/client';
 import { hashPassword } from '../src/lib/password';
 import { demoSeedBlocker } from '../src/lib/seed-guard';
+import { DEFAULT_COMPANY } from '../src/modules/companies/default-company';
 
 const prisma = new PrismaClient();
 
@@ -53,6 +54,14 @@ async function main() {
   await prisma.department.deleteMany();
   await prisma.role.deleteMany();
 
+  // Companies: everyone and everything the seed makes is in the first company (as after the backfill).
+  const company = await prisma.company.upsert({
+    where: { id: DEFAULT_COMPANY.id },
+    update: {},
+    create: { id: DEFAULT_COMPANY.id, name: DEFAULT_COMPANY.name, code: DEFAULT_COMPANY.code },
+  });
+  const inCompany = { primaryCompanyId: company.id, companies: { create: { companyId: company.id } } };
+
   // Roles
   const adminRole = await prisma.role.create({ data: { name: 'ADMIN', description: 'Full system access' } });
   const employeeRole = await prisma.role.create({ data: { name: 'EMPLOYEE', description: 'Assigned work only' } });
@@ -74,6 +83,7 @@ async function main() {
       status: UserStatus.ACTIVE,
       departmentId: departments[0]!.id,
       roles: { create: { roleId: adminRole.id } },
+      ...inCompany,
     },
   });
 
@@ -92,6 +102,7 @@ async function main() {
         status: i === 9 ? UserStatus.INACTIVE : UserStatus.ACTIVE,
         departmentId: pick(departments, i).id,
         roles: { create: { roleId: employeeRole.id } },
+        ...inCompany,
       },
     });
     employees.push(emp);
@@ -126,6 +137,8 @@ async function main() {
         createdById: admin.id,
         startDate: daysFromNow(-30),
         targetDate: daysFromNow(60),
+        mainCompanyId: company.id,
+        companies: { create: { companyId: company.id } },
       },
     });
 

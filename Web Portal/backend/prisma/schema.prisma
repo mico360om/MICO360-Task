@@ -141,9 +141,14 @@ model User {
   dailyTaskEmails  DailyTaskEmail[]
   weeklySummaryEmails WeeklySummaryEmail[]
   settings         UserSetting?
+  /// Companies: the ones this person belongs to, and the one whose branding and week their own emails use.
+  primaryCompanyId String?
+  primaryCompany   Company?        @relation("UserPrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: SetNull)
+  companies        CompanyMember[]
 
   @@index([status])
   @@index([departmentId])
+  @@index([primaryCompanyId])
   @@map("users")
 }
 
@@ -173,6 +178,66 @@ model Department {
   users User[]
 
   @@map("departments")
+}
+
+// ---------------------------------------------------------------------------
+// Companies (1.21): several companies on one site. People and projects belong to companies; a
+// non-admin sees a project only inside a company they share with it. Settings left null inherit the
+// site's (System Settings / MAIL_FROM / the built-in logo). Every company uses the site's time zone.
+// ---------------------------------------------------------------------------
+
+enum CompanyStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Company {
+  id           String        @id @default(cuid())
+  name         String        @unique @db.VarChar(120)
+  code         String        @unique @db.VarChar(10)
+  logoUrl      String?       @db.VarChar(500) // null = the built-in logo
+  weekStart    Int? // 0 Sun | 1 Mon | 6 Sat; null = System Settings
+  workingHours Json? // { days: number[], start: "HH:MM", end: "HH:MM" }; null = System Settings
+  senderName   String?       @db.VarChar(120) // null = MAIL_FROM's display name
+  status       CompanyStatus @default(ACTIVE)
+  archivedAt   DateTime?
+  createdById  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  members   CompanyMember[]
+  projects  ProjectCompany[]
+  mainOf    Project[]        @relation("ProjectMainCompany")
+  primaryOf User[]           @relation("UserPrimaryCompany")
+  meetings  Meeting[]
+
+  @@index([status])
+  @@map("companies")
+}
+
+model CompanyMember {
+  companyId String
+  userId    String
+  addedAt   DateTime @default(now())
+  addedById String?
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, userId])
+  @@index([userId])
+  @@map("company_members")
+}
+
+model ProjectCompany {
+  projectId String
+  companyId String
+  addedAt   DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@id([projectId, companyId])
+  @@index([companyId])
+  @@map("project_companies")
 }
 
 // ---------------------------------------------------------------------------
@@ -216,9 +281,15 @@ model Project {
   taskKeyAliases TaskKeyAlias[]
   clientShares   ClientShare[]
   inspections    Inspection[]
+  /// Companies: every project belongs to one or more; the main one (always also a project_companies row)
+  /// gives it its branding and week.
+  mainCompanyId  String?
+  mainCompany    Company?         @relation("ProjectMainCompany", fields: [mainCompanyId], references: [id], onDelete: SetNull)
+  companies      ProjectCompany[]
 
   @@index([status])
   @@index([managerId])
+  @@index([mainCompanyId])
   @@map("projects")
 }
 
@@ -528,11 +599,14 @@ model Notification {
   body       String?   @db.Text
   entityType String?
   entityId   String?
+  /// The project the notice is about (tasks, projects, project channels), so lists can follow companies.
+  projectId  String?
   readAt     DateTime?
   createdAt  DateTime  @default(now())
   user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
+  @@index([userId, projectId])
   @@map("notifications")
 }
 
@@ -871,9 +945,13 @@ model Meeting {
   decisions   Decision[]
   minutes     MeetingMinutes?
   tasks       Task[]
+  /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
+  companyId   String?
+  company     Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([organizerId])
+  @@index([companyId])
   @@index([status])
   @@index([startAt])
   // One meeting per place in a series, so a series is never filled in twice.
