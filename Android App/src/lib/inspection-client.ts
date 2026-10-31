@@ -20,6 +20,18 @@ export function inspectionMenu(p: InspectionPermissions, finished: boolean): Ins
   return out;
 }
 
+/**
+ * Where a deleted inspection's screen goes (Final I12): back to its project's screen when it was
+ * opened from there (how many screens to pop), else that project's screen in its place.
+ */
+export function backToProject(routes: ReadonlyArray<{ name: string; params?: object }>, index: number, projectId: string): { pop: number } | { replace: true } {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const r = routes[i];
+    if (r?.name === 'ProjectDetail' && (r.params as { projectId?: unknown } | undefined)?.projectId === projectId) return { pop: index - i };
+  }
+  return { replace: true };
+}
+
 /** Whether any note of the report names one of these people (the preview says so only then) — the website's. */
 export function notesNameSomeone(x: ClientInspection, names: string[]): boolean {
   return x.sections.some((s) => s.items.some((i) => !!i.note && highlightNames(i.note, names).some((p) => p.name)));
