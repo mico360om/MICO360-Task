@@ -5,6 +5,7 @@ import { useColors } from '../core/theme';
 import { useServices } from '../core/providers';
 import { useInspectionDraft } from '../core/inspection-sync';
 import { useInspection } from '../core/inspection-queries';
+import { useProjectMembers, useProjects } from '../core/queries';
 import { usePullRefresh } from '../components/meeting/live';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { Badge, Button, Card, IconButton, SectionTitle, SkeletonList } from '../components/ui';
@@ -14,6 +15,7 @@ import { SyncBanner } from '../components/inspections/SyncBanner';
 import { FinishCard } from '../components/inspections/FinishCard';
 import { SignFinishSheet } from '../components/inspections/SignFinishSheet';
 import { EarlierRevisionsCard, SignaturesCard } from '../components/inspections/SignaturesCard';
+import { FailedItemsCard, askFollowUps } from '../components/inspections/FailedItemsCard';
 import { ApiError, isNetworkError } from '../lib/api-client';
 import { approvalNotice } from '../lib/approvals';
 import { instantDayText } from '../lib/day-words';
@@ -21,7 +23,9 @@ import { appTimeZone } from '../lib/due-date';
 import { detailView, type DraftView, type FlushState, type InspectionOutbox } from '../lib/inspection-outbox';
 import type { SyncState } from '../lib/inspection-outboxes';
 import type { InspectionDetail, SignatureInput } from '../lib/inspection-types';
-import { INSPECTION_WORDS, finishedNotice, inspectionChangeNote, problemText, startedLine } from '../lib/inspection-words';
+import { INSPECTION_WORDS, finishedNotice, followUpNotice, inspectionChangeNote, problemText, startedLine } from '../lib/inspection-words';
+import { failedWithout, type AssigneeChoice } from '../lib/inspection-follow-ups';
+import { itemsOf } from '../lib/inspection-rules';
 import { radius, spacing } from '../lib/theme';
 import { toneStyle, type Tone } from '../lib/tone';
 import { typeStyle } from '../lib/typography';
@@ -178,6 +182,7 @@ function InspectionContent({
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
+  const [assignee, setAssignee] = useState<AssigneeChoice>('~default');
   const rows = useRef(new Map<string, View>());
   /** What a finish just said (a completed check), so the send's own notice doesn't hide it. */
   const completedNote = useRef<string | null>(null);
@@ -189,6 +194,15 @@ function InspectionContent({
   const followUps = useMemo(() => new Map((d.followUps ?? []).map((f) => [f.itemId, f])), [d.followUps]);
   const waitingFollowUps = useMemo(() => new Set(view.followUpsWaiting), [view.followUpsWaiting]);
   const record = !!outbox && !!ownerId;
+  const membersQ = useProjectMembers(p.canMakeFollowUps ? d.projectId : '');
+  const projectsQ = useProjects();
+  const project = (projectsQ.data ?? []).find((x) => x.id === d.projectId);
+  const archived = d.projectArchived ?? project?.status === 'ARCHIVED';
+  const items = useMemo(() => itemsOf(d.structure), [d.structure]);
+  const failedIds = items.filter((i) => answers.get(i.id)?.result === 'FAIL').map((i) => i.id);
+  const canFollowUp = p.canMakeFollowUps && !archived;
+  const followUpsFor = (itemIds: string[]) =>
+    askFollowUps({ outbox, ownerId, inspectionId, itemIds, choice: assignee, detail: d, send: () => send(), onProblem: setProblem });
   let number = 0;
 
   const saveAnswer = (itemId: string, value: ItemAnswer) => {
@@ -262,6 +276,14 @@ function InspectionContent({
     } else if (state === 'offline' || state === 'signed-out' || state === 'retry') setNotice(INSPECTION_WORDS.signedOffline);
   };
 
+  // What became of follow-up tasks asked for here (now, or sent later from this phone): said once.
+  const report = view.followUpReport;
+  useEffect(() => {
+    if (!report || !outbox || !ownerId) return;
+    setNotice(followUpNotice(report, items));
+    outbox.ackFollowUpReport(ownerId, inspectionId);
+  }, [report, outbox, ownerId, inspectionId, items]);
+
   /** Scrolls to an item still to answer. */
   const jumpTo = (itemId: string) => {
     const row = rows.current.get(itemId);
@@ -333,6 +355,23 @@ function InspectionContent({
 
       <ProgressCard counts={view.counts} description={d.description} />
 
+      {failedIds.length && canFollowUp ? (
+        <FailedItemsCard
+          failedCount={failedIds.length}
+          without={failedWithout(view, failedIds)}
+          members={membersQ.data ?? []}
+          owner={project?.ownerId ? { id: project.ownerId } : null}
+          choice={assignee}
+          onChoice={setAssignee}
+          ownerId={ownerId}
+          inspectionId={inspectionId}
+          outbox={outbox}
+          detail={d}
+          send={() => send()}
+          onProblem={setProblem}
+        />
+      ) : null}
+
       {d.structure.sections.map((section) => (
         <Card key={section.id}>
           <SectionTitle>{section.title}</SectionTitle>
@@ -354,7 +393,8 @@ function InspectionContent({
                 readOnly={!canAnswer}
                 onAnswer={(v) => saveAnswer(item.id, v)}
                 followUp={{ view: followUps.get(item.id), queued: waitingFollowUps.has(item.id) }}
-                canMakeFollowUp={false}
+                canMakeFollowUp={canFollowUp}
+                onMakeFollowUp={() => followUpsFor([item.id])}
                 onOpenTask={(taskId) => openTask(taskId)}
               />
               </View>
