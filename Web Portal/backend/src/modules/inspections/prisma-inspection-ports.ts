@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { isTaskDone } from '../tasks/task-status';
-import { managedProjectsWhere } from '../projects/project-managers';
+import { managedVisibleWhere } from '../projects/project-managers';
 import { nameVariants, type PersonName } from '../client-view/client-minutes-content';
 import type { RecordTaskActivity } from '../activity/task-activity';
 import type { CreateAuditData } from '../audit/audit-repository';
@@ -53,7 +53,7 @@ export function createInspectionPorts(d: InspectionPortDeps): InspectionPorts {
     canViewProject: (u, r, p) => d.access.canViewProject(u, r, p),
     canManageProject: (u, r, p) => d.authz.canManageProject(u, r, p),
     async runsAnyProject(userId) {
-      return (await prisma.project.count({ where: { deletedAt: null, ...managedProjectsWhere(userId) } })) > 0;
+      return (await prisma.project.count({ where: { deletedAt: null, ...managedVisibleWhere(userId) } })) > 0;
     },
     async project(projectId) {
       return prisma.project.findFirst({

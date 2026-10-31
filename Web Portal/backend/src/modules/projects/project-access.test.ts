@@ -6,16 +6,24 @@ function make(
   taskProject: Record<string, string>,
   columnProject: Record<string, string>,
   taskAssignees: Record<string, string[]> = {},
+  /** companies: each project's companies (a pick narrows lists to one). */
+  companiesOf: Record<string, string[]> = {},
 ) {
+  const inPick = (id: string, pick?: string | null) => !pick || (companiesOf[id] ?? []).includes(pick);
   return createProjectAccess({
     projects: {
       async isAccessibleTo(projectId, userId) {
         return (memberOf[projectId] ?? []).includes(userId);
       },
-      async listForUser(userId) {
+      async listForUser(userId, pick) {
         return Object.entries(memberOf)
-          .filter(([, users]) => users.includes(userId))
+          .filter(([id, users]) => users.includes(userId) && inPick(id, pick))
           .map(([id]) => ({ id }));
+      },
+      async list(pick) {
+        return Object.keys(memberOf)
+          .filter((id) => inPick(id, pick))
+          .map((id) => ({ id }));
       },
     },
     managers: {
@@ -73,5 +81,13 @@ describe('ProjectAccess', () => {
     expect(await access.accessibleProjectIds('emp1', ['EMPLOYEE'])).toEqual(['p1']);
     expect(await access.accessibleProjectIds('emp2', ['EMPLOYEE'])).toEqual(['p2']);
     expect(await access.accessibleProjectIds('nobody', ['EMPLOYEE'])).toEqual([]);
+  });
+
+  it('a picked company narrows the list; an admin with a pick gets that company’s projects, not “all”', async () => {
+    const picked = make({ p1: ['emp1'], p2: ['emp1'], p3: ['emp2'] }, {}, {}, {}, { p1: ['A'], p2: ['B'], p3: ['A'] });
+    expect(await picked.accessibleProjectIds('emp1', ['EMPLOYEE'], 'A')).toEqual(['p1']);
+    expect(await picked.accessibleProjectIds('emp1', ['EMPLOYEE'], null)).toEqual(['p1', 'p2']);
+    expect(await picked.accessibleProjectIds('x', ['ADMIN'], 'A')).toEqual(['p1', 'p3']);
+    expect(await picked.accessibleProjectIds('x', ['ADMIN'], null)).toBeNull();
   });
 });

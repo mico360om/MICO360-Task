@@ -114,9 +114,10 @@ export function createProjectService({ projects, people }: ProjectServiceDeps) {
   }
 
   /** Projects the caller may see: everything for an admin, else only those they belong to. */
-  async function listVisibleProjects(user: { id: string; roles: string[] }): Promise<ProjectRecord[]> {
-    if (isAdmin(user.roles)) return projects.list();
-    return projects.listForUser(user.id);
+  /** The projects a person may see; a picked company (already checked) narrows the list to it. */
+  async function listVisibleProjects(user: { id: string; roles: string[] }, pick?: string | null): Promise<ProjectRecord[]> {
+    if (isAdmin(user.roles)) return projects.list(pick ?? null);
+    return projects.listForUser(user.id, pick ?? null);
   }
 
   async function getProject(id: string): Promise<ProjectRecord> {

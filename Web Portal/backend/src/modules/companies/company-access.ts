@@ -38,6 +38,19 @@ export function inCompanyWhere(companyId: string): Prisma.ProjectWhereInput {
   return { companies: { some: { companyId } } };
 }
 
+/**
+ * A non-admin's pick: the project belongs to that company, and it is one of the person's own active
+ * companies — so a stale or foreign pick matches nothing instead of widening.
+ */
+export function pickedCompanyWhere(userId: string, companyId: string): Prisma.ProjectWhereInput {
+  return { companies: { some: { companyId, company: { status: 'ACTIVE', members: { some: { userId } } } } } };
+}
+
+/** People who belong to an active company of this project (with the team rule: who may see it). */
+export function sharesProjectCompanyWhere(projectId: string): Prisma.UserWhereInput {
+  return { companies: { some: { company: { status: 'ACTIVE', projects: { some: { projectId } } } } } };
+}
+
 /** A live project: its own status isn't ARCHIVED and at least one of its companies is active. */
 export const LIVE_PROJECT_WHERE: Prisma.ProjectWhereInput = {
   status: { not: 'ARCHIVED' },
@@ -47,6 +60,27 @@ export const LIVE_PROJECT_WHERE: Prisma.ProjectWhereInput = {
 /** People who share an active company with the viewer (the viewer included; callers leave them out). */
 export function colleagueWhere(viewerId: string): Prisma.UserWhereInput {
   return { companies: { some: { company: { status: 'ACTIVE', members: { some: { userId: viewerId } } } } } };
+}
+
+type CompanyDb = Pick<PrismaClient, 'company' | 'companyMember'>;
+
+/** The one active company, when the site has exactly one (else null: there is a choice to make). */
+export async function onlyActiveCompanyId(db: CompanyDb): Promise<string | null> {
+  const active = await db.company.findMany({ where: { status: 'ACTIVE' }, select: { id: true }, take: 2 });
+  return active.length === 1 ? active[0]!.id : null;
+}
+
+/**
+ * The company a new project goes into when none is named: its creator's primary company (while it
+ * is active and they belong to it), else the site's only active company, else none. On a site with
+ * one company that is always it, as before companies existed.
+ */
+export async function fallbackProjectCompanyId(db: CompanyDb, creatorId: string): Promise<string | null> {
+  const primary = await db.companyMember.findFirst({
+    where: { userId: creatorId, company: { status: 'ACTIVE', primaryOf: { some: { id: creatorId } } } },
+    select: { companyId: true },
+  });
+  return primary?.companyId ?? onlyActiveCompanyId(db);
 }
 
 export interface CompanyAccess {
@@ -97,11 +131,7 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
   async function projectScope(viewer: Viewer, pick: string | null): Promise<Prisma.ProjectWhereInput> {
     if (isAdminRoles(viewer.roles)) return pick ? { deletedAt: null, ...inCompanyWhere(pick) } : { deletedAt: null };
     if (!pick) return visibleProjectWhere(viewer.id);
-    // The pick narrows to that company, and only while it is one of the person's own active companies:
-    // a stale or foreign pick matches nothing instead of widening.
-    return {
-      AND: [visibleProjectWhere(viewer.id), { companies: { some: { companyId: pick, company: { status: 'ACTIVE', members: { some: { userId: viewer.id } } } } } }],
-    };
+    return { AND: [visibleProjectWhere(viewer.id), pickedCompanyWhere(viewer.id, pick)] };
   }
 
   async function visibleProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null> {
@@ -125,14 +155,9 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
     const team = new Set([project.ownerId, project.managerId, ...project.members.map((m) => m.userId)].filter((id): id is string => !!id && ids.includes(id)));
     const [admins, sharing] = await Promise.all([
       prisma.user.findMany({ where: { id: { in: ids }, status: 'ACTIVE', deletedAt: null, roles: { some: { role: { name: 'ADMIN' } } } }, select: { id: true } }),
-      team.size
-        ? prisma.companyMember.findMany({
-            where: { userId: { in: [...team] }, company: { status: 'ACTIVE', projects: { some: { projectId } } } },
-            select: { userId: true },
-          })
-        : Promise.resolve([] as { userId: string }[]),
+      team.size ? prisma.user.findMany({ where: { id: { in: [...team] }, ...sharesProjectCompanyWhere(projectId) }, select: { id: true } }) : Promise.resolve([] as { id: string }[]),
     ]);
-    return new Set([...admins.map((u) => u.id), ...sharing.map((m) => m.userId)]);
+    return new Set([...admins.map((u) => u.id), ...sharing.map((u) => u.id)]);
   }
 
   async function isColleague(viewer: Viewer, otherId: string): Promise<boolean> {

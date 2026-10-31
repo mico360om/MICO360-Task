@@ -4,6 +4,7 @@ import { inspectionStoreContract } from '../../src/modules/inspections/inspectio
 import { createPrismaInspectionStore } from '../../src/modules/inspections/prisma-inspection-store';
 import type { AnswerRecord, Counts } from '../../src/modules/inspections/inspection-store';
 import { createInspectionPorts } from '../../src/modules/inspections/prisma-inspection-ports';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. Only this file's projects
 // (codes INA, INB) and its person (insp-owner@mico360.test) are made and removed.
@@ -37,6 +38,7 @@ async function setup() {
   ownerId = (await prisma.user.create({ data: { email: EMAIL, username: 'insp-owner', passwordHash: 'x', firstName: 'Omar', lastName: 'Ahmed' } })).id;
   a = await project('INA');
   b = await project('INB');
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 }
 
 const makeTask = async (projectId: string) => {
@@ -172,6 +174,7 @@ describe('the inspection service’s view of the app, in the database', () => {
     const mgr = await prisma.user.create({ data: { email: 'insp-mgr@mico360.test', username: 'insp-mgr', passwordHash: 'x', firstName: 'Mona', lastName: 'Manager' } });
     try {
       await prisma.projectMember.createMany({ data: [{ projectId: a.id, userId: plain.id, role: 'MEMBER' }, { projectId: a.id, userId: mgr.id, role: 'MANAGER' }] });
+      await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
       const p = ports();
       expect(await p.runsAnyProject(ownerId)).toBe(true);
       expect(await p.runsAnyProject(mgr.id)).toBe(true);

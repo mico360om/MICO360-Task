@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaWeeklySummaryPeople, createPrismaWeeklySummaryRepository } from '../../src/modules/management/prisma-weekly-summary';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -42,6 +43,7 @@ beforeEach(async () => {
   await prisma.project.create({ data: { code: 'WSLIVE', name: 'WS live', createdById: ids.ann!, ownerId: ids.ben, members: { create: [{ userId: ids.cat!, role: 'MANAGER' }, { userId: ids.dan! }] } } });
   // Running a deleted project doesn't count.
   await prisma.project.create({ data: { code: 'WSGONE', name: 'WS gone', createdById: ids.ann!, managerId: ids.dan, deletedAt: new Date() } });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 });
 
 describe('Weekly summary people (integration)', () => {

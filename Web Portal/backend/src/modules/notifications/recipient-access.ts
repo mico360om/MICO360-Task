@@ -4,15 +4,20 @@
  * lines, and a mention can't leak a task to someone outside the project.
  */
 
-/** The project-visibility facts of one task (the same rule as project access: owner, named manager, team). */
+/**
+ * The project-visibility facts of one task (the same rule as project access: owner, named manager,
+ * team — inside one of the project's active companies).
+ */
 export interface TaskAudienceFacts {
-  /** Assignees can always open their task. */
+  /** Assignees can always open their task (while they share one of its project's companies). */
   assigneeIds: string[];
   project: {
     deletedAt: Date | null;
     ownerId: string | null;
     managerId: string | null;
     memberIds: string[];
+    /** The project's ACTIVE companies. */
+    companyIds: string[];
   } | null;
 }
 
@@ -23,6 +28,11 @@ export interface AudienceOptions {
   activeIds?: Iterable<string>;
   /** Never notify this user (the actor who caused the event). */
   excludeUserId?: string | null;
+  /**
+   * Companies: each candidate's ACTIVE companies. Someone on the team who shares none of them with
+   * the project can't see it any more and hears nothing about it (admins excepted).
+   */
+  companiesOf: ReadonlyMap<string, readonly string[]>;
 }
 
 /** A predicate for "can this user currently see the task?". */
@@ -37,10 +47,12 @@ export function taskAudience(facts: TaskAudienceFacts, opts: AudienceOptions): (
     ...(project.ownerId ? [project.ownerId] : []),
     ...(project.managerId ? [project.managerId] : []),
   ]);
+  const projectCompanies = new Set(project.companyIds);
+  const sharesCompany = (userId: string) => (opts.companiesOf.get(userId) ?? []).some((c) => projectCompanies.has(c));
   return (userId) => {
     if (opts.excludeUserId && userId === opts.excludeUserId) return false;
     if (active && !active.has(userId)) return false;
-    return visible.has(userId) || admins.has(userId);
+    return (visible.has(userId) && sharesCompany(userId)) || admins.has(userId);
   };
 }
 

@@ -3,14 +3,19 @@ import { createProjectService, newProjectTeam } from './project-service';
 import type { ProjectRecord, ProjectRepository, CreateProjectData } from './project-repository';
 import { ConflictError, NotFoundError } from '../../lib/http-errors';
 
-function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember(projectId: string, userId: string): void } {
+function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember(projectId: string, userId: string): void; inCompanies(projectId: string, ids: string[]): void } {
   const rows = new Map<string, ProjectRecord>();
   const members = new Map<string, Set<string>>();
+  const companies = new Map<string, string[]>();
   let seq = 0;
   const canAccess = (p: ProjectRecord, userId: string) =>
     p.ownerId === userId || p.managerId === userId || (members.get(p.id)?.has(userId) ?? false);
+  const inPick = (p: ProjectRecord, pick?: string | null) => !pick || (companies.get(p.id) ?? []).includes(pick);
   return {
     all: () => [...rows.values()],
+    inCompanies: (projectId, ids) => {
+      companies.set(projectId, ids);
+    },
     addMember: (projectId, userId) => {
       const set = members.get(projectId) ?? new Set<string>();
       set.add(userId);
@@ -50,11 +55,11 @@ function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember
     async findByCode(code) {
       return [...rows.values()].find((p) => p.code === code) ?? null;
     },
-    async list() {
-      return [...rows.values()];
+    async list(pick) {
+      return [...rows.values()].filter((p) => inPick(p, pick));
     },
-    async listForUser(userId) {
-      return [...rows.values()].filter((p) => canAccess(p, userId));
+    async listForUser(userId, pick) {
+      return [...rows.values()].filter((p) => canAccess(p, userId) && inPick(p, pick));
     },
     async isAccessibleTo(projectId, userId) {
       const p = rows.get(projectId);
@@ -140,6 +145,16 @@ describe('ProjectService — membership-based visibility', () => {
 
     const codes = (await svc.listVisibleProjects({ id: 'emp1', roles: ['EMPLOYEE'] })).map((p) => p.code).sort();
     expect(codes).toEqual(['MEM', 'MGR', 'OWN']);
+  });
+
+  it('companies: a picked company narrows the list — an admin gets that company’s projects, an employee theirs in it', async () => {
+    const a = await svc.createProject({ code: 'A', name: 'A', createdById: 'admin', ownerId: 'emp1' });
+    const b = await svc.createProject({ code: 'B', name: 'B', createdById: 'admin', ownerId: 'emp1' });
+    repo.inCompanies(a.id, ['alpha']);
+    repo.inCompanies(b.id, ['beta']);
+    expect((await svc.listVisibleProjects({ id: 'admin', roles: ['ADMIN'] }, 'beta')).map((p) => p.code)).toEqual(['B']);
+    expect((await svc.listVisibleProjects({ id: 'emp1', roles: ['EMPLOYEE'] }, 'alpha')).map((p) => p.code)).toEqual(['A']);
+    expect((await svc.listVisibleProjects({ id: 'emp1', roles: ['EMPLOYEE'] })).map((p) => p.code).sort()).toEqual(['A', 'B']);
   });
 
   it('lets an employee open a project they belong to', async () => {

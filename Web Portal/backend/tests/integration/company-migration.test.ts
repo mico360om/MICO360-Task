@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
-import { BACKFILL_SQL_PATH, DEFAULT_COMPANY } from '../../src/modules/companies/default-company';
+import { DEFAULT_COMPANY } from '../../src/modules/companies/default-company';
 import { createPrismaBootstrapRepo } from '../../src/modules/auth/prisma-bootstrap-repo';
+import { runBackfill as runBackfillOn } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied (`migrate deploy` has already run
 // the backfill once, on whatever the database held then). Rows made here afterwards have no company, as
@@ -24,20 +24,7 @@ const fixture = {
 let u2 = '';
 let p2 = '';
 
-/** The backfill file's statements: `--` comment lines dropped, split on a `;` that ends a line. */
-function backfillStatements(): string[] {
-  const sql = readFileSync(BACKFILL_SQL_PATH, 'utf8')
-    .split(/\r?\n/)
-    .filter((line) => !/^\s*--/.test(line))
-    .join('\n');
-  return sql
-    .split(/;\s*(?:\n|$)/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-async function runBackfill(): Promise<void> {
-  for (const statement of backfillStatements()) await prisma.$executeRawUnsafe(statement);
-}
+const runBackfill = () => runBackfillOn(prisma);
 
 async function counts() {
   const [companies, members, projectCompanies, noMain, noPrimary, noMeetingCompany, noNoticeProject] = await Promise.all([

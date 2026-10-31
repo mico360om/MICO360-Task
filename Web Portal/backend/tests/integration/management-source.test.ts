@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { isOverdue } from '../../src/lib/due-date';
 import { createPrismaManagementSource } from '../../src/modules/management/prisma-management-source';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -60,6 +61,7 @@ beforeEach(async () => {
   await proj('old', 'MGOLD', { managerId: ids.sara, status: 'ARCHIVED' });
   await proj('gone', 'MGGONE', { managerId: ids.sara, status: 'ACTIVE', deletedAt: new Date() });
   await prisma.projectMember.create({ data: { projectId: ids.mico!, userId: ids.bilal!, role: 'MANAGER' } });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   const cols: Record<string, { todo: string; done: string }> = {};
   for (const key of ['rig', 'mico', 'old', 'gone']) {
     cols[key] = {

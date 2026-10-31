@@ -124,10 +124,14 @@ export interface ProjectRepository {
   findByCode(code: string): Promise<ProjectRecord | null>;
   /** Whether any project — deleted ones too — has this code (the database keeps codes unique). */
   codeInUse?(code: string): Promise<boolean>;
-  list(): Promise<ProjectRecord[]>;
-  /** Projects a non-admin user may see: those they own, manage or are on the team of (not ones they merely created). */
-  listForUser(userId: string): Promise<ProjectRecord[]>;
-  /** True if the user owns, manages or is on the team of the project. */
+  /** Every live project, or with a picked company that company's (an administrator's list). */
+  list(pick?: string | null): Promise<ProjectRecord[]>;
+  /**
+   * Projects a non-admin user may see: those they own, manage or are on the team of (not ones they
+   * merely created), inside one of their active companies, and with a pick in that company.
+   */
+  listForUser(userId: string, pick?: string | null): Promise<ProjectRecord[]>;
+  /** True if the user owns, manages or is on the team of the project and shares an active company with it. */
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
   /**
    * Change a project. `keepManagers`: in the same write, make sure these people are MANAGER members

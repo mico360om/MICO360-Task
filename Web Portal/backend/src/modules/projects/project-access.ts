@@ -3,7 +3,10 @@ import type { ProjectManagerLookup } from './project-authz';
 /** Read-side project access: who may *see* a project's data (owner / named manager / team member). */
 export interface ProjectAccessRepo {
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
-  listForUser(userId: string): Promise<{ id: string }[]>;
+  /** A non-admin's visible projects (companies: inside their active companies), narrowed to a pick. */
+  listForUser(userId: string, pick?: string | null): Promise<{ id: string }[]>;
+  /** Every live project, or a picked company's (an administrator with a pick). */
+  list(pick?: string | null): Promise<{ id: string }[]>;
 }
 
 /** @deprecated Being assigned no longer grants access on its own; kept so older wiring still compiles. */
@@ -44,10 +47,13 @@ export function createProjectAccess({
     const projectId = await managers.projectIdOfColumn(columnId);
     return projectId ? projects.isAccessibleTo(projectId, userId) : false;
   }
-  /** Project ids a user may see — or `null` for an admin (meaning "all projects, no scoping"). */
-  async function accessibleProjectIds(userId: string, roles: string[]): Promise<string[] | null> {
-    if (isAdmin(roles)) return null;
-    return (await projects.listForUser(userId)).map((p) => p.id);
+  /**
+   * Project ids a user may see, or `null` for an admin without a pick (meaning "all projects, no
+   * scoping"). A picked company (already checked) narrows it; an admin with a pick gets that company's.
+   */
+  async function accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null> {
+    if (isAdmin(roles)) return pick ? (await projects.list(pick)).map((p) => p.id) : null;
+    return (await projects.listForUser(userId, pick ?? null)).map((p) => p.id);
   }
 
   return { canViewProject, canViewTask, canViewColumn, accessibleProjectIds };

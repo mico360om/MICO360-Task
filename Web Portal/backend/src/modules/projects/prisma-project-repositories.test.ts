@@ -14,11 +14,14 @@ const projectRow = {
 };
 
 describe('createPrismaProjectRepository.create', () => {
+  // Companies: a site with one active company, and a creator with no primary company of their own.
+  const oneCompany = { companyMember: { findFirst: vi.fn(async () => null) }, company: { findMany: vi.fn(async () => [{ id: 'company_prolens' }]) } };
+
   it('creates the default board columns in the same write as the project', async () => {
     const create = vi.fn(async () => projectRow);
-    const repo = createPrismaProjectRepository({ project: { create } } as unknown as PrismaClient);
+    const repo = createPrismaProjectRepository({ project: { create }, ...oneCompany } as unknown as PrismaClient);
     await repo.create({ code: 'MICO', name: 'MICO', createdById: 'admin' });
-    const data = (create.mock.calls[0] as unknown as [{ data: { columns: { create: { name: string; category: string; position: number }[] } } }])[0].data;
+    const data = (create.mock.calls[0] as unknown as [{ data: { columns: { create: { name: string; category: string; position: number }[] }; mainCompanyId?: string; companies?: unknown } }])[0].data;
     expect(data.columns.create.map((c) => [c.name, c.category, c.position])).toEqual([
       ['Backlog', 'BACKLOG', 0],
       ['To Do', 'TODO', 1],
@@ -26,11 +29,14 @@ describe('createPrismaProjectRepository.create', () => {
       ['Review', 'REVIEW', 3],
       ['Done', 'DONE', 4],
     ]);
+    // …and in the site's only company, in the same write.
+    expect(data.mainCompanyId).toBe('company_prolens');
+    expect(data.companies).toEqual({ create: { companyId: 'company_prolens' } });
   });
 
   it('reports a code taken by a (possibly deleted) project as a 409', async () => {
     const dup = new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: '5.22.0', meta: { target: ['code'] } });
-    const repo = createPrismaProjectRepository({ project: { create: vi.fn(async () => { throw dup; }) } } as unknown as PrismaClient);
+    const repo = createPrismaProjectRepository({ project: { create: vi.fn(async () => { throw dup; }) }, ...oneCompany } as unknown as PrismaClient);
     await expect(repo.create({ code: 'OLD', name: 'x', createdById: 'admin' })).rejects.toMatchObject({ status: 409, code: 'DUPLICATE_PROJECT_CODE' });
   });
 });

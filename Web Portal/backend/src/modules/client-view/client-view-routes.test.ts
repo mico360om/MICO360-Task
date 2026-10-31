@@ -128,6 +128,9 @@ async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; pdf
       async listForUser(userId) {
         return Object.keys(projects).filter((id) => onProject(id, userId)).map((id) => ({ id }));
       },
+      async list() {
+        return Object.keys(projects).map((id) => ({ id }));
+      },
     },
     managers,
   });

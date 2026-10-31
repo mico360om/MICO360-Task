@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { createPrismaChatMemberLookup, createPrismaMessageRepository, createPrismaParticipantRepository } from './prisma-chat-repository';
+import { visibleProjectWhere } from '../companies/company-access';
 
 /** A Prisma stand-in: each model op answers from `answers` (a value or a function of the args). */
 function recorder(answers: Record<string, unknown | ((args: Record<string, unknown>) => unknown)> = {}) {
@@ -34,17 +35,26 @@ describe('Prisma chat repositories', () => {
 
 describe('Prisma chat member lookup — project visibility (CHAT-03)', () => {
   const project = { id: 'p1', ownerId: 'owner', managerId: 'manager', createdById: 'creator' };
+  // The database's answer to "may this person see p1?" — the visible-project rule (on its team, in
+  // one of its companies). Here the team is the owner, the manager and one member, all in its company.
+  const TEAM = ['owner', 'manager', 'member'];
+  const visibleCount = (a: Record<string, unknown>) => {
+    const asked = JSON.stringify(a.where);
+    const who = ['owner', 'manager', 'member', 'creator', 'admin', 'stranger'].find((u) => asked === JSON.stringify({ AND: [{ id: 'p1' }, visibleProjectWhere(u)] }));
+    return who && TEAM.includes(who) ? 1 : 0;
+  };
 
   it('opens the channel to the owner and manager without a member row', async () => {
-    const { prisma, calls } = recorder({ 'project.findFirst': project });
+    const { prisma, calls } = recorder({ 'project.findFirst': project, 'project.count': visibleCount });
     const lookup = createPrismaChatMemberLookup(prisma);
     for (const u of ['owner', 'manager']) expect(await lookup.canAccessProject('p1', u)).toBe(true);
-    expect(calls.every((c) => c.op === 'project.findFirst')).toBe(true);
+    // The project rule decides (no admin lookup needed); a deleted project is never open.
+    expect(calls.every((c) => c.op === 'project.findFirst' || c.op === 'project.count')).toBe(true);
     expect(calls[0]!.args.where).toEqual({ id: 'p1', deletedAt: null });
   });
 
   it('does not open it to the project’s creator as such (off the team, they are out)', async () => {
-    const { prisma } = recorder({ 'project.findFirst': project });
+    const { prisma } = recorder({ 'project.findFirst': project, 'project.count': visibleCount });
     const lookup = createPrismaChatMemberLookup(prisma);
     expect(await lookup.canAccessProject('p1', 'creator')).toBe(false);
     const listed = recorder({ 'project.findFirst': { ...project, members: [] }, 'user.findMany': (a: Record<string, unknown>) => ((a.where as { id: { in: string[] } }).id.in).map((id) => ({ id })) });
@@ -57,7 +67,7 @@ describe('Prisma chat member lookup — project visibility (CHAT-03)', () => {
   it('opens it to members and admins, and not to anyone else', async () => {
     const { prisma } = recorder({
       'project.findFirst': project,
-      'projectMember.findUnique': (a: Record<string, unknown>) => ((a.where as { projectId_userId: { userId: string } }).projectId_userId.userId === 'member' ? { userId: 'member' } : null),
+      'project.count': visibleCount,
       'userRole.findFirst': (a: Record<string, unknown>) => ((a.where as { userId: string }).userId === 'admin' ? { userId: 'admin' } : null),
     });
     const lookup = createPrismaChatMemberLookup(prisma);
@@ -81,6 +91,8 @@ describe('Prisma chat member lookup — project visibility (CHAT-03)', () => {
     await lookup.accessibleProjectIds('u1');
     const lists = calls.filter((c) => c.op === 'project.findMany').map((c) => c.args.where);
     expect(lists[0]).toEqual({ deletedAt: null });
-    expect(lists[1]).toMatchObject({ deletedAt: null, OR: expect.arrayContaining([{ ownerId: 'u1' }, { members: { some: { userId: 'u1' } } }]) });
+    // Others: the visible-project rule — on the team (owner, named manager, member) AND in one of its companies.
+    expect(lists[1]).toEqual(visibleProjectWhere('u1'));
+    expect(lists[1]).toMatchObject({ deletedAt: null, AND: [{ OR: expect.arrayContaining([{ ownerId: 'u1' }, { members: { some: { userId: 'u1' } } }]) }, expect.anything()] });
   });
 });

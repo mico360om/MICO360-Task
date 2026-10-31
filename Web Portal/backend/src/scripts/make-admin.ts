@@ -54,8 +54,11 @@ async function main(): Promise<void> {
     // Ensure the username is free; fall back to a suffixed one if taken.
     const clash = await prisma.user.findUnique({ where: { username }, select: { id: true } });
     if (clash) username = `${username}-${Date.now().toString(36).slice(-4)}`;
+    // companies: a new admin joins the oldest active company (their primary company), as the first
+    // admin does (bootstrap); admins see every company either way.
+    const company = await prisma.company.findFirst({ where: { status: 'ACTIVE' }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } });
     const created = await prisma.user.create({
-      data: { email, username, passwordHash, firstName, lastName, status: 'ACTIVE' },
+      data: { email, username, passwordHash, firstName, lastName, status: 'ACTIVE', ...(company ? { primaryCompanyId: company.id, companies: { create: { companyId: company.id } } } : {}) },
       select: { id: true },
     });
     userId = created.id;

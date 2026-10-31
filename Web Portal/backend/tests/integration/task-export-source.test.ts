@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaTaskExportSource } from '../../src/modules/tasks/task-export';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -38,6 +39,7 @@ beforeEach(async () => {
     data: { code: CODE, number: 'PDO-2026-014', name: 'TX Export Project', color: '#1E5A8B', icon: 'rocket', imageUrl: '/uploads/projects/tx.png', createdById: ada.id, ownerId: ada.id, members: { create: [{ userId: bo.id }] } },
   });
   const column = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'Doing', category: 'IN_PROGRESS', position: 0 } });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   const meeting = await prisma.meeting.create({ data: { title: 'TX export weekly sync', organizerId: ada.id, createdById: ada.id, startAt: new Date('2026-09-27T06:00:00Z'), projectId: project.id } });
   meetingId = meeting.id;
   const task = await prisma.task.create({

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaChatMemberLookup } from '../../src/modules/chat/prisma-chat-repository';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // Since when someone has been on each project's team: what the chat's unread counts start from.
@@ -49,6 +50,7 @@ beforeEach(async () => {
   three = (await prisma.project.create({ data: { code: 'TSTHREE', name: 'Team since three (deleted)', createdById: owner, deletedAt: new Date() } })).id;
   await prisma.projectMember.create({ data: { projectId: one, userId: member, addedAt: MEMBER_ADDED } });
   await prisma.projectMember.create({ data: { projectId: three, userId: member, addedAt: MEMBER_ADDED } });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 });
 
 describe('teamSince', () => {

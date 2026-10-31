@@ -82,14 +82,27 @@ type PersonRow = Prisma.UserGetPayload<{ select: typeof personSelect }>;
 /** Who may get the weekly summary: active staff, with their roles and whether they run a live project. */
 export function createPrismaWeeklySummaryPeople(prisma: PrismaClient) {
   const active = { status: 'ACTIVE', deletedAt: null } as const;
-  /** Of these people, those who run a live project (owner, named manager or a MANAGER member). */
+  /**
+   * Of these people, those who run a live project (owner, named manager or a MANAGER member) that
+   * they can see: one of its active companies is theirs (companies: the managedVisibleWhere rule).
+   */
   async function runners(ids: string[]): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
     const projects = await prisma.project.findMany({
       where: { deletedAt: null, OR: [{ ownerId: { in: ids } }, { managerId: { in: ids } }, { members: { some: { userId: { in: ids }, role: 'MANAGER' } } }] },
-      select: { ownerId: true, managerId: true, members: { where: { role: 'MANAGER', userId: { in: ids } }, select: { userId: true } } },
+      select: {
+        ownerId: true,
+        managerId: true,
+        members: { where: { role: 'MANAGER', userId: { in: ids } }, select: { userId: true } },
+        companies: { where: { company: { status: 'ACTIVE' } }, select: { company: { select: { members: { where: { userId: { in: ids } }, select: { userId: true } } } } } },
+      },
     });
-    return new Set(projects.flatMap((p) => [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)]).filter((id): id is string => !!id));
+    return new Set(
+      projects.flatMap((p) => {
+        const sharing = new Set(p.companies.flatMap((c) => c.company.members.map((m) => m.userId)));
+        return [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)].filter((id): id is string => !!id && sharing.has(id));
+      }),
+    );
   }
   const toRecipient = (u: PersonRow, runs: Set<string>): WeeklyRecipient => ({
     id: u.id,

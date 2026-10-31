@@ -6,8 +6,9 @@ import { createMemberService } from '../../src/modules/projects/member-service';
 import { createProjectAccess } from '../../src/modules/projects/project-access';
 import { createPrismaChatMemberLookup } from '../../src/modules/chat/prisma-chat-repository';
 import { projectAudienceIds } from '../../src/modules/tasks/prisma-assignee-repository';
-import { taskAudienceSelect, toAudienceFacts } from '../../src/modules/notifications/prisma-task-audience';
+import { activeCompaniesOf, taskAudienceSelect, toAudienceFacts } from '../../src/modules/notifications/prisma-task-audience';
 import { filterTaskRecipients } from '../../src/modules/notifications/recipient-access';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // Having created a project is not a way in: the creator is on its team (as a manager) instead, so
@@ -49,6 +50,7 @@ beforeEach(async () => {
   const user = (email: string) => prisma.user.create({ data: { email, username: email.split('@')[0]!, passwordHash: 'x', firstName: 'Cr', lastName: 'Test' } });
   creator = (await user(EMAILS[0]!)).id;
   owner = (await user(EMAILS[1]!)).id;
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   // As an employee creates one with someone else as owner: they are on the team as a manager.
   const p = await projects.create({ code: CODE, name: 'Creator access', createdById: creator, ownerId: owner, members: [{ userId: creator, role: 'MANAGER' }, { userId: owner, role: 'MEMBER' }] });
   projectId = p.id;
@@ -60,7 +62,7 @@ beforeEach(async () => {
 
 async function audience(): Promise<string[]> {
   const t = await prisma.task.findFirstOrThrow({ where: { id: taskId }, select: taskAudienceSelect });
-  return filterTaskRecipients([creator, owner], toAudienceFacts(t), { adminIds: [] });
+  return filterTaskRecipients([creator, owner], toAudienceFacts(t), { adminIds: [], companiesOf: await activeCompaniesOf(prisma, [creator, owner]) });
 }
 
 describe('The creator of a project (integration)', () => {

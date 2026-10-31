@@ -1,3 +1,6 @@
+import type { Prisma } from '@prisma/client';
+import { sharedCompanyWhere } from '../companies/company-access';
+
 /**
  * Who manages a project: its owner, its named manager, or a MANAGER member of its team.
  * Administrators manage every project (callers check that first). One definition for every place
@@ -16,4 +19,12 @@ export function managesProject(project: ProjectManagers, userId: string): boolea
 /** The same rule as a Prisma filter on projects. */
 export function managedProjectsWhere(userId: string) {
   return { OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId, role: 'MANAGER' as const } } }] };
+}
+
+/**
+ * Projects this person runs AND can see (companies: one of the project's active companies is theirs).
+ * Running a project in a company you no longer belong to gives nothing: every manage check uses this.
+ */
+export function managedVisibleWhere(userId: string): Prisma.ProjectWhereInput {
+  return { AND: [managedProjectsWhere(userId), sharedCompanyWhere(userId)] };
 }

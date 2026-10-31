@@ -4,6 +4,7 @@ import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recur
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
 import { createPrismaTaskRepository } from '../../src/modules/tasks/prisma-task-repository';
 import type { RecurrenceRule } from '../../src/modules/tasks/recurrence';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -43,6 +44,7 @@ beforeEach(async () => {
     data: { code: 'RECUR', name: 'Recurring', createdById: owner.id, ownerId: owner.id, members: { create: [{ userId: mate.id }] } },
   });
   projectId = project.id;
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   const todo = await prisma.kanbanColumn.create({ data: { projectId, name: 'To do', category: 'TODO', position: 0 } });
   await prisma.kanbanColumn.create({ data: { projectId, name: 'Done', category: 'DONE', position: 1 } });
   todoId = todo.id;

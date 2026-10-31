@@ -92,7 +92,7 @@ import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
 import { filterTaskRecipients } from './modules/notifications/recipient-access';
-import { taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
+import { activeCompaniesOf, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
 import { createDeviceTokenService } from './modules/device-tokens/device-token-service';
 import { createPrismaDeviceTokenRepository } from './modules/device-tokens/prisma-device-token-repository';
 import { createPushSender, type PushSender } from './modules/device-tokens/push-sender';
@@ -331,14 +331,18 @@ async function main(): Promise<void> {
   const watcherRepo = createPrismaWatcherRepository(prisma);
   const watcherService = createWatcherService({ repo: watcherRepo, taskLookup: createPrismaTaskLookup(prisma) });
 
-  // Which of these users are active, and which of them are admins (admins can see every task).
-  const activeUserFacts = async (userIds: string[]): Promise<{ activeIds: string[]; adminIds: string[] }> => {
-    if (userIds.length === 0) return { activeIds: [], adminIds: [] };
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds }, deletedAt: null, status: 'ACTIVE' },
-      select: { id: true, roles: { select: { role: { select: { name: true } } } } },
-    });
-    return { activeIds: users.map((u) => u.id), adminIds: users.filter((u) => u.roles.some((r) => r.role.name === 'ADMIN')).map((u) => u.id) };
+  // Which of these users are active, which of them are admins (admins can see every task), and
+  // their active companies (companies: the team sees a project only inside one of its companies).
+  const activeUserFacts = async (userIds: string[]): Promise<{ activeIds: string[]; adminIds: string[]; companiesOf: Map<string, string[]> }> => {
+    if (userIds.length === 0) return { activeIds: [], adminIds: [], companiesOf: new Map() };
+    const [users, companiesOf] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: userIds }, deletedAt: null, status: 'ACTIVE' },
+        select: { id: true, roles: { select: { role: { select: { name: true } } } } },
+      }),
+      activeCompaniesOf(prisma, userIds),
+    ]);
+    return { activeIds: users.map((u) => u.id), adminIds: users.filter((u) => u.roles.some((r) => r.role.name === 'ADMIN')).map((u) => u.id), companiesOf };
   };
   // Of these users, those who can still open the task (never the actor): a watcher or @mention
   // outside the project — or anyone, once the project is deleted — hears nothing about it.
@@ -528,7 +532,8 @@ async function main(): Promise<void> {
     meetings: meetingRepository,
     projectAccess: {
       canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
-      accessibleProjectIds: (userId, roles) => projectAccess.accessibleProjectIds(userId, roles),
+      // companies: a picked company narrows the meetings list's projects (MC1 Task 8 passes it).
+      accessibleProjectIds: (userId, roles, pick?: string | null) => projectAccess.accessibleProjectIds(userId, roles, pick),
       canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
     },
   });
@@ -725,13 +730,23 @@ async function main(): Promise<void> {
   const sweepAudience = async () => {
     const users = await prisma.user.findMany({
       where: { deletedAt: null },
-      select: { id: true, email: true, firstName: true, status: true, notificationPrefs: true, roles: { select: { role: { select: { name: true } } } } },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        status: true,
+        notificationPrefs: true,
+        roles: { select: { role: { select: { name: true } } } },
+        // companies: each person's active companies (a task's team hears about it only inside them).
+        companies: { where: { company: { status: 'ACTIVE' } }, select: { companyId: true } },
+      },
     });
     const active = users.filter((u) => u.status === 'ACTIVE');
     return {
       users: active,
       activeIds: active.map((u) => u.id),
       adminIds: active.filter((u) => u.roles.some((r) => r.role.name === 'ADMIN')).map((u) => u.id),
+      companiesOf: new Map(active.map((u) => [u.id, u.companies.map((c) => c.companyId)])),
     };
   };
 
@@ -745,7 +760,7 @@ async function main(): Promise<void> {
       select: { id: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     // Each user's reminder lead time comes from their notification preferences (default window otherwise).
-    const { users, activeIds, adminIds } = await sweepAudience();
+    const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
     const leadByUser = new Map<string, number>();
     for (const u of users) {
       const lead = normalizePreferences(u.notificationPrefs).reminderLeadMinutes;
@@ -761,7 +776,7 @@ async function main(): Promise<void> {
         approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Watchers get due/overdue reminders too (deduped with assignees) — while they can still see the task.
-        assigneeIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds }),
+        assigneeIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
       })),
       { leadMinutesFor: (id) => leadByUser.get(id), timeZone: companyTz },
     );
@@ -1102,13 +1117,13 @@ async function main(): Promise<void> {
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
       select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
-    const { users, activeIds, adminIds } = await sweepAudience();
+    const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
     const digests = buildDigests(
       tasks.map((t) => ({
         id: t.id, key: t.key, title: t.title, dueDate: t.dueDate, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt,
         columnCategory: t.column?.category ?? null,
         // Someone who has left the project no longer gets its tasks in their digest.
-        recipientIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds }),
+        recipientIds: filterTaskRecipients([...t.assignees.map((a) => a.userId), ...t.watchers.map((w) => w.userId)], toAudienceFacts(t), { activeIds, adminIds, companiesOf }),
       })),
       { timeZone: companyTz },
     );

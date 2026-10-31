@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaPeopleLookup, createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';
 import { createPrismaMemberRepository, createPrismaProjectManagerLookup, projectRunnerIds } from '../../src/modules/projects/prisma-member-repository';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -40,6 +41,7 @@ beforeEach(async () => {
   rig = (await prisma.project.create({ data: { code: 'EMPA', name: 'Rig', createdById: id.creator, ownerId: id.owner, managerId: id.named } })).id;
   await prisma.projectMember.create({ data: { projectId: rig, userId: id.lead, role: 'MANAGER' } });
   await prisma.projectMember.create({ data: { projectId: rig, userId: id.member, role: 'MEMBER' } });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 });
 
 describe('Employee projects (integration)', () => {
@@ -68,6 +70,7 @@ describe('Employee projects (integration)', () => {
     for (const n of ['owner', 'named', 'lead'] as const) expect(await managers.managesProject(id[n], rig), n).toBe(true);
     for (const n of ['member', 'outsider', 'creator'] as const) expect(await managers.managesProject(id[n], rig), n).toBe(false);
     const other = (await prisma.project.create({ data: { code: 'EMPC', name: 'Other', createdById: id.creator, ownerId: id.lead } })).id;
+    await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
     expect((await managers.managedAmong!(id.lead, [rig, other])).sort()).toEqual([rig, other].sort());
     expect(await managers.managedAmong!(id.member, [rig, other])).toEqual([]);
     // A deleted project is nobody's to run.
@@ -124,6 +127,7 @@ describe('Employee projects (integration)', () => {
 
   it('names who runs each project — owner, named manager and MANAGER members, active ones only', async () => {
     const other = (await prisma.project.create({ data: { code: 'EMPC', name: 'Other', createdById: id.creator, ownerId: id.inactive, managerId: id.lead } })).id;
+    await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
     const runners = await projectRunnerIds(prisma, [rig, other]);
     expect([...(runners.get(rig) ?? [])].sort()).toEqual([id.owner, id.named, id.lead].sort());
     expect(runners.get(other)).toEqual([id.lead]); // the deactivated owner is left out

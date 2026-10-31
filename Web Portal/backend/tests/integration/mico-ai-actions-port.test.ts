@@ -13,6 +13,7 @@ import { createPrismaProjectManagerLookup } from '../../src/modules/projects/pri
 import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/final-minutes-repository';
 import { taskChanges } from '../../src/modules/tasks/task-changes';
 import type { Viewer } from '../../src/modules/mico-ai/mico-ai-data';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. MICO AI's changes through the
 // app's own task, assignee and history services, as the person: their access is checked on every
@@ -100,6 +101,7 @@ beforeEach(async () => {
   const [owner, sara, outsider] = users;
   const project = await prisma.project.create({ data: { code: CODE, name: 'MICO AI port', createdById: owner!.id, ownerId: owner!.id } });
   await prisma.projectMember.create({ data: { projectId: project.id, userId: sara!.id } });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   const todo = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'To do', category: 'TODO', position: 0 } });
   const done = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'Done', category: 'DONE', position: 1 } });
   Object.assign(ids, { owner: owner!.id, sara: sara!.id, outsider: outsider!.id, project: project.id, todo: todo.id, done: done.id });

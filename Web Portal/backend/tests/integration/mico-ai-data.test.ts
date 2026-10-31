@@ -16,6 +16,7 @@ import {
   createPrismaParticipantRepository,
   createPrismaReactionRepository,
 } from '../../src/modules/chat/prisma-chat-repository';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. MICO AI's tools over the real
 // queries and the app's own access rules: an employee never gets another project's tasks, meetings
@@ -90,6 +91,7 @@ beforeAll(async () => {
   const beta = await project('MAIB', 'Beta Secret', b.id);
   ids.alpha = alpha.p.id;
   ids.beta = beta.p.id;
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
 
   const task = (key: string, title: string, pr: typeof alpha, extra: Record<string, unknown> = {}, assignees: string[] = []) =>
     prisma.task.create({

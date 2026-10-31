@@ -8,6 +8,7 @@ import { createPrismaRecurrencePort } from '../../src/modules/tasks/prisma-recur
 import { createRecurrenceService } from '../../src/modules/tasks/recurrence-service';
 import { createPrismaApprovalSource } from '../../src/modules/tasks/prisma-approval-source';
 import { managesProject } from '../../src/modules/projects/project-managers';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -64,6 +65,7 @@ beforeEach(async () => {
   copies.length = 0;
   managerId = (await prisma.user.create({ data: { email: EMAILS[0]!, username: 'approvals-manager', passwordHash: 'x', firstName: 'Omar', lastName: 'Manager' } })).id;
   workerId = (await prisma.user.create({ data: { email: EMAILS[1]!, username: 'approvals-worker', passwordHash: 'x', firstName: 'Sara', lastName: 'Worker' } })).id;
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   projectId = (await projectService.createProject({ code: 'APRA', name: 'Approvals', createdById: managerId, managerId })).id;
 });
 

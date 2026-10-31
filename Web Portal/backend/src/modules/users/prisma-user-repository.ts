@@ -2,6 +2,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import { ValidationError } from '../../lib/http-errors';
 import { isLocked } from '../../lib/lockout';
 import type { CreateUserData, UserRepository, UserSummary } from './user-repository';
+import { onlyActiveCompanyId } from '../companies/company-access';
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: { include: { role: true } } } }>;
 const withRoles = { roles: { include: { role: true } } } as const;
@@ -46,6 +47,9 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
   return {
     async create(data: CreateUserData) {
       const roles = await resolveRoles(data.roleNames);
+      // companies: on a site with one active company a new person joins it (their primary company),
+      // as everyone did before companies existed; with several, User Management names them.
+      const company = await onlyActiveCompanyId(prisma);
       const u = await prisma.user.create({
         data: {
           email: data.email,
@@ -55,6 +59,7 @@ export function createPrismaUserRepository(prisma: PrismaClient): UserRepository
           lastName: data.lastName,
           departmentId: data.departmentId ?? undefined,
           roles: { create: roles.map((r) => ({ roleId: r.id })) },
+          ...(company ? { primaryCompanyId: company, companies: { create: { companyId: company } } } : {}),
         },
         include: withRoles,
       });

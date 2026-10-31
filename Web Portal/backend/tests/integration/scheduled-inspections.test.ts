@@ -21,6 +21,7 @@ import { createPrismaProjectManagerLookup } from '../../src/modules/projects/pri
 import { createProjectAuthz } from '../../src/modules/projects/project-authz';
 import { createColumnService } from '../../src/modules/projects/column-service';
 import { createPrismaColumnRepository } from '../../src/modules/projects/prisma-column-repository';
+import { runBackfill } from './company-helpers';
 
 // Scheduled inspections on MySQL (TEST_DATABASE_URL, migrations applied). Only this file's project
 // (code SCHED), its forms and its people (*@sched.mico360.test) are made and removed.
@@ -68,6 +69,7 @@ beforeEach(async () => {
   mateId = (await person('mate')).id;
   const p = await prisma.project.create({ data: { code: 'SCHED', name: 'Scheduled checks', createdById: ownerId, ownerId, members: { create: [{ userId: mateId }] } } });
   projectId = p.id;
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   todoId = (await prisma.kanbanColumn.create({ data: { projectId, name: 'To do', category: 'TODO', position: 0 } })).id;
   doneId = (await prisma.kanbanColumn.create({ data: { projectId, name: 'Done', category: 'DONE', position: 1 } })).id;
 });

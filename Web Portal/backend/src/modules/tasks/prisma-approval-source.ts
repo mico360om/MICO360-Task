@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
-import { managedProjectsWhere } from '../projects/project-managers';
+import { managedVisibleWhere } from '../projects/project-managers';
+import { sharesProjectCompanyWhere } from '../companies/company-access';
 import { createPrismaTaskRepository } from './prisma-task-repository';
 import type { TaskRecord } from './task-repository';
 import type { ApprovalPerson, ApprovalRow, ApprovalSource, ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
@@ -23,7 +24,7 @@ export interface PrismaApprovalSource extends ApprovalSource {
 
 /**
  * Task approvals over the database. Who may approve = `canManageProject`: administrators, and the
- * people who run the project (managedProjectsWhere — the one definition every check uses).
+ * people who run the project and can see it (managedVisibleWhere — the one definition every check uses).
  */
 export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canManageProject: (userId: string, roles: string[], projectId: string) => Promise<boolean> }): PrismaApprovalSource {
   const tasks = createPrismaTaskRepository(prisma);
@@ -31,7 +32,7 @@ export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canMana
   /** The live projects whose tasks this person may approve: null = every one (an administrator). */
   async function approvable(viewer: ApprovalViewer): Promise<string[] | null> {
     if (isAdmin(viewer.roles)) return null;
-    return (await prisma.project.findMany({ where: { deletedAt: null, ...managedProjectsWhere(viewer.id) }, select: { id: true } })).map((p) => p.id);
+    return (await prisma.project.findMany({ where: { deletedAt: null, ...managedVisibleWhere(viewer.id) }, select: { id: true } })).map((p) => p.id);
   }
 
   async function people(ids: (string | null | undefined)[]): Promise<Map<string, ApprovalPerson>> {
@@ -41,7 +42,7 @@ export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canMana
     return new Map(rows.map((u) => [u.id, { id: u.id, name: nameOf(u) }]));
   }
 
-  /** The active people who run a project. */
+  /** The active people who run a project and can see it (in one of its active companies). */
   async function runners(projectId: string): Promise<{ id: string; name: string }[]> {
     const p = await prisma.project.findFirst({
       where: { id: projectId, deletedAt: null },
@@ -50,7 +51,7 @@ export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canMana
     if (!p) return [];
     const ids = [...new Set([p.ownerId, p.managerId, ...p.members.map((m) => m.userId)].filter((id): id is string => !!id))];
     if (ids.length === 0) return [];
-    return (await prisma.user.findMany({ where: { id: { in: ids }, ...active }, select: personFields })).map((u) => ({ id: u.id, name: nameOf(u) }));
+    return (await prisma.user.findMany({ where: { id: { in: ids }, ...active, ...sharesProjectCompanyWhere(projectId) }, select: personFields })).map((u) => ({ id: u.id, name: nameOf(u) }));
   }
 
   async function roleNames(userId: string): Promise<string[]> {
@@ -77,7 +78,7 @@ export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canMana
 
     async canApproveAny(viewer) {
       if (isAdmin(viewer.roles)) return true;
-      return (await prisma.project.count({ where: { deletedAt: null, ...managedProjectsWhere(viewer.id) } })) > 0;
+      return (await prisma.project.count({ where: { deletedAt: null, ...managedVisibleWhere(viewer.id) } })) > 0;
     },
 
     async countFor(userId) {

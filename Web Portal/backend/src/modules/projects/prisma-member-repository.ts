@@ -1,7 +1,7 @@
 import { type PrismaClient, type ProjectMemberRole } from '@prisma/client';
 import type { MemberRepository, ProjectExistsLookup } from './member-repository';
 import type { ProjectManagerLookup } from './project-authz';
-import { managedProjectsWhere } from './project-managers';
+import { managedVisibleWhere } from './project-managers';
 import { ConflictError } from '../../lib/http-errors';
 
 export function createPrismaMemberRepository(prisma: PrismaClient): MemberRepository {
@@ -72,15 +72,16 @@ export function createPrismaMemberRepository(prisma: PrismaClient): MemberReposi
 
 export function createPrismaProjectManagerLookup(prisma: PrismaClient): ProjectManagerLookup {
   return {
-    // Who runs a project: its owner, its named manager or a MANAGER member (project-managers). A
-    // deleted project is nobody's to run.
+    // Who runs a project: its owner, its named manager or a MANAGER member (project-managers), while
+    // they share one of its active companies (companies: managedVisibleWhere). A deleted project is
+    // nobody's to run.
     async managesProject(userId, projectId) {
-      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
+      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null, ...managedVisibleWhere(userId) }, select: { id: true } });
       return p !== null;
     },
     async managedAmong(userId, projectIds) {
       if (projectIds.length === 0) return [];
-      const ps = await prisma.project.findMany({ where: { id: { in: projectIds }, deletedAt: null, ...managedProjectsWhere(userId) }, select: { id: true } });
+      const ps = await prisma.project.findMany({ where: { id: { in: projectIds }, deletedAt: null, ...managedVisibleWhere(userId) }, select: { id: true } });
       return ps.map((p) => p.id);
     },
     async projectIdOfColumn(columnId) {

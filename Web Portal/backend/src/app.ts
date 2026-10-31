@@ -492,7 +492,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const access = deps.projectAccess;
       const canViewTask = access ? (u: string, r: string[], t: string) => access.canViewTask(u, r, t) : undefined;
       const canViewProject = access ? (u: string, r: string[], p: string) => access.canViewProject(u, r, p) : undefined;
-      const accessibleProjectIds = access ? (u: string, r: string[]) => access.accessibleProjectIds(u, r) : undefined;
+      // companies: routes pass the request's pick, `deps.accessibleProjectIds(u, r, await pickOf(req))` (from MC1 Task 8).
+      const accessibleProjectIds = access ? (u: string, r: string[], pick?: string | null) => access.accessibleProjectIds(u, r, pick) : undefined;
       const mAccess = deps.meetingAccess;
       const canViewMeeting = mAccess ? (u: string, r: string[], m: string) => mAccess.canViewMeeting(u, r, m) : undefined;
       // companies: the request's picked company (X-Company-Id), checked once per request; it narrows

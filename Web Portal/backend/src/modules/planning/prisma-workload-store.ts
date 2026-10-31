@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { toPerson } from './prisma-timeline-source';
 import type { WorkloadStore } from './workload-service';
+import { managedVisibleWhere } from '../projects/project-managers';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
 const ACTIVE = { deletedAt: null, status: 'ACTIVE' as const };
@@ -17,7 +18,8 @@ export function createPrismaWorkloadStore(prisma: PrismaClient): WorkloadStore {
   return {
     async managedProjectIds(userId) {
       const managed = await prisma.project.findMany({
-        where: { ...LIVE_PROJECT, OR: [{ managerId: userId }, { ownerId: userId }, { members: { some: { userId, role: 'MANAGER' } } }] },
+        // companies: projects they run and can see (managedVisibleWhere).
+        where: { AND: [LIVE_PROJECT, managedVisibleWhere(userId)] },
         select: { id: true },
         orderBy: { name: 'asc' },
       });

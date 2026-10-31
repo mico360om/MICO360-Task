@@ -2,6 +2,10 @@ import { Prisma, type PrismaClient, type Project } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
 import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
 import { writeStartingTasks } from './prisma-starting-content';
+import { fallbackProjectCompanyId, pickedCompanyWhere, visibleProjectWhere } from '../companies/company-access';
+
+/** companies: a new project's company rows (its main company is always one of them). */
+const companyLink = (companyId: string | null) => (companyId ? { mainCompanyId: companyId, companies: { create: { companyId } } } : {});
 
 function toRecord(p: Project): ProjectRecord {
   return {
@@ -70,6 +74,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     async create(data: CreateProjectData) {
       try {
         const start = data.startWith;
+        const company = companyLink(await fallbackProjectCompanyId(prisma, data.createdById));
         // A project from a template: the project, the template's board, its tasks (with their
         // checklists and people) and the first team in one transaction — all of it or none of it.
         if (start) {
@@ -78,6 +83,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
               const p = await tx.project.create({
                 data: {
                   ...projectFields(data),
+                  ...company,
                   columns: { create: start.columns.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
                   ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
                 },
@@ -94,6 +100,7 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
         const p = await prisma.project.create({
           data: {
             ...projectFields(data),
+            ...company,
             columns: { create: DEFAULT_COLUMNS.map((c, position) => ({ name: c.name, category: c.category, color: c.color, position })) },
             // Its team in the same write: a project never exists without the people it was made with.
             ...(data.members?.length ? { members: { create: data.members.map((m) => ({ userId: m.userId, role: m.role })) } } : {}),
@@ -119,31 +126,23 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     async codeInUse(code) {
       return (await prisma.project.count({ where: { code } })) > 0;
     },
-    async list() {
-      const ps = await prisma.project.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } });
+    // Every project (an administrator's list), or with a picked company only that company's.
+    async list(pick) {
+      const ps = await prisma.project.findMany({ where: { deletedAt: null, ...(pick ? { companies: { some: { companyId: pick } } } : {}) }, orderBy: { createdAt: 'desc' } });
       return ps.map(toRecord);
     },
-    // Who sees a project: its owner, its named manager and its team. Having created it is not a way
-    // in (the creator is on its team from the start, so leaving the team means leaving the project).
-    async listForUser(userId) {
+    // Who sees a project: its owner, its named manager and its team, inside one of the person's
+    // active companies (companies: visibleProjectWhere). Having created it is not a way in (the
+    // creator is on its team from the start, so leaving the team means leaving the project).
+    async listForUser(userId, pick) {
       const ps = await prisma.project.findMany({
-        where: {
-          deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }],
-        },
+        where: pick ? { AND: [visibleProjectWhere(userId), pickedCompanyWhere(userId, pick)] } : visibleProjectWhere(userId),
         orderBy: { createdAt: 'desc' },
       });
       return ps.map(toRecord);
     },
     async isAccessibleTo(projectId, userId) {
-      const p = await prisma.project.findFirst({
-        where: {
-          id: projectId,
-          deletedAt: null,
-          OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }],
-        },
-        select: { id: true },
-      });
+      const p = await prisma.project.findFirst({ where: { AND: [{ id: projectId }, visibleProjectWhere(userId)] }, select: { id: true } });
       return p !== null;
     },
     async update(id, patch: UpdateProjectData, opts) {

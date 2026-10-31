@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { zonedStartOfDay } from '../../lib/due-date';
-import { managedProjectsWhere } from '../projects/project-managers';
+import { managedVisibleWhere } from '../projects/project-managers';
 import type { ProjectStatus } from './management-rules';
 import type { ActionLine, ManagementSource, MgmtPerson, TaskLine } from './management-source';
 
@@ -78,7 +78,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
   return {
     async projects(runBy) {
       const rows = await prisma.project.findMany({
-        where: { deletedAt: null, ...(runBy ? managedProjectsWhere(runBy) : {}) },
+        where: { deletedAt: null, ...(runBy ? managedVisibleWhere(runBy) : {}) },
         select: { id: true, code: true, name: true, status: true, color: true, icon: true, imageUrl: true, ownerId: true, managerId: true, updatedAt: true },
         orderBy: { name: 'asc' },
       });
@@ -86,7 +86,7 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
     },
 
     async runCount(userId) {
-      return prisma.project.count({ where: { deletedAt: null, ...managedProjectsWhere(userId) } });
+      return prisma.project.count({ where: { deletedAt: null, ...managedVisibleWhere(userId) } });
     },
 
     async people(ids) {

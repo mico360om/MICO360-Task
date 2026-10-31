@@ -1,11 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
 import type { AssigneeRepository, TaskLookup } from './assignee-repository';
+import { sharesProjectCompanyWhere } from '../companies/company-access';
 
 type Db = Pick<PrismaClient, 'project' | 'user'>;
 
 /**
  * Active users among `userIds` (or everyone, when omitted) who can see the project: its owner,
- * named manager, team and admins. Empty when the project is missing or deleted.
+ * named manager and team who share one of its active companies, and admins. Empty when the project
+ * is missing or deleted.
  */
 export async function projectAudienceIds(db: Db, projectId: string, userIds?: string[]): Promise<string[]> {
   const project = await db.project.findFirst({
@@ -21,7 +23,7 @@ export async function projectAudienceIds(db: Db, projectId: string, userIds?: st
       deletedAt: null,
       status: 'ACTIVE',
       ...(userIds ? { id: { in: userIds } } : {}),
-      OR: [{ id: { in: direct } }, { roles: { some: { role: { name: 'ADMIN' } } } }],
+      OR: [{ id: { in: direct }, ...sharesProjectCompanyWhere(projectId) }, { roles: { some: { role: { name: 'ADMIN' } } } }],
     },
     select: { id: true },
   });

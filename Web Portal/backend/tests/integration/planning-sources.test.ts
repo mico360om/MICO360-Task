@@ -6,6 +6,7 @@ import { createPrismaWorkloadStore } from '../../src/modules/planning/prisma-wor
 import { loadWorkload } from '../../src/modules/planning/workload-service';
 import { resolveWorkloadScope } from '../../src/modules/planning/workload';
 import { createPrismaAssigneeRepository, createPrismaTaskLookup } from '../../src/modules/tasks/prisma-assignee-repository';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -54,6 +55,7 @@ beforeEach(async () => {
   await proj('two', 'PLTWO', { ownerId: ids.fay, managerId: ids.bo, status: 'PLANNING' });
   await proj('old', 'PLOLD', { managerId: ids.bo, status: 'ARCHIVED' });
   await proj('fin', 'PLDONE', { managerId: ids.fay, status: 'COMPLETED' });
+  await runBackfill(prisma); // companies: everyone and every project here in the one company, as after the upgrade
   await prisma.projectMember.createMany({
     data: [
       { projectId: ids.one!, userId: ids.bo!, role: 'MANAGER' },

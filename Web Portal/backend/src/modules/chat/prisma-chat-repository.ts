@@ -8,6 +8,7 @@ import type {
   ChatAttachmentRepository,
   ChatMemberLookup,
 } from './chat-repository';
+import { sharesProjectCompanyWhere, visibleProjectWhere } from '../companies/company-access';
 
 type ConvRow = { id: string; kind: string; projectId: string | null; createdAt: Date };
 const toConv = (c: ConvRow): Conversation => ({ id: c.id, kind: c.kind as Conversation['kind'], projectId: c.projectId, createdAt: c.createdAt });
@@ -177,16 +178,11 @@ export function createPrismaChatAttachmentRepository(prisma: PrismaClient): Chat
 }
 
 /**
- * Chat access follows project visibility — the owner, named manager and team of a live project,
- * plus admins (read from the database, so a revoked admin role takes effect at once). Having
- * created a project is not a way in.
+ * Chat access follows project visibility — the owner, named manager and team of a live project who
+ * share one of its active companies (companies: visibleProjectWhere), plus admins (read from the
+ * database, so a revoked admin role takes effect at once). Having created a project is not a way in.
  */
 export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLookup {
-  const visibleTo = (userId: string) => [
-    { ownerId: userId },
-    { managerId: userId },
-    { members: { some: { userId } } },
-  ];
   async function isAdmin(userId: string): Promise<boolean> {
     const row = await prisma.userRole.findFirst({
       where: { userId, role: { name: 'ADMIN' }, user: { deletedAt: null, status: 'ACTIVE' } },
@@ -196,15 +192,14 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
   }
   return {
     async canAccessProject(projectId, userId) {
-      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true, ownerId: true, managerId: true } });
+      const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: { id: true } });
       if (!p) return false;
-      if (p.ownerId === userId || p.managerId === userId) return true;
-      const member = await prisma.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } }, select: { userId: true } });
-      if (member) return true;
+      const visible = await prisma.project.count({ where: { AND: [{ id: projectId }, visibleProjectWhere(userId)] } });
+      if (visible > 0) return true;
       return isAdmin(userId);
     },
     async accessibleProjectIds(userId) {
-      const where = (await isAdmin(userId)) ? { deletedAt: null } : { deletedAt: null, OR: visibleTo(userId) };
+      const where = (await isAdmin(userId)) ? { deletedAt: null } : visibleProjectWhere(userId);
       const rows = await prisma.project.findMany({ where, select: { id: true } });
       return rows.map((r) => r.id);
     },
@@ -219,15 +214,20 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
       });
       if (!p) return [];
       const ids = [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)].filter((x): x is string => !!x);
-      const active = await prisma.user.findMany({ where: { id: { in: [...new Set(ids)] }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
+      // The team who can see it now: active, and in one of its active companies.
+      const active = await prisma.user.findMany({
+        where: { id: { in: [...new Set(ids)] }, deletedAt: null, status: 'ACTIVE', ...sharesProjectCompanyWhere(projectId) },
+        select: { id: true },
+      });
       return active.map((u) => u.id);
     },
     async teamSince(userId) {
       // On the team: the owner or manager (since the project was made) or a member (since they
       // were added). Having created a project (an administrator sets them up for others) or an
       // administrator's access to every project is not being on its team.
+      // companies: only projects they can see now (on the team AND in one of their active companies).
       const rows = await prisma.project.findMany({
-        where: { deletedAt: null, OR: [{ ownerId: userId }, { managerId: userId }, { members: { some: { userId } } }] },
+        where: visibleProjectWhere(userId),
         select: { id: true, createdAt: true, ownerId: true, managerId: true, members: { where: { userId }, select: { addedAt: true } } },
       });
       const team = new Map<string, Date>();
