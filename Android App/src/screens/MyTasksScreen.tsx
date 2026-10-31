@@ -11,6 +11,8 @@ import { Icon } from '../components/Icon';
 import { Sheet } from '../components/meeting/sheet-kit';
 import { DayPicker } from '../components/calendar/CalendarSheets';
 import { ChoiceSheet } from '../components/my-tasks/ChoiceSheet';
+import { ExternalCompanyFilter } from '../components/board/ExternalCompanyFilter';
+import { externalCompanyOptions } from '../lib/external-contacts';
 import { MyTaskItem } from '../components/my-tasks/MyTaskItem';
 import { ToApproveSection } from '../components/approvals/ToApproveSection';
 import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
@@ -92,14 +94,18 @@ export function MyTasksScreen({ navigation, route }: TabScreenProps<'MyTasks'>) 
   const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS);
   const set = (patch: Partial<TaskFilters>) => setFilters((f) => ({ ...f, ...patch }));
   const [q, setQ] = useState('');
+  // "External company" (the people outside the company responsible for a task): chosen apart from the saved views.
+  const [externalCompany, setExternalCompany] = useState('');
+  const companies = useMemo(() => externalCompanyOptions(tasksQ.data ?? []), [tasksQ.data]);
   const rows = useMemo(() => enrichMyTasks(tasksQ.data ?? [], projects, { timeZone, now }), [tasksQ.data, projects, timeZone, now]);
-  const shown = useMemo(() => sortMyTasks(filterMyTasks(rows, filters, { timeZone, now, q }), filters.sort), [rows, filters, timeZone, now, q]);
+  const shown = useMemo(() => sortMyTasks(filterMyTasks(rows, filters, { timeZone, now, q, company: externalCompany }), filters.sort), [rows, filters, timeZone, now, q, externalCompany]);
   const counts = useMemo(() => myTaskCounts(rows), [rows]);
   const chips = chipState(filters);
-  const active = filtersActive(filters) || q.trim() !== '';
+  const active = filtersActive(filters) || q.trim() !== '' || externalCompany !== '';
   const clearFilters = () => {
     setFilters((f) => toggleChip(f, 'all'));
     setQ('');
+    setExternalCompany('');
   };
 
   // ── Filters and sort ──
@@ -268,7 +274,8 @@ export function MyTasksScreen({ navigation, route }: TabScreenProps<'MyTasks'>) 
                 </Pressable>
               );
             })}
-            {filtersActive(filters) ? (
+            <ExternalCompanyFilter companies={companies} value={externalCompany} onChange={setExternalCompany} />
+            {filtersActive(filters) || externalCompany ? (
               <Pressable onPress={clearFilters} accessibilityRole="button" accessibilityLabel="Clear filters" style={s.clear}>
                 <Text style={s.clearText}>Clear</Text>
               </Pressable>

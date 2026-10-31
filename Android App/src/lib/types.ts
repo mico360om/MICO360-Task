@@ -20,6 +20,7 @@ export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 /** A task's recurrence rule — lib/recurrence.ts is a copy of the backend's (the API's model). */
 export type { RecurrenceRule } from './recurrence';
 import type { RecurrenceRule } from './recurrence';
+import type { ExternalContactFields, ExternalContactSummary } from './external-contacts';
 
 export type DevicePlatform = 'ANDROID' | 'IOS' | 'WEB';
 
@@ -95,6 +96,21 @@ export interface ApiTask {
   inspectionPlace?: string | null;
   /** The form a check carries, as GET /tasks/:id names it (still there when the form was deleted since — Stage 4). */
   inspectionForm?: { id: string; title: string; deleted: boolean } | null;
+  /** Its external contacts in short — the first one's name and company, how many, every name and company (null: none; older servers leave it out). */
+  externalSummary?: ExternalContactSummary | null;
+  /** Its external contacts in full, in order (GET /tasks/:id). */
+  externalContacts?: ApiExternalContact[];
+}
+
+/** A person outside the company responsible for a task (that task's own copy — the website's api/external-contacts). */
+export interface ApiExternalContact extends ExternalContactFields {
+  id: string;
+  taskId: string;
+  /** Its place in the task's list (0 first). */
+  position: number;
+  createdById?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /** A person named on a task's approval (the website's api/tasks.ts). */

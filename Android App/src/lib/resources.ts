@@ -5,6 +5,7 @@ import type { NotificationPreferences, PreferencesUpdate } from './notification-
 import type { DatePreferences, ServerConfig } from './date-settings';
 import type { ApiAccountUser } from './account';
 import { readTaskDraft } from './task-describe';
+import type { ExternalContactDraft, ExternalContactFields } from './external-contacts';
 import { readOfficePreview } from './file-preview';
 import { micoAiApi } from './mico-ai-api';
 import type {
@@ -12,6 +13,7 @@ import type {
   ApiChatMessage,
   ApiChecklist,
   ApiChecklistItem,
+  ApiExternalContact,
   ApiColumn,
   ColumnCategory,
   ApiComment,
@@ -264,16 +266,18 @@ export function resourcesApi(client: ApiClient) {
       mine: (opts: { signal?: AbortSignal } = {}) => data(client.get<Envelope<ApiTask[]>>('/tasks/mine', opts.signal ? { signal: opts.signal } : undefined)),
       get: (id: string) => data(client.get<Envelope<ApiTask>>(`/tasks/${seg(id)}`)),
       create: (
-        body: Omit<Partial<ApiTask>, 'tags' | 'assignees'> & {
+        body: Omit<Partial<ApiTask>, 'tags' | 'assignees' | 'externalContacts'> & {
           title: string;
           projectId: string;
           columnId: string;
           tags?: string[];
           assigneeIds?: string[];
+          /** Its external contacts, in order, written with the task. */
+          externalContacts?: ExternalContactFields[];
         },
         opts?: WriteOptions,
       ) => data(client.post<Envelope<ApiTask>>('/tasks', body, idempotencyHeaders(opts?.idempotencyKey))),
-      update: (id: string, body: Partial<ApiTask> & { scope?: 'one' | 'series'; expectedVersion?: number }) =>
+      update: (id: string, body: Omit<Partial<ApiTask>, 'externalContacts'> & { scope?: 'one' | 'series'; expectedVersion?: number }) =>
         data(client.put<Envelope<ApiTask>>(`/tasks/${seg(id)}`, body)),
       move: (id: string, columnId: string, position?: number) =>
         data(client.patch<Envelope<ApiTask>>(`/tasks/${seg(id)}/move`, { columnId, position })),
@@ -299,6 +303,16 @@ export function resourcesApi(client: ApiClient) {
       reorderChecklist: (id: string, orderedIds: string[]) =>
         data(client.put<Envelope<ApiChecklistItem[]>>(`/tasks/${seg(id)}/checklist/reorder`, { orderedIds })),
       removeChecklistItem: (itemId: string) => client.del<void>(`/checklist/${seg(itemId)}`),
+      // External contacts (people outside the company responsible for the task): list, add, change
+      // (only the fields sent; one sent empty is cleared), remove — and the project's earlier ones
+      // whose name or company starts with what was typed (at most 10, newest first). Need a connection.
+      externalContacts: (id: string) => data(client.get<Envelope<ApiExternalContact[]>>(`/tasks/${seg(id)}/external-contacts`)),
+      addExternalContact: (id: string, contact: ExternalContactFields, opts?: WriteOptions) =>
+        data(client.post<Envelope<ApiExternalContact>>(`/tasks/${seg(id)}/external-contacts`, contact, idempotencyHeaders(opts?.idempotencyKey))),
+      updateExternalContact: (contactId: string, patch: ExternalContactDraft) => data(client.put<Envelope<ApiExternalContact>>(`/external-contacts/${seg(contactId)}`, patch)),
+      removeExternalContact: (contactId: string) => client.del<void>(`/external-contacts/${seg(contactId)}`),
+      externalContactSuggestions: (projectId: string, q: string) =>
+        data(client.get<Envelope<ExternalContactFields[]>>(`/projects/${seg(projectId)}/external-contacts?q=${encodeURIComponent(q)}`)),
       // Comments: list, add (supports @mentions), edit (own), remove (own/admin).
       comments: (id: string) => data(client.get<Envelope<ApiComment[]>>(`/tasks/${seg(id)}/comments`)),
       // Who an @mention in this task's comments would notify — suggested while typing.

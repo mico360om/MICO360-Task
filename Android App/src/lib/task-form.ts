@@ -12,6 +12,7 @@
  * key and locks the form until a definite answer (the server matches the key, not what is sent).
  * Pure, so it is tested here (task-form.test.ts also checks the words against the website).
  */
+import type { ExternalContactFields } from './external-contacts';
 import { ApiError, isNetworkError } from './api-client';
 import { uploadErrorMessage, uploadMimeType } from './attachments';
 import { validateAttachment } from './chat-model';
@@ -318,6 +319,8 @@ export interface NewTaskInput {
   /** A check (Stage 4): the inspection form it is carried out with, and where (only with a form). */
   inspectionFormId?: string;
   inspectionPlace?: string | null;
+  /** Its external contacts (people outside the company responsible for it), in order, created with the task. */
+  externalContacts?: ExternalContactFields[];
 }
 
 export type DraftCheck = { ok: true; input: NewTaskInput } | { ok: false; field: 'title' | 'repeat' | 'place' | 'inspection'; message: string };

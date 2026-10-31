@@ -116,6 +116,13 @@ export const BoardCard = React.memo(function BoardCard({
         </View>
       ) : null}
 
+      {/* The people outside the company responsible for it: "External: Ahmed Al Said (OXY) and 2 more". */}
+      {view.externalText ? (
+        <Text style={s.external} numberOfLines={capLines(1)} importantForAccessibility="no">
+          {view.externalText}
+        </Text>
+      ) : null}
+
       <View style={s.bottom} importantForAccessibility="no-hide-descendants">
         <View style={s.progress}>
           <View style={s.track}>
@@ -178,6 +185,7 @@ const makeStyles = (c: Palette) =>
     dueLate: { backgroundColor: c.dangerSoft, borderRadius: radius.badge, paddingHorizontal: 4 },
     dueLateText: { color: c.dangerText, ...font('700') },
     count: { fontSize: fontSize.xs, color: c.ink2 },
+    external: { fontSize: fontSize.xs, ...font('600'), color: c.ink2 },
     bottom: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
     progress: { flex: 1, minWidth: 120, flexDirection: 'row', alignItems: 'center', gap: 6 },
     track: { flex: 1 },

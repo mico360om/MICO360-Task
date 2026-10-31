@@ -1,7 +1,7 @@
 import type { TaskSection } from './task-detail';
 
-/** The task screen's sections with Stage 4's cards: Client view (whoever runs the project) and Inspections. */
-export type TaskPart = TaskSection | 'client' | 'inspections';
+/** The task screen's sections with Stage 4's cards — Client view (whoever runs the project) and Inspections — and External contacts. */
+export type TaskPart = TaskSection | 'client' | 'inspections' | 'external';
 
 type Layout = { top: TaskPart[]; main: TaskPart[]; side: TaskPart[] };
 

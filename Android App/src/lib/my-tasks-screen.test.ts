@@ -12,7 +12,8 @@ describe('the My Tasks screen (4d), as the website’s page', () => {
     expect(screen).toMatch(/<FlatList/);
     expect(screen).not.toMatch(/ScrollView/);
     expect(screen).toMatch(/enrichMyTasks\(tasksQ\.data \?\? \[\], projects, \{ timeZone, now \}\)/);
-    expect(screen).toMatch(/sortMyTasks\(filterMyTasks\(rows, filters, \{ timeZone, now, q \}\), filters\.sort\)/);
+    // The external company is chosen apart from the saved views' filters.
+    expect(screen).toMatch(/sortMyTasks\(filterMyTasks\(rows, filters, \{ timeZone, now, q, company: externalCompany \}\), filters\.sort\)/);
     expect(screen).toMatch(/myTaskCounts\(rows\)/);
     for (const chip of ['all', 'open', 'overdue', 'completed']) expect(screen, chip).toMatch(new RegExp(`setFilters\\(\\(f\\) => toggleChip\\(f, '${chip}'\\)\\)`));
     for (const what of ['project', 'status', 'priority', 'assignee', 'due date']) expect(screen, what).toContain(`Filter by ${what}`);

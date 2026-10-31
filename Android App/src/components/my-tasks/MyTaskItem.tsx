@@ -6,6 +6,7 @@ import { Icon } from '../Icon';
 import { ApprovalChip, Avatar, InspectionChip, PriorityBadge, ProgressBar } from '../ui';
 import { STATUS_NAME } from '../../lib/all-board';
 import { dueLabel, myTaskLabel, selectTaskLabel, type MyTaskRow } from '../../lib/my-tasks';
+import { externalContactsLine } from '../../lib/external-contacts';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ColumnCategory } from '../../lib/types';
 import { font } from '../../lib/typography';
@@ -23,6 +24,7 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
   const people = (t.assignees ?? []) as unknown as { id: string; name: string }[];
   const shownPeople = people.slice(0, 3);
   const due = dueLabel(row);
+  const external = externalContactsLine(t.externalSummary);
   return (
     <View style={[s.card, selected && s.cardOn, row.overdue && s.overdue]}>
       <Pressable
@@ -65,6 +67,11 @@ export const MyTaskItem = React.memo(function MyTaskItem({ row, selected, onOpen
           <View importantForAccessibility="no-hide-descendants">
             <ApprovalChip />
           </View>
+        ) : null}
+        {external ? (
+          <Text style={s.external} numberOfLines={capLines(1)} importantForAccessibility="no">
+            {external}
+          </Text>
         ) : null}
         <View style={s.dueRow} importantForAccessibility="no-hide-descendants">
           <Icon name="kit.calendar" size={12} color={row.overdue ? c.dangerText : row.dueToday ? c.warningText : t.dueDate ? c.ink2 : c.ink3} />
@@ -113,6 +120,7 @@ const makeStyles = (c: Palette) =>
     statusText: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     title: { fontSize: fontSize.md, ...font('600'), color: c.ink },
     titleDone: { textDecorationLine: 'line-through', color: c.ink3 },
+    external: { fontSize: fontSize.xs, ...font('600'), color: c.ink2 },
     dueRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     due: { fontSize: fontSize.xs, color: c.ink2 },
     dueLate: { color: c.dangerText, ...font('700') },

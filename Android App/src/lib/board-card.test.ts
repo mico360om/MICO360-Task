@@ -64,6 +64,15 @@ describe('a board card shows what the website’s card shows (4b)', () => {
     expect(full.assignees).toEqual([{ id: 'u9', name: 'Cy Do' }]);
   });
 
+  it('names its external contacts in one line — “External: Ahmed Al Said (OXY) and 2 more” — and reads it to TalkBack', () => {
+    const summary = { count: 3, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'B', 'C'], companies: ['OXY'] };
+    const view = cardView(boardCard(task('1', { externalSummary: summary }), col('c1')), { now: NOW, timeZone: TZ });
+    expect(view.externalText).toBe('External: Ahmed Al Said (OXY) and 2 more');
+    expect(view.label).toContain('External: Ahmed Al Said (OXY) and 2 more.');
+    expect(cardView(boardCard(task('2'), col('c1')), { now: NOW, timeZone: TZ }).externalText).toBeNull();
+    expect(cardView(boardCard(task('3', { externalSummary: null }), col('c1')), { now: NOW, timeZone: TZ }).externalText).toBeNull();
+  });
+
   it('reads everything it shows to TalkBack, in words', () => {
     const card = boardCard(
       task('1', {

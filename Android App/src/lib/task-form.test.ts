@@ -423,7 +423,9 @@ describe('a New task try whose answer was lost (5b review #4, checked on the 4a 
   it('nothing moves a locked form: the column the board picks for it waits until the try is settled', () => {
     const screen = readFileSync(resolve(__dirname, '../screens/NewTaskScreen.tsx'), 'utf8');
     expect(screen).toMatch(/if \(frozen \|\| !columnsQ\.data \|\| columns\.length === 0\) return;/);
-    expect(screen).toMatch(/keptTryProblem\(keptBody\.current, check\.input\)/);
+    // What the try carries: the form's input, with its external contacts.
+    expect(screen).toMatch(/const input = contacts\.length \? \{ \.\.\.check\.input, externalContacts: contactInputs\(contacts\) \} : check\.input;/);
+    expect(screen).toMatch(/keptTryProblem\(keptBody\.current, input\)/);
   });
 });
 

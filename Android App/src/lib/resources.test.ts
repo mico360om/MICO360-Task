@@ -149,6 +149,29 @@ describe('resourcesApi.tasks', () => {
     expect(calls[5]).toMatchObject({ method: 'DELETE', path: '/checklist/i1' });
   });
 
+  it('manages a task’s external contacts: list, add (with its key), change, remove, and suggests earlier ones from the project', async () => {
+    const { client, calls } = fakeClient();
+    const api = resourcesApi(client).tasks;
+    const ahmed = { name: 'Ahmed Al Said', company: 'OXY', designation: null, email: null, phone: '+968 1', remarks: null };
+    await api.externalContacts('t1');
+    await api.addExternalContact('t1', ahmed);
+    await api.updateExternalContact('x1', { phone: '' });
+    await api.removeExternalContact('x1');
+    await api.externalContactSuggestions('p1', 'Al Said & co');
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/tasks/t1/external-contacts' });
+    expect(calls[1]).toEqual({ method: 'POST', path: '/tasks/t1/external-contacts', body: ahmed });
+    expect(calls[2]).toEqual({ method: 'PUT', path: '/external-contacts/x1', body: { phone: '' } });
+    expect(calls[3]).toMatchObject({ method: 'DELETE', path: '/external-contacts/x1' });
+    expect(calls[4]).toMatchObject({ method: 'GET', path: '/projects/p1/external-contacts?q=Al%20Said%20%26%20co' });
+  });
+
+  it('creates a task with its external contacts in the same call', async () => {
+    const { client, calls } = fakeClient();
+    const ahmed = { name: 'Ahmed', company: 'OXY', designation: null, email: null, phone: null, remarks: null };
+    await resourcesApi(client).tasks.create({ title: 'X', projectId: 'p1', columnId: 'c1', externalContacts: [ahmed] });
+    expect(calls[0]).toEqual({ method: 'POST', path: '/tasks', body: { title: 'X', projectId: 'p1', columnId: 'c1', externalContacts: [ahmed] } });
+  });
+
   it('manages comments: list, add, edit, remove', async () => {
     const { client, calls } = fakeClient();
     const api = resourcesApi(client).tasks;

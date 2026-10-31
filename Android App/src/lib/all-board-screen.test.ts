@@ -21,7 +21,8 @@ describe('the All projects board screen (4c)', () => {
 
   it('shows every shown project’s tasks for the day under the six statuses, as virtualized lists', () => {
     expect(screen).toMatch(/useAllProjectsTasks\(boardDate\)/);
-    expect(screen).toMatch(/composeAllProjectsBoard\(tasksQ\.data \?\? \[\], projects, \{ hidden \}\)/);
+    // Narrowed to the external company chosen (none: every task).
+    expect(screen).toMatch(/composeAllProjectsBoard\(filterByExternalCompany\(tasksQ\.data \?\? \[\], company\), projects, \{ hidden \}\)/);
     expect(screen).toMatch(/<FlatList\s+horizontal\s+data=\{board\}/);
     expect(screen).not.toMatch(/ScrollView/);
     expect(screen).toMatch(/<BoardColumnView/);

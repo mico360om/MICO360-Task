@@ -28,6 +28,9 @@ import { defaultDueDay, defaultDueNote } from '../lib/default-due';
 import { AssigneeField } from '../components/task-form/AssigneeField';
 import { DueDateField } from '../components/task-form/DueDateField';
 import { FilesField } from '../components/task-form/FilesField';
+import { ExternalContactsField } from '../components/task-form/ExternalContactsField';
+import { useExternalContactMutations } from '../core/external-contact-queries';
+import { contactInputs, contactRowsOf, contactsDirty, saveContactChanges, savedContactsOf, type ContactRow, type SavedContact } from '../lib/task-external-contacts';
 import { companyTodayKey, dateZones, subscribeTimeZone } from '../lib/due-date';
 import { weekStartOf } from '../lib/calendar';
 import { PRIORITY_LABEL } from '../lib/calendar-model';
@@ -134,6 +137,10 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   const [draft, setDraft] = useState<TaskDraft>(start);
   const [placeChosen, setPlaceChosen] = useState(false);
   const [files, setFiles] = useState<NewTaskFile[]>([]);
+  // External contacts (people outside the company responsible for it): the form's rows, and — Edit
+  // task — the task's as saved (only what changed is saved, after the task's own changes).
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [savedContacts, setSavedContacts] = useState<SavedContact[]>([]);
   const fileSeq = useRef({ n: 0 });
   const [titleError, setTitleError] = useState<string | null>(null);
   const [repeatError, setRepeatError] = useState<string | null>(null);
@@ -207,6 +214,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     peopleFilled.current = !!assigneesQ.data;
     openedVersion.current = taskQ.data.version;
     settle(editTaskDraft(taskQ.data, (assigneesQ.data ?? []).map((a) => a.id), timeZone));
+    setContacts(contactRowsOf(taskQ.data.externalContacts ?? []));
+    setSavedContacts(savedContactsOf(taskQ.data.externalContacts ?? []));
   }, [editing, taskQ.data, assigneesQ.data, peopleUnknown, timeZone]);
   // Who is on it arrived after the form was filled without them (final review A8): filled in now, so
   // the form never says "Nobody is assigned." while people are (the field was off until then).
@@ -355,7 +364,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
   );
 
   // ── Leaving ──
-  const dirty = isDraftDirty(draft, saved, { placeChosen, files: files.length });
+  const dirty = isDraftDirty(draft, saved, { placeChosen, files: files.length }) || contactsDirty(savedContacts, contacts);
   useEffect(
     () =>
       navigation.addListener('beforeRemove', (e) => {
@@ -392,6 +401,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
 
   // ── Saving an edit ──
   const saveEditTask = useSaveTaskEdit(editId);
+  const contactM = useExternalContactMutations(editId);
   async function saveEdit() {
     if (busy.current || !editTask) return;
     const check = checkEditTask(draft, saved);
@@ -416,6 +426,19 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
       if (out.kind === 'failed') {
         if (mounted.current) setBanner(out.message);
         return;
+      }
+      // Then the external contacts that changed (they need a connection): what went is kept, so a
+      // retry sends only the rest; a failure keeps the form open, saying why.
+      if (contactsDirty(savedContacts, contacts)) {
+        const sent = await saveContactChanges(contactM.deps, savedContacts, contacts);
+        if (mounted.current) {
+          setSavedContacts(sent.saved);
+          setContacts(sent.rows);
+        }
+        if (sent.problem) {
+          if (mounted.current) setBanner(sent.problem);
+          return;
+        }
       }
       if (out.kind === 'kept' && stillSignedIn(maker, currentUserId())) notice(out.message);
       else AccessibilityInfo.announceForAccessibility('Saved.');
@@ -442,8 +465,10 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
       else setBanner(check.message);
       return;
     }
+    // Its external contacts go with the create (the same write as the task).
+    const input = contacts.length ? { ...check.input, externalContacts: contactInputs(contacts) } : check.input;
     // Under a kept key, only what that try carried is sent (the server matches the key, not the body).
-    const changed = keptTryProblem(keptBody.current, check.input);
+    const changed = keptTryProblem(keptBody.current, input);
     if (changed) {
       setBanner(changed);
       return;
@@ -455,8 +480,8 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
     // Who sent it: what it says after the form has gone is for them only (4b review #3).
     const submitter = currentUserId();
     try {
-      const out = await send({ input: check.input, key: key.current, files, onFile: patchFile });
-      const projectId = check.input.projectId;
+      const out = await send({ input, key: key.current, files, onFile: patchFile });
+      const projectId = input.projectId;
       if (!mounted.current) {
         // The form was left while it was sending (4a review): the files are let go now, and how it
         // ended is still told — to the person who sent it, never to someone signed in since (4b
@@ -496,7 +521,7 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           leave();
           return;
         case 'no-answer':
-          if (!keptBody.current) keptBody.current = keptTry(check.input);
+          if (!keptBody.current) keptBody.current = keptTry(input);
           setLocked(true);
           setBanner(out.message);
           return;
@@ -758,6 +783,11 @@ export function NewTaskScreen({ route, navigation }: AppScreenProps<'NewTask'>) 
           disabled={frozen || !draft.projectId || peopleUnknown}
           status={membersStatus}
         />
+
+        {/* The people outside the company responsible for it — apart from the people it is assigned to. */}
+        {!editing || editTask?.externalContacts ? (
+          <ExternalContactsField rows={contacts} onChange={(rows) => !frozen && setContacts(rows)} projectId={draft.projectId} disabled={frozen} />
+        ) : null}
 
         {!editing ? <FilesField files={files} onPickFiles={() => void pick(false)} onPickPictures={() => void pick(true)} onRemove={removeFile} busy={saving || !!created} /> : null}
 

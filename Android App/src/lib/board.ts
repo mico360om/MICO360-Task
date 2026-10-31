@@ -1,3 +1,4 @@
+import { externalContactsLine, type ExternalContactSummary } from './external-contacts';
 import { appTimeZone, formatDueDay, isOverdue } from './due-date';
 import { DECISION_WORDS } from './approvals';
 import { displayName, type ApiColumn, type ApiTask, type Priority } from './types';
@@ -58,6 +59,8 @@ export interface BoardCard {
   done: boolean;
   /** Its project, on a board showing several projects (the All projects board, 4c). */
   project?: { name: string; code: string; color?: string | null; icon?: string | null; imageUrl?: string | null };
+  /** Its external contacts in short (null: none). */
+  external?: ExternalContactSummary | null;
 }
 
 type AnyAssignee = { id: string; name?: string; username?: string; firstName?: string; lastName?: string };
@@ -86,6 +89,7 @@ export function boardCard(t: ApiTask, column: ApiColumn): BoardCard {
     inspection: !!t.inspectionFormId,
     awaitingApproval: !!t.approvalRequestedAt,
     done: column.category === 'DONE' || !!t.completedAt,
+    external: t.externalSummary ?? null,
   };
 }
 
@@ -118,6 +122,8 @@ export interface CardView {
   singleName: string | null;
   /** Subtasks done, comments and files — each only when there is some. */
   counts: CardBadge[];
+  /** "External: Ahmed Al Said (OXY) and 2 more", or null with no external contacts. */
+  externalText: string | null;
   /** Everything the card shows, in words (TalkBack). */
   label: string;
 }
@@ -139,6 +145,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
   if (c && c.checklistTotal > 0) counts.push({ kind: 'checklist', value: `${c.checklistDone}/${c.checklistTotal}`, label: `Subtasks done: ${c.checklistDone} of ${c.checklistTotal}` });
   if (c && c.comments > 0) counts.push({ kind: 'comments', value: String(c.comments), label: plural(c.comments, 'comment', 'comments') });
   if (c && c.attachments > 0) counts.push({ kind: 'files', value: String(c.attachments), label: plural(c.attachments, 'file', 'files') });
+  const externalText = externalContactsLine(card.external);
   const words = [
     `${card.key}, ${card.title}.`,
     card.project ? `In ${card.project.name}.` : null,
@@ -153,6 +160,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
     card.done ? 'Done.' : `${card.progress}% done.`,
     card.assignees.length ? `${card.assignees.map((a) => a.name).join(', ')}.` : 'Nobody assigned.',
     ...counts.map((b) => `${b.label}.`),
+    externalText ? `${externalText}.` : null,
   ];
   return {
     overdue,
@@ -163,6 +171,7 @@ export function cardView(card: BoardCard, opts: { now?: Date; timeZone?: string 
     extra: card.assignees.length - shown.length,
     singleName: card.assignees.length === 1 ? card.assignees[0]!.name : null,
     counts,
+    externalText,
     label: words.filter(Boolean).join(' '),
   };
 }

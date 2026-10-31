@@ -152,6 +152,23 @@ describe('My Tasks (4d): the website’s filters, chips and sort', () => {
     expect(myTaskLabel(r1)).toBe('MICO-1, Task 1. Alpha Tower. To Do. Urgent priority. Overdue · 20 Oct. 0% done. Ann Lee.');
   });
 
+  it('finds my tasks by an external contact’s name or company, filters them by company, and names the contacts', () => {
+    const withContacts = enrichMyTasks(
+      [
+        task('7', { title: 'Rig check', externalSummary: { count: 2, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said', 'Sara'], companies: ['OXY', 'PDO'] } }),
+        task('8', { title: 'Office move' }),
+      ],
+      projects,
+      { timeZone: TZ, now: NOW },
+    );
+    const ids = (o: { q?: string; company?: string }) => filterMyTasks(withContacts, f(), { timeZone: TZ, now: NOW, ...o }).map((r) => r.task.id);
+    expect(ids({ q: 'sara' })).toEqual(['7']);
+    expect(ids({ q: 'pdo' })).toEqual(['7']);
+    expect(ids({ company: 'oxy' })).toEqual(['7']);
+    expect(ids({ company: '' })).toEqual(['7', '8']);
+    expect(myTaskLabel(withContacts[0]!)).toBe('MICO-7, Rig check. Alpha Tower. To Do. Normal priority. No due date. 0% done. External: Ahmed Al Said (OXY) and 1 more.');
+  });
+
   it('a selection covers only what is shown; Select all selects (or clears) the shown ones', () => {
     const shown = rows.slice(0, 3);
     expect(selectedOf(shown, new Set(['1', '5'])).map((r) => r.task.id)).toEqual(['1']);

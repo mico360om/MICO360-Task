@@ -22,6 +22,9 @@ import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
 import { useMoveTargets } from '../core/move-queries';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { ProjectFilterSheet } from '../components/board/ProjectFilterSheet';
+import { ExternalCompanyFilter } from '../components/board/ExternalCompanyFilter';
+import { externalCompanyOptions } from '../lib/external-contacts';
+import { filterByExternalCompany } from '../lib/task-external-contacts';
 import { notice } from '../components/notice';
 import { SkeletonList, EmptyState, ErrorNote } from '../components/ui';
 import { Icon } from '../components/Icon';
@@ -64,7 +67,10 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
   const liveRooms = useMemo(() => shownProjects.map((p) => p.id), [shownProjects]);
   useAllBoardRealtime(focused ? liveRooms : undefined);
 
-  const board = useMemo(() => composeAllProjectsBoard(tasksQ.data ?? [], projects, { hidden }), [tasksQ.data, projects, hidden]);
+  // "External company": only the cards with an external contact from that company.
+  const [company, setCompany] = useState('');
+  const companies = useMemo(() => externalCompanyOptions(tasksQ.data ?? []), [tasksQ.data]);
+  const board = useMemo(() => composeAllProjectsBoard(filterByExternalCompany(tasksQ.data ?? [], company), projects, { hidden }), [tasksQ.data, projects, hidden, company]);
   const byId = useMemo(() => new Map((tasksQ.data ?? []).map((t) => [t.id, t])), [tasksQ.data]);
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const photos = useMemo(() => new Map((dirQ.data ?? []).map((u) => [u.id, serverFileHref(baseUrl, u.avatarUrl)])), [dirQ.data, baseUrl]);
@@ -126,6 +132,7 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
             <Text style={[styles.filterText, shownCount < shownProjects.length && styles.filterTextOn]}>{projectFilterLabel(shownCount, shownProjects.length)}</Text>
           </Pressable>
         ) : null}
+        <ExternalCompanyFilter companies={companies} value={company} onChange={setCompany} />
       </View>
 
       {projectsQ.isError && !projectsQ.data ? (

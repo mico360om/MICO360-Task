@@ -22,6 +22,9 @@ import { useMoveTargets } from '../core/move-queries';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
+import { ExternalCompanyFilter } from '../components/board/ExternalCompanyFilter';
+import { externalCompanyOptions } from '../lib/external-contacts';
+import { filterByExternalCompany } from '../lib/task-external-contacts';
 import { notice } from '../components/notice';
 import { emptyBoardText } from '../lib/board-columns';
 import { SkeletonList, EmptyState, ErrorNote, Button } from '../components/ui';
@@ -68,7 +71,10 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
     else navigation.navigate('Tabs', { screen: 'Projects' });
   });
 
-  const board = useMemo(() => composeBoard(columnsQ.data ?? [], tasksQ.data ?? []), [columnsQ.data, tasksQ.data]);
+  // "External company": only the cards with an external contact from that company (the day's companies are offered).
+  const [company, setCompany] = useState('');
+  const companies = useMemo(() => externalCompanyOptions(tasksQ.data ?? []), [tasksQ.data]);
+  const board = useMemo(() => composeBoard(columnsQ.data ?? [], filterByExternalCompany(tasksQ.data ?? [], company)), [columnsQ.data, tasksQ.data, company]);
   const byId = useMemo(() => new Map((tasksQ.data ?? []).map((t) => [t.id, t])), [tasksQ.data]);
   const photos = useMemo(() => new Map((dirQ.data ?? []).map((u) => [u.id, serverFileHref(baseUrl, u.avatarUrl)])), [dirQ.data, baseUrl]);
   const photoOf = useCallback((id: string) => photos.get(id) ?? null, [photos]);
@@ -154,6 +160,11 @@ export function BoardScreen({ route, navigation }: AppScreenProps<'Board'>) {
       {canManage ? (
         <View style={styles.manageRow}>
           <Button title="Manage columns" variant="secondary" onPress={() => navigation.navigate('BoardColumns', { projectId, projectName })} style={styles.manageBtn} />
+        </View>
+      ) : null}
+      {companies.length > 0 || company ? (
+        <View style={styles.manageRow}>
+          <ExternalCompanyFilter companies={companies} value={company} onChange={setCompany} />
         </View>
       ) : null}
 

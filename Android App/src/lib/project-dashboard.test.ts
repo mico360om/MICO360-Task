@@ -300,6 +300,15 @@ describe('the Tasks tab', () => {
     expect(ids('completed', 'crane')).toEqual([]);
   });
 
+  it('finds a task by an external contact’s name or company, and its row names the contacts', () => {
+    const summary = { count: 1, name: 'Ahmed Al Said', company: 'OXY', names: ['Ahmed Al Said'], companies: ['OXY'] };
+    const tasks = withColumnStage([task('a', { key: 'RIG-1', title: 'Order pipes', columnId: 'c1', externalSummary: summary }), task('b', { key: 'RIG-2', title: 'Paint', columnId: 'c1' })], columns);
+    const ids = (q: string) => shownGroups(taskGroups(columns, tasks), 'all', q, TODAY, 'UTC').flatMap((g) => g.tasks.map((t) => t.id));
+    expect(ids('ahmed')).toEqual(['a']);
+    expect(ids('oxy')).toEqual(['a']);
+    expect(tasksTabRowLabel(tasks[0]!, { statusName: 'To do', phase: 'pending', dueText: null })).toBe('RIG-1, Order pipes, To do, Normal priority, 0% done, Unassigned, No due date, External: Ahmed Al Said (OXY)');
+  });
+
   it('describes a row for TalkBack with its status, priority, progress, people and due day', () => {
     const t = task('a', { key: 'RIG-3', title: 'Book crane', priority: 'HIGH', progress: 40, dueDate: '2026-10-01T00:00:00.000Z', assignees: [{ id: 'u1', name: 'Omar' }] as never, isMilestone: true });
     expect(tasksTabRowLabel(t, { statusName: 'To do', phase: 'overdue', dueText: '1 Oct 2026' })).toBe('RIG-3, milestone, Book crane, To do, High priority, 40% done, Omar, overdue, due 1 Oct 2026');

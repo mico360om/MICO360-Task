@@ -13,6 +13,7 @@ import { companyTodayKey, dueDayKey, isTaskDone } from './due-date';
 import { dayText } from './day-words';
 import { DECISION_WORDS, isWaitingForApproval } from './approvals';
 import type { ApiProject, ApiTask, ColumnCategory, Priority } from './types';
+import { externalContactsLine, hasExternalCompany, matchesExternalContact } from './external-contacts';
 
 /** The full filter state a saved view keeps. */
 export interface TaskFilters {
@@ -133,8 +134,11 @@ export function myTaskCounts(rows: readonly MyTaskRow[]): { total: number; open:
   return { total: rows.length, open, overdue, done };
 }
 
-/** The filters (and this app's search box, over title, key and description). */
-export function filterMyTasks(rows: readonly MyTaskRow[], f: TaskFilters, o: When & { q?: string }): MyTaskRow[] {
+/**
+ * The filters (and this app's search box, over title, key, description and the external contacts'
+ * names and companies). The external company is chosen apart from the saved views' filters.
+ */
+export function filterMyTasks(rows: readonly MyTaskRow[], f: TaskFilters, o: When & { q?: string; company?: string }): MyTaskRow[] {
   const today = companyTodayKey(o.now ?? new Date(), o.timeZone);
   const week = shiftDayKey(today, 7);
   const needle = (o.q ?? '').trim().toLowerCase();
@@ -147,7 +151,8 @@ export function filterMyTasks(rows: readonly MyTaskRow[], f: TaskFilters, o: Whe
     if (f.due === 'today' && !e.dueToday) return false;
     if (f.due === 'week' && !(e.dueKey && e.dueKey >= today && e.dueKey <= week)) return false;
     if (f.due === 'none' && e.task.dueDate) return false;
-    if (needle && !`${e.task.title} ${e.task.description ?? ''} ${e.task.key}`.toLowerCase().includes(needle)) return false;
+    if (needle && !`${e.task.title} ${e.task.description ?? ''} ${e.task.key}`.toLowerCase().includes(needle) && !matchesExternalContact(e.task.externalSummary, needle)) return false;
+    if (o.company?.trim() && !hasExternalCompany(e.task.externalSummary, o.company)) return false;
     return true;
   });
 }
@@ -256,6 +261,7 @@ export function myTaskLabel(r: MyTaskRow): string {
     `${dueLabel(r)}.`,
     r.done ? 'Done.' : `${r.task.progress}% done.`,
     people.length ? `${people.join(', ')}.` : null,
+    externalContactsLine(r.task.externalSummary) ? `${externalContactsLine(r.task.externalSummary)}.` : null,
   ]
     .filter(Boolean)
     .join(' ');

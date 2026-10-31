@@ -6,6 +6,7 @@
  * what the AI status summary is asked. "Today" is a 'YYYY-MM-DD' day in company time; due dates
  * are calendar days.
  */
+import { externalContactsLine, matchesExternalContact } from './external-contacts';
 import type { ApiColumn, ApiTask, Priority } from './types';
 import type { Tone } from './tone';
 import { appTimeZone, dueDayKey, isTaskDone } from './due-date';
@@ -272,12 +273,12 @@ export function filterCounts(tasks: ApiTask[], today: string, timeZone: string =
   return c;
 }
 
-/** The groups narrowed to a filter and to words in a task's title or key; empty groups are left out. */
+/** The groups narrowed to a filter and to words in a task's title, key or external contacts (name or company); empty groups are left out. */
 export function shownGroups(groups: TaskGroup[], filter: TaskFilter, query: string, today: string, timeZone: string = appTimeZone()): TaskGroup[] {
   const words = query.trim().toLowerCase();
   const keep = (t: ApiTask) =>
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
-    (!words || t.title.toLowerCase().includes(words) || t.key.toLowerCase().includes(words));
+    (!words || t.title.toLowerCase().includes(words) || t.key.toLowerCase().includes(words) || matchesExternalContact(t.externalSummary, words));
   return groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 }
 
@@ -301,6 +302,7 @@ export function tasksTabRowLabel(t: ApiTask, row: { statusName: string; phase: T
     people.length ? people.join(', ') : 'Unassigned',
     row.phase === 'overdue' ? 'overdue' : null,
     row.dueText ? `due ${row.dueText}` : 'No due date',
+    externalContactsLine(t.externalSummary),
   ]
     .filter(Boolean)
     .join(', ');

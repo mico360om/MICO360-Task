@@ -6,6 +6,7 @@ import { FilterChips } from './parts';
 import { Icon } from '../Icon';
 import { formatDueDay } from '../../lib/due-date';
 import { TASK_FILTERS, shownProgress, taskPeople, taskPhase, tasksTabRowLabel, type TaskFilter, type TaskGroup } from '../../lib/project-dashboard';
+import { externalContactsLine } from '../../lib/external-contacts';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
 import { font } from '../../lib/typography';
@@ -71,6 +72,7 @@ export const TasksTabRow = React.memo(function TasksTabRow({ task, group, today,
   const people = taskPeople(task);
   const overdue = phase === 'overdue';
   const statusColor = group.color ?? (group.category ? categoryColorOf(c, group.category) : c.ink3);
+  const external = externalContactsLine(task.externalSummary);
   return (
     <Pressable
       onPress={() => onOpen(task)}
@@ -116,6 +118,11 @@ export const TasksTabRow = React.memo(function TasksTabRow({ task, group, today,
           {due ?? 'No due date'}
         </Text>
       </View>
+      {external ? (
+        <Text style={s.metaText} numberOfLines={capLines(1)}>
+          {external}
+        </Text>
+      ) : null}
     </Pressable>
   );
 });

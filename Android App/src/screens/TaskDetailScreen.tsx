@@ -62,6 +62,9 @@ import { withTaskCards, type TaskPart } from '../lib/task-cards';
 import { DetailsCard, type TaskPatch } from '../components/task-detail/DetailsCard';
 import { ChecklistCard, CommentsCard, DescriptionCard, type CommentView } from '../components/task-detail/WorkCards';
 import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../components/task-detail/InfoCards';
+import { ExternalContactsCard } from '../components/task-detail/ExternalContactsCard';
+import { useExternalContactMutations } from '../core/external-contact-queries';
+import { withExternalContacts } from '../lib/task-external-contacts';
 import { failureText } from '../components/task-detail/kit';
 import { FilePreviewSheet } from '../components/task-detail/FilePreviewSheet';
 import { TaskApproval } from '../components/approvals/TaskApproval';
@@ -120,6 +123,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const activityQ = useTaskActivity(taskId);
   const depsQ = useTaskDependencies(taskId);
   const depM = useDependencyMutations(taskId);
+  // External contacts (people outside the company responsible for it): they come with the task.
+  const contactM = useExternalContactMutations(taskId);
   // The linked tasks are read one by one, and "Add a blocker" searches the server once typing
   // pauses — instead of loading every task of the project, all days.
   const linkedIds = useMemo(() => [...new Set([...(depsQ.data?.blockedBy ?? []), ...(depsQ.data?.blocks ?? [])])], [depsQ.data]);
@@ -398,13 +403,24 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   // Stage 4: Client view (whoever runs the project) where the website puts it (lib/task-cards).
   const runsProject = canDeleteTask(user, project, members);
   // A check (it carries a form) opens on its inspection; any other task's inspections sit with its details.
-  const layout = withTaskCards(taskSections({ wide, waiting: isWaitingForApproval(task), approval: true }), { client: runsProject, inspections: task.inspectionFormId ? 'check' : 'other' });
+  // External contacts sit right after the details (apart from the assignees), as on the website.
+  const layout = withExternalContacts(withTaskCards(taskSections({ wide, waiting: isWaitingForApproval(task), approval: true }), { client: runsProject, inspections: task.inspectionFormId ? 'check' : 'other' }));
   const part: Record<TaskPart, React.ReactNode> = {
     approval: <TaskApproval task={task} />,
     client: <TaskClientCard task={task} canChange={canDeleteTask(user, project, members)} />,
     inspections: <TaskInspectionsCard task={task} project={project} />,
     description,
     details,
+    // An older server that doesn't know external contacts sends none: no card.
+    external: task.externalContacts ? (
+      <ExternalContactsCard
+        contacts={task.externalContacts}
+        projectId={task.projectId}
+        onAdd={(fields) => contactM.add.mutateAsync(fields)}
+        onSave={(id, fields) => contactM.update.mutateAsync({ id, fields })}
+        onRemove={(id) => contactM.remove.mutateAsync(id)}
+      />
+    ) : null,
     checklist: checklistCard,
     comments: commentsCard,
     files,
