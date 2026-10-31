@@ -29,4 +29,6 @@ it('Reports reads onTimeFigure', () => {
   const s = src('screens/ReportsScreen.tsx');
   expect(s).toMatch(/onTimeFigure\(/);
   expect(s).not.toMatch(/onTimeText\(/);
+  // TalkBack doesn't read a bare "—": the tile says "none yet" until a task with a due date is finished.
+  expect(s).toMatch(/<StatTile value=\{onTime\.value\} spokenValue=\{onTime\.value === '—' \? 'none yet' : undefined\}/);
 });

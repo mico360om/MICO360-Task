@@ -285,7 +285,7 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
           <StatTile value={sum.overdue} label="Overdue" hint={sum.total ? `${sum.overduePct}% of tasks` : '—'} icon="ui.alert" tone="danger" />
         </View>
         <View style={tile}>
-          <StatTile value={onTime.value} label="On-time rate" hint={onTime.hint} icon="kit.clock" tone="info" />
+          <StatTile value={onTime.value} spokenValue={onTime.value === '—' ? 'none yet' : undefined} label="On-time rate" hint={onTime.hint} icon="kit.clock" tone="info" />
         </View>
       </View>
 
