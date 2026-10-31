@@ -61,6 +61,9 @@ import { ActivityCard, BlockersCard, FilesCard, type UploadView } from '../compo
 import { failureText } from '../components/task-detail/kit';
 import { FilePreviewSheet } from '../components/task-detail/FilePreviewSheet';
 import { TaskApproval } from '../components/approvals/TaskApproval';
+import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
+import { useMoveTargets } from '../core/move-queries';
+import { moveAvailability, movedText } from '../lib/task-move';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 
 /** At this width and up (tablets, landscape) the details sit beside the work in a second column. */
@@ -117,6 +120,9 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
   const blockerSearch = useTaskSearch(projectId, searchFor);
   const watch = useTaskWatch(taskId);
   const deleteTask = useDeleteTask(taskId);
+  // Moving it to another project (the ⋯ menu): where the person may move tasks, and the sheet.
+  const moveTargets = useMoveTargets(true);
+  const [moveOpen, setMoveOpen] = useState(false);
   const directoryQ = useDirectory();
   const queued = useMyQueuedChanges();
   const { baseUrl, exporter, resources } = useServices();
@@ -421,6 +427,8 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           onOpenMeeting={openMeeting}
           // The full Edit form (4d): New task's form, filled with this task.
           onEdit={() => navigation.navigate('NewTask', { taskId: task.id })}
+          move={moveAvailability(task.projectId, moveTargets, projectQ.data?.name)}
+          onMove={() => setMoveOpen(true)}
         />
         {show(layout.top)}
         {wide ? (
@@ -438,6 +446,16 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           </View>
         ) : null}
       </KeyboardAwareScrollView>
+      <MoveTaskSheet
+        tasks={[{ id: task.id, key: task.key, title: task.title, projectId: task.projectId }]}
+        visible={moveOpen}
+        onClose={() => setMoveOpen(false)}
+        // It stays open on its new number ("Formerly …" under it): said where it went.
+        onMoved={(r) => {
+          setMoveOpen(false);
+          notice(movedText(r));
+        }}
+      />
       <FilePreviewSheet
         file={previewing}
         mode={previewing ? previewMode(previewing.mimeType, previewing.filename) : null}

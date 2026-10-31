@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { ApiTask } from './types';
+import type { ApiTask, MoveResult } from './types';
 import { refresh, type Refresh } from './refresh';
 
 /**
@@ -157,4 +157,41 @@ export function afterApprovalDecision(qc: QueryClient, taskId: string, answer: A
  */
 export function afterApprovalRefused(qc: QueryClient, taskId: string): void {
   refresh(qc, [{ queryKey: ['task', taskId], exact: true }, { queryKey: ['approvals'] }]);
+}
+
+/**
+ * What moving a task to another project changes: every task list (both projects' boards, My Tasks,
+ * the calendar), the projects and both projects' own data (progress, members, meetings), the task
+ * itself with its parts (its history notes the move), and the approvals list (it may wait in its new
+ * project for someone else's OK) — the website's invalidateTaskQueries.
+ */
+export function projectMoveRefreshes(r: Pick<MoveResult, 'task' | 'from' | 'to'>): Refresh[] {
+  return [
+    { queryKey: ['tasks'] },
+    { queryKey: ['projects'] },
+    { queryKey: ['project', r.from.projectId] },
+    { queryKey: ['project', r.to.projectId] },
+    { queryKey: ['task', r.task.id] },
+    { queryKey: ['approvals'] },
+  ];
+}
+
+/**
+ * After a task moved to another project: the details shown take its new number and project at once
+ * ("Formerly RIG-4" too — the answer carries formerKeys), then everything the move changed is read
+ * again. Details never loaded are not made from the answer (as after an edit).
+ */
+export function afterTaskMoved(qc: QueryClient, r: MoveResult): void {
+  afterTasksMoved(qc, [r]);
+}
+
+/** Several tasks moved at once (My Tasks): each shows its new number, and what they changed is read again once. */
+export function afterTasksMoved(qc: QueryClient, moved: readonly MoveResult[]): void {
+  const targets = new Map<string, Refresh>();
+  for (const r of moved) {
+    void qc.cancelQueries({ queryKey: ['task', r.task.id], exact: true });
+    qc.setQueryData<ApiTask>(['task', r.task.id], (prev) => (prev ? { ...prev, ...r.task } : prev));
+    for (const t of projectMoveRefreshes(r)) targets.set(JSON.stringify(t), t);
+  }
+  if (targets.size) refresh(qc, [...targets.values()]);
 }

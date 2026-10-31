@@ -1,8 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { afterApprovalDecision, afterApprovalRefused, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
+import { afterApprovalDecision, afterApprovalRefused, afterTaskMoved, afterTasksMoved, projectMoveRefreshes, afterTaskDeleted, afterTaskSaved, approvalRefreshes, assignmentRefreshes, createdTaskRefreshes, editRefreshes, moveRefreshes } from './task-cache';
 import { refresh } from './refresh';
-import type { ApiTask } from './types';
+import type { ApiTask, MoveResult } from './types';
+import { formerKeysText } from './task-detail';
 
 const t = (id: string, over: Partial<ApiTask> = {}): ApiTask => ({
   id,
@@ -264,5 +265,36 @@ describe('editRefreshes and "Needs approval" (Stage 2)', () => {
   it('turning it on or off refreshes the approvals list and the project’s progress (off while it waits marks it done)', () => {
     expect(editRefreshes('t1', { needsApproval: false })).toEqual(expect.arrayContaining([{ queryKey: ['approvals'] }, { progressFor: 't1' }]));
     expect(editRefreshes('t1', { title: 'x' })).not.toContainEqual({ queryKey: ['approvals'] });
+  });
+});
+
+describe('a task moved to another project (Stage 2)', () => {
+  it('Review Focus 3: after a move the task’s screen shows the new number and "Formerly", and both boards are read again', () => {
+    const qc = new QueryClient(); clients.push(qc);
+    qc.setQueryData(['task', 't1'], { id: 't1', key: 'RIG-4', projectId: 'p1', title: 'Check pumps' });
+    afterTaskMoved(qc, { task: { id: 't1', key: 'OPS-17', projectId: 'p2', formerKeys: ['RIG-4'] }, from: { projectId: 'p1', name: 'Rig', key: 'RIG-4' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } } as MoveResult);
+    const t = qc.getQueryData<ApiTask>(['task', 't1'])!; expect(t).toMatchObject({ key: 'OPS-17', projectId: 'p2', title: 'Check pumps' }); expect(formerKeysText(t.formerKeys)).toBe('Formerly RIG-4');
+    expect(projectMoveRefreshes({ task: t, from: { projectId: 'p1' }, to: { projectId: 'p2' } } as MoveResult)).toEqual([{ queryKey: ['tasks'] }, { queryKey: ['projects'] }, { queryKey: ['project', 'p1'] }, { queryKey: ['project', 'p2'] }, { queryKey: ['task', 't1'] }, { queryKey: ['approvals'] }]);
+  });
+  it('lists of both projects are read again; a task never opened isn’t made from the answer', () => {
+    const qc = seeded();
+    qc.removeQueries({ queryKey: ['task', 't1'], exact: true });
+    afterTaskMoved(qc, { task: { ...t('t1'), key: 'OPS-17', projectId: 'p2' }, from: { projectId: 'p1', name: 'Rig', key: 'T-t1' }, to: { projectId: 'p2', name: 'Operations', key: 'OPS-17' } } as MoveResult);
+    expect(qc.getQueryData(['task', 't1'])).toBeUndefined();
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["tasks","project","p1","2026-10-21"]', '["tasks","mine"]', '["project","p1","progress"]', '["project","p2","progress"]']));
+  });
+});
+
+describe('several tasks moved at once (Stage 2)', () => {
+  it('each moved task shows its new number; what they changed is read again once, not once per task', async () => {
+    const qc = seeded();
+    qc.setQueryData(['task', 't2'], { ...t('t2'), key: 'T-t2' });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const moved = (id: string, key: string) => ({ task: { ...t(id), key, projectId: 'p2' }, from: { projectId: 'p1', name: 'Rig', key: `T-${id}` }, to: { projectId: 'p2', name: 'Operations', key } }) as MoveResult;
+    afterTasksMoved(qc, [moved('t1', 'OPS-1'), moved('t2', 'OPS-2')]);
+    expect(qc.getQueryData<ApiTask>(['task', 't1'])?.key).toBe('OPS-1'); expect(qc.getQueryData<ApiTask>(['task', 't2'])?.key).toBe('OPS-2');
+    // One refresh for the group (refresh() reads now what is shown, and marks the rest): not one per task.
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(refreshedKeys(qc)).toEqual(expect.arrayContaining(['["task","t1"]', '["task","t2"]', '["tasks","mine"]', '["project","p1","progress"]', '["project","p2","progress"]']));
   });
 });

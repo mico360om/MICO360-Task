@@ -10,6 +10,8 @@ import { recurrenceSummary } from '../../lib/recurrence-summary';
 import { FORMERLY_HINT, carryForward, formerKeysText } from '../../lib/task-detail';
 import { SaveNote, Tag, useSave } from './kit';
 import { font, typeStyle } from '../../lib/typography';
+import { MOVE_TEXT } from '../../lib/move-sheet';
+import type { MoveAvailability } from '../../lib/task-move';
 
 /** The task title column's limit (VARCHAR 191). */
 const TITLE_MAX = 191;
@@ -18,7 +20,7 @@ const TITLE_MAX = 191;
  * The top of the task, as the website's: reference (and "Formerly RIG-4" after a move to another
  * project), status, priority, the Inspection and Visible to client marks and the due date at a
  * glance; the title (edited in place); a menu (the three dots) for the secondary actions (watching,
- * exporting). A task waiting for approval says so in its Approval section, shown first (as on the
+ * exporting, moving to another project — listed even when the person can't, with why). A task waiting for approval says so in its Approval section, shown first (as on the
  * website). A task made from a meeting names that meeting; tapping it opens the meeting in the app.
  */
 export function HeaderCard({
@@ -35,7 +37,13 @@ export function HeaderCard({
   meeting,
   onOpenMeeting,
   onEdit,
+  move,
+  onMove,
 }: {
+  /** May the signed-in person move it to another project (the website's rule), and why not. */
+  move?: MoveAvailability;
+  /** Opens "Move to another project". */
+  onMove?: () => void;
   /** Opens the full Edit form (every detail at once — 4d), as the website's "Edit task". */
   onEdit?: () => void;
   task: ApiTask;
@@ -207,6 +215,24 @@ export function HeaderCard({
             {action(watching ? `Stop watching (${watcherCount})` : `Watch this task${watcherCount ? ` (${watcherCount})` : ''}`, onToggleWatch, watching ? 'Stop watching this task' : 'Watch this task')}
             {action(exporting === 'xlsx' ? 'Preparing Excel…' : 'Export as Excel', () => onExport('xlsx'))}
             {action(exporting === 'pdf' ? 'Preparing PDF…' : 'Export as PDF', () => onExport('pdf'))}
+            {move && onMove ? (
+              move.canMove ? (
+                action(MOVE_TEXT.menuItem, onMove)
+              ) : (
+                // Shown, not offered: why it can't be moved now (the website's menu).
+                <View
+                  key="move"
+                  accessible
+                  accessibilityRole="menuitem"
+                  accessibilityState={{ disabled: true }}
+                  accessibilityLabel={move.reason ? `${MOVE_TEXT.menuItem} ${move.reason}` : MOVE_TEXT.menuItem}
+                  style={s.menuItemOff}
+                >
+                  <Text style={[s.menuText, s.menuTextOff]}>{MOVE_TEXT.menuItem}</Text>
+                  {move.reason ? <Text style={s.menuReason}>{move.reason}</Text> : null}
+                </View>
+              )
+            ) : null}
             {action('Cancel', () => {})}
           </View>
         </Pressable>
@@ -240,4 +266,7 @@ const makeStyles = (c: Palette) =>
     sheetTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, letterSpacing: 1 },
     menuItem: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg },
     menuText: { fontSize: fontSize.md, color: c.ink, ...font('600') },
+    menuItemOff: { minHeight: 52, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 2 },
+    menuTextOff: { color: c.ink3 },
+    menuReason: { ...typeStyle('caption'), color: c.ink2 },
   });

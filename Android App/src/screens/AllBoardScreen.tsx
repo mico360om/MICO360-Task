@@ -18,6 +18,9 @@ import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib
 import { BoardColumnView } from '../components/board/BoardColumnView';
 import { BoardDayBar } from '../components/board/BoardDayBar';
 import { StatusMoveSheet } from '../components/board/StatusMoveSheet';
+import { MoveTaskSheet } from '../components/move/MoveTaskSheet';
+import { useMoveTargets } from '../core/move-queries';
+import { moveAvailability, movedText } from '../lib/task-move';
 import { ProjectFilterSheet } from '../components/board/ProjectFilterSheet';
 import { notice } from '../components/notice';
 import { SkeletonList, EmptyState, ErrorNote } from '../components/ui';
@@ -70,6 +73,9 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
 
   // ── Changing a card's status ──
   const [moving, setMoving] = useState<ApiTask | null>(null);
+  // To another project (the card's ⋯ on the website): offered only to someone who may move it.
+  const moveTargets = useMoveTargets(true);
+  const [movingProject, setMovingProject] = useState<ApiTask | null>(null);
   const statusMove = useStatusMove();
   const moveTo = useCallback(
     async (task: ApiTask, status: ColumnCategory) => {
@@ -163,6 +169,16 @@ export function AllBoardScreen({ navigation }: AppScreenProps<'AllBoard'>) {
           if (moving) void moveTo(moving, status);
         }}
         onClose={() => setMoving(null)}
+        onMoveToProject={moving && moveAvailability(moving.projectId, moveTargets, projectById.get(moving.projectId)?.name).canMove ? () => { setMovingProject(moving); setMoving(null); } : undefined}
+      />
+      <MoveTaskSheet
+        tasks={movingProject ? [{ id: movingProject.id, key: movingProject.key, title: movingProject.title, projectId: movingProject.projectId }] : []}
+        visible={!!movingProject}
+        onClose={() => setMovingProject(null)}
+        onMoved={(r) => {
+          setMovingProject(null);
+          notice(movedText(r));
+        }}
       />
       <ProjectFilterSheet visible={filtering} projects={shownProjects} hidden={hidden} onChange={setHidden} onClose={() => setFiltering(false)} />
     </View>

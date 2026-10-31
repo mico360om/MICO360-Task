@@ -230,3 +230,12 @@ describe.skipIf(!existsSync(webSearch))('the same groups, numbers and wait as th
     expect(source).toContain('No matches for “{debounced}”.');
   });
 });
+
+// Stage 2 Task 7 — Review Focus 3: a moved task's old key ("RIG-4") still opens it.
+describe('a task moved to another project', () => {
+  it('the old key still opens a moved task', () => {
+    const found = { tasks: [{ id: 't1', key: 'OPS-17', title: 'Check pumps', projectId: 'p2', formerKeys: ['RIG-4'] }], projects: [], users: [], meetings: [] } as unknown as SearchResults;
+    expect(searchItems({ raw: 'RIG-4', results: undefined, isAdmin: false, canLead: false, myId: 'u1' })[0]).toMatchObject({ target: { kind: 'openKey', key: 'RIG-4' } });
+    expect(exactTask(found, 'RIG-4')?.id).toBe('t1'); expect(exactTask(found, 'rig-4')?.id).toBe('t1');
+  });
+});

@@ -34,6 +34,7 @@
 - In the Android app, My Tasks starts with "To approve" for project managers: approve or send back the tasks others have finished.
 - In the Android app, New task and Edit task have the "Needs approval" tick, already ticked in projects that ask for it; only the project's managers can untick it.
 - In the Android app, New task can start from a task template, takes a checklist, and says when the project will give the new task today's date.
+- In the Android app, a task can be moved to another project — from the task's menu, a card's actions on the boards, or several at once in My Tasks — with the website's preview and one question about people not on the new team; the task's old number still finds it.
 <!-- daily-work-tasks lines above this line -->
 
 <!-- daily-work-pages lines above this line -->
