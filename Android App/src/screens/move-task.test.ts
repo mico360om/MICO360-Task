@@ -55,3 +55,9 @@ it('final review A6: a choice card says a hint only when it has one; the team an
   expect(sheet).not.toMatch(/hint: ''/);
   expect(sheet).toMatch(/\{ value: 'ADD_TO_TEAM', label: labels\.add \}/);
 });
+
+it('final review A8: "What will change", "Can’t be moved" and "Couldn’t be moved" are headings TalkBack reads before their lists', () => {
+  const s = src('components/move/MoveTaskSheet.tsx');
+  for (const k of ['changes', 'cantMove', 'notMoved']) expect(s, k).toMatch(new RegExp(`<Text style=\\{s\\.heading\\} accessibilityRole="header">\\s*\\{MOVE_TEXT\\.${k}\\}\\s*</Text>\\s*\\{lines\\(`));
+  expect(s).not.toMatch(/<FieldLabel>\{MOVE_TEXT\.(changes|cantMove|notMoved)\}/);
+});

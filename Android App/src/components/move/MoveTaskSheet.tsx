@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import { useMovePreview, useMoveTargets, useMoveTasks } from '../../core/move-queries';
 import { Button } from '../ui';
-import { CardChoice, FieldLabel, InlinePicker, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
+import { CardChoice, InlinePicker, Sheet, SheetButtons, SheetMessage } from '../meeting/sheet-kit';
 import { assigneeChoiceLabels, bulkMoveAvailability, bulkMovedText, moveAvailability, moveChanges, notOnTeamText } from '../../lib/task-move';
 import { MOVE_TEXT, columnHint, failedLines, moveFailure, moveInput, moveSubtitle, moveTitle, previewProblem, refusedLines, sheetTasks, submitLabel, type MoveTaskRef } from '../../lib/move-sheet';
 import { STATUS_NAME } from '../../lib/all-board';
@@ -133,7 +133,9 @@ export function MoveTaskSheet({
     return (
       <Sheet visible={visible} title={moveTitle(tasks.length)} subtitle={moveSubtitle(tasks)} onClose={onClose} footer={<Button title={MOVE_TEXT.done} onPress={onClose} style={s.flex} />}>
         <SheetMessage tone="info" text={bulkMovedText(outcome, preview?.project.name ?? '')} />
-        <FieldLabel>{MOVE_TEXT.notMoved}</FieldLabel>
+        <Text style={s.heading} accessibilityRole="header">
+          {MOVE_TEXT.notMoved}
+        </Text>
         {lines(failedLines(outcome, preview, tasks))}
       </Sheet>
     );
@@ -210,14 +212,18 @@ export function MoveTaskSheet({
             </>
           ) : null}
 
-          <FieldLabel>{MOVE_TEXT.changes}</FieldLabel>
+          <Text style={s.heading} accessibilityRole="header">
+            {MOVE_TEXT.changes}
+          </Text>
           {lines(changes)}
         </>
       ) : null}
 
       {preview && !single && refused.length > 0 ? (
         <>
-          <FieldLabel>{MOVE_TEXT.cantMove}</FieldLabel>
+          <Text style={s.heading} accessibilityRole="header">
+            {MOVE_TEXT.cantMove}
+          </Text>
           {lines(refusedLines(preview))}
         </>
       ) : null}
@@ -231,6 +237,8 @@ const makeStyles = (c: Palette) =>
     footer: { flex: 1, gap: spacing.xs },
     footerRow: { flexDirection: 'row', gap: spacing.sm },
     hint: { ...typeStyle('caption'), color: c.ink2, marginBottom: spacing.sm },
+    // The website's eyebrow headings over its lists: TalkBack reads them first (final review A8).
+    heading: { ...typeStyle('eyebrow'), color: c.ink2, marginTop: spacing.sm, marginBottom: spacing.xs },
     line: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.xs },
     dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: c.ink2, marginTop: 7 },
     lineText: { flex: 1, ...typeStyle('body'), color: c.ink },
