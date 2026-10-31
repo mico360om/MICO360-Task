@@ -1,5 +1,5 @@
-import type { MicoAiProposal, ProposalChange, ProposalResult, ProposalUndo } from './mico-ai-api';
-import { countdown, resultSummary, undoSummary } from './mico-ai-proposal';
+import type { MicoAiNamed, MicoAiProposal, ProposalChange, ProposalResult, ProposalUndo } from './mico-ai-api';
+import { countdown, remainingNeeds, resultSummary, undoSummary } from './mico-ai-proposal';
 
 /**
  * MICO AI's card of proposed changes on the phone (Stage 3 Task 14): which buttons the card's
@@ -79,3 +79,58 @@ export const confirmLabel = (n: number): string => `Confirm (${n})`;
 /** What TalkBack hears for Confirm. */
 export const confirmA11y = (n: number): string => `Confirm ${n} ${n === 1 ? 'change' : 'changes'}`;
 export const undoButtonText = (leftMs: number): string => `Undo (${countdown(leftMs)})`;
+
+// ── Editing a change before Confirm (Stage 3 Task 15) ──────────────────────────
+
+/** Names to show for edited values (the card's labels are for what was proposed). */
+export interface Shown {
+  project?: string | null;
+  assignees?: MicoAiNamed[];
+  column?: string;
+  attendees?: MicoAiNamed[];
+}
+
+/**
+ * The person's edit to one change, as the website's card `edit`: the edits pile up per change, and
+ * editing a change means it is wanted — it is ticked once nothing on it is left to put right.
+ */
+export function applyEdit(
+  edits: Record<string, Record<string, unknown>>,
+  item: ProposalChange,
+  patch: Record<string, unknown>,
+): { edits: Record<string, Record<string, unknown>>; tick: boolean } {
+  const next = { ...edits[item.id], ...patch };
+  return { edits: { ...edits, [item.id]: next }, tick: remainingNeeds(item, next).length === 0 };
+}
+
+/**
+ * A change with the person's edits put in, and the names to show for them (the website's card
+ * `effective`): a task change keeps only the fields it changes.
+ */
+export function effectiveChange(item: ProposalChange, edits: Record<string, unknown> | undefined, shown: Shown | undefined): ProposalChange {
+  if (!edits && !shown) return item;
+  const e = edits ?? {};
+  const s = shown ?? {};
+  switch (item.type) {
+    case 'create_task':
+      return { ...item, fields: { ...item.fields, ...e }, labels: { project: 'project' in s ? (s.project ?? null) : item.labels.project, assignees: s.assignees ?? item.labels.assignees } };
+    case 'update_task': {
+      const fields = { ...item.fields, ...Object.fromEntries(Object.entries(e).filter(([k]) => k in item.fields)) };
+      return { ...item, fields, labels: { ...item.labels, ...(s.column !== undefined ? { column: s.column } : {}), ...(s.assignees ? { assignees: s.assignees } : {}) } };
+    }
+    case 'draft_minutes':
+      return e.content ? { ...item, fields: { content: e.content as typeof item.fields.content } } : item;
+    case 'schedule_meeting':
+      return { ...item, fields: { ...item.fields, ...e }, labels: { project: 'project' in s ? (s.project ?? null) : item.labels.project, attendees: s.attendees ?? item.labels.attendees } };
+  }
+}
+
+/** A meeting's lengths to choose from (the website's LENGTHS). */
+export const LENGTH_CHOICES: readonly number[] = [15, 30, 45, 60, 90, 120];
+/** The lengths, with the meeting's own when it is none of them. */
+export function lengthChoices(current: number): number[] {
+  return LENGTH_CHOICES.includes(current) ? [...LENGTH_CHOICES] : [...LENGTH_CHOICES, current].sort((a, b) => a - b);
+}
+
+/** The longest a task title, a meeting title and a text may be (the website's editors). */
+export const FIELD_MAX = { taskTitle: 190, meetingTitle: 200, text: 4000 } as const;

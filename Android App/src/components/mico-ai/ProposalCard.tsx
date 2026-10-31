@@ -5,12 +5,13 @@ import { useCardActions, useCardRefresh } from '../../core/mico-ai-queries';
 import { applyNavAction } from '../../navigation/apply-action';
 import type { MicoAiMessage, MicoAiProposal, ProposalChange } from '../../lib/mico-ai-api';
 import { linkTarget } from '../../lib/mico-ai-chat';
-import { FOOTER_NOTE, KIND_BADGE, cardControls, confirmA11y, confirmLabel, resultLine, undoButtonText, undoLine } from '../../lib/mico-ai-card';
+import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, undoButtonText, undoLine, type Shown } from '../../lib/mico-ai-card';
 import { cardHeading, changeLabel, confirmBody, initialTicks, remainingNeeds, resultSummary, undoLeft, undoSummary } from '../../lib/mico-ai-proposal';
 import { radius, shadow, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { CheckRow } from '../meeting/sheet-kit';
 import { Badge, Button, ErrorNote, NoticeNote, Toggle } from '../ui';
+import { ProposalEditor } from './ProposalEditor';
 import { RowSummary, cardWhen } from './ProposalSummary';
 
 const CANCELLED = 'Cancelled — nothing was changed.';
@@ -62,7 +63,10 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
   useCardRefresh(chatId, message);
   const when = useMemo(() => cardWhen(), []);
   const [ticks, setTicks] = useState(() => initialTicks(proposal.items));
-  const [edits] = useState<Record<string, Record<string, unknown>>>({});
+  const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
+  const [shown, setShown] = useState<Record<string, Shown>>({});
+  /** The changes whose editor is open. */
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [invite, setInvite] = useState(proposal.sendInvites);
   const [acting, setActing] = useState<null | 'confirm' | 'cancel' | 'undo'>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,9 +76,10 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
 
   const status = proposal.status;
   const proposed = status === 'proposed';
-  const items = proposal.items;
+  // While it waits for Confirm, each change is shown with the person's edits in it.
+  const items = proposed ? proposal.items.map((i) => effectiveChange(i, edits[i.id], shown[i.id])) : proposal.items;
   /** What each change still needs putting right (an edit to the field concerned clears it). */
-  const needsOf = (item: ProposalChange) => remainingNeeds(item, edits[item.id]);
+  const needsOf = (item: ProposalChange) => remainingNeeds(proposal.items.find((x) => x.id === item.id) ?? item, edits[item.id]);
   // Only a change with nothing left to put right can be ticked (Select all included).
   const eligible = items.filter((i) => !i.locked && needsOf(i).length === 0);
   const ticked = eligible.filter((i) => ticks[i.id]).length;
@@ -102,6 +107,21 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
       setLive(CANCELLED);
     }
   }, [status]);
+
+  /** An edit to one change (`item` as proposed): kept for Confirm, and the change ticked once nothing is left to put right. */
+  const edit = (item: ProposalChange, patch: Record<string, unknown>, show?: Shown) => {
+    const r = applyEdit(edits, item, patch);
+    setEdits(r.edits);
+    if (show) setShown((sh) => ({ ...sh, [item.id]: { ...sh[item.id], ...show } }));
+    setTicks((t) => ({ ...t, [item.id]: r.tick }));
+  };
+  const toggleOpen = (id: string) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   async function run(kind: 'confirm' | 'cancel' | 'undo', call: () => Promise<string | null>) {
     if (busy) return;
@@ -144,16 +164,31 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
 
       {items.map((item) => {
         const label = changeLabel(item);
+        const editing = proposed && open.has(item.id) && !item.locked;
         const needs = proposed && !item.locked ? needsOf(item) : [];
+        const original = proposal.items.find((x) => x.id === item.id) ?? item;
         return (
           <View key={item.id} style={[s.item, proposed && !item.locked && !ticks[item.id] ? s.itemOff : null]}>
             {proposed && !item.locked ? <CheckRow label={label} checked={!!ticks[item.id] && needs.length === 0} disabled={busy || needs.length > 0} onChange={(v) => setTicks((t) => ({ ...t, [item.id]: v }))} /> : null}
             {proposed && item.locked ? <Text style={s.label}>{label}</Text> : null}
-            <Badge label={KIND_BADGE[item.type]} tone="brand" />
+            <View style={s.kindRow}>
+              <Badge label={KIND_BADGE[item.type]} tone="brand" />
+              {proposed && !item.locked ? (
+                <Button
+                  title={editing ? 'Done editing' : 'Edit'}
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => toggleOpen(item.id)}
+                  disabled={busy}
+                  accessibilityLabel={`Edit ${label}`}
+                />
+              ) : null}
+            </View>
             <RowSummary item={item} when={when} />
             {proposed && item.locked ? <Text style={s.problemText}>{`Can’t do: ${item.problem ?? 'this change can’t be made.'}`}</Text> : null}
             {needs.length ? <Text style={s.problemText}>{`Put right first: ${needs.map((n) => n.message).join(' ')}`}</Text> : null}
             {proposed && item.warning ? <Text style={s.warning}>{item.warning}</Text> : null}
+            {editing ? <ProposalEditor item={item} onEdit={(patch, show) => edit(original, patch, show)} /> : null}
             {!proposed && item.result ? <ResultLine result={item.result} gone={!!item.undo?.gone} s={s} /> : null}
             {item.undo ? <Text style={item.undo.status === 'undone' || item.undo.status === 'started' ? s.muted : s.notUndone}>{undoLine(item.undo)}</Text> : null}
           </View>
@@ -215,6 +250,7 @@ const makeStyles = (c: Palette) =>
     notUndone: { ...typeStyle('body'), color: c.ink, backgroundColor: c.warningSoft, borderRadius: radius.input, paddingHorizontal: 10, paddingVertical: 6, overflow: 'hidden' },
     warning: { ...typeStyle('caption'), color: c.warningText },
     result: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+    kindRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
     footer: { gap: 10, paddingHorizontal: 14, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: c.line },
     buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     summary: { ...typeStyle('bodyStrong'), color: c.ink },

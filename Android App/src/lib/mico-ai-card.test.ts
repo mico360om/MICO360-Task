@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { FOOTER_NOTE, KIND_BADGE, cardControls, confirmA11y, confirmLabel, resultLine, undoButtonText, undoLine } from './mico-ai-card';
-import type { MicoAiProposal, ProposalStatus } from './mico-ai-api';
+import { FIELD_MAX, FOOTER_NOTE, KIND_BADGE, LENGTH_CHOICES, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, lengthChoices, resultLine, undoButtonText, undoLine } from './mico-ai-card';
+import type { MicoAiProposal, ProposalChange, ProposalStatus } from './mico-ai-api';
 import { resultSummary, undoSummary } from './mico-ai-proposal';
 import { PROPOSALS } from '../testing/mico-ai-fixtures';
-import { hasWeb, readWeb } from '../testing/web-source';
+import { hasWeb, loadWebTsx, readWeb } from '../testing/web-source';
 
 /** MICO AI's card in words and buttons (Stage 3 Task 14) — Review Focus 3. */
 const card = (status: ProposalStatus, extra: Partial<MicoAiProposal> = {}) => ({ ...PROPOSALS.find((p) => p.status === status)!, ...extra });
@@ -47,4 +47,53 @@ it('result and undo lines, labels and the 15-minute countdown', () => {
 describe.skipIf(!hasWeb('frontend/src/components/mico-ai/ProposalCard.tsx'))('the website’s words', () => {
   it('footers, lines and buttons', () => { const w = readWeb('frontend/src/components/mico-ai/ProposalCard.tsx') + readWeb('frontend/src/components/mico-ai/proposal-rows.tsx'); for (const t of ['Making these changes…', 'Putting these changes back…', 'Cancelled — nothing was changed.', 'Replaced by a newer answer — nothing was changed.', 'Undo is no longer available.', FOOTER_NOTE, 'Skipped (not ticked).', 'Being put back…', 'Email the invitations', 'Making the changes…', 'Undoing…', ...Object.values(KIND_BADGE)]) expect(w, t).toContain(t); });
   it('the lines’ own words', () => { const w = readWeb('frontend/src/components/mico-ai/ProposalCard.tsx'); for (const t of ['Being made…', 'This change couldn’t be made.', "'Refused' : 'Failed'", 'Undone: ${undo.message ?? \'put back as it was.\'}', 'Not undone: ${undo.message ?? \'it couldn’t be put back.\'}', 'Confirm (${ticked})', "ticked === 1 ? 'change' : 'changes'", 'Undo (${countdown(left)})']) expect(w, t).toContain(t); });
+});
+
+it('editing what a change needed ticks it; editing something else leaves it unticked', () => {
+  const item = PROPOSALS[0]!.items.find((i) => i.needs.length > 0)!; const field = item.needs[0]!.fields[0]!;
+  expect(applyEdit({}, item, { [field]: 'x' })).toMatchObject({ tick: item.needs.length === 1, edits: { [item.id]: { [field]: 'x' } } });
+  expect(applyEdit({}, item, { somethingElse: 1 }).tick).toBe(false);
+});
+
+it('edits pile up per change, and a change with two needs ticks once both are edited', () => {
+  const meeting = PROPOSALS[0]!.items.find((i) => i.type === 'schedule_meeting')!;
+  const first = applyEdit({ c1: { projectId: 'p1' } }, meeting, { time: '10:30' });
+  expect(first).toEqual({ edits: { c1: { projectId: 'p1' }, [meeting.id]: { time: '10:30' } }, tick: false });
+  expect(applyEdit(first.edits, meeting, { title: 'Review' })).toEqual({ edits: { c1: { projectId: 'p1' }, [meeting.id]: { time: '10:30', title: 'Review' } }, tick: true });
+});
+
+it('the website’s lengths, the limits, and the current length kept in the choice', () => {
+  expect(LENGTH_CHOICES).toEqual([15, 30, 45, 60, 90, 120]);
+  expect(lengthChoices(30)).toEqual([15, 30, 45, 60, 90, 120]);
+  expect(lengthChoices(75)).toEqual([15, 30, 45, 60, 75, 90, 120]);
+  expect(FIELD_MAX).toEqual({ taskTitle: 190, meetingTitle: 200, text: 4000 });
+});
+
+it('the card shows a change with the person’s edits in it', () => {
+  const [create, update, minutes, meeting] = PROPOSALS[0]!.items as [ProposalChange, ProposalChange, ProposalChange, ProposalChange];
+  expect(effectiveChange(create, undefined, undefined)).toBe(create);
+  const c = effectiveChange(create, { projectId: 'p1', title: 'Order pumps' }, { project: 'Rig 3' });
+  expect(c).toMatchObject({ fields: { projectId: 'p1', title: 'Order pumps' }, labels: { project: 'Rig 3' } });
+  // A task change keeps only the fields it changes.
+  expect(effectiveChange(update, { due: '2026-11-02', title: 'x', columnId: 'c9' }, { column: 'Done' })).toMatchObject({ fields: { due: '2026-11-02', priority: 'HIGH' }, labels: { column: 'Done' } });
+  expect((effectiveChange(update, { title: 'x' }, undefined) as { fields: object }).fields).not.toHaveProperty('title');
+  const content = { summary: 'New', discussion: [], decisions: ['A'], risks: [], nextSteps: [] };
+  expect(effectiveChange(minutes, { content }, undefined)).toMatchObject({ fields: { content } });
+  expect(effectiveChange(meeting, { minutes: 45 }, { attendees: [] })).toMatchObject({ fields: { minutes: 45 }, labels: { attendees: [] } });
+});
+
+describe.skipIf(!hasWeb('frontend/src/components/mico-ai/ProposalCard.tsx'))('the website’s card', () => {
+  it('shows edits the same way', () => {
+    const web = (loadWebTsx('frontend/src/components/mico-ai/ProposalCard.tsx', { expose: ['effective'] }).__exposed as { effective: (...a: unknown[]) => unknown }).effective;
+    const cases: Array<[Record<string, unknown> | undefined, Record<string, unknown> | undefined]> = [
+      [undefined, undefined],
+      [{ title: 'T', projectId: 'p2', due: null, assigneeIds: ['u1'] }, { project: 'Rig 3', assignees: [{ id: 'u1', name: 'Omar' }] }],
+      [{ due: '2026-11-02', title: 'x', columnId: 'c9', priority: 'LOW' }, { column: 'Done' }],
+      [{ content: { summary: 'S2', discussion: [], decisions: [], risks: ['R'], nextSteps: [] } }, undefined],
+      [{ projectId: null }, { project: null }],
+      [undefined, { attendees: [{ id: 'u2', name: 'Sara' }] }],
+    ];
+    for (const p of PROPOSALS) for (const item of p.items) for (const [e, sh] of cases) expect(effectiveChange(item, e, sh), `${item.type} ${JSON.stringify(e)}`).toEqual(web(item, e, sh));
+  });
+  it('edits tick a change as the website’s edit does', () => { const w = readWeb('frontend/src/components/mico-ai/ProposalCard.tsx'); expect(w).toContain('const next = { ...edits[item.id], ...patch };'); expect(w).toContain('[item.id]: remainingNeeds(item, next).length === 0'); expect(readWeb('frontend/src/components/mico-ai/proposal-rows.tsx')).toContain('const LENGTHS = [15, 30, 45, 60, 90, 120];'); });
 });

@@ -30,4 +30,5 @@
 ## Planning and AI
 - In the Android app, MICO AI is a real screen: your chats (new, rename, search, delete), questions and answers with tables and sources, Excel and PDF downloads, Stop, and quick replies when it asks which one you mean.
 - In the Android app, changes MICO AI suggests (new tasks, task changes, final-minutes drafts, meetings) show as a card to tick, Confirm or Cancel, and Undo for 15 minutes; nothing changes until you confirm.
+- In the Android app, you can change what MICO AI suggests before confirming it — the title, project, dates, people, status, priority or the minutes' text.
 <!-- planning-and-ai lines above this line -->
