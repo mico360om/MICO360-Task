@@ -1,9 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import { radius } from '../../lib/theme';
-import { font } from '../../lib/typography';
 import type { IconName } from '../../lib/icons';
 import { useColors } from '../../core/theme';
 import { Icon } from '../Icon';
+import { CountBadge } from './CountBadge';
 
 /**
  * A 44×44 button showing one drawn icon; `label` is what TalkBack says (put any count in it).
@@ -50,13 +50,7 @@ export function IconButton({
       ]}
     >
       <Icon name={icon} size={size} color={color ?? c.ink2} rotate={rotate} />
-      {showBadge ? (
-        <View style={[styles.badge, { backgroundColor: c.brand, borderColor: c.surface }]} importantForAccessibility="no-hide-descendants">
-          <Text style={[styles.badgeText, { color: c.onBrand }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
-            {badge}
-          </Text>
-        </View>
-      ) : null}
+      {showBadge && badge !== undefined ? <CountBadge value={badge} /> : null}
     </Pressable>
   );
 }
@@ -64,17 +58,4 @@ export function IconButton({
 const styles = StyleSheet.create({
   box: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.input },
   dim: { opacity: 0.4 },
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: { ...font('600'), fontSize: 10, lineHeight: 12, fontVariant: ['tabular-nums'] },
 });

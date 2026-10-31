@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { Text, useWindowDimensions } from 'react-native';
+import { Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   NavigationContainer,
@@ -37,6 +37,7 @@ import { TAB_ITEMS, tabBarFrame, tabLabelMaxScale, type TabName } from './tabs';
 import { AppDrawer } from '../components/AppDrawer';
 import { AppTopBar } from '../components/AppTopBar';
 import { Icon } from '../components/Icon';
+import { CountBadge } from '../components/ui/CountBadge';
 import type { IconName } from '../lib/icons';
 import { UpdateBanner } from '../components/UpdateBanner';
 
@@ -101,6 +102,8 @@ const TAB_ICON = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.icon])) as R
 const TAB_TITLE = Object.fromEntries(TAB_ITEMS.map((t) => [t.name, t.title])) as Record<TabName, string>;
 /** A label beside its icon (tablets, ≥ 768 dp): the gap bottom-tabs gives its own labels there. */
 const TAB_LABEL_BESIDE = { marginLeft: 20 };
+/** The Chat tab's unread count, at its icon's top right (CountBadge: its number fits at any font size). */
+const TAB_BADGE = { top: -6, right: -12 };
 
 /**
  * URL deep links (A0.3, MOB-09): mico360://task/<id>, mico360://project/<id>,
@@ -177,6 +180,7 @@ function MainTabs() {
   const { colors } = useTheme();
   // Unread chat messages (3a): without muted conversations or the one being read.
   const unread = useChatBadge();
+  const chatBadge = chatTabBadge(unread);
   // How far a label may grow with the phone's font size: as far as all five still fit this width.
   const { width } = useWindowDimensions();
   const labelScale = tabLabelMaxScale(width);
@@ -190,7 +194,12 @@ function MainTabs() {
         tabBarActiveTintColor: colors.brandText,
         tabBarInactiveTintColor: colors.ink3,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line, borderTopWidth: 1, ...tabBarFrame(insets.bottom) },
-        tabBarIcon: ({ color }) => <Icon name={TAB_ICON[route.name]} size={22} color={color} />,
+        tabBarIcon: ({ color }) => (
+          <View>
+            <Icon name={TAB_ICON[route.name]} size={22} color={color} />
+            {route.name === 'Chat' && chatBadge !== undefined ? <CountBadge value={chatBadge} style={TAB_BADGE} /> : null}
+          </View>
+        ),
         tabBarLabel: ({ color, position }) => (
           <Text style={[typeStyle('tab'), { color }, position === 'beside-icon' ? TAB_LABEL_BESIDE : null]} maxFontSizeMultiplier={labelScale} numberOfLines={1} adjustsFontSizeToFit>
             {TAB_TITLE[route.name]}
@@ -206,7 +215,7 @@ function MainTabs() {
           component={TAB_SCREENS[t.name] as React.ComponentType}
           options={
             t.name === 'Chat'
-              ? { title: t.title, tabBarBadge: chatTabBadge(unread), tabBarAccessibilityLabel: chatTabLabel(unread), tabBarBadgeStyle: { backgroundColor: colors.brand, color: colors.onBrand } }
+              ? { title: t.title, tabBarAccessibilityLabel: chatTabLabel(unread) }
               : { title: t.title }
           }
         />

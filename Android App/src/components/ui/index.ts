@@ -19,3 +19,4 @@ export { ProgressBar } from './ProgressBar';
 export { BrandLogo } from './BrandLogo';
 export { PageHeader } from './PageHeader';
 export { capLines } from './text-lines';
+export { CountBadge } from './CountBadge';
