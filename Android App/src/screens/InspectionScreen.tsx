@@ -24,6 +24,7 @@ import { instantDayText } from '../lib/day-words';
 import { appTimeZone } from '../lib/due-date';
 import { detailView, type DraftView, type FlushState, type InspectionOutbox } from '../lib/inspection-outbox';
 import type { SyncState } from '../lib/inspection-outboxes';
+import type { StorageProblem } from '../lib/draft-storage';
 import type { InspectionDetail, SignatureInput } from '../lib/inspection-types';
 import { INSPECTION_WORDS, finishedNotice, followUpNotice, inspectionChangeNote, problemText, startedLine } from '../lib/inspection-words';
 import { failedWithout, type AssigneeChoice } from '../lib/inspection-follow-ups';
@@ -44,7 +45,7 @@ type Nav = AppScreenProps<'Inspection'>['navigation'];
 export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspection'>) {
   const c = useColors();
   const { inspectionId } = route.params;
-  const { ownerId, ready, view, sync, online, send, sendSoon, outbox } = useInspectionDraft(inspectionId);
+  const { ownerId, ready, view, storageProblem, sync, online, send, sendSoon, outbox } = useInspectionDraft(inspectionId);
   const q = useInspection(inspectionId);
   const pull = usePullRefresh(q.refetch);
   const [changeNote, setChangeNote] = useState<string | null>(null);
@@ -55,13 +56,14 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
   const viewRef = useRef(view);
   viewRef.current = view;
   const lastRead = useRef<InspectionDetail | null>(null);
+  // Only once the phone's records are read: a copy read earlier would hide the answers waiting here.
   useEffect(() => {
-    if (!q.data || !ownerId || !outbox) return;
+    if (!ready || !q.data || !ownerId || !outbox) return;
     const note = inspectionChangeNote(viewRef.current?.snapshot ?? lastRead.current, q.data, ownerId);
     if (note) setChangeNote(note);
     lastRead.current = q.data;
     outbox.remember(ownerId, q.data);
-  }, [q.data, ownerId, outbox]);
+  }, [ready, q.data, ownerId, outbox]);
 
   const shown: DraftView | null = view ?? (q.data ? detailView(q.data) : null);
   const title = shown?.snapshot.title;
@@ -112,6 +114,7 @@ export function InspectionScreen({ route, navigation }: AppScreenProps<'Inspecti
         <InspectionContent
           view={shown}
           draft={view}
+          storageProblem={storageProblem}
           inspectionId={inspectionId}
           ownerId={ownerId}
           outbox={outbox}
@@ -146,6 +149,7 @@ function DismissNote({ text, tone, onDismiss }: { text: string; tone: Tone; onDi
 function InspectionContent({
   view,
   draft,
+  storageProblem,
   inspectionId,
   ownerId,
   outbox,
@@ -164,6 +168,7 @@ function InspectionContent({
   view: DraftView;
   /** The record on this phone (null: none kept, nothing waiting). */
   draft: DraftView | null;
+  storageProblem: StorageProblem | null;
   inspectionId: string;
   ownerId: string | null;
   outbox: InspectionOutbox | null;
@@ -330,6 +335,7 @@ function InspectionContent({
       {record ? (
         <SyncBanner
           view={draft}
+          storageProblem={storageProblem}
           sync={sync}
           online={online}
           onTryNow={() => {

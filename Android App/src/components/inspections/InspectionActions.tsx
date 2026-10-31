@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useServices } from '../../core/providers';
 import { refreshInspectionQueries } from '../../core/inspection-sync';
-import { ACTION_WORDS, inspectionMenu, type InspectionAction } from '../../lib/inspection-client';
+import { ACTION_WORDS, backToProject, inspectionMenu, type InspectionAction } from '../../lib/inspection-client';
 import type { InspectionOutbox } from '../../lib/inspection-outbox';
 import type { InspectionDetail } from '../../lib/inspection-types';
 import { problemText } from '../../lib/inspection-words';
@@ -91,7 +91,11 @@ export function InspectionActions({
       await resources.inspections.remove(id);
       if (outbox && ownerId) outbox.discard(ownerId, id);
       refreshInspectionQueries(qc, id, detail.projectId);
-      navigation.replace('ProjectDetail', { projectId: detail.projectId, tab: 'inspections' });
+      // Back to the project's screen it came from — never a second one on top of it.
+      const state = navigation.getState();
+      const back = backToProject(state.routes, state.index, detail.projectId);
+      if ('pop' in back) navigation.pop(back.pop);
+      else navigation.replace('ProjectDetail', { projectId: detail.projectId, tab: 'inspections' });
     } catch (e) {
       onProblem(problemText(e, ACTION_WORDS.failed));
       setBusy(null);

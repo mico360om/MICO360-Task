@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { hasWeb, loadWebTsx, readWeb } from '../testing/web-source';
 import { websiteSays } from '../testing/phone-words';
-import { ACTION_WORDS, REPORT_CLIENT_WORDS, clientResultLine, clientRow, inspectionMenu, notesNameSomeone, revisionLine } from './inspection-client';
+import { ACTION_WORDS, REPORT_CLIENT_WORDS, backToProject, clientResultLine, clientRow, inspectionMenu, notesNameSomeone, revisionLine } from './inspection-client';
+import { appSource as src } from '../testing/web-source';
 import type { ClientInspection, InspectionPermissions } from './inspection-types';
 
 /** A finished inspection's report, its actions and showing it to the client (Stage 4 Task 11). */
@@ -64,4 +65,15 @@ describe.skipIf(!hasWeb('frontend/src/components/inspections/ClientInspectionBod
     const web = ['components/inspections/InspectionClientSwitch.tsx', 'pages/InspectionPage.tsx', 'components/ui/ConfirmDialog.tsx', 'components/inspections/ClientInspectionBody.tsx'].map((f) => readWeb(`frontend/src/${f}`));
     for (const [k, v] of Object.entries({ ...ACTION_WORDS, ...REPORT_CLIENT_WORDS })) expect(websiteSays(web, v), k).toBe(true);
   });
+});
+
+it('a deleted inspection goes back to its project’s screen when it came from there, never a second one (Final I12)', () => {
+  const r = (name: string, projectId?: string) => ({ name, params: projectId ? { projectId } : undefined });
+  expect(backToProject([r('Tabs'), r('ProjectDetail', 'pr1'), r('Inspection')], 2, 'pr1')).toEqual({ pop: 1 });
+  expect(backToProject([r('Tabs'), r('ProjectDetail', 'pr1'), r('TaskDetail'), r('Inspection')], 3, 'pr1')).toEqual({ pop: 2 });
+  expect(backToProject([r('Tabs'), r('ProjectDetail', 'pr2'), r('Inspection')], 2, 'pr1')).toEqual({ replace: true });
+  expect(backToProject([r('Tabs'), r('Inspection')], 1, 'pr1')).toEqual({ replace: true });
+  const a = src('components/inspections/InspectionActions.tsx');
+  expect(a).toMatch(/backToProject\(state\.routes, state\.index, detail\.projectId\)/);
+  expect(a).toMatch(/navigation\.pop\(back\.pop\)/);
 });

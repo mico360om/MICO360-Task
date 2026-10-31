@@ -60,6 +60,14 @@ export function readOnlyReading(item: ReadingItem, answer: { result: ItemResult 
   return '—';
 }
 
+/**
+ * The reading box's keyboard (Final I3): Android's decimal pad has no minus sign on many phones, so
+ * a reading whose limits go below zero gets the number keyboard (it has one); else the decimal pad.
+ */
+export function readingKeyboard(item: ReadingItem): 'numeric' | 'decimal-pad' {
+  return item.min !== null && item.min < 0 ? 'numeric' : 'decimal-pad';
+}
+
 /** What TalkBack calls the reading box: "Pressure, reading in psi". */
 export function readingLabel(item: ReadingItem): string {
   return `${item.label}, reading${item.unit ? ` in ${item.unit}` : ''}`;

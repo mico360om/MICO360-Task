@@ -5,8 +5,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useColors } from '../../core/theme';
 import { useDueChecks, useStartInspection } from '../../core/inspection-queries';
 import { companyTodayKey } from '../../lib/due-date';
-import { newIdempotencyKey } from '../../lib/idempotency';
-import { INSPECTIONS_TAB_WORDS as W, dueCheckGroups, dueCheckWhen, inspectorsText } from '../../lib/inspection-tab';
+import { pendingKeys } from '../../lib/pending-keys';
+import { INSPECTIONS_TAB_WORDS as W, dueCheckGroups, dueCheckWhen, inspectorsText, startTry } from '../../lib/inspection-tab';
 import type { DueCheck } from '../../lib/inspection-types';
 import { problemText } from '../../lib/inspection-words';
 import { radius, spacing } from '../../lib/theme';
@@ -86,11 +86,18 @@ export function DueChecksSection({ projectId, canStart, onOpenTask }: { projectI
   const start = (check: DueCheck) => {
     setProblem(null);
     setStartingId(check.taskId);
+    // One key for this check's Start until the server answers (a second tap after no answer is the same Start).
     startM.mutate(
-      { formId: check.form.id, taskId: check.taskId, place: check.place, key: newIdempotencyKey() },
+      { formId: check.form.id, taskId: check.taskId, place: check.place, key: pendingKeys.keyFor(startTry(projectId, check)) },
       {
-        onSuccess: (started) => navigation.navigate('Inspection', { inspectionId: started.id, title: started.title }),
-        onError: (e) => setProblem(problemText(e, W.startFailed)),
+        onSuccess: (started) => {
+          pendingKeys.settle(startTry(projectId, check));
+          navigation.navigate('Inspection', { inspectionId: started.id, title: started.title });
+        },
+        onError: (e) => {
+          pendingKeys.settle(startTry(projectId, check), e);
+          setProblem(problemText(e, W.startFailed));
+        },
         onSettled: () => setStartingId(null),
       },
     );

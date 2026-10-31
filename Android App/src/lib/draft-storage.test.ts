@@ -118,22 +118,56 @@ it('a failed write is tried again with the next write', async () => {
   expect(await disk.getItem('mico360.inspection.u1.i1')).toBe('A');
 });
 
-it('reads only inspection records, and a change made while it reads wins over the stored one', async () => {
-  const disk = createMemoryStore({ 'mico360.cache.u1.x': '{}', 'mico360.inspection.u1.i9': '{"v":1}', 'mico360.inspection.u1.i8': 'old', 'mico360.inspection.u1.i7': 'gone' });
+it('reads only inspection records', async () => {
+  const disk = createMemoryStore({ 'mico360.cache.u1.x': '{}', 'mico360.inspection.u1.i9': '{"v":1}' });
   const s = createMirroredDraftStorage(disk);
   expect(s.isHydrated()).toBe(false);
-  const reading = s.hydrate();
-  s.set('mico360.inspection.u1.i8', 'new');
-  s.remove('mico360.inspection.u1.i7');
-  await reading;
+  await s.hydrate();
   expect(s.isHydrated()).toBe(true);
-  expect(s.keys().sort()).toEqual(['mico360.inspection.u1.i8', 'mico360.inspection.u1.i9']);
-  expect(s.get('mico360.inspection.u1.i8')).toBe('new');
+  expect(s.keys()).toEqual(['mico360.inspection.u1.i9']);
   expect(s.get('mico360.cache.u1.x')).toBeNull();
 });
 
+it('a record kept on the phone is never overwritten by a write made before it was read (Final I1)', async () => {
+  const [i1, i2, i3] = ['mico360.inspection.u1.i1', 'mico360.inspection.u1.i2', 'mico360.inspection.u1.i3'];
+  const disk = createMemoryStore({ [i1]: '{"kept":1}', [i2]: '{"kept":2}' });
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const slow = { ...disk, getItem: async (k: string) => (await gate, disk.getItem(k)) };
+  const s = createMirroredDraftStorage(slow);
+  const reading = s.hydrate();
+  s.set(i1, '{"fresh":1}');
+  s.remove(i2);
+  s.set(i3, '{"new":3}');
+  expect(s.get(i1)).toBeNull(); // nothing is answered before the phone's records are read
+  release();
+  await reading;
+  await s.settled();
+  expect([s.get(i1), await disk.getItem(i1)]).toEqual(['{"kept":1}', '{"kept":1}']);
+  expect([s.get(i2), await disk.getItem(i2)]).toEqual([null, null]);
+  expect([s.get(i3), await disk.getItem(i3)]).toEqual(['{"new":3}', '{"new":3}']);
+});
+
+it('opening an inspection before the phone has read its records keeps the answers waiting there (Final I1)', async () => {
+  const disk = createMemoryStore();
+  const first = await open(disk, fakeInspectionServer());
+  first.o.remember('u1', DETAIL);
+  first.o.saveAnswer('u1', 'i1', { itemId: 'a', result: 'FAIL', reading: null, note: 'Loose' });
+  await first.s.settled();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const slow = { ...disk, getItem: async (k: string) => (await gate, disk.getItem(k)) };
+  const s = createMirroredDraftStorage(slow);
+  const reading = s.hydrate();
+  const o = createInspectionOutbox({ storage: s, api: fakeInspectionServer().api });
+  o.remember('u1', DETAIL); // the screen read the inspection before the records were read
+  release();
+  await reading;
+  expect(o.view('u1', 'i1')).toMatchObject({ pending: { answers: 1 } });
+});
+
 it('a record the phone can’t read back is skipped, the others are read', async () => {
-  const disk = createMemoryStore({ 'mico360.inspection.u1.i1': 'one', 'mico360.inspection.u1.i2': 'two' });
+  const disk = createMemoryStore({ 'mico360.inspection.u1.i1': '{"v":1}', 'mico360.inspection.u1.i2': '{"v":2}' });
   const s = createMirroredDraftStorage({ ...disk, getItem: async (k: string) => (k.endsWith('i1') ? Promise.reject(new Error('Row too big')) : disk.getItem(k)) });
   await s.hydrate();
   expect(s.keys()).toEqual(['mico360.inspection.u1.i2']);
@@ -147,4 +181,36 @@ it('removing a person’s records removes them from the phone too', async () => 
   removeOwnerRecords(s, 'u1');
   await s.settled();
   expect(await disk.keys()).toEqual(['mico360.inspection.u2.i2']);
+});
+
+it('a write the phone refuses is known for that record, and heard (Final I2)', async () => {
+  const disk = createMemoryStore();
+  let refuse = true;
+  const flaky = { ...disk, setItem: async (k: string, v: string) => (refuse ? Promise.reject(new Error('SQLITE_FULL')) : disk.setItem(k, v)) };
+  const s = createMirroredDraftStorage(flaky, { recordMax: 10 });
+  await s.hydrate();
+  let heard = 0;
+  const stop = s.subscribe(() => (heard += 1));
+  s.set('mico360.inspection.u1.i1', 'abc');
+  await s.settled();
+  expect(s.problemOf('mico360.inspection.u1.i1')).toBe('full');
+  expect(heard).toBeGreaterThan(0);
+  expect(() => s.set('mico360.inspection.u1.i2', 'x'.repeat(11))).toThrow(StorageFullError);
+  expect(s.problemOf('mico360.inspection.u1.i2')).toBe('too-big');
+  refuse = false;
+  s.set('mico360.inspection.u1.i2', 'small');
+  await s.settled();
+  expect([s.problemOf('mico360.inspection.u1.i1'), s.problemOf('mico360.inspection.u1.i2')]).toEqual([null, null]);
+  stop();
+});
+
+it('a record the phone can’t read back, or that isn’t a record, is removed, not kept for ever (Final I11)', async () => {
+  const disk = createMemoryStore({ 'mico360.inspection.u1.i1': 'one', 'mico360.inspection.u1.i2': '{"v":1}', 'mico360.inspection.u1.i3': '{"v":1}' });
+  const dropped: string[] = [];
+  const s = createMirroredDraftStorage({ ...disk, getItem: async (k: string) => (k.endsWith('i3') ? Promise.reject(new Error('Row too big')) : disk.getItem(k)) }, { onDropped: (k) => dropped.push(k) });
+  await s.hydrate();
+  await s.settled();
+  expect(s.keys()).toEqual(['mico360.inspection.u1.i2']);
+  expect((await disk.keys()).sort()).toEqual(['mico360.inspection.u1.i2']);
+  expect(dropped.sort()).toEqual(['mico360.inspection.u1.i1', 'mico360.inspection.u1.i3']);
 });

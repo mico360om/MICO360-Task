@@ -3,7 +3,8 @@ import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
 import type { DraftView } from '../../lib/inspection-outbox';
 import type { SyncState } from '../../lib/inspection-outboxes';
-import { BACK_ONLINE, INSPECTION_WORDS, SYNC_ANNOUNCE, pendingWords, syncLine, syncWord, type SyncWord } from '../../lib/inspection-words';
+import { BACK_ONLINE, INSPECTION_WORDS, MEMORY_TOO_BIG_ANNOUNCE, SYNC_ANNOUNCE, pendingWords, syncLine, syncWord, type SyncWord } from '../../lib/inspection-words';
+import type { StorageProblem } from '../../lib/draft-storage';
 import type { IconName } from '../../lib/icons';
 import { radius, spacing } from '../../lib/theme';
 import { toneStyle, type Tone } from '../../lib/tone';
@@ -38,8 +39,11 @@ export function SyncBanner({
   onDiscard,
   onLookAgain,
   onOk,
+  storageProblem = null,
 }: {
   view: DraftView | null;
+  /** Why the changes are only in the app: too big to keep, or the storage full. */
+  storageProblem?: StorageProblem | null;
   sync: SyncState;
   online: boolean;
   onTryNow: () => void;
@@ -55,9 +59,9 @@ export function SyncBanner({
     if (!word || word === 'sending' || word === 'soon' || word === last.current) return;
     const before = last.current;
     last.current = word;
-    if (AWAY.has(word)) AccessibilityInfo.announceForAccessibility(SYNC_ANNOUNCE[word]!);
+    if (AWAY.has(word)) AccessibilityInfo.announceForAccessibility(word === 'memory' && storageProblem === 'too-big' ? MEMORY_TOO_BIG_ANNOUNCE : SYNC_ANNOUNCE[word]!);
     else if (word === 'sent' && before && AWAY.has(before)) AccessibilityInfo.announceForAccessibility(BACK_ONLINE);
-  }, [word]);
+  }, [word, storageProblem]);
 
   if (!view || !word) return null;
   const { pending, problem } = view;
@@ -105,7 +109,7 @@ export function SyncBanner({
       <View style={[s.box, s.status, { backgroundColor: t.bg, borderColor: t.border }]}>
         <View style={[s.line, s.grow]}>
           <Icon name={look.icon} size={16} color={t.fg} />
-          <Text style={[typeStyle('body'), s.words, { color: t.fg }]}>{syncLine(syncWord(view, sync, online), view)}</Text>
+          <Text style={[typeStyle('body'), s.words, { color: t.fg }]}>{syncLine(syncWord(view, sync, online), view, storageProblem)}</Text>
         </View>
         {word === 'unreachable' || word === 'retry' ? <Button title={INSPECTION_WORDS.tryNow} variant="ghost" size="sm" onPress={onTryNow} /> : null}
       </View>

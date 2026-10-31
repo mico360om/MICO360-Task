@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
-import { DRAFT_DELAY_MS, ITEM_WORDS, allowedText, followUpLine, outsideText, readOnlyReading, readingDraft, readingError, readingLabel } from '../../lib/inspection-item';
+import { DRAFT_DELAY_MS, ITEM_WORDS, allowedText, followUpLine, outsideText, readOnlyReading, readingDraft, readingError, readingKeyboard, readingLabel } from '../../lib/inspection-item';
 import { effectiveResult, INSPECTION_LIMITS, parseReading, type FormItem, type ItemResult } from '../../lib/inspection-rules';
 import type { AnswerView, FollowUpView } from '../../lib/inspection-types';
 import type { IconName } from '../../lib/icons';
@@ -186,7 +186,7 @@ export function InspectionItemRow({
                   onPress={() => save({ result: choice.value })}
                   accessibilityRole="radio"
                   accessibilityLabel={choice.label}
-                  accessibilityState={{ checked: on, selected: on }}
+                  accessibilityState={{ checked: on }}
                   style={({ pressed }) => [s.choice, { borderColor: on ? look.border : c.line, backgroundColor: on ? look.bg : c.surface }, pressed && s.pressed]}
                 >
                   {on && choice.icon ? <Icon name={choice.icon} size={14} color={look.fg} /> : null}
@@ -215,7 +215,7 @@ export function InspectionItemRow({
                     }}
                     onBlur={commitReading}
                     onSubmitEditing={commitReading}
-                    keyboardType="decimal-pad"
+                    keyboardType={readingKeyboard(item)}
                     autoComplete="off"
                     maxLength={INSPECTION_LIMITS.readingMax}
                     placeholder={ITEM_WORDS.readingPlaceholder}

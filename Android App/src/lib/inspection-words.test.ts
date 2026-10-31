@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { appSource as src, hasWeb, loadWebTsx, normalise, readWeb } from '../testing/web-source';
 import { DETAIL } from '../testing/inspection-fixtures';
-import { asWebsiteWords, websiteSays } from '../testing/phone-words';
+import { asWebsiteWords, phoneWordsIn, websiteSays } from '../testing/phone-words';
 import { detailView, type DraftView } from './inspection-outbox';
 import type { SyncState } from './inspection-outboxes';
 import { defaultScheduleName, lateText, shortDay, upcomingText } from './inspection-schedule';
@@ -9,6 +9,7 @@ import type { InspectionListItem } from './inspection-types';
 import {
   BACK_ONLINE,
   INSPECTION_WORDS,
+  MEMORY_TOO_BIG_ANNOUNCE,
   SYNC_ANNOUNCE,
   finishHint,
   finishedNotice,
@@ -118,7 +119,7 @@ it('progress, finish and change words', () => {
 it('the banner line, and what is waiting in words', () => {
   expect(pendingWords({ answers: 2, finish: true, followUps: 1 })).toBe('2 answers, 1 follow-up task request, the signatures');
   expect(pendingWords({ answers: 1, finish: false, followUps: 0 })).toBe('1 answer');
-  expect(syncLine('offline', waitingView)).toBe('Saved on this phone, will send when online: 2 answers, 1 follow-up task request, the signatures.');
+  expect(syncLine('offline', waitingView)).toBe('Saved on this phone, will send when you’re back online with the app open: 2 answers, 1 follow-up task request, the signatures.');
   expect(syncLine('sent', base)).toBe('Saved.');
   expect(syncLine('sent', { ...base, sentAt: '2026-10-30T08:00:00.000Z' })).toBe('All changes sent.');
 });
@@ -133,4 +134,28 @@ it('a row’s facts and the started line, in the company’s time zone', () => {
 it('the inspection icon is the website’s clipboard', () => {
   expect(isIconName('misc.inspection')).toBe(true);
   expect(MISC_ICONS.inspection).toMatchObject({ source: 'components/inspections/inspection-ui.tsx', strokeWidth: 2.2 });
+});
+
+describe.skipIf(!hasWeb('frontend/src/components/inspections/SyncBanner.tsx'))('the banner’s phone words (Final I10)', () => {
+  const BANNER = 'frontend/src/components/inspections/SyncBanner.tsx';
+  it('are exactly these substitutions of the website’s banner, each still there', () => {
+    expect(phoneWordsIn(BANNER).map(([web, phone]) => [web, phone])).toEqual([
+      ['only in this page', 'only in the app'],
+      ['Keep it open until', 'Keep the app open until'],
+      ['will send when online', 'will send when you’re back online with the app open'],
+      ['This phone’s storage is full, so', 'This inspection is too big to keep on the phone, so'],
+      ['This phone’s storage is full:', 'This inspection is too big to keep on the phone:'],
+    ]);
+    for (const [web] of phoneWordsIn(BANNER)) expect(readWeb(BANNER), web).toContain(web);
+  });
+  it('say the app, not the page; back online with the app open; too big apart from full', () => {
+    const v = { ...waitingView, persisted: false };
+    expect(syncLine('memory', v)).toBe('This phone’s storage is full, so your changes are only in the app. Keep the app open until they’re sent.');
+    expect(syncLine('memory', v, 'too-big')).toBe('This inspection is too big to keep on the phone, so your changes are only in the app. Keep the app open until they’re sent.');
+    expect(syncLine('offline', waitingView)).toBe('Saved on this phone, will send when you’re back online with the app open: 2 answers, 1 follow-up task request, the signatures.');
+    expect(SYNC_ANNOUNCE.memory).toBe('This phone’s storage is full: changes are only in the app.');
+    expect(MEMORY_TOO_BIG_ANNOUNCE).toBe('This inspection is too big to keep on the phone: changes are only in the app.');
+    const web = readWeb(BANNER);
+    for (const w of [syncLine('memory', v), syncLine('memory', v, 'too-big'), syncLine('offline', waitingView).replace(pendingWords(waitingView.pending), '{w}'), SYNC_ANNOUNCE.memory!, MEMORY_TOO_BIG_ANNOUNCE]) expect(websiteSays(web, w), w).toBe(true);
+  });
 });

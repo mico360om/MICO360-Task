@@ -1,5 +1,6 @@
 import { dueText, lateText, upcomingText } from './inspection-schedule';
 import { INSPECTION_LIMITS } from './inspection-rules';
+import { tryName } from './pending-keys';
 import type { DueCheck, Person } from './inspection-types';
 import type { WaitingInspection } from './inspection-outbox';
 
@@ -46,6 +47,37 @@ export function waitingBannerText(w: WaitingInspection[]): string | null {
 export function isFirstRun(o: { inspections: unknown[] | undefined; forms: unknown[] | undefined; checks: unknown[] | undefined; schedules: unknown[] | undefined; waiting: number }): boolean {
   const empty = (x: unknown[] | undefined) => Array.isArray(x) && x.length === 0;
   return empty(o.inspections) && empty(o.forms) && empty(o.checks) && empty(o.schedules) && o.waiting === 0;
+}
+
+/**
+ * One due check's Start as a try (lib/pending-keys): its key is kept from tap to tap until the
+ * server answers — a lost answer or "still on it" keeps it, a refusal or success lets it go (Final I8).
+ */
+export function startTry(projectId: string, c: Pick<DueCheck, 'taskId' | 'form' | 'place'>): string {
+  return tryName('inspection-start', projectId, c.taskId, c.form.id, c.place ?? null);
+}
+
+/**
+ * What the tab shows (Final I9): the lists kept on the phone as soon as they and the due checks have
+ * an answer — the forms and schedules are read online only, and the lists must not wait for them
+ * with no signal. Only when nothing at all is here does it wait for those too, to tell a first run
+ * (one invitation) from an empty project. `undefined`: not answered (or failed).
+ */
+export function tabState(o: {
+  inspections: unknown[] | undefined;
+  checks: unknown[] | undefined;
+  checksSettled: boolean;
+  forms: unknown[] | undefined;
+  formsSettled: boolean;
+  schedules: unknown[] | undefined;
+  schedulesSettled: boolean;
+  waiting: number;
+}): 'loading' | 'first-run' | 'lists' {
+  if (!o.inspections || !o.checksSettled) return 'loading';
+  const nothingHere = o.inspections.length === 0 && o.waiting === 0 && (o.checks?.length ?? 0) === 0;
+  if (!nothingHere) return 'lists';
+  if (!o.formsSettled || !o.schedulesSettled) return 'loading';
+  return isFirstRun(o) ? 'first-run' : 'lists';
 }
 
 /** What is wrong with a Start (null: it can go). */

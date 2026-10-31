@@ -8,7 +8,7 @@ import { useWaitingInspections } from '../../core/inspection-sync';
 import { useDueChecks, useInspectionForms, useInspectionSchedules, useProjectInspections } from '../../core/inspection-queries';
 import { openWebsitePage } from '../../adapters/website';
 import { appTimeZone } from '../../lib/due-date';
-import { INSPECTIONS_TAB_WORDS as W, isFirstRun, waitingBannerText } from '../../lib/inspection-tab';
+import { INSPECTIONS_TAB_WORDS as W, tabState, waitingBannerText } from '../../lib/inspection-tab';
 import type { InspectionListItem } from '../../lib/inspection-types';
 import { problemText } from '../../lib/inspection-words';
 import { radius, spacing } from '../../lib/theme';
@@ -73,14 +73,20 @@ export function InspectionsTab({
   const inProgress = all.filter((x) => x.status === 'IN_PROGRESS');
   const finished = all.filter((x) => x.status === 'FINISHED');
   const settledQ = (x: { isSuccess: boolean; isError: boolean }) => x.isSuccess || x.isError;
-  const settled = !!q.data && settledQ(formsQ) && settledQ(checksQ) && settledQ(schedulesQ);
   const canCreate = !!formsQ.data?.canCreate;
   const openForms = () => openWebsitePage(baseUrl, FORMS_TAB);
-  const firstRun =
-    settled &&
-    isFirstRun({ inspections: all, forms: formsQ.data?.forms, checks: checksQ.data?.checks, schedules: schedulesQ.data?.schedules, waiting: waiting.length });
+  const state = tabState({
+    inspections: q.data?.inspections,
+    checks: checksQ.data?.checks,
+    checksSettled: settledQ(checksQ),
+    forms: formsQ.data?.forms,
+    formsSettled: settledQ(formsQ),
+    schedules: schedulesQ.data?.schedules,
+    schedulesSettled: settledQ(schedulesQ),
+    waiting: waiting.length,
+  });
 
-  if (firstRun) {
+  if (state === 'first-run') {
     return (
       <EmptyState
         icon="misc.inspection"
@@ -110,9 +116,9 @@ export function InspectionsTab({
           <Text style={[typeStyle('body'), s.grow, { color: c.infoText }]}>{banner}</Text>
         </View>
       ) : null}
-      {q.isLoading || (q.data && !settled) ? <SkeletonList rows={2} /> : null}
+      {q.isLoading || (q.data && state === 'loading') ? <SkeletonList rows={2} /> : null}
       {q.isError && !q.data ? <ErrorNote message={problemText(q.error, W.loadFailed)} onRetry={() => void q.refetch()} retrying={q.isFetching} /> : null}
-      {q.data && settled ? (
+      {state === 'lists' && q.data ? (
         <>
           <DueChecksSection projectId={projectId} canStart={q.data.canStart} onOpenTask={onOpenTask} />
           <SchedulesSection projectId={projectId} canChange={q.data.canStart} />

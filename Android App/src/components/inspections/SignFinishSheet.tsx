@@ -1,10 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '../../core/theme';
 import { SIGNATURE_LABEL, type SignatureRole } from '../../lib/inspection-rules';
 import type { SignatureInput } from '../../lib/inspection-types';
-import { SIGN_WORDS, signatureInputs, type SignatureValue } from '../../lib/signature-ink';
+import { SIGN_WORDS, signButtonsSideBySide, signatureInputs, type SignatureValue } from '../../lib/signature-ink';
 import { radius, spacing } from '../../lib/theme';
 import { AppText, Button, Muted } from '../ui';
 import { SignaturePad } from './SignaturePad';
@@ -33,6 +33,9 @@ export function SignFinishSheet({
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  // Side by side while both words fit; stacked (Sign and finish on top) at a large font.
+  const { width, fontScale } = useWindowDimensions();
+  const sideBySide = signButtonsSideBySide(width, fontScale);
   const [values, setValues] = useState<Partial<Record<SignatureRole, SignatureValue | null>>>({});
   const [problems, setProblems] = useState<Partial<Record<SignatureRole, string | null>>>({});
   const [signing, setSigning] = useState(false);
@@ -87,9 +90,9 @@ export function SignFinishSheet({
               );
             })}
           </ScrollView>
-          <View style={[s.buttons, { borderTopColor: c.line }]}>
-            <Button title={SIGN_WORDS.cancel} variant="secondary" onPress={onCancel} style={s.button} />
-            <Button title={SIGN_WORDS.title} onPress={submit} style={s.button} />
+          <View style={[s.buttons, signButtonsSideBySide(width, fontScale) ? s.buttonsRow : s.buttonsStacked, { borderTopColor: c.line }]}>
+            <Button title={SIGN_WORDS.cancel} variant="secondary" onPress={onCancel} style={sideBySide ? s.button : null} />
+            <Button title={SIGN_WORDS.title} onPress={submit} style={sideBySide ? s.button : null} />
           </View>
         </View>
       </View>
@@ -104,6 +107,8 @@ const s = StyleSheet.create({
   intro: { marginTop: spacing.xs },
   body: { flex: 1 },
   bodyContent: { padding: spacing.lg, gap: spacing.xl },
-  buttons: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
+  buttons: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
+  buttonsRow: { flexDirection: 'row' },
+  buttonsStacked: { flexDirection: 'column-reverse' },
   button: { flex: 1 },
 });

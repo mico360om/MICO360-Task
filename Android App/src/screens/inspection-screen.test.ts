@@ -24,7 +24,7 @@ it('answers stop while signed or refused', () => expect(s()).toMatch(/p\.canAnsw
 
 it('the reading box takes decimals and the item is a radio group', () => {
   const r = src('components/inspections/InspectionItemRow.tsx');
-  expect(r).toContain('keyboardType="decimal-pad"');
+  expect(r).toContain('keyboardType={readingKeyboard(item)}');
   expect(r).toContain('accessibilityRole="radio"');
   expect(r).toContain('accessibilityRole="radiogroup"');
   expect(r).toMatch(/maxLength=\{INSPECTION_LIMITS\.readingMax\}/);
@@ -36,7 +36,7 @@ it('the banner tells TalkBack when the changes can’t be sent, and when they al
   expect(b).toMatch(/AccessibilityInfo\.announceForAccessibility\(/);
   expect(b).toContain('SYNC_ANNOUNCE[');
   expect(b).toContain('BACK_ONLINE');
-  expect(b).toMatch(/syncLine\(syncWord\(view, sync, online\), view\)/);
+  expect(b).toMatch(/syncLine\(syncWord\(view, sync, online\), view(, storageProblem)?\)/);
 });
 
 it('the screen is registered', () => expect(src('navigation/RootNavigator.tsx')).toMatch(/<AppStack\.Screen name="Inspection" component=\{InspectionScreen\}/));
@@ -86,4 +86,15 @@ it('the report downloads through the exporter, a delete forgets the phone’s co
 it('throwing away what is on the phone asks first', () => {
   expect(s()).toMatch(/onDiscard=\{\(\) => confirmDiscard\(/);
   expect(src('components/inspections/InspectionActions.tsx')).toMatch(/export function confirmDiscard\([^]*Alert\.alert\(ACTION_WORDS\.discardTitle/);
+});
+
+it('keeps what it read only once the phone’s records are read (Final I1)', () => {
+  expect(s()).toMatch(/if \(!ready \|\| !q\.data \|\| !ownerId \|\| !outbox\) return;/);
+  expect(s()).toMatch(/\}, \[ready, q\.data, ownerId, outbox\]\);/);
+});
+
+it("a Pass / Fail / N/A choice says it is chosen once: checked, not also selected (Final I14)", () => {
+  const r = src('components/inspections/InspectionItemRow.tsx');
+  expect(r).toContain('accessibilityState={{ checked: on }}');
+  expect(r).not.toMatch(/accessibilityState=\{\{ checked: on, selected: on \}\}/);
 });

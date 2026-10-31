@@ -24,14 +24,16 @@ export function SignOutButton() {
     }
   }
 
-  function confirm() {
-    // Inspection answers, follow-up requests and a finish not sent yet count too (Stage 4).
-    const q = signOutQuestion(queued.pending.length + queued.failed.length + inspections.unsentCount(userId));
+  async function confirm() {
+    // Inspection answers, follow-up requests and a finish not sent yet count too (Stage 4) — once
+    // the phone's records are read (Final I4), never a 0 from before.
+    const unsentInspections = await inspections.unsentCountWhenReady(userId);
+    const q = signOutQuestion(queued.pending.length + queued.failed.length + unsentInspections);
     Alert.alert(q.title, q.message, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign out', style: 'destructive', onPress: () => void doSignOut() },
     ]);
   }
 
-  return <Button title="Sign out" variant="secondary" onPress={confirm} loading={busy} />;
+  return <Button title="Sign out" variant="secondary" onPress={() => void confirm()} loading={busy} />;
 }
