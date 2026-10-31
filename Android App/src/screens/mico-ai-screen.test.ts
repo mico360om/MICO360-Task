@@ -18,8 +18,8 @@ it('answers: tables with Excel, sources that open screens, the PDF report, Copy 
 it('the answer is announced as it arrives', () => expect(screen).toMatch(/accessibilityLiveRegion="polite"[^]*announce\(/));
 
 it('the screen follows the answer being written and says when the chat was deleted', () => {
-  expect(screen).toMatch(/const pending = pendingAnswer\(messages\)/);
-  expect(screen).toMatch(/useAnswerPoll\(chatId, pending\)/);
+  expect(screen).toMatch(/const answering = pendingAnswer\(messages\)/);
+  expect(screen).toMatch(/useAnswerPoll\(chatId, answering\)/);
   expect(screen).toContain('This chat was deleted.');
   // A chat deleted elsewhere can't take a question: the next one starts a new chat.
   expect(screen).toMatch(/newChat: !!o\.newChat \|\| gone/);
@@ -86,4 +86,78 @@ describe.skipIf(!hasWeb('frontend/src/pages/MicoAiPage.tsx'))('the website’s p
     const p = readWeb('frontend/src/pages/MicoAiPage.tsx');
     for (const w of ['How can I help, ', 'How can I help?', 'I answer from your tasks, projects, meetings, reports and team chat.', 'MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.', 'Open AI Management', 'This chat was deleted.', 'Load earlier messages', 'Delete this chat?', 'and its messages will be deleted for good. This can’t be undone.', 'Delete chat', 'Rename this chat', 'Open chats', 'New chat', 'Suggested questions']) expect(p, w).toContain(w);
   });
+});
+
+it('the conversation scrolls only as the website’s rule says: never on growth the person caused (final review A1)', () => {
+  // A wish is set where the messages change and carried out when the content has its new size.
+  expect(screen).toMatch(/const w = scrollWant\(was, now, messages\.length, atEnd\.current\)/);
+  expect(screen).toMatch(/\[chatId, firstId, lastId, pending\?\.id, pending\?\.step, messages\.length\]/);
+  expect(screen).toMatch(/onContentSizeChange=\{applyWant\}/);
+  const apply = screen.slice(screen.indexOf('const applyWant'), screen.indexOf('const applyWant') + 900);
+  expect(apply).toMatch(/const w = want\.current;\s+if \(!w/);
+  // An answer taller than the view opens at its start.
+  expect(screen).toMatch(/box\.height > viewHeight\.current/);
+  expect(screen).toMatch(/onLayout=\{\(e\) => onMessageLayout\(m\.id, e\.nativeEvent\.layout\)\}/);
+  // The keyboard opening (the view getting shorter) keeps the newest message in view; a drag cancels any wish.
+  expect(screen).toMatch(/onLayout=\{onViewLayout\}/);
+  expect(screen).toMatch(/onScrollBeginDrag=\{\(\) => \{\s+want\.current = null;/);
+  expect(screen).not.toMatch(/if \(atEnd\.current\) scroller\.current\?\.scrollToEnd\(\{ animated: false \}\);\s+\}\}\s+maintainVisibleContentPosition/);
+});
+
+it('a chat deleted elsewhere frees the box: no endless dots, no Try again, the next question starts a new chat (final review A2)', () => {
+  expect(screen).toMatch(/const gone = pollGone \|\| isGoneError\(chatQ\.error\)/);
+  expect(screen).toMatch(/const pending = gone \? null : answering/);
+  expect(screen).toMatch(/chatId && chatQ\.isError && !gone \?/);
+  expect(src('core/mico-ai-queries.ts')).toMatch(/function useAnswerPoll[^]*isGoneError\(q\.error\)[^]*if \(pending\) putMessage\(qc, userId, chatId, goneCopy\(pending\)\)/);
+});
+
+it('a download shows it is being prepared, a second tap does nothing, and each file has its own name (final review A4)', () => {
+  expect(screen).toMatch(/if \(downloadsRef\.current\.has\(m\.id\)\) return;/);
+  expect(screen).toMatch(/downloading=\{downloads\[m\.id\]\}/);
+  expect(view).toMatch(/downloading === 'pdf' \? 'Preparing PDF…' : 'PDF report'/);
+  expect(view).toMatch(/preparing=\{downloading === `table-\$\{i \+ 1\}`\}/);
+  expect(table).toMatch(/preparing \? 'Preparing Excel…' : 'Excel'/);
+  expect(table).toMatch(/disabled=\{busy\}/);
+  const q = src('core/mico-ai-queries.ts');
+  expect(q).toMatch(/`mico-ai-table-\$\{n\}-\$\{m\.id\}\.xlsx`/);
+  expect(q).toMatch(/`mico-ai-answer-\$\{m\.id\}\.pdf`/);
+  // The app's other exports say the same while they are prepared.
+  expect(src('components/task-detail/HeaderCard.tsx')).toContain('Preparing Excel…');
+  expect(src('components/task-detail/HeaderCard.tsx')).toContain('Preparing PDF…');
+});
+
+it('renaming in the header saves once: Enter and leaving the box both end it (final review A6)', () => {
+  expect(screen).toMatch(/const saveName = \(v: string\) => \{\s+if \(nameSaved\.current\) return;\s+nameSaved\.current = true;/);
+  expect(screen).toMatch(/nameSaved\.current = false;\s+setName\(chat\.title\);\s+setRenaming\(true\);/);
+});
+
+it('the box stays above the phone’s own bottom bar, as on the other Stage 3 screens (final review A11)', () => {
+  expect(screen).toMatch(/import \{ SafeAreaView \} from 'react-native-safe-area-context'/);
+  expect(screen).toMatch(/<SafeAreaView style=\{\[styles\.page, \{ backgroundColor: c\.surface \}\]\} edges=\{\['bottom'\]\}>\s+<View key=\{userId/);
+});
+
+it('a question being sent never pulls the person back from a chat they opened meanwhile (final review A12)', () => {
+  expect(screen).toMatch(/const viewing = useRef\(chatId\);\s+viewing\.current = chatId;/);
+  const send = screen.slice(screen.indexOf('const send = useCallback('), screen.indexOf('const stop = async'));
+  expect(send).toMatch(/const stayed = viewing\.current === \(fresh \? null : chatId\);/);
+  expect(send).toMatch(/if \(fresh && stayed\) setChatId\(r\.chatId\);/);
+  expect(send).toMatch(/\} else if \(stayed\) setChatId\(r\.chatId\);/);
+  expect(send).not.toMatch(/\} else setChatId\(r\.chatId\);/);
+});
+
+it('Copy says when it couldn’t, and "working" is heard once (final review A13)', () => {
+  expect(view).toMatch(/copied === 'failed' \? 'Couldn’t copy'/);
+  expect(view).toMatch(/setCopied\(copyText\(copyTextOf\(message\)\) \? 'done' : 'failed'\)/);
+  // The screen's live region says MICO AI is working; the box's hint is not a second one.
+  expect(composer).not.toMatch(/accessibilityLiveRegion="polite"/);
+  expect(src('screens/ChatThreadScreen.tsx')).toContain('Couldn’t copy');
+});
+
+it('the chats sheet is headed as the website’s list: MICO AI, and what it answers from (final review A14)', () => {
+  expect(sheet).toMatch(/<Sheet visible=\{visible\} title="MICO AI" subtitle="Answers from your MICO360 data"/);
+  if (hasWeb('frontend/src/components/mico-ai/ChatList.tsx')) {
+    const w = readWeb('frontend/src/components/mico-ai/ChatList.tsx');
+    expect(w).toMatch(/text-ink">MICO AI<\/p>/);
+    expect(w).toContain('Answers from your MICO360 data');
+  }
 });

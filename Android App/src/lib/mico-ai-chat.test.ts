@@ -8,9 +8,14 @@ import {
   MICO_AI_ACTION_TIMEOUT_MS,
   MICO_AI_POLL_MS,
   afterAskFailed,
+  afterReadBack,
   announce,
+  askArrived,
   createActionGate,
   errorText,
+  goneCopy,
+  isGoneError,
+  keepSlidOut,
   linkTarget,
   micoAiChatKey,
   micoAiChatsKey,
@@ -21,7 +26,9 @@ import {
   micoAiStatusKey,
   pendingAnswer,
   pollRetry,
+  scrollWant,
   sourceTarget,
+  type ScrollSeen,
   withEarlier,
   withMessage,
 } from './mico-ai-chat';
@@ -122,4 +129,60 @@ it('what a confirmed card can change is read again: the app’s own lists', () =
 
 describe.skipIf(!hasWeb('frontend/src/pages/MicoAiPage.tsx'))('the website’s words', () => {
   it('errors and announcements', () => { const p = readWeb('frontend/src/pages/MicoAiPage.tsx'); for (const w of ['Couldn’t reach the server. Check your connection and try again.', 'Something went wrong. Try again.', 'MICO AI is working on your question…', 'Nothing changes until you confirm them.', 'MICO AI stopped.', 'MICO AI couldn’t answer: ', 'MICO AI suggests changes: ', 'MICO AI answered: ', 'const MAX_QUESTION = 4000;', 'maxLength={200}']) expect(p, w).toContain(w); });
+});
+
+// ── Final review A1: where the conversation scrolls, as the website's MicoAiPage decides it ──
+describe('where the conversation scrolls (the website’s rule)', () => {
+  const seen = (over: Partial<ScrollSeen> = {}): ScrollSeen => ({ chatId: 'c1', first: 'm1', last: 'm4', pendingId: null, step: null, ...over });
+  it('another chat: its newest message (a new chat at its top)', () => {
+    expect(scrollWant(seen({ chatId: undefined }), seen(), 4, false)).toEqual({ kind: 'end' });
+    expect(scrollWant(seen(), seen({ chatId: null, first: null, last: null }), 0, true)).toEqual({ kind: 'top' });
+  });
+  it('older messages came in above: you stay where you were', () => expect(scrollWant(seen(), seen({ first: 'm0' }), 6, false)).toBeNull());
+  it('a new message at the end (you asked): the end', () => expect(scrollWant(seen(), seen({ last: 'm6', pendingId: 'm6' }), 6, false)).toEqual({ kind: 'end' }));
+  it('an answer finished while you followed it: its start (the screen checks whether it is taller than the view)', () => {
+    expect(scrollWant(seen({ pendingId: 'm4', step: 'Writing…' }), seen(), 4, true)).toEqual({ kind: 'start', id: 'm4' });
+    expect(scrollWant(seen({ pendingId: 'm4' }), seen(), 4, false)).toBeNull();
+  });
+  it('a new step: the end, only if you are already there; nothing else moves it', () => {
+    expect(scrollWant(seen({ pendingId: 'm4', step: 'Reading…' }), seen({ pendingId: 'm4', step: 'Writing…' }), 4, true)).toEqual({ kind: 'end' });
+    expect(scrollWant(seen({ pendingId: 'm4', step: 'Reading…' }), seen({ pendingId: 'm4', step: 'Writing…' }), 4, false)).toBeNull();
+    expect(scrollWant(seen(), seen(), 4, true)).toBeNull();
+  });
+});
+
+it('a chat deleted elsewhere: a 404, and the answer it was writing stops (final review A2)', () => {
+  expect(isGoneError(new ApiError(404, 'NOT_FOUND', 'Chat not found'))).toBe(true);
+  expect(isGoneError(new ApiError(403, 'FORBIDDEN', 'x'))).toBe(false);
+  expect(isGoneError(new NetworkError('x'))).toBe(false);
+  expect(isGoneError(null)).toBe(false);
+  const copy = goneCopy(PENDING);
+  expect(copy).toEqual({ ...PENDING, status: 'stopped', step: null });
+  expect(pendingAnswer([QUESTION, copy])).toBeNull();
+});
+
+it('a question whose answer was lost is read back: kept if it arrived, put back in the box if not (final review A7)', () => {
+  const before = new Set([QUESTION.id, ANSWER.id]);
+  expect(askArrived(before, [QUESTION, ANSWER])).toBe(false);
+  expect(askArrived(before, [QUESTION, ANSWER, { ...QUESTION, id: 'm-q2' }, { ...PENDING, id: 'm-a9' }])).toBe(true);
+  // Only a new question counts, not an answer alone.
+  expect(askArrived(before, [QUESTION, ANSWER, { ...PENDING, id: 'm-a9' }])).toBe(false);
+  expect(afterReadBack(true)).toEqual({ restoreDraft: false, clearError: true });
+  expect(afterReadBack(false)).toEqual({ restoreDraft: true, clearError: false });
+  // The read-back failed too: nobody knows, so the question goes back in the box (sending it is the person's choice).
+  expect(afterReadBack(null)).toEqual({ restoreDraft: true, clearError: false });
+});
+
+it('messages the newest page lets go of move to the older page above, so none vanishes (final review A9)', () => {
+  const m = (id: string) => ({ ...QUESTION, id });
+  const earlier = { messages: [m('m1'), m('m2')], hasMore: true };
+  // The newest page was m3–m6; a question and its answer push m3 and m4 out of it.
+  const next = keepSlidOut(earlier, [m('m3'), m('m4'), m('m5'), m('m6')], [m('m5'), m('m6'), m('m7'), m('m8')]);
+  expect(next!.messages.map((x) => x.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+  expect(next!.hasMore).toBe(true);
+  expect(withEarlier([m('m5'), m('m6'), m('m7'), m('m8')], next!.messages).map((x) => x.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8']);
+  // Nothing let go, or no older page loaded: unchanged (the server keeps the rest behind "Load earlier").
+  expect(keepSlidOut(earlier, [m('m3')], [m('m3'), m('m4')])).toBe(earlier);
+  expect(keepSlidOut(undefined, [m('m3')], [m('m4')])).toBeUndefined();
+  expect(keepSlidOut(earlier, [m('m2'), m('m3')], [m('m3')])).toBe(earlier);
 });

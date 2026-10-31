@@ -111,7 +111,7 @@ export function ChatsSheet({ visible, onClose, chats, activeId, query, onQuery, 
   };
 
   return (
-    <Sheet visible={visible} title="Chats" subtitle="Answers from your MICO360 data" onClose={onClose} closeLabel="Close chats">
+    <Sheet visible={visible} title="MICO AI" subtitle="Answers from your MICO360 data" onClose={onClose} closeLabel="Close chats">
       <Button title="New chat" icon="ui.plus" onPress={onNew} />
       <TextField value={query} onChangeText={onQuery} placeholder="Search chats" accessibilityLabel="Search chats" autoCapitalize="none" returnKeyType="search" />
       <SheetMessage text={error} />

@@ -37,3 +37,17 @@ it('a question whose answer was lost is read back; a chat made for it goes only 
   expect(s).toMatch(/if \(after\.deleteNewChat[^]*resources\.micoAi\.remove\(/);
   expect(s).toMatch(/if \(after\.reread[^]*invalidateQueries\(\{ queryKey: micoAiChatKey\(userId, id\) \}\)/);
 });
+
+it('a question whose answer was lost is read back at once and put back in the box unless it arrived (final review A7)', () => {
+  expect(s).toMatch(/before = new Set\(\(qc\.getQueryData<ChatView>\(micoAiChatKey\(userId, id\)\)/);
+  expect(s).toMatch(/if \(after\.reread && id\)[^]*await resources\.micoAi\.chat\(id, \{ asUser: userId \}\)[^]*afterReadBack\(arrived\)/);
+  expect(s).toMatch(/arrived = askArrived\(before, view\.messages\)/);
+  expect(s).toMatch(/if \(back\.clearError\) return \{ chatId: id \};/);
+});
+
+it('every read of a chat keeps what slid out of its newest page above it (final review A9)', () => {
+  expect(s).toMatch(/function keepSlidOutMessages[^]*keepSlidOut\(p, prev, view\.messages\)/);
+  expect(s).toMatch(/function useMicoAiChat[^]*const view = await resources\.micoAi\.chat\(chatId!, \{ asUser: userId, signal \}\);\s+keepSlidOutMessages\(qc, userId, chatId!, view\);/);
+  // The read-back after a lost answer too.
+  expect(s).toMatch(/const view = await resources\.micoAi\.chat\(id, \{ asUser: userId \}\);[^]*keepSlidOutMessages\(qc, userId, id, view\);/);
+});

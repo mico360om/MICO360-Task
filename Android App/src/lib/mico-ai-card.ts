@@ -1,5 +1,6 @@
 import type { MicoAiNamed, MicoAiProposal, ProposalChange, ProposalResult, ProposalUndo } from './mico-ai-api';
 import { countdown, remainingNeeds, resultSummary, undoSummary } from './mico-ai-proposal';
+import { parseTimeInput } from './meeting-form';
 
 /**
  * MICO AI's card of proposed changes on the phone (Stage 3 Task 14): which buttons the card's
@@ -80,6 +81,16 @@ export const confirmLabel = (n: number): string => `Confirm (${n})`;
 export const confirmA11y = (n: number): string => `Confirm ${n} ${n === 1 ? 'change' : 'changes'}`;
 export const undoButtonText = (leftMs: number): string => `Undo (${countdown(leftMs)})`;
 
+/**
+ * When Undo closes on the phone's clock (null: no undo window): the server's `undoUntil`, moved by
+ * the gap between its clock and the phone's when the card was read (`serverNow` at `receivedAt`).
+ */
+export function undoDeadline(undoUntil: string | null, serverNow: string, receivedAt: number): number | null {
+  if (!undoUntil) return null;
+  const at = receivedAt + (Date.parse(undoUntil) - Date.parse(serverNow));
+  return Number.isFinite(at) ? at : null;
+}
+
 // ── Editing a change before Confirm (Stage 3 Task 15) ──────────────────────────
 
 /** Names to show for edited values (the card's labels are for what was proposed). */
@@ -130,6 +141,18 @@ export const LENGTH_CHOICES: readonly number[] = [15, 30, 45, 60, 90, 120];
 /** The lengths, with the meeting's own when it is none of them. */
 export function lengthChoices(current: number): number[] {
   return LENGTH_CHOICES.includes(current) ? [...LENGTH_CHOICES] : [...LENGTH_CHOICES, current].sort((a, b) => a - b);
+}
+
+/**
+ * What holds Confirm back while a meeting time typed on the card doesn't read as one (`times`: what
+ * was typed per change): the meeting would go with the time it had, not the one on screen.
+ */
+export function timeProblem(times: Record<string, string>): string | null {
+  const bad = Object.values(times).some((t) => {
+    const p = parseTimeInput(t);
+    return !p.ok || !p.value;
+  });
+  return bad ? 'Put the meeting time right first: enter it as HH:MM, e.g. 09:30.' : null;
 }
 
 /** The longest a task title, a meeting title and a text may be (the website's editors). */

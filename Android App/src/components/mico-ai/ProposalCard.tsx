@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useColors } from '../../core/theme';
-import { useCardActions, useCardRefresh } from '../../core/mico-ai-queries';
+import { useCardActions, useCardRefresh, useMessageReceivedAt } from '../../core/mico-ai-queries';
 import { applyNavAction } from '../../navigation/apply-action';
 import type { MicoAiMessage, MicoAiProposal, ProposalChange } from '../../lib/mico-ai-api';
 import { linkTarget } from '../../lib/mico-ai-chat';
-import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, undoButtonText, undoLine, type Shown } from '../../lib/mico-ai-card';
+import { FOOTER_NOTE, KIND_BADGE, applyEdit, cardControls, confirmA11y, confirmLabel, effectiveChange, resultLine, timeProblem, undoButtonText, undoDeadline, undoLine, type Shown } from '../../lib/mico-ai-card';
 import { cardHeading, changeLabel, confirmBody, initialTicks, remainingNeeds, resultSummary, undoLeft, undoSummary } from '../../lib/mico-ai-proposal';
 import { radius, shadow, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
@@ -16,20 +16,21 @@ import { RowSummary, cardWhen } from './ProposalSummary';
 
 const CANCELLED = 'Cancelled — nothing was changed.';
 
-/** The current time, ticking every second while `active` (the Undo countdown). */
-function useNow(active: boolean): number {
+/** The current time, ticking every second while `active` (the Undo countdown) — and no longer once `deadline` has passed. */
+function useNow(active: boolean, deadline: number | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [active]);
+    const timer = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (deadline !== null && t >= deadline) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [active, deadline]);
   return now;
 }
-
-/** When the card's server time was taken, by the phone's clock (read again with each new `serverNow`). */
-const receivedTime = (_serverNow: string) => Date.now();
 
 /** What happened to one change: done (with where to open it), being made, refused or failed, or skipped. */
 function ResultLine({ result, gone, s }: { result: NonNullable<ProposalChange['result']>; gone: boolean; s: Styles }) {
@@ -67,12 +68,17 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
   const [shown, setShown] = useState<Record<string, Shown>>({});
   /** The changes whose editor is open. */
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  /** Meeting times as typed, per change: one that doesn't read as a time holds Confirm back. */
+  const [times, setTimes] = useState<Record<string, string>>({});
+  const badTime = timeProblem(times);
   const [invite, setInvite] = useState(proposal.sendInvites);
   const [acting, setActing] = useState<null | 'confirm' | 'cancel' | 'undo'>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState('');
   /** What this card asked for, so its outcome is announced once. */
   const acted = useRef<null | 'confirm' | 'cancel' | 'undo'>(null);
+  /** An action of this card is on its way (set at the first tap, before any state changes). */
+  const running = useRef(false);
 
   const status = proposal.status;
   const proposed = status === 'proposed';
@@ -86,8 +92,9 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
 
   // The countdown follows the server's clock: the phone's may be off (taken when this copy of the card arrived).
   const canUndoNow = status === 'done' && proposal.canUndo && !!proposal.undoUntil;
-  const now = useNow(canUndoNow);
-  const receivedAt = useMemo(() => receivedTime(proposal.serverNow), [proposal.serverNow]);
+  const receivedAt = useMessageReceivedAt(chatId, message.id, proposal.serverNow);
+  const deadline = undoDeadline(proposal.undoUntil, proposal.serverNow, receivedAt);
+  const now = useNow(canUndoNow, deadline);
   const left = undoLeft(proposal.undoUntil, proposal.serverNow, receivedAt, now);
   const controls = cardControls(proposal, left);
 
@@ -123,16 +130,25 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
       return n;
     });
 
+  /**
+   * One action at a time, from the first tap (as the website's busyRef): a second tap while one runs
+   * returns before touching anything — it can't clear the first one's "Making the changes…".
+   */
   async function run(kind: 'confirm' | 'cancel' | 'undo', call: () => Promise<string | null>) {
-    if (busy) return;
+    if (running.current) return;
+    running.current = true;
     setActing(kind);
     setError(null);
     acted.current = kind;
-    const problem = await call();
-    setActing(null);
-    if (problem) {
-      acted.current = null;
-      setError(problem);
+    try {
+      const problem = await call();
+      if (problem) {
+        acted.current = null;
+        setError(problem);
+      }
+    } finally {
+      running.current = false;
+      setActing(null);
     }
   }
 
@@ -188,7 +204,7 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
             {proposed && item.locked ? <Text style={s.problemText}>{`Can’t do: ${item.problem ?? 'this change can’t be made.'}`}</Text> : null}
             {needs.length ? <Text style={s.problemText}>{`Put right first: ${needs.map((n) => n.message).join(' ')}`}</Text> : null}
             {proposed && item.warning ? <Text style={s.warning}>{item.warning}</Text> : null}
-            {editing ? <ProposalEditor item={item} onEdit={(patch, show) => edit(original, patch, show)} /> : null}
+            {editing ? <ProposalEditor item={item} onEdit={(patch, show) => edit(original, patch, show)} draftTime={times[item.id]} onDraftTime={(t) => setTimes((x) => ({ ...x, [item.id]: t }))} /> : null}
             {!proposed && item.result ? <ResultLine result={item.result} gone={!!item.undo?.gone} s={s} /> : null}
             {item.undo ? <Text style={item.undo.status === 'undone' || item.undo.status === 'started' ? s.muted : s.notUndone}>{undoLine(item.undo)}</Text> : null}
           </View>
@@ -203,13 +219,14 @@ export function ProposalCard({ chatId, message }: { chatId: string; message: Mic
               <Button
                 title={busy && acting === 'confirm' ? 'Making the changes…' : confirmLabel(ticked)}
                 onPress={() => void run('confirm', () => confirm(confirmBody(proposal.items, ticks, edits, invite)))}
-                disabled={busy || ticked === 0}
+                disabled={busy || ticked === 0 || !!badTime}
                 accessibilityLabel={busy ? undefined : confirmA11y(ticked)}
               />
             ) : null}
             {controls.cancel ? <Button title="Cancel" variant="secondary" onPress={() => void run('cancel', cancel)} disabled={busy} /> : null}
           </View>
         ) : null}
+        {proposed && badTime ? <Text style={s.problemText}>{badTime}</Text> : null}
         {proposed ? <Text style={s.quiet}>{FOOTER_NOTE}</Text> : null}
         {controls.footer ? <Text style={status === 'done' || status === 'undone' ? s.summary : s.muted}>{controls.footer}</Text> : null}
         {controls.undo ? (

@@ -64,6 +64,17 @@ export function withMessage(view: ChatView | undefined, m: MicoAiMessage): ChatV
   return { ...view, messages: view.messages.map((x, i) => (i === at ? m : x)) };
 }
 
+/**
+ * The older page once the chat's newest page let go of some messages (a question and its answer push
+ * the oldest out of it): they go to the end of the older page, so nothing vanishes between the two.
+ * Without an older page nothing is kept — the server has them behind "Load earlier messages".
+ */
+export function keepSlidOut(earlier: EarlierPage | undefined, previous: readonly MicoAiMessage[], latest: readonly MicoAiMessage[]): EarlierPage | undefined {
+  if (!earlier) return earlier;
+  const slid = previous.filter((m) => !latest.some((x) => x.id === m.id) && !earlier.messages.some((x) => x.id === m.id));
+  return slid.length ? { ...earlier, messages: [...earlier.messages, ...slid] } : earlier;
+}
+
 /** The same for the older messages kept above the latest ones. */
 export function earlierWithMessage(page: EarlierPage | undefined, m: MicoAiMessage): EarlierPage | undefined {
   if (!page) return page;
@@ -72,9 +83,15 @@ export function earlierWithMessage(page: EarlierPage | undefined, m: MicoAiMessa
   return { ...page, messages: page.messages.map((x, i) => (i === at ? m : x)) };
 }
 
+/** The chat was deleted elsewhere (another phone or the website): the server no longer has it. */
+export const isGoneError = (err: unknown): boolean => err instanceof ApiError && err.status === 404;
+
+/** The answer a deleted chat was writing, as stopped: nothing follows it any more. */
+export const goneCopy = (m: MicoAiMessage): MicoAiMessage => ({ ...m, status: 'stopped', step: null });
+
 /** A poll tries a lost answer twice more; a deleted chat (404) stops it at once. */
 export function pollRetry(failureCount: number, error: unknown): boolean {
-  return !(error instanceof ApiError && error.status === 404) && failureCount < 2;
+  return !isGoneError(error) && failureCount < 2;
 }
 
 /**
@@ -98,6 +115,22 @@ export function afterAskFailed(err: unknown, newChat: boolean): { reread: boolea
   if (err instanceof NetworkError && err.mayHaveArrived) return { reread: true, deleteNewChat: false, restoreDraft: false };
   if (err instanceof ApiError && err.status === 409) return { reread: true, deleteNewChat: false, restoreDraft: true };
   return { reread: false, deleteNewChat: newChat, restoreDraft: true };
+}
+
+/**
+ * After a question whose answer was lost, the chat as read back: did a question that wasn't there
+ * before arrive? (`before`: the chat's message ids just before asking.)
+ */
+export function askArrived(before: ReadonlySet<string>, messages: readonly MicoAiMessage[]): boolean {
+  return messages.some((m) => m.role === 'user' && !before.has(m.id));
+}
+
+/**
+ * What the read-back decides (`arrived` null: it failed too): a question that arrived was asked —
+ * no error, nothing to send again; one that didn't, or nobody knows, goes back in the box.
+ */
+export function afterReadBack(arrived: boolean | null): { restoreDraft: boolean; clearError: boolean } {
+  return arrived ? { restoreDraft: false, clearError: true } : { restoreDraft: true, clearError: false };
 }
 
 /**
@@ -169,4 +202,36 @@ export function announce(m: MicoAiMessage): string | null {
   if (m.status === 'error') return `MICO AI couldn’t answer: ${m.error ?? ''}`;
   if (m.answer?.kind === 'proposal') return `MICO AI suggests changes: ${m.text.slice(0, 300)} Nothing changes until you confirm them.`;
   return `MICO AI answered: ${copyTextOf(m).slice(0, 400)}`;
+}
+
+/** What the conversation showed at the last look: where it scrolls next is decided by what changed. */
+export interface ScrollSeen {
+  /** undefined: nothing seen yet. */
+  chatId: string | null | undefined;
+  first: string | null;
+  last: string | null;
+  pendingId: string | null;
+  step: string | null;
+}
+
+/** Where the conversation should scroll: to its end, its top, or the start of an answer. */
+export type ScrollWant = { kind: 'end' } | { kind: 'top' } | { kind: 'start'; id: string } | null;
+
+/**
+ * The website's MicoAiPage rule for where the conversation scrolls, by what changed since the last look:
+ * - another chat: its newest message (a new chat opens at its top: the greeting first);
+ * - older messages came in above ("Load earlier messages"): you stay where you were;
+ * - a new message at the end (you asked): the end;
+ * - an answer finished while you followed it: its start (the screen goes to the end instead when it
+ *   is no taller than the view);
+ * - a new progress step: the end, only if you are already there.
+ * Anything else — growth you caused (Edit, Show all rows, a section opened) — moves nothing.
+ */
+export function scrollWant(was: ScrollSeen, now: ScrollSeen, count: number, atEnd: boolean): ScrollWant {
+  if (now.chatId !== was.chatId) return count ? { kind: 'end' } : { kind: 'top' };
+  if (now.first !== was.first && now.last === was.last) return null;
+  if (now.last !== was.last) return count ? { kind: 'end' } : { kind: 'top' };
+  if (was.pendingId && was.pendingId !== now.pendingId) return atEnd ? { kind: 'start', id: was.pendingId } : null;
+  if (now.step !== was.step && atEnd) return { kind: 'end' };
+  return null;
 }

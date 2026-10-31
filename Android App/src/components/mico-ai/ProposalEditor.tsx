@@ -182,20 +182,27 @@ function MinutesEditor({ item, onEdit }: { item: MinutesChange; onEdit: EditFn }
   );
 }
 
-/** The meeting's start, typed as HH:MM: an hour that reads right becomes the meeting's. */
-function TimeField({ value, onTime }: { value: string | null; onTime: (t: string) => void }) {
-  const [text, setText] = useState(value ?? '');
-  const parsed = parseTimeInput(text);
+/**
+ * The meeting's start, typed as HH:MM: an hour that reads right becomes the meeting's. What is typed
+ * is kept on the card (`draftTime`), so a time typed wrong holds Confirm back even once this closes.
+ */
+function TimeField({ value, draftTime, onDraftTime, onTime }: { value: string | null; draftTime?: string; onDraftTime?: (t: string) => void; onTime: (t: string) => void }) {
+  const parsed = parseTimeInput(draftTime ?? '');
+  // Only what was typed is checked; emptied, the time it had would still go, so that is wrong too.
+  const error = draftTime === undefined || (parsed.ok && parsed.value) ? null : parsed.ok ? 'Enter the time as HH:MM, e.g. 09:30.' : parsed.error;
   return (
     <TextField
       label="Time"
-      value={text}
+      value={draftTime ?? value ?? ''}
+      // The phone's own keyboard, with ":" (the numbers-with-punctuation pad is iOS only).
+      keyboardType="default"
+      autoCapitalize="none"
+      autoCorrect={false}
       placeholder="HH:MM"
-      keyboardType="numbers-and-punctuation"
       maxLength={5}
-      error={parsed.ok ? null : parsed.error}
+      error={error}
       onChangeText={(t) => {
-        setText(t);
+        onDraftTime?.(t);
         const p = parseTimeInput(t);
         if (p.ok && p.value) onTime(p.value);
       }}
@@ -203,7 +210,7 @@ function TimeField({ value, onTime }: { value: string | null; onTime: (t: string
   );
 }
 
-function MeetingEditor({ item, onEdit }: { item: MeetingChange; onEdit: EditFn }) {
+function MeetingEditor({ item, onEdit, draftTime, onDraftTime }: { item: MeetingChange; onEdit: EditFn; draftTime?: string; onDraftTime?: (t: string) => void }) {
   const s = useStyles();
   const f = item.fields;
   const me = useSession()?.user.id;
@@ -220,7 +227,7 @@ function MeetingEditor({ item, onEdit }: { item: MeetingChange; onEdit: EditFn }
     <View>
       <TextField label="Title" value={f.title} maxLength={FIELD_MAX.meetingTitle} onChangeText={(title) => onEdit({ title })} />
       <DueDateField label="Day" what="Day" value={f.date ?? ''} onChange={(d) => d && onEdit({ date: d })} today={today} weekStart={weekStart} />
-      <TimeField value={f.time} onTime={(time) => onEdit({ time })} />
+      <TimeField value={f.time} draftTime={draftTime} onDraftTime={onDraftTime} onTime={(time) => onEdit({ time })} />
       <ChipChoice<string> label="Length" options={lengthChoices(f.minutes).map((m) => ({ value: String(m), label: lengthLabel(m) }))} value={String(f.minutes)} onChange={(v) => onEdit({ minutes: Number(v) })} />
       <InlinePicker
         label="Project"
@@ -236,8 +243,8 @@ function MeetingEditor({ item, onEdit }: { item: MeetingChange; onEdit: EditFn }
   );
 }
 
-/** One editor per kind of change. */
-export function ProposalEditor({ item, onEdit }: { item: ProposalChange; onEdit: EditFn }) {
+/** One editor per kind of change. `draftTime`: a meeting time as typed, kept on the card. */
+export function ProposalEditor({ item, onEdit, draftTime, onDraftTime }: { item: ProposalChange; onEdit: EditFn; draftTime?: string; onDraftTime?: (t: string) => void }) {
   const s = useStyles();
   let editor;
   switch (item.type) {
@@ -251,7 +258,7 @@ export function ProposalEditor({ item, onEdit }: { item: ProposalChange; onEdit:
       editor = <MinutesEditor item={item} onEdit={onEdit} />;
       break;
     case 'schedule_meeting':
-      editor = <MeetingEditor item={item} onEdit={onEdit} />;
+      editor = <MeetingEditor item={item} onEdit={onEdit} draftTime={draftTime} onDraftTime={onDraftTime} />;
       break;
   }
   return <View style={s.box}>{editor}</View>;

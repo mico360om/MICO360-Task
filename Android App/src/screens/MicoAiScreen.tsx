@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent, type LayoutRectangle, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, ErrorNote, IconButton, SkeletonList, TextField } from '../components/ui';
 import { ChatsSheet } from '../components/mico-ai/ChatsSheet';
 import { Composer, type ComposerHandle } from '../components/mico-ai/Composer';
@@ -11,7 +12,7 @@ import { useDirectory, useProjects } from '../core/queries';
 import { useAnswerPoll, useEarlierMessages, useMicoAiActions, useMicoAiChat, useMicoAiChats, useMicoAiStatus } from '../core/mico-ai-queries';
 import { chatTitle, suggestedQuestions } from '../lib/mico-ai';
 import type { MicoAiMessage } from '../lib/mico-ai-api';
-import { announce, CHAT_TITLE_MAX, errorText, pendingAnswer, withEarlier } from '../lib/mico-ai-chat';
+import { announce, CHAT_TITLE_MAX, errorText, isGoneError, pendingAnswer, scrollWant, withEarlier, type ScrollSeen, type ScrollWant } from '../lib/mico-ai-chat';
 import { radius, spacing, type Palette } from '../lib/theme';
 import { font, typeStyle } from '../lib/typography';
 import type { AppScreenProps } from '../navigation/types';
@@ -20,6 +21,10 @@ import type { AppScreenProps } from '../navigation/types';
 const SCOPE = ['Tasks', 'Meetings', 'Reports', 'Chat'];
 /** Within this many dp of the end, the conversation counts as "at the newest message". */
 const NEAR_END = 48;
+/** A wish to scroll lasts this long: the layout passes the change brings, not growth the person causes later. */
+const WISH_MS = 1000;
+/** Room above an answer scrolled to its start. */
+const ABOVE_ANSWER = 16;
 const NO_MESSAGES: MicoAiMessage[] = [];
 
 /**
@@ -33,9 +38,11 @@ export function MicoAiScreen(props: AppScreenProps<'MicoAi'>) {
   const userId = useUserId();
   const c = useColors();
   return (
-    <View key={userId ?? 'signed-out'} style={[styles.page, { backgroundColor: c.surface }]}>
-      <Conversation {...props} />
-    </View>
+    <SafeAreaView style={[styles.page, { backgroundColor: c.surface }]} edges={['bottom']}>
+      <View key={userId ?? 'signed-out'} style={styles.page}>
+        <Conversation {...props} />
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -73,8 +80,12 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
   const hasMore = earlier ? earlier.hasMore : !!chatQ.data?.hasMore;
   // The list is read again after every question, so its entry has the name the first question gave the chat.
   const chat = chats.find((x) => x.id === chatId) ?? chatQ.data?.chat ?? null;
-  const pending = pendingAnswer(messages);
-  const { gone } = useAnswerPoll(chatId, pending);
+  const answering = pendingAnswer(messages);
+  const { gone: pollGone } = useAnswerPoll(chatId, answering);
+  // Deleted elsewhere: the poll or the chat's own read says so (a 404).
+  const gone = pollGone || isGoneError(chatQ.error);
+  // A chat that is gone follows no answer: the box is free again, and the next question starts a new chat.
+  const pending = gone ? null : answering;
   const firstName = (Array.isArray(dirQ.data) ? dirQ.data : []).find((u) => u.id === myId)?.firstName?.trim();
   const projectName = useMemo(() => {
     const list = Array.isArray(projectsQ.data) ? projectsQ.data : [];
@@ -84,6 +95,10 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
   const welcome = !chatId || (chatQ.isSuccess && messages.length === 0);
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
   const live = useLiveWords(messages, pending);
+
+  /** The chat on screen now (read after a send's wait: the person may have opened another meanwhile). */
+  const viewing = useRef(chatId);
+  viewing.current = chatId;
 
   const openChat = (id: string | null) => {
     setSheet(false);
@@ -105,15 +120,21 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
       setSending(true);
       setError(null);
       const fresh = !!o.newChat || gone || !chatId;
-      if (fresh) setChatId(null);
+      if (fresh) {
+        setChatId(null);
+        // At once, should the answer come before the screen redraws.
+        viewing.current = null;
+      }
       try {
         const r = await actions.ask(text, { newChat: !!o.newChat || gone, retryOf: o.retryOf });
         if (!r) return;
+        // Opened the asked chat only if the person is still where the question was asked from.
+        const stayed = viewing.current === (fresh ? null : chatId);
         if ('error' in r) {
           setError(r.error);
           if (r.restoreDraft) composer.current?.restore(text);
-          if (fresh) setChatId(r.chatId);
-        } else setChatId(r.chatId);
+          if (fresh && stayed) setChatId(r.chatId);
+        } else if (stayed) setChatId(r.chatId);
       } finally {
         sendingRef.current = false;
         setSending(false);
@@ -140,7 +161,11 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
     if (e) setError(e);
   };
 
+  /** Enter and leaving the box both save: only the first counts (as a chat row's rename). */
+  const nameSaved = useRef(false);
   const saveName = (v: string) => {
+    if (nameSaved.current) return;
+    nameSaved.current = true;
     setRenaming(false);
     if (!chatId || !chat) return;
     const clean = v.replace(/\s+/g, ' ').trim();
@@ -156,6 +181,25 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
     setLoadingEarlier(false);
   };
 
+  // One download of an answer at a time ("Preparing Excel…"): a second tap while it is made does nothing.
+  const [downloads, setDownloads] = useState<Record<string, string>>({});
+  const downloadsRef = useRef(new Set<string>());
+  const download = useCallback((m: MicoAiMessage, what: string, run: () => Promise<string | null>) => {
+    if (downloadsRef.current.has(m.id)) return;
+    downloadsRef.current.add(m.id);
+    setDownloads((d) => ({ ...d, [m.id]: what }));
+    void run()
+      .then((e) => e && setError(e))
+      .finally(() => {
+        downloadsRef.current.delete(m.id);
+        setDownloads((d) => {
+          const next = { ...d };
+          delete next[m.id];
+          return next;
+        });
+      });
+  }, []);
+
   const messageActions = useMemo<MessageActions>(
     () => ({
       ask: (t) => void send(t),
@@ -164,20 +208,70 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
         const question = [...messages.slice(0, Math.max(0, i))].reverse().find((x) => x.role === 'user')?.text ?? '';
         void send(question, { retryOf: m.id });
       },
-      downloadTable: (m, n, title) => void actions.downloadTable(m, n, title).then((e) => e && setError(e)),
-      downloadReport: (m) => void actions.downloadReport(m).then((e) => e && setError(e)),
+      downloadTable: (m, n, title) => download(m, `table-${n}`, () => actions.downloadTable(m, n, title)),
+      downloadReport: (m) => download(m, 'pdf', () => actions.downloadReport(m)),
     }),
-    [send, messages, actions],
+    [send, messages, actions, download],
   );
 
-  // The newest message stays in view: on another chat, a new message at the end, or a new step while
-  // you are already at the end. Older messages put in above keep your place (maintainVisibleContentPosition).
+  // Where the conversation scrolls, as the website decides it (lib/mico-ai-chat scrollWant): a wish is
+  // set where the messages change and carried out once the content has its new size. Growth the person
+  // caused (Edit, Show all rows, a section opened) moves nothing; a drag cancels any wish. Older
+  // messages put in above keep your place (maintainVisibleContentPosition).
   const scroller = useRef<ScrollView>(null);
   const atEnd = useRef(true);
+  const viewHeight = useRef(0);
+  const boxes = useRef(new Map<string, LayoutRectangle>());
+  const want = useRef<(NonNullable<ScrollWant> & { until: number }) | null>(null);
+  const seen = useRef<ScrollSeen>({ chatId: undefined, first: null, last: null, pendingId: null, step: null });
+  const firstId = messages[0]?.id ?? null;
   const lastId = messages[messages.length - 1]?.id ?? null;
+  const applyWant = () => {
+    const w = want.current;
+    if (!w || Date.now() > w.until) {
+      want.current = null;
+      return;
+    }
+    const el = scroller.current;
+    if (!el) return;
+    if (w.kind === 'end') {
+      el.scrollToEnd({ animated: false });
+      atEnd.current = true;
+    } else if (w.kind === 'top') {
+      el.scrollTo({ y: 0, animated: false });
+      atEnd.current = false;
+    } else {
+      // An answer that just finished: its start when it is taller than the view, else the end.
+      const box = boxes.current.get(w.id);
+      if (!box) return;
+      want.current = null;
+      if (box.height > viewHeight.current) {
+        el.scrollTo({ y: Math.max(0, box.y - ABOVE_ANSWER), animated: false });
+        atEnd.current = false;
+      } else {
+        el.scrollToEnd({ animated: false });
+        atEnd.current = true;
+      }
+    }
+  };
   useLayoutEffect(() => {
-    atEnd.current = true;
-  }, [chatId, lastId]);
+    const was = seen.current;
+    const now: ScrollSeen = { chatId, first: firstId, last: lastId, pendingId: pending?.id ?? null, step: pending?.step ?? null };
+    seen.current = now;
+    const w = scrollWant(was, now, messages.length, atEnd.current);
+    want.current = w ? { ...w, until: Date.now() + WISH_MS } : want.current;
+    // applyWant reads refs only, so it isn't a dependency.
+    applyWant();
+  }, [chatId, firstId, lastId, pending?.id, pending?.step, messages.length]);
+  const onMessageLayout = (id: string, box: LayoutRectangle) => {
+    boxes.current.set(id, box);
+    if (want.current?.kind === 'start' && want.current.id === id) applyWant();
+  };
+  const onViewLayout = (e: LayoutChangeEvent) => {
+    viewHeight.current = e.nativeEvent.layout.height;
+    // The view got shorter (the keyboard opened) while the newest message was in view: it stays in view.
+    if (atEnd.current) scroller.current?.scrollToEnd({ animated: false });
+  };
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     atEnd.current = contentSize.height - contentOffset.y - layoutMeasurement.height <= NEAR_END;
@@ -202,6 +296,7 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
                 label="Rename this chat"
                 size={17}
                 onPress={() => {
+                  nameSaved.current = false;
                   setName(chat.title);
                   setRenaming(true);
                 }}
@@ -219,9 +314,11 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
         keyboardShouldPersistTaps="handled"
         onScroll={onScroll}
         scrollEventThrottle={64}
-        onContentSizeChange={() => {
-          if (atEnd.current) scroller.current?.scrollToEnd({ animated: false });
+        onLayout={onViewLayout}
+        onScrollBeginDrag={() => {
+          want.current = null;
         }}
+        onContentSizeChange={applyWant}
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
       >
         <View style={s.top}>
@@ -237,7 +334,7 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
             </View>
           ) : null}
           {hasMore ? <Button title={loadingEarlier ? 'Loading…' : 'Load earlier messages'} variant="secondary" size="sm" disabled={loadingEarlier} onPress={() => void loadEarlier()} style={s.center} /> : null}
-          {chatId && chatQ.isError ? <ErrorNote message={errorText(chatQ.error)} onRetry={() => void chatQ.refetch()} retrying={chatQ.isFetching} /> : null}
+          {chatId && chatQ.isError && !gone ? <ErrorNote message={errorText(chatQ.error)} onRetry={() => void chatQ.refetch()} retrying={chatQ.isFetching} /> : null}
           {welcome ? (
             <View style={s.welcome}>
               <MicoAiMark size={48} />
@@ -264,7 +361,9 @@ function Conversation({ navigation, route }: AppScreenProps<'MicoAi'>) {
           {chatId && chatQ.isLoading ? <SkeletonList rows={3} /> : null}
         </View>
         {messages.map((m) => (
-          <MessageView key={m.id} chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} />
+          <View key={m.id} onLayout={(e) => onMessageLayout(m.id, e.nativeEvent.layout)}>
+            <MessageView chatId={chatId} message={m} latest={m === lastAssistant} canAsk={canAsk} actions={messageActions} downloading={downloads[m.id]} />
+          </View>
         ))}
       </ScrollView>
 

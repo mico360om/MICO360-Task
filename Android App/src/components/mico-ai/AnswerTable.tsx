@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useColors } from '../../core/theme';
 import { cellDisplay } from '../../lib/mico-ai';
 import type { CellKind, MicoAiTable } from '../../lib/mico-ai-api';
+import { answerColumnWidth, rowLabel } from '../../lib/mico-ai-layout';
 import { radius, spacing, type Palette } from '../../lib/theme';
 import { font, typeStyle } from '../../lib/typography';
 import { Button } from '../ui';
@@ -13,26 +14,19 @@ const NUMERIC = new Set<CellKind | undefined>(['number', 'percent', 'days']);
 const FIRST_ROWS = 25;
 
 /**
- * A column's width from what it holds (the website lets the browser size its table): short phrases
- * stay on one line, longer text gets a readable width and wraps.
- */
-function columnWidth(table: MicoAiTable, col: number): number {
-  const kind = table.columns[col]?.kind;
-  const longest = Math.max(table.columns[col]?.label.length ?? 0, ...table.rows.map((r) => cellDisplay(kind, r.cells[col] ?? null).length));
-  return Math.round(Math.min(Math.max(longest * 7.5 + 28, 72), 260));
-}
-
-/**
  * A table copied by the server from the data (its figures are the data's, never the AI's), as the
  * website's AnswerTable: its title, a box that scrolls sideways when it is wider than the phone,
- * the first 25 rows, and its Excel download once the answer is written.
+ * the first 25 rows, and its Excel download once the answer is written ("Preparing Excel…" while
+ * it is made; `busy`: another download of the answer is on its way).
  */
-export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: () => void }) {
+export function AnswerTable({ table, onExcel, preparing = false, busy = false }: { table: MicoAiTable; onExcel?: () => void; preparing?: boolean; busy?: boolean }) {
   const c = useColors();
   const s = useMemo(() => makeStyles(c), [c]);
   const [all, setAll] = useState(false);
   const rows = all ? table.rows : table.rows.slice(0, FIRST_ROWS);
-  const widths = useMemo(() => table.columns.map((_, j) => columnWidth(table, j)), [table]);
+  // Wider with a larger font, so big text wraps in its column instead of being cut off.
+  const { fontScale } = useWindowDimensions();
+  const widths = useMemo(() => table.columns.map((_, j) => answerColumnWidth(table, j, fontScale)), [table, fontScale]);
   return (
     <View style={s.wrap}>
       <View style={s.box}>
@@ -41,7 +35,8 @@ export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: 
         </Text>
         <ScrollView horizontal accessibilityLabel={table.title} showsHorizontalScrollIndicator>
           <View>
-            <View style={[s.row, s.head]}>
+            {/* Each row says its column names itself, so the header row isn't read on its own. */}
+            <View style={[s.row, s.head]} importantForAccessibility="no-hide-descendants">
               {table.columns.map((col, j) => (
                 <Text key={col.key} style={[s.headText, { width: widths[j] }, NUMERIC.has(col.kind) ? s.end : null]}>
                   {col.label}
@@ -49,7 +44,7 @@ export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: 
               ))}
             </View>
             {rows.map((r, i) => (
-              <View key={i} style={[s.row, i > 0 ? s.rowLine : null, i % 2 === 1 ? s.even : null]}>
+              <View key={i} style={[s.row, i > 0 ? s.rowLine : null, i % 2 === 1 ? s.even : null]} accessible accessibilityLabel={rowLabel(table, r)}>
                 {r.cells.map((v, j) => {
                   const kind = table.columns[j]?.kind;
                   const text = cellDisplay(kind, v);
@@ -69,7 +64,18 @@ export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: 
         </ScrollView>
       </View>
       <View style={s.footer}>
-        {onExcel ? <Button title="Excel" icon="ui.download" variant="secondary" size="sm" onPress={onExcel} accessibilityLabel={`Download ${table.title} as Excel`} /> : null}
+        {onExcel ? (
+          <Button
+            title={preparing ? 'Preparing Excel…' : 'Excel'}
+            icon="ui.download"
+            variant="secondary"
+            size="sm"
+            onPress={onExcel}
+            disabled={busy}
+            accessibilityLabel={`Download ${table.title} as Excel`}
+            accessibilityHint={preparing ? 'Preparing Excel…' : undefined}
+          />
+        ) : null}
         {table.total !== undefined && table.total > table.rows.length ? <Text style={s.note}>{`Showing ${table.rows.length} of ${table.total}`}</Text> : null}
         {table.rows.length > FIRST_ROWS ? (
           <Pressable onPress={() => setAll((v) => !v)} accessibilityRole="button" hitSlop={8} style={s.more}>
