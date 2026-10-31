@@ -29,6 +29,7 @@
 <!-- meetings-chat-account lines above this line -->
 
 ## Daily work
+- In the Android app, the task screen lists comments before files and dependencies on a phone, as the website does, and shows "Formerly RIG-4", "Inspection" and "Visible to client" by the task's number.
 <!-- daily-work-tasks lines above this line -->
 
 <!-- daily-work-pages lines above this line -->

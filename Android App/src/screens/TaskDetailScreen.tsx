@@ -47,9 +47,9 @@ import { loadTextPreview, previewMode } from '../lib/file-preview';
 import { checkTaskFiles } from '../lib/task-form';
 import { spacing, fontSize, type Palette } from '../lib/theme';
 import { taskExportPath, taskFileName } from '../lib/reports';
-import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem } from '../lib/task-detail';
+import { activityFeed, blockerRefs, canDeleteTask, conflictText, dueState, meetingLine, taskLoadProblem, taskSections, type TaskSection } from '../lib/task-detail';
 import { stillMatching } from '../lib/blocker-search';
-import { approvalNotice } from '../lib/approvals';
+import { approvalNotice, isWaitingForApproval } from '../lib/approvals';
 import { notice } from '../components/notice';
 import { withQueuedTicks } from '../lib/checklist-ticks';
 import type { AppScreenProps } from '../navigation/types';
@@ -69,9 +69,11 @@ const TWO_COLUMNS_FROM = 720;
 const BLOCKER_SEARCH_PAUSE_MS = 250;
 
 /**
- * Task details: header (reference, status, priority, due date, title, ⋯ menu), the description,
- * properties, checklist, files, blockers, comments and activity — each edited in place with its own
- * saving / saved / error state. Edits made offline are kept and synced where the app allows it.
+ * Task details, in the website's TaskDrawer order (lib/task-detail taskSections): header (reference,
+ * status, priority, due date, title, ⋯ menu), then on a phone the description, properties, checklist
+ * and comments, then files and blockers, then the history; on a wide screen the properties, files and
+ * blockers beside the work. Each part is edited in place with its own saving / saved / error state.
+ * Edits made offline are kept and synced where the app allows it.
  */
 export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDetail'>) {
   const { taskId } = route.params;
@@ -372,6 +374,19 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
     />
   );
   const activity = <ActivityCard entries={activityFeed(activityQ.data ?? [], nameOf)} />;
+  // Where each part goes: the website's order on a phone and beside the work on a wide screen.
+  const layout = taskSections({ wide, waiting: isWaitingForApproval(task), approval: false });
+  const part: Record<TaskSection, React.ReactNode> = {
+    approval: null,
+    description,
+    details,
+    checklist: checklistCard,
+    comments: commentsCard,
+    files,
+    blockers,
+    activity,
+  };
+  const show = (list: readonly TaskSection[]) => list.map((k) => <React.Fragment key={k}>{part[k]}</React.Fragment>);
   const refreshAll = () => {
     void taskQ.refetch();
     void checklistQ.refetch();
@@ -405,30 +420,14 @@ export function TaskDetailScreen({ route, navigation }: AppScreenProps<'TaskDeta
           // The full Edit form (4d): New task's form, filled with this task.
           onEdit={() => navigation.navigate('NewTask', { taskId: task.id })}
         />
+        {show(layout.top)}
         {wide ? (
           <View style={styles.columns}>
-            <View style={styles.main}>
-              {description}
-              {checklistCard}
-              {commentsCard}
-              {activity}
-            </View>
-            <View style={styles.side}>
-              {details}
-              {files}
-              {blockers}
-            </View>
+            <View style={styles.main}>{show(layout.main)}</View>
+            <View style={styles.side}>{show(layout.side)}</View>
           </View>
         ) : (
-          <>
-            {description}
-            {details}
-            {checklistCard}
-            {files}
-            {blockers}
-            {commentsCard}
-            {activity}
-          </>
+          show(layout.main)
         )}
         {canDeleteTask(session?.user ?? null, projectQ.data, members) ? (
           <View style={styles.danger}>

@@ -1,24 +1,25 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
 import { useColors } from '../../core/theme';
-import { ApprovalChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
+import { ApprovalChip, ClientChip, InspectionChip, TextField, Button, IconButton, PriorityBadge } from '../ui';
 import { KeyboardGroup } from '../KeyboardAware';
 import { Icon } from '../Icon';
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../../lib/theme';
 import type { ApiTask } from '../../lib/types';
 import { recurrenceSummary } from '../../lib/recurrence-summary';
-import { carryForward } from '../../lib/task-detail';
+import { FORMERLY_HINT, carryForward, formerKeysText } from '../../lib/task-detail';
 import { SaveNote, Tag, useSave } from './kit';
-import { font } from '../../lib/typography';
+import { font, typeStyle } from '../../lib/typography';
 
 /** The task title column's limit (VARCHAR 191). */
 const TITLE_MAX = 191;
 
 /**
- * The top of the task: reference, status, priority and due date at a glance, the title (edited in
- * place), and a menu (the three dots) for the secondary actions (watching, exporting); the approval
- * chip while it waits. A task made from a meeting
- * names that meeting; tapping it opens the meeting in the app.
+ * The top of the task, as the website's: reference (and "Formerly RIG-4" after a move to another
+ * project), status, priority, the Inspection and Visible to client marks and the due date at a
+ * glance; the title (edited in place); a menu (the three dots) for the secondary actions (watching,
+ * exporting); the approval chip while it waits. A task made from a meeting names that meeting;
+ * tapping it opens the meeting in the app.
  */
 export function HeaderCard({
   task,
@@ -59,6 +60,7 @@ export function HeaderCard({
   const save = useSave();
   // Moved on to the next day's board, and when (per-date boards — 4d): tapped, each move.
   const carried = carryForward(task.carryForwardLog);
+  const formerly = formerKeysText(task.formerKeys);
   const [carryOpen, setCarryOpen] = useState(false);
 
   async function commit() {
@@ -95,8 +97,15 @@ export function HeaderCard({
       <View style={s.topRow}>
         <View style={s.meta}>
           <Text style={s.key}>{task.key}</Text>
+          {formerly ? (
+            <Text style={s.formerly} accessibilityHint={FORMERLY_HINT}>
+              {formerly}
+            </Text>
+          ) : null}
           {statusName ? <Tag label={statusName} color={categoryColorOf(c, statusCategory ?? 'TODO')} /> : null}
           <PriorityBadge priority={task.priority} />
+          {task.inspectionFormId ? <InspectionChip size="sm" /> : null}
+          {task.clientVisible ? <ClientChip /> : null}
           {due.text ? <Tag label={due.text} tone={due.overdue ? 'danger' : undefined} /> : null}
           {task.approvalRequestedAt ? <ApprovalChip size="sm" /> : null}
         </View>
@@ -213,6 +222,7 @@ const makeStyles = (c: Palette) =>
     topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     meta: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
     key: { fontSize: fontSize.xs, ...font('800'), color: c.brandText, letterSpacing: 1, marginRight: spacing.xs },
+    formerly: { ...typeStyle('caption'), color: c.ink2 },
     titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
     title: { flex: 1, fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, paddingTop: spacing.xs },
     editActions: { flexDirection: 'row', gap: spacing.sm },
