@@ -152,3 +152,12 @@ it('Copy says when it couldn’t, and "working" is heard once (final review A13)
   expect(composer).not.toMatch(/accessibilityLiveRegion="polite"/);
   expect(src('screens/ChatThreadScreen.tsx')).toContain('Couldn’t copy');
 });
+
+it('the chats sheet is headed as the website’s list: MICO AI, and what it answers from (final review A14)', () => {
+  expect(sheet).toMatch(/<Sheet visible=\{visible\} title="MICO AI" subtitle="Answers from your MICO360 data"/);
+  if (hasWeb('frontend/src/components/mico-ai/ChatList.tsx')) {
+    const w = readWeb('frontend/src/components/mico-ai/ChatList.tsx');
+    expect(w).toMatch(/text-ink">MICO AI<\/p>/);
+    expect(w).toContain('Answers from your MICO360 data');
+  }
+});
