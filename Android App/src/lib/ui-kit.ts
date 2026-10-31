@@ -69,8 +69,8 @@ export function toggleLook(p: Palette, on: boolean): { track: string; thumb: str
   return { track: on ? p.brand : p.line, thumb: p.onBrand };
 }
 
-/** The website's Avatar sizes (box and initials text, in dp). */
-export const AVATAR_SIZES = { sm: { box: 24, text: 10 }, md: { box: 32, text: 12 }, lg: { box: 64, text: 18 } } as const;
+/** The website's Avatar sizes (box and initials text, in dp); xl is its Profile photo (h-28, text-3xl). */
+export const AVATAR_SIZES = { sm: { box: 24, text: 10 }, md: { box: 32, text: 12 }, lg: { box: 64, text: 18 }, xl: { box: 112, text: 30 } } as const;
 export type AvatarSize = keyof typeof AVATAR_SIZES;
 
 export type ProjectAvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';

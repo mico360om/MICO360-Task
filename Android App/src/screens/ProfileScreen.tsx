@@ -113,8 +113,8 @@ export function ProfileScreen({ navigation }: AppScreenProps<'Profile'>) {
       <KeyboardAwareScrollView contentContainerStyle={s.scroll}>
         {/* Identity: photo, name, username, role */}
         <View style={s.header}>
-          {/* The shared Avatar: the photo from this server, else the initials (a photo that fails shows them). */}
-          <Avatar name={fullName === '—' ? '' : fullName} src={photoOf(me, user)} size="lg" />
+          {/* The shared Avatar at the website's Profile size: the photo from this server, else the gradient initials (a photo that fails shows them). */}
+          <Avatar name={fullName === '—' ? '' : fullName} src={photoOf(me, user)} size="xl" label={{ photo: 'Your profile photo', initials: 'No profile photo' }} />
           <Text style={s.name} accessibilityRole="header">
             {fullName}
           </Text>
@@ -203,7 +203,7 @@ const makeStyles = (c: Palette) =>
     photo: { width: 112, height: 112, borderRadius: 56, borderWidth: 1, borderColor: c.line, marginBottom: spacing.sm, backgroundColor: c.surface },
     initialsBox: { width: 112, height: 112, borderRadius: 56, backgroundColor: c.brand, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
     initials: { color: c.onBrand, fontSize: fontSize.xxl, ...font('800') },
-    name: { fontSize: fontSize.xl, ...font('800'), color: c.ink, textAlign: 'center' },
+    name: { fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink, textAlign: 'center' },
     photoActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
     photoButton: { minWidth: 120 },
     photoProblem: { color: c.dangerText, fontSize: fontSize.sm, ...font('600'), textAlign: 'center', marginTop: spacing.xs },

@@ -125,7 +125,7 @@ export function MeetingsScreen({ navigation }: TabScreenProps<'Meetings'>) {
         style={styles.search}
       />
       <View style={styles.controls}>
-        <View style={styles.scope} accessibilityRole="radiogroup" accessibilityLabel="Whose meetings">
+        <View style={styles.scope} accessibilityLabel="Whose meetings">
           <Chip label="All meetings" selected={scope === 'all'} onPress={() => setScope('all')} />
           <Chip label="Organized by me" selected={scope === 'mine'} onPress={() => setScope('mine')} />
         </View>
@@ -287,5 +287,5 @@ const makeStyles = (c: Palette) =>
     itemsText: { flex: 1, fontSize: fontSize.md, ...font('600'), color: c.ink },
     itemsCount: { fontSize: fontSize.xs, ...font('700'), color: c.ink2 },
     overdue: { color: c.dangerText },
-    groupTitle: { fontSize: fontSize.xs, ...font('800'), color: c.ink3, letterSpacing: 0.8, marginTop: spacing.sm },
+    groupTitle: { fontSize: fontSize.xs, ...font('600', 'display'), color: c.ink3, letterSpacing: 0.8, marginTop: spacing.sm },
   });

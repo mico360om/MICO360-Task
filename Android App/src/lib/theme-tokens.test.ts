@@ -87,3 +87,18 @@ it('the website’s soft/card/lift/brand shadows as phone elevations', () => {
 it('the brand gradient runs corner to corner, the same in dark mode', () => {
   expect(BRAND_GRADIENT).toEqual({ colors: ['#A83326', '#8B1E1E', '#5E1414'], locations: [0, 0.55, 1], start: { x: 0, y: 0 }, end: { x: 1, y: 1 } });
 });
+
+// Final review S3: read receipts on my own (brand) bubble, as the website's MessageItem Receipt:
+// read ticks in Tailwind's sky-200, the rest white at 80% (Web Portal/frontend/src/components/chat/MessageItem.tsx).
+it('readOnBrand is the website’s text-sky-200 (#BAE6FD), the same in both themes', () => {
+  expect([lightColors.readOnBrand, darkColors.readOnBrand]).toEqual(['#BAE6FD', '#BAE6FD']);
+});
+describe.skipIf(!hasWeb('frontend/src/components/chat/MessageItem.tsx', 'frontend/src/components/chat/icons.tsx'))('the website’s read receipts', () => {
+  it('seen on the bubble is text-sky-200, the rest text-white/80, and read ticks are bold (2.6)', () => {
+    const item = readWeb('frontend/src/components/chat/MessageItem.tsx');
+    expect(item).toContain("const quiet = onBubble ? 'text-white/80' : 'text-ink-2';");
+    expect(item).toContain("const seen = onBubble ? 'text-sky-200' : 'text-info';");
+    expect(item).toContain("bold={status === 'read'}");
+    expect(readWeb('frontend/src/components/chat/icons.tsx')).toContain('strokeWidth={bold ? 2.6 : 2}');
+  });
+});

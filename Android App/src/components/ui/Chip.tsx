@@ -29,25 +29,35 @@ export function Chip({
   const c = useColors();
   const look = chipLook(c, selected);
   const name = a11yLabel ?? (count !== undefined ? `${label}, ${count}` : label);
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={!!disabled || !onPress}
-      hitSlop={{ top: 6, bottom: 6 }}
-      accessibilityRole="button"
-      accessibilityLabel={name}
-      accessibilityState={{ selected: !!selected, disabled: !!disabled }}
-      style={({ pressed }) => [
-        styles.chip,
-        { backgroundColor: look.bg, borderColor: look.border },
-        disabled ? styles.dim : pressed ? styles.pressed : null,
-      ]}
-    >
+  const box = [styles.chip, { backgroundColor: look.bg, borderColor: look.border }];
+  const body = (
+    <>
       {dot ? <View style={[styles.dot, { backgroundColor: dot, borderColor: selected ? c.onBrand : 'transparent' }]} /> : null}
       <Text style={[styles.text, { color: look.fg }]} numberOfLines={1}>
         {label}
       </Text>
       {count !== undefined ? <Text style={[styles.count, { color: look.fg }]}>{count}</Text> : null}
+    </>
+  );
+  // Nothing happens on it (a task's tags, the current status): words, not a button — still "selected".
+  if (!onPress) {
+    return (
+      <View style={box} accessible accessibilityRole="text" accessibilityLabel={name} accessibilityState={selected ? { selected: true } : undefined}>
+        {body}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!!disabled}
+      hitSlop={{ top: 6, bottom: 6 }}
+      accessibilityRole="button"
+      accessibilityLabel={name}
+      accessibilityState={{ selected: !!selected, disabled: !!disabled }}
+      style={({ pressed }) => [box, disabled ? styles.dim : pressed ? styles.pressed : null]}
+    >
+      {body}
     </Pressable>
   );
 }
@@ -63,7 +73,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   text: { ...typeStyle('button'), fontSize: 13, lineHeight: 18 },
-  count: { ...typeStyle('number'), fontSize: 12, lineHeight: 16, opacity: 0.85 },
+  count: { ...typeStyle('number'), fontSize: 12, lineHeight: 16 },
   dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1 },
   pressed: { opacity: 0.85 },
   dim: { opacity: 0.5 },

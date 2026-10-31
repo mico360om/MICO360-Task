@@ -53,7 +53,7 @@ describe('the website addresses the app opens (App Links)', () => {
       const query = path === '/reset' ? '?token=abc' : '';
       expect(opens(`${path}${query}`), path).toBeDefined();
       // A task link on that page (?task=) opens the task.
-      if (path !== '/reset') expect(opens(`${path}?task=t1`)?.routes[0]?.name, path).toBe('TaskDetail');
+      if (path !== '/reset') expect(opens(`${path}?task=t1`)?.routes.at(-1)?.name, path).toBe('TaskDetail');
     }
   });
 

@@ -94,7 +94,7 @@ export function AppDrawer({ onNavigate }: { onNavigate: (action: NavAction) => v
         </Text>
         {badge !== undefined ? (
           <View style={[s.badge, { backgroundColor: active ? c.surface : c.brand }]}>
-            <Text style={[typeStyle('number'), s.badgeText, { color: active ? c.ink : c.onBrand }]}>{badge}</Text>
+            <Text style={[typeStyle('number'), s.badgeText, { color: active ? c.ink : c.onBrand }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{badge}</Text>
           </View>
         ) : null}
         {website ? <Icon name="kit.globe" size={16} color={active ? c.onBrand : c.ink3} /> : null}
@@ -160,7 +160,7 @@ function makeStyles(c: Palette) {
     rowFill: { ...StyleSheet.absoluteFillObject, borderRadius: radius.button },
     rowPressed: { backgroundColor: c.ground },
     label: { flex: 1 },
-    badge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
+    badge: { minWidth: 20, minHeight: 20, borderRadius: radius.pill, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
     badgeText: { fontSize: 11, lineHeight: 14 },
   });
 }

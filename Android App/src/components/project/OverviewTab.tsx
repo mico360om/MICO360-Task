@@ -243,7 +243,7 @@ export function OverviewTab(p: OverviewProps) {
           <EmptyNote>No meeting planned.</EmptyNote>
         )}
         {p.meetings ? <Text style={s.note}>{meetingsLine(p.meetings.stats)}</Text> : null}
-        {p.onNewMeeting ? <Button title="+ New meeting" accessibilityLabel="New meeting" variant="secondary" onPress={p.onNewMeeting} /> : null}
+        {p.onNewMeeting ? <Button title="New meeting" icon="ui.plus" variant="secondary" onPress={p.onNewMeeting} /> : null}
       </SectionCard>
 
       <SectionCard title="Tasks by status">

@@ -147,7 +147,7 @@ export function DetailsCard({
   return (
     <SectionCard title="Details">
       {inSeries ? (
-        <View style={s.scope} accessibilityRole="radiogroup" accessibilityLabel="Apply edits to">
+        <View style={s.scope} accessibilityLabel="Apply edits to">
           <Text style={s.scopeLabel}>Edits apply to</Text>
           <Chip label="This task" selected={scope === 'one'} onPress={() => onScope('one')} a11yLabel="Apply edits to this task" />
           <Chip label="Entire series" selected={scope === 'series'} onPress={() => onScope('series')} a11yLabel="Apply edits to the entire series" />
@@ -155,7 +155,7 @@ export function DetailsCard({
       ) : null}
 
       <Prop label="Status">
-        <View style={s.chips} accessibilityRole="radiogroup">
+        <View style={s.chips}>
           {columns.map((col) => (
             <Chip
               key={col.id}
@@ -172,7 +172,7 @@ export function DetailsCard({
       </Prop>
 
       <Prop label="Priority">
-        <View style={s.chips} accessibilityRole="radiogroup">
+        <View style={s.chips}>
           {PRIORITIES.map((p) => (
             <Chip
               key={p}
@@ -290,7 +290,8 @@ export function DetailsCard({
           ))}
           {!picking ? (
             <Pressable onPress={() => setPicking(true)} accessibilityRole="button" accessibilityLabel="Add assignee" style={s.addPerson}>
-              <Text style={s.addPersonText}>+ Add assignee</Text>
+              <Icon name="ui.plus" size={14} color={c.ink2} />
+              <Text style={s.addPersonText}>Add assignee</Text>
             </Pressable>
           ) : null}
         </View>

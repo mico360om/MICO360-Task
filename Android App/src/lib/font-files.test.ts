@@ -33,10 +33,29 @@ it('has Plex SemiBold widths for every printable ASCII letter', () => {
   expect(textWidthEm('é')).toBe(0.6); // outside ASCII: the fallback width
 });
 
-it('App renders nothing until the fonts are ready', () => expect(src('../App.tsx')).toMatch(/const fontsReady = useBrandFonts\(\);\s*if \(!fontsReady\) return null;/));
+// Final review L4: while the fonts load the app shows the splash's own picture (rendering nothing showed
+// a blank screen, not the native splash); then it picks the faces and only then loads the screens, so
+// every style — those made when a file loads too — is made for the faces the phone really has.
+it('App shows the splash while the fonts load, picks the faces, then loads the app', () => {
+  const app = src('../App.tsx');
+  expect(app).toMatch(/const fonts = useBrandFonts\(\);\s*if \(fonts === 'wait'\) return <FontSplash \/>;/);
+  expect(app).toMatch(/setBrandFaces\(fonts === 'brand'\);/);
+  expect(app).toMatch(/const AppRoot = lazy\(\(\) => import\('\.\/src\/AppRoot'\)\);/);
+  expect(app).not.toMatch(/from '\.\/src\/(navigation|components\/ErrorBoundary|core\/providers|core\/theme)/); // loaded only after the faces are set
+});
 
-it('the fonts hook gives up waiting when loading fails, so the app still opens', () => {
+it('the splash is the app.json splash: its background and its picture, contained', () => {
+  const manifest = JSON.parse(readFileSync(appPath('app.json'), 'utf8')) as { expo: { splash: { image: string; backgroundColor: string; resizeMode: string } } };
+  const splash = src('components/FontSplash.tsx');
+  expect(manifest.expo.splash).toMatchObject({ image: './assets/logo.png', backgroundColor: '#8B1E1E', resizeMode: 'contain' });
+  expect(splash).toContain("import SPLASH_IMAGE from '../../assets/logo.png';");
+  expect(splash).toMatch(/backgroundColor: lightColors\.brand/);
+  expect(splash).toMatch(/resizeMode="contain"/);
+});
+
+it('the fonts hook waits at most FONT_WAIT_MS, and keeps its first answer', () => {
   const s = src('core/fonts.ts');
   expect(s).toMatch(/const \[loaded, error\] = useFonts\(FONT_ASSETS\);/);
-  expect(s).toMatch(/return loaded \|\| error != null;/);
+  expect(s).toMatch(/setTimeout\(\(\) => setTimedOut\(true\), FONT_WAIT_MS\)/);
+  expect(s).toMatch(/fontGate\(decided\.current, \{ loaded, error: error != null, timedOut \}\)/);
 });

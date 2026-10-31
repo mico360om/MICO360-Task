@@ -4,7 +4,7 @@ import { appSource as src } from '../testing/web-source';
 /** The Task 16 sweep: the Dashboard, My Tasks, the boards and the calendar in the website's look. */
 
 it('cards and rows mark a task waiting for approval with the chip', () => {
-  for (const f of ['components/board/BoardCard.tsx', 'components/my-tasks/MyTaskItem.tsx']) expect(src(f), f).toMatch(/\{(view|row)\.(waiting|awaitingApproval) \? <ApprovalChip/);
+  for (const f of ['components/board/BoardCard.tsx', 'components/my-tasks/MyTaskItem.tsx']) expect(src(f), f).toMatch(/\{(view|row)\.(waiting|awaitingApproval) \? \(\s*<View importantForAccessibility="no-hide-descendants">\s*<ApprovalChip/);
 });
 
 it('priority is the website’s badge (Normal neutral), faces are Avatars', () => {

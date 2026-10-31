@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { isDeepStrictEqual } from 'node:util';
 import {
   CAL_ICONS,
   ICON_NAMES,
@@ -17,10 +18,26 @@ import {
   type UiKey,
 } from './icons';
 import { PROJECT_ICON_KEYS } from './project-identity';
-import { appSource as src, hasWeb, loadWebTsx, readWeb, svgShapes } from '../testing/web-source';
+import { appSource as src, hasWeb, loadWebTsx, readWeb, svgDrawingsIn, svgShapes } from '../testing/web-source';
 
 /** 'BellOffIcon' → 'bellOff' (an export of chat/icons.tsx → its key in UI_ICONS). */
 const uiKey = (name: string) => (name.charAt(0).toLowerCase() + name.slice(1, -'Icon'.length)) as UiKey;
+
+/** Same shapes, in the same order (a missing key and an undefined one are the same; key order doesn't count). */
+const plain = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
+const isDeepStrictEqualShapes = (a: readonly Shape[], b: readonly Shape[]) => isDeepStrictEqual(plain(a), plain(b));
+
+// Final review L7: a shape the app's Icon can't draw is never skipped quietly.
+describe('svgShapes', () => {
+  const svg = (...children: unknown[]) => ({ type: 'svg', props: { strokeWidth: 2 }, children });
+  it.each(['line', 'polyline', 'polygon', 'ellipse'])('throws on <%s> inside an svg', (el) => {
+    expect(() => svgShapes(svg({ type: el, props: {}, children: [] }))).toThrow(new RegExp(`<${el}>`));
+  });
+  it('reads path, circle and rect, and walks past the HTML around an svg', () => {
+    const tree = { type: 'span', props: {}, children: [svg({ type: 'path', props: { d: 'M1 1' }, children: [] }, { type: 'circle', props: { cx: 1, cy: 2, r: 3 }, children: [] })] };
+    expect(svgShapes(tree)).toMatchObject({ strokeWidth: 2, shapes: [{ el: 'path', d: 'M1 1' }, { el: 'circle', cx: 1, cy: 2, r: 3 }] });
+  });
+});
 
 /** How a shape is written in the website's JSX. */
 function attrText(s: Shape): string {
@@ -68,11 +85,15 @@ describe.skipIf(!hasWeb('frontend/src/components/Sidebar.tsx', 'frontend/src/com
     for (const k of web.PROJECT_ICON_KEYS) expect(PROJECT_ICONS[k as ProjectIconKey].shapes.map((s) => (s as { d: string }).d), k).toEqual(web.PROJECT_ICON_PATHS[k]);
   });
 
-  it('misc: every shape and its stroke width is written in its source file', () => {
+  // Final review L7: exactly one of the source file's own <svg>s — every shape, in order, its stroke
+  // width and fill — not shapes found anywhere in the file.
+  it('misc: each icon is exactly one of the drawings in its source file', () => {
     for (const [k, def] of Object.entries(MISC_ICONS)) {
-      const text = readWeb(`frontend/src/${def.source}`);
-      for (const s of def.shapes) expect(text, k).toContain(attrText(s));
-      if (def.strokeWidth > 0) expect(text, k).toMatch(new RegExp(`strokeWidth=(\\{${def.strokeWidth}\\}|"${def.strokeWidth}")`));
+      const drawings = svgDrawingsIn(`frontend/src/${def.source}`);
+      expect(drawings.length, k).toBeGreaterThan(0);
+      const same = drawings.filter((d) => isDeepStrictEqualShapes(d.shapes, def.shapes) && d.strokeWidth === (def.strokeWidth > 0 ? def.strokeWidth : undefined) && !!d.filled === !!def.filled);
+      expect(same.length, `${k} (${def.source})`).toBeGreaterThan(0);
+      for (const s of def.shapes) expect(readWeb(`frontend/src/${def.source}`), k).toContain(attrText(s)); // written as the app writes it, too
     }
   });
 });

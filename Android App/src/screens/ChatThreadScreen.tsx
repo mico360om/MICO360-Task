@@ -438,6 +438,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
           receiptLabel={receipt?.label}
           receiptTicks={receipt?.ticks}
           receiptSeenBy={receipt?.seenBy}
+          receiptRead={receipt?.read}
           highlighted={highlight === m.id}
           baseUrl={baseUrl}
           handlers={handlers}
@@ -467,7 +468,7 @@ export function ChatThreadScreen({ route, navigation }: AppScreenProps<'ChatThre
   async function attach() {
     setSendErr(null);
     if (!online) return setSendErr('You’re offline — files can be sent when you’re connected.');
-    if (draft.trim().length > CHAT_MAX_LENGTH) return setSendErr(`Captions can be up to ${CHAT_MAX_LENGTH.toLocaleString()} characters.`);
+    if (draft.trim().length > CHAT_MAX_LENGTH) return setSendErr(`Captions can be up to ${CHAT_MAX_LENGTH.toLocaleString('en-US')} characters.`);
     let picked: DocumentPicker.DocumentPickerResult;
     try {
       picked = await DocumentPicker.getDocumentAsync({ type: '*/*', multiple: true, copyToCacheDirectory: true });
@@ -770,8 +771,8 @@ const makeStyles = (c: Palette) =>
     scroll: { padding: spacing.lg, gap: spacing.xs },
     noteWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
     headerTitle: { maxWidth: 240 },
-    headerName: { color: c.onBrand, fontSize: fontSize.md, ...font('700') },
-    headerSub: { color: c.onBrand, fontSize: fontSize.xs, opacity: 0.85 },
+    headerName: { color: c.ink, fontSize: fontSize.md, ...font('700') },
+    headerSub: { color: c.ink2, fontSize: fontSize.xs },
     emptyWrap: { alignItems: 'center', justifyContent: 'center', gap: spacing.xs, padding: spacing.xl },
     emptyBubble: { width: 48, height: 48, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center', backgroundColor: c.brandWash, marginBottom: 4 },
     emptyTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink },

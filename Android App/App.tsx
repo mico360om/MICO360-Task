@@ -1,18 +1,13 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import Constants from 'expo-constants';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AppProvider } from './src/core/providers';
-import { ThemeProvider } from './src/core/theme';
-import { RootNavigator } from './src/navigation/RootNavigator';
-import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { LockGate } from './src/components/LockGate';
 import { createConsoleReporter, pickCrashReporter } from './src/lib/error-reporter';
 import { resolveRuntimeConfig } from './src/lib/config';
 import { initSentry } from './src/adapters/sentry';
 import { appInfo } from './src/adapters/app-info';
 import { releaseName } from './src/lib/app-version';
-import { asyncStore } from './src/adapters/async-storage';
+import { setBrandFaces } from './src/lib/typography';
 import { useBrandFonts } from './src/core/fonts';
+import { FontSplash } from './src/components/FontSplash';
 
 // Crash/analytics sink (A9.3): a production build with EXPO_PUBLIC_SENTRY_DSN reports to Sentry;
 // dev logs to the console; a production build without a DSN stays silent until ops configures one.
@@ -28,21 +23,18 @@ function buildReporter() {
 
 const reporter = buildReporter();
 
+// The screens make text styles when their files load, so they load only once the faces are picked.
+const AppRoot = lazy(() => import('./src/AppRoot'));
+
 export default function App() {
-  // The website's fonts first: until they are loaded the native splash stays on screen.
-  const fontsReady = useBrandFonts();
-  if (!fontsReady) return null;
+  // The website's fonts first: the splash's picture shows while they load (at most FONT_WAIT_MS),
+  // then the app opens on them — or on the phone's own fonts, still bold where it should be.
+  const fonts = useBrandFonts();
+  if (fonts === 'wait') return <FontSplash />;
+  setBrandFaces(fonts === 'brand');
   return (
-    <ErrorBoundary reporter={reporter}>
-      <SafeAreaProvider>
-        <ThemeProvider store={asyncStore}>
-          <AppProvider>
-            <LockGate>
-              <RootNavigator />
-            </LockGate>
-          </AppProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </ErrorBoundary>
+    <Suspense fallback={<FontSplash />}>
+      <AppRoot reporter={reporter} />
+    </Suspense>
   );
 }

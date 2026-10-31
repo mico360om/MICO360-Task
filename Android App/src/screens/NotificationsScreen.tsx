@@ -30,7 +30,7 @@ function hasTarget(n: ApiNotification): boolean {
  * first. Tapping one reads it and opens what it is about — the task, the project's dashboard, the
  * meeting or the chat — and takes the phone's notifications about it off its list. "Mark all read"
  * needs a connection; reading one without a connection is kept and sent later. The list shows the
- * last copy offline. The tab's number is the unread count (lib/alerts has the badge rule).
+ * last copy offline. The bell's number in the top bar is the unread count (lib/alerts has the badge rule).
  */
 export function NotificationsScreen({ navigation }: AppScreenProps<'Notifications'>) {
   const c = useColors();
@@ -48,7 +48,7 @@ export function NotificationsScreen({ navigation }: AppScreenProps<'Notification
   const list = useMemo(() => q.data ?? [], [q.data]);
   const unread = list.filter((n) => !n.readAt).length;
 
-  // Coming to the Alerts tab shows what the tab's number counts: an out-of-date list is asked for again (5c review #11).
+  // Opening Notifications (the bell) shows what the bell's number counts: an out-of-date list is asked for again (5c review #11).
   useEffect(
     () => navigation.addListener('focus', () => void qc.refetchQueries({ queryKey: ['notifications'], exact: true, stale: true }, { cancelRefetch: false })),
     [navigation, qc],
@@ -69,7 +69,7 @@ export function NotificationsScreen({ navigation }: AppScreenProps<'Notification
         qc.setQueryData<ApiNotification[]>(['notifications'], after);
         qc.setQueryData<{ count: number }>(['notifications', 'unread'], { count: (after ?? []).filter((x) => !x.readAt).length });
         refresh(qc, ALERTS_REFRESH);
-        AccessibilityInfo.announceForAccessibility('All alerts marked as read.');
+        AccessibilityInfo.announceForAccessibility('All notifications marked as read.');
       })
       .catch((e: unknown) => setMarkAllErr(markAllProblem(e)))
       .finally(() => setMarkingAll(false));

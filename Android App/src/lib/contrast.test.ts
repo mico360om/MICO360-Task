@@ -51,3 +51,18 @@ it('the old failures are gone: ink-3 and warning text read on white and on the p
   }
   expect(contrastRatio('#948985', '#FFFFFF')).toBeLessThan(4.5); // the app's old ink-3
 });
+
+// Final review S3: the read ticks on my brand bubble. Light 6.87:1. Dark 4.10:1 — under 4.5 (the
+// website pairs sky-200 with its dark brand the same way) but over 3:1, the floor for icons (WCAG
+// 1.4.11), so readOnBrand is for the TICKS only (lead's ruling). The "seen by" count is text: it is
+// drawn in onBrand at full strength, ≥ 4.5:1 in both themes.
+it('read ticks on the brand bubble clear 3:1 in both themes (light ≥ 4.5:1; dark 4.10:1)', () => {
+  expect(contrastRatio(lightColors.readOnBrand, lightColors.brand)).toBeGreaterThanOrEqual(4.5);
+  const dark = contrastRatio(darkColors.readOnBrand, darkColors.brand);
+  expect(dark).toBeGreaterThanOrEqual(3);
+  expect(dark).toBeLessThan(4.5);
+});
+
+it('the "seen by" count on the brand bubble (onBrand) is ≥ 4.5:1 in both themes', () => {
+  for (const p of [lightColors, darkColors]) expect(contrastRatio(p.onBrand, p.brand)).toBeGreaterThanOrEqual(4.5);
+});

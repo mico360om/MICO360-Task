@@ -155,8 +155,8 @@ describe('receipts, and files picked to send (3b)', () => {
   it('says where my message stands, in the website’s words, with its ticks', () => {
     expect(receiptText({ status: 'sent' })).toEqual({ label: 'Sent', ticks: 'ui.tick' });
     expect(receiptText({ status: 'delivered' })).toEqual({ label: 'Delivered', ticks: 'ui.tickDouble' });
-    expect(receiptText({ status: 'read' })).toEqual({ label: 'Read', ticks: 'ui.tickDouble' });
-    expect(receiptText({ status: 'read', seenBy: 3 })).toEqual({ label: 'Seen by 3', ticks: 'ui.tickDouble', seenBy: 3 });
+    expect(receiptText({ status: 'read' })).toEqual({ label: 'Read', ticks: 'ui.tickDouble', read: true });
+    expect(receiptText({ status: 'read', seenBy: 3 })).toEqual({ label: 'Seen by 3', ticks: 'ui.tickDouble', seenBy: 3, read: true });
     expect(receiptText({ status: 'sending' })).toEqual({ label: 'Sending', ticks: null });
   });
   it('reads a picked file (its type from its name when the picker gives none), and why an upload failed', () => {

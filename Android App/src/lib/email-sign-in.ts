@@ -121,9 +121,31 @@ export function createCodeStepMemory(store: KeyValueStore, key: string = CODE_ST
   };
 }
 
+/**
+ * The address of a code step kept from before (a shared phone: the next person must not read whose
+ * it was): its first letter, "•••" and the domain — "a•••@mico360.com"; a username "a•••".
+ */
+export function maskIdentifier(identifier: string): string {
+  const id = identifier.trim();
+  if (!id) return '';
+  const at = id.indexOf('@');
+  const local = at === -1 ? id : id.slice(0, at);
+  return `${[...local].slice(0, 1).join('')}•••${at === -1 ? '' : id.slice(at)}`;
+}
+
 export function resendLabel(waitSeconds: number): string {
   if (waitSeconds <= 0) return 'Resend code';
   return `Resend code in ${Math.floor(waitSeconds / 60)}:${String(waitSeconds % 60).padStart(2, '0')}`;
+}
+
+/** What TalkBack says for Resend: the same wait as resendLabel, in words ("1 minute 15 seconds"). */
+export function resendA11yLabel(waitSeconds: number): string {
+  if (waitSeconds <= 0) return 'Resend code';
+  const m = Math.floor(waitSeconds / 60);
+  const sec = waitSeconds % 60;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const left = [m ? unit(m, 'minute') : null, sec ? unit(sec, 'second') : null].filter(Boolean).join(' ');
+  return `Resend code, available in ${left}`;
 }
 
 /** Digits only (a pasted "123 456" or "123-456" works), at most the longest code the server sends. */

@@ -311,7 +311,7 @@ const makeStyles = (c: Palette) =>
     ref: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44 },
     refMark: { width: 16, alignItems: 'center', justifyContent: 'center' },
     refDot: { width: 8, height: 8, borderRadius: 4 },
-    refKey: { fontSize: fontSize.xs, ...font('700'), color: c.ink2, fontFamily: 'monospace' },
+    refKey: { fontSize: fontSize.xs, color: c.ink2, fontFamily: 'monospace' },
     refTitle: { flexShrink: 1, fontSize: fontSize.sm, color: c.ink },
     refDone: { color: c.ink3, textDecorationLine: 'line-through' },
     status: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.ground, borderRadius: radius.badge, paddingHorizontal: 6, paddingVertical: 2 },

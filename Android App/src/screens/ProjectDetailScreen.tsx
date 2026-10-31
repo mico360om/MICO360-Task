@@ -287,7 +287,7 @@ const makeStyles = (c: Palette) =>
     head: { gap: spacing.md, marginBottom: spacing.sm },
     identity: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, backgroundColor: c.surface, borderRadius: radius.card, borderWidth: 1, borderColor: c.line, padding: spacing.lg },
     identityText: { flex: 1, gap: spacing.xs },
-    name: { fontSize: fontSize.xl, ...font('800'), color: c.ink },
+    name: { fontSize: fontSize.xl, ...font('700', 'display'), color: c.ink },
     badgeRow: { flexDirection: 'row' },
     meta: { fontSize: fontSize.sm, color: c.ink2 },
     tasksHead: { gap: spacing.sm },

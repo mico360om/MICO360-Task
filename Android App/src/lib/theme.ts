@@ -39,6 +39,8 @@ export interface Palette {
   meeting: string;
   /** Text and icons on the brand fill, the brand gradient and the danger fill. */
   onBrand: string;
+  /** "Read" ticks on my own (brand) chat bubble — the website's text-sky-200, the same in both themes. */
+  readOnBrand: string;
   /** What a dialog or sheet lays over the page behind it — the same dark wash in both themes. */
   scrim: string;
   /** The brand at 10% on the surface: selected and highlighted rows. */
@@ -113,6 +115,7 @@ const LIGHT = {
   infoText: '#3A6EA5',
   meeting: '#7A5AA8',
   onBrand: '#FFFFFF',
+  readOnBrand: '#BAE6FD',
   scrim: SCRIM,
   category: {
     BACKLOG: '#948985',
@@ -153,6 +156,7 @@ const DARK = {
   infoText: '#6CA0D6',
   meeting: '#B296DE',
   onBrand: '#FFFFFF',
+  readOnBrand: '#BAE6FD',
   scrim: SCRIM,
   category: {
     BACKLOG: '#A89D98',

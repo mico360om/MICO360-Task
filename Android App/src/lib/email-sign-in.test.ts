@@ -8,9 +8,11 @@ import {
   createCodeStepMemory,
   fetchEmailEnabled,
   isCodeComplete,
+  maskIdentifier,
   NEW_CODE_SENT,
   normaliseCode,
   RESEND_AFTER_MS,
+  resendA11yLabel,
   resendLabel,
   resendWaitSeconds,
   waitFromAnswer,
@@ -59,6 +61,24 @@ describe('resending a code', () => {
     expect(resendLabel(60)).toBe('Resend code in 1:00');
     expect(resendLabel(42)).toBe('Resend code in 0:42');
     expect(resendLabel(0)).toBe('Resend code');
+  });
+
+  // Final review S15: TalkBack hears the real wait (a server's longer wait, a recalled step), from
+  // the same count the button shows — not always "after a minute".
+  it('tells TalkBack the time left, in words', () => {
+    expect(resendA11yLabel(0)).toBe('Resend code');
+    expect(resendA11yLabel(1)).toBe('Resend code, available in 1 second');
+    expect(resendA11yLabel(42)).toBe('Resend code, available in 42 seconds');
+    expect(resendA11yLabel(60)).toBe('Resend code, available in 1 minute');
+    expect(resendA11yLabel(75)).toBe('Resend code, available in 1 minute 15 seconds');
+    expect(resendA11yLabel(181)).toBe('Resend code, available in 3 minutes 1 second');
+  });
+
+  it('the Resend button says it from the wait its text shows', () => {
+    const s = src('screens/auth/LoginScreen.tsx');
+    expect(s).toMatch(/accessibilityLabel=\{resendA11yLabel\(resendWait\)\}/);
+    expect(s).toMatch(/\{resendLabel\(resendWait\)\}/);
+    expect(s).not.toMatch(/available after a minute/);
   });
 });
 
@@ -135,4 +155,28 @@ it('LoginScreen forgets the step on every sign-in and on going back (Review Focu
   expect(s).toMatch(/const codeSteps = useMemo\(\(\) => createCodeStepMemory\(asyncStore\), \[\]\)/);
   // Kept while /config hasn't answered; only a "no" takes the Email code step away.
   expect(s).toMatch(/emailEnabled === false && mode === 'otp'/);
+});
+
+// Final review L10 (RULING): on a shared phone the kept code step (AsyncStorage, 10 minutes) must not
+// show the next person whose address it was — a recalled step shows it masked.
+describe('a recalled code step shows the address masked', () => {
+  it('first letter, •••, and the domain; a username first letter and •••', () => {
+    expect(maskIdentifier('aisha.khan@mico360.com')).toBe('a•••@mico360.com');
+    expect(maskIdentifier('  Omar@site.co ')).toBe('O•••@site.co');
+    expect(maskIdentifier('aisha')).toBe('a•••');
+    expect(maskIdentifier('a')).toBe('a•••');
+    expect(maskIdentifier('@x.com')).toBe('•••@x.com');
+    expect(maskIdentifier('')).toBe('');
+  });
+
+  it('LoginScreen masks a recalled address until "Use a different email" (which clears it) or a sign-in', () => {
+    const s = src('screens/auth/LoginScreen.tsx');
+    expect(s).toMatch(/const \[recalled, setRecalled\] = useState\(false\);/);
+    expect(s).toMatch(/codeSteps\.recall\(\)\.then\(\(step\) => \{[^]*?setRecalled\(true\);/);
+    expect(s).toMatch(/value=\{recalled \? maskIdentifier\(identifier\) : identifier\}/);
+    // Leaving the recalled step (another address, or the Password tab) never shows the address in full.
+    expect(s).toMatch(/function resetCodeStep\(\) \{[^}]*if \(recalled\) setIdentifier\(''\);\s*setRecalled\(false\);/);
+    expect(s).toMatch(/function useDifferentAddress\(\)[^}]*resetCodeStep\(\)/);
+    expect(s).toMatch(/function choosePassword\(\)[^}]*resetCodeStep\(\)/);
+  });
 });

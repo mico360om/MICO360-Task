@@ -57,10 +57,24 @@ export function fontFamilyFor(family: Family, weight: FontWeight): FontFace {
   return (family === 'display' ? DISPLAY : BODY)[weight];
 }
 
+/**
+ * Whether the brand faces are on the phone (App sets it once, before any screen loads: core/fonts'
+ * gate). When they didn't load, a style names the WEIGHT for the phone's own font instead of a face
+ * the phone doesn't have — Android would draw a missing face as the regular system font.
+ */
+let brandFaces = true;
+
+export function setBrandFaces(loaded: boolean): void {
+  brandFaces = loaded;
+}
+
+/** A weight as a style: the bundled face's family name, or the weight on the phone's fonts. */
+export type FontStyle = { fontFamily: FontFace; fontWeight?: undefined } | { fontWeight: FontWeight; fontFamily?: undefined };
+
 /** The style that sets a weight: the face's family name ('normal' = 400, 'bold' = 700). */
-export function font(weight: FontWeight | 'normal' | 'bold', family: Family = 'body'): { fontFamily: FontFace } {
+export function font(weight: FontWeight | 'normal' | 'bold', family: Family = 'body'): FontStyle {
   const w: FontWeight = weight === 'normal' ? '400' : weight === 'bold' ? '700' : weight;
-  return { fontFamily: fontFamilyFor(family, w) };
+  return brandFaces ? { fontFamily: fontFamilyFor(family, w) } : { fontWeight: w };
 }
 
 export type TypeRole =
@@ -79,7 +93,9 @@ export type TypeRole =
   | 'number';
 
 export interface TypeStyle {
-  fontFamily: FontFace;
+  /** The brand face (absent when the brand faces didn't load: then `fontWeight`). */
+  fontFamily?: FontFace;
+  fontWeight?: FontWeight;
   fontSize: number;
   lineHeight: number;
   letterSpacing?: number;
@@ -88,7 +104,7 @@ export interface TypeStyle {
   fontVariant?: ['tabular-nums'];
 }
 
-const SCALE: Record<TypeRole, TypeStyle> = {
+const SCALE: Record<TypeRole, TypeStyle & { fontFamily: FontFace }> = {
   display: { fontFamily: 'Archivo-ExtraBold', fontSize: 30, lineHeight: 36, letterSpacing: -0.3, fontVariant: ['tabular-nums'] },
   title: { fontFamily: 'Archivo-ExtraBold', fontSize: 22, lineHeight: 28, letterSpacing: -0.2 },
   heading: { fontFamily: 'Archivo-Bold', fontSize: 18, lineHeight: 24 },
@@ -106,6 +122,7 @@ const SCALE: Record<TypeRole, TypeStyle> = {
 
 /** A role's React-Native-ready text style (a fresh copy, safe to spread and extend). */
 export function typeStyle(role: TypeRole): TypeStyle {
-  const s = SCALE[role];
-  return { ...s, ...(s.fontVariant ? { fontVariant: [...s.fontVariant] as ['tabular-nums'] } : {}) };
+  const { fontFamily, ...rest } = SCALE[role];
+  const variant = rest.fontVariant ? { fontVariant: [...rest.fontVariant] as ['tabular-nums'] } : {};
+  return brandFaces ? { fontFamily, ...rest, ...variant } : { fontWeight: FONT_FACES[fontFamily].weight, ...rest, ...variant };
 }

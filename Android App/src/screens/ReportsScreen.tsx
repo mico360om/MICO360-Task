@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Modal, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, Modal, StyleSheet, RefreshControl, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useServices } from '../core/providers';
 import { useReportOptions, useReportSummary, useReportTrend } from '../core/queries';
@@ -19,6 +19,7 @@ import {
 import { categoryColorOf, spacing, radius, fontSize, type Palette } from '../lib/theme';
 import type { AppScreenProps } from '../navigation/types';
 import { font } from '../lib/typography';
+import { statTileColumns } from '../lib/stat-grid';
 
 type Option = { value: string; label: string };
 type Range = { from: string; to: string };
@@ -112,7 +113,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
             <Text style={s.intro}>Task delivery, project progress and team workload — with exports.</Text>
             <Card style={s.card}>
               <SectionTitle>Export</SectionTitle>
-              <View style={s.chips} accessibilityRole="radiogroup" accessibilityLabel="Report to export">
+              <View style={s.chips} accessibilityLabel="Report to export">
                 {EXPORT_REPORTS.map((r) => (
                   <Chip key={r.kind} label={r.label} selected={kind === r.kind} onPress={() => { setKind(r.kind); setMsg(null); }} />
                 ))}
@@ -185,7 +186,7 @@ export function ReportsScreen(_props: AppScreenProps<'Reports'>) {
                 <Muted style={s.hint}>
                   {reportDay(range.from)} – {reportDay(range.to)} · {periodDays(range)} days · {scopeText}
                 </Muted>
-                <View style={s.chips} accessibilityRole="radiogroup" accessibilityLabel="Dates of the trend">
+                <View style={s.chips} accessibilityLabel="Dates of the trend">
                   {PERIOD_PRESETS.map((n) => (
                     <Chip key={n} label={`Last ${n} days`} selected={preset === n} onPress={() => choosePreset(n)} />
                   ))}
@@ -265,19 +266,23 @@ function Summary({ data, projectId, c, s }: { data: SummaryData; projectId: stri
   const sum = summarize(data.projects, { projectId: projectId || undefined });
   const completion = data.completion;
   const bars = statusBars(data.status).map((b) => ({ label: b.label, value: b.value, color: categoryColorOf(c, b.category) }));
+  // Two tiles a row only while every label fits (a large font gets one a row).
+  const { width, fontScale } = useWindowDimensions();
+  const cols = statTileColumns(['Total tasks', 'Completed', 'Overdue', 'On-time rate'], width, fontScale);
+  const tile = cols === 2 ? s.tile : s.tileFull;
   return (
     <>
       <View style={s.tiles}>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile value={sum.total} label="Total tasks" hint={`${sum.projects} project${sum.projects === 1 ? '' : 's'}`} icon="nav.tasks" tone="brand" />
         </View>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile value={sum.completed} label="Completed" hint={`${sum.completionPct}% completion`} icon="kit.checkCircle" tone="success" />
         </View>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile value={sum.overdue} label="Overdue" hint={sum.total ? `${sum.overduePct}% of tasks` : '—'} icon="ui.alert" tone="danger" />
         </View>
-        <View style={s.tile}>
+        <View style={tile}>
           <StatTile
             value={completion ? `${completion.onTimeRate}%` : '—'}
             label="On-time rate"
@@ -514,15 +519,16 @@ function makeStyles(c: Palette) {
     problem: { fontSize: fontSize.sm, ...font('600'), color: c.dangerText },
     tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     tile: { flexBasis: '47%', flexGrow: 1 },
+    tileFull: { flexBasis: '100%' },
     onTime: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
     big: { minWidth: 72 },
-    bigValue: { fontSize: fontSize.xxl, ...font('800') },
+    bigValue: { fontSize: fontSize.xxl, ...font('700', 'display') },
     onTimeTrack: { height: 12, borderRadius: radius.pill, backgroundColor: c.ground, overflow: 'hidden' },
     onTimeFill: { height: '100%', backgroundColor: c.success },
     onTimeText: { fontSize: fontSize.sm, color: c.ink2 },
     minis: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     mini: { flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.input, padding: spacing.sm, backgroundColor: c.ground },
-    miniValue: { fontSize: fontSize.lg, ...font('800') },
+    miniValue: { fontSize: fontSize.lg, ...font('700', 'display') },
     miniLabel: { fontSize: fontSize.xs, color: c.ink2, ...font('600') },
     chart: { gap: 2, marginTop: spacing.md },
     chartTitle: { fontSize: fontSize.md, ...font('700'), color: c.ink },
