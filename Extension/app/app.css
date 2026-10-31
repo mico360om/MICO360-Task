@@ -413,6 +413,9 @@ a.td-file-name:hover { color: var(--brand); text-decoration: underline; }
 .drawer-foot { border-top: 1px solid var(--line); padding: 10px 18px; }
 .drawer-foot:empty { display: none; }
 .drawer-foot .td-confirm { margin-top: 0; }
+.td-delete { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.td-delete-why { margin: 0; font-size: 12px; }
+.td-confirm-why { flex-basis: 100%; font-size: 12px; color: var(--ink2); }
 
 /* ---- Login ---- */
 .login-wrap { max-width: 400px; margin: 8vh auto; }

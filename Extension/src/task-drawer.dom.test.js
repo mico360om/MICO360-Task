@@ -677,7 +677,8 @@ describe('deleting the task', () => {
 
   it('asks first (Cancel is focused); deleting closes the drawer', async () => {
     const onClose = vi.fn();
-    const ctx = drawerCtx({ members: asManager });
+    // They created it (who may delete it: task-delete-rule.js).
+    const ctx = drawerCtx({ members: asManager, task: { createdById: 'u1' } });
     const root = await open(ctx, onClose);
     byText(root, 'button', 'Delete task').click();
     await settle();
@@ -698,7 +699,7 @@ describe('deleting the task', () => {
   });
 
   it('a repeating task: this copy, or the whole series', async () => {
-    const ctx = drawerCtx({ me: { roles: ['ADMIN'] }, task: { recurrenceRule: { freq: 'DAILY', interval: 1 }, recurrenceParentId: 's1' } });
+    const ctx = drawerCtx({ me: { roles: ['ADMIN'] }, task: { createdById: 'u1', recurrenceRule: { freq: 'DAILY', interval: 1 }, recurrenceParentId: 's1' } });
     const onClose = vi.fn();
     const root = await open(ctx, onClose);
     byText(root, 'button', 'Delete task').click();
@@ -710,7 +711,7 @@ describe('deleting the task', () => {
     expect(onClose).toHaveBeenCalled();
 
     document.body.innerHTML = '';
-    const first = drawerCtx({ me: { roles: ['ADMIN'] }, task: { recurrenceRule: { freq: 'DAILY', interval: 1 }, recurrenceParentId: null } });
+    const first = drawerCtx({ me: { roles: ['ADMIN'] }, task: { createdById: 'u1', recurrenceRule: { freq: 'DAILY', interval: 1 }, recurrenceParentId: null } });
     const root2 = await open(first);
     byText(root2, 'button', 'Delete task').click();
     await settle();
@@ -721,7 +722,7 @@ describe('deleting the task', () => {
 
   it('a refused delete says why and keeps the drawer open', async () => {
     const onClose = vi.fn();
-    const ctx = drawerCtx({ me: { roles: ['ADMIN'] } });
+    const ctx = drawerCtx({ me: { roles: ['ADMIN'] }, task: { createdById: 'u1' } });
     ctx.write = vi.fn(async () => { throw new ApiError(403, 'You do not have permission to do that.', 'FORBIDDEN'); });
     const root = await open(ctx, onClose);
     byText(root, 'button', 'Delete task').click();
@@ -908,5 +909,65 @@ describe('quick changes, late answers and redraws', () => {
     await settle();
     expect(second.isConnected).toBe(false);
     expect(active()).toBe(row(root, 'c2').querySelector('[aria-label="Edit your comment"]'));
+  });
+});
+
+describe('deleting the task: only its creator, or the one person it’s assigned to', () => {
+  const REASON = 'Only the person who created this task, or the one person it’s assigned to, can delete it.';
+  const SERIES = 'Only the person who created this repeating task can delete the entire series.';
+  const admin = { me: { roles: ['ADMIN'] } };
+  const omar = { id: 'u2', firstName: 'Omar', lastName: 'Ahmed', username: 'omar' };
+  const mariam = { id: 'u1', firstName: 'Mariam', lastName: 'Al Hinai', username: 'mariam' };
+
+  it('the server says no: Delete task stays, greyed out with the reason, and never asks', async () => {
+    const ctx = drawerCtx({ ...admin, task: { createdById: 'u2', canDelete: false, canDeleteSeries: false } });
+    const root = await open(ctx);
+    const button = byText(root, 'button', 'Delete task');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    const why = root.querySelector(`#${button.getAttribute('aria-describedby')}`);
+    expect(why.textContent).toBe(REASON);
+    button.click();
+    await settle();
+    expect(byLabel(root, 'Confirm delete')).toBeNull();
+    expect(ctx.write).not.toHaveBeenCalledWith('task.delete', expect.anything());
+  });
+
+  it('a server that doesn’t say: the same rule from who created it and who it’s assigned to', async () => {
+    const shared = await open(drawerCtx({ ...admin, task: { createdById: 'u2' }, assignees: [mariam, omar] }));
+    expect(byText(shared, 'button', 'Delete task').getAttribute('aria-disabled')).toBe('true');
+    document.body.innerHTML = '';
+    const mine = await open(drawerCtx({ ...admin, task: { createdById: 'u2' }, assignees: [mariam] }));
+    expect(byText(mine, 'button', 'Delete task').getAttribute('aria-disabled')).toBeNull();
+    document.body.innerHTML = '';
+    const created = await open(drawerCtx({ ...admin, task: { createdById: 'u1' }, assignees: [omar] }));
+    expect(byText(created, 'button', 'Delete task').getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('a repeating copy they may delete, but not its series: “The whole series” greyed out with why', async () => {
+    const ctx = drawerCtx({ ...admin, task: { createdById: 'u2', recurrenceRule: { freq: 'DAILY', interval: 1 }, recurrenceParentId: 's1', canDelete: true, canDeleteSeries: false } });
+    const root = await open(ctx);
+    byText(root, 'button', 'Delete task').click();
+    await settle();
+    const ask = byLabel(root, 'Confirm delete');
+    const whole = byText(ask, 'button', 'The whole series');
+    expect(whole.getAttribute('aria-disabled')).toBe('true');
+    expect(ask.querySelector(`#${whole.getAttribute('aria-describedby')}`).textContent).toBe(SERIES);
+    whole.click();
+    await settle();
+    expect(ctx.write).not.toHaveBeenCalledWith('task.delete', expect.anything());
+    byText(ask, 'button', 'This copy').click();
+    await settle();
+    expect(ctx.write).toHaveBeenCalledWith('task.delete', { id: 't1' });
+  });
+
+  it('a refusal sent anyway is told in the server’s words', async () => {
+    const ctx = drawerCtx({ ...admin, task: { createdById: 'u1', canDelete: true } });
+    ctx.write = vi.fn(async () => { throw new ApiError(403, REASON, 'DELETE_NOT_ALLOWED'); });
+    const root = await open(ctx);
+    byText(root, 'button', 'Delete task').click();
+    await settle();
+    byText(root, 'button', 'Delete').click();
+    await settle();
+    expect(root.querySelector('[role="alert"]').textContent).toBe(REASON);
   });
 });
