@@ -25,7 +25,11 @@ const ACTION_VERB: Record<string, string> = {
   APPROVED: 'approved',
   SENT_BACK: 'sent back',
   APPROVAL_WITHDRAWN: 'withdrew the approval request on',
+  // Companies: a line on the project itself (no task).
+  PROJECT_COMPANIES_CHANGED: 'changed the companies of',
 };
+/** Lines about a project itself: they name the project, not "a task". */
+const PROJECT_LINES = new Set(['PROJECT_COMPANIES_CHANGED']);
 const ACTION_TONE: Record<string, string> = {
   CREATED: 'text-info',
   MOVED: 'text-ink-2',
@@ -103,6 +107,15 @@ function detailOf(a: ApiActivity): string {
       const toKey = str(m.toKey);
       const where = toProject ? `to ${toProject}${toKey ? ` (${toKey})` : ''}` : 'to another project';
       return key ? `${key} ${where}` : where;
+    }
+    case 'PROJECT_COMPANIES_CHANGED': {
+      // "added Alpha Co; removed Prolens Projects LLC; main company now Alpha Co"
+      const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+      const list = (n: string[]) => (n.length < 2 ? n.join('') : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`);
+      const added = names(m.added);
+      const removed = names(m.removed);
+      const main = str(m.main);
+      return [added.length ? `added ${list(added)}` : null, removed.length ? `removed ${list(removed)}` : null, main ? `main company now ${main}` : null].filter(Boolean).join('; ');
     }
     default:
       return '';
@@ -191,6 +204,8 @@ export function ActivityPage() {
                           <span className={ACTION_TONE[a.action] ?? 'text-ink-2'}>{ACTION_VERB[a.action] ?? a.action.toLowerCase().replace(/_/g, ' ')}</span>{' '}
                           {a.task ? (
                             <button onClick={() => setOpenTaskId(a.task!.id)} className="font-mono text-xs font-semibold text-brand hover:underline">{a.task.key}</button>
+                          ) : PROJECT_LINES.has(a.action) && a.project ? (
+                            <bdi className="font-medium text-ink">{a.project.name}</bdi>
                           ) : (
                             <span className="text-ink-2">a task</span>
                           )}

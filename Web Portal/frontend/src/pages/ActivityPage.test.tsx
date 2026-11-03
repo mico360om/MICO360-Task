@@ -92,6 +92,19 @@ describe('ActivityPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /show all activity/i }));
     expect(screen.queryByText(/no .* activity/i)).not.toBeInTheDocument();
   });
+  it('a project’s companies changed: who changed which project’s companies, and how (not “… a task”)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{
+      id: 'a9', taskId: null, projectId: 'p1', userId: 'u1', action: 'PROJECT_COMPANIES_CHANGED', createdAt: new Date().toISOString(),
+      meta: { added: ['Alpha Co'], removed: ['Prolens Projects LLC'], main: 'Alpha Co' },
+      actor: { id: 'u1', name: 'Aisha Khan' }, task: null, project: { id: 'p1', name: 'Rig Inspection' },
+    }] })));
+    renderPage();
+    const verb = await screen.findByText('changed the companies of');
+    expect(verb.closest('p')).toHaveTextContent('Aisha Khan changed the companies of Rig Inspection');
+    expect(screen.queryByText('a task')).toBeNull();
+    expect(screen.getByText(/added Alpha Co; removed Prolens Projects LLC; main company now Alpha Co/)).toBeInTheDocument();
+  });
+
   it('the old project shows where its task went, by the key it had there (it may not be able to open it now)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [{
       id: 'a8', taskId: null, projectId: 'p1', userId: 'u1', action: 'PROJECT_MOVED_OUT', createdAt: new Date().toISOString(),

@@ -68,6 +68,8 @@ const ACTION_LABEL: Record<string, string> = {
   CREATED: 'created', MOVED: 'moved', COMPLETED: 'completed', REOPENED: 'reopened', ASSIGNED: 'assigned',
   // Task approvals.
   APPROVAL_REQUESTED: 'asked for approval on', APPROVED: 'approved', SENT_BACK: 'sent back', APPROVAL_WITHDRAWN: 'withdrew the approval request on',
+  // Companies: a project's companies changed (a line on the project, no task).
+  PROJECT_COMPANIES_CHANGED: 'changed the companies of',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? (a || '').toLowerCase().replace(/_/g, ' ');
 const actionTone = (a: string): string =>

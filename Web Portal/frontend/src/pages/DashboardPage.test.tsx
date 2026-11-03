@@ -271,6 +271,18 @@ describe('DashboardPage', () => {
     expect(line).toHaveTextContent('Aisha Khan assigned MICO-3 to Omar Ahmed');
   });
 
+  it('a project’s companies changed reads “changed the companies of {project}” in Recent activity', async () => {
+    const ok = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) =>
+      String(args[0]).endsWith('/activity')
+        ? json({ data: [{ id: 'a2', action: 'PROJECT_COMPANIES_CHANGED', createdAt: new Date().toISOString(), meta: { added: ['Alpha Co'] }, actor: { id: 'u1', name: 'Aisha Khan' }, task: null, project: { id: 'p1', name: 'Rig Inspection' } }] })
+        : ok(...args),
+    ));
+    renderPage();
+    const verb = await screen.findByText('changed the companies of');
+    expect(verb.closest('p')).toHaveTextContent('Aisha Khan changed the companies of Rig Inspection');
+  });
+
   it('holds the place of the lists while they load (rows, not a line of text), so nothing jumps', async () => {
     const ok = fetch;
     vi.stubGlobal('fetch', vi.fn(async (...args: Parameters<typeof fetch>) => (/\/(tasks|activity)/.test(String(args[0])) ? new Promise<Response>(() => {}) : ok(...args))));
