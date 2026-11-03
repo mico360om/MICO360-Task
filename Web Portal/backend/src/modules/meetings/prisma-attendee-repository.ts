@@ -76,6 +76,7 @@ export function createPrismaAttendeeRepository(prisma: PrismaClient): AttendeeRe
           ...(patch.department !== undefined ? { department: patch.department } : {}),
           ...(patch.response !== undefined ? { response: patch.response } : {}),
           ...(patch.respondedAt !== undefined ? { respondedAt: patch.respondedAt } : {}),
+          ...(patch.externalEmail !== undefined ? { externalEmail: patch.externalEmail } : {}),
         },
       });
       return toRecord(row);

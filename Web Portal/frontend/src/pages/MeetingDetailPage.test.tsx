@@ -380,6 +380,20 @@ describe('MeetingDetailPage — minutes email', () => {
     expect(within(within(dialog).getByRole('group', { name: /^cc/i })).getByText('boss@outside.co')).toBeInTheDocument();
   });
 
+  it('a finished meeting’s next steps: approved, not emailed yet — Email minutes… opens the email', async () => {
+    meetingData = meeting({ status: 'COMPLETED' });
+    const done = { summary: 'Done.', discussion: [], decisions: [], risks: [], nextSteps: [] };
+    override = (u, method) =>
+      u.endsWith('/meetings/m1/final-minutes') && method === 'GET'
+        ? json({ data: { status: 'FINAL', content: done, savedAt: '', approvedBy: { id: 'me', name: 'Me Myself' }, approvedAt: '2026-10-14T09:00:00Z', canEdit: true } })
+        : undefined;
+    renderPage();
+    const bar = await screen.findByRole('navigation', { name: 'Next steps' });
+    await waitFor(() => expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Emailed'));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Email minutes…' }));
+    expect(await screen.findByRole('dialog', { name: /email the minutes/i })).toBeInTheDocument();
+  });
+
   it('the "Sent" log is only for the people who may send', async () => {
     meetingData = meeting({ status: 'COMPLETED', canEdit: false });
     override = (u, method) => (u.endsWith('/minutes/sends') && method === 'GET' ? json({ data: [sent] }) : undefined);
@@ -505,8 +519,8 @@ describe('MeetingDetailPage — action items', () => {
     renderPage();
     const row = (await screen.findByText('Book the room')).closest('li')!;
     expect(within(row).getByRole('link', { name: /fal-7/i })).toHaveAttribute('href', expect.stringContaining('task=t7'));
-    expect(within(row).getByLabelText(/^status for book the room$/i)).toHaveValue('OPEN');
-    expect(within(row).getByLabelText(/^priority for book the room$/i)).toHaveValue('HIGH');
+    expect(within(row).getByRole('button', { name: /^status for book the room/i })).toHaveTextContent('Open');
+    expect(within(row).getByRole('button', { name: /^priority for book the room/i })).toHaveTextContent('High');
     expect(row).toHaveTextContent(/from a note/i);
   });
 
@@ -539,7 +553,8 @@ describe('MeetingDetailPage — attendees', () => {
     attendees = [...attendees, attendee({ id: 'a3', externalName: 'Walk-in', externalEmail: null })];
     await act(async () => { handlers['meeting:attendees']?.({ id: 'm1' }); });
     const walkIn = (await screen.findByText('Walk-in')).closest('li')!;
-    expect(walkIn).toHaveTextContent(/no email address/i);
+    // The organizer can add the missing address right there.
+    expect(within(walkIn).getByRole('button', { name: 'Add email for Walk-in' })).toBeInTheDocument();
     expect(walkIn).not.toHaveTextContent(/not invited yet/i);
     // Attendance is recorded during the meeting, not before.
     expect(screen.queryByLabelText(/attendance for guest one/i)).not.toBeInTheDocument();
@@ -548,7 +563,8 @@ describe('MeetingDetailPage — attendees', () => {
   it('records attendance once the meeting is under way', async () => {
     meetingData = meeting({ status: 'IN_PROGRESS' });
     renderPage();
-    await userEvent.selectOptions(await screen.findByLabelText(/attendance for guest one/i), 'PRESENT');
+    await userEvent.click(await screen.findByRole('button', { name: /^attendance for guest one/i }));
+    await userEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: 'Present' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/attendees/a1'))?.body).toEqual({ attendance: 'PRESENT' }));
   });
 

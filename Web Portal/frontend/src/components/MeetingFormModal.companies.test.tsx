@@ -109,9 +109,12 @@ describe('Meeting form — companies', () => {
   it('a standalone meeting asks for its company, the picked one first', async () => {
     useCompanyStore.setState({ pick: beta.id });
     renderModal();
-    const field = await screen.findByLabelText('Company');
-    expect(field).toHaveValue(beta.id);
-    expect(within(field).getAllByRole('option').map((o) => o.textContent)).toEqual(['Alpha Co', 'Beta Co']);
+    // The same kind of select as Project, Repeat and Status.
+    const field = await screen.findByRole('button', { name: 'Company' });
+    expect(field).toHaveTextContent('Beta Co');
+    await userEvent.click(field);
+    expect(within(await screen.findByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Alpha Co', 'Beta Co']);
+    await userEvent.keyboard('{Escape}');
     expect(screen.getByText('A meeting without a project belongs to one of your companies.')).toBeInTheDocument();
     await fillAndSave();
     await waitFor(() => expect(posted()).toBeDefined());
@@ -121,9 +124,8 @@ describe('Meeting form — companies', () => {
   it('without a pick it starts in my primary company; another can be chosen', async () => {
     mine = { ...mine, primaryCompanyId: alpha.id };
     renderModal();
-    const field = await screen.findByLabelText('Company');
-    expect(field).toHaveValue(alpha.id);
-    await userEvent.selectOptions(field, beta.id);
+    expect(await screen.findByRole('button', { name: 'Company' })).toHaveTextContent('Alpha Co');
+    await choose('Company', 'Beta Co');
     await fillAndSave();
     await waitFor(() => expect(posted()).toMatchObject({ companyId: beta.id }));
   });
@@ -178,9 +180,9 @@ describe('Meeting form — companies', () => {
 
   it('editing a standalone meeting shows its company and sends a new one', async () => {
     renderModal(baseMeeting);
-    const field = await screen.findByLabelText('Company');
-    await waitFor(() => expect(field).toHaveValue(alpha.id));
-    await userEvent.selectOptions(field, beta.id);
+    const field = await screen.findByRole('button', { name: 'Company' });
+    await waitFor(() => expect(field).toHaveTextContent('Alpha Co'));
+    await choose('Company', 'Beta Co');
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ companyId: beta.id });

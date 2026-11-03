@@ -192,6 +192,28 @@ describe('Attendee routes — only meeting editors change the roster (SEC-06)', 
     expect((await app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${guest}`, headers: organizer, payload: { response: 'MAYBE' } })).statusCode).toBe(400);
   });
 
+  // 1.22 (the compact People rows): "No email address" becomes a small "Add email" for a guest.
+  it('the organizer adds a guest’s missing email address — a guest only, checked, not one already on the meeting; nobody else may', async () => {
+    const attendeesOf: Record<string, string[]> = {};
+    const { app } = await makeApp(attendeesOf);
+    const id = await ownedMeeting(app, 'u1');
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const add = (payload: object) => app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: organizer, payload });
+    const walkIn = (await add({ externalName: 'Walk-in' })).json().data.id;
+    await add({ externalName: 'Guest', externalEmail: 'g@ext.co' });
+    const member = (await add({ userId: 'u2' })).json().data.id;
+    attendeesOf[id] = ['u2'];
+    const patch = (attendeeId: string, payload: object, headers = organizer) => app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/attendees/${attendeeId}`, headers, payload });
+
+    expect((await patch(walkIn, { externalEmail: 'not an address' })).statusCode).toBe(400);
+    expect((await patch(walkIn, { externalEmail: 'G@ext.co' })).statusCode).toBe(409);
+    expect((await patch(member, { externalEmail: 'u2@x.co' })).statusCode).toBe(400);
+    expect((await patch(walkIn, { externalEmail: 'walk@ext.co' }, { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` })).statusCode).toBe(403);
+    const ok = await patch(walkIn, { externalEmail: ' Walk@Ext.co ' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data).toMatchObject({ externalName: 'Walk-in', externalEmail: 'walk@ext.co' });
+  });
+
   it('suggests attendees only from previous meetings the caller can see (SEC-22)', async () => {
     const { app } = await makeApp();
     const mine = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };

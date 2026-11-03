@@ -526,7 +526,8 @@ export function meetingsApi(client: ApiClient) {
       client.get<{ data: Attendee[]; people?: MeetingPerson[] }>(`/meetings/${meetingId}/attendees`).then((r) => ({ attendees: r.data, people: Array.isArray(r.people) ? r.people : [] })),
     addAttendee: (meetingId: string, input: NewAttendeeInput) =>
       client.post<{ data: Attendee }>(`/meetings/${meetingId}/attendees`, input).then((r) => r.data),
-    updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; response?: InvitationResponse; department?: string | null }) =>
+    /** `externalEmail`: a guest's address, added later ("Add email"). */
+    updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; response?: InvitationResponse; department?: string | null; externalEmail?: string }) =>
       client.patch<{ data: Attendee }>(`/meetings/${meetingId}/attendees/${attendeeId}`, patch).then((r) => r.data),
     removeAttendee: (meetingId: string, attendeeId: string) => client.del<void>(`/meetings/${meetingId}/attendees/${attendeeId}`),
     suggestAttendees: (meetingId: string, previousMeetingIds: string[]) =>

@@ -47,6 +47,8 @@ export interface AttendeeService {
   /** Record the answer to the invitation (PENDING = no answer yet, which forgets when). */
   setResponse(meetingId: string, attendeeId: string, response: InvitationResponse): Promise<AttendeeRecord>;
   updateAttendee(meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; department?: string | null }): Promise<AttendeeRecord>;
+  /** A guest's email address, added later ("Add email"): a guest only, and not one already on the meeting. */
+  setGuestEmail(meetingId: string, attendeeId: string, email: string): Promise<AttendeeRecord>;
   removeAttendee(meetingId: string, attendeeId: string): Promise<void>;
   /** Internal users seen on the given previous meetings, minus those already on this meeting. */
   suggestAttendees(meetingId: string, previousMeetingIds: string[]): Promise<string[]>;
@@ -136,6 +138,18 @@ export function createAttendeeService(deps: AttendeeServiceDeps): AttendeeServic
         ...(patch.role !== undefined ? { role: patch.role } : {}),
         ...(patch.department !== undefined ? { department: trim(patch.department) } : {}),
       });
+      deps.onChanged?.(meetingId);
+      return rec;
+    },
+
+    async setGuestEmail(meetingId, attendeeId, email) {
+      const guest = await requireInMeeting(meetingId, attendeeId);
+      if (guest.userId) throw new ValidationError('A team member’s email address is their account’s.');
+      const address = email.trim().toLowerCase();
+      if ((await attendees.listByMeeting(meetingId)).some((a) => a.id !== attendeeId && !a.userId && same(a.externalEmail, address))) {
+        throw new ConflictError('This guest is already an attendee.');
+      }
+      const rec = await attendees.update(attendeeId, { externalEmail: address });
       deps.onChanged?.(meetingId);
       return rec;
     },

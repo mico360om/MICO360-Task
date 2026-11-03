@@ -25,6 +25,8 @@ const patchSchema = z.object({
   attendance: attendanceEnum.optional(),
   response: responseEnum.optional(),
   department: z.string().nullable().optional(),
+  /** A guest's email address, added later ("Add email"): the organizer's call, as adding the guest is. */
+  externalEmail: z.string().trim().email().max(254).optional(),
 });
 
 const suggestQuery = z.object({
@@ -120,15 +122,16 @@ export async function registerAttendeeRoutes(app: FastifyInstance, deps: Attende
     if (view === 'invitee') {
       // companies: someone invited from another company answers their own invitation, nothing more.
       const own = await attendeeService.getAttendee(id, attendeeId);
-      if (own.userId !== req.user!.id || body.role !== undefined || body.department !== undefined) throw new InviteeOnlyError();
+      if (own.userId !== req.user!.id || body.role !== undefined || body.department !== undefined || body.externalEmail !== undefined) throw new InviteeOnlyError();
     } else if (!(await canEdit(req, id))) {
       // Attendees may record their own attendance and answer their own invitation; everything else
-      // is the organizer's call (who may also record a guest's emailed answer).
+      // is the organizer's call (who may also record a guest's emailed answer, or add their address).
       const own = await attendeeService.getAttendee(id, attendeeId);
-      const ownFieldsOnly = body.role === undefined && body.department === undefined;
+      const ownFieldsOnly = body.role === undefined && body.department === undefined && body.externalEmail === undefined;
       if (!ownFieldsOnly || own.userId !== req.user!.id) return reply.status(403).send(cannotEdit);
     }
     let rec = null;
+    if (body.externalEmail !== undefined) rec = await attendeeService.setGuestEmail(id, attendeeId, body.externalEmail);
     if (body.attendance !== undefined) rec = await attendeeService.setAttendance(id, attendeeId, body.attendance);
     if (body.response !== undefined) rec = await attendeeService.setResponse(id, attendeeId, body.response);
     if (body.role !== undefined || body.department !== undefined) {

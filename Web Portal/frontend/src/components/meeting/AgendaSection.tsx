@@ -7,7 +7,7 @@ import { Button } from '../ui/Button';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { SaveIndicator, useSaveState } from '../task-drawer/save-state';
-import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, peopleOptions, userName } from './kit';
+import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, peopleOptions, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { agendaTiming } from '../../lib/meeting-flow';
 import { aiApi, type AiAgendaItem } from '../../api/ai';
@@ -47,6 +47,8 @@ export function AgendaSection({
   const [addError, setAddError] = useState<string | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  // Opened by hand from its one-line form (a finished meeting with no agenda): the topic box takes focus.
+  const [opened, setOpened] = useState(false);
 
   const agendaQ = useQuery({ queryKey: ['meeting', meetingId, 'agenda'], queryFn: () => meetingsApi(apiClient).listAgenda(meetingId), enabled: !!meetingId, refetchInterval: pollMs });
   const items = Array.isArray(agendaQ.data) ? agendaQ.data : [];
@@ -139,6 +141,11 @@ export function AgendaSection({
         {timing.over ? ` · ${timing.over} min over` : ''}
       </span>
     );
+
+  // A finished meeting with no agenda: one line, until the organizer adds the topics covered.
+  if (ended && !opened && agendaQ.isSuccess && items.length === 0) {
+    return <ShrunkSection id="agenda" title="Agenda" empty="No agenda" addLabel="Add a topic" onAdd={canEdit ? () => setOpened(true) : undefined} />;
+  }
 
   return (
     <Section id="agenda" title="Agenda" count={items.length || undefined} aside={total}>
@@ -233,7 +240,7 @@ export function AgendaSection({
 
       {canEdit ? (
         <form onSubmit={submitAdd} className="mt-3 grid grid-cols-[minmax(0,1fr)_5.5rem_auto] gap-2 border-t border-line pt-3">
-          <input aria-label="New agenda item" dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a topic…" className={`${fieldClass(!!addError)} col-span-full`} />
+          <input aria-label="New agenda item" autoFocus={opened} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a topic…" className={`${fieldClass(!!addError)} col-span-full`} />
           <SearchableSelect ariaLabel="Presenter for the new item" placeholder="Presenter" options={peopleOptions(directory, 'No presenter')} value={ownerId} onChange={setOwnerId} />
           <input aria-label="Minutes for the new item" type="number" inputMode="numeric" min={0} max={600} value={minutes} onChange={(e) => setMinutes(e.target.value)} placeholder="min" className={fieldClass(false)} />
           <Button type="submit" size="sm" loading={addMut.isPending}>Add</Button>

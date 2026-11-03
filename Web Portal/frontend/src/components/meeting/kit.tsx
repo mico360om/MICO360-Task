@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { DirectoryUser } from '../../api/users';
+import { TOUCH_TALL } from '../../lib/touch';
 
-/** A titled card section of the meeting page. */
+/** A titled card section of the meeting page. `compact`: one line, the title and its aside side by side. */
 export function Section({
   title,
   count,
   aside,
   children,
   id,
+  compact = false,
 }: {
   title: string;
   count?: ReactNode;
@@ -15,11 +17,12 @@ export function Section({
   aside?: ReactNode;
   children: ReactNode;
   id?: string;
+  compact?: boolean;
 }) {
   const headingId = id ? `${id}-title` : undefined;
   return (
-    <section aria-labelledby={headingId} className="card p-4 sm:p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <section aria-labelledby={headingId} className={`card ${compact ? 'px-4 py-2.5 sm:px-5' : 'p-4 sm:p-5'}`}>
+      <div className={`flex flex-wrap items-center gap-2 ${compact ? 'gap-x-3' : 'mb-3 justify-between'}`}>
         <h2 id={headingId} className="flex items-baseline gap-2 font-display text-base font-semibold text-ink">
           {title}
           {count !== undefined ? <span className="text-xs font-medium text-ink-3">{count}</span> : null}
@@ -28,6 +31,35 @@ export function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * An empty section of a finished meeting, shrunk to one line (owner, 1.22): its title, then "No
+ * agenda · Add a topic" — the add opens the section as before (none for someone who can't add).
+ */
+export function ShrunkSection({ id, title, empty, addLabel, onAdd }: { id: string; title: string; empty: string; addLabel: string; onAdd?: () => void }) {
+  return (
+    <Section
+      id={id}
+      title={title}
+      compact
+      aside={
+        <p className="text-sm text-ink-3">
+          <span>{empty}</span>
+          {onAdd ? (
+            <>
+              {' · '}
+              <button type="button" onClick={onAdd} className={`rounded font-medium text-brand hover:underline ${TOUCH_TALL}`}>
+                {addLabel}
+              </button>
+            </>
+          ) : null}
+        </p>
+      }
+    >
+      {null}
+    </Section>
   );
 }
 

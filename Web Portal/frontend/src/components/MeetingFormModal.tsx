@@ -29,6 +29,9 @@ import { usersApi } from '../api/users';
 import { useAuthStore } from '../stores/auth-store';
 import { useMyCompanies } from '../hooks/useMyCompanies';
 import { COMPANY_GONE_CODE } from '../lib/companies';
+import { DateTimeField } from './ui/DateTimeField';
+import { useDateSettings } from '../lib/useDatePrefs';
+import { useMediaQuery } from '../lib/useMediaQuery';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
@@ -64,6 +67,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const timeZone = useCompanyTimeZone();
+  // The calendar's week starts on the person's (or company's) week start; today in company time.
+  const { weekStart } = useDateSettings();
+  const today = todayKey(timeZone);
+  const twoColumns = useMediaQuery('(min-width: 1024px)');
   const editing = !!meeting;
   const seriesId = meeting ? seriesIdOf(meeting) : null;
   // The meeting as the form opened it: a series change sends only what was changed from this, even
@@ -312,18 +319,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     saveMut.mutate('one');
   }
 
-  return (
-    <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
-        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
-          {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
-          <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
-            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
-              <h2 className="mb-1 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
-              {error ? (
-                <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
-              ) : null}
+  const describeField = (
               <DescribeMeeting
                 onParse={(text) => {
                   setSentence(text);
@@ -341,37 +337,54 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 people={people}
                 repeatText={repeatText}
               />
+  );
+  const titleField = (
               <div className="flex flex-col gap-1.5">
                 <FieldLabel htmlFor="mf-title" required>Title</FieldLabel>
                 <input id="mf-title" ref={titleRef} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly project sync" className={fieldClass(false)} />
               </div>
-              {/* Side by side from sm up; on a phone each date-time box takes the row, so its time shows in full. */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="mf-start" required>Starts</FieldLabel>
-                  <input
-                    id="mf-start"
-                    type="datetime-local"
+  );
+  // The day and time as the site writes them ("Wed 4 Nov 2026" · "13:00", 24-hour), not the browser's box.
+  const whenFields = (
+              /* Side by side from sm up; on a phone each date-time takes the row, so its time shows in full.
+                 In the two-column dialog the details column is narrower: one each per row there too. */
+              <div className={twoColumns ? 'grid gap-3' : 'grid gap-3 sm:grid-cols-2'}>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <FieldLabel id="mf-start-label" required>Starts</FieldLabel>
+                  <DateTimeField
+                    label="Starts"
+                    labelId="mf-start-label"
                     value={start}
-                    aria-describedby="mf-tz"
-                    onChange={(e) => { timesTouched.current = true; setStart(e.target.value); }}
-                    className={fieldClass(false)}
+                    describedBy="mf-tz"
+                    today={today}
+                    weekStart={weekStart}
+                    onChange={(v) => { timesTouched.current = true; setStart(v); }}
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="mf-end">Ends</FieldLabel>
-                  <input
-                    id="mf-end"
-                    type="datetime-local"
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <FieldLabel id="mf-end-label">Ends</FieldLabel>
+                  <DateTimeField
+                    label="Ends"
+                    labelId="mf-end-label"
                     value={end}
-                    aria-describedby="mf-tz"
-                    onChange={(e) => { timesTouched.current = true; setEnd(e.target.value); }}
-                    className={fieldClass(false)}
+                    describedBy="mf-tz"
+                    today={today}
+                    weekStart={weekStart}
+                    clearable
+                    // An end set from nothing starts an hour after the start.
+                    fill={startIso ? toLocalInputValue(new Date(Date.parse(startIso) + 60 * 60_000).toISOString(), timeZone) : undefined}
+                    onChange={(v) => { timesTouched.current = true; setEnd(v); }}
                   />
                 </div>
-                <p id="mf-tz" className="-mt-1 text-xs text-ink-2 sm:col-span-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
+                {/* (Spanning two columns would make a second column in the stacked layout.) */}
+                <p id="mf-tz" className={`-mt-1 text-xs text-ink-2 ${twoColumns ? '' : 'sm:col-span-2'}`}>Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
               </div>
+  );
+  const freeTimesField = (
               <FreeTimes userIds={freeTimeUsers} startAt={startIso} minutes={lengthMinutes} rule={seriesId ? null : rule} excludeMeetingId={meeting?.id} projectId={target.projectId} companyId={target.companyId} onPick={pickTime} />
+  );
+  const repeatFields = (
+    <>
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Repeat</FieldLabel>
                 <SearchableSelect
@@ -403,6 +416,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                   </p>
                 </fieldset>
               ) : null}
+    </>
+  );
+  const projectFields = (
+    <>
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Project</FieldLabel>
                 <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
@@ -410,24 +427,22 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               </div>
               {showCompany ? (
                 <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="mf-company">Company</FieldLabel>
-                  <select
-                    id="mf-company"
+                  <FieldLabel>Company</FieldLabel>
+                  {/* The same select as Project, Repeat and Status. */}
+                  <SearchableSelect
+                    ariaLabel="Company"
+                    placeholder="Choose a company"
+                    options={companyOptions.map((c) => ({ value: c.id, label: c.name }))}
                     value={companyId ?? ''}
-                    onChange={(e) => setCompanyChoice(e.target.value || null)}
-                    aria-describedby="mf-company-help"
-                    className={`${fieldClass(false)} [@media(pointer:coarse)]:min-h-11`}
-                  >
-                    {companyId === null ? <option value="">Choose a company</option> : null}
-                    {companyOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setCompanyChoice(v || null)}
+                    describedBy="mf-company-help"
+                  />
                   <p id="mf-company-help" className="text-xs text-ink-2">A meeting without a project belongs to one of your companies.</p>
                 </div>
               ) : null}
+    </>
+  );
+  const placeFields = (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="mf-loc">Location</FieldLabel>
@@ -452,10 +467,14 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 </div>
                 {linkError ? <p id="mf-link-error" role="alert" className="-mt-1 text-xs font-medium text-danger sm:col-span-2">{linkError}</p> : null}
               </div>
+  );
+  const statusField = (
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Status</FieldLabel>
                 <SearchableSelect ariaLabel="Status" options={statusOptions} value={status} onChange={(v) => setStatus(v as MeetingStatus)} />
               </div>
+  );
+  const descriptionField = (
               <div className="flex flex-col gap-1.5">
                 <FieldLabel htmlFor="mf-desc">Description</FieldLabel>
                 <textarea id="mf-desc" dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional agenda summary" className={fieldClass(false)} />
@@ -472,7 +491,9 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                   }
                 />
               </div>
-              {!editing ? (
+  );
+  // A new meeting's people and agenda (an existing meeting's are on its page).
+  const peopleFields = !editing ? (
                 <>
                   <PeopleField value={people} onChange={changePeople} organizerId={organizerId} target={target} />
                   <AgendaField
@@ -494,7 +515,54 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                     }
                   />
                 </>
+  ) : null;
+
+  return (
+    <ModalPortal>
+      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
+        {/* Wider on a tablet (720px) and a desktop (960px, two columns): the form fits without long scrolling. */}
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden md:max-w-[45rem] lg:max-w-[60rem]">
+          {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
+          <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
+            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
+              <h2 className="mb-1 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
+              {error ? (
+                <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
               ) : null}
+              {twoColumns ? (
+                // From 1024px: the meeting's details on the left; the helpers (Describe, Free times) and its
+                // people and agenda on the right. Each column in reading order (the DOM's, not CSS order).
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] items-start gap-6">
+                  <div data-form-column="details" className="flex min-w-0 flex-col gap-3">
+                    {titleField}
+                    {whenFields}
+                    {repeatFields}
+                    {projectFields}
+                    {placeFields}
+                    {statusField}
+                    {descriptionField}
+                  </div>
+                  <div data-form-column="helpers" className="flex min-w-0 flex-col gap-3">
+                    {describeField}
+                    {freeTimesField}
+                    {peopleFields}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {describeField}
+                  {titleField}
+                  {whenFields}
+                  {freeTimesField}
+                  {repeatFields}
+                  {projectFields}
+                  {placeFields}
+                  {statusField}
+                  {descriptionField}
+                  {peopleFields}
+                </>
+              )}
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line px-4 py-3 sm:px-6">
               <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">

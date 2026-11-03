@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MeetingFormModal } from './MeetingFormModal';
+import { setWhen, whenOf } from '../test/date-time';
 import type { Meeting } from '../api/meetings';
 import { useAuthStore } from '../stores/auth-store';
 
@@ -85,7 +86,7 @@ describe('MeetingFormModal: repeating meetings', () => {
   it('schedules a repeating meeting with an end date', async () => {
     renderModal();
     await userEvent.type(screen.getByLabelText(/title/i), 'Weekly sync');
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-01T10:00' } });
+    await setWhen('Starts', '2026-10-01T10:00');
     await pick('Repeat', 'Weekly');
     const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
     expect(within(schedule).getByText(/^Repeats every week on Thu$/)).toBeInTheDocument();
@@ -102,7 +103,7 @@ describe('MeetingFormModal: repeating meetings', () => {
   it('repeats on chosen days, every few weeks, without an end', async () => {
     renderModal();
     await userEvent.type(screen.getByLabelText(/title/i), 'Stand-up');
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-05T09:00' } }); // a Monday
+    await setWhen('Starts', '2026-10-05T09:00'); // a Monday
     await pick('Repeat', 'Weekly');
     const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
     fireEvent.change(within(schedule).getByLabelText('Repeat every'), { target: { value: '2' } });
@@ -116,7 +117,7 @@ describe('MeetingFormModal: repeating meetings', () => {
   it('blocks an end date before the first meeting', async () => {
     renderModal();
     await userEvent.type(screen.getByLabelText(/title/i), 'Daily check-in');
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-05T09:00' } });
+    await setWhen('Starts', '2026-10-05T09:00');
     await pick('Repeat', 'Daily');
     await userEvent.selectOptions(screen.getByLabelText('Repeat ends'), 'UNTIL');
     fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-10-01' } });
@@ -158,8 +159,8 @@ describe('MeetingFormModal: repeating meetings', () => {
 
   it('sends the series a new time with its zone, and a new repeat', async () => {
     renderModal(seriesMeeting);
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-01T11:00' } });
-    fireEvent.change(screen.getByLabelText(/^ends/i), { target: { value: '2026-10-01T12:00' } });
+    await setWhen('Starts', '2026-10-01T11:00');
+    await setWhen('Ends', '2026-10-01T12:00');
     await userEvent.click(within(screen.getByRole('group', { name: 'Repeat schedule' })).getByRole('button', { name: 'Mon' }));
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
@@ -185,7 +186,7 @@ describe('MeetingFormModal: repeating meetings', () => {
 
   it('says when the first meeting will move onto the repeat’s first day', async () => {
     renderModal();
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-20T10:00' } }); // a Tuesday
+    await setWhen('Starts', '2026-10-20T10:00'); // a Tuesday
     await pick('Repeat', 'Weekly');
     const schedule = screen.getByRole('group', { name: 'Repeat schedule' });
     await userEvent.click(within(schedule).getByRole('button', { name: 'Wed' }));
@@ -196,8 +197,8 @@ describe('MeetingFormModal: repeating meetings', () => {
   it('saves a meeting dated after its series’ end on its own', async () => {
     const lastOne: Meeting = { ...seriesMeeting, id: 'm1', series: { id: 'm1', rule: { freq: 'WEEKLY', interval: 1, until: '2026-10-01' }, timeZone: 'Asia/Muscat' }, recurrenceRule: { freq: 'WEEKLY', interval: 1, until: '2026-10-01' } };
     renderModal(lastOne);
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-02T10:00' } });
-    fireEvent.change(screen.getByLabelText(/^ends/i), { target: { value: '2026-10-02T11:00' } });
+    await setWhen('Starts', '2026-10-02T10:00');
+    await setWhen('Ends', '2026-10-02T11:00');
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
     await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
@@ -248,8 +249,8 @@ describe('MeetingFormModal', () => {
     renderModal();
     await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
     await userEvent.type(screen.getByLabelText(/title/i), 'Kick-off');
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-01T10:00' } });
-    fireEvent.change(screen.getByLabelText(/ends/i), { target: { value: '2026-10-01T11:00' } });
+    await setWhen('Starts', '2026-10-01T10:00');
+    await setWhen('Ends', '2026-10-01T11:00');
     await userEvent.click(screen.getByRole('button', { name: /schedule meeting/i }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/meetings') && c.method === 'POST')).toBe(true));
     const body = calls.find((c) => c.url.endsWith('/meetings') && c.method === 'POST')!.body!;
@@ -260,8 +261,8 @@ describe('MeetingFormModal', () => {
 
   it('shows an existing meeting’s times in company time', async () => {
     renderModal(baseMeeting);
-    expect(screen.getByLabelText(/starts/i)).toHaveValue('2026-10-01T10:00');
-    expect(screen.getByLabelText(/ends/i)).toHaveValue('2026-10-01T11:00');
+    expect(whenOf('Starts')).toBe('2026-10-01T10:00');
+    expect(whenOf('Ends')).toBe('2026-10-01T11:00');
   });
 
   it('adds https:// to a bare meeting link before saving (MTG-08)', async () => {
@@ -295,8 +296,8 @@ describe('MeetingFormModal: people and agenda in a new meeting', () => {
   async function fillBasics() {
     await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
     await userEvent.type(screen.getByLabelText(/title/i), 'Pump station review');
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-26T10:00' } });
-    fireEvent.change(screen.getByLabelText(/ends/i), { target: { value: '2026-10-26T11:30' } });
+    await setWhen('Starts', '2026-10-26T10:00');
+    await setWhen('Ends', '2026-10-26T11:30');
   }
   const posted = () => calls.find((c) => c.url.endsWith('/meetings') && c.method === 'POST')?.body;
 
@@ -345,8 +346,8 @@ describe('MeetingFormModal: people and agenda in a new meeting', () => {
     await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/meetings/free-times')).at(-1)?.body?.userIds).toEqual(['u1', 'u2']));
     await userEvent.click(screen.getByRole('button', { name: 'Suggest 3 times' }));
     await userEvent.click(within(await screen.findByRole('group', { name: 'Suggested times' })).getByRole('button'));
-    expect(screen.getByLabelText(/starts/i)).toHaveValue('2026-10-26T08:00');
-    expect(screen.getByLabelText(/ends/i)).toHaveValue('2026-10-26T09:30');
+    expect(whenOf('Starts')).toBe('2026-10-26T08:00');
+    expect(whenOf('Ends')).toBe('2026-10-26T09:30');
   });
 
   it('editing checks the meeting’s own people, leaving the meeting itself out', async () => {
@@ -379,8 +380,8 @@ describe('MeetingFormModal: AI help', () => {
     await waitFor(() => expect(within(found).getByRole('checkbox', { name: /project: pump/i })).toBeInTheDocument());
     await userEvent.click(within(found).getByRole('button', { name: 'Use selected details' }));
     expect(screen.getByLabelText(/title/i)).toHaveValue('Weekly site review');
-    expect(screen.getByLabelText(/starts/i)).toHaveValue('2026-10-26T10:00');
-    expect(screen.getByLabelText(/ends/i)).toHaveValue('2026-10-26T11:30');
+    expect(whenOf('Starts')).toBe('2026-10-26T10:00');
+    expect(whenOf('Ends')).toBe('2026-10-26T11:30');
     expect(screen.getByLabelText(/location/i)).toHaveValue('Rig 1 site office');
     expect(screen.getByRole('list', { name: 'People invited' })).toHaveTextContent('Sara Al Balushi');
     expect(screen.getByLabelText('Agenda item 1')).toHaveValue('Pump test results');
@@ -419,7 +420,7 @@ describe('MeetingFormModal: AI help', () => {
     renderModal();
     await waitFor(() => expect(screen.getByText(/company time \(Asia\/Muscat\)/i)).toBeInTheDocument());
     await userEvent.type(screen.getByLabelText(/title/i), 'Pump station review');
-    fireEvent.change(screen.getByLabelText(/starts/i), { target: { value: '2026-10-26T10:00' } });
+    await setWhen('Starts', '2026-10-26T10:00');
     await userEvent.click(await screen.findByRole('button', { name: 'Add a team member' }));
     await userEvent.click(await screen.findByRole('option', { name: /Sara Al Balushi/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Draft agenda' }));
@@ -456,13 +457,79 @@ describe('MeetingFormModal: AI help', () => {
 describe('MeetingFormModal on a phone', () => {
   it('gives the start and end times a full row each, side by side only from sm up, so the time is never cut off', () => {
     renderModal();
-    const row = screen.getByLabelText(/^starts/i).closest('.grid')!;
-    expect(row).toContainElement(screen.getByLabelText(/^ends/i));
+    const row = screen.getByRole('group', { name: 'Starts' }).closest('.grid')!;
+    expect(row).toContainElement(screen.getByRole('group', { name: 'Ends' }));
     expect(row.className).not.toMatch(/(^|\s)grid-cols-2(\s|$)/);
     expect(row.className).toMatch(/sm:grid-cols-2/);
     const place = screen.getByLabelText('Location').closest('.grid')!;
     expect(place).toContainElement(screen.getByLabelText('Online link'));
     expect(place.className).not.toMatch(/(^|\s)grid-cols-2(\s|$)/);
     expect(place.className).toMatch(/sm:grid-cols-2/);
+  });
+});
+
+describe('MeetingFormModal: the wider dialog and the site’s date and time (1.22)', () => {
+  /** The window is at least this wide (matchMedia answers min-width queries). */
+  function windowWidth(px: number) {
+    vi.stubGlobal('matchMedia', (query: string) => {
+      const min = /min-width:\s*(\d+)px/.exec(query);
+      return { matches: min ? px >= Number(min[1]) : false, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false };
+    });
+  }
+
+  it('is up to 960px wide on a desktop (720px on a tablet), two columns from 1024px: the details, then Describe, Free times, People and Agenda', () => {
+    windowWidth(1280);
+    renderModal();
+    const dialog = screen.getByRole('dialog', { name: 'New meeting' });
+    expect(dialog.className).toMatch(/lg:max-w-\[60rem\]/);
+    expect(dialog.className).toMatch(/md:max-w-\[45rem\]/);
+    const details = dialog.querySelector<HTMLElement>('[data-form-column="details"]')!;
+    const helpers = dialog.querySelector<HTMLElement>('[data-form-column="helpers"]')!;
+    expect(details.parentElement!.className).toMatch(/grid-cols-/);
+    expect(details).toContainElement(screen.getByLabelText(/title/i));
+    expect(details).toContainElement(screen.getByRole('group', { name: 'Starts' }));
+    expect(details).toContainElement(screen.getByRole('button', { name: 'Repeat' }));
+    expect(details).toContainElement(screen.getByRole('button', { name: 'Project' }));
+    expect(details).toContainElement(screen.getByLabelText('Location'));
+    expect(details).toContainElement(screen.getByRole('button', { name: 'Status' }));
+    expect(details).toContainElement(screen.getByLabelText(/description/i, { selector: 'textarea' }));
+    expect(helpers).toContainElement(screen.getByLabelText('Describe the meeting'));
+    expect(helpers).toContainElement(screen.getByRole('group', { name: 'People' }));
+    // The details column is narrower: Starts and Ends take a row each, so the day reads in full.
+    expect(screen.getByRole('group', { name: 'Starts' }).closest('.grid')!.className).not.toMatch(/sm:grid-cols-2/);
+    // The footer stays put under both columns.
+    expect(dialog).toContainElement(screen.getByRole('button', { name: /schedule meeting/i }));
+    vi.unstubAllGlobals();
+  });
+
+  it('below 1024px it is one column in today’s order (Describe first, Free times under the times)', () => {
+    windowWidth(800);
+    renderModal();
+    const dialog = screen.getByRole('dialog', { name: 'New meeting' });
+    expect(dialog.querySelector('[data-form-column]')).toBeNull();
+    const describe = screen.getByLabelText('Describe the meeting');
+    const title = screen.getByLabelText(/title/i);
+    expect(describe.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('Starts and Ends read as the site writes them — "Thu 1 Oct 2026" · "10:00", 24-hour — not the browser’s box', async () => {
+    renderModal(baseMeeting);
+    const starts = screen.getByRole('group', { name: 'Starts' });
+    expect(within(starts).getByRole('button', { name: /^Starts: day/ })).toHaveTextContent('Thu 1 Oct 2026');
+    expect(within(starts).getByRole('button', { name: /^Starts: time/ })).toHaveTextContent('10:00');
+    expect(within(screen.getByRole('group', { name: 'Ends' })).getByRole('button', { name: /^Ends: time/ })).toHaveTextContent('11:00');
+    expect(document.querySelector('input[type="datetime-local"]')).toBeNull();
+    await setWhen('Starts', '2026-10-01T09:00');
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ startAt: '2026-10-01T05:00:00.000Z', endAt: '2026-10-01T07:00:00.000Z' });
+  });
+
+  it('the end can be cleared', async () => {
+    renderModal(baseMeeting);
+    await userEvent.click(screen.getByRole('button', { name: 'Clear Ends' }));
+    expect(whenOf('Ends')).toBe('');
+    expect(screen.getByRole('button', { name: 'Ends: day, not set' })).toBeInTheDocument();
   });
 });

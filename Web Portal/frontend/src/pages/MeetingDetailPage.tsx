@@ -222,7 +222,7 @@ export function MeetingDetailPage() {
     />
   );
   const notes = <NotesSection key="notes" meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
-  const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />;
+  const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
   // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).
   const sentLog = canEdit ? (
     <MinutesSentLog
@@ -236,7 +236,22 @@ export function MeetingDetailPage() {
       }}
     />
   ) : null;
-  const finalMom = <FinalMinutesSection key="final" meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} footer={sentLog} />;
+  const finalMom = (
+    <FinalMinutesSection
+      key="final"
+      meetingId={id}
+      meetingTitle={meeting.title}
+      canEdit={canEdit}
+      timeZone={timeZone}
+      footer={sentLog}
+      // A finished meeting: Notes → Final MOM → Approved → Emailed, with the one next button.
+      finished={finished}
+      onEmail={() => {
+        setMinutesPrefill(null);
+        setDialog('minutes');
+      }}
+    />
+  );
 
   return (
     <div>

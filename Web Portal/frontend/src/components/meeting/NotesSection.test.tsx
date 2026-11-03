@@ -112,17 +112,19 @@ describe('NotesSection — formatted notes', () => {
 });
 
 describe('NotesSection — a meeting that is over', () => {
-  it('with no notes, says none were taken and what writing them now is for (not "as the meeting unfolds")', async () => {
+  // 1.22 (owner): an empty section on a finished meeting shrinks to one line.
+  it('with no notes, it shrinks to one line — "No notes · Add a note" — with no composer until asked', async () => {
     notes = [];
     renderSection(true);
-    expect(await screen.findByText(/no notes were taken/i)).toBeInTheDocument();
-    expect(screen.getByText(/no notes were taken/i)).toHaveTextContent(/final mom/i);
+    const card = (await screen.findByText('No notes')).closest('section')!;
+    expect(within(card).queryByRole('button', { name: /add note/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/as the meeting unfolds/i)).not.toBeInTheDocument();
   });
 
-  it('points up to the Final MOM, which a finished meeting shows above its notes', async () => {
+  it('Add a note opens it, saying none were taken and what writing them now is for (the Final MOM above)', async () => {
     notes = [];
     renderSection(true);
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a note' }));
     expect(await screen.findByText(/no notes were taken/i)).toHaveTextContent(
       'No notes were taken. Add what was discussed, decided and agreed: the Final MOM above can be drafted from them.',
     );

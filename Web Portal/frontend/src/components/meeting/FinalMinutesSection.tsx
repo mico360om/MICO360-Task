@@ -8,6 +8,8 @@ import { fieldClass } from '../ui/Field';
 import { LoadError, Section } from './kit';
 import { exportMinutes, meetingFailure } from './meeting-actions';
 import { MinutesClientSwitch, minutesClientKey } from './MinutesClientSwitch';
+import { minutesSendsKey } from './MinutesSentLog';
+import { TOUCH_TALL } from '../../lib/touch';
 
 /** The editor's copy: list sections are kept as typed text (one item per line) until saved. */
 interface Editing {
@@ -42,12 +44,34 @@ const isEmpty = (c: FinalMinutesContent) => !c.summary && !c.discussion.length &
  * so the minutes email), marked final with who approved them, and are what attendees see.
  * `footer`: what follows them in the card (the minutes' "Sent" log, for the people who may send).
  */
-export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone, footer }: { meetingId: string; meetingTitle: string; canEdit: boolean; timeZone: string; footer?: ReactNode }) {
+export function FinalMinutesSection({
+  meetingId,
+  meetingTitle,
+  canEdit,
+  timeZone,
+  footer,
+  finished = false,
+  onEmail,
+}: {
+  meetingId: string;
+  meetingTitle: string;
+  canEdit: boolean;
+  timeZone: string;
+  footer?: ReactNode;
+  /** The meeting has ended: its next steps lead the card (for the people who may send). */
+  finished?: boolean;
+  /** Email minutes… (the next step once the minutes are final). */
+  onEmail?: () => void;
+}) {
   const qc = useQueryClient();
   const api = meetingsApi(apiClient);
   const key = ['meeting', meetingId, 'final-minutes'];
   const q = useQuery({ queryKey: key, queryFn: () => api.getFinalMinutes(meetingId), enabled: !!meetingId });
   const fm = q.data;
+  // The next steps of a finished meeting read its notes and its "Sent" log (the same cached lists).
+  const withSteps = finished && canEdit;
+  const notesQ = useQuery({ queryKey: ['meeting', meetingId, 'notes'], queryFn: () => api.listNotes(meetingId), enabled: withSteps });
+  const sendsQ = useQuery({ queryKey: [...minutesSendsKey(meetingId)], queryFn: () => api.listMinutesSends(meetingId), enabled: withSteps });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [changed, setChanged] = useState(false);
   const [problem, setProblem] = useState<{ text: string; aiFailed?: boolean } | null>(null);
@@ -110,12 +134,33 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
     draftMut.mutate(source);
   };
 
+  /** Mark what is in the editor final (it must say something). */
+  const approve = () => {
+    const content = editing ? toContent(editing) : null;
+    if (!content || isEmpty(content)) return setProblem({ text: 'Write the minutes before marking them final.' });
+    approveMut.mutate(content);
+  };
+
   const status = fm?.status ?? 'NONE';
   // A draft says so beside the title; final minutes carry their own Final badge.
   const count = status !== 'FINAL' && (status === 'DRAFT' || editing) ? 'Draft' : undefined;
 
   return (
     <Section id="final-minutes" title="Final MOM" count={count}>
+      {withSteps && fm ? (
+        <NextSteps
+          notes={Array.isArray(notesQ.data) && notesQ.data.length > 0}
+          drafted={status !== 'NONE' || !!editing}
+          approved={status === 'FINAL'}
+          emailed={Array.isArray(sendsQ.data) && sendsQ.data.some((s) => s.final)}
+          busy={busy}
+          drafting={draftMut.isPending}
+          approving={approveMut.isPending}
+          onDraft={() => startDraft('ai')}
+          onApprove={approve}
+          onEmail={onEmail}
+        />
+      ) : null}
       {q.isLoading ? <p className="text-sm text-ink-3">Loading…</p> : null}
       {q.isError ? <LoadError what="the final minutes" onRetry={() => void q.refetch()} /> : null}
 
@@ -148,11 +193,7 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
           savedAt={fm?.savedAt ?? null}
           changed={changed}
           onSave={() => saveMut.mutate(toContent(editing))}
-          onApprove={() => {
-            const content = toContent(editing);
-            if (isEmpty(content)) return setProblem({ text: 'Write the minutes before marking them final.' });
-            approveMut.mutate(content);
-          }}
+          onApprove={approve}
           onRedraft={startDraft}
           drafting={draftMut.isPending ? draftMut.variables ?? null : null}
         />
@@ -176,6 +217,66 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
       ) : null}
       {footer}
     </Section>
+  );
+}
+
+const STEPS = ['Notes', 'Final MOM', 'Approved', 'Emailed'] as const;
+
+/**
+ * Where a finished meeting's minutes are (owner, 1.22): Notes → Final MOM → Approved → Emailed (the
+ * final minutes, from the "Sent" log), the current step marked, and the one next button.
+ */
+function NextSteps({
+  notes,
+  drafted,
+  approved,
+  emailed,
+  busy,
+  drafting,
+  approving,
+  onDraft,
+  onApprove,
+  onEmail,
+}: {
+  notes: boolean;
+  drafted: boolean;
+  approved: boolean;
+  emailed: boolean;
+  busy: boolean;
+  drafting: boolean;
+  approving: boolean;
+  onDraft: () => void;
+  onApprove: () => void;
+  onEmail?: () => void;
+}) {
+  const done = [notes || drafted, drafted, approved, approved && emailed];
+  const current = done.indexOf(false);
+  const next =
+    current === -1 ? null : current <= 1 ? (
+      <Button type="button" size="sm" loading={drafting} disabled={busy} onClick={onDraft} className={TOUCH_TALL}>Draft with AI</Button>
+    ) : current === 2 ? (
+      <Button type="button" size="sm" loading={approving} disabled={busy} onClick={onApprove} className={TOUCH_TALL}>Approve</Button>
+    ) : onEmail ? (
+      <Button type="button" size="sm" onClick={onEmail} className={TOUCH_TALL}>Email minutes…</Button>
+    ) : null;
+  return (
+    <nav aria-label="Next steps" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-ground/50 px-3 py-2">
+      <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
+        {STEPS.map((label, i) => (
+          <li
+            key={label}
+            aria-current={i === current ? 'step' : undefined}
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-1 ${done[i] ? 'text-success' : i === current ? 'bg-brand/10 font-semibold text-brand' : 'text-ink-3'}`}
+          >
+            <span aria-hidden="true" className="tabular-nums">{done[i] ? '✓' : i + 1}</span>
+            {label}
+            {done[i] ? <span className="sr-only"> (done)</span> : null}
+            {i < STEPS.length - 1 ? <span aria-hidden="true" className="ms-1 text-ink-3">→</span> : null}
+          </li>
+        ))}
+      </ol>
+      {current === -1 ? <p className="text-xs font-medium text-success">All done — the final minutes were emailed.</p> : next}
+    </nav>
   );
 }
 

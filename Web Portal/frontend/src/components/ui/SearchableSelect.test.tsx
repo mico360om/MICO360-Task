@@ -142,4 +142,16 @@ describe('SearchableSelect — pictures and errors', () => {
     expect(trigger).toHaveAttribute('aria-invalid', 'true');
     expect(trigger).toHaveAttribute('aria-describedby', 'project-error');
   });
+
+  it('a chip: a small pill as wide as its words (44px on a touch screen), its list wide enough to read', async () => {
+    render(<SearchableSelect size="chip" chipClassName="bg-info-soft text-info" options={opts} value="p2" onChange={() => {}} ariaLabel="Project" />);
+    const trigger = screen.getByRole('button', { name: /project/i });
+    expect(trigger.className).toMatch(/rounded-full/);
+    expect(trigger.className).toMatch(/bg-info-soft/);
+    expect(trigger.className).not.toMatch(/(^|\s)w-full(\s|$)/);
+    expect(trigger.className).toContain('[@media(pointer:coarse)]:!min-h-11');
+    await userEvent.click(trigger);
+    const panel = document.querySelector<HTMLElement>('[data-searchable-select-panel]')!;
+    expect(panel.style.width).toBe('224px');
+  });
 });
