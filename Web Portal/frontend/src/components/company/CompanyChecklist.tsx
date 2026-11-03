@@ -57,7 +57,7 @@ export function CompanyChecklist({ companies, value, onChange, primaryId, onPrim
             value={primaryId ?? ''}
             onChange={(e) => onPrimaryChange(e.target.value || null)}
             aria-describedby={`${idPrefix}-primary-hint`}
-            className={fieldClass(false, '[@media(pointer:coarse)]:min-h-11')}
+            className={fieldClass(false, '[@media(pointer:coarse)]:!min-h-11')}
           >
             {ticked.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>

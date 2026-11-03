@@ -155,7 +155,9 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
     });
   }
 
-  const toggleDay = (day: number) => setHours({ ...draftHours, days: draftHours.days.includes(day) ? draftHours.days.filter((d) => d !== day) : [...draftHours.days, day].sort((a, b) => a - b) });
+  // Each change builds on the last one (two quick presses before a redraw both count).
+  const changeHours = (change: (h: CompanyWorkingHours) => CompanyWorkingHours) => setHours((h) => change(h ?? siteHours));
+  const toggleDay = (day: number) => changeHours((h) => ({ ...h, days: h.days.includes(day) ? h.days.filter((d) => d !== day) : [...h.days, day].sort((a, b) => a - b) }));
 
   // Arrow keys, Home and End move along the tabs (the open one is the only Tab stop).
   function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
@@ -288,7 +290,7 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
 
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor={id('week')}>Week starts on</FieldLabel>
-                  <select id={id('week')} value={weekStart} onChange={(e) => setWeekStart(e.target.value)} className={fieldClass(false, 'sm:max-w-xs [@media(pointer:coarse)]:min-h-11')}>
+                  <select id={id('week')} value={weekStart} onChange={(e) => setWeekStart(e.target.value)} className={fieldClass(false, 'sm:max-w-xs [@media(pointer:coarse)]:!min-h-11')}>
                     <option value="">Same as the site ({weekStartName(typeof siteWeekStart === 'number' ? siteWeekStart : 0)})</option>
                     {WEEK_START_OPTIONS.map((o) => (
                       <option key={o.value} value={String(o.value)}>{o.label}</option>
@@ -312,7 +314,7 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
                             type="button"
                             aria-pressed={draftHours.days.includes(day)}
                             onClick={() => toggleDay(day)}
-                            className={`min-h-9 min-w-[3rem] rounded-lg border px-2.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:min-h-11 ${draftHours.days.includes(day) ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:border-brand/40'}`}
+                            className={`min-h-9 min-w-[3rem] rounded-lg border px-2.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:!min-h-11 ${draftHours.days.includes(day) ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:border-brand/40'}`}
                           >
                             {dayName}
                           </button>
@@ -321,11 +323,11 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
                       <div className="flex flex-wrap items-end gap-4">
                         <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
                           From
-                          <input type="time" step={60 * 30} value={draftHours.start} onChange={(e) => setHours({ ...draftHours, start: e.target.value })} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:min-h-11')} />
+                          <input type="time" step={60 * 30} value={draftHours.start} onChange={(e) => { const start = e.target.value; changeHours((h) => ({ ...h, start })); }} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:!min-h-11')} />
                         </label>
                         <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
                           To
-                          <input type="time" step={60 * 30} value={draftHours.end} onChange={(e) => setHours({ ...draftHours, end: e.target.value })} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:min-h-11')} />
+                          <input type="time" step={60 * 30} value={draftHours.end} onChange={(e) => { const end = e.target.value; changeHours((h) => ({ ...h, end })); }} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:!min-h-11')} />
                         </label>
                       </div>
                     </>

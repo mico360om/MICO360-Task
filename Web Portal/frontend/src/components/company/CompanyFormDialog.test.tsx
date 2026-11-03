@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { CompanyFormDialog, type CompanyTab } from './CompanyFormDialog';
@@ -192,6 +192,40 @@ describe('CompanyFormDialog: a company’s details', () => {
     expect(server.lastBody('PUT', '/companies/ca')).toMatchObject({ workingHours: null });
   });
 
+  it('two days changed before the form redraws both count', async () => {
+    const server = companyServer({ companies: [alphaApi] });
+    open(alphaApi);
+    await userEvent.click(within(dialog()).getByRole('switch', { name: 'Same as the site' }));
+    const days = within(dialog()).getByRole('group', { name: 'Working days' });
+    act(() => {
+      fireEvent.click(within(days).getByRole('button', { name: 'Sun' }));
+      fireEvent.click(within(days).getByRole('button', { name: 'Fri' }));
+    });
+    expect(within(days).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+    act(() => {
+      fireEvent.change(field('From'), { target: { value: '09:00' } });
+      fireEvent.change(field('To'), { target: { value: '16:00' } });
+    });
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/companies/ca')).toMatchObject({ workingHours: { days: [1, 2, 3, 4, 5], start: '09:00', end: '16:00' } });
+  });
+
+  it('on a touch screen its controls are finger-sized (44px, over the base 32px rule)', async () => {
+    companyServer({ companies: [alphaApi] });
+    open(alphaApi);
+    await userEvent.click(within(dialog()).getByRole('switch', { name: 'Same as the site' }));
+    const controls = [
+      field('Week starts on'),
+      field('From'),
+      field('To'),
+      ...within(within(dialog()).getByRole('group', { name: 'Working days' })).getAllByRole('button'),
+      within(dialog()).getByRole('button', { name: 'Upload logo' }),
+      within(dialog()).getByRole('button', { name: 'Remove logo' }),
+    ];
+    for (const c of controls) expect(c.className, c.textContent ?? c.id).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+  });
+
   it('days and times are checked before saving', async () => {
     const server = companyServer({ companies: [alphaApi] });
     open(alphaApi);
@@ -286,6 +320,7 @@ describe('the People panel', () => {
     await userEvent.type(within(dialog()).getByRole('searchbox', { name: 'Find people' }), 'cy');
     expect(within(picker).getAllByRole('checkbox')).toHaveLength(1);
     await userEvent.click(within(picker).getByRole('checkbox', { name: /Cy Gamma/ }));
+    expect(within(dialog()).getByRole('searchbox', { name: 'Find people' }).className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
     await userEvent.click(within(dialog()).getByRole('button', { name: 'Add 1 person' }));
     await waitFor(() => expect(server.lastBody('POST', '/companies/ca/people')).toEqual({ userIds: ['u-cy'] }));
     expect(await within(dialog()).findByRole('status')).toHaveTextContent('1 added.');

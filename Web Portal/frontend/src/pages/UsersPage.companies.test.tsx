@@ -75,6 +75,32 @@ describe('UsersPage with two companies', () => {
     expect(within(screen.getByText('nia').closest('tr')!).getByText('No company')).toBeInTheDocument();
   });
 
+  it('an archived company says so in the column', async () => {
+    const gone = apiCompany({ id: 'cg', name: 'Gamma Co', code: 'GAMMA', status: 'ARCHIVED', archivedAt: '2026-10-30T08:00:00.000Z' });
+    const gus = apiUser({ id: 'u4', username: 'gus', firstName: 'Gus', lastName: 'Gamma', companies: [ref(gone)], primaryCompanyId: 'cg' });
+    renderPage({ companies: [alpha, beta, gone], users: [gus] });
+    const list = await screen.findByRole('list', { name: 'Companies' });
+    await waitFor(() => expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Gamma Co (primary, archived)']));
+  });
+
+  it('the table is wider with the column: the names stay put while it scrolls, up to 1536px', async () => {
+    renderPage({ companies: [alpha, beta] });
+    await waitFor(() => expect(columnHeaders()).toContain('Companies'));
+    const name = screen.getByText('ana').closest('td')!;
+    expect(name.className).toMatch(/max-2xl:sticky/);
+    expect(name.className).not.toMatch(/max-xl:sticky/);
+    expect(screen.getByText(/swipe the table sideways/i).className).toMatch(/2xl:hidden/);
+  });
+
+  it('a company with no one in it says so', async () => {
+    renderPage({ companies: [alpha, beta], users: [people[0]!] });
+    const select = await screen.findByLabelText('Company');
+    await userEvent.selectOptions(select, 'cb');
+    expect(await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === 'No one is in Beta Co.')).toBeInTheDocument();
+    await userEvent.selectOptions(select, 'none');
+    expect(await screen.findByText('Everyone has a company.')).toBeInTheDocument();
+  });
+
   it('the company filter starts at the picked company', async () => {
     useCompanyStore.setState({ pick: 'ca' });
     const server = renderPage({ companies: [alpha, beta] });

@@ -45,6 +45,7 @@ describe('BulkCompanyDialog', () => {
     open('add');
     expect(screen.getByRole('dialog', { name: 'Add 3 people to a company' })).toBeInTheDocument();
     expect(await options()).toEqual(['Choose a company', 'Alpha Co', 'Beta Co']);
+    expect(screen.getByRole('combobox', { name: 'Company' }).className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Company' }), 'cb');
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(onDone).toHaveBeenCalledWith({ changed: 3, refused: [] }));

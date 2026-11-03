@@ -65,6 +65,8 @@ describe('CompaniesPage', () => {
     expect(screen.queryByText(/time zone/i)).toBeNull();
     // The name is the administrator's own text: kept in its own direction.
     expect(within(row('Alpha Co')).getByText('Alpha Co').tagName).toBe('BDI');
+    // On a touch screen every button in a row is finger-sized (44px, over the base 32px rule).
+    for (const b of within(row('Beta Co')).getAllByRole('button')) expect(b.className, b.textContent ?? '').toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
   });
 
   it('an archived company says since when, and can be unarchived', async () => {
@@ -115,6 +117,8 @@ describe('CompaniesPage', () => {
     expect(server.lastBody('POST', '/companies')).toEqual({ name: 'Gamma', code: 'GAM', weekStart: null, workingHours: null, senderName: null });
     expect((await rows()).map((r) => r[0])).toEqual(['Alpha Co', 'Beta Co', 'Gamma']);
     expect(screen.getByRole('status')).toHaveTextContent('Gamma created.');
+    // The name is the administrator's own text: kept in its own direction.
+    expect(within(screen.getByRole('status')).getByText('Gamma').tagName).toBe('BDI');
     expect(qc.getQueryState(MY_COMPANIES_KEY)?.isInvalidated).toBe(true);
   });
 

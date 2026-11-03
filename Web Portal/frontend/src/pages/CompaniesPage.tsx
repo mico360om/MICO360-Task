@@ -16,8 +16,8 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 
 /** Below 768px (the md width, in em as the layout's widths are): one card per company instead of the table. */
 const PHONE_QUERY = '(max-width: 47.9375em)';
-/** A finger-sized target on a touch screen. */
-const TOUCH = '[@media(pointer:coarse)]:min-h-11';
+/** A finger-sized target on a touch screen ('!': over the base rule's 32px for every button). */
+const TOUCH = '[@media(pointer:coarse)]:!min-h-11';
 const ACTION = `rounded-lg border border-line px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${TOUCH}`;
 
 /**
@@ -32,7 +32,8 @@ export function CompaniesPage() {
   const companies = (Array.isArray(q.data) ? [...q.data] : []).sort((a, b) => a.name.localeCompare(b.name, 'en'));
   const [open, setOpen] = useState<{ id: string | null; tab: CompanyTab } | null>(null);
   const [archiving, setArchiving] = useState<ApiCompany | null>(null);
-  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  // What just happened: the company's name (its administrator's own text, shown in its own direction), then the words.
+  const [notice, setNotice] = useState<{ name?: string; text: string; error?: boolean } | null>(null);
   const timeZone = useCompanyTimeZone();
   const phone = useMediaQuery(PHONE_QUERY);
   const openNew = () => setOpen({ id: null, tab: 'details' });
@@ -42,7 +43,7 @@ export function CompaniesPage() {
     mutationFn: (c: ApiCompany) => api.archive(c.id),
     onSuccess: (c) => {
       setArchiving(null);
-      setNotice({ text: `${c.name} archived.` });
+      setNotice({ name: c.name, text: 'archived.' });
       refreshCompanies(qc);
     },
   });
@@ -50,7 +51,7 @@ export function CompaniesPage() {
     mutationFn: (c: ApiCompany) => api.unarchive(c.id),
     onMutate: () => setNotice(null),
     onSuccess: (c) => {
-      setNotice({ text: `${c.name} unarchived.` });
+      setNotice({ name: c.name, text: 'unarchived.' });
       refreshCompanies(qc);
     },
     onError: (err, c) => setNotice({ text: problemText(err, `Couldn’t unarchive ${c.name}. Please try again.`), error: true }),
@@ -109,7 +110,7 @@ export function CompaniesPage() {
 
       {notice ? (
         <div role={notice.error ? 'alert' : 'status'} className={`mb-4 flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm ${notice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
-          <p>{notice.text}</p>
+          <p>{notice.name ? <><bdi>{notice.name}</bdi> </> : null}{notice.text}</p>
           <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-80 hover:opacity-100">✕</button>
         </div>
       ) : null}
@@ -204,7 +205,7 @@ export function CompaniesPage() {
           company={opened ?? null}
           initialTab={open.tab}
           onClose={() => setOpen(null)}
-          onSaved={(c, created) => setNotice({ text: `${c.name} ${created ? 'created' : 'saved'}.` })}
+          onSaved={(c, created) => setNotice({ name: c.name, text: created ? 'created.' : 'saved.' })}
         />
       ) : null}
     </div>

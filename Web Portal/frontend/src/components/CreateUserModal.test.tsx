@@ -240,6 +240,7 @@ describe('CreateUserModal: companies', () => {
     const primary = screen.getByRole('combobox', { name: 'Primary company' });
     expect(primary).toHaveValue('cb');
     expect(primary).toHaveAccessibleDescription('Used for their emails: logo and name');
+    expect(primary.className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
     await userEvent.click(screen.getByRole('checkbox', { name: 'Alpha Co' }));
     expect(primary).toHaveValue('cb');
     expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-label') ?? c.closest('label')?.textContent)).not.toContain('Gamma Co');

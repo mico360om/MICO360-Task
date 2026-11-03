@@ -59,7 +59,7 @@ export function BulkCompanyDialog({ mode, userIds, onClose, onDone }: BulkCompan
           {problem ? <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
           <div className="mt-4 flex flex-col gap-1.5">
             <FieldLabel htmlFor={fieldId}>Company</FieldLabel>
-            <select id={fieldId} value={companyId} onChange={(e) => setCompanyId(e.target.value)} className={fieldClass(false, '[@media(pointer:coarse)]:min-h-11')}>
+            <select id={fieldId} value={companyId} onChange={(e) => setCompanyId(e.target.value)} className={fieldClass(false, '[@media(pointer:coarse)]:!min-h-11')}>
               <option value="">Choose a company</option>
               {offered.map((c) => (
                 <option key={c.id} value={c.id}>{c.status === 'ARCHIVED' ? `${c.name} (archived)` : c.name}</option>

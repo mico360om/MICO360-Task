@@ -139,7 +139,7 @@ function AddPeople({ company, members, onCancel, onDone }: { company: ApiCompany
     <div className="flex flex-col gap-2 rounded-xl border border-line bg-ground/60 p-3">
       {problem ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
       <label htmlFor={searchId} className="sr-only">Find people</label>
-      <input id={searchId} type="search" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find people" className={fieldClass(false, '[@media(pointer:coarse)]:min-h-11')} />
+      <input id={searchId} type="search" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find people" className={fieldClass(false, '[@media(pointer:coarse)]:!min-h-11')} />
       {usersQ.isLoading ? (
         <p className="text-sm text-ink-2">Loading…</p>
       ) : usersQ.isError ? (
