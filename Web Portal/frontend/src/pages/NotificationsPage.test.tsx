@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { NotificationsPage } from './NotificationsPage';
@@ -116,6 +116,19 @@ describe('tabs and type chips', () => {
     await userEvent.click(screen.getByRole('button', { name: 'All types' }));
     await waitFor(() => expect(sent('GET', '/api/v1/notifications?').at(-1)!.url).not.toContain('kinds='));
     expect(screen.getByRole('button', { name: 'All types' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('two clicks before the page draws again both count (the tab and a chip)', async () => {
+    renderPage();
+    await screen.findByText('You were mentioned in a comment');
+    const unread = screen.getByRole('button', { name: /^Unread/ });
+    const meetings = screen.getByRole('button', { name: /^Meetings/ });
+    act(() => {
+      unread.click();
+      meetings.click();
+    });
+    expect(screen.getByRole('button', { name: /^Unread/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Meetings/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('remembers the tab and chips per person in this browser', async () => {

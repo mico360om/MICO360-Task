@@ -37,7 +37,7 @@ import { useDateSettings } from '../lib/useDatePrefs';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
-import { TOUCH_TALL } from '../lib/touch';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 
 const BellIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -51,9 +51,9 @@ const PAGE_SIZE = 50;
 const isCounts = (v: unknown): v is InboxCounts => !!v && typeof v === 'object' && typeof (v as InboxCounts).unread === 'number' && !!(v as InboxCounts).kinds;
 
 const segment = (active: boolean) =>
-  `rounded-lg px-3 py-1 text-sm font-medium transition-colors ${TOUCH_TALL} ${active ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
+  `rounded-lg px-3 py-1 text-sm font-medium transition-colors ${TOUCH_SQUARE} ${active ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
 const chip = (active: boolean) =>
-  `inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${TOUCH_TALL} ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
+  `inline-flex flex-none items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors ${TOUCH_TALL} ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
 
 /**
  * Every notification (1.22): All / Unread tabs and type chips (remembered per person in this
@@ -74,11 +74,17 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [selecting, setSelecting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const setFilter = (next: InboxFilter) => {
-    setFilterState(next);
-    writeUserValue(myId, INBOX_FILTER_PREF, serializeInboxFilter(next));
+  // Changes build on the latest choice (two quick clicks both count); what the person chose is
+  // remembered for them in this browser.
+  const chosen = useRef(false);
+  const setFilter = (change: (f: InboxFilter) => InboxFilter) => {
+    chosen.current = true;
+    setFilterState(change);
     setSelected(new Set());
   };
+  useEffect(() => {
+    if (chosen.current) writeUserValue(myId, INBOX_FILTER_PREF, serializeInboxFilter(filter));
+  }, [myId, filter]);
 
   const countsQ = useQuery({ queryKey: NOTIFICATION_COUNTS_KEY, queryFn: () => api.counts() });
   const counts = isCounts(countsQ.data) ? countsQ.data : undefined;
@@ -189,7 +195,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   return (
     // A readable width on a wide screen, centred (as Activity and About): across 1,600px a
     // notification's time sat a whole screen away from its words.
-    <div className="mx-auto max-w-4xl">
+    <div className={`mx-auto max-w-4xl ${selectedIds.length > 0 ? 'pb-28 sm:pb-20' : ''}`}>
       <PageHeader
         eyebrow="Workspace"
         title="Notifications"
@@ -213,10 +219,10 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
         <div className="mb-4 flex flex-col gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div role="group" aria-label="Show" className="inline-flex gap-0.5 rounded-xl border border-line bg-surface p-0.5">
-              <button type="button" aria-pressed={filter.tab === 'all'} onClick={() => setFilter({ ...filter, tab: 'all' })} className={segment(filter.tab === 'all')}>
+              <button type="button" aria-pressed={filter.tab === 'all'} onClick={() => setFilter((f) => ({ ...f, tab: 'all' }))} className={segment(filter.tab === 'all')}>
                 All
               </button>
-              <button type="button" aria-pressed={filter.tab === 'unread'} onClick={() => setFilter({ ...filter, tab: 'unread' })} className={segment(filter.tab === 'unread')}>
+              <button type="button" aria-pressed={filter.tab === 'unread'} onClick={() => setFilter((f) => ({ ...f, tab: 'unread' }))} className={segment(filter.tab === 'unread')}>
                 {unreadShown === null ? 'Unread' : `Unread (${unreadShown})`}
               </button>
             </div>
@@ -236,8 +242,9 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
               </Button>
             ) : null}
           </div>
-          <div role="group" aria-label="Types" className="flex flex-wrap gap-1.5">
-            <button type="button" aria-pressed={filter.kinds.length === 0} onClick={() => setFilter({ ...filter, kinds: [] })} className={chip(filter.kinds.length === 0)}>
+          {/* One line that scrolls sideways on a phone (six 44px chips wrapped to four lines there); wrapped from sm up. */}
+          <div role="group" aria-label="Types" className="-my-1 flex gap-1.5 overflow-x-auto py-1 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+            <button type="button" aria-pressed={filter.kinds.length === 0} onClick={() => setFilter((f) => ({ ...f, kinds: [] }))} className={chip(filter.kinds.length === 0)}>
               All types
             </button>
             {NOTIFICATION_KINDS.map((k) => {
@@ -249,7 +256,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
                   type="button"
                   aria-pressed={on}
                   aria-label={n > 0 ? `${k.label}, ${n} unread` : k.label}
-                  onClick={() => setFilter({ ...filter, kinds: toggleKind(filter.kinds, k.key) })}
+                  onClick={() => setFilter((f) => ({ ...f, kinds: toggleKind(f.kinds, k.key) }))}
                   className={chip(on)}
                 >
                   <span>{k.label}</span>
@@ -296,7 +303,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
             title={empty.title}
             description={empty.description}
             action={
-              <Button variant="secondary" size="sm" onClick={() => setFilter(empty.clear === 'kinds' ? { ...filter, kinds: [] } : { ...filter, tab: 'all' })}>
+              <Button variant="secondary" size="sm" onClick={() => setFilter((f) => (empty.clear === 'kinds' ? { ...f, kinds: [] } : { ...f, tab: 'all' }))}>
                 {empty.clear === 'kinds' ? 'Show all types' : 'Show all notifications'}
               </Button>
             }
@@ -341,22 +348,27 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
             ))}
           </div>
 
+          {/* Fixed at the bottom of the window, as My Tasks' bar (`sticky` can't stick inside the
+              shell's overflow-x-hidden main), so the ticks can be acted on from anywhere in the list. */}
           {selectedIds.length > 0 ? (
-            <div role="region" aria-label="Selected notifications" className="sticky bottom-3 z-30 mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 shadow-lift">
-              <span className="text-sm font-medium text-ink">{`${selectedIds.length} selected`}</span>
-              <div className="ms-auto flex flex-wrap items-center gap-1.5">
-                <Button variant="secondary" size="sm" className={TOUCH_TALL} onClick={() => bulkRead(true)}>
-                  Mark read
-                </Button>
-                <Button variant="secondary" size="sm" className={TOUCH_TALL} onClick={() => bulkRead(false)}>
-                  Mark unread
-                </Button>
-                <Button variant="secondary" size="sm" className={`text-danger ${TOUCH_TALL}`} onClick={() => removeIds(selectedIds)}>
-                  Remove
-                </Button>
-                <Button variant="ghost" size="sm" className={TOUCH_TALL} aria-label="Clear selection" onClick={() => setSelected(new Set())}>
+            <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+              <div role="region" aria-label="Selected notifications" className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface/95 px-3 py-2 shadow-lift backdrop-blur">
+                <span className="me-auto text-sm font-medium text-ink">{`${selectedIds.length} selected`}</span>
+                {/* Beside the count on a phone (the actions wrap below); last on a wider screen. */}
+                <Button variant="ghost" size="sm" className={`sm:order-last ${TOUCH_SQUARE}`} aria-label="Clear selection" onClick={() => setSelected(new Set())}>
                   ✕
                 </Button>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button variant="secondary" size="sm" className={TOUCH_TALL} onClick={() => bulkRead(true)}>
+                    Mark read
+                  </Button>
+                  <Button variant="secondary" size="sm" className={TOUCH_TALL} onClick={() => bulkRead(false)}>
+                    Mark unread
+                  </Button>
+                  <Button variant="secondary" size="sm" className={`text-danger ${TOUCH_TALL}`} onClick={() => removeIds(selectedIds)}>
+                    Remove
+                  </Button>
+                </div>
               </div>
             </div>
           ) : null}
@@ -375,11 +387,12 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
       )}
 
       {removal.pending ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+        // Above the selection bar while it shows.
+        <div className={`pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4 ${selectedIds.length > 0 ? 'bottom-28 sm:bottom-20' : 'bottom-6'}`}>
           <div role="status" aria-labelledby="notif-toast-text" className="pointer-events-auto flex max-w-lg items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2 text-sm text-ink shadow-lift">
             <span id="notif-toast-text">{removal.pending.label}</span>
             <span aria-hidden="true" className="text-ink-3">·</span>
-            <button type="button" onClick={removal.undo} className={`rounded-lg px-2 py-1 font-semibold text-brand hover:bg-brand/10 ${TOUCH_TALL}`}>
+            <button type="button" onClick={removal.undo} className={`rounded-lg px-2 py-1 font-semibold text-brand hover:bg-brand/10 ${TOUCH_SQUARE}`}>
               Undo
             </button>
           </div>
