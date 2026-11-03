@@ -107,19 +107,31 @@ export function createPrismaProjectExistsLookup(prisma: PrismaClient): ProjectEx
 
 /**
  * Who runs each project — its owner, its named manager and its MANAGER members (the project-managers
- * rule) — active people only, each once. For notices only the people running a project should get.
+ * rule) — active people only, each once, who can still see it: an administrator, or someone in one of
+ * the project's active companies (companies: someone who lost the company hears nothing of it). For
+ * notices only the people running a project should get (escalations).
  */
 export async function projectRunnerIds(prisma: PrismaClient, projectIds: string[]): Promise<Map<string, string[]>> {
   if (projectIds.length === 0) return new Map();
-  const projects = await prisma.project.findMany({
+  const runnersOf = (p: { ownerId: string | null; managerId: string | null; members: { userId: string }[] }) =>
+    [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)].filter((x): x is string => !!x);
+  const people = await prisma.project.findMany({
     where: { id: { in: projectIds } },
     select: { id: true, ownerId: true, managerId: true, members: { where: { role: 'MANAGER' }, select: { userId: true } } },
   });
-  const all = [...new Set(projects.flatMap((p) => [p.ownerId, p.managerId, ...p.members.map((m) => m.userId)]).filter((x): x is string => !!x))];
-  const active = new Set(
-    all.length ? (await prisma.user.findMany({ where: { id: { in: all }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } })).map((u) => u.id) : [],
-  );
+  const all = [...new Set(people.flatMap(runnersOf))];
+  if (all.length === 0) return new Map(people.map((p) => [p.id, []]));
+  const [users, sharing] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: all }, deletedAt: null, status: 'ACTIVE' }, select: { id: true, roles: { select: { role: { select: { name: true } } } } } }),
+    prisma.project.findMany({
+      where: { id: { in: projectIds } },
+      select: { id: true, companies: { where: { company: { status: 'ACTIVE' } }, select: { company: { select: { members: { where: { userId: { in: all } }, select: { userId: true } } } } } } },
+    }),
+  ]);
+  const active = new Set(users.map((u) => u.id));
+  const admins = new Set(users.filter((u) => u.roles.some((r) => r.role.name === 'ADMIN')).map((u) => u.id));
+  const inCompany = new Map(sharing.map((p) => [p.id, new Set(p.companies.flatMap((c) => c.company.members.map((m) => m.userId)))]));
   return new Map(
-    projects.map((p) => [p.id, [...new Set([p.ownerId, p.managerId, ...p.members.map((m) => m.userId)].filter((x): x is string => !!x && active.has(x)))]]),
+    people.map((p) => [p.id, [...new Set(runnersOf(p).filter((x) => active.has(x) && (admins.has(x) || inCompany.get(p.id)?.has(x))))]]),
   );
 }

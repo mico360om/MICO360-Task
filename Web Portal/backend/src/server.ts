@@ -277,6 +277,10 @@ async function main(): Promise<void> {
   // companies: the access rule module (memberships and project companies, read fresh on every request).
   const companyAccess = createCompanyAccess(prisma);
   const personOptions = createPrismaPersonOptions(prisma);
+  // companies (MC1 Task 10): who may be invited to a meeting, and a standalone meeting's company — one
+  // pair of rules for the meeting routes and MICO AI's "schedule a meeting".
+  const meetingInvitees = createPrismaMeetingInvitees(prisma, { companyAccess, personOptions });
+  const meetingCompany = createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) });
 
   // Late-bound so moving a task to a DONE column can spawn the next recurring instance (below).
   type TaskRec = import('./modules/tasks/task-repository').TaskRecord;
@@ -1068,6 +1072,9 @@ async function main(): Promise<void> {
       broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
       audit: auditService,
       logger,
+      // companies: "schedule a meeting" follows the meeting form's company and invite rules.
+      meetingCompany,
+      meetingInvitees,
     }),
   });
   const micoAiService = createMicoAiService({
@@ -1592,8 +1599,8 @@ async function main(): Promise<void> {
     // companies: people for pickers inside projects (team candidates, meeting invitations).
     personOptions,
     // companies (MC1 Task 10): who may be invited to a meeting, and a standalone meeting's company.
-    meetingInvitees: createPrismaMeetingInvitees(prisma, { companyAccess, personOptions }),
-    meetingCompany: createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) }),
+    meetingInvitees,
+    meetingCompany,
     pdfBranding: documentBrands.pdf, // companies: each PDF's company name and logo
     companyTime, // companies: each company's week start and working hours
     columnService,

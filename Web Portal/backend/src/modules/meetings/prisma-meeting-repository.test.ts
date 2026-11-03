@@ -14,7 +14,7 @@ function recorder(answers: Record<string, unknown> = {}) {
         return answers[`${name}.${op}`] ?? {};
       },
     });
-  const prisma = { meeting: model('meeting'), actionItem: model('actionItem'), meetingNote: model('meetingNote') } as Record<string, unknown>;
+  const prisma = { meeting: model('meeting'), actionItem: model('actionItem'), meetingNote: model('meetingNote'), project: model('project') } as Record<string, unknown>;
   prisma.$transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma);
   return { prisma: prisma as unknown as PrismaClient, calls };
 }
@@ -99,12 +99,18 @@ describe('Prisma meeting repository', () => {
 describe('Prisma action item repository', () => {
   it('leaves items of deleted meetings out of "My Action Items" (MTG-05)', async () => {
     const { prisma, calls } = recorder({ 'actionItem.findMany': [] });
-    await createPrismaActionItemRepository(prisma).listForAssignee('u2', { openOnly: true });
+    await createPrismaActionItemRepository(prisma).listForAssignee('u2', { openOnly: true, admin: true });
     expect(calls[0]!.args.where).toEqual({
       assigneeId: 'u2',
       OR: [{ meetingId: null }, { meeting: { is: { deletedAt: null } } }],
       status: { notIn: ['COMPLETED', 'CANCELLED'] },
     });
+    // companies: anyone else's list also stays inside their companies (the projects they share one with).
+    const other = recorder({ 'actionItem.findMany': [], 'project.findMany': [{ id: 'p1' }] });
+    await createPrismaActionItemRepository(other.prisma).listForAssignee('u2', { openOnly: true });
+    const where = other.calls.find((c) => c.op === 'actionItem.findMany')!.args.where as Record<string, unknown>;
+    expect(where).toMatchObject({ assigneeId: 'u2', OR: [{ meetingId: null }, { meeting: { is: { deletedAt: null } } }], status: { notIn: ['COMPLETED', 'CANCELLED'] } });
+    expect(JSON.stringify(where.AND)).toContain('"projectId":{"in":["p1"]}');
   });
 });
 

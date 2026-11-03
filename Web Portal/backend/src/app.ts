@@ -812,7 +812,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         await registerAgendaRoutes(api, { agendaService: deps.agendaService, guard, canViewMeeting, viewOf: meetingViewOf });
       }
       if (deps.actionItemService) {
+        // companies: an assignee / creator keeps their own item while its meeting is theirs to reach.
+        const companyRules = deps.companyAccess;
+        const meetings = deps.meetingService;
+        const ownItemOpen =
+          companyRules && meetings
+            ? async (userId: string, roles: string[], meetingId: string): Promise<boolean> => {
+                if (meetingViewOf && (await meetingViewOf(userId, roles, meetingId)) !== null) return true;
+                const m = await meetings.getMeeting(meetingId).catch(() => null);
+                if (!m) return false;
+                if (m.projectId) return ((await companyRules.companyProjectIds({ id: userId, roles }, null)) ?? [m.projectId]).includes(m.projectId);
+                const companyId = (m as { companyId?: string | null }).companyId ?? null;
+                return !companyId || (await companyRules.activeCompanyIds(userId)).includes(companyId);
+              }
+            : undefined;
         await registerActionItemRoutes(api, {
+          ownItemOpen,
           actionItemService: deps.actionItemService,
           guard,
           canViewMeeting,

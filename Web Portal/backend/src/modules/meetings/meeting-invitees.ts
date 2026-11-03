@@ -35,7 +35,14 @@ export function createPrismaMeetingInvitees(prisma: PrismaClient, deps: { compan
         where: { id: target.projectId, deletedAt: null },
         select: { ownerId: true, managerId: true, members: { select: { userId: true } }, companies: { where: { company: { status: 'ACTIVE' } }, select: { companyId: true } } },
       });
-      if (!project || !(await companyAccess.canSeeProject(viewer, target.projectId))) throw new NotFoundError('Project not found.');
+      if (!project) throw new NotFoundError('Project not found.');
+      // Who may ask: someone who can see the project, or (as in 1.20, where an organizer off the team
+      // could still add people) someone in one of its active companies — the candidates below are
+      // their colleagues there anyway. Anyone else: as if there were no such project.
+      if (!(await companyAccess.canSeeProject(viewer, target.projectId))) {
+        const mine = new Set(await companyAccess.activeCompanyIds(viewer.id));
+        if (!project.companies.some((c) => mine.has(c.companyId))) throw new NotFoundError('Project not found.');
+      }
       const inCompanies = await companyAccess.projectCompanyPeople(project.companies.map((c) => c.companyId));
       if (admin) return new Set(inCompanies);
       const team = new Set([project.ownerId, project.managerId, ...project.members.map((m) => m.userId)].filter((id): id is string => !!id));

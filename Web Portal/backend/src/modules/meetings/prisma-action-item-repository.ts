@@ -1,4 +1,5 @@
 import type { PrismaClient, ActionItem, Prisma } from '@prisma/client';
+import { sharedCompanyWhere } from '../companies/company-access';
 import type {
   ActionItemRepository,
   ActionItemRecord,
@@ -83,6 +84,21 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
               { projectId: null, meeting: { is: { projectId: { in: projectIds } } } },
               { projectId: null, meeting: { is: { projectId: null, companyId } } },
               { projectId: null, meetingId: null },
+            ],
+          },
+        ];
+      }
+      else if (!filter.admin) {
+        // companies: no pick — the person's own items inside their companies (see AssigneeListFilter.admin).
+        const mine = (await prisma.project.findMany({ where: sharedCompanyWhere(userId), select: { id: true } })).map((p) => p.id);
+        where.AND = [
+          {
+            OR: [
+              { projectId: null, meetingId: null },
+              { meeting: { is: { OR: [{ organizerId: userId }, { createdById: userId }, { attendees: { some: { userId } } }] } } },
+              { projectId: { in: mine } },
+              { projectId: null, meeting: { is: { projectId: { in: mine } } } },
+              { projectId: null, meeting: { is: { projectId: null, OR: [{ companyId: null }, { company: { status: 'ACTIVE', members: { some: { userId } } } }] } } },
             ],
           },
         ];

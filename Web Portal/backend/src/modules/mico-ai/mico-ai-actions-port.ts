@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import type { MeetingCompanyRule } from '../meetings/meeting-company';
+import { inviteTargetOf, type MeetingInvitees } from '../meetings/meeting-invitees';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { ForbiddenError } from '../../lib/http-errors';
 import { dueDayKey } from '../../lib/due-date';
@@ -52,6 +54,10 @@ export interface MicoAiActionsPortDeps {
   broadcast: (projectId: string, event: string, payload: unknown) => void;
   audit: { record(entry: { userId: string | null; ip: string | null; module: string; action: string; entityId: string | null; oldValue?: unknown; newValue?: unknown }): Promise<unknown> };
   logger?: Pick<Logger, 'error'>;
+  /** companies: as POST /meetings — a meeting without a project gets its company (the pick, else the organizer's primary one). */
+  meetingCompany?: MeetingCompanyRule;
+  /** companies: as POST /meetings — everyone invited must be one of the meeting's invite candidates. */
+  meetingInvitees?: MeetingInvitees;
 }
 
 const NO_PROJECT = 'You do not have access to this project.';
@@ -284,7 +290,13 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
     async createMeeting(viewer, input) {
       if (input.projectId && !(await canUseProject(viewer, input.projectId))) throw new ForbiddenError(NO_PROJECT);
       for (const userId of input.attendeeIds) if (!(await deps.isActiveUser(userId))) throw new ForbiddenError('Everyone invited must be an active user.');
+      // companies: the meeting form's rules — its company (no project: the pick, else the organizer's
+      // primary company), and everyone invited one of its candidates; nothing is made when either fails.
+      const actor = { id: viewer.userId, roles: viewer.roles };
+      const companyId = deps.meetingCompany ? await deps.meetingCompany.forNew(actor, { projectId: input.projectId, organizerId: viewer.userId }, viewer.pick ?? null) : undefined;
+      if (deps.meetingInvitees && input.attendeeIds.length) await deps.meetingInvitees.assertInvitable(actor, inviteTargetOf({ projectId: input.projectId ?? null, companyId: companyId ?? null }), input.attendeeIds);
       const meeting = await meetingService.createMeeting({
+        ...(companyId !== undefined ? { companyId } : {}),
         title: input.title,
         description: input.description || null,
         projectId: input.projectId,

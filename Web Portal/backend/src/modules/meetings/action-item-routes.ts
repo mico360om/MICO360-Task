@@ -45,6 +45,11 @@ export interface ActionItemRouteDeps {
   pickOf?: PickOf;
   /** companies: how a person sees the meeting — an invitee from another company sees only their own items. */
   viewOf?: MeetingViewOf;
+  /**
+   * companies: may the assignee / creator still work on their own item of this meeting — they are one
+   * of its people, or it is in one of their active companies (whether or not they are on its project's team).
+   */
+  ownItemOpen?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
 }
 
 export async function registerActionItemRoutes(app: FastifyInstance, deps: ActionItemRouteDeps): Promise<void> {
@@ -63,19 +68,23 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   }
 
   // The assignee and creator can always work on their own item — even if they never attended the
-  // meeting — and admins can touch anything.
+  // meeting — and admins can touch anything. companies: while the item's meeting is still theirs to
+  // reach (one of its people, or in one of their active companies — deps.ownItemOpen).
+  const isAdmin = (req: FastifyRequest) => (req.user!.roles ?? []).includes('ADMIN');
+  const stillOpen = async (req: FastifyRequest, item: ActionItemRecord): Promise<boolean> =>
+    isAdmin(req) || !item.meetingId || !deps.ownItemOpen || deps.ownItemOpen(req.user!.id, req.user!.roles ?? [], item.meetingId);
   const isOwnOrAdmin = (req: FastifyRequest, item: ActionItemRecord): boolean =>
-    item.createdById === req.user!.id || item.assigneeId === req.user!.id || (req.user!.roles ?? []).includes('ADMIN');
+    item.createdById === req.user!.id || item.assigneeId === req.user!.id || isAdmin(req);
 
   // Update: owner/admin, or anyone who can see the item's meeting.
   async function canUpdateItem(req: FastifyRequest, item: ActionItemRecord): Promise<boolean> {
-    if (isOwnOrAdmin(req, item)) return true;
+    if (isOwnOrAdmin(req, item)) return stillOpen(req, item);
     return item.meetingId ? canViewMeeting(req, item.meetingId) : false;
   }
 
   // Delete: its creator, an admin, or someone who can edit its meeting (not every attendee).
   async function canDeleteItem(req: FastifyRequest, item: ActionItemRecord): Promise<boolean> {
-    if (item.createdById === req.user!.id || (req.user!.roles ?? []).includes('ADMIN')) return true;
+    if (item.createdById === req.user!.id || isAdmin(req)) return stillOpen(req, item);
     if (!item.meetingId) return false;
     return (await canViewMeeting(req, item.meetingId)) && actionItemService.canEditMeeting(req.user!.id, req.user!.roles ?? [], item.meetingId);
   }
@@ -86,7 +95,7 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
     // companies: with a pick, only that company's items (none = everything assigned to them, as before).
     const pick = await (deps.pickOf ?? NO_PICK)(req);
     const scope = pick ? { pick: { companyId: pick } } : {};
-    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope })) };
+    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope, admin: isAdmin(req) })) };
   });
 
   // ── Meeting-scoped register ──

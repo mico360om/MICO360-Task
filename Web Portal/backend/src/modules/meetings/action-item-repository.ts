@@ -58,6 +58,14 @@ export interface AssigneeListFilter {
    * meeting. An invitee's items from another company's meeting drop out.
    */
   pick?: { companyId: string };
+  /**
+   * companies: an administrator's list (every item assigned to them). Otherwise, without a pick, the
+   * person's own items stay inside their companies: items with neither a project nor a meeting, items
+   * of meetings they organize, made or were invited to (the invitation exception), and items of
+   * projects / standalone meetings in one of their active companies — whether or not they are on the
+   * project's team, as in 1.20.
+   */
+  admin?: boolean;
 }
 
 export interface ActionItemRepository {
