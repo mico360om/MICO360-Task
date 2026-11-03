@@ -59,7 +59,7 @@ describe('five tabs and a menu grouped like the website’s sidebar', () => {
     expect(all.map((s) => s.title)).toEqual(['Workspace', 'Communication', 'Admin', null]);
     expect(all[0]!.items.map((i) => i.label)).toEqual(['Dashboard', 'My Tasks', 'Kanban Board', 'Projects', 'Calendar', 'Timeline', 'Workload', 'Meetings', 'My Action Items', 'Templates', 'Management', 'Reports']);
     expect(all[1]!.items.map((i) => i.label)).toEqual(['Chat', 'MICO AI', 'Notifications', 'Activity']);
-    expect(all[2]!.items.map((i) => i.label)).toEqual(['User Management', 'AI Management', 'System Settings', 'Audit Logs']);
+    expect(all[2]!.items.map((i) => i.label)).toEqual(['User Management', 'Companies', 'AI Management', 'System Settings', 'Audit Logs']);
     expect(all[3]!.items.map((i) => i.label)).toEqual(['Settings', 'Profile', 'About']);
     for (const i of all.flatMap((s) => s.items)) {
       expect(isIconName(i.icon), i.key).toBe(true);
@@ -74,7 +74,7 @@ describe('five tabs and a menu grouped like the website’s sidebar', () => {
     expect(action('Calendar')).toEqual({ type: 'stack', screen: 'Calendar' });
     expect(action('Notifications')).toEqual({ type: 'stack', screen: 'Notifications' });
     expect(action('Profile')).toEqual({ type: 'stack', screen: 'Profile' });
-    for (const [key, path] of [['Templates', '/templates'], ['website-ai', '/admin/ai'], ['website-settings', '/admin/settings'], ['website-audit', '/admin/audit']] as const) {
+    for (const [key, path] of [['Templates', '/templates'], ['website-ai', '/admin/ai'], ['website-settings', '/admin/settings'], ['website-audit', '/admin/audit'], ['website-companies', '/admin/companies']] as const) {
       expect(action(key), key).toEqual({ type: 'website', path });
     }
     for (const key of ['Timeline', 'Workload', 'Management', 'MicoAi'] as const) expect(action(key), key).toEqual({ type: 'stack', screen: key });

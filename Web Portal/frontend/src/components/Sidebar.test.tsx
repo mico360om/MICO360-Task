@@ -58,6 +58,24 @@ describe('Sidebar', () => {
   });
 });
 
+describe('Sidebar: the Admin menu', () => {
+  const adminLabels = () => {
+    const names = screen.getAllByRole('link').map((l) => l.textContent);
+    return names.slice(names.indexOf('User Management'), names.indexOf('Audit Logs') + 1);
+  };
+
+  it('has Companies after User Management, with a link to the Companies page', () => {
+    renderSidebar(true);
+    expect(adminLabels()).toEqual(['User Management', 'Companies', 'AI Management', 'System Settings', 'Audit Logs']);
+    expect(screen.getByRole('link', { name: 'Companies' })).toHaveAttribute('href', '/admin/companies');
+  });
+
+  it('employees have no Companies link', () => {
+    renderSidebar(false);
+    expect(screen.queryByRole('link', { name: 'Companies' })).not.toBeInTheDocument();
+  });
+});
+
 describe('Sidebar: the Management page', () => {
   it('is shown to administrators and to the people who run a project, before Reports', () => {
     renderSidebar(true);

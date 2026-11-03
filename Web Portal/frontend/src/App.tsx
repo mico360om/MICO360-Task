@@ -25,6 +25,7 @@ const ProjectDetailPage = lazyPage(() => import('./pages/ProjectDetailPage'), 'P
 const NotificationsPage = lazyPage(() => import('./pages/NotificationsPage'), 'NotificationsPage');
 const ReportsPage = lazyPage(() => import('./pages/ReportsPage'), 'ReportsPage');
 const UsersPage = lazyPage(() => import('./pages/UsersPage'), 'UsersPage');
+const CompaniesPage = lazyPage(() => import('./pages/CompaniesPage'), 'CompaniesPage');
 const SettingsPage = lazyPage(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MyTasksPage = lazyPage(() => import('./pages/MyTasksPage'), 'MyTasksPage');
 const AuditPage = lazyPage(() => import('./pages/AuditPage'), 'AuditPage');
@@ -131,6 +132,7 @@ export function App() {
               <Route path="/admin/ai" element={<AiSettingsPage />} />
               <Route path="/admin/audit" element={<AuditPage />} />
               <Route path="/admin/users" element={<UsersPage />} />
+              <Route path="/admin/companies" element={<CompaniesPage />} />
             </Route>
           </Route>
         </Route>
