@@ -1598,6 +1598,8 @@ async function main(): Promise<void> {
     onProjectAudienceChanged: (projectId) => onProjectAudienceChanged(projectId),
     // companies: people for pickers inside projects (team candidates, meeting invitations).
     personOptions,
+    // companies: a project's active companies — its Team tab offers their people (any of them).
+    projectCompanyIds: async (projectId: string) => (peopleLookup.projectCompanyIds ? peopleLookup.projectCompanyIds(projectId) : null),
     // companies (MC1 Task 10): who may be invited to a meeting, and a standalone meeting's company.
     meetingInvitees,
     meetingCompany,

@@ -311,6 +311,8 @@ export interface AppDeps extends AuthRouteDeps {
   onProjectAudienceChanged?: OnProjectAudienceChanged;
   /** companies: people as pickers show them (team candidates, meeting invitations) — names and pictures only. */
   personOptions?: PersonOptions;
+  /** companies: a project's ACTIVE companies (null: none at all, from before companies) — its Team tab's candidates. */
+  projectCompanyIds?: (projectId: string) => Promise<string[] | null>;
   /** companies: who may be invited to a meeting (its project's or its own company), MC1 Task 10. */
   meetingInvitees?: MeetingInvitees;
   /** companies: the company of a meeting without a project, MC1 Task 10. */
@@ -806,7 +808,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.attendeeService) {
-        await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting, viewOf: meetingViewOf, invitees: deps.meetingInvitees, inviteTargetOf: meetingTargetOf });
+        // companies: the roster names the meeting's people (organizer first) for whoever may see it.
+        const options = deps.personOptions;
+        const meetings = deps.meetingService;
+        const meetingPeople = options
+          ? async (meetingId: string, attendeeUserIds: string[]) => {
+              const organizerId = meetings ? (await meetings.getMeeting(meetingId).catch(() => null))?.organizerId : undefined;
+              const ids = [...new Set([...(organizerId ? [organizerId] : []), ...attendeeUserIds])];
+              const byId = new Map((await options(ids)).map((p) => [p.id, p]));
+              return ids.flatMap((pid) => {
+                const p = byId.get(pid);
+                return p ? [{ id: pid, name: `${p.firstName} ${p.lastName}`.trim() || p.username, avatarUrl: p.avatarUrl }] : [];
+              });
+            }
+          : undefined;
+        await registerAttendeeRoutes(api, { attendeeService: deps.attendeeService, guard, canViewMeeting, viewOf: meetingViewOf, invitees: deps.meetingInvitees, inviteTargetOf: meetingTargetOf, peopleOf: meetingPeople });
       }
       if (deps.agendaService) {
         await registerAgendaRoutes(api, { agendaService: deps.agendaService, guard, canViewMeeting, viewOf: meetingViewOf });
@@ -926,7 +942,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       // companies: people for pickers inside projects — GET /people/candidates (MC1 Task 9).
       if (deps.companyAccess && deps.personOptions) {
-        await registerPeopleRoutes(api, { guard, companyAccess: deps.companyAccess, personOptions: deps.personOptions });
+        await registerPeopleRoutes(api, {
+          guard,
+          companyAccess: deps.companyAccess,
+          personOptions: deps.personOptions,
+          canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p),
+          projectCompanyIds: deps.projectCompanyIds,
+        });
       }
     },
     { prefix: '/api/v1' },

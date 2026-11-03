@@ -7,6 +7,7 @@ import type { MeetingRepository, MeetingRecord, CreateMeetingData } from './meet
 import type { AttendeeRepository, AttendeeRecord, CreateAttendeeData, UpdateAttendeeData } from './attendee-repository';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
+import type { PersonOptions } from '../companies/person-options';
 
 function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
@@ -61,7 +62,7 @@ const tokenService = createTokenService({
 });
 const tokenFor = async (id: string, roles: string[]) => (await tokenService.issueTokens({ id, roles })).accessToken;
 
-async function makeApp(attendeesOf: Record<string, string[]> = {}) {
+async function makeApp(attendeesOf: Record<string, string[]> = {}, personOptions?: PersonOptions) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -75,7 +76,7 @@ async function makeApp(attendeesOf: Record<string, string[]> = {}) {
     canEditMeeting: meetingAccess.canEditMeeting,
     onRemoved: (meetingId, a) => { removed.push({ meetingId, attendeeId: a.id }); },
   });
-  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService });
+  const app = await buildApp({ authService, tokenService, meetingService, meetingAccess, attendeeService, ...(personOptions ? { personOptions } : {}) });
   return { app, meetingService, removed };
 }
 
@@ -205,3 +206,35 @@ describe('Attendee routes — only meeting editors change the roster (SEC-06)', 
     expect(res.json().data).toEqual(['colleague']);
   });
 });
+
+// Companies: someone invited from another company doesn't find the meeting's people in their directory
+// (only colleagues and teammates are there), so the roster carries their names and pictures — the
+// organizer's too — for whoever may see the meeting (spec §8.7: names show where you can see them).
+describe('Attendee routes — the meeting’s people by name', () => {
+  const NAMES: Record<string, [string, string]> = { u1: ['Ana', 'Alpha'], u2: ['Bob', 'Betaonly'] };
+  const options: PersonOptions = async (ids) => ids.filter((id) => NAMES[id]).map((id) => ({ id, firstName: NAMES[id]![0], lastName: NAMES[id]![1], username: id, avatarUrl: id === 'u2' ? '/uploads/bob.png' : null }));
+
+  it('the roster comes with every person’s name and picture, the organizer first', async () => {
+    const { app } = await makeApp({}, options);
+    const id = await ownedMeeting(app, 'u1');
+    const u1 = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: u1, payload: { userId: 'u2' } });
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/attendees`, headers: u1, payload: { externalName: 'Guest G', externalEmail: 'g@x.test' } });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/attendees`, headers: u1 });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().people).toEqual([
+      { id: 'u1', name: 'Ana Alpha', avatarUrl: null },
+      { id: 'u2', name: 'Bob Betaonly', avatarUrl: '/uploads/bob.png' },
+    ]);
+    expect(res.json().data.map((a: { userId: string | null }) => a.userId)).toEqual(['u2', null]);
+  });
+
+  it('someone who may not see the meeting still gets nothing', async () => {
+    const { app } = await makeApp({}, options);
+    const id = await ownedMeeting(app, 'u1');
+    const res = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/attendees`, headers: { authorization: `Bearer ${await tokenFor('u9', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().people).toBeUndefined();
+  });
+});
+

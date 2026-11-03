@@ -65,3 +65,53 @@ describe('GET /people/candidates', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/people/candidates?companyIds=A' })).statusCode).toBe(401);
   });
 });
+
+// GET /people/candidates?projectId= — the Team tab of a project: someone who may run its team gets the
+// active people of ANY of the project's active companies (owner, 31 Oct: a shared project's team can
+// include people from any of its companies), not only of their own companies.
+describe('GET /people/candidates?projectId=', () => {
+  async function makeProjectApp() {
+    const asked: string[][] = [];
+    const companyAccess = {
+      async checkPick() { throw new CompanyNotAvailableError(); },
+      async projectCompanyPeople(ids: readonly string[]) {
+        asked.push([...ids]);
+        return ids.flatMap((c) => inCompany[c] ?? []);
+      },
+    } as unknown as CompanyAccess;
+    // PAB is in Alpha and Beta; ben (Beta only) runs it; ana is on nothing she runs.
+    const projectAuthz = { async canManageProject(userId: string, roles: string[], projectId: string) { return roles.includes('ADMIN') || (userId === 'ben' && projectId === 'PAB'); } };
+    const projectCompanyIds = async (projectId: string) => (projectId === 'PAB' ? ['A', 'B'] : null);
+    const app = await buildApp({ authService, tokenService, companyAccess, personOptions: async (ids) => [...ids].sort().map(person), projectAuthz: projectAuthz as never, projectCompanyIds });
+    return { app, asked };
+  }
+
+  it('someone who runs the project gets the people of all its companies — not only their own', async () => {
+    const { app, asked } = await makeProjectApp();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/people/candidates?projectId=PAB', headers: as('ben', ['EMPLOYEE']) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual([person('amy'), person('ana'), person('ben')]);
+    expect(asked).toEqual([['A', 'B']]);
+  });
+
+  it('someone who doesn’t run the project is refused, and is told nothing of its people', async () => {
+    const { app, asked } = await makeProjectApp();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/people/candidates?projectId=PAB', headers: as('ana', ['EMPLOYEE']) });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('FORBIDDEN');
+    expect(asked).toEqual([]);
+  });
+
+  it('a project with no companies (from before companies) offers nobody', async () => {
+    const { app } = await makeProjectApp();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/people/candidates?projectId=OLD', headers: as('admin', ['ADMIN']) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual([]);
+  });
+
+  it('companies or a project, not both', async () => {
+    const { app } = await makeProjectApp();
+    expect((await app.inject({ method: 'GET', url: '/api/v1/people/candidates?projectId=PAB&companyIds=A', headers: as('admin', ['ADMIN']) })).statusCode).toBe(400);
+  });
+});
+

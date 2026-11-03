@@ -45,6 +45,18 @@ export interface AttendeeRouteDeps {
   invitees?: MeetingInvitees;
   /** companies: where a meeting's people come from — its project, or its company. */
   inviteTargetOf?: (meetingId: string) => Promise<InviteTarget | null>;
+  /**
+   * companies: the meeting's people by name (its organizer first, then its attendees) — someone invited
+   * from another company doesn't find them in their directory, so the roster carries them.
+   */
+  peopleOf?: (meetingId: string, attendeeUserIds: string[]) => Promise<MeetingPerson[]>;
+}
+
+/** One of a meeting's people as its roster names them. */
+export interface MeetingPerson {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
 }
 
 export async function registerAttendeeRoutes(app: FastifyInstance, deps: AttendeeRouteDeps): Promise<void> {
@@ -63,7 +75,11 @@ export async function registerAttendeeRoutes(app: FastifyInstance, deps: Attende
   app.get('/meetings/:id/attendees', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await viewOf(req, id))) return reply.status(404).send(notFound);
-    return { data: await attendeeService.listAttendees(id) };
+    const attendees = await attendeeService.listAttendees(id);
+    if (!deps.peopleOf) return { data: attendees };
+    // companies: names beside `data` (the rows stay what every client reads), as chat's `authors`.
+    const people = await deps.peopleOf(id, attendees.flatMap((a) => (a.userId ? [a.userId] : [])));
+    return { data: attendees, people };
   });
 
   app.post('/meetings/:id/attendees', { preHandler: guard.authenticate }, async (req, reply) => {
