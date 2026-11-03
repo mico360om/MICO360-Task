@@ -90,9 +90,16 @@ function setup(opts: { meetings?: DueMeeting[]; settings?: MeetingReminderSettin
   };
 }
 
+/** The guest's 24-hour email went the day before (the usual case: the meeting was booked in good time). */
+async function guestEmailedTheDayBefore(store: MeetingReminderStore, startAt: Date = START, meetingId = 'm1'): Promise<void> {
+  const id = await store.reserve({ meetingId, recipientKey: 'guest:guest@client.test', offsetMinutes: 1440, startAt, channel: 'EMAIL', userId: null, email: 'guest@client.test' });
+  await store.finish(id!, 'SENT', new Date(startAt.getTime() - 1440 * MIN));
+}
+
 describe('the meeting reminder sweep', () => {
   it('15 minutes before: the organizer and invited colleagues get the bell and a phone push; nobody an email (not ticked)', async () => {
     const t = setup();
+    await guestEmailedTheDayBefore(t.store);
     const r = await t.svc.runSweep();
     expect(r).toMatchObject({ meetings: 1, sent: 2, failed: 0 });
     expect(t.notify.mock.calls.map((c) => c[0].userId)).toEqual(['org', 'ann']);
@@ -134,6 +141,7 @@ describe('the meeting reminder sweep', () => {
     expect(t.notify).toHaveBeenCalledTimes(2);
     // Two servers at the same moment: each send is taken once.
     const u = setup();
+    await guestEmailedTheDayBefore(u.store);
     const [a, b] = await Promise.all([u.svc.runSweep(), u.svc.runSweep()]);
     expect(a.sent + b.sent).toBe(2);
     expect(u.notify).toHaveBeenCalledTimes(2);
@@ -152,8 +160,10 @@ describe('the meeting reminder sweep', () => {
 
   it('a moved meeting is reminded at its new time (what was sent for the old time doesn’t block it)', async () => {
     const t = setup();
+    await guestEmailedTheDayBefore(t.store);
     await t.svc.runSweep();
     const later = new Date(START.getTime() + 60 * MIN);
+    await guestEmailedTheDayBefore(t.store, later); // moved the day before: the guest had the new time's email too
     t.setMeetings([meeting({ startAt: later, endAt: new Date(later.getTime() + 60 * MIN) })]);
     t.setNow(new Date(later.getTime() - 15 * MIN));
     expect((await t.svc.runSweep()).sent).toBe(2);
@@ -223,6 +233,7 @@ describe('the meeting reminder sweep', () => {
 
   it('one broken meeting doesn’t stop the others’ reminders', async () => {
     const t = setup({ meetings: [meeting({ id: 'bad', attendees: null as never }), meeting({ id: 'good' })] });
+    await guestEmailedTheDayBefore(t.store, START, 'good');
     const r = await t.svc.runSweep();
     expect(r.sent).toBe(2);
     expect(t.notify.mock.calls.every((c) => c[0].entityType === 'meeting' && c[0].entityId === 'good')).toBe(true);
@@ -314,5 +325,56 @@ describe('meeting reminder emails carry the meeting’s company brand (companies
     const plain = setup({ now: new Date(START.getTime() - 24 * 60 * MIN) });
     await plain.svc.runSweep();
     expect(plain.sendMeetingReminder.mock.calls.every((c) => c.length === 2)).toBe(true);
+  });
+});
+
+describe('an outside guest invited too late for the email reminder (owner, 3 Nov 2026)', () => {
+  const guestEmails = (t: ReturnType<typeof setup>) => t.sendMeetingReminder.mock.calls.filter((c) => c[0] === 'guest@client.test');
+
+  it('booked 5 hours ahead: the 15-minute reminder reaches the guest by email — once; colleagues get no email', async () => {
+    const t = setup();
+    await t.svc.runSweep();
+    expect(t.sendMeetingReminder.mock.calls.map((c) => c[0])).toEqual(['guest@client.test']);
+    expect(guestEmails(t)[0]![1]).toMatchObject({ title: 'Core switch go-live review', link: 'https://task.mico360.com/meetings/m1' });
+    expect(t.notify.mock.calls.map((c) => c[0].userId)).toEqual(['org', 'ann']);
+    t.setNow(new Date(START.getTime() - 14 * MIN));
+    await t.svc.runSweep();
+    expect(guestEmails(t)).toHaveLength(1);
+  });
+
+  it('booked 13 hours ahead: the 12-hour reminder goes to the guest by email, the 15-minute one does not', async () => {
+    const t = setup({ now: new Date(START.getTime() - 12 * 60 * MIN) });
+    await t.svc.runSweep();
+    expect(guestEmails(t)).toHaveLength(1);
+    t.setNow(new Date(START.getTime() - 15 * MIN));
+    await t.svc.runSweep();
+    expect(guestEmails(t)).toHaveLength(1);
+    expect(t.notify).toHaveBeenCalledTimes(4); // the colleagues' bells at 12 h and 15 min, as before
+  });
+
+  it('a guest who got the 24-hour email gets no other email', async () => {
+    const t = setup({ now: new Date(START.getTime() - 24 * 60 * MIN) });
+    await t.svc.runSweep();
+    t.setNow(new Date(START.getTime() - 12 * 60 * MIN));
+    await t.svc.runSweep();
+    t.setNow(new Date(START.getTime() - 15 * MIN));
+    await t.svc.runSweep();
+    expect(guestEmails(t)).toHaveLength(1);
+  });
+
+  it('when no reminder time is ticked "also by email", guests get none (the administrator’s choice)', async () => {
+    const t = setup({ settings: { enabled: true, times: [{ minutes: 12 * 60, email: false }, { minutes: 15, email: false }] } });
+    await t.svc.runSweep();
+    expect(t.sendMeetingReminder).not.toHaveBeenCalled();
+  });
+
+  it('moved to later in the day after the 24-hour email: the guest gets the next reminder for the new time', async () => {
+    const t = setup();
+    await guestEmailedTheDayBefore(t.store);
+    const later = new Date(START.getTime() + 3 * 60 * MIN);
+    t.setMeetings([meeting({ startAt: later, endAt: new Date(later.getTime() + 60 * MIN) })]);
+    t.setNow(new Date(later.getTime() - 15 * MIN));
+    await t.svc.runSweep();
+    expect(guestEmails(t)).toHaveLength(1);
   });
 });

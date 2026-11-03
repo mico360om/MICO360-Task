@@ -180,7 +180,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const clients = useMemo(() => {
     const names = new Set<string>();
     for (const p of Array.isArray(projectsQ.data) ? projectsQ.data : []) if (p.clientName?.trim()) names.add(p.clientName.trim());
-    return [...names].sort((a, b) => a.localeCompare(b));
+    return [...names].sort((a, b) => a.localeCompare(b, 'en'));
   }, [projectsQ.data]);
   const directory = useMemo(() => (Array.isArray(dirQ.data) ? dirQ.data : []), [dirQ.data]);
   // An employee's new project always has an owner (them, unless they pick someone else); an admin

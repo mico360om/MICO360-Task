@@ -196,7 +196,7 @@ export function MyTasksPage() {
       }
       if (sort === 'priority') return P_RANK[a.task.priority] - P_RANK[b.task.priority];
       if (sort === 'progress') return b.task.progress - a.task.progress;
-      return a.task.title.localeCompare(b.task.title);
+      return a.task.title.localeCompare(b.task.title, 'en');
     });
     return arr;
   }, [filtered, sort]);

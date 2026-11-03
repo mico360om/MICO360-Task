@@ -708,7 +708,7 @@ export function createInspectionOutbox(deps: { storage: DraftStorage; api: Outbo
         const v = viewOf(d);
         out.push({ inspectionId: id, projectId: d.projectId, title: d.title, pending: v.pending, problem: d.problem, persisted: v.persisted });
       }
-      return out.sort((a, b) => a.title.localeCompare(b.title));
+      return out.sort((a, b) => a.title.localeCompare(b.title, 'en'));
     },
 
     /** Sends everything the person has waiting (on load, when back online, after signing in). */

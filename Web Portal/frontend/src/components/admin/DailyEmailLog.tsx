@@ -87,7 +87,7 @@ const SAY_AFTER_MS = 400;
 type Note = { ok: boolean; text: string };
 
 /** Lower case, without accents (and Arabic short-vowel marks): "João" finds "joao". */
-const fold = (s: string) => s.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f\u064b-\u065f]/g, '');
+const fold = (s: string) => s.toLocaleLowerCase('en').normalize('NFKD').replace(/[\u0300-\u036f\u064b-\u065f]/g, '');
 /**
  * The words searched for, each to be found somewhere in the person's name, username or email. A leading
  * "@" is the username as the card shows it ("@skerr").

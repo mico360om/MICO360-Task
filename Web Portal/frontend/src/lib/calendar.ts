@@ -19,7 +19,7 @@ export function groupTasksByDueDate(tasks: ApiTask[], timeZone = 'UTC'): DateGro
     arr.push(t);
     map.set(date, arr);
   }
-  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, dayTasks]) => ({ date, tasks: dayTasks }));
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'en')).map(([date, dayTasks]) => ({ date, tasks: dayTasks }));
 }
 
 export interface DayCell {

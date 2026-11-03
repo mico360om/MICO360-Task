@@ -9,7 +9,7 @@ export interface PersonOption {
   avatarUrl?: string | null;
 }
 
-const fold = (s: string) => s.toLocaleLowerCase().normalize('NFKD').replace(/[̀-ًͯ-ٟ]/g, '');
+const fold = (s: string) => s.toLocaleLowerCase('en').normalize('NFKD').replace(/[̀-ًͯ-ٟ]/g, '');
 
 /**
  * Who works on a task: the chosen people as removable chips, and a search box listing the rest of

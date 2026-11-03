@@ -129,11 +129,11 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   const projects = (Array.isArray(projectsQ.data) ? projectsQ.data : [])
     .filter((p) => filters.archived || p.status !== 'ARCHIVED' || p.id === filters.projectId)
     // Archived projects after the others.
-    .sort((a, b) => Number(a.status === 'ARCHIVED') - Number(b.status === 'ARCHIVED') || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(a.status === 'ARCHIVED') - Number(b.status === 'ARCHIVED') || a.name.localeCompare(b.name, 'en'));
   const people = (Array.isArray(peopleQ.data) ? peopleQ.data : [])
     .filter((u) => u.id !== myId && (u.active !== false || u.id === filters.assigneeId))
     .map((u) => ({ id: u.id, name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 
   const openTask = (id: string) =>
     setParams((prev) => {

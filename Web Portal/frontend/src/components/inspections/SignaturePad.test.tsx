@@ -115,6 +115,14 @@ describe('SignaturePad', () => {
     expect(pad()).toHaveClass('touch-none');
   });
 
+  it('an optional signature: the name field has no star and isn’t required (it is asked for only once someone signs)', () => {
+    render(<Harness onChange={() => {}} />);
+    const name = screen.getByRole('textbox', { name: /Signer’s name/ });
+    expect(name).not.toBeRequired();
+    expect(name).not.toHaveAttribute('aria-required');
+    expect(document.querySelector(`label[for="${name.id}"]`)!.textContent).toBe('Signer’s name');
+  });
+
   it('a stroke with a mouse gives a drawn signature: the name and a PNG', () => {
     const onChange = vi.fn();
     render(<Harness onChange={onChange} />);

@@ -9,7 +9,7 @@ import type { AttendeeRecord } from './attendee-repository';
 import type { MeetingRecord } from './meeting-repository';
 import { isValidTimeZone } from './meeting-validation';
 import { reminderWording } from './meeting-reminder-text';
-import { dueTimesFor, dueWindows, reminderRecipients, reminderSends, REMINDER_GRACE_MS, type ReminderChannel, type ReminderPerson, type ReminderSend } from './meeting-reminders';
+import { dueTimesFor, dueWindows, guestCatchUp, reminderRecipients, reminderSends, REMINDER_GRACE_MS, type ReminderChannel, type ReminderPerson, type ReminderSend } from './meeting-reminders';
 
 /** The notification type of a meeting reminder (Settings → Notifications → "Meeting reminders"). */
 export const MEETING_REMINDER_TYPE = 'MEETING_REMINDER';
@@ -155,7 +155,7 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
       result.meetings++;
       // One broken meeting (bad data, a database hiccup) must not stop the others' reminders.
       try {
-        await remindOf(m, times, people, taken, at, result);
+        await remindOf(m, times, settings.times, people, taken, at, result);
       } catch (err) {
         deps.logger?.error('meeting reminders failed', { err, meetingId: m.id });
       }
@@ -166,6 +166,7 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
   async function remindOf(
     m: DueMeeting,
     times: Array<{ minutes: number; email: boolean }>,
+    allTimes: ReadonlyArray<{ minutes: number; email: boolean }>,
     people: Map<string, ReminderPerson>,
     taken: Set<string>,
     at: Date,
@@ -183,9 +184,18 @@ export function createMeetingReminderService(deps: MeetingReminderServiceDeps) {
     // Each person's sends per way, nearest reminder time first: when several are due at once (a
     // meeting made late, times close together), only the nearest goes; the others are written
     // down as skipped, and a time due after a nearer one already went is skipped too.
+    // A guest invited too late for their email reminder gets the next one by email instead, once:
+    // "once" = no reminder email to them is written down yet for this start (any time, any outcome).
+    const startIso = m.startAt.toISOString();
+    const emailedGuest = (guestKey: string) => {
+      const head = `${m.id}|${guestKey}|`;
+      const tail = `|${startIso}|EMAIL`;
+      for (const k of taken) if (k.startsWith(head) && k.endsWith(tail)) return true;
+      return false;
+    };
     const groups = new Map<string, Array<ReminderSend & { minutes: number }>>();
     for (const time of times) {
-      for (const send of reminderSends(recipients, time)) {
+      for (const send of reminderSends(recipients, time, (key) => guestCatchUp(time, allTimes, times, emailedGuest(key)))) {
         const k = `${send.recipient.key}|${send.channel}`;
         groups.set(k, [...(groups.get(k) ?? []), { ...send, minutes: time.minutes }]);
       }

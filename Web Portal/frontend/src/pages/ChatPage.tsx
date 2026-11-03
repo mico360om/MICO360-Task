@@ -216,7 +216,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     patchPages(conversationId, (pages) => {
       let found = false;
       const next = pages.map((page) => page.map((x) => (x.id === msg.id ? ((found = true), { ...x, ...msg }) : x)));
-      if (!found) next[0] = [...(next[0] ?? []), msg].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      if (!found) next[0] = [...(next[0] ?? []), msg].sort((a, b) => a.createdAt.localeCompare(b.createdAt, 'en'));
       return next;
     });
   }, [patchPages]);
@@ -695,7 +695,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
         presence: id === myId ? 'Active now' : lastActiveLabel(people.get(id)?.lastActiveAt ?? null, isOnline(id)),
         me: id === myId,
       }))
-      .sort((a, b) => Number(b.me) - Number(a.me) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)),
+      .sort((a, b) => Number(b.me) - Number(a.me) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'en')),
   [memberIds, fullName, people, avatarOf, myId, isOnline]);
 
   // @mentions: the conversation's members (everyone in the directory until they are known).

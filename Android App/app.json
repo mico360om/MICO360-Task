@@ -2,7 +2,7 @@
   "expo": {
     "name": "MICO360 Tasks",
     "slug": "mico360-tasks",
-    "version": "1.11.0",
+    "version": "1.20.0",
     "orientation": "portrait",
     "scheme": "mico360",
     "userInterfaceStyle": "automatic",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "com.mico360.tasks",
-      "versionCode": 17,
+      "versionCode": 18,
       "backgroundColor": "#8B1E1E",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

@@ -13,7 +13,7 @@ export interface RoleCounts {
   unassigned: number;
 }
 
-const keyOf = (name: string) => name.trim().toLocaleLowerCase();
+const keyOf = (name: string) => name.trim().toLocaleLowerCase('en');
 
 export function roleCounts(assignments: string[][], people: string[], roleOf: Record<string, string>): RoleCounts {
   const spelling = new Map<string, string>();

@@ -111,7 +111,7 @@ export function SaveProjectTemplateDialog({ projectId, projectName, onClose }: {
   const people = d?.people ?? [];
   const counts = roleCounts(d?.assignments ?? [], people.map((p) => p.id), roles);
   const assignedTo = (id: string) => (d?.assignments ?? []).filter((onTask) => onTask.includes(id)).length;
-  const roleTasks = (name: string) => counts.roles.find((r) => r.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase())?.tasks ?? 0;
+  const roleTasks = (name: string) => counts.roles.find((r) => r.name.trim().toLocaleLowerCase('en') === name.trim().toLocaleLowerCase('en'))?.tasks ?? 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault();

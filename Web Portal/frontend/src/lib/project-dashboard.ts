@@ -63,7 +63,7 @@ export function milestones(tasks: ApiTask[], today: string, timeZone = 'UTC') {
       const state: MilestoneState = isFinished(t) ? 'done' : isWaitingForApproval(t) ? 'waiting' : !due ? 'undated' : due < today ? 'overdue' : 'upcoming';
       return { task: t, due, state, daysLeft: due && state !== 'done' ? daysBetween(today, due) : null };
     })
-    .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || a.task.title.localeCompare(b.task.title));
+    .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999', 'en') || a.task.title.localeCompare(b.task.title, 'en'));
 }
 
 /** Open tasks due within `withinDays` (and every overdue one), soonest first; `waiting`: it waits for approval (never late meanwhile). */
@@ -72,7 +72,7 @@ export function deadlines(tasks: ApiTask[], today: string, withinDays = 14, time
     .filter((t) => !isFinished(t) && dueDay(t.dueDate, timeZone))
     .map((t) => ({ task: t, due: dueDay(t.dueDate, timeZone)!, daysLeft: daysBetween(today, dueDay(t.dueDate, timeZone)!), waiting: isWaitingForApproval(t) }))
     .filter((d) => d.daysLeft <= withinDays)
-    .sort((a, b) => a.daysLeft - b.daysLeft || a.task.title.localeCompare(b.task.title));
+    .sort((a, b) => a.daysLeft - b.daysLeft || a.task.title.localeCompare(b.task.title, 'en'));
 }
 
 /** How far through its start and target dates the project is (null without both). */
@@ -102,5 +102,5 @@ export function workload(tasks: ApiTask[], today: string, timeZone = 'UTC') {
       people.set(a.id, p);
     }
   }
-  return [...people.values()].sort((a, b) => b.open - a.open || b.overdue - a.overdue || a.name.localeCompare(b.name));
+  return [...people.values()].sort((a, b) => b.open - a.open || b.overdue - a.overdue || a.name.localeCompare(b.name, 'en'));
 }

@@ -380,7 +380,7 @@ export interface Marker<T> {
 /** Clusters that each start at least `span` days after the one before (sorted by day). */
 function clusters<T>(items: T[], dayOf: (x: T) => string, span: number, order: (a: T, b: T) => number): Marker<T>[] {
   const out: Marker<T>[] = [];
-  for (const x of [...items].sort((a, b) => dayOf(a).localeCompare(dayOf(b)) || order(a, b))) {
+  for (const x of [...items].sort((a, b) => dayOf(a).localeCompare(dayOf(b), 'en') || order(a, b))) {
     const day = dayOf(x);
     const last = out[out.length - 1];
     if (last && daysBetween(last.first, day) < span) {
@@ -396,7 +396,7 @@ export type MilestoneMarker = Marker<TimelineMilestone> & { done: boolean };
 
 /** A project's meetings as markers (see markerSpanDays). */
 export function meetingMarkers(meetings: TimelineMeeting[], span: number): MeetingMarker[] {
-  return clusters(meetings, (m) => m.day, span, (a, b) => a.startAt.localeCompare(b.startAt));
+  return clusters(meetings, (m) => m.day, span, (a, b) => a.startAt.localeCompare(b.startAt, 'en'));
 }
 
 /** A project's dated milestones as markers; one is filled once every milestone in it is reached. */

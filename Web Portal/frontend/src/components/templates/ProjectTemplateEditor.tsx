@@ -90,7 +90,7 @@ export function draftProblems(d: Draft): string[] {
   if (!d.columns.some((c) => c.category !== 'DONE')) out.push('The board needs at least one column that isn’t Done, for the tasks to start in.');
   const seen = new Set<string>();
   d.roles.forEach((r, i) => {
-    const n = r.name.trim().toLocaleLowerCase();
+    const n = r.name.trim().toLocaleLowerCase('en');
     if (!n) out.push(`Role ${i + 1} needs a name.`);
     else if (seen.has(n)) out.push(`Two roles are called “${r.name.trim()}”. Give each role its own name.`);
     seen.add(n);

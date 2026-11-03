@@ -105,7 +105,7 @@ function inRange(day: string, f: MeetingFilters, today: string): boolean {
 
 /** The meetings that match the search, project, status and date filters. */
 export function filterMeetings(list: Meeting[], f: MeetingFilters, ctx: ListContext): Meeting[] {
-  const q = f.q.trim().toLocaleLowerCase();
+  const q = f.q.trim().toLocaleLowerCase('en');
   const today = todayKey(ctx.timeZone, ctx.now);
   return list.filter((m) => {
     if (f.status !== 'ALL' && m.status !== f.status) return false;
@@ -114,13 +114,13 @@ export function filterMeetings(list: Meeting[], f: MeetingFilters, ctx: ListCont
     if (f.focus && !inFocus(m, f.focus, ctx, today)) return false;
     if (!q) return true;
     const haystack = [m.title, m.location, m.category, m.projectId ? ctx.projectName(m.projectId) : null, ctx.organizerName(m.organizerId)];
-    return haystack.some((s) => s != null && s.toLocaleLowerCase().includes(q));
+    return haystack.some((s) => s != null && s.toLocaleLowerCase('en').includes(q));
   });
 }
 
-const byStart = (a: Meeting, b: Meeting) => a.startAt.localeCompare(b.startAt);
-const byTitle = (a: Meeting, b: Meeting) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
-const byUpdated = (a: Meeting, b: Meeting) => b.updatedAt.localeCompare(a.updatedAt);
+const byStart = (a: Meeting, b: Meeting) => a.startAt.localeCompare(b.startAt, 'en');
+const byTitle = (a: Meeting, b: Meeting) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' });
+const byUpdated = (a: Meeting, b: Meeting) => b.updatedAt.localeCompare(a.updatedAt, 'en');
 
 /**
  * Today, Next 7 days, Later, Drafts and Past (empty groups left out). Drafts are kept together
@@ -215,7 +215,7 @@ export function meetingSummary(list: Meeting[], ctx: Pick<ListContext, 'timeZone
 
 /** The most recent meeting that is over (none when nothing has happened yet). */
 export function lastMeeting(list: Meeting[], now: Date): Meeting | null {
-  return list.filter((m) => hasEnded(m, now)).sort((a, b) => b.startAt.localeCompare(a.startAt))[0] ?? null;
+  return list.filter((m) => hasEnded(m, now)).sort((a, b) => b.startAt.localeCompare(a.startAt, 'en'))[0] ?? null;
 }
 
 /** When a past meeting was, from today: "earlier today", "yesterday", "on Monday", "on Sat 3 Oct", "on 1 Dec 2025". */
@@ -234,7 +234,7 @@ export function whenItWas(iso: string, now: Date, timeZone: string): string {
  * scheduled one still to come. Never a draft, a cancelled or a completed meeting.
  */
 export function nextUpMeeting(list: Meeting[], now: Date): Meeting | null {
-  const byStart = (a: Meeting, b: Meeting) => a.startAt.localeCompare(b.startAt);
+  const byStart = (a: Meeting, b: Meeting) => a.startAt.localeCompare(b.startAt, 'en');
   const live = list.filter((m) => isUnderWay(m, now)).sort(byStart);
   if (live[0]) return live[0];
   return list.filter((m) => m.status === 'SCHEDULED' && new Date(m.startAt).getTime() > now.getTime()).sort(byStart)[0] ?? null;

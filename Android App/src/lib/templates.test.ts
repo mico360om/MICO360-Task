@@ -69,9 +69,10 @@ describe.skipIf(!hasWeb('frontend/src/api/templates.ts', 'frontend/src/component
     expect(TASK_TEMPLATES_KEY).toEqual(keys.TASK_TEMPLATES_KEY);
   });
   // One edit (final pass, item 1): a role's name is lower-cased in English, not in the phone's language.
+  // The website names the locale since 3 Nov 2026; the app keeps toLowerCase(), the same on every phone.
   it('role-counts.ts is the website’s file, lower-casing in English', () => {
     const web = normalise(readWeb('frontend/src/components/templates/role-counts.ts'));
-    const keyOf = 'const keyOf = (name: string) => name.trim().toLocaleLowerCase();';
+    const keyOf = "const keyOf = (name: string) => name.trim().toLocaleLowerCase('en');";
     expect(web.split(keyOf)).toHaveLength(2);
     expect(normalise(src('lib/role-counts.ts'))).toBe(web.replace(keyOf, 'const keyOf = (name: string) => name.trim().toLowerCase();'));
   });

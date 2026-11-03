@@ -94,18 +94,39 @@ export interface ReminderSend {
 /**
  * What one reminder time sends to each person: a colleague gets the bell and the phone push, and
  * the email too when the time is ticked "also by email"; someone who switched meeting reminders off
- * gets nothing; an outside guest gets only the email-ticked times, by email.
+ * gets nothing; an outside guest gets only the email-ticked times, by email — or this one, when
+ * `guestCatchUpFor` says they missed theirs (see guestCatchUp).
  */
-export function reminderSends(recipients: readonly ReminderRecipient[], time: MeetingReminderTime): ReminderSend[] {
+export function reminderSends(
+  recipients: readonly ReminderRecipient[],
+  time: MeetingReminderTime,
+  guestCatchUpFor?: (guestKey: string) => boolean,
+): ReminderSend[] {
   const sends: ReminderSend[] = [];
   for (const r of recipients) {
     if (r.kind === 'user') {
       if (r.muted) continue;
       sends.push({ recipient: r, channel: 'APP' });
       if (time.email && r.email) sends.push({ recipient: r, channel: 'EMAIL' });
-    } else if (time.email) {
+    } else if (time.email || guestCatchUpFor?.(r.key)) {
       sends.push({ recipient: r, channel: 'EMAIL' });
     }
   }
   return sends;
+}
+
+/**
+ * Owner, 3 Nov 2026: an outside guest whose email reminder could never reach them — the meeting was
+ * booked or moved, or they were invited, after its moment — gets the next reminder still ahead by
+ * email instead, once. True when this time isn't ticked itself, an earlier one IS ticked (and isn't
+ * due in this same sweep, where it goes as usual), and no reminder email went to them for this start.
+ */
+export function guestCatchUp(
+  time: MeetingReminderTime,
+  times: readonly MeetingReminderTime[],
+  dueNow: readonly MeetingReminderTime[],
+  emailedForThisStart: boolean,
+): boolean {
+  if (time.email || emailedForThisStart) return false;
+  return times.some((t) => t.email && t.minutes > time.minutes && !dueNow.some((d) => d.minutes === t.minutes));
 }

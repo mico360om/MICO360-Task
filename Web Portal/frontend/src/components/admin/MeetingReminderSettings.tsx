@@ -93,7 +93,7 @@ export function MeetingReminderSettings() {
       <h2 id="meeting-reminders-heading" className="eyebrow mb-1">Meeting reminders</h2>
       <p id="meeting-reminders-help" className="mb-4 text-sm text-ink-2">
         Before each scheduled meeting, the organizer and everyone invited who hasn’t declined get a reminder on the website, the Android app and the
-        Chrome extension — and an email for the times ticked below. Outside guests get only the emailed ones. Times follow each meeting’s time zone.
+        Chrome extension — and an email for the times ticked below. Outside guests get only the emailed ones; guests invited too late for those get the next reminder by email instead. Times follow each meeting’s time zone.
         Each person can turn theirs off in Settings.
       </p>
       {problem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}

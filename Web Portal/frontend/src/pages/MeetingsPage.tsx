@@ -92,7 +92,7 @@ export function MeetingsPage() {
     (text) => setNotice({ text, error: true }),
   );
 
-  const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []).slice().sort((a, b) => a.name.localeCompare(b.name)), [projectsQ.data]);
+  const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []).slice().sort((a, b) => a.name.localeCompare(b.name, 'en')), [projectsQ.data]);
   const projectOf = useMemo(() => {
     const map = new Map(projects.map((p) => [p.id, p]));
     return (id: string) => map.get(id) ?? null;

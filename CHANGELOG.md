@@ -15,6 +15,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
+- Companies: one site can now hold several companies. Everyone and every project you have today are
+  in "Prolens Projects LLC", so nothing changes until a second company is added.
+- People see only the projects of their own companies, and only colleagues who share a company with
+  them; administrators see everything. Inside a project shared by several companies, its whole team
+  works together, and someone invited to a meeting from another company sees only that meeting, its
+  final minutes and their own action items.
+- Each company has its own name, logo, email sender name, week start and working hours; its PDFs,
+  emails and client page carry its name and logo.
+
+## [1.20.0] - 2026-11-03
+
+### New features
 - The Android app catches up with the website: the website's look (colours, fonts, drawn icons, a
   white top bar, a grouped menu and five tabs) and everything added since 1.11 — task approvals,
   moving tasks between projects, the website's Dashboard and Projects pages, Timeline, Workload,
@@ -140,7 +152,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   organizer and everyone invited who hasn't declined get them on the website's bell (with a pop-up
   while the site is open), as a phone notification in the Android app (also when the app is closed;
   a tap opens the meeting) and as a Chrome extension desktop alert. The 24-hour one also comes by
-  email, and outside guests get only the emailed ones.
+  email, and outside guests get only the emailed ones — or, when they're invited (or the meeting is
+  booked or moved) too late for those, the next reminder by email instead.
 - Administrators choose the reminder times in System Settings → Meeting reminders: switch them off
   for everyone, or set up to five times from 5 minutes to 7 days before, each with "also by email".
 - Meeting reminders say the time in the meeting's time zone ("Meeting in 15 minutes: Core switch
@@ -150,14 +163,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   They replace the single reminder email an hour before.
 - Settings → Notifications on the website, in the Android app and in the Chrome extension has a
   "Meeting reminders" switch, on until you turn it off.
-- Companies: one site can now hold several companies. Everyone and every project you have today are
-  in "Prolens Projects LLC", so nothing changes until a second company is added.
-- People see only the projects of their own companies, and only colleagues who share a company with
-  them; administrators see everything. Inside a project shared by several companies, its whole team
-  works together, and someone invited to a meeting from another company sees only that meeting, its
-  final minutes and their own action items.
-- Each company has its own name, logo, email sender name, week start and working hours; its PDFs,
-  emails and client page carry its name and logo.
 
 ### Improvements
 - In the Android app, colours are the website's in light and dark mode, and grey and amber text is
@@ -220,6 +225,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   and the row fades at the edge where more days are hidden.
 - In the Android app, the signer's name under an optional signature (the client's or a supervisor's)
   no longer shows a required star.
+- On the website too, the signer's name under an optional signature no longer shows a required star.
+- On the website, search, filters and sorted lists work the same whatever language the browser is
+  set to: in a Turkish browser, "item" finds "ITEM" again and names sort in English order.
 - In the Android app, an inspection with changes still waiting on the phone (signed with no signal,
   say) doesn't offer Delete until they have been sent.
 - In the Android app, the bell keeps its number of unread alerts with no signal, even after the app
