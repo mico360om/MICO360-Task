@@ -206,6 +206,10 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       // Beta's meetings: PAB has none; MN_B (Beta, the administrator attends). Not MB (PB).
       expect(idsOf(await api.get(admin, '/meetings', beta))).toEqual([w.meetings.MN_B]);
       expect(projectIdsOf(await api.get(admin, '/projects', { 'x-company-id': w.companies.A }))).toEqual(sorted([w.projects.PA, w.projects.PAB]));
+      // Reports' workload: the people with tasks in PAB — not every Beta member (bob has none there).
+      const people = ((await api.get(admin, '/reports/workload', beta)) as { userId: string }[]).map((p) => p.userId);
+      expect(people).not.toContain(w.people.bob);
+      expect(people).toContain(w.people.ben);
     });
 
     it('opening one thing by its link stays admin-wide: PB, its task, its board, its meetings tab, its meeting', async () => {

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { projectsApi } from '../api/projects';
 import { columnsApi } from '../api/columns';
 import { tasksApi, type ApiTask } from '../api/tasks';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
@@ -39,6 +38,7 @@ import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import type { CardMenuItem } from '../components/board/CardMenu';
 import { moveAvailability, movedText } from '../lib/task-move';
 import { useMyProjectsOnly } from '../lib/useMyProjectsOnly';
+import { useProjectsWith } from '../lib/useProjectsWith';
 import { MyProjectsLine } from '../components/projects/MyProjectsLine';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
@@ -99,17 +99,13 @@ export function BoardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlProjectId = searchParams.get('project') ?? '';
   const [selectedProjectId, setSelectedProjectId] = useState(() => readUserValue(useAuthStore.getState().user?.id, PROJECT_PREF) ?? '');
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   // 1.22: a board opened by its link shows its project even when an administrator's "Show my projects
   // only" leaves it off their list (opening by link stays admin-wide).
   const myOnly = useMyProjectsOnly();
-  const listed = projectsQ.data;
-  const unlisted = isAdmin && projectsQ.isSuccess && !!urlProjectId && urlProjectId !== ALL_PROJECTS && !(listed ?? []).some((p) => p.id === urlProjectId);
-  const linkedQ = useQuery({ queryKey: ['project', urlProjectId], queryFn: () => projectsApi(apiClient).get(urlProjectId), enabled: unlisted });
-  const projects = useMemo(() => (unlisted && linkedQ.data ? [...(listed ?? []), linkedQ.data] : (listed ?? [])), [unlisted, listed, linkedQ.data]);
+  const { projects, listQ: projectsQ, fetchingExtra: linking } = useProjectsWith(urlProjectId === ALL_PROJECTS ? null : urlProjectId);
   // One project at a time, or All projects (offered when there is more than one).
   const has = (id: string) => !!id && (id === ALL_PROJECTS ? projects.length > 1 : projects.some((p) => p.id === id));
-  const linking = unlisted && linkedQ.isLoading; // (no other board flashes up while it loads)
+  // (No other board flashes up while a linked project loads.)
   const projectId = linking ? undefined : has(urlProjectId) ? urlProjectId : has(selectedProjectId) ? selectedProjectId : projects[0]?.id;
   const isAll = projectId === ALL_PROJECTS;
   const project = isAll ? undefined : projects.find((p) => p.id === projectId);

@@ -63,18 +63,19 @@ const lookup: ArchiveLookup = {
     const projectId = id.startsWith('arch') ? 'PX' : id.startsWith('live') ? 'PL' : null;
     if (!projectId) return null;
     if (kind === 'meeting') return { projectId, meetingId: id };
-    if (kind === 'actionItem') return { projectId, meetingId: `${id}-meeting` };
+    if (kind === 'actionItem') return { projectId, meetingId: `${id}-meeting`, ownerIds: ['owner'] };
     return { projectId };
   },
   async isArchived(projectId) {
     return projectId === 'PX' || projectId.startsWith('arch'); // (a project named in the path: arch-id)
   },
 };
-/** "nobody" sees nothing; everyone else sees everything. */
+/** "nobody" and "owner" (an action item's assignee off its meeting) see nothing; everyone else sees everything. */
+const blind = new Set(['nobody', 'owner']);
 const guard = createArchiveGuard({
   lookup,
-  canSeeProject: async (userId) => userId !== 'nobody',
-  canSeeMeeting: async (userId) => userId !== 'nobody',
+  canSeeProject: async (userId) => !blind.has(userId),
+  canSeeMeeting: async (userId) => !blind.has(userId),
 });
 
 let app: FastifyInstance;
@@ -143,10 +144,23 @@ describe('moving tasks between projects', () => {
     expect(fine.statusCode).toBe(200);
   });
 
+  it('looks at every task of a bulk move the route takes (up to 500), not only the first ones', async () => {
+    const taskIds = [...Array.from({ length: 499 }, (_, i) => `live-${i}`), 'arch-last'];
+    const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/move-to-project', payload: { projectId: 'PL', taskIds } });
+    expect(res.statusCode).toBe(409);
+  });
+
   it('a meeting moved INTO an archived project is refused; a new meeting without a project is not', async () => {
     expect((await app.inject({ method: 'PUT', url: '/api/v1/meetings/live-1', payload: { projectId: 'PX' } })).statusCode).toBe(409);
     expect((await app.inject({ method: 'POST', url: '/api/v1/meetings', payload: { title: 'Weekly' } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'POST', url: '/api/v1/meetings', payload: { projectId: 'PX' } })).statusCode).toBe(409);
+  });
+});
+
+describe('an action item', () => {
+  it('its own assignee or creator is refused on an archived project even without seeing its meeting (they know it is there)', async () => {
+    expect((await app.inject({ method: 'PATCH', url: '/api/v1/action-items/arch-1', payload: { status: 'DONE' }, headers: { 'x-user': 'owner' } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'PATCH', url: '/api/v1/action-items/arch-1', payload: { status: 'DONE' }, headers: { 'x-user': 'nobody' } })).statusCode).toBe(200);
   });
 });
 

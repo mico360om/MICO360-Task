@@ -169,7 +169,12 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
 export interface ArchiveSubject {
   projectId: string | null;
   meetingId?: string | null;
+  /** An action item's assignee and creator: they may change their own item without seeing its meeting, so they know it is there. */
+  ownerIds?: readonly string[];
 }
+
+/** At most this many tasks are looked at in one bulk move (the route itself takes at most 500). */
+export const MAX_GUARDED_TASKS = 1000;
 
 export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'externalContact' | 'column' | 'meeting' | 'actionItem';
 
@@ -179,6 +184,8 @@ export interface ArchiveLookup {
   subjectOf(kind: ArchiveKind, id: string): Promise<ArchiveSubject | null>;
   /** Is this live project archived (its own status, or all its companies)? */
   isArchived(projectId: string): Promise<boolean>;
+  /** The projects of these (live) tasks, each once — a bulk move's, in one read. */
+  projectsOfTasks?(taskIds: readonly string[]): Promise<string[]>;
 }
 
 export interface ArchiveGuardDeps {
@@ -228,8 +235,11 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
       case 'taskToProject':
         return [...(await of('task', p.id)), ...project(b.projectId)];
       case 'tasksToProject': {
-        const ids = Array.isArray(b.taskIds) ? b.taskIds.slice(0, 200) : [];
-        return [...project(b.projectId), ...(await Promise.all(ids.map((id) => of('task', id)))).flat()];
+        const ids = [...new Set((Array.isArray(b.taskIds) ? b.taskIds : []).filter((id): id is string => !!str(id)))].slice(0, MAX_GUARDED_TASKS);
+        const sources = lookup.projectsOfTasks
+          ? (await lookup.projectsOfTasks(ids)).map((projectId) => ({ projectId }))
+          : (await Promise.all(ids.map((id) => of('task', id)))).flat();
+        return [...project(b.projectId), ...sources];
       }
     }
   }
@@ -239,9 +249,13 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
     const user = req.user;
     if (!user) return; // not signed in: the route answers 401 itself
     const roles = user.roles ?? [];
+    const asked = new Set<string>(); // each project once (a bulk move's tasks share a few)
     for (const s of await subjectsOf(target, req)) {
-      if (!s.projectId || !(await lookup.isArchived(s.projectId))) continue;
-      const sees = s.meetingId ? await deps.canSeeMeeting(user.id, roles, s.meetingId) : await deps.canSeeProject(user.id, roles, s.projectId);
+      if (!s.projectId || (asked.has(s.projectId) && !s.meetingId) || !(await lookup.isArchived(s.projectId))) continue;
+      asked.add(s.projectId);
+      const sees =
+        (s.ownerIds ?? []).includes(user.id) ||
+        (s.meetingId ? await deps.canSeeMeeting(user.id, roles, s.meetingId) : await deps.canSeeProject(user.id, roles, s.projectId));
       if (sees) throw new ProjectArchivedError();
     }
   };
@@ -298,14 +312,19 @@ export function createPrismaArchiveLookup(prisma: PrismaClient): ArchiveLookup {
           return m ? { projectId: m.projectId, meetingId: id } : null;
         }
         case 'actionItem': {
-          const a = await prisma.actionItem.findUnique({ where: { id }, select: { projectId: true, meetingId: true, meeting: { select: { projectId: true } } } });
-          return a ? { projectId: a.projectId ?? a.meeting?.projectId ?? null, meetingId: a.meetingId } : null;
+          const a = await prisma.actionItem.findUnique({ where: { id }, select: { projectId: true, meetingId: true, assigneeId: true, createdById: true, meeting: { select: { projectId: true } } } });
+          return a ? { projectId: a.projectId ?? a.meeting?.projectId ?? null, meetingId: a.meetingId, ownerIds: [a.assigneeId, a.createdById].filter((x): x is string => !!x) } : null;
         }
       }
     },
     async isArchived(projectId) {
       const p = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null }, select: ARCHIVE_SELECT });
       return p ? archivedOf(p) : false;
+    },
+    async projectsOfTasks(taskIds) {
+      if (taskIds.length === 0) return [];
+      const rows = await prisma.task.findMany({ where: { id: { in: [...taskIds] }, deletedAt: null }, select: { projectId: true }, distinct: ['projectId'] });
+      return rows.map((r) => r.projectId);
     },
   };
 }

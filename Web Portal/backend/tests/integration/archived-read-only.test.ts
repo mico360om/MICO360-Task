@@ -71,6 +71,9 @@ describe('an archived project is read-only on the server (1.22)', () => {
   it('moving a task INTO an archived project is refused', async () => {
     refused(await send(w.as.admin, 'POST', `/tasks/${w.tasks.TA1}/move-to-project`, { projectId: w.projects.PB }));
     expect((await prisma.task.findUniqueOrThrow({ where: { id: w.tasks.TA1 } })).projectId).toBe(w.projects.PA);
+    // …and so is moving several out of one, however they are mixed with live ones.
+    refused(await send(w.as.admin, 'POST', '/tasks/move-to-project', { projectId: w.projects.PAB, taskIds: [w.tasks.TA2, w.tasks.TB2] }));
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: w.tasks.TB2 } })).projectId).toBe(w.projects.PB);
   });
 
   it('someone who can’t see it gets the answer they always got, not a word about it', async () => {

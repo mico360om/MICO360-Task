@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { meetingsApi, seriesIdOf, MEETING_STATUS_LABELS, type Meeting, type MeetingPatch, type MeetingStatus, type NewMeetingInput, type RecurrenceRule, type SeriesScope } from '../api/meetings';
-import { projectsApi } from '../api/projects';
+import { useProjectsWith } from '../lib/useProjectsWith';
 import { ApiError } from '../lib/api-client';
 import { fromLocalInputValue, nextHourInputValue, normalizeMeetingLink, toLocalInputValue } from '../lib/meetingFormat';
 import { firstMeetingDay, meetingRepeatText, repeatProblem } from '../lib/meeting-repeat';
@@ -131,10 +131,11 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     setEnd(meeting ? toLocalInputValue(meeting.endAt, timeZone) : '');
   }, [timeZone, meeting]);
 
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
+  // (1.22: also the meeting's own project when an administrator's "Show my projects only" leaves it off the list.)
+  const { projects: projectList } = useProjectsWith(meeting?.projectId ?? defaultProjectId);
   const projectOptions = [
     { value: '', label: 'No project (standalone)' },
-    ...(Array.isArray(projectsQ.data) ? projectsQ.data : []).map(projectOption),
+    ...projectList.map(projectOption),
   ];
   const statusOptions = (editing ? ALL_STATUS : CREATE_STATUS).map((s) => ({ value: s, label: MEETING_STATUS_LABELS[s] }));
 
@@ -198,7 +199,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     if (patch.people?.length) changePeople([...people, ...patch.people]);
     if (patch.agenda?.length) setAgenda((items) => [...items, ...patch.agenda!.map((t) => ({ key: newAgendaKey(), title: t, ownerId: null, minutes: null }))]);
   }
-  const openProjects = (Array.isArray(projectsQ.data) ? projectsQ.data : []).map((p) => ({ id: p.id, name: p.name, code: p.code, number: p.number ?? null }));
+  const openProjects = projectList.map((p) => ({ id: p.id, name: p.name, code: p.code, number: p.number ?? null }));
 
   const saveMut = useMutation({
     mutationFn: (as: SeriesScope) => {

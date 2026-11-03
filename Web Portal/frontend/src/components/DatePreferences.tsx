@@ -34,7 +34,7 @@ export function DatePreferences() {
       setProblem(null);
       await qc.cancelQueries({ queryKey: DATE_PREFS_KEY });
       const prev = qc.getQueryData<Prefs>(DATE_PREFS_KEY);
-      qc.setQueryData<Prefs>(DATE_PREFS_KEY, { timeZone: prev?.timeZone ?? null, weekStart: prev?.weekStart ?? null, ...patch });
+      qc.setQueryData<Prefs>(DATE_PREFS_KEY, { ...prev, timeZone: prev?.timeZone ?? null, weekStart: prev?.weekStart ?? null, ...patch });
       return { prev };
     },
     onError: (_e, _v, ctx) => {

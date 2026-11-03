@@ -816,7 +816,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.reportService) {
         // companies: every report and export follows the pick; its PDFs carry the scope's brand.
-        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pickOf, accessibleProjectIds, companyPeople, pdfBrand: scopeBrand });
+        await registerReportRoutes(api, { reportService: deps.reportService, guard, names: deps.reportNames, pickOf, accessibleProjectIds, companyPeople, pdfBrand: scopeBrand, myProjectsOnly });
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).

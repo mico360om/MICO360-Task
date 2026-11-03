@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEven
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useInRouterContext } from 'react-router-dom';
 import { apiClient } from '../../api/client';
-import { projectsApi } from '../../api/projects';
+import { useProjectsWith } from '../../lib/useProjectsWith';
 import { columnsApi } from '../../api/columns';
 import { membersApi } from '../../api/members';
 import { usersApi } from '../../api/users';
@@ -259,8 +259,9 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   }, [taskTemplates]);
 
   // ── Where the task goes ──
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
-  const allProjects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
+  // (1.22: with the page's or the task's own project when an administrator's "Show my projects only"
+  // leaves it off the list — a board or task opened by its link.)
+  const { projects: allProjects, listQ: projectsQ, fetchingExtra } = useProjectsWith(task?.projectId ?? fixedProjectId ?? defaultProjectId);
   // Archived — or all its companies archived: no new tasks there.
   const openProjects = useMemo(() => allProjects.filter((p) => !isProjectArchived(p)), [allProjects]);
   const project = allProjects.find((p) => p.id === draft.projectId) ?? null;
@@ -283,13 +284,14 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const noProjects = !projectFixed && projectsQ.isSuccess && openProjects.length === 0;
 
   useEffect(() => {
-    if (projectFixed || draft.projectId || openProjects.length === 0) return;
+    // (Wait for the page's own project when it is being fetched — else another one would be chosen.)
+    if (projectFixed || draft.projectId || openProjects.length === 0 || fetchingExtra) return;
     let last: string | null = null;
     try { last = localStorage.getItem(LAST_PROJECT); } catch { /* storage unavailable */ }
     // The page's own project first, then the one used last time, then the first open project.
     const start = [defaultProjectId, last].find((id) => id && openProjects.some((p) => p.id === id)) ?? openProjects[0]!.id;
     settle({ projectId: start });
-  }, [projectFixed, draft.projectId, openProjects, defaultProjectId]);
+  }, [projectFixed, draft.projectId, openProjects, defaultProjectId, fetchingExtra]);
 
   const columnsQ = useQuery({ queryKey: ['columns', draft.projectId], queryFn: () => columnsApi(apiClient).list(draft.projectId), enabled: !!draft.projectId });
   const columns = useMemo(

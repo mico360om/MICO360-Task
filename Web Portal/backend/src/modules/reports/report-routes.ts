@@ -28,6 +28,8 @@ export interface ReportRouteDeps {
   pickOf?: PickOf;
   /** companies: the project ids an administrator's pick covers (that company's projects). */
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? Then the workload shows who has tasks there. */
+  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
   /** companies: a company's people (its active members) — the workload rows with a pick. */
   companyPeople?: (companyId: string) => Promise<string[]>;
   /**
@@ -147,9 +149,11 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
       const mine = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], null) : null;
       return mine ? { projectIds: mine, peopleIds: [] } : {};
     }
+    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const mineOnly = deps.myProjectsOnly ? await deps.myProjectsOnly(viewer) : false;
     const [projectIds, peopleIds] = await Promise.all([
-      deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : Promise.resolve([]),
-      deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([]),
+      deps.accessibleProjectIds ? deps.accessibleProjectIds(viewer.id, viewer.roles, pick) : Promise.resolve([]),
+      deps.companyPeople && !mineOnly ? deps.companyPeople(pick) : Promise.resolve([]),
     ]);
     return { projectIds: projectIds ?? [], peopleIds };
   }
