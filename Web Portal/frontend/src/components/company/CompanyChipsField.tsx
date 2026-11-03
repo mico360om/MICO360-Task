@@ -212,7 +212,7 @@ export function CompanyChipsField({
         ) : null}
       </div>
       {error ? (
-        <p id={errorId} className="mt-1.5 text-xs font-medium text-danger">
+        <p id={errorId} role="alert" className="mt-1.5 text-xs font-medium text-danger">
           {error}
         </p>
       ) : null}

@@ -116,5 +116,7 @@ describe('CompanyChipsField', () => {
     render(<Field start={['A']} usable={[alpha, beta]} error="You’d lose access to this project. Ask an administrator to make this change." />);
     const msg = screen.getByText('You’d lose access to this project. Ask an administrator to make this change.');
     expect(screen.getByRole('group', { name: 'Companies' })).toHaveAttribute('aria-describedby', expect.stringContaining(msg.id));
+    // Announced as it arrives (the save button keeps focus).
+    expect(msg).toHaveAttribute('role', 'alert');
   });
 });

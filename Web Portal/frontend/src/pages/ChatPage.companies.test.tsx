@@ -166,4 +166,35 @@ describe('Chat — companies', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: /Message/ })).toBeNull());
     expect(screen.getByRole('note')).toHaveTextContent(SARA_NOTE);
   });
+
+  it('names from authors still show after leaving the chat and coming back', async () => {
+    directory = [{ id: 'me', username: 'me', firstName: 'Mo', lastName: 'Me', colleague: true }]; // Sara isn't in it
+    // As the app's client: a page of history stays fresh for 30 s.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+    const page = () => <QueryClientProvider client={qc}><ChatPage openConversationId="d1" /></QueryClientProvider>;
+    const first = render(page());
+    expect(await screen.findByText('old hello')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('Sara Said').length).toBeGreaterThan(0));
+    first.unmount();
+    render(page());
+    expect(await screen.findByText('old hello')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('Sara Said').length).toBeGreaterThan(0));
+  });
+
+  it('a read-only chat offers no Reply, and a refused message can be discarded but not edited or retried there', async () => {
+    override = (u, method) => {
+      if (!(u.includes('/conversations/d1/messages') && method === 'POST')) return undefined;
+      inbox = [dm({ readOnly: { message: SARA_NOTE } })];
+      return json({ error: { code: 'DM_READ_ONLY', message: SARA_NOTE } }, 403);
+    };
+    renderChat({ openConversationId: 'd1' });
+    await userEvent.type(await screen.findByRole('textbox', { name: /Message/ }), 'hello{Enter}');
+    expect(await screen.findByRole('note')).toHaveTextContent(SARA_NOTE);
+    expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
+    const row = screen.getByText('hello').closest('[data-message-id]') as HTMLElement;
+    expect(within(row).queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(within(row).queryByRole('button', { name: 'Edit' })).toBeNull();
+    await userEvent.click(within(row).getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByText('hello')).toBeNull();
+  });
 });

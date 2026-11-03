@@ -24,14 +24,25 @@ export function projectCompaniesOf(project: object | null | undefined): ProjectC
 
 const NOBODY: CompanyPersonOption[] = [];
 
+/** The people offered for a team, and whether that is the server's settled answer for these companies. */
+export interface TeamCandidates {
+  /** `null`: one company, or not known yet — the people directory, as before. */
+  people: CompanyPersonOption[] | null;
+  /**
+   * The answer is for these very companies and was read: picked people it lacks can be dropped.
+   * False while it is being read (the last answer may still show), after a reset, or when it failed.
+   */
+  settled: boolean;
+}
+
 /**
  * Who may join a team in these companies (`GET /people/candidates`), on a site with two or more
- * active companies; `null` — one company, or not known yet — means the people directory, as before.
- * Someone who isn't an administrator asks only about their own companies (the server refuses the
- * others: a Beta manager of an Alpha + Beta project is offered Beta people), so none of theirs
+ * active companies; `people: null` — one company, or not known yet — means the people directory, as
+ * before. Someone who isn't an administrator asks only about their own companies (the server refuses
+ * the others: a Beta manager of an Alpha + Beta project is offered Beta people), so none of theirs
  * offers nobody. While a new choice of companies is asked about, the last answer stays.
  */
-export function useTeamCandidates(companyIds: readonly string[] | null): CompanyPersonOption[] | null {
+export function useTeamCandidateState(companyIds: readonly string[] | null): TeamCandidates {
   const { data, companies, siteCompanyCount } = useMyCompanies();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const several = !!data && siteCompanyCount >= 2;
@@ -45,7 +56,12 @@ export function useTeamCandidates(companyIds: readonly string[] | null): Company
     // A company added or taken off: the people offered so far stay until the new answer comes.
     placeholderData: keepPreviousData,
   });
-  if (!several) return null;
-  if (ids.length === 0) return NOBODY;
-  return Array.isArray(q.data) ? q.data : NOBODY;
+  if (!several) return { people: null, settled: false };
+  if (ids.length === 0) return { people: NOBODY, settled: true };
+  return { people: Array.isArray(q.data) ? q.data : NOBODY, settled: q.isSuccess && !q.isPlaceholderData && Array.isArray(q.data) };
+}
+
+/** The people offered for a team in these companies (see useTeamCandidateState); null: the directory. */
+export function useTeamCandidates(companyIds: readonly string[] | null): CompanyPersonOption[] | null {
+  return useTeamCandidateState(companyIds).people;
 }

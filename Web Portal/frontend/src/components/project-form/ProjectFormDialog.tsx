@@ -27,7 +27,7 @@ import { TemplateStart, useTemplatePlan, type TemplateChoice } from '../template
 import type { DirectoryUser } from '../../api/users';
 import { useMyCompanies } from '../../hooks/useMyCompanies';
 import { CompanyChipsField } from '../company/CompanyChipsField';
-import { projectCompaniesOf, useTeamCandidates } from '../company/team-candidates';
+import { projectCompaniesOf, useTeamCandidateState } from '../company/team-candidates';
 
 const NAME_MAX = 191;
 const DESCRIPTION_MAX = 20_000;
@@ -211,7 +211,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const directory = useMemo(() => (Array.isArray(dirQ.data) ? dirQ.data : []), [dirQ.data]);
   // companies: on a site with two or more, the owner and the team are people of the project's
   // companies (the server refuses anyone else) — the field's choice, or the one company it goes into.
-  const candidates = useTeamCandidates(showCompanies ? companyIds : startCompanies);
+  const { people: candidates, settled: candidatesSettled } = useTeamCandidateState(showCompanies ? companyIds : startCompanies);
   const people = useMemo<DirectoryUser[]>(() => {
     if (!candidates) return directory;
     const pool: DirectoryUser[] = candidates.map((c) => ({ ...c, active: true }));
@@ -219,18 +219,30 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     for (const id of [initial.ownerId, me]) if (id && !pool.some((u) => u.id === id)) pool.push(...directory.filter((u) => u.id === id));
     return pool;
   }, [candidates, directory, initial.ownerId, me]);
-  // A company taken off takes its people off the new team too.
+  // A company taken off takes its people off the new team and the template's roles too — once the
+  // server has answered for the companies now chosen (not while it is asked again, nor if it failed).
   useEffect(() => {
-    if (!candidates) return;
-    setTeamIds((ids) => (ids.every((id) => people.some((u) => u.id === id)) ? ids : ids.filter((id) => people.some((u) => u.id === id))));
-  }, [candidates, people]);
+    if (!candidates || !candidatesSettled) return;
+    const may = new Set(people.map((u) => u.id));
+    setTeamIds((ids) => (ids.every((id) => may.has(id)) ? ids : ids.filter((id) => may.has(id))));
+    setTemplate((t) => {
+      if (!t || Object.values(t.roles).every((id) => !id || may.has(id))) return t;
+      return { ...t, roles: Object.fromEntries(Object.entries(t.roles).filter(([, id]) => !id || may.has(id))) };
+    });
+  }, [candidates, candidatesSettled, people]);
+  // While the answer isn't in, people already picked keep their names (from the directory).
+  const shown = useMemo<DirectoryUser[]>(() => {
+    if (!candidates || candidatesSettled) return people;
+    const picked = new Set([...teamIds, ...Object.values(template?.roles ?? {})]);
+    return [...people, ...directory.filter((u) => picked.has(u.id) && !people.some((p) => p.id === u.id))];
+  }, [candidates, candidatesSettled, people, directory, teamIds, template]);
   // An employee's new project always has an owner (them, unless they pick someone else); an admin
   // may leave one without, and anyone may clear an existing project's owner.
-  const ownerOptions = useMemo(() => ownerChoices(people, initial.ownerId, { allowNone: isAdmin || editing }), [people, initial.ownerId, isAdmin, editing]);
+  const ownerOptions = useMemo(() => ownerChoices(shown, initial.ownerId, { allowNone: isAdmin || editing }), [shown, initial.ownerId, isAdmin, editing]);
   // The team picker: everyone active — except an employee themselves, who joins as a manager anyway.
   const teamPeople = useMemo(
-    () => activePeople(people).filter((u) => isAdmin || u.id !== me).map((u) => ({ id: u.id, name: personName(u), username: u.username, avatarUrl: u.avatarUrl })),
-    [people, isAdmin, me],
+    () => activePeople(shown).filter((u) => isAdmin || u.id !== me).map((u) => ({ id: u.id, name: personName(u), username: u.username, avatarUrl: u.avatarUrl })),
+    [shown, isAdmin, me],
   );
   // Whoever owned it stays on its team as a manager when the owner changes (the server does it, for
   // anyone making the change): say so before saving.
@@ -453,7 +465,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                   choice={template}
                   onChange={setTemplate}
                   today={today}
-                  directory={directory}
+                  directory={shown}
                   ownerId={draft.ownerId}
                   plan={planQ.data}
                   planError={planQ.isError}

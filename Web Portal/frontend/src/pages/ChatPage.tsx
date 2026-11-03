@@ -52,6 +52,10 @@ export { MAX_MESSAGE_LENGTH };
 export const CHAT_PAGE_SIZE = 50;
 
 const NO_PREFS: ConversationPrefs = { favorite: false, archived: false, muted: false };
+/** companies: the authors of the messages loaded so far, by id (see `authors` on a page of history). */
+type AuthorMap = Record<string, MessageAuthor>;
+const CHAT_AUTHORS_KEY = ['chat', 'authors'] as const;
+const NO_AUTHORS: AuthorMap = {};
 /** How long a message found by search or a reply's quote stays marked. */
 const HIGHLIGHT_MS = 2500;
 
@@ -122,30 +126,30 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const people = useMemo(() => new Map(directory.map((u) => [u.id, u])), [directory]);
   // companies: who wrote the messages loaded (the server's `authors`) — names for people the
   // directory doesn't have (someone you no longer share a company with still wrote what you read).
-  const [authors, setAuthors] = useState<ReadonlyMap<string, MessageAuthor>>(() => new Map());
+  // Kept in the query cache beside the pages they came with, so they are there whenever those are.
+  const authorsQ = useQuery({ queryKey: CHAT_AUTHORS_KEY, queryFn: () => qc.getQueryData<AuthorMap>(CHAT_AUTHORS_KEY) ?? {}, enabled: false, staleTime: Infinity, gcTime: Infinity });
+  const authors = authorsQ.data ?? NO_AUTHORS;
   const noteAuthors = useCallback((list: MessageAuthor[] | undefined) => {
     if (!Array.isArray(list) || list.length === 0) return;
-    setAuthors((known) => {
+    qc.setQueryData<AuthorMap>(CHAT_AUTHORS_KEY, (known = {}) => {
       const fresh = list.filter((a) => {
-        const was = known.get(a.id);
+        const was = known[a.id];
         return !was || was.name !== a.name || was.avatarUrl !== a.avatarUrl;
       });
       if (fresh.length === 0) return known;
-      const next = new Map(known);
-      for (const a of fresh) next.set(a.id, a);
-      return next;
+      return { ...known, ...Object.fromEntries(fresh.map((a) => [a.id, a])) };
     });
-  }, []);
+  }, [qc]);
 
   /** Someone's full name (yours too). */
   const fullName = useCallback((userId: string): string => {
     const u = people.get(userId);
-    return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : authors.get(userId)?.name || (userId === myId ? 'You' : 'Someone');
+    return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : authors[userId]?.name || (userId === myId ? 'You' : 'Someone');
   }, [people, authors, myId]);
   /** As shown on messages: "You" for your own. */
   const nameOf = useCallback((userId: string): string => (userId === myId ? 'You' : fullName(userId)), [fullName, myId]);
   const avatarOf = useCallback(
-    (userId: string): string | null => (userId === myId ? me?.avatarUrl ?? null : people.get(userId)?.avatarUrl ?? authors.get(userId)?.avatarUrl ?? null),
+    (userId: string): string | null => (userId === myId ? me?.avatarUrl ?? null : people.get(userId)?.avatarUrl ?? authors[userId]?.avatarUrl ?? null),
     [people, authors, myId, me?.avatarUrl],
   );
   const projectOf = useCallback((projectId?: string) => projects.find((p) => p.id === projectId), [projects]);
@@ -770,6 +774,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
         authorAvatar={avatarOf(m.userId)}
         receipt={mine && active ? receiptState(m, { myId, kind: active.kind, participants, isOnline }) : undefined}
         canEdit={mine && !m.pending && !activeReadOnly}
+        writable={!activeReadOnly}
         canDelete={!m.pending && (mine || isAdmin)}
         editing={editingId === m.id}
         highlighted={highlightId === m.id}

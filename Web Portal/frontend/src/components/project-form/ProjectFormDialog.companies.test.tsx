@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectFormDialog } from './ProjectFormDialog';
 import { useAuthStore } from '../../stores/auth-store';
@@ -101,7 +101,7 @@ function renderForm(props: Partial<React.ComponentProps<typeof ProjectFormDialog
       <ProjectFormDialog onClose={vi.fn()} onSaved={onSaved} {...props} />
     </QueryClientProvider>,
   );
-  return { onSaved };
+  return { onSaved, qc };
 }
 
 const companiesGroup = () => screen.findByRole('group', { name: 'Companies' });
@@ -251,6 +251,59 @@ describe('Project form — companies', () => {
     await waitFor(() => expect(team()).toBeNull());
   });
 
+  it('a template’s roles are filled from the chosen companies’ people, and a company taken off takes its people off the roles', async () => {
+    usable([alpha, beta]);
+    pick(alpha.id);
+    override = (u) => {
+      if (u.endsWith('/templates/projects')) return json({ data: [{ id: 'pt1', name: 'Rig inspection', description: null, columnCount: 1, roleCount: 1, taskCount: 0, createdById: 'admin', createdByName: 'Admin', canManage: true, createdAt: '', updatedAt: '' }] });
+      if (u.includes('/templates/projects/pt1/plan')) {
+        return json({ data: { template: { id: 'pt1', name: 'Rig inspection', description: null, updatedAt: '2026-10-20T08:00:00.000Z', columns: [], roles: [{ id: 'r1', name: 'Inspector' }] }, startDate: '2026-11-03', today: '2026-11-03', workingDays: [0, 1, 2, 3, 4], startColumn: 0, tasks: [], overdue: 0, moved: 0 } });
+      }
+      return undefined;
+    };
+    const { onSaved } = renderForm({ templateId: 'pt1' });
+    await companiesGroup();
+    await waitFor(() => expect(candidateAsks().at(-1)).toBe(`/people/candidates?companyIds=${alpha.id}`));
+    await userEvent.click(await screen.findByRole('button', { name: 'Person for Inspector' }));
+    const options = within(await screen.findByRole('listbox')).getAllByRole('option').map((o) => o.textContent);
+    expect(options.some((t) => t?.includes('Amy Alphaonly'))).toBe(true);
+    expect(options.some((t) => t?.includes('Bob Betaonly'))).toBe(false); // in the directory, not in Alpha
+    await userEvent.click(screen.getByRole('option', { name: /Amy Alphaonly/ }));
+    // Beta added and made main, Alpha taken off: Amy (only in Alpha) no longer fills the role.
+    await addCompany('Beta Co');
+    await userEvent.click(screen.getByRole('button', { name: 'Make Beta Co the main company' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Alpha Co' }));
+    await waitFor(() => expect(candidateAsks().at(-1)).toBe(`/people/candidates?companyIds=${beta.id}`));
+    await fillNew();
+    await userEvent.click(screen.getByRole('button', { name: 'Create project' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(posted(/\/templates\/projects\/pt1\/projects$/)!.roles).toEqual({});
+  });
+
+  it('the picked team stays while the candidates can’t be read (a cache reset, a failed request)', async () => {
+    usable([alpha, beta]);
+    pick(alpha.id);
+    const { qc } = renderForm();
+    await companiesGroup();
+    await userEvent.click(screen.getByRole('combobox', { name: 'Add people to the team' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Amy Alphaonly/ }));
+    const team = () => screen.queryByRole('list', { name: 'Team' });
+    expect(within(team()!).getByText('Amy Alphaonly')).toBeInTheDocument();
+    // Everything is read again (another company was picked elsewhere, or my companies changed).
+    await act(async () => {
+      await qc.resetQueries();
+    });
+    await waitFor(() => expect(candidateAsks().length).toBeGreaterThan(1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(within(team()!).getByText('Amy Alphaonly')).toBeInTheDocument();
+    // Beta's people can't be read: the team stays as it is.
+    override = (u) => (u.includes(`companyIds=${alpha.id},${beta.id}`) ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : undefined);
+    await addCompany('Beta Co');
+    await waitFor(() => expect(candidateAsks().at(-1)).toBe(`/people/candidates?companyIds=${alpha.id},${beta.id}`));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(within(team()!).getByText('Amy Alphaonly')).toBeInTheDocument();
+  });
+
   it('a multi-company site with one company of mine: no field, but the team comes from my company', async () => {
     usable([alpha], { site: 2 });
     renderForm();
@@ -271,7 +324,8 @@ describe('Project form — companies', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     const msg = await screen.findByText('You’d lose access to this project. Ask an administrator to make this change.');
     expect((await companiesGroup()).getAttribute('aria-describedby')).toContain(msg.id);
-    expect(screen.queryByRole('alert')).toBeNull();
+    // Said there only (no banner as well).
+    expect(screen.getAllByRole('alert')).toEqual([msg]);
   });
 
   it('a refused company on a new project shows there too, and the code stays as typed', async () => {
