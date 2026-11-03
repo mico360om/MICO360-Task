@@ -55,6 +55,11 @@ export interface ClientView {
   generatedAt: string;
   /** The company time zone, which "Updated …" is written in (an older server sends none). */
   timeZone?: string;
+  /**
+   * companies: the project's main company — its name and logo (null: the built-in logo) — while the
+   * site has two or more active companies; null (or missing, an older server) with one: the page is unchanged.
+   */
+  company?: { name: string; logoUrl: string | null } | null;
 }
 
 async function errorOf(res: Response): Promise<ApiError> {

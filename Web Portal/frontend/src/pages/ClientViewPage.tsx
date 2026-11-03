@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { BrandLogo } from '../components/ui/BrandLogo';
+import { assetUrl } from '../api/client';
 import { clientViewApi, type ClientInspection, type ClientInspectionSummary, type ClientView, type ClientViewApi, type ClientViewItem, type ClientViewMinutes } from '../api/client-view';
 import { ClientInspectionBody, revisionLine } from '../components/inspections/ClientInspectionBody';
 import { ApiError } from '../lib/api-client';
@@ -80,6 +81,8 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
     void load();
   }, [load]);
 
+  const company = stage.kind === 'ready' ? (stage.view.company ?? null) : null;
+
   return (
     <div className="flex min-h-screen flex-col bg-ground">
       <a href="#client-main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-brand">
@@ -87,9 +90,18 @@ export function ClientViewScreen({ api }: { api: ClientViewApi }) {
       </a>
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          {/* The coloured wordmark on light; the white one in dark mode (as the staff app's sidebar and sign-in do). */}
-          <BrandLogo className="h-9" alt="MICO360 Tasks" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Shared project</span>
+          {/* The coloured wordmark on light; the white one in dark mode (as the staff app's sidebar and sign-in do).
+              companies: with two or more, the project's main company's logo (the built-in one when it has
+              none), named for the company, and who shared it. */}
+          {company ? <CompanyMark company={company} /> : <BrandLogo className="h-9" alt="MICO360 Tasks" />}
+          <div className="flex min-w-0 flex-col items-end text-end">
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Shared project</span>
+            {company ? (
+              <span className="max-w-[14rem] truncate text-xs text-ink-2 sm:max-w-xs">
+                Shared by <bdi>{company.name}</bdi>
+              </span>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -347,6 +359,14 @@ function Section({ title, children, aside }: { title: string; children: ReactNod
       {children}
     </section>
   );
+}
+
+/** The project's main company's logo, named for the company; the built-in logo when it has none (or it won't load). */
+function CompanyMark({ company }: { company: { name: string; logoUrl: string | null } }) {
+  const src = company.logoUrl ? (company.logoUrl.startsWith('/') ? assetUrl(company.logoUrl) : company.logoUrl) : null;
+  const [broken, setBroken] = useState<string | null>(null);
+  if (!src || broken === src) return <BrandLogo className="h-9" alt={company.name} />;
+  return <img src={src} alt={company.name} onError={() => setBroken(src)} className="h-9 w-auto max-w-[10rem] object-contain" decoding="async" />;
 }
 
 function Project({ view, api, onSignedOut }: { view: ClientView; api: ClientViewApi; onSignedOut: () => void }) {
