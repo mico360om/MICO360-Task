@@ -26,6 +26,7 @@ import { pageFrameClass, pageLayout } from '../lib/page-layout';
 import { useMyCompanies } from '../hooks/useMyCompanies';
 import { CompanyPicker } from './company/CompanyPicker';
 import { CompanyNotice } from './company/CompanyNotice';
+import { ArchivedProjectNotice } from './projects/ArchivedProjectNotice';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 
 /** The pages that still open when all of someone's companies are archived. */
@@ -187,6 +188,8 @@ export function AppShell() {
 
         {/* Companies: "You no longer have access to Beta Co…" when the picked company was taken away. */}
         <CompanyNotice frameClass={frame} />
+        {/* 1.22: "This project is archived — reopen it first." when the server refused a change. */}
+        <ArchivedProjectNotice frameClass={frame} />
 
         {/* At least a window tall (less the top bar), so the footer starts below the fold and
             isn't shoved down as the page's content arrives (a layout shift on every page that

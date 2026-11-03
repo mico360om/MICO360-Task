@@ -22,6 +22,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   still open any project by its link, and untick "Only my projects" on the Projects page to see every
   project for that visit.
 
+### Improvements
+- An archived project is now read-only on the server too, not only on the website: new tasks, task
+  changes, moves and status changes, comments, files, checklists, its board's columns, its meetings
+  and moving a task into or out of it are refused with "This project is archived — reopen it first."
+  Reading, exporting, reopening it, changing its team or companies, and deleting stay as they were.
+  The nightly carry-forward and repeating meetings skip archived projects, as repeating tasks already did.
+
 ## [1.21.0] - 2026-11-04
 
 ### New features
