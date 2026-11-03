@@ -29,6 +29,9 @@ import { useAuthStore } from '../stores/auth-store';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { useNewFromAddress } from '../lib/useNewFromAddress';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { BulkCompanyDialog } from '../components/company/BulkCompanyDialog';
+import { peopleChangeText, useCompanyChoices } from '../components/company/company-admin';
+import { useMyCompanies } from '../hooks/useMyCompanies';
 
 const STATUS_TONE: Record<UserStatus, string> = {
   ACTIVE: 'bg-success-soft text-success',
@@ -61,7 +64,29 @@ interface Notice {
   text: string;
   /** The people a bulk send didn't reach, each with why (keyed by person and place: two may read alike). */
   items?: { key: string; text: string }[];
+  /** More of the same, folded under "Show all" (a bulk company change's other refusals). */
+  more?: { key: string; text: string }[];
   error?: boolean;
+}
+
+/** A person's companies (A–Z, as the server lists them), their primary and archived ones marked; "No company" when none. */
+function CompanyNames({ user, archived }: { user: ApiUser; archived: ReadonlySet<string> }) {
+  const companies = user.companies ?? [];
+  if (companies.length === 0) return <span className="text-ink-3">No company</span>;
+  return (
+    <ul aria-label="Companies" className="flex flex-wrap gap-1">
+      {companies.map((c) => {
+        const primary = c.id === user.primaryCompanyId;
+        const marks = [primary ? 'primary' : null, archived.has(c.id) ? 'archived' : null].filter(Boolean).join(', ');
+        return (
+          <li key={c.id} title={primary ? 'Primary company: their emails use its logo and name' : undefined} className={`rounded-md px-1.5 py-0.5 text-xs ${primary ? 'bg-brand/10 font-semibold text-brand' : 'bg-ground text-ink-2'}`}>
+            <bdi>{c.name}</bdi>
+            {marks ? <span className="font-normal"> ({marks})</span> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 const NOT_SET_UP_ID = 'users-email-not-set-up';
@@ -89,6 +114,14 @@ const TICK_TARGET = 'grid cursor-pointer place-items-center [@media(pointer:coar
 const PHONE_QUERY = '(max-width: 47.9375em)';
 /** On a card, each control is finger-sized on a touch screen (in the table they sit in a tight row). */
 const CARD_TOUCH = '[@media(pointer:coarse)]:min-h-11';
+/**
+ * Below xl (1280px) the table is wider than the page: the tick box and the name stay put while the
+ * rest scrolls. With the Companies column (two or more companies) it is wider still, so up to 2xl (1536px).
+ */
+const STICKY = {
+  xl: { tick: 'max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0', name: 'max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line', afterTick: 'max-xl:start-10', first: 'max-xl:start-0', hint: 'xl:hidden' },
+  '2xl': { tick: 'max-2xl:sticky max-2xl:z-[1] max-2xl:bg-surface max-2xl:start-0', name: 'max-2xl:sticky max-2xl:z-[1] max-2xl:bg-surface max-2xl:border-e max-2xl:border-line', afterTick: 'max-2xl:start-10', first: 'max-2xl:start-0', hint: '2xl:hidden' },
+} as const;
 
 export function UsersPage() {
   const qc = useQueryClient();
@@ -100,7 +133,19 @@ export function UsersPage() {
   const [editing, setEditing] = useState<ApiUser | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const q = useQuery({ queryKey: ['users'], queryFn: () => usersApi(apiClient).list() });
+  // Companies (two or more on the site): a Companies column, a filter that starts at the picked company
+  // (the choice isn't remembered; a new pick starts it again), and bulk add / remove.
+  const { pick } = useMyCompanies();
+  const companyChoices = useCompanyChoices();
+  const multi = companyChoices.show;
+  const archivedIds = new Set(companyChoices.companies.filter((c) => c.status === 'ARCHIVED').map((c) => c.id));
+  const [companyChoice, setCompanyChoice] = useState<{ pick: string | null; value: string }>({ pick, value: pick ?? '' });
+  const companyFilter = companyChoice.pick === pick ? companyChoice.value : (pick ?? '');
+  const [bulk, setBulk] = useState<'add' | 'remove' | null>(null);
+  const q = useQuery({
+    queryKey: ['users', companyFilter || 'all'],
+    queryFn: () => usersApi(apiClient).list(companyFilter ? { companyId: companyFilter } : undefined),
+  });
   const phone = useMediaQuery(PHONE_QUERY);
   const users = Array.isArray(q.data) ? q.data : [];
   const lockedCount = users.filter((u) => u.locked).length;
@@ -108,6 +153,10 @@ export function UsersPage() {
   // Welcome emails need email set up on the server (until /config answers, they're offered).
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
   const emailEnabled = (configQ.data as { emailEnabled?: unknown } | undefined)?.emailEnabled !== false;
+  // Tick boxes: for welcome emails (email set up) and, with two or more companies, for bulk assign.
+  const selectable = emailEnabled || multi;
+  const sticky = STICKY[multi ? '2xl' : 'xl'];
+  const nameCell = `${sticky.name} ${selectable ? sticky.afterTick : sticky.first}`;
 
   // Show / Sort: everyone or only the people who have never signed in; the list's order or by last sign-in.
   const [show, setShow] = useState<'all' | 'never'>('all');
@@ -334,6 +383,14 @@ export function UsersPage() {
                 {notice.items.map((item) => <li key={item.key}>{item.text}</li>)}
               </ul>
             ) : null}
+            {notice.more?.length ? (
+              <details className="mt-1">
+                <summary className="cursor-pointer font-medium">Show all</summary>
+                <ul className="mt-1 list-disc pl-5">
+                  {notice.more.map((item) => <li key={item.key}>{item.text}</li>)}
+                </ul>
+              </details>
+            ) : null}
           </div>
           <button onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-80 hover:opacity-100">✕</button>
         </div>
@@ -359,6 +416,26 @@ export function UsersPage() {
             <option value="never">Never signed in</option>
           </select>
         </div>
+        {multi ? (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="users-company" className="text-xs font-medium text-ink-2">Company</label>
+            <select
+              id="users-company"
+              value={companyFilter}
+              onChange={(e) => {
+                clearSelection();
+                setCompanyChoice({ pick, value: e.target.value });
+              }}
+              className="max-w-[16rem] rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
+            >
+              <option value="">All companies</option>
+              {companyChoices.companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.status === 'ARCHIVED' ? `${c.name} (archived)` : c.name}</option>
+              ))}
+              <option value="none">No company</option>
+            </select>
+          </div>
+        ) : null}
         <div className="flex flex-col gap-1">
           <label htmlFor="users-sort" className="text-xs font-medium text-ink-2">Sort</label>
           <select id="users-sort" value={sort} onChange={(e) => setSort(e.target.value as SignInSort)} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
@@ -380,23 +457,31 @@ export function UsersPage() {
           </Button>
           {chosen.length > 0 ? (
             <>
-              <Button onClick={() => { welcomeBatchMut.reset(); setConfirmingBatch(true); }} disabled={!emailEnabled || chosen.length > MAX_WELCOME_BATCH} aria-describedby={chosen.length > MAX_WELCOME_BATCH ? 'users-too-many' : undefined}>
-                Send welcome emails
-              </Button>
+              {multi ? (
+                <>
+                  <Button variant="secondary" onClick={() => setBulk('add')}>Add to a company…</Button>
+                  <Button variant="secondary" onClick={() => setBulk('remove')}>Remove from a company…</Button>
+                </>
+              ) : null}
+              {emailEnabled ? (
+                <Button onClick={() => { welcomeBatchMut.reset(); setConfirmingBatch(true); }} disabled={chosen.length > MAX_WELCOME_BATCH} aria-describedby={chosen.length > MAX_WELCOME_BATCH ? 'users-too-many' : undefined}>
+                  Send welcome emails
+                </Button>
+              ) : null}
               <button type="button" onClick={clearSelection} className="rounded-lg px-2 py-1.5 text-sm font-medium text-ink-2 hover:bg-ground hover:text-ink">
                 Clear selection
               </button>
             </>
           ) : null}
         </div>
-        {chosen.length > MAX_WELCOME_BATCH ? (
+        {emailEnabled && chosen.length > MAX_WELCOME_BATCH ? (
           <p id="users-too-many" className="w-full text-sm text-warning">You can send up to {MAX_WELCOME_BATCH} welcome emails at a time. Choose fewer people.</p>
         ) : null}
       </div>
 
       {/* From 768px to xl (a tablet, a small laptop) the table is wider than the page: the names stay put
           while the rest scrolls. Below 768px (a phone) each person is a card instead. */}
-      {phone ? null : <p className="mb-2 text-xs text-ink-2 xl:hidden">Swipe the table sideways to see status, last sign-in and actions.</p>}
+      {phone ? null : <p className={`mb-2 text-xs text-ink-2 ${sticky.hint}`}>Swipe the table sideways to see status, last sign-in and actions.</p>}
       <div className={phone ? '' : 'card overflow-x-auto'} tabIndex={phone ? undefined : 0} role={phone ? undefined : 'region'} aria-label={phone ? undefined : 'Users'}>
         {q.isLoading ? (
           <p className="p-4 text-ink-2">Loading…</p>
@@ -407,9 +492,13 @@ export function UsersPage() {
           </p>
         ) : show === 'never' && shown.length === 0 ? (
           <p className="p-4 text-ink-2">Everyone has signed in at least once.</p>
+        ) : companyFilter && shown.length === 0 ? (
+          <p className="p-4 text-ink-2">
+            {companyFilter === 'none' ? 'Everyone has a company.' : <>No one is in <bdi>{companyChoices.companies.find((c) => c.id === companyFilter)?.name ?? 'this company'}</bdi>.</>}
+          </p>
         ) : phone ? (
           <>
-            {emailEnabled ? (
+            {selectable ? (
               <label className={`mb-2 inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-ink-2 ${CARD_TOUCH}`}>
                 <input type="checkbox" checked={allShownSelected} onChange={toggleShown} aria-label="Select everyone shown" className="h-4 w-4 accent-brand" />
                 Select everyone shown
@@ -419,7 +508,7 @@ export function UsersPage() {
               {shown.map((u) => (
                 <li key={u.id} className="min-w-0 rounded-xl border border-line bg-surface p-3 shadow-soft">
                   <div className="flex items-start gap-3">
-                    {emailEnabled ? <div className="pt-0.5 [@media(pointer:coarse)]:pt-2.5">{tickBox(u)}</div> : null}
+                    {selectable ? <div className="pt-0.5 [@media(pointer:coarse)]:pt-2.5">{tickBox(u)}</div> : null}
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-ink [overflow-wrap:anywhere] [&_bdi]:whitespace-normal">{who(u)}</div>
                       <p className="mt-0.5 truncate text-sm text-ink-2" title={u.email}>{u.email}</p>
@@ -435,6 +524,12 @@ export function UsersPage() {
                       <dt className="text-xs text-ink-3">Last sign-in</dt>
                       <dd className="text-ink-2">{lastSignIn(u)}</dd>
                     </div>
+                    {multi ? (
+                      <div className="col-span-2 min-w-0">
+                        <dt className="text-xs text-ink-3">Companies</dt>
+                        <dd className="mt-0.5"><CompanyNames user={u} archived={archivedIds} /></dd>
+                      </div>
+                    ) : null}
                   </dl>
                   <div className="mt-3 flex flex-wrap items-center gap-2">{actionsFor(u, true)}</div>
                 </li>
@@ -445,16 +540,17 @@ export function UsersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                {emailEnabled ? (
-                  <th className="w-10 p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0">
+                {selectable ? (
+                  <th className={`w-10 p-3 ${sticky.tick}`}>
                     <label className={TICK_TARGET}>
                       <input type="checkbox" checked={allShownSelected} onChange={toggleShown} aria-label="Select everyone shown" className="h-4 w-4 accent-brand" />
                     </label>
                   </th>
                 ) : null}
-                <th className={`p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>User</th>
+                <th className={`p-3 ${nameCell}`}>User</th>
                 <th className="p-3">Email</th>
                 <th className="p-3">Roles</th>
+                {multi ? <th className="p-3">Companies</th> : null}
                 <th className="p-3">Status</th>
                 <th className="p-3">Last sign-in</th>
                 <th className="p-3 text-right">Actions</th>
@@ -463,14 +559,15 @@ export function UsersPage() {
             <tbody>
               {shown.map((u) => (
                 <tr key={u.id} className="border-b border-line last:border-0">
-                  {emailEnabled ? (
-                    <td className="p-3 max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:start-0">{tickBox(u)}</td>
+                  {selectable ? (
+                    <td className={`p-3 ${sticky.tick}`}>{tickBox(u)}</td>
                   ) : null}
-                  <td className={`p-3 font-medium text-ink max-xl:sticky max-xl:z-[1] max-xl:bg-surface max-xl:border-e max-xl:border-line ${emailEnabled ? 'max-xl:start-10' : 'max-xl:start-0'}`}>
+                  <td className={`p-3 font-medium text-ink ${nameCell}`}>
                     {who(u)}
                   </td>
                   <td className="p-3 text-ink-2">{u.email}</td>
                   <td className="p-3 text-ink-2">{u.roles.join(', ') || '—'}</td>
+                  {multi ? <td className="min-w-[10rem] p-3"><CompanyNames user={u} archived={archivedIds} /></td> : null}
                   <td className="p-3">{statusBadges(u)}</td>
                   <td className="whitespace-nowrap p-3 text-ink-2">{lastSignIn(u)}</td>
                   <td className="p-3">
@@ -519,6 +616,19 @@ export function UsersPage() {
       ) : null}
       {creating ? <CreateUserModal onClose={() => setCreating(false)} onCreated={(result) => setNotice(createdNotice(result))} /> : null}
       {editing ? <EditUserModal user={editing} onClose={() => setEditing(null)} /> : null}
+      {bulk ? (
+        <BulkCompanyDialog
+          mode={bulk}
+          userIds={chosen.map((u) => u.id)}
+          onClose={() => setBulk(null)}
+          onDone={(result) => {
+            setBulk(null);
+            clearSelection();
+            const { text, more } = peopleChangeText(result);
+            setNotice({ text, ...(more.length ? { more } : {}), error: result.changed === 0 && result.refused.length > 0 });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

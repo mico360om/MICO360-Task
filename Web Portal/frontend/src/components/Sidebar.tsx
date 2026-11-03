@@ -117,6 +117,15 @@ const I = {
       <circle cx="18.5" cy="15.5" r="2.2" />
     </>
   ),
+  // Two buildings: the companies on the site.
+  companies: (
+    <>
+      <path d="M3 21h18" />
+      <path d="M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16" />
+      <path d="M14 10h4a1 1 0 0 1 1 1v10" />
+      <path d="M8 8h2M8 12h2M8 16h2" />
+    </>
+  ),
   sliders: (
     <>
       <circle cx="12" cy="12" r="3" />
@@ -176,6 +185,7 @@ const COMMUNICATION: NavItem[] = [
 ];
 const ADMIN: NavItem[] = [
   { label: 'User Management', to: '/admin/users', icon: I.users },
+  { label: 'Companies', to: '/admin/companies', icon: I.companies },
   { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
   { label: 'Audit Logs', to: '/admin/audit', icon: I.audit },

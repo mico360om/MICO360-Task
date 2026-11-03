@@ -9,6 +9,9 @@ import { useDialog } from '../hooks/useDialog';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 import { ModalPortal } from './ui/ModalPortal';
+import { CompanyChecklist } from './company/CompanyChecklist';
+import { useCompanyChoices } from './company/company-admin';
+import { useCompanyStore } from '../stores/company-store';
 
 export interface CreateUserModalProps {
   onClose: () => void;
@@ -31,6 +34,8 @@ function createFailure(e: unknown): string {
     const [field, messages] = Object.entries(fields).find(([, m]) => m?.length) ?? [];
     if (field && messages?.[0]) return `Check the ${FIELD_NAMES[field] ?? field}: ${messages[0]}`;
     if (e.status === 403) return 'You don’t have permission to create accounts.';
+    // The server's own sentence for a detail it refused (a company: "Choose at least one company.").
+    if (e.status === 400 && e.message && !/^Request failed/.test(e.message)) return e.message;
   }
   return 'Couldn’t create the account. Please try again.';
 }
@@ -55,10 +60,27 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
   const emailEnabled = (configQ.data as { emailEnabled?: unknown } | undefined)?.emailEnabled !== false;
   const [welcomeChoice, setWelcomeChoice] = useState(true);
   const sendWelcome = emailEnabled && welcomeChoice;
+  // Their companies, once the site has two or more: the picked one ticked to start with (the server's
+  // own default). With one company there is no field, and the server gives them that company.
+  const companyChoices = useCompanyChoices();
+  const pick = useCompanyStore((s) => s.pick);
+  const [tickedIds, setTickedIds] = useState<string[] | null>(null);
+  const [chosenPrimary, setChosenPrimary] = useState<string | null>(null);
+  const companyIds = tickedIds ?? (pick && companyChoices.companies.some((c) => c.id === pick && c.status === 'ACTIVE') ? [pick] : []);
+  const primaryCompanyId = chosenPrimary && companyIds.includes(chosenPrimary) ? chosenPrimary : (companyIds[0] ?? null);
 
   const createMut = useMutation({
     mutationFn: () =>
-      usersApi(apiClient).create({ firstName, lastName, username, email, ...(password ? { password } : {}), roleNames: [role], sendWelcome }),
+      usersApi(apiClient).create({
+        firstName,
+        lastName,
+        username,
+        email,
+        ...(password ? { password } : {}),
+        roleNames: [role],
+        sendWelcome,
+        ...(companyChoices.show ? { companyIds, primaryCompanyId } : {}),
+      }),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['directory'] });
@@ -78,6 +100,11 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim()) {
       setError('Fill in every field.');
       firstRef.current?.focus();
+      return;
+    }
+    // An employee needs a company (administrators see every company anyway). The server's words.
+    if (companyChoices.show && role === 'EMPLOYEE' && companyIds.length === 0) {
+      setError('Choose at least one company.');
       return;
     }
     // With a welcome email they set their own password; without one, a temporary password is needed.
@@ -178,6 +205,16 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                   </select>
                 </div>
               </div>
+              {companyChoices.show ? (
+                <CompanyChecklist
+                  companies={companyChoices.companies}
+                  value={companyIds}
+                  onChange={setTickedIds}
+                  primaryId={primaryCompanyId}
+                  onPrimaryChange={setChosenPrimary}
+                  idPrefix="nu-companies"
+                />
+              ) : null}
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
               <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">

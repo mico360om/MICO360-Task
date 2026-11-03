@@ -68,6 +68,14 @@ describe('matchNavCommands', () => {
     expect(matchNavCommands('users', true).some((c) => c.to === '/admin/users')).toBe(true);
   });
 
+  it('finds the Companies page for administrators only', () => {
+    expect(matchNavCommands('companies', true)[0]).toMatchObject({ id: 'admin-companies', label: 'Companies', to: '/admin/companies' });
+    expect(matchNavCommands('logo', true).map((c) => c.id)).toContain('admin-companies');
+    expect(matchNavCommands('companies', false).some((c) => c.to === '/admin/companies')).toBe(false);
+    const ids = NAV_COMMANDS.map((c) => c.id);
+    expect(ids[ids.indexOf('admin-users') + 1]).toBe('admin-companies');
+  });
+
   it('finds Management for administrators and for the people who run a project, nobody else', () => {
     for (const q of ['management', 'health', 'red amber green', 'leadership']) {
       expect(matchNavCommands(q, true)[0]?.to, q).toBe('/management');

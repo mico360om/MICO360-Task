@@ -50,6 +50,7 @@ const NAV_DATA = {
   actionItems: { strokeWidth: 1.8, shapes: [p('M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5L7.5 11M3.5 18l1.5 1.5L7.5 17'), p('M11 6.5h9.5M11 12.5h9.5M11 18.5h9.5')] },
   settings: { strokeWidth: 1.8, shapes: [p('M4 7h16M4 12h16M4 17h16'), c(9, 7, 2), c(15, 12, 2), c(8, 17, 2)] },
   users: { strokeWidth: 1.8, shapes: [c(10, 8, 3.2), p('M4 20a6 6 0 0 1 12 0'), c(18.5, 15.5, 2.2)] },
+  companies: { strokeWidth: 1.8, shapes: [p('M3 21h18'), p('M5 21V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v16'), p('M14 10h4a1 1 0 0 1 1 1v10'), p('M8 8h2M8 12h2M8 16h2')] },
   sliders: { strokeWidth: 1.8, shapes: [c(12, 12, 3), p('M12 2v3M12 19v3M20 12h-3M7 12H4M17.7 6.3l-2 2M8.3 15.7l-2 2M17.7 17.7l-2-2M8.3 8.3l-2-2')] },
   audit: { strokeWidth: 1.8, shapes: [p('M12 3l7 3v5c0 5-3 8-7 9.5C8 19 5 16 5 11V6z'), p('M9 11.5l2 2 4-4')] },
   templates: { strokeWidth: 1.8, shapes: [r(8, 8, 13, 13, 2), p('M4 16V6a2 2 0 0 1 2-2h10'), p('M11.5 12.5h6M11.5 16.5h3.5')] },

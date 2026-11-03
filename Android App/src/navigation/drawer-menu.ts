@@ -62,6 +62,7 @@ export const DRAWER_SECTIONS: readonly DrawerSection[] = [
     title: 'Admin',
     items: [
       { key: 'Users', label: 'User Management', icon: 'nav.users', action: { type: 'stack', screen: 'Users' }, adminOnly: true },
+      { key: 'website-companies', label: 'Companies', icon: 'nav.companies', action: website('/admin/companies'), adminOnly: true },
       { key: 'website-ai', label: 'AI Management', icon: 'nav.aiManagement', action: website('/admin/ai'), adminOnly: true },
       { key: 'website-settings', label: 'System Settings', icon: 'nav.sliders', action: website('/admin/settings'), adminOnly: true },
       { key: 'website-audit', label: 'Audit Logs', icon: 'nav.audit', action: website('/admin/audit'), adminOnly: true },

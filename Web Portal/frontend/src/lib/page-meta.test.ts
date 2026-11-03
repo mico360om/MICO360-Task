@@ -34,6 +34,7 @@ describe('pageMetaFor', () => {
       '/admin/ai': 'AI Management',
       '/admin/audit': 'Audit Logs',
       '/admin/users': 'User Management',
+      '/admin/companies': 'Companies',
       '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde': 'Shared project',
       '/privacy/client': 'Privacy notice for clients',
     };

@@ -82,6 +82,7 @@ export const APP_PAGES: Record<string, { label?: string; target: SearchTarget }>
   'mico-ai': { target: { kind: 'screen', action: { type: 'stack', screen: 'MicoAi' } } },
   // A website page the app has no screen for yet (Stage 4): it opens on the website.
   templates: { target: { kind: 'website', path: '/templates' } },
+  'admin-companies': { target: { kind: 'website', path: '/admin/companies' } },
   'admin-ai': { target: { kind: 'website', path: '/admin/ai' } },
   'admin-settings': { target: { kind: 'website', path: '/admin/settings' } },
   'admin-audit': { target: { kind: 'website', path: '/admin/audit' } },

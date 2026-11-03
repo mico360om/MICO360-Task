@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { WEBSITE_LINK_PATHS, WEBSITE_TAB_LINKS, websiteLinkLabel, websiteOpenFailed, websitePageUrl } from './website';
 
 it('the website pages Search and the menu offer open on the connected server', () => {
-  expect([...WEBSITE_LINK_PATHS]).toEqual(['/admin/ai', '/admin/settings', '/admin/audit', '/templates']);
+  expect([...WEBSITE_LINK_PATHS]).toEqual(['/admin/ai', '/admin/settings', '/admin/audit', '/templates', '/admin/companies']);
   for (const p of WEBSITE_LINK_PATHS) expect(websitePageUrl('https://task.mico360.com/api/v1', p), p).toBe(`https://task.mico360.com${p}`);
   expect(websitePageUrl('https://task.mico360.com/api/v1', '/admin/users')).toBeNull();
   expect(websitePageUrl('https://task.mico360.com/api/v1', '/templates?x=1')).toBeNull();
