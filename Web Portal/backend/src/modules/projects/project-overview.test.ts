@@ -109,6 +109,11 @@ describe('buildProjectOverview', () => {
     expect(p3!.team).toEqual([]);
   });
 
+  it('companies: a project whose companies are all archived is listed as archived, as every other page counts it', () => {
+    const list = buildProjectOverview([project('pc', { archived: true }), project('pa', { archived: false }), project('old', { status: 'ON_HOLD' })], empty, opts);
+    expect(list.map((p) => p.status)).toEqual(['ARCHIVED', 'ACTIVE', 'ON_HOLD']);
+  });
+
   it('keeps every project’s own details and the order of the list', () => {
     const list = buildProjectOverview([project('b', { name: 'Beta', number: '2026-014' }), project('a')], empty, opts);
     expect(list.map((p) => p.id)).toEqual(['b', 'a']);

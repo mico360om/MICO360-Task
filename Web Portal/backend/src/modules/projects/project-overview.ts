@@ -115,7 +115,9 @@ export function buildProjectOverview(
       number: p.number,
       name: p.name,
       clientName: p.clientName,
-      status: p.status,
+      // companies: a project whose companies are all archived counts as archived here too (the
+      // card's status), as on every other page — nothing is written onto the project.
+      status: p.archived ? 'ARCHIVED' : p.status,
       color: p.color,
       icon: p.icon,
       imageUrl: p.imageUrl,

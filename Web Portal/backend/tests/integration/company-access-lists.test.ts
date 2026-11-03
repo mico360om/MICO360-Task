@@ -104,6 +104,13 @@ describe('lists follow companies and the pick (companies)', () => {
     expect(idsOf(await api.get(admin, '/meetings', a))).toEqual(sorted([w.meetings.MA, w.meetings.MN_A]));
   });
 
+  it('the Projects page lists PC (its only company, Gamma, is archived) as archived for an administrator', async () => {
+    const cards = (await api.get(w.as.admin, '/projects/overview')) as Array<{ id: string; status: string }>;
+    const status = (id: string) => cards.find((c) => c.id === id)?.status;
+    expect(status(w.projects.PC)).toBe('ARCHIVED');
+    expect(status(w.projects.PA)).toBe('ACTIVE');
+  });
+
   it('ana’s lists never hold Beta or Gamma', async () => {
     const { ana } = w.as;
     for (const path of ['/projects', '/projects/overview', '/tasks', '/tasks/mine', calendar(), '/tasks/approvals', '/activity', '/notifications', '/me/action-items', '/conversations'])
