@@ -56,6 +56,24 @@ describe('ProjectCard', () => {
     expect(screen.getByTestId('project-meta')).toHaveTextContent('RIG · No. C-2041 · Gulf Energy');
   });
 
+  it('hands the Projects page’s order on to the project it opens (Previous / Next project, 1.22)', async () => {
+    let state: unknown = null;
+    function State() {
+      state = useLocation().state;
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <Routes>
+          <Route path="/projects" element={<ProjectCard project={project()} today={TODAY} now={NOW} timeZone="Asia/Muscat" order={['p4', 'p1', 'p2']} />} />
+          <Route path="/projects/:id" element={<State />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole('link', { name: 'Rig Inspection Portal' }));
+    expect(state).toEqual({ projectOrder: ['p4', 'p1', 'p2'] });
+  });
+
   it('leaves out the number and client when they aren’t set', () => {
     renderCard({ project: project({ number: null, clientName: null }) });
     expect(screen.getByTestId('project-meta').textContent).toBe('RIG');

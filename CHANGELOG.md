@@ -21,6 +21,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Kanban Board: the faces of the people who can open a project's board — its owner, manager and
   team — sit at the top of the board. Click them for the full list with each person's role; whoever
   runs the project can go from there to its Team tab.
+- Previous and Next: an open task steps through the list it was opened from — a board (column by
+  column), My Tasks (as sorted and filtered), the Search results or a calendar day — with "3 of 18"
+  in its header, and J and K on the keyboard. A project's page steps to the previous or next
+  project in the Projects page's order. Back goes back, and something typed but not saved is asked
+  about first.
 
 ## [1.21.0] - 2026-11-04
 

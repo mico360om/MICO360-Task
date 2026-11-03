@@ -114,6 +114,18 @@ function renderPage(path = '/projects/p1') {
   );
 }
 
+describe('ProjectDetailPage: Previous / Next project (1.22)', () => {
+  it('steps to the next of the person’s projects from the header, keeping the tab', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) =>
+      String(url).endsWith('/projects') ? json({ data: [PROJECT, { ...PROJECT, id: 'p2', code: 'ZED', name: 'Zed works' }] }) : base(url, init)));
+    renderPage('/projects/p1?tab=team');
+    const steps = await screen.findByRole('navigation', { name: 'Step through projects' });
+    expect(within(steps).getByRole('button', { name: 'Previous project' })).toBeDisabled();
+    expect(within(steps).getByRole('button', { name: 'Next project' })).toBeEnabled();
+  });
+});
+
 describe('ProjectDetailPage: the dashboard', () => {
   it('gives the overview: milestones, deadlines, the manager, and the next meeting', async () => {
     renderPage();

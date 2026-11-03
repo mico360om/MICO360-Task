@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { projectOrderState } from '../../lib/project-steps';
 import type { ProjectOverview, ProjectStatus } from '../../api/projects';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { Avatar } from '../ui/Avatar';
@@ -19,6 +20,8 @@ export interface ProjectCardProps {
   onEdit?: (project: ProjectOverview) => void;
   /** Ask to archive the project (people who may). */
   onArchive?: (project: ProjectOverview) => void;
+  /** The list's order as shown, handed on so the project's page steps through it (Previous / Next project). */
+  order?: string[];
 }
 
 /** How many team faces show before "+N". */
@@ -45,7 +48,7 @@ function Figure({ label, children, late }: { label: string; children: ReactNode;
  * due; the team, owner and target date. The title is the card's one link — stretched over the
  * card — and the buttons sit above it, so nothing interactive is nested.
  */
-export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, onEdit, onArchive }: ProjectCardProps) {
+export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, onEdit, onArchive, order }: ProjectCardProps) {
   const navigate = useNavigate();
   const progress = progressOf(p.stats);
   const target = targetLabel(p, today, timeZone);
@@ -79,6 +82,7 @@ export function ProjectCard({ project: p, today, now, timeZone, onChangeStatus, 
           <h2 className="font-display text-base font-bold leading-snug">
             <Link
               to={`/projects/${p.id}`}
+              state={order ? projectOrderState(order) : undefined}
               title={p.name}
               className="line-clamp-2 text-ink outline-none [overflow-wrap:anywhere] after:absolute after:inset-0 after:rounded-2xl after:content-[''] hover:text-brand focus-visible:after:ring-2 focus-visible:after:ring-brand/60"
             >
