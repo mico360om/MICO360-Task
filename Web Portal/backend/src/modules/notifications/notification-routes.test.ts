@@ -4,33 +4,11 @@ import { createNotificationService } from './notification-service';
 import { normalizePreferences } from './notification-preferences';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
-import type { NotificationRecord, NotificationRepository } from './notification-repository';
+import type { NotificationRepository } from './notification-repository';
+import { createMemoryNotificationRepository } from './notification-memory.fixture';
 
-function inMemory(): NotificationRepository {
-  const rows = new Map<string, NotificationRecord>();
-  let seq = 0;
-  return {
-    async create(data) {
-      const n: NotificationRecord = { id: `n${seq++}`, userId: data.userId, type: data.type, title: data.title, body: data.body ?? null, entityType: null, entityId: null, readAt: null, createdAt: new Date() };
-      rows.set(n.id, n);
-      return n;
-    },
-    async findById(id) { return rows.get(id) ?? null; },
-    async list(userId) { return [...rows.values()].filter((n) => n.userId === userId); },
-    async markRead(id) { const n = { ...rows.get(id)!, readAt: new Date() }; rows.set(id, n); return n; },
-    async markAllRead(userId) { for (const n of rows.values()) if (n.userId === userId) n.readAt = new Date(); },
-    async unreadCount(userId) { return [...rows.values()].filter((n) => n.userId === userId && !n.readAt).length; },
-    async findUnread(userId, type, entityType, entityId) {
-      return [...rows.values()].reverse().find((n) => n.userId === userId && n.type === type && n.entityType === entityType && n.entityId === entityId && !n.readAt) ?? null;
-    },
-    async refresh(id, data) { const n = { ...rows.get(id)!, title: data.title, body: data.body ?? null, createdAt: new Date() }; rows.set(id, n); return n; },
-    async markEntityRead(userId, entityType, entityId) {
-      let count = 0;
-      for (const n of rows.values()) if (n.userId === userId && n.entityType === entityType && n.entityId === entityId && !n.readAt) { n.readAt = new Date(); count += 1; }
-      return count;
-    },
-  };
-}
+/** The shared in-memory repository (the database's rules), a fresh one per call. */
+const inMemory = (): NotificationRepository => createMemoryNotificationRepository();
 
 const tokenService = createTokenService({
   accessSecret: 'ntf-access',

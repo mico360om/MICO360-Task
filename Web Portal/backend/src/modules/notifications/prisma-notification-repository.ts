@@ -1,5 +1,5 @@
 import { Prisma, type PrismaClient, type Notification } from '@prisma/client';
-import type { NotificationRepository, NotificationScope } from './notification-repository';
+import type { NotificationListOptions, NotificationRepository, NotificationScope } from './notification-repository';
 import { normalizePreferences, type NotificationPreferences, type PreferenceStore } from './notification-preferences';
 import type { ReminderLogStore } from './reminder-dispatch';
 
@@ -14,8 +14,20 @@ function toRecord(n: Notification) {
     entityId: n.entityId,
     readAt: n.readAt,
     createdAt: n.createdAt,
+    projectId: n.projectId,
   };
 }
+
+/**
+ * 1.22: a page of the Notifications page — the Unread tab, the type chips, and the rows older than
+ * the previous page's last one (newest first by time, then id, so rows of the same moment are
+ * neither skipped nor repeated). Kept apart from the companies scope (`inScope`), which is ANDed on.
+ */
+const pageWhere = (opts: NotificationListOptions): Prisma.NotificationWhereInput => ({
+  ...(opts.unreadOnly ? { readAt: null } : {}),
+  ...(opts.types ? { type: { in: [...opts.types] } } : {}),
+  ...(opts.before ? { AND: [{ OR: [{ createdAt: { lt: opts.before.createdAt } }, { createdAt: opts.before.createdAt, id: { lt: opts.before.id } }] }] } : {}),
+});
 
 /** companies: a list's rows — those about no project, and those about the projects in scope (null = all). */
 const inScope = (scope?: NotificationScope): Prisma.NotificationWhereInput => (scope ? { OR: [{ projectId: null }, { projectId: { in: [...scope] } }] } : {});
@@ -54,15 +66,15 @@ export function createPrismaNotificationRepository(prisma: PrismaClient): Notifi
       const n = await prisma.notification.findUnique({ where: { id } });
       return n ? toRecord(n) : null;
     },
-    async list(userId, scope) {
-      const ns = await prisma.notification.findMany({ where: { userId, ...inScope(scope) }, orderBy: { createdAt: 'desc' }, take: 100 });
+    async list(userId, scope, opts = {}) {
+      const ns = await prisma.notification.findMany({ where: { userId, ...inScope(scope), ...pageWhere(opts) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: opts.limit ?? 100 });
       return ns.map(toRecord);
     },
     async markRead(id) {
       return toRecord(await prisma.notification.update({ where: { id }, data: { readAt: new Date() } }));
     },
-    async markAllRead(userId, upTo, scope) {
-      await prisma.notification.updateMany({ where: { userId, readAt: null, ...(upTo ? { createdAt: { lte: upTo } } : {}), ...inScope(scope) }, data: { readAt: new Date() } });
+    async markAllRead(userId, upTo, scope, types) {
+      await prisma.notification.updateMany({ where: { userId, readAt: null, ...(upTo ? { createdAt: { lte: upTo } } : {}), ...(types ? { type: { in: [...types] } } : {}), ...inScope(scope) }, data: { readAt: new Date() } });
     },
     async unreadCount(userId, scope) {
       return prisma.notification.count({ where: { userId, readAt: null, ...inScope(scope) } });
@@ -77,6 +89,26 @@ export function createPrismaNotificationRepository(prisma: PrismaClient): Notifi
     async markEntityRead(userId, entityType, entityId) {
       const { count } = await prisma.notification.updateMany({ where: { userId, entityType, entityId, readAt: null }, data: { readAt: new Date() } });
       return count;
+    },
+    async unreadByType(userId, scope) {
+      const groups = await prisma.notification.groupBy({ by: ['type'], where: { userId, readAt: null, ...inScope(scope) }, _count: { _all: true } });
+      return Object.fromEntries(groups.map((g) => [g.type, g._count._all]));
+    },
+    async markUnread(id) {
+      return toRecord(await prisma.notification.update({ where: { id }, data: { readAt: null } }));
+    },
+    async remove(id) {
+      await prisma.notification.delete({ where: { id } });
+    },
+    async bulk(userId, ids, action) {
+      const where: Prisma.NotificationWhereInput = { userId, id: { in: [...ids] } };
+      if (action === 'remove') return (await prisma.notification.deleteMany({ where })).count;
+      // Read: the unread ones (a read one keeps when it was read); unread: the read ones.
+      if (action === 'read') return (await prisma.notification.updateMany({ where: { ...where, readAt: null }, data: { readAt: new Date() } })).count;
+      return (await prisma.notification.updateMany({ where: { ...where, readAt: { not: null } }, data: { readAt: null } })).count;
+    },
+    async projectLooks(ids) {
+      return prisma.project.findMany({ where: { id: { in: [...ids] } }, select: { id: true, name: true, color: true, icon: true, imageUrl: true } });
     },
   };
 }

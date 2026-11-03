@@ -1,6 +1,7 @@
-import { NotFoundError } from '../../lib/http-errors';
+import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { Logger } from '../../lib/logger';
-import type { CreateNotificationData, ListScope, NotificationRecord, NotificationRepository } from './notification-repository';
+import type { CreateNotificationData, ListScope, NotificationBulkAction, NotificationProject, NotificationRecord, NotificationRepository } from './notification-repository';
+import { decodeNotificationCursor, encodeNotificationCursor, typesOfKinds, unreadByKind, type NotificationCounts, type NotificationKind } from './notification-kinds';
 import {
   emptyPreferences,
   isMuted,
@@ -23,6 +24,24 @@ export interface NotificationPush {
     notification: { title: string; body?: string | null; entityType?: string | null; entityId?: string | null; notificationId?: string | null } & NotificationPushOptions,
   ): Promise<number>;
 }
+
+/** A row of the list as the apps get it (1.22): with the project it is about, when it has one. */
+export type NotificationView = NotificationRecord & { projectId: string | null; project: NotificationProject | null };
+
+/** What a page of the list asks for (1.22). */
+export interface NotificationPageQuery {
+  /** The previous page's `nextCursor`; none = from the newest. */
+  cursor?: string;
+  /** How many (default 100: the bell, the phone app and the extension ask for no limit). */
+  limit?: number;
+  /** The Unread tab. */
+  unread?: boolean;
+  /** The type chips; none = every type. */
+  kinds?: NotificationKind[];
+}
+
+/** At most this many in one "several at once" request. */
+export const MAX_BULK_NOTIFICATIONS = 200;
 
 export interface NotifyOptions {
   /** How the phone push is shown (meeting reminders: their own channel, out of date at the start). */
@@ -128,9 +147,68 @@ export function createNotificationService({ notifications, preferences, push, lo
     return notifications.markRead(id);
   }
 
-  /** Read everything — with `upTo`, only what came in by then (newer ones were never seen); with `scope`, only what the list showed. */
-  async function markAllRead(userId: string, upTo?: Date, scope?: ListScope): Promise<void> {
-    await notifications.markAllRead(userId, upTo, scope?.projectIds ?? null);
+  /**
+   * Read everything — with `upTo`, only what came in by then (newer ones were never seen); with
+   * `scope`, only what the list showed; with `kinds` (the page's chips), only those types.
+   */
+  async function markAllRead(userId: string, upTo?: Date, scope?: ListScope, kinds?: NotificationKind[]): Promise<void> {
+    const types = typesOfKinds(kinds);
+    if (types) await notifications.markAllRead(userId, upTo, scope?.projectIds ?? null, types);
+    else await notifications.markAllRead(userId, upTo, scope?.projectIds ?? null);
+  }
+
+  /**
+   * One page of the list (1.22): newest first, after the cursor's row, of the Unread tab and the
+   * chips, in `scope` (the companies rule, unchanged). `nextCursor` is null when nothing is older.
+   */
+  async function listPage(userId: string, scope?: ListScope, query: NotificationPageQuery = {}): Promise<{ data: NotificationView[]; nextCursor: string | null }> {
+    const before = decodeNotificationCursor(query.cursor);
+    const limit = query.limit ?? 100;
+    const types = typesOfKinds(query.kinds);
+    const rows = await notifications.list(userId, scope?.projectIds ?? null, {
+      ...(before ? { before } : {}),
+      limit: limit + 1,
+      ...(query.unread ? { unreadOnly: true } : {}),
+      ...(types ? { types } : {}),
+    });
+    const page = rows.slice(0, limit);
+    const projectIds = [...new Set(page.map((n) => n.projectId).filter((id): id is string => !!id))];
+    const looks = new Map((projectIds.length ? await notifications.projectLooks(projectIds) : []).map((p) => [p.id, p]));
+    const last = page[page.length - 1];
+    return {
+      data: page.map((n) => ({ ...n, projectId: n.projectId ?? null, project: (n.projectId && looks.get(n.projectId)) || null })),
+      nextCursor: rows.length > limit && last ? encodeNotificationCursor(last) : null,
+    };
+  }
+
+  /** Unread ones per chip and in all (the bell's badge number), in `scope`. */
+  async function counts(userId: string, scope?: ListScope): Promise<NotificationCounts> {
+    return unreadByKind(await notifications.unreadByType(userId, scope?.projectIds ?? null));
+  }
+
+  async function ownOne(id: string, userId: string): Promise<NotificationRecord> {
+    const n = await notifications.findById(id);
+    if (!n || n.userId !== userId) throw new NotFoundError('Notification not found.');
+    return n;
+  }
+
+  async function markUnread(id: string, userId: string): Promise<NotificationRecord> {
+    await ownOne(id, userId);
+    return notifications.markUnread(id);
+  }
+
+  /** Gone for that person (the row is deleted). */
+  async function remove(id: string, userId: string): Promise<void> {
+    await ownOne(id, userId);
+    await notifications.remove(id);
+  }
+
+  /** Read, unread or remove several at once: the caller's own ones among `ids` (others are skipped), at most 200. */
+  async function bulk(userId: string, ids: readonly string[], action: NotificationBulkAction): Promise<{ count: number }> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) throw new ValidationError('Choose at least one notification.');
+    if (unique.length > MAX_BULK_NOTIFICATIONS) throw new ValidationError(`Choose at most ${MAX_BULK_NOTIFICATIONS} notifications at a time.`);
+    return { count: await notifications.bulk(userId, unique, action) };
   }
 
   async function getPreferences(userId: string): Promise<NotificationPreferences> {
@@ -142,7 +220,7 @@ export function createNotificationService({ notifications, preferences, push, lo
     return preferences ? preferences.set(userId, prefs) : prefs;
   }
 
-  return { notify, notifyOnce, markEntityRead, listForUser, unreadCount, markRead, markAllRead, getPreferences, setPreferences };
+  return { notify, notifyOnce, markEntityRead, listForUser, listPage, counts, unreadCount, markRead, markUnread, remove, bulk, markAllRead, getPreferences, setPreferences };
 }
 
 export type NotificationService = ReturnType<typeof createNotificationService>;
