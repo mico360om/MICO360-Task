@@ -2,7 +2,8 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'prisma/migrations/**', 'src/generated/**', 'e2e/**'] },
+  // dist-*: other builds kept beside dist (a battery snapshot, the upgrade rehearsal's dist-up).
+  { ignores: ['dist/**', 'dist-*/**', 'node_modules/**', 'prisma/migrations/**', 'src/generated/**', 'e2e/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

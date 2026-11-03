@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient, type MeetingStatus } from '@prisma/client';
 import { createPrismaMeetingRepository } from '../../src/modules/meetings/prisma-meeting-repository';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -63,6 +64,10 @@ describe('PrismaMeetingRepository.busyBetween (integration)', () => {
   it('says in one look-up which meetings a person may see: theirs, or in a project they can see', async () => {
     const owner = await prisma.user.create({ data: { email: 'bm-owner@mico360.test', username: 'bm-owner', passwordHash: 'x', firstName: 'Busy', lastName: 'Owner' } });
     const project = await prisma.project.create({ data: { code: 'BMVIS', name: 'Busy visibility', status: 'ACTIVE', createdById: owner.id, ownerId: owner.id } });
+    // companies: sara is a person of the site's one company (as after the upgrade) — being one of a
+    // meeting's people counts only with an active company of one's own.
+    await prisma.user.create({ data: { id: 'sara', email: 'bm-sara@mico360.test', username: 'bm-sara', passwordHash: 'x', firstName: 'Sara', lastName: 'Busy' } });
+    await runBackfill(prisma);
     try {
       const organized = await meeting('Hers', '2026-10-26 09:00', null, { organizer: 'sara' });
       const invited = await meeting('Invited', '2026-10-26 10:00', null, { organizer: 'omar', attendees: ['sara'] });
@@ -76,6 +81,7 @@ describe('PrismaMeetingRepository.busyBetween (integration)', () => {
       await prisma.meeting.deleteMany({ where: { projectId: project.id } });
       await prisma.project.delete({ where: { id: project.id } });
       await prisma.user.delete({ where: { id: owner.id } });
+      await prisma.user.delete({ where: { id: 'sara' } });
     }
   });
 });

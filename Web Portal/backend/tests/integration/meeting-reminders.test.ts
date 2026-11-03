@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient, type MeetingStatus } from '@prisma/client';
 import { createPrismaMeetingReminderSource, createPrismaMeetingReminderStore } from '../../src/modules/meetings/prisma-meeting-reminders';
 import { reminderKey, type ReminderSendKey } from '../../src/modules/meetings/meeting-reminder-service';
+import { runBackfill } from './company-helpers';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -34,6 +35,7 @@ beforeEach(async () => {
   org = (await user('org', { preferredTimeZone: 'Europe/London' })).id;
   ann = (await user('ann', { notificationPrefs: { muted: ['MEETING_REMINDER', 'MENTION'] } })).id;
   gone = (await user('gone', { status: 'INACTIVE' })).id;
+  await runBackfill(prisma); // companies: everyone here in the one company, as after the upgrade
 });
 
 async function meeting(title: string, startAt: Date, over: { status?: MeetingStatus; deleted?: boolean; projectId?: string | null } = {}) {
