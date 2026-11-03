@@ -150,6 +150,14 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   They replace the single reminder email an hour before.
 - Settings → Notifications on the website, in the Android app and in the Chrome extension has a
   "Meeting reminders" switch, on until you turn it off.
+- Companies: one site can now hold several companies. Everyone and every project you have today are
+  in "Prolens Projects LLC", so nothing changes until a second company is added.
+- People see only the projects of their own companies, and only colleagues who share a company with
+  them; administrators see everything. Inside a project shared by several companies, its whole team
+  works together, and someone invited to a meeting from another company sees only that meeting, its
+  final minutes and their own action items.
+- Each company has its own name, logo, email sender name, week start and working hours; its PDFs,
+  emails and client page carry its name and logo.
 
 ### Improvements
 - In the Android app, colours are the website's in light and dark mode, and grey and amber text is
