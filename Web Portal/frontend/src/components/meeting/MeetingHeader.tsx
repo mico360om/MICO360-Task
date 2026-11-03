@@ -43,6 +43,7 @@ export function MeetingHeader({
   primaryBusy,
   onPrimary,
   menu,
+  note,
 }: {
   meeting: Meeting;
   project: ProjectLook | null;
@@ -53,6 +54,8 @@ export function MeetingHeader({
   primaryBusy?: boolean;
   onPrimary: () => void;
   menu: ActionMenuItem[];
+  /** A line under the title (why this person sees the meeting as they do). */
+  note?: ReactNode;
 }) {
   const zone = meeting.timeZone || timeZone;
   const joinHref = safeMeetingHref(meeting.onlineLink);
@@ -78,6 +81,7 @@ export function MeetingHeader({
           <h1 className={`break-words font-display text-xl font-bold leading-tight text-ink sm:text-2xl ${cancelled ? 'line-through decoration-2' : ''}`}>
             <bdi>{meeting.title}</bdi>
           </h1>
+          {note ? <p className="mt-1 text-sm text-ink-2">{note}</p> : null}
           <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-ink-2">
             <Fact icon={project ? <ProjectAvatar project={project} size="xs" /> : Icon.folder}>{project ? <bdi>{project.name}</bdi> : meeting.projectId ? 'Project' : 'Standalone meeting'}</Fact>
             <Fact icon={Icon.calendar}>{formatMeetingDay(meeting.startAt, zone)}</Fact>

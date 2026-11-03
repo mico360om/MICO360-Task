@@ -5,6 +5,7 @@ import { usersApi } from '../../api/users';
 import { Avatar } from '../ui/Avatar';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
+import { useInviteCandidates } from './invite-candidates';
 
 /** Someone invited from the new-meeting form: a portal user, or an outside guest by email. */
 export type MeetingPerson = { kind: 'user'; id: string; name: string } | { kind: 'guest'; email: string; name: string };
@@ -15,22 +16,36 @@ export const personKey = (p: MeetingPerson) => (p.kind === 'user' ? `u:${p.id}` 
 /**
  * The new-meeting form's People: team members from the directory and guests by email (named from
  * the part before the @ unless a name is given). The organizer is always in, so isn't offered.
+ * companies: with two or more on the site, the team members offered are the ones the server says can
+ * be invited to a meeting of `target` (its project, or its company without one).
  */
-export function PeopleField({ value, onChange, organizerId }: { value: MeetingPerson[]; onChange: (next: MeetingPerson[]) => void; organizerId: string | null }) {
+export function PeopleField({
+  value,
+  onChange,
+  organizerId,
+  target = {},
+}: {
+  value: MeetingPerson[];
+  onChange: (next: MeetingPerson[]) => void;
+  organizerId: string | null;
+  target?: { projectId?: string | null; companyId?: string | null };
+}) {
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  const candidates = useInviteCandidates(target);
   const directory = Array.isArray(dirQ.data) ? dirQ.data : [];
+  const invitable: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null; active?: boolean }[] = candidates ?? directory;
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
 
   const chosen = new Set(value.map(personKey));
-  const options = directory
+  const options = invitable
     // Inactive and suspended accounts can't be invited (an older server sends no flag: offered).
     .filter((u) => u.id !== organizerId && u.active !== false && !chosen.has(`u:${u.id}`))
     .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
 
   const addUser = (id: string) => {
-    const u = directory.find((d) => d.id === id);
+    const u = invitable.find((d) => d.id === id);
     if (u) onChange([...value, { kind: 'user', id, name: `${u.firstName} ${u.lastName}`.trim() || u.username }]);
   };
   const addGuest = () => {
@@ -57,7 +72,7 @@ export function PeopleField({ value, onChange, organizerId }: { value: MeetingPe
         <ul aria-label="People invited" className="flex flex-wrap gap-1.5">
           {value.map((p) => (
             <li key={personKey(p)} className="flex min-h-9 max-w-full items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 pl-1 pr-0.5 text-sm">
-              <Avatar size="sm" name={p.name} src={p.kind === 'user' ? directory.find((d) => d.id === p.id)?.avatarUrl : null} />
+              <Avatar size="sm" name={p.name} src={p.kind === 'user' ? (invitable.find((d) => d.id === p.id) ?? directory.find((d) => d.id === p.id))?.avatarUrl : null} />
               <bdi className="truncate text-ink">{p.name}</bdi>
               {p.kind === 'guest' ? <span className="truncate text-xs text-ink-3" dir="ltr">{p.email}</span> : null}
               <button

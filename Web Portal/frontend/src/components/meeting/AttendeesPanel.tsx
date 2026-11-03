@@ -23,6 +23,7 @@ import { ActionMenu } from './ActionMenu';
 import { ConfirmRemoveButton, LoadError, Section, SectionError, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { responseSummary } from '../../lib/meeting-flow';
+import { useInviteCandidates } from '../meeting-form/invite-candidates';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ATTENDANCE: AttendanceStatus[] = ['INVITED', 'PRESENT', 'LATE', 'ABSENT', 'EXCUSED'];
@@ -105,8 +106,10 @@ export function AttendeesPanel({
     onError: (err) => setOpError(meetingFailure(err, 'Couldn’t remove the attendee.')),
   });
 
+  // companies: with two or more on the site, the people the server says can be invited to this meeting.
+  const candidates = useInviteCandidates({ projectId: meeting.projectId, companyId: meeting.companyId }, canEdit);
   const onList = new Set(attendees.map((a) => a.userId).filter(Boolean));
-  const memberOptions = directory
+  const memberOptions = (candidates ?? directory)
     .filter((u) => !onList.has(u.id))
     .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
 

@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import type { CompanyPersonOption } from './companies';
 import type { RecurrenceRule } from '../lib/recurrence';
 
 export type { RecurrenceRule };
@@ -85,6 +86,13 @@ export interface Meeting {
   minutes?: MinutesState;
   /** List only: notes recorded as decisions. */
   decisionCount?: number;
+  /** companies: a meeting without a project belongs to one company (a project meeting: null — its project's decide). */
+  companyId?: string | null;
+  /**
+   * companies (GET /meetings/:id): 'invitee' — invited from outside its project's companies, so only
+   * the meeting, its people and agenda, the approved minutes and their own action items; else 'full'.
+   */
+  view?: 'full' | 'invitee';
 }
 
 export interface Attendee {
@@ -252,6 +260,8 @@ export interface NewMeetingInput {
   endAt?: string | null;
   timeZone?: string | null;
   recurrenceRule?: RecurrenceRule | null;
+  /** companies: a meeting without a project — one of my companies (left out: the picked, else my primary one). */
+  companyId?: string | null;
   /** People invited from the new-meeting form, saved with the meeting (all or nothing). */
   attendees?: Array<{ userId?: string; externalName?: string; externalEmail?: string; role?: AttendeeRole }>;
   /** The new-meeting form's agenda, saved with the meeting. */
@@ -268,6 +278,10 @@ export interface FreeTimesInput {
   recurrenceRule?: RecurrenceRule | null;
   /** The meeting being edited: its own time isn't a clash. */
   excludeMeetingId?: string;
+  /** companies: the meeting's project (its main company's working hours)… */
+  projectId?: string;
+  /** …or, without a project, the meeting's company. */
+  companyId?: string;
 }
 
 export interface FreeTimesReply {
@@ -439,6 +453,16 @@ export function meetingsApi(client: ApiClient) {
         .then((r) => r.data),
     get: (id: string) => client.get<{ data: Meeting }>(`/meetings/${id}`).then((r) => r.data),
     create: (input: NewMeetingInput) => client.post<{ data: Meeting }>('/meetings', input).then((r) => r.data),
+    /**
+     * companies: who may be invited to a meeting of this project, or (without a project) of this
+     * company — the project's companies' people I can see, or my colleagues in that company.
+     */
+    inviteCandidates: (target: { projectId?: string | null; companyId?: string | null }) =>
+      client
+        .get<{ data: CompanyPersonOption[] }>(
+          `/meetings/invite-candidates${target.projectId ? `?projectId=${encodeURIComponent(target.projectId)}` : `?companyId=${encodeURIComponent(target.companyId ?? '')}`}`,
+        )
+        .then((r) => r.data),
     /** Free times for a meeting being scheduled: suggestions, clashes and the chosen day's busy blocks. */
     freeTimes: (body: FreeTimesInput) => client.post<{ data: FreeTimesReply }>('/meetings/free-times', body).then((r) => r.data),
     /** `scope: 'series'` changes every upcoming meeting of the meeting's series. */

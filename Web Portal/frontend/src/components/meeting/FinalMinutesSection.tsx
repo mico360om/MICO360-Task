@@ -279,7 +279,8 @@ function Editor({
   );
 }
 
-function FinalView({
+/** Approved minutes, read: who approved them and when, their parts, the PDF (and Reopen for an editor). */
+export function FinalView({
   minutes,
   content,
   timeZone,

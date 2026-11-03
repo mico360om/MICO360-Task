@@ -16,6 +16,7 @@ import { AttendeesPanel } from '../components/meeting/AttendeesPanel';
 import { InviteDialog } from '../components/meeting/InviteDialog';
 import { MinutesEmailDialog } from '../components/meeting/MinutesEmailDialog';
 import { FinalMinutesSection } from '../components/meeting/FinalMinutesSection';
+import { InviteeView } from '../components/meeting/InviteeView';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
 import { Section, userName } from '../components/meeting/kit';
 import type { ActionMenuItem } from '../components/meeting/ActionMenu';
@@ -58,6 +59,9 @@ export function MeetingDetailPage() {
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   // The final minutes (Final MOM), shared with their card: once final, the minutes PDF opens with them.
   const finalQ = useQuery({ queryKey: ['meeting', id, 'final-minutes'], queryFn: () => meetingsApi(apiClient).getFinalMinutes(id), enabled: !!id });
+  // companies: invited from outside its project's companies — the server sends only their own action items.
+  const invitee = meeting?.view === 'invitee';
+  const myItemsQ = useQuery({ queryKey: ['meeting', id, 'action-items'], queryFn: () => meetingsApi(apiClient).listActionItems(id), enabled: !!id && invitee, refetchInterval: pollMs });
 
   // Live updates from other people in the meeting (notes, agenda, attendees, action items).
   useMeetingRealtime(id, meeting?.projectId ?? null, (kind: MeetingChangeKind) => {
@@ -122,6 +126,23 @@ export function MeetingDetailPage() {
         backLabel="Back to meetings"
         onRetry={missing ? undefined : () => void meetingQ.refetch()}
         retrying={meetingQ.isFetching}
+      />
+    );
+  }
+
+  if (meeting.view === 'invitee') {
+    // The minutes once approved (a 404 before: not ready), their own action items, the agenda and people.
+    return (
+      <InviteeView
+        meeting={meeting}
+        minutes={finalQ.data ?? null}
+        myActionItems={Array.isArray(myItemsQ.data) ? myItemsQ.data : []}
+        attendees={Array.isArray(attendeesQ.data) ? attendeesQ.data : []}
+        attendeesLoading={attendeesQ.isLoading}
+        attendeesError={attendeesQ.isError}
+        onRetryAttendees={() => void attendeesQ.refetch()}
+        directory={Array.isArray(dirQ.data) ? dirQ.data : []}
+        timeZone={timeZone}
       />
     );
   }

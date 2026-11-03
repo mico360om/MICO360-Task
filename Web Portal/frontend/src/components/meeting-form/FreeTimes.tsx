@@ -23,6 +23,10 @@ export interface FreeTimesProps {
   rule: RecurrenceRule | null;
   /** The meeting being edited: its own time isn't a clash. */
   excludeMeetingId?: string;
+  /** companies: the meeting's project, whose main company's working hours apply… */
+  projectId?: string | null;
+  /** …or, without a project, the meeting's company. */
+  companyId?: string | null;
   onPick: (startAt: string) => void;
 }
 
@@ -31,11 +35,12 @@ export interface FreeTimesProps {
  * free (inside the company's meeting hours), who clashes with the chosen time, and the chosen day's
  * busy blocks per person (a meeting the person scheduling can't see shows as "Busy").
  */
-export function FreeTimes({ userIds, startAt, minutes, rule, excludeMeetingId, onPick }: FreeTimesProps) {
+export function FreeTimes({ userIds, startAt, minutes, rule, excludeMeetingId, projectId, companyId, onPick }: FreeTimesProps) {
   const timeZone = useCompanyTimeZone();
-  // Checked again once the time, length, repeat or people have settled for 400 ms.
-  const key = useDebounced(JSON.stringify({ userIds: [...new Set(userIds)], startAt, minutes: Math.min(720, Math.max(5, Math.round(minutes))), rule, excludeMeetingId }), 400);
-  const input = JSON.parse(key) as { userIds: string[]; startAt: string | null; minutes: number; rule: RecurrenceRule | null; excludeMeetingId?: string };
+  // Checked again once the time, length, repeat, people or company have settled for 400 ms.
+  const hoursOf = projectId ? { projectId } : companyId ? { companyId } : {};
+  const key = useDebounced(JSON.stringify({ userIds: [...new Set(userIds)], startAt, minutes: Math.min(720, Math.max(5, Math.round(minutes))), rule, excludeMeetingId, ...hoursOf }), 400);
+  const input = JSON.parse(key) as { userIds: string[]; startAt: string | null; minutes: number; rule: RecurrenceRule | null; excludeMeetingId?: string; projectId?: string; companyId?: string };
   const q = useQuery({
     queryKey: ['meeting-free-times', key],
     queryFn: () =>
@@ -45,6 +50,7 @@ export function FreeTimes({ userIds, startAt, minutes, rule, excludeMeetingId, o
         minutes: input.minutes,
         ...(input.rule ? { recurrenceRule: input.rule } : {}),
         ...(input.excludeMeetingId ? { excludeMeetingId: input.excludeMeetingId } : {}),
+        ...(input.projectId ? { projectId: input.projectId } : input.companyId ? { companyId: input.companyId } : {}),
       }),
     enabled: !!input.startAt && input.userIds.length > 0,
     staleTime: 30_000,

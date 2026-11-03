@@ -27,6 +27,8 @@ import { aiApi } from '../api/ai';
 import { todayKey } from '../lib/due-date';
 import { usersApi } from '../api/users';
 import { useAuthStore } from '../stores/auth-store';
+import { useMyCompanies } from '../hooks/useMyCompanies';
+import { COMPANY_GONE_CODE } from '../lib/companies';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
@@ -85,6 +87,16 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const [linkError, setLinkError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const linkRef = useRef<HTMLInputElement>(null);
+  // companies: a meeting without a project belongs to one of my companies — the picked one, else my
+  // primary one (a meeting's own when editing). The field shows with two or more to choose from.
+  const myCompanies = useMyCompanies();
+  const [companyChoice, setCompanyChoice] = useState<string | null>(null);
+  const companyId = companyChoice ?? (editing ? (meeting?.companyId ?? null) : (myCompanies.effective?.id ?? null));
+  const companyOptions = [...myCompanies.companies].sort((a, b) => a.name.localeCompare(b.name, 'en'));
+  // (A meeting kept in a company that isn't one of mine stays there: no field to move it.)
+  const showCompany = !projectId && companyOptions.length >= 2 && (companyId === null || companyOptions.some((c) => c.id === companyId));
+  // What the meeting's people and its free times are worked out for: its project, else its company.
+  const target = projectId ? { projectId, companyId: null } : { projectId: null, companyId };
 
   // A later meeting of a series doesn't carry the rule — its own record names the series'.
   const ownQ = useQuery({
@@ -203,6 +215,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         projectId: projectId || null,
         status,
         description: description.trim() || null,
+        ...(showCompany && companyId ? { companyId } : {}),
       };
       if (editing && seriesId && as === 'series') {
         // The series' upcoming meetings get only what was changed here, so a meeting changed on its
@@ -217,6 +230,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         if (!same(payload.location, was.location)) changes.location = payload.location;
         if (!same(payload.onlineLink, was.onlineLink)) changes.onlineLink = payload.onlineLink;
         if ((payload.projectId ?? null) !== (was.projectId ?? null)) changes.projectId = payload.projectId;
+        if (payload.companyId && payload.companyId !== (was.companyId ?? null)) changes.companyId = payload.companyId;
         if (status !== was.status) changes.status = status;
         if (!same(payload.description, was.description)) changes.description = payload.description;
         if (ruleChanged) changes.recurrenceRule = rule;
@@ -243,6 +257,11 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     },
     onError: (err) => {
       setAskScope(false);
+      // companies: a company of mine no longer (the server's words; the picker's pick stays as it is).
+      if (err instanceof ApiError && err.code === COMPANY_GONE_CODE && err.message) {
+        setError(err.message);
+        return;
+      }
       if (err instanceof ApiError && err.status === 403) {
         setError(editing ? 'You don’t have permission to change this meeting.' : 'You don’t have access to that project.');
         return;
@@ -352,7 +371,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 </div>
                 <p id="mf-tz" className="-mt-1 text-xs text-ink-2 sm:col-span-2">Times are in company time ({timeZone.replace(/_/g, ' ')}).</p>
               </div>
-              <FreeTimes userIds={freeTimeUsers} startAt={startIso} minutes={lengthMinutes} rule={seriesId ? null : rule} excludeMeetingId={meeting?.id} onPick={pickTime} />
+              <FreeTimes userIds={freeTimeUsers} startAt={startIso} minutes={lengthMinutes} rule={seriesId ? null : rule} excludeMeetingId={meeting?.id} projectId={target.projectId} companyId={target.companyId} onPick={pickTime} />
               <div className="flex flex-col gap-1.5">
                 <FieldLabel>Repeat</FieldLabel>
                 <SearchableSelect
@@ -389,6 +408,26 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
                 <p className="text-xs text-ink-2">Optional — leave blank for a standalone meeting.</p>
               </div>
+              {showCompany ? (
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="mf-company">Company</FieldLabel>
+                  <select
+                    id="mf-company"
+                    value={companyId ?? ''}
+                    onChange={(e) => setCompanyChoice(e.target.value || null)}
+                    aria-describedby="mf-company-help"
+                    className={`${fieldClass(false)} [@media(pointer:coarse)]:min-h-11`}
+                  >
+                    {companyId === null ? <option value="">Choose a company</option> : null}
+                    {companyOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p id="mf-company-help" className="text-xs text-ink-2">A meeting without a project belongs to one of your companies.</p>
+                </div>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <FieldLabel htmlFor="mf-loc">Location</FieldLabel>
@@ -435,7 +474,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               </div>
               {!editing ? (
                 <>
-                  <PeopleField value={people} onChange={changePeople} organizerId={organizerId} />
+                  <PeopleField value={people} onChange={changePeople} organizerId={organizerId} target={target} />
                   <AgendaField
                     value={agenda}
                     onChange={setAgenda}
