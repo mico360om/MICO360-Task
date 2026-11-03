@@ -110,6 +110,33 @@ describe('Unread, chips, scope and counts', () => {
     expect(rows.find((n) => n.type === 'CHAT_MENTION')).toMatchObject({ projectId: null, project: null });
   });
 
+  it('the scope, a cursor, the Unread tab and chips in one query (the AND / OR rules together)', async () => {
+    await prisma.notification.createMany({
+      data: Array.from({ length: 9 }, (_, i) => ({ userId: ada, type: i % 2 ? 'MENTION' : 'TASK_OVERDUE', title: `more${i}`, projectId: [rig, fin, null][i % 3], readAt: i % 4 === 3 ? new Date(base) : null, createdAt: new Date(base + 60_000 + Math.floor(i / 2) * 1000) })),
+    });
+    const scope = { projectIds: [rig], pick: null };
+    const q = { unread: true, kinds: ['mentions', 'due'] as ('mentions' | 'due')[] };
+    const want = (await prisma.notification.findMany({
+      where: { userId: ada, readAt: null, type: { in: ['MENTION', 'CHAT_MENTION', 'TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION'] }, OR: [{ projectId: null }, { projectId: rig }] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })).map((n) => n.id);
+    const got: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await svc.listPage(ada, scope, { ...q, limit: 2, ...(cursor ? { cursor } : {}) });
+      got.push(...page.data.map((n) => n.id));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor && got.length < 50);
+    expect(want.length).toBeGreaterThan(4);
+    expect(got).toEqual(want);
+  });
+
+  it('a notice about a project in the trash names no project', async () => {
+    const gone = await prisma.project.create({ data: { code: 'NIBGONE', name: 'Old works', createdById: ada, deletedAt: new Date(base) } });
+    await prisma.notification.create({ data: { userId: ada, type: 'TASK_COMMENT', title: 'about the trash', projectId: gone.id, createdAt: new Date(base + 99_000) } });
+    expect((await svc.listPage(ada)).data[0]).toMatchObject({ title: 'about the trash', projectId: gone.id, project: null });
+  });
+
   it('Mark all read follows the chips (and the time shown)', async () => {
     await svc.markAllRead(ada, new Date(base + 10_000), undefined, ['mentions']);
     expect((await svc.listPage(ada, undefined, { unread: true })).data.map((n) => n.type)).toEqual(['TASK_STATUS', 'TASK_OVERDUE']);

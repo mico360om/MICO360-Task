@@ -84,6 +84,6 @@ export interface NotificationRepository {
   remove(id: string): Promise<void>;
   /** The person's own ones among `ids` only; how many changed (read: the unread ones; unread: the read ones). */
   bulk(userId: string, ids: readonly string[], action: NotificationBulkAction): Promise<number>;
-  /** The projects a page of notifications is about (one that is gone is left out). */
+  /** The projects a page of notifications is about (one that is gone or in the trash is left out). */
   projectLooks(ids: readonly string[]): Promise<NotificationProject[]>;
 }

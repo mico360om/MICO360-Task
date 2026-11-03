@@ -6,6 +6,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { LoadError } from '../components/ui/LoadError';
 import { Button, buttonClass } from '../components/ui/Button';
 import { apiClient } from '../api/client';
+import { ApiError } from '../lib/api-client';
 import {
   notificationsApi,
   NOTIFICATIONS_KEY,
@@ -80,11 +81,14 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   const setFilter = (change: (f: InboxFilter) => InboxFilter) => {
     chosen.current = true;
     setFilterState(change);
-    setSelected(new Set());
   };
   useEffect(() => {
     if (chosen.current) writeUserValue(myId, INBOX_FILTER_PREF, serializeInboxFilter(filter));
   }, [myId, filter]);
+  // Another tab or chips: the ticks go (they were on rows that may not be shown any more). The same
+  // tab or chip clicked again keeps them.
+  const view = `${filter.tab}|${filter.kinds.join(',')}`;
+  useEffect(() => setSelected(new Set()), [view]);
 
   const countsQ = useQuery({ queryKey: NOTIFICATION_COUNTS_KEY, queryFn: () => api.counts() });
   const counts = isCounts(countsQ.data) ? countsQ.data : undefined;
@@ -94,22 +98,37 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
     initialPageParam: '',
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = listQ;
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = listQ;
 
-  /** The bell, the page's lists and counts, and the badge, read again. */
-  const refresh = () => {
+  /**
+   * After the page's own changes: the counts, the badge and the bell's list are read again — not the
+   * loaded pages (ten of them after a long scroll), which were changed in place. A row marked read on
+   * the Unread tab stays, quieter, until the list is next read (another tab, a new notification).
+   */
+  const refreshCounts = () => {
+    void qc.invalidateQueries({ queryKey: NOTIFICATION_COUNTS_KEY });
+    void qc.invalidateQueries({ queryKey: NOTIFICATIONS_KEY, exact: true });
+    void qc.invalidateQueries({ queryKey: UNREAD_COUNT_KEY });
+  };
+  /** Everything, the loaded pages too (after "Mark all read"). */
+  const refreshAll = () => {
     void qc.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });
     void qc.invalidateQueries({ queryKey: UNREAD_COUNT_KEY });
   };
   const removal = useDeferredRemoval({
     delayMs: undoMs,
+    // The ids that could not be removed come back; one already gone (removed in another tab) is done.
     commit: async (ids) => {
-      try {
-        if (ids.length === 1) await api.remove(ids[0]!);
-        else for (const part of chunks(ids)) await api.bulk(part, 'remove');
-      } finally {
-        refresh();
+      const failed: string[] = [];
+      if (ids.length === 1) {
+        await api.remove(ids[0]!).catch((err: unknown) => {
+          if (!(err instanceof ApiError && err.status === 404)) failed.push(ids[0]!);
+        });
+      } else {
+        for (const part of chunks(ids)) await api.bulk(part, 'remove').catch(() => failed.push(...part));
       }
+      refreshCounts();
+      return failed;
     },
     onFailed: (ids) => setProblem(ids.length === 1 ? 'Couldn’t remove the notification. Please try again.' : `Couldn’t remove ${ids.length} notifications. Please try again.`),
   });
@@ -124,10 +143,11 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   const hasRows = visible.length > 0;
 
   // Older ones load as the end of the list comes into view ("Show older" does the same by hand).
+  // After a failed page they wait for "Show older" or Retry: asking by itself again would go on forever.
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || !hasNextPage || !hasRows || typeof IntersectionObserver === 'undefined') return;
+    if (!el || !hasNextPage || !hasRows || isFetchNextPageError || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
@@ -136,7 +156,20 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [hasNextPage, hasRows, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, hasRows, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+
+  // Where the keyboard goes when the control it was on goes away (a removed row, the selection bar,
+  // the Undo toast): the row now at that place, or the one brought back. Used on the next draw only.
+  const focusPlan = useRef<{ index: number } | { id: string } | null>(null);
+  useEffect(() => {
+    const plan = focusPlan.current;
+    if (!plan) return;
+    focusPlan.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && document.contains(active)) return;
+    const target = 'id' in plan ? visible.find((n) => n.id === plan.id) : visible[Math.min(plan.index, visible.length - 1)];
+    if (target) document.querySelector<HTMLElement>(`[data-notification-id="${CSS.escape(target.id)}"] [data-open]`)?.focus();
+  });
 
   // Read state changes at once on the page and in the bell; the server's answer follows.
   function patchRead(ids: ReadonlySet<string>, readAt: string | null) {
@@ -149,24 +182,42 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   async function setRead(ids: string[], read: boolean) {
     if (ids.length === 0) return;
     setProblem(null);
+    // A list being read again right now (a new notification came) would answer with the old state:
+    // stop it, and read it again once this change is saved.
+    const reading = qc.isFetching({ queryKey: NOTIFICATION_PAGES_KEY }) > 0;
+    if (reading) await qc.cancelQueries({ queryKey: NOTIFICATION_PAGES_KEY });
     patchRead(new Set(ids), read ? new Date().toISOString() : null);
     try {
       if (ids.length === 1) await (read ? api.markRead(ids[0]!) : api.markUnread(ids[0]!));
       else for (const part of chunks(ids)) await api.bulk(part, read ? 'read' : 'unread');
     } catch {
       setProblem(read ? 'Couldn’t mark them read. Please try again.' : 'Couldn’t mark them unread. Please try again.');
+      // Show the server's state again (the change was shown before it was saved).
+      void qc.invalidateQueries({ queryKey: NOTIFICATION_PAGES_KEY });
     } finally {
-      refresh();
+      if (reading) void qc.invalidateQueries({ queryKey: NOTIFICATION_PAGES_KEY });
+      refreshCounts();
     }
   }
+  const indexOf = (id: string | undefined) => Math.max(0, visible.findIndex((n) => n.id === id));
   function removeIds(ids: string[]) {
     if (ids.length === 0) return;
     setProblem(null);
+    focusPlan.current = { index: indexOf(ids[0]) };
     removal.remove(ids, ids.length === 1 ? 'Removed' : `Removed ${ids.length} notifications`);
     setSelected((s) => new Set([...s].filter((id) => !ids.includes(id))));
   }
+  function undoRemove() {
+    focusPlan.current = removal.pending ? { id: removal.pending.ids[0]! } : null;
+    removal.undo();
+  }
   // "Mark all read" reads what the tab and chips show — up to the newest shown, so one that arrives meanwhile stays unread.
-  const markAll = useMutation({ mutationFn: () => api.markAllRead(newestCreatedAt(visible), filter.kinds), onSettled: refresh });
+  const markAll = useMutation({
+    mutationFn: () => api.markAllRead(newestCreatedAt(visible), filter.kinds),
+    onMutate: () => setProblem(null),
+    onError: () => setProblem('Couldn’t mark them read. Please try again.'),
+    onSettled: refreshAll,
+  });
 
   const selectedIds = visible.filter((n) => selected.has(n.id)).map((n) => n.id);
   const allSelected = hasRows && selectedIds.length === visible.length;
@@ -183,7 +234,12 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
       return next;
     });
   const bulkRead = (read: boolean) => {
+    focusPlan.current = { index: indexOf(selectedIds[0]) };
     void setRead(selectedIds, read);
+    setSelected(new Set());
+  };
+  const clearSelection = () => {
+    focusPlan.current = { index: indexOf(selectedIds[0]) };
     setSelected(new Set());
   };
   const showBoxes = wide || selecting;
@@ -218,7 +274,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
       {nothingAtAll ? null : (
         <div className="mb-4 flex flex-col gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div role="group" aria-label="Show" className="inline-flex gap-0.5 rounded-xl border border-line bg-surface p-0.5">
+            <div role="group" aria-label="Show notifications" className="inline-flex gap-0.5 rounded-xl border border-line bg-surface p-0.5">
               <button type="button" aria-pressed={filter.tab === 'all'} onClick={() => setFilter((f) => ({ ...f, tab: 'all' }))} className={segment(filter.tab === 'all')}>
                 All
               </button>
@@ -355,7 +411,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
               <div role="region" aria-label="Selected notifications" className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface/95 px-3 py-2 shadow-lift backdrop-blur">
                 <span className="me-auto text-sm font-medium text-ink">{`${selectedIds.length} selected`}</span>
                 {/* Beside the count on a phone (the actions wrap below); last on a wider screen. */}
-                <Button variant="ghost" size="sm" className={`sm:order-last ${TOUCH_SQUARE}`} aria-label="Clear selection" onClick={() => setSelected(new Set())}>
+                <Button variant="ghost" size="sm" className={`sm:order-last ${TOUCH_SQUARE}`} aria-label="Clear selection" onClick={clearSelection}>
                   ✕
                 </Button>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -386,18 +442,30 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
         </>
       )}
 
-      {removal.pending ? (
-        // Above the selection bar while it shows.
-        <div className={`pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4 ${selectedIds.length > 0 ? 'bottom-28 sm:bottom-20' : 'bottom-6'}`}>
-          <div role="status" aria-labelledby="notif-toast-text" className="pointer-events-auto flex max-w-lg items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2 text-sm text-ink shadow-lift">
-            <span id="notif-toast-text">{removal.pending.label}</span>
-            <span aria-hidden="true" className="text-ink-3">·</span>
-            <button type="button" onClick={removal.undo} className={`rounded-lg px-2 py-1 font-semibold text-brand hover:bg-brand/10 ${TOUCH_SQUARE}`}>
-              Undo
-            </button>
-          </div>
+      {/* "Removed · Undo": the live region is always there (one added with its words is read out
+          unreliably); its time waits while it is pointed at or has the keyboard. Above the
+          selection bar while that shows. */}
+      <div className={`pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4 ${selectedIds.length > 0 ? 'bottom-28 sm:bottom-20' : 'bottom-6'}`}>
+        <div
+          role="status"
+          aria-labelledby={removal.pending ? 'notif-toast-text' : undefined}
+          onMouseEnter={() => removal.hold('pointer')}
+          onMouseLeave={() => removal.release('pointer')}
+          onFocus={() => removal.hold('focus')}
+          onBlur={() => removal.release('focus')}
+          className={removal.pending ? 'pointer-events-auto flex max-w-lg items-center gap-2 rounded-xl border border-line bg-surface px-4 py-2 text-sm text-ink shadow-lift' : ''}
+        >
+          {removal.pending ? (
+            <>
+              <span id="notif-toast-text">{removal.pending.label}</span>
+              <span aria-hidden="true" className="text-ink-3">·</span>
+              <button type="button" onClick={undoRemove} className={`rounded-lg px-2 py-1 font-semibold text-brand hover:bg-brand/10 ${TOUCH_SQUARE}`}>
+                Undo
+              </button>
+            </>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

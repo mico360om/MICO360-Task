@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -36,6 +37,10 @@ const COUNTS = { unread: 2, kinds: { mentions: 1, assigned: 0, due: 0, comments:
 let calls: { method: string; url: string; body: unknown }[];
 let pages: (url: URL) => { data: Row[]; nextCursor: string | null };
 let failRemove = false;
+/** Review fixes: an older page that fails, a read-all that fails, a remove answered 404. */
+let failOlder = false;
+let failReadAll = false;
+let removeStatus = 200;
 function server() {
   calls = [];
   vi.stubGlobal(
@@ -47,8 +52,15 @@ function server() {
       const path = url.pathname.replace(/^\/api\/v1/, '');
       if (path === '/notifications/counts') return json({ data: COUNTS });
       if (path === '/notifications/unread-count') return json({ data: { count: COUNTS.unread } });
+      if (path === '/notifications' && method === 'GET' && failOlder && url.searchParams.get('cursor')) {
+        // As over a network: the page is drawn loading before the answer comes.
+        await new Promise((r) => setTimeout(r, 50));
+        return json({ error: { code: 'X', message: 'down' } }, 500);
+      }
       if (path === '/notifications' && method === 'GET') return json(pages(url));
       if (method === 'DELETE' && failRemove) return json({ error: { code: 'X', message: 'down' } }, 500);
+      if (method === 'DELETE' && removeStatus !== 200) return json({ error: { code: 'NOT_FOUND', message: 'Notification not found.' } }, removeStatus);
+      if (path === '/notifications/read-all' && failReadAll) return json({ error: { code: 'X', message: 'down' } }, 500);
       if (path.startsWith('/notifications/')) return json({ data: { ok: true, count: 1 } });
       if (path === '/projects') return json({ data: [{ id: 'p1' }] });
       // The rows are made in this machine's zone: the page groups days in the same one.
@@ -82,6 +94,9 @@ function renderPage(ui = <NotificationsPage undoMs={60} />) {
 beforeEach(() => {
   localStorage.clear();
   failRemove = false;
+  failOlder = false;
+  failReadAll = false;
+  removeStatus = 200;
   useAuthStore.setState({ user: { id: 'u1', email: 'a@x', username: 'a', roles: ['EMPLOYEE'] } as never, accessToken: 'at', refreshToken: 'rt', isAuthenticated: true });
   pages = () => ({ data: ROWS, nextCursor: null });
   server();
@@ -345,5 +360,132 @@ describe('the bell still works beside the page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Notifications, 2 unread' }));
     await waitFor(() => expect(sent('GET', '/api/v1/notifications').some((c) => c.url === '/api/v1/notifications')).toBe(true));
     expect(screen.getAllByText('You were mentioned in a comment').length).toBeGreaterThanOrEqual(2); // in the bell and on the page
+  });
+});
+
+describe('review fixes', () => {
+  const openOf = (title: string) => screen.getByText(title).closest('li')!.querySelector<HTMLElement>('[data-open]');
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('a failed older page is not asked for again by itself; “Show older” still asks', async () => {
+    class IO {
+      constructor(private cb: IntersectionObserverCallback) {}
+      observe() { this.cb([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('IntersectionObserver', IO);
+    failOlder = true;
+    pages = () => ({ data: ROWS, nextCursor: 'c1' });
+    renderPage();
+    expect(await screen.findByText('Couldn’t load older notifications.', { exact: false })).toBeInTheDocument();
+    const asked = () => sent('GET', '/api/v1/notifications?').filter((c) => c.url.includes('cursor=c1')).length;
+    const once = asked();
+    await pause(1500);
+    expect(asked()).toBe(once);
+    await userEvent.click(screen.getByRole('button', { name: 'Show older' }));
+    await waitFor(() => expect(asked()).toBeGreaterThan(once));
+  });
+
+  it('after Remove the keyboard is on the next notification; after Undo, on the one brought back', async () => {
+    renderPage(<NotificationsPage undoMs={60_000} />);
+    await screen.findByText('You were mentioned in a comment');
+    act(() => screen.getByRole('button', { name: 'Remove: You were mentioned in a comment' }).focus());
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(document.activeElement).toBe(openOf('You were assigned a task')));
+    act(() => within(screen.getByRole('status', { name: 'Removed' })).getByRole('button', { name: 'Undo' }).focus());
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(document.activeElement).toBe(openOf('You were mentioned in a comment')));
+  });
+
+  it('the Undo time waits while the toast is pointed at or has the keyboard', async () => {
+    renderPage(<NotificationsPage undoMs={150} />);
+    await screen.findByText('You were assigned a task');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove: You were assigned a task' }));
+    const toast = screen.getByRole('status', { name: 'Removed' });
+    await userEvent.hover(toast);
+    await pause(400);
+    expect(sent('DELETE', '/api/v1/notifications/')).toHaveLength(0);
+    const undo = within(toast).getByRole('button', { name: 'Undo' });
+    act(() => undo.focus());
+    await userEvent.unhover(toast);
+    await pause(400);
+    expect(sent('DELETE', '/api/v1/notifications/')).toHaveLength(0);
+    act(() => undo.blur());
+    await waitFor(() => expect(sent('DELETE', '/api/v1/notifications/n2')).toHaveLength(1));
+  });
+
+  it('switching away from the tab sends a waiting remove at once', async () => {
+    renderPage(<NotificationsPage undoMs={60_000} />);
+    await screen.findByText('You were assigned a task');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove: You were assigned a task' }));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await waitFor(() => expect(sent('DELETE', '/api/v1/notifications/n2')).toHaveLength(1));
+    } finally {
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    }
+  });
+
+  it('on the Unread tab a notification marked read stays (quieter) until the list is read again; only the counts are asked again', async () => {
+    pages = (url) => ({ data: url.searchParams.get('unread') ? ROWS.filter((r) => !r.readAt) : ROWS, nextCursor: null });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /^Unread/ }));
+    await waitFor(() => expect(screen.queryByText('You were assigned a task')).not.toBeInTheDocument());
+    const lists = () => sent('GET', '/api/v1/notifications?').length;
+    const counts = () => sent('GET', '/api/v1/notifications/counts').length;
+    const [l0, c0] = [lists(), counts()];
+    await userEvent.click(screen.getByRole('button', { name: 'Mark read: You were mentioned in a comment' }));
+    await waitFor(() => expect(counts()).toBeGreaterThan(c0));
+    await pause(200);
+    expect(screen.getByText('You were mentioned in a comment')).toHaveClass('text-ink-2');
+    expect(lists()).toBe(l0);
+  });
+
+  it('a remove already done elsewhere (404) is not an error', async () => {
+    removeStatus = 404;
+    renderPage();
+    await screen.findByText('You were assigned a task');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove: You were assigned a task' }));
+    await waitFor(() => expect(sent('DELETE', '/api/v1/notifications/n2')).toHaveLength(1));
+    await pause(100);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('You were assigned a task')).not.toBeInTheDocument();
+  });
+
+  it('a Mark all read that fails says so', async () => {
+    failReadAll = true;
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark all read' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t mark them read');
+  });
+
+  it('clicking the tab that is already on keeps the ticks; another tab clears them', async () => {
+    renderPage();
+    await screen.findByText('You were mentioned in a comment');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select: You were mentioned in a comment' }));
+    await userEvent.click(screen.getByRole('button', { name: /^All$/ }));
+    expect(screen.getByRole('checkbox', { name: 'Select: You were mentioned in a comment' })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: /^Unread/ }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Selected notifications' })).not.toBeInTheDocument());
+  });
+
+  it('in React’s strict mode a remove is sent once, after its time', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <StrictMode>
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <NotificationsPage undoMs={60} />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+    await screen.findByText('You were assigned a task');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove: You were assigned a task' }));
+    await waitFor(() => expect(sent('DELETE', '/api/v1/notifications/n2')).toHaveLength(1));
+    await pause(150);
+    expect(sent('DELETE', '/api/v1/notifications/')).toHaveLength(1);
   });
 });

@@ -38,7 +38,8 @@ export function NotificationRow({ n, timeZone, selectable, selected, onToggleSel
         </label>
       ) : null}
       <NotificationKindIcon type={n.type} />
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 rounded text-start [@media(pointer:coarse)]:!min-h-11">
+      {/* data-open: where the keyboard goes when a neighbouring row is removed. */}
+      <button type="button" data-open onClick={onOpen} className="min-w-0 flex-1 rounded text-start [@media(pointer:coarse)]:!min-h-11">
         <span className="sr-only">{`${kind.name}:`} </span>
         <span dir="auto" className={`block text-sm ${read ? 'text-ink-2' : 'font-medium text-ink'}`}>{n.title}</span>
         {n.body ? <span dir="auto" className="mt-0.5 block whitespace-pre-line text-xs text-ink-2 [overflow-wrap:anywhere]">{n.body}</span> : null}

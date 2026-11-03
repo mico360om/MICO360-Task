@@ -108,7 +108,8 @@ export function createPrismaNotificationRepository(prisma: PrismaClient): Notifi
       return (await prisma.notification.updateMany({ where: { ...where, readAt: { not: null } }, data: { readAt: null } })).count;
     },
     async projectLooks(ids) {
-      return prisma.project.findMany({ where: { id: { in: [...ids] } }, select: { id: true, name: true, color: true, icon: true, imageUrl: true } });
+      // A project in the trash is named nowhere else: its old notices show no project either.
+      return prisma.project.findMany({ where: { id: { in: [...ids] }, deletedAt: null }, select: { id: true, name: true, color: true, icon: true, imageUrl: true } });
     },
   };
 }
