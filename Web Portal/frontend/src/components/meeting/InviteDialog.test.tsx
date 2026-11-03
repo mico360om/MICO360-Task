@@ -51,6 +51,13 @@ describe('Invitations dialog', () => {
     expect(within(list).getByText('عبدالرحمن الحارثي').tagName).toBe('BDI');
   });
 
+  it('a typed address (no name of its own) is shown once in the results, not twice', () => {
+    render(<SendResults what="Minutes" report={{ sent: 2, failed: 0, recipients: [{ name: 'client@outside.co', email: 'client@outside.co', ok: true }, { name: 'Aisha Khan', email: 'aisha@mico360.test', ok: true }] } as never} />);
+    const list = screen.getByRole('list', { name: /results/i });
+    expect(within(list).getAllByText('client@outside.co')).toHaveLength(1);
+    expect(within(list).getByText('aisha@mico360.test')).toBeInTheDocument();
+  });
+
   it('lets the keyboard reach the list of results after sending', () => {
     render(<SendResults what="Invitations" report={{ sent: 1, failed: 0, recipients: [{ name: 'Aisha Khan', email: 'aisha@mico360.test', ok: true }] } as never} />);
     expect(screen.getByRole('list', { name: /results/i })).toHaveAttribute('tabindex', '0');

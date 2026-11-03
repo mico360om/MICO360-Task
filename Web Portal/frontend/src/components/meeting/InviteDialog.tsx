@@ -29,7 +29,8 @@ export function SendResults({ report, what }: { report: SendReport; what: string
               <span aria-hidden="true" className={r.ok ? 'text-success' : 'text-danger'}>{r.ok ? '✓' : '✕'}</span>
               <span className="min-w-0 flex-1">
                 <bdi title={r.name} className="block truncate font-medium text-ink">{r.name}</bdi>
-                <span title={r.email} className="block truncate text-xs text-ink-3">{r.email}</span>
+                {/* A typed address is its own name: shown once. */}
+                {r.name !== r.email ? <span title={r.email} className="block truncate text-xs text-ink-3">{r.email}</span> : null}
                 {!r.ok ? <span className="block text-xs text-danger">{r.error ?? 'Not delivered.'}</span> : <span className="sr-only">delivered</span>}
               </span>
             </li>
