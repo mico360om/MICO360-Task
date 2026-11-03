@@ -86,7 +86,10 @@ export function companyServer(world: CompanyServerWorld = {}) {
     }
     if (method === 'GET' && route === '/system-settings') return json({ data: [{ key: 'meetings.workingHours', value: SITE_HOURS }] });
     if (method === 'GET' && route === '/me/companies') {
-      return json({ data: { companies: [], primaryCompanyId: null, allArchived: false, siteCompanyCount: companies.filter((c) => c.status === 'ACTIVE').length, ...world.my } });
+      // An administrator's: every active company, A–Z.
+      const active = companies.filter((c) => c.status === 'ACTIVE').sort((a, b) => a.name.localeCompare(b.name, 'en'));
+      const mine = active.map((c) => ({ id: c.id, name: c.name, code: c.code, logoUrl: c.logoUrl, timeZone: 'Asia/Muscat', weekStart: c.effective.weekStart, workingHours: c.effective.workingHours }));
+      return json({ data: { companies: mine, primaryCompanyId: null, allArchived: false, siteCompanyCount: active.length, ...world.my } });
     }
     if (route === '/companies') {
       if (method === 'GET') return json({ data: companies });

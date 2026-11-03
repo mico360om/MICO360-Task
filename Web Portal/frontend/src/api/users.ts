@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import type { CompanyPeopleChange } from './companies';
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
@@ -17,6 +18,17 @@ export interface ApiUser {
   lastLoginAt?: string | null;
   /** When an administrator last sent them a welcome email; null: never. Admin list only. */
   welcomeSentAt?: string | null;
+  /** Their companies, A–Z (an older server sends none). */
+  companies?: UserCompany[];
+  /** Their primary company: their emails' logo and name. */
+  primaryCompanyId?: string | null;
+}
+
+/** One of a person's companies, as the user list names it. */
+export interface UserCompany {
+  id: string;
+  name: string;
+  code: string;
 }
 
 export interface NewUserInput {
@@ -29,6 +41,10 @@ export interface NewUserInput {
   roleNames?: string[];
   /** Email them their username and a one-time "Set your password" link (7 days). */
   sendWelcome?: boolean;
+  /** Their companies (absent: the picked company, else the site's only one). */
+  companyIds?: string[];
+  /** One of `companyIds` (absent: the first). */
+  primaryCompanyId?: string | null;
 }
 
 /** Why a person didn't get a welcome email (the server says it in words too: `why`). */
@@ -75,6 +91,22 @@ export interface UserPatch {
   username?: string;
   /** When present, replaces the user's roles with exactly these role names. */
   roleNames?: string[];
+  /** When present, exactly these companies. */
+  companyIds?: string[];
+  /** One of their companies (null: kept while still theirs, else the oldest one they keep). */
+  primaryCompanyId?: string | null;
+}
+
+/** User Management's list: everyone, the people in one company, or those in none. */
+export interface UserListFilter {
+  companyId?: string | 'none';
+}
+
+/** Bulk assign: add these companies to (and take those from) up to 200 people. */
+export interface CompanyAssignment {
+  userIds: string[];
+  addCompanyIds?: string[];
+  removeCompanyIds?: string[];
 }
 
 export interface DirectoryUser {
@@ -91,7 +123,10 @@ export interface DirectoryUser {
 
 export function usersApi(client: ApiClient) {
   return {
-    list: () => client.get<{ data: ApiUser[] }>('/users').then((r) => r.data),
+    list: (filter?: UserListFilter) =>
+      client.get<{ data: ApiUser[] }>(filter?.companyId ? `/users?companyId=${encodeURIComponent(filter.companyId)}` : '/users').then((r) => r.data),
+    /** Admin-only: several people's companies at once; who couldn't be changed comes back with why. */
+    assignCompanies: (input: CompanyAssignment) => client.post<{ data: CompanyPeopleChange }>('/users/companies', input).then((r) => r.data),
     /** Minimal people directory available to any signed-in user (chat names, DM picker). */
     directory: () => client.get<{ data: DirectoryUser[] }>('/users/directory').then((r) => r.data),
     /** "Download my data": everything the system holds about the signed-in person (JSON file). */

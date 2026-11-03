@@ -3,6 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CreateUserModal } from './CreateUserModal';
+import { useAuthStore } from '../stores/auth-store';
+import { useCompanyStore } from '../stores/company-store';
+import { apiCompany, companyServer } from '../test/company-server';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -192,5 +195,104 @@ describe('CreateUserModal — "Send a welcome email"', () => {
     );
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Send a welcome email' })).toBeDisabled());
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('CreateUserModal: companies', () => {
+  const alpha = apiCompany({ id: 'ca', name: 'Alpha Co', code: 'ALPHA' });
+  const beta = apiCompany({ id: 'cb', name: 'Beta Co', code: 'BETA' });
+  const gone = apiCompany({ id: 'cg', name: 'Gamma Co', code: 'GAMMA', status: 'ARCHIVED', archivedAt: '2026-10-30T08:00:00.000Z' });
+  beforeEach(() => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'a@b.c', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    useCompanyStore.setState({ pick: null, userId: 'me' });
+  });
+  afterEach(() => {
+    useAuthStore.getState().logout();
+    useCompanyStore.setState({ pick: null, userId: null });
+  });
+  const basics = async () => {
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Sara');
+    await userEvent.type(screen.getByLabelText(/last name/i), 'K');
+    await userEvent.type(screen.getByLabelText(/username/i), 'sara');
+    await userEvent.type(screen.getByLabelText(/^email/i), 'sara@x.test');
+  };
+  const create = () => userEvent.click(screen.getByRole('button', { name: /create user/i }));
+
+  it('one company: no company fields, and the new account goes to the site’s company as before', async () => {
+    const server = companyServer({ companies: [alpha] });
+    renderModal();
+    await waitFor(() => expect(server.gets('/me/companies')).toHaveLength(1));
+    await screen.findByRole('checkbox', { name: 'Send a welcome email' });
+    expect(screen.queryByText('Companies')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Primary company' })).toBeNull();
+    await basics();
+    await create();
+    await waitFor(() => expect(server.requests('POST', '/users')).toHaveLength(1));
+    const body = server.lastBody('POST', '/users') as Record<string, unknown>;
+    expect(body).not.toHaveProperty('companyIds');
+    expect(body).not.toHaveProperty('primaryCompanyId');
+  });
+
+  it('two companies: a new person gets companies and a primary one', async () => {
+    const server = companyServer({ companies: [alpha, beta, gone] });
+    renderModal();
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Beta Co' }));
+    const primary = screen.getByRole('combobox', { name: 'Primary company' });
+    expect(primary).toHaveValue('cb');
+    expect(primary).toHaveAccessibleDescription('Used for their emails: logo and name');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Alpha Co' }));
+    expect(primary).toHaveValue('cb');
+    expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-label') ?? c.closest('label')?.textContent)).not.toContain('Gamma Co');
+    await basics();
+    await create();
+    await waitFor(() => expect(server.requests('POST', '/users')).toHaveLength(1));
+    expect(server.lastBody('POST', '/users')).toMatchObject({ companyIds: ['cb', 'ca'], primaryCompanyId: 'cb' });
+  });
+
+  it('starts with the picked company ticked', async () => {
+    useCompanyStore.setState({ pick: 'cb' });
+    companyServer({ companies: [alpha, beta] });
+    renderModal();
+    expect(await screen.findByRole('checkbox', { name: 'Beta Co' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Alpha Co' })).not.toBeChecked();
+    expect(screen.getByRole('combobox', { name: 'Primary company' })).toHaveValue('cb');
+  });
+
+  it('unticking the primary company makes another one primary; none ticked, no primary', async () => {
+    companyServer({ companies: [alpha, beta] });
+    renderModal();
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Alpha Co' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beta Co' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Primary company' }), 'cb');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beta Co' }));
+    expect(screen.getByRole('combobox', { name: 'Primary company' })).toHaveValue('ca');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Alpha Co' }));
+    expect(screen.queryByRole('combobox', { name: 'Primary company' })).toBeNull();
+  });
+
+  it('an employee needs a company (the server’s words); an administrator may have none', async () => {
+    const server = companyServer({ companies: [alpha, beta] });
+    renderModal();
+    await screen.findByRole('checkbox', { name: 'Alpha Co' });
+    await basics();
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
+    await create();
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose at least one company.');
+    expect(server.requests('POST', '/users')).toHaveLength(0);
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'ADMIN');
+    await create();
+    await waitFor(() => expect(server.requests('POST', '/users')).toHaveLength(1));
+    expect(server.lastBody('POST', '/users')).toMatchObject({ roleNames: ['ADMIN'], companyIds: [], primaryCompanyId: null });
+  });
+
+  it('a refused company shows the server’s words', async () => {
+    const server = companyServer({ companies: [alpha, beta] });
+    server.refuseNext(400, 'VALIDATION', 'Company not found.', { method: 'POST', path: /^\/users$/ });
+    renderModal();
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Alpha Co' }));
+    await basics();
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
+    await create();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Company not found.');
   });
 });

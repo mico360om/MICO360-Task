@@ -1,5 +1,7 @@
-import type { QueryClient } from '@tanstack/react-query';
-import { MY_COMPANIES_KEY, type CompanyPeopleChange, type CompanyWeekStart } from '../../api/companies';
+import { useQuery, type QueryClient } from '@tanstack/react-query';
+import { apiClient } from '../../api/client';
+import { companiesApi, MY_COMPANIES_KEY, type ApiCompany, type CompanyPeopleChange, type CompanyWeekStart } from '../../api/companies';
+import { useMyCompanies } from '../../hooks/useMyCompanies';
 import { ApiError } from '../../lib/api-client';
 
 /**
@@ -11,6 +13,19 @@ import { ApiError } from '../../lib/api-client';
 export const COMPANIES_KEY = ['companies'] as const;
 export const companyPeopleKey = (id: string) => ['companies', id, 'people'] as const;
 export const companyProjectsKey = (id: string) => ['companies', id, 'projects'] as const;
+
+/**
+ * The companies a person can be given (User Management): shown only when the site has 2+ active
+ * companies, or the person already has 2+ (`recordCount`) — a one-company site looks as before.
+ * `companies` is every company, archived ones too (A–Z), once loaded.
+ */
+export function useCompanyChoices(recordCount = 0): { show: boolean; companies: ApiCompany[] } {
+  const { siteCompanyCount } = useMyCompanies();
+  const wanted = siteCompanyCount >= 2 || recordCount >= 2;
+  const q = useQuery({ queryKey: COMPANIES_KEY, queryFn: () => companiesApi(apiClient).list(), enabled: wanted });
+  const companies = Array.isArray(q.data) ? [...q.data].sort((a, b) => a.name.localeCompare(b.name, 'en')) : [];
+  return { show: wanted && Array.isArray(q.data), companies };
+}
 
 /**
  * After a change to a company or to who is in it: the companies (and their people and projects),

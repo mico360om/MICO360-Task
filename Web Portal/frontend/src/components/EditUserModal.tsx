@@ -9,6 +9,8 @@ import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
+import { CompanyChecklist } from './company/CompanyChecklist';
+import { useCompanyChoices } from './company/company-admin';
 
 export interface EditUserModalProps {
   user: ApiUser;
@@ -53,6 +55,17 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
   const [roles, setRoles] = useState<Set<string>>(new Set(user.roles));
   const [error, setError] = useState<string | null>(null);
 
+  // Their companies and primary company (with two or more companies on the site, or on their record).
+  // Sent only when changed: a name change never touches them.
+  const savedCompanyIds = (user.companies ?? []).map((c) => c.id);
+  const savedPrimary = user.primaryCompanyId && savedCompanyIds.includes(user.primaryCompanyId) ? user.primaryCompanyId : (savedCompanyIds[0] ?? null);
+  const companyChoices = useCompanyChoices(savedCompanyIds.length);
+  const [companyIds, setCompanyIds] = useState<string[]>(savedCompanyIds);
+  const [primaryCompanyId, setPrimaryCompanyId] = useState<string | null>(savedPrimary);
+  const companiesChanged =
+    companyChoices.show &&
+    (companyIds.length !== savedCompanyIds.length || companyIds.some((id) => !savedCompanyIds.includes(id)) || primaryCompanyId !== savedPrimary);
+
   const [newPassword, setNewPassword] = useState('');
   const [pwNotice, setPwNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
@@ -67,6 +80,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
         email: email.trim(),
         // Your own roles are never sent, so they can't change from this dialog.
         ...(isSelf ? {} : { roleNames: [...roles] }),
+        ...(companiesChanged ? { companyIds, primaryCompanyId } : {}),
       });
       if (!isSelf && status !== user.status) {
         try {
@@ -179,6 +193,18 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
                 <input id="eu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
               </div>
             </fieldset>
+
+            {companyChoices.show ? (
+              <CompanyChecklist
+                companies={companyChoices.companies}
+                value={companyIds}
+                onChange={setCompanyIds}
+                primaryId={primaryCompanyId}
+                onPrimaryChange={setPrimaryCompanyId}
+                idPrefix="eu-companies"
+                variant="section"
+              />
+            ) : null}
 
             <fieldset className="flex flex-col gap-3" disabled={isSelf} aria-describedby={isSelf ? 'eu-self-note' : undefined}>
               <legend className="mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-2">Access</legend>
