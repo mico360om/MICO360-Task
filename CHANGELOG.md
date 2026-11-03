@@ -18,6 +18,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Activity: a calendar view beside the list. Each day of the month or the week shows how many
   changes it had, shaded from quiet to busy; click a day to see its changes under the calendar. The
   filters and the company picker apply to both views, and your choice of List or Calendar is kept.
+- Kanban Board: the faces of the people who can open a project's board — its owner, manager and
+  team — sit at the top of the board. Click them for the full list with each person's role; whoever
+  runs the project can go from there to its Team tab.
 
 ## [1.21.0] - 2026-11-04
 

@@ -156,6 +156,17 @@ describe('BoardPage: layout', () => {
   });
 });
 
+describe('BoardPage: who can open the board (1.22)', () => {
+  it('a project’s board shows its people as a row of faces; the All projects board does not', async () => {
+    const view = renderPage('/board?project=p1');
+    expect(await screen.findByRole('button', { name: 'People on this project: 1' })).toBeInTheDocument();
+    view.unmount();
+    renderPage('/board?project=all');
+    await screen.findByText(/All projects — drag a card/);
+    expect(screen.queryByRole('button', { name: /People on this project/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('emptyDayText', () => {
   it('today, a day ahead and a day gone each say why they are empty', () => {
     expect(emptyDayText('2026-10-30', '2026-10-30')).toMatch(/^Nothing on today’s board yet/);
