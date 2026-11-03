@@ -13,6 +13,8 @@ interface CompanyState {
   pick: string | null;
   /** "You no longer have access to Beta Co. Showing all your companies." until dismissed. */
   notice: string | null;
+  /** The company's name inside `notice` (typed by an administrator: shown in its own direction), or null. */
+  noticeName: string | null;
   /** Company names by id, from the last `/me/companies` — so a company taken away can still be named. */
   names: Record<string, string>;
   /** Whose pick this is (the signed-in person), or null. */
@@ -32,21 +34,23 @@ interface CompanyState {
 export const useCompanyStore = create<CompanyState>((set, get) => ({
   pick: null,
   notice: null,
+  noticeName: null,
   names: {},
   userId: null,
   setPick: (userId, pick) => {
     writeUserValue(userId, COMPANY_PICK_PREF, pick);
     set({ userId, pick });
   },
-  loadFor: (userId) => set({ userId, pick: userId ? readUserValue(userId, COMPANY_PICK_PREF) || null : null, notice: null }),
+  loadFor: (userId) => set({ userId, pick: userId ? readUserValue(userId, COMPANY_PICK_PREF) || null : null, notice: null, noticeName: null }),
   setNames: (names) => set((s) => (Object.entries(names).every(([id, name]) => s.names[id] === name) ? s : { names: { ...s.names, ...names } })),
   companyGone: (refused) => {
     const { pick, names, userId } = get();
     if (!pick || (refused != null && refused !== pick)) return;
     writeUserValue(userId, COMPANY_PICK_PREF, null);
-    set({ pick: null, notice: pickGoneNotice(names[pick] ?? null) });
+    const name = names[pick] ?? null;
+    set({ pick: null, notice: pickGoneNotice(name), noticeName: name });
   },
-  dismissNotice: () => set({ notice: null }),
+  dismissNotice: () => set({ notice: null, noticeName: null }),
 }));
 
 /**

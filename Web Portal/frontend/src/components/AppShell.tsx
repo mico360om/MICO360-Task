@@ -23,6 +23,14 @@ import { AppFooter } from './AppFooter';
 import { useChatBadge } from '../lib/useChatBadge';
 import { menuButtonLabel } from '../lib/chat-badge';
 import { pageFrameClass, pageLayout } from '../lib/page-layout';
+import { useMyCompanies } from '../hooks/useMyCompanies';
+import { CompanyPicker } from './company/CompanyPicker';
+import { CompanyNotice } from './company/CompanyNotice';
+import { ArchivedCompanyState } from './company/ArchivedCompanyState';
+
+/** The pages that still open when all of someone's companies are archived. */
+const OPEN_WHEN_ARCHIVED = ['/settings', '/profile', '/about'];
+const opensWhenArchived = (path: string) => OPEN_WHEN_ARCHIVED.some((p) => path === p || path.startsWith(`${p}/`));
 
 /**
  * The phone's navigation menu: a dialog over the page. Focus moves into it and stays there, Escape
@@ -56,6 +64,8 @@ function MobileMenu({ isAdmin, canLead, chatUnread, onClose }: { isAdmin: boolea
         <nav aria-label="Main" className="flex min-h-0 flex-1 flex-col">
           <SidebarBody isAdmin={isAdmin} canLead={canLead} chatUnread={chatUnread} onNavigate={onClose} />
         </nav>
+        {/* Companies: on the smallest phones the top bar has no room for the picker — it is here. */}
+        <CompanyPicker place="menu" />
       </div>
     </div>
   );
@@ -77,6 +87,10 @@ export function AppShell() {
   // The Management page's link: administrators and the people who run a project (until the server
   // answers, what it said last time — the link no longer pops in and shifts the menu).
   const canLead = useManagementLink();
+  // Companies: someone whose companies are all archived sees one card instead of the page ("archived
+  // means no access"); Settings, Profile and About still open. Administrators never.
+  const allArchived = useMyCompanies().data?.allArchived === true;
+  const showArchived = allArchived && !opensWhenArchived(location.pathname);
   // Global task drawer: any page/command can open a task by putting ?task=<id> in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const openTaskId = searchParams.get('task');
@@ -157,6 +171,8 @@ export function AppShell() {
                 <SystemClock />
               </span>
               <GlobalSearch />
+              {/* Companies: only for people with two or more (else nothing at all). */}
+              <CompanyPicker />
             </div>
             <div className="flex flex-none items-center gap-1.5 sm:gap-2">
               <SyncStatus />
@@ -168,6 +184,9 @@ export function AppShell() {
             </div>
           </div>
         </header>
+
+        {/* Companies: "You no longer have access to Beta Co…" when the picked company was taken away. */}
+        <CompanyNotice frameClass={frame} />
 
         {/* At least a window tall (less the top bar), so the footer starts below the fold and
             isn't shoved down as the page's content arrives (a layout shift on every page that
@@ -182,7 +201,7 @@ export function AppShell() {
               Opacity-only page transition — must NOT retain a transform, or it becomes a containing
               block that offsets every position:fixed overlay (task drawer, modals) on the page. */}
           <div key={location.pathname} className={`${frame} animate-fade-in`}>
-            <Outlet />
+            {showArchived ? <ArchivedCompanyState /> : <Outlet />}
           </div>
         </main>
         {/* The version and when it was last updated, on every page (below the page, never over it). */}

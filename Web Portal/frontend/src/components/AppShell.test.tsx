@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AppShell } from './AppShell';
 import { useAuthStore } from '../stores/auth-store';
+import { useCompanyStore } from '../stores/company-store';
+import type { MyCompanies, MyCompany } from '../api/companies';
 import { enqueueOffline } from '../lib/offline-replay';
 import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
 
@@ -12,14 +14,17 @@ import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-que
 // answers it (an unknown token, a session refresh) and the test's session changes under it.
 vi.mock('socket.io-client', () => ({ io: () => ({ on: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn() }) }));
 
-function renderShell() {
+function renderShell(path = '/dashboard') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route element={<AppShell />}>
             <Route path="/dashboard" element={<div>Dashboard content</div>} />
+            <Route path="/settings" element={<h1>Settings</h1>} />
+            <Route path="/profile" element={<h1>Your profile</h1>} />
+            <Route path="/about" element={<h1>About</h1>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -38,7 +43,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   clearQueue(localStorageQueueStore);
+  useCompanyStore.setState({ pick: null, notice: null, noticeName: null, names: {}, userId: null });
+  localStorage.removeItem('mico360.u.u1.company.pick');
 });
 
 describe('AppShell', () => {
@@ -156,6 +164,180 @@ describe('AppShell', () => {
       const menu = screen.getByRole('dialog', { name: 'Menu' });
       await userEvent.click(menu.querySelector('a[href="/dashboard"]')!);
       expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('companies', () => {
+    const hours = { days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' };
+    const company = (id: string, name: string, logoUrl: string | null = null): MyCompany => ({ id, name, code: id.slice(2, 5).toUpperCase(), logoUrl, timeZone: 'Asia/Muscat', weekStart: 0, workingHours: hours });
+    const alpha = company('c-alpha', 'Alpha Co');
+    const beta = company('c-beta', 'Beta Co', '/uploads/beta-logo.png');
+    const user = userEvent.setup();
+
+    /** The shell with this answer to GET /me/companies (everything else: nothing to show). */
+    function renderCompanyShell(mine: Partial<MyCompanies>, path = '/dashboard') {
+      const answer: MyCompanies = { companies: [], primaryCompanyId: null, allArchived: false, siteCompanyCount: 1, ...mine };
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        const data = String(url).endsWith('/me/companies') ? answer : { count: 0 };
+        return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }));
+      return renderShell(path);
+    }
+    /** Wait until the shell has read my companies (their names arrive with them). */
+    const companiesRead = (companies: MyCompany[]) =>
+      waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/me/companies'))).toBe(true)).then(() =>
+        waitFor(() => expect(useCompanyStore.getState().names).toEqual(Object.fromEntries(companies.map((c) => [c.id, c.name])))),
+      );
+    /** A window this wide (CSS pixels): media queries answer as a browser that size would. */
+    function setWidth(px: number) {
+      vi.stubGlobal('matchMedia', (query: string) => {
+        const min = /min-width:\s*([\d.]+)(em|px)/.exec(query);
+        const max = /max-width:\s*([\d.]+)(em|px)/.exec(query);
+        const size = (m: RegExpExecArray) => Number(m[1]) * (m[2] === 'em' ? 16 : 1);
+        const matches = (min !== null || max !== null) && (!min || px >= size(min)) && (!max || px <= size(max));
+        return { matches, media: query, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} } as unknown as MediaQueryList;
+      });
+    }
+
+    beforeEach(() => {
+      useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
+      useCompanyStore.setState({ pick: null, notice: null, noticeName: null, names: {}, userId: 'u1' });
+    });
+
+    it('one company: no picker at all', async () => {
+      renderCompanyShell({ companies: [alpha] });
+      await companiesRead([alpha]);
+      expect(document.querySelector('[data-company-picker]')).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Company:/ })).toBeNull();
+      expect(document.querySelector('[data-company-notice]')).toBeNull();
+      expect(screen.getByText('Dashboard content')).toBeInTheDocument();
+    });
+
+    it('two companies: "Company: All my companies", a menu with All first, then A–Z', async () => {
+      renderCompanyShell({ companies: [beta, alpha], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: All my companies' });
+      expect(btn).toHaveAttribute('data-company-picker');
+      await user.click(btn);
+      expect(screen.getAllByRole('menuitemradio').map((o) => o.textContent)).toEqual(['All my companies', 'Alpha Co', 'Beta Co']);
+      await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+      expect(useCompanyStore.getState().pick).toBe(beta.id);
+      expect(localStorage.getItem('mico360.u.u1.company.pick')).toBe(beta.id);
+      expect(screen.getByRole('button', { name: 'Company: Beta Co' })).toBeInTheDocument();
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('sits in the top bar right after the search box', async () => {
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: All my companies' });
+      const header = document.querySelector('[data-app-header]')!;
+      expect(header.contains(btn)).toBe(true);
+      const search = header.querySelector('input')!;
+      expect(search.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(btn.compareDocumentPosition(screen.getByRole('button', { name: /account menu/i })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('Escape closes it and keeps the pick', async () => {
+      useCompanyStore.setState({ pick: alpha.id });
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: Alpha Co' });
+      await user.click(btn);
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+      await user.keyboard('{ArrowDown}{Escape}');
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(useCompanyStore.getState().pick).toBe(alpha.id);
+      expect(btn).toHaveFocus();
+    });
+
+    it('the stale-pick notice says which company and can be dismissed', async () => {
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      await companiesRead([alpha, beta]);
+      act(() => {
+        useCompanyStore.getState().setNames({ [beta.id]: 'Beta Co' });
+        useCompanyStore.getState().setPick('u1', beta.id);
+        useCompanyStore.getState().companyGone();
+      });
+      expect(useCompanyStore.getState().pick).toBeNull();
+      // The shell has another live region (the shortcuts' toast): this is the one with the notice.
+      const status = screen.getAllByRole('status').find((el) => el.hasAttribute('data-company-notice'))!;
+      expect(status).toBeDefined();
+      expect(status).toHaveTextContent('You no longer have access to Beta Co. Showing all your companies.');
+      // The company's name is text someone typed: it keeps its own direction.
+      expect(status.querySelector('bdi')).toHaveTextContent('Beta Co');
+      // Above the page, not inside it.
+      expect(document.querySelector('main')!.contains(status)).toBe(false);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(document.querySelector('[data-company-notice]')).toBeNull();
+      expect(screen.queryByText(/You no longer have access/)).toBeNull();
+    });
+
+    it('all companies archived: one card, Settings still opens', async () => {
+      const { unmount } = renderCompanyShell({ allArchived: true, companies: [] }, '/dashboard');
+      expect(await screen.findByText('Your company is archived — ask an administrator.')).toBeInTheDocument();
+      expect(screen.queryByText('Dashboard content')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+      // The menu stays.
+      expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument();
+      unmount();
+      renderCompanyShell({ allArchived: true }, '/settings');
+      expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+      await companiesRead([]);
+      expect(screen.queryByText('Your company is archived — ask an administrator.')).toBeNull();
+    });
+
+    it('all companies archived: Profile and About open too', async () => {
+      const { unmount } = renderCompanyShell({ allArchived: true }, '/profile');
+      await companiesRead([]);
+      expect(screen.getByRole('heading', { name: 'Your profile' })).toBeInTheDocument();
+      expect(screen.queryByText('Your company is archived — ask an administrator.')).toBeNull();
+      unmount();
+      renderCompanyShell({ allArchived: true }, '/about');
+      await companiesRead([]);
+      expect(screen.getByRole('heading', { name: 'About' })).toBeInTheDocument();
+      expect(screen.queryByText('Your company is archived — ask an administrator.')).toBeNull();
+    });
+
+    it('on a phone the button keeps its name with only the logo', async () => {
+      setWidth(375);
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: All my companies' });
+      expect(btn).not.toHaveTextContent('All my companies');
+    });
+
+    it('on the smallest phones (< 360px) it moves from the top bar into the menu, with its name', async () => {
+      setWidth(320);
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const inBar = await screen.findByRole('button', { name: 'Company: All my companies' });
+      // The top bar has no room for it beside the menu button, the search box, New task, the bell
+      // and the account button: hidden there below 22.5em, shown in the menu instead (and only there).
+      expect(inBar.closest('[data-company-picker-place="bar"]')!.className).toContain('hidden');
+      expect(inBar.closest('[data-company-picker-place="bar"]')!.className).toContain('[@media(min-width:22.5em)]:block');
+      await user.click(screen.getByRole('button', { name: 'Open menu' }));
+      const menu = screen.getByRole('dialog', { name: 'Menu' });
+      const inMenu = within(menu).getByRole('button', { name: 'Company: All my companies' });
+      expect(inMenu).toHaveTextContent('All my companies');
+      expect(inMenu.closest('[data-company-picker-place="menu"]')!.className).toContain('[@media(min-width:22.5em)]:hidden');
+      await user.click(inMenu);
+      await user.click(within(menu).getByRole('menuitemradio', { name: 'Beta Co' }));
+      expect(useCompanyStore.getState().pick).toBe(beta.id);
+    });
+
+    it('on a laptop the search box keeps its room: only the logo, its name on hover', async () => {
+      setWidth(1280);
+      useCompanyStore.setState({ pick: beta.id });
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: Beta Co' });
+      expect(btn).not.toHaveTextContent('Beta Co');
+      expect(btn).toHaveAttribute('title', 'Beta Co');
+      expect(btn.querySelector('img')?.getAttribute('src')).toMatch(/\/uploads\/beta-logo\.png$/);
+    });
+
+    it('on a wide screen the button shows the picked company’s logo and name', async () => {
+      setWidth(1600);
+      useCompanyStore.setState({ pick: beta.id });
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: Beta Co' });
+      expect(btn).toHaveTextContent('Beta Co');
+      expect(btn.querySelector('img')?.getAttribute('src')).toMatch(/\/uploads\/beta-logo\.png$/);
     });
   });
 });
