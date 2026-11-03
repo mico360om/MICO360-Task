@@ -36,6 +36,7 @@ export const PAGES = [
   { id: 'profile', label: 'Profile', web: '/profile', keywords: ['account', 'me'] },
   { id: 'about', label: 'About and version history', web: '/about', keywords: ['version', 'release', 'changelog', 'what’s new', 'whats new', 'updates'] },
   { id: 'admin-users', label: 'User Management', web: '/admin/users', keywords: ['users', 'people', 'team', 'admin'], admin: true },
+  { id: 'admin-companies', label: 'Companies', web: '/admin/companies', keywords: ['company', 'companies', 'logo', 'admin'], admin: true },
   { id: 'admin-ai', label: 'AI Management', web: '/admin/ai', keywords: ['ai', 'models', 'providers', 'admin'], admin: true },
   { id: 'admin-settings', label: 'System Settings', web: '/admin/settings', keywords: ['system', 'admin', 'config'], admin: true },
   { id: 'admin-audit', label: 'Audit Logs', web: '/admin/audit', keywords: ['audit', 'logs', 'admin'], admin: true },
