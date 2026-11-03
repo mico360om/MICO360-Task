@@ -84,4 +84,10 @@ describe('InviteeView', () => {
     renderView({ myActionItems: [] });
     expect(within(section('Your action items')).getByText('You have no action items from this meeting.')).toBeInTheDocument();
   });
+
+  it('while its action items load, it doesn’t say there are none', () => {
+    renderView({ myActionItems: [], actionItemsLoading: true });
+    expect(within(section('Your action items')).queryByText('You have no action items from this meeting.')).toBeNull();
+    expect(within(section('Your action items')).getByText('Loading…')).toBeInTheDocument();
+  });
 });

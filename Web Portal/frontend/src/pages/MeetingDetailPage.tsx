@@ -137,6 +137,7 @@ export function MeetingDetailPage() {
         meeting={meeting}
         minutes={finalQ.data ?? null}
         myActionItems={Array.isArray(myItemsQ.data) ? myItemsQ.data : []}
+        actionItemsLoading={!myItemsQ.data && !myItemsQ.isError}
         attendees={Array.isArray(attendeesQ.data) ? attendeesQ.data : []}
         attendeesLoading={attendeesQ.isLoading}
         attendeesError={attendeesQ.isError}

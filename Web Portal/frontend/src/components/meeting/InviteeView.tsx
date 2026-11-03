@@ -22,6 +22,7 @@ export function InviteeView({
   meeting,
   minutes,
   myActionItems,
+  actionItemsLoading = false,
   attendees,
   directory,
   timeZone,
@@ -33,6 +34,8 @@ export function InviteeView({
   /** The approved minutes, or null while they aren't (the server answers 404 until then). */
   minutes: FinalMinutes | null;
   myActionItems: ActionItem[];
+  /** Their action items are still on their way (nothing is said about them yet). */
+  actionItemsLoading?: boolean;
   attendees: Attendee[];
   directory: DirectoryUser[];
   timeZone: string;
@@ -56,7 +59,9 @@ export function InviteeView({
   );
   const actionsPart = (
     <Section key="actions" id="my-actions" title="Your action items">
-      {myActionItems.length === 0 ? (
+      {actionItemsLoading ? (
+        <p role="status" className="text-sm text-ink-3">Loading…</p>
+      ) : myActionItems.length === 0 ? (
         <p className="text-sm text-ink-3">You have no action items from this meeting.</p>
       ) : (
         <ul className="flex flex-col divide-y divide-line">
