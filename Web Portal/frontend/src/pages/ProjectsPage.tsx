@@ -31,8 +31,12 @@ import {
 import { useProjectListState } from '../lib/useProjectListState';
 import { useNewFromAddress } from '../lib/useNewFromAddress';
 import { revealInRow, useScrollRow } from '../lib/scroll-row';
+import { useMyProjectsOnly } from '../lib/useMyProjectsOnly';
+import { MyProjectsLine } from '../components/projects/MyProjectsLine';
 
+/** The list as the server scopes it — and, for an administrator's untick for this visit, every project. */
 const OVERVIEW_KEY = PROJECTS_OVERVIEW_KEY;
+const EVERY_PROJECT_KEY = [...PROJECTS_OVERVIEW_KEY, 'every-project'] as const;
 
 const FOLDER_ICON = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -84,11 +88,19 @@ export function ProjectsPage() {
   // /projects?new=1 (e.g. "New project" where there is no project yet) opens the form on arrival.
   useNewFromAddress(() => setForm('new'));
 
+  // 1.22: with "Show my projects only" (Settings) the server lists an administrator's own projects;
+  // unticking "Only my projects" asks it for every project, for this visit only.
+  const myOnly = useMyProjectsOnly();
+  const [everyProject, setEveryProject] = useState(false);
+  const scoped = myOnly && !everyProject;
+  const overviewKey = myOnly && everyProject ? EVERY_PROJECT_KEY : OVERVIEW_KEY;
   // Companies: a project whose companies are all archived comes as ARCHIVED (the server says so).
-  const query = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => projectsApi(apiClient).overview() });
+  const query = useQuery({ queryKey: overviewKey, queryFn: () => projectsApi(apiClient).overview({ everyProject: myOnly && everyProject }) });
   const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
-  // "Only my projects" is an administrator's filter; everyone else only sees theirs anyway.
-  const mine = admin && state.mine;
+  // "Only my projects" is an administrator's filter; everyone else only sees theirs anyway. With the
+  // setting on the server has already narrowed the list, so it filters nothing here.
+  const mine = admin && !myOnly && state.mine;
+  const mineTicked = myOnly ? scoped : state.mine;
   const owners = useMemo(() => ownerOptions(all), [all]);
   // An owner (from a shared link) who owns none of the projects this person can see is ignored.
   const unknownOwner = query.isSuccess && state.owner !== '' && !owners.some((o) => o.id === state.owner);
@@ -120,20 +132,20 @@ export function ProjectsPage() {
   /** Show a new status at once; the card may leave this tab. */
   const setStatusLocally = (id: string, status: ProjectStatus) => {
     if (!inTab({ status }, state.status)) refocusList.current = true;
-    qc.setQueryData<ProjectOverview[]>(OVERVIEW_KEY, (list) => list?.map((p) => (p.id === id ? { ...p, status } : p)));
+    qc.setQueryData<ProjectOverview[]>(overviewKey, (list) => list?.map((p) => (p.id === id ? { ...p, status } : p)));
   };
 
   const statusMut = useMutation({
     mutationFn: ({ project, status }: { project: ProjectOverview; status: ProjectStatus }) => projectsApi(apiClient).update(project.id, { status }),
     onMutate: async ({ project, status }) => {
       setProblem(null);
-      await qc.cancelQueries({ queryKey: OVERVIEW_KEY });
-      const before = qc.getQueryData<ProjectOverview[]>(OVERVIEW_KEY);
+      await qc.cancelQueries({ queryKey: overviewKey });
+      const before = qc.getQueryData<ProjectOverview[]>(overviewKey);
       setStatusLocally(project.id, status);
       return { before };
     },
     onError: (_err, { project }, ctx) => {
-      if (ctx?.before) qc.setQueryData(OVERVIEW_KEY, ctx.before);
+      if (ctx?.before) qc.setQueryData(overviewKey, ctx.before);
       setProblem(`Couldn’t change the status of ${project.name}. Try again.`);
     },
     onSettled: (_d, _e, { project }) => invalidate(project.id),
@@ -192,8 +204,9 @@ export function ProjectsPage() {
 
   const loading = query.isLoading;
   const summary = loading || query.isError || all.length === 0 ? null : headerSummary(all, today, timeZone);
-  // No project at all yet: the tabs, search and filters have nothing to work on, so only the invitation shows.
-  const firstRun = query.isSuccess && all.length === 0;
+  // No project at all yet: the tabs, search and filters have nothing to work on, so only the invitation
+  // shows. (An administrator who sees only their own may have none of their own: not a first run.)
+  const firstRun = query.isSuccess && all.length === 0 && !scoped;
   // One or two projects in a wide grid: a tile to start another sits beside them, so they don't look lost.
   const offerAnother = !filtersOn && visible.length > 0 && visible.length <= 2 && (state.status === 'all' || state.status === 'active' || state.status === 'planning');
 
@@ -293,11 +306,17 @@ export function ProjectsPage() {
         </div>
         {admin ? (
           <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-sm text-ink-2 hover:text-ink [@media(pointer:coarse)]:h-11">
-            <input type="checkbox" checked={state.mine} onChange={(e) => update({ mine: e.target.checked })} className="h-4 w-4 accent-[rgb(var(--c-brand))]" />
+            <input
+              type="checkbox"
+              checked={mineTicked}
+              onChange={(e) => (myOnly ? setEveryProject(!e.target.checked) : update({ mine: e.target.checked }))}
+              className="h-4 w-4 accent-[rgb(var(--c-brand))]"
+            />
             Only my projects
           </label>
         ) : null}
       </div>
+      {scoped ? <MyProjectsLine className="-mt-1 mb-3" /> : null}
 
       {problem ? (
         <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">

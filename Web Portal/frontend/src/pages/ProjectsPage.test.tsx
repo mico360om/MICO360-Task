@@ -57,6 +57,8 @@ let failUpdate = false;
 let holdRefetch = false;
 /** Set: a status change waits for this before the server answers. */
 let updateGate: Promise<void> | null = null;
+/** 1.22: the administrator's "Show my projects only" (Settings), and what the server lists then. */
+let myProjectsOnly = false;
 
 beforeEach(() => {
   calls = [];
@@ -65,6 +67,7 @@ beforeEach(() => {
   failUpdate = false;
   holdRefetch = false;
   updateGate = null;
+  myProjectsOnly = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-23T10:00:00Z'));
   vi.stubGlobal(
@@ -75,6 +78,10 @@ beforeEach(() => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       calls.push({ method, url, body });
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+      if (url.endsWith('/users/me/preferences')) return json({ data: { timeZone: null, weekStart: null, myProjectsOnly } });
+      // With the setting on the server lists the administrator's own projects; ?all=1 every one.
+      if (url.endsWith('/projects/overview?all=1')) return json({ data: overview });
+      if (url.endsWith('/projects/overview') && myProjectsOnly) return json({ data: overview.filter((p) => p.mine) });
       if (url.endsWith('/projects/overview')) {
         if (holdRefetch) return new Promise<Response>(() => {});
         return failOverview ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: overview });
@@ -603,5 +610,54 @@ describe('ProjectsPage when the projects cannot be loaded', () => {
     failOverview = false;
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await loaded();
+  });
+});
+
+describe('ProjectsPage with “Show my projects only” (1.22)', () => {
+  it('starts from the setting: only my projects, ticked, and a line that says so with a way to change it', async () => {
+    myProjectsOnly = true;
+    signIn(['ADMIN']);
+    renderPage();
+    await waitFor(() => expect(cardNames()).toEqual(['MICO360 Services', 'Mobile App (Phase 2)', 'Website Refresh']));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Only my projects' })).toBeChecked());
+    expect(screen.getByText('Showing only your projects')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Change “Show my projects only” in Settings' })).toHaveAttribute('href', '/settings');
+    expect(where()).toBe('/projects');
+  });
+
+  it('unticking shows every project for this visit (the server is asked for all), and ticking goes back', async () => {
+    myProjectsOnly = true;
+    signIn(['ADMIN']);
+    renderPage();
+    const box = await screen.findByRole('checkbox', { name: 'Only my projects' });
+    await waitFor(() => expect(box).toBeChecked());
+    await userEvent.click(box);
+    await waitFor(() => expect(cardNames()).toHaveLength(5));
+    expect(box).not.toBeChecked();
+    expect(calls.some((c) => c.url.endsWith('/projects/overview?all=1'))).toBe(true);
+    expect(screen.queryByText('Showing only your projects')).not.toBeInTheDocument();
+    expect(where()).toBe('/projects'); // nothing kept in the address: for this visit only
+    await userEvent.click(box);
+    await waitFor(() => expect(cardNames()).toEqual(['MICO360 Services', 'Mobile App (Phase 2)', 'Website Refresh']));
+    expect(screen.getByText('Showing only your projects')).toBeInTheDocument();
+  });
+
+  it('an administrator on no project yet sees the line and an empty tab, not the first-project invitation', async () => {
+    myProjectsOnly = true;
+    overview = LIST.map((p) => ({ ...p, mine: false }));
+    signIn(['ADMIN']);
+    renderPage();
+    expect(await screen.findByText('Showing only your projects')).toBeInTheDocument();
+    expect(await screen.findByText('No open projects')).toBeInTheDocument();
+    expect(screen.queryByText('No projects yet')).not.toBeInTheDocument();
+  });
+
+  it('with the setting off nothing changes: no line, and the switch is the page’s own filter', async () => {
+    signIn(['ADMIN']);
+    renderPage();
+    await loaded();
+    expect(screen.queryByText('Showing only your projects')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Only my projects' })).not.toBeChecked();
+    expect(calls.some((c) => c.url.includes('?all=1'))).toBe(false);
   });
 });

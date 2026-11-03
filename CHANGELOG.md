@@ -14,6 +14,14 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Settings → "Show my projects only" (administrators): when on, every list on the site shows you only
+  the projects you own, manage or are on the team of — Projects, the boards, the dashboard, My Tasks,
+  the calendar, timeline, workload, meetings, My Action Items, reports, Management, activity, the bell,
+  search, Chat, MICO AI and the project pickers. It is saved for every device and session; you can
+  still open any project by its link, and untick "Only my projects" on the Projects page to see every
+  project for that visit.
+
 ## [1.21.0] - 2026-11-04
 
 ### New features

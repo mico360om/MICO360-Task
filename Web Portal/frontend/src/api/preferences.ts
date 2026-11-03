@@ -4,6 +4,8 @@ import type { ApiClient } from '../lib/api-client';
 export interface DatePreferences {
   timeZone: string | null;
   weekStart: 0 | 1 | 6 | null;
+  /** "Show my projects only" (1.22, an administrator's own; off by default) — lib/useMyProjectsOnly.ts. */
+  myProjectsOnly?: boolean;
 }
 
 export function preferencesApi(client: ApiClient) {
