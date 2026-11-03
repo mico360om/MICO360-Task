@@ -28,6 +28,7 @@ import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
+import { ProjectCompanies } from '../components/company/ProjectCompanies';
 import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortcuts/ShortcutProvider';
 import { OverviewTab } from '../components/project-dashboard/OverviewTab';
 import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project-dashboard/TasksTab';
@@ -298,6 +299,8 @@ export function ProjectDetailPage() {
               <span>Owner: {ownerName(project.ownerId)}</span>
               {managerName ? <><span aria-hidden>·</span><span>Project manager: {managerName}</span></> : null}
             </p>
+          {/* Companies: only on a site with two or more (or a project in two or more). */}
+          <ProjectCompanies project={project} />
           {detailsProblem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{detailsProblem}</p> : null}
         </div>
         </div>

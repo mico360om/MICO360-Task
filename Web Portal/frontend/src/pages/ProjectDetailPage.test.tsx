@@ -38,6 +38,8 @@ let projectExtra: Record<string, unknown> = {};
 let memberRole: 'MEMBER' | 'MANAGER' = 'MANAGER';
 /** Set: how the server answers a team change (add, role, remove). */
 let memberChange: ((method: string) => Response) | null = null;
+/** GET /me/companies: how many active companies the site has (company fields show only from 2). */
+let siteCompanyCount = 1;
 
 let calls: string[] = [];
 beforeEach(() => {
@@ -46,6 +48,7 @@ beforeEach(() => {
   projectExtra = {};
   memberRole = 'MANAGER';
   memberChange = null;
+  siteCompanyCount = 1;
   for (const k of Object.keys(socketHandlers)) delete socketHandlers[k];
   overview = {
     meetings: [
@@ -69,6 +72,7 @@ beforeEach(() => {
     const method = init?.method ?? 'GET';
     calls.push(method === 'GET' ? u : `${method} ${u}`);
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+    if (u.endsWith('/me/companies')) return json({ data: { companies: [], primaryCompanyId: null, allArchived: false, siteCompanyCount } });
     if (u.includes('/client-shares')) return json({ data: [] });
     if (u.includes('/members') && method !== 'GET' && memberChange) return memberChange(method);
     if (u.includes('/members')) return json({ data: [{ id: 'u1', username: 'manager', email: '', firstName: 'Mona', lastName: 'M', role: memberRole }] });
@@ -494,5 +498,46 @@ describe('ProjectDetailPage', () => {
     // All five tiles (total, completed, in progress, overdue, completion) wait for the data.
     expect(screen.getAllByText('—')).toHaveLength(5);
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectDetailPage: its companies', () => {
+  const ref = (id: string, name: string, isMain: boolean, logoUrl: string | null = null) => ({ id, name, code: id.toUpperCase(), logoUrl, isMain, timeZone: 'Asia/Muscat', weekStart: 0 });
+  const alphaMain = ref('alpha', 'Alpha Co', true, '/uploads/alpha.png');
+  const beta = ref('beta', 'Beta Co', false);
+
+  it('the project page shows its companies only on a multi-company site', async () => {
+    projectExtra = { companies: [ref('prolens', 'Prolens Projects LLC', true)], mainCompanyId: 'prolens' };
+    const { unmount } = renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'MICO Platform' });
+    await waitFor(() => expect(calls.some((c) => c.endsWith('/me/companies'))).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByLabelText('Companies')).toBeNull();
+    unmount();
+
+    siteCompanyCount = 2;
+    projectExtra = { companies: [alphaMain, beta], mainCompanyId: 'alpha' };
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Companies' });
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Alpha CoMain', 'Beta Co']);
+    expect(within(list).getAllByRole('listitem')[0]!.querySelector('img')?.getAttribute('src')).toMatch(/\/uploads\/alpha\.png$/);
+    expect(within(list).getAllByRole('listitem')[0]!.querySelector('bdi')).toHaveTextContent('Alpha Co');
+  });
+
+  it('a project in two companies shows them even before the site’s count is known', async () => {
+    siteCompanyCount = 1;
+    projectExtra = { companies: [alphaMain, beta], mainCompanyId: 'alpha' };
+    renderPage();
+    const list = await screen.findByRole('list', { name: 'Companies' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('an older server (no companies on the project): nothing', async () => {
+    siteCompanyCount = 2;
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'MICO Platform' });
+    await waitFor(() => expect(calls.some((c) => c.endsWith('/me/companies'))).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByRole('list', { name: 'Companies' })).toBeNull();
   });
 });

@@ -51,6 +51,8 @@ const LIST: ProjectOverview[] = [
 
 let calls: { method: string; url: string; body: unknown }[] = [];
 let overview: ProjectOverview[] = LIST;
+/** GET /projects (the full records): what they say about archiving (`archived`: own status or all companies archived). */
+let records: { id: string; status: string; archived?: boolean }[] = [];
 let failOverview = false;
 let failUpdate = false;
 /** Set: the list's refetches never answer (so only the page itself can put things back). */
@@ -61,6 +63,7 @@ let updateGate: Promise<void> | null = null;
 beforeEach(() => {
   calls = [];
   overview = LIST;
+  records = [];
   failOverview = false;
   failUpdate = false;
   holdRefetch = false;
@@ -75,6 +78,7 @@ beforeEach(() => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       calls.push({ method, url, body });
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+      if (url.endsWith('/projects') && method === 'GET') return json({ data: records });
       if (url.endsWith('/projects/overview')) {
         if (holdRefetch) return new Promise<Response>(() => {});
         return failOverview ? json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500) : json({ data: overview });
@@ -178,6 +182,19 @@ describe('ProjectsPage', () => {
     expect(cardNames()).toEqual(['Rig Inspection Portal', 'MICO360 Services', 'Falcon CRM', 'Mobile App (Phase 2)', 'Website Refresh']);
     expect(countLine()).toHaveTextContent('5 projects · most overdue first');
     expect(countLine()).toHaveAttribute('role', 'status');
+  });
+
+  it('a project whose companies are all archived sits under Archived (its own status aside)', async () => {
+    // Only administrators see such a project; the list's cards carry its own status, the full
+    // records say it counts as archived.
+    records = [{ id: 'p1', status: 'ACTIVE', archived: true }, { id: 'p2', status: 'ACTIVE', archived: false }];
+    signIn(['ADMIN']);
+    renderPage();
+    await screen.findByRole('link', { name: 'MICO360 Services' });
+    await waitFor(() => expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['All 4', 'Active 1', 'Planning 1', 'On hold 1', 'Completed 1', 'Archived 2']));
+    expect(cardNames()).not.toContain('Rig Inspection Portal');
+    await userEvent.click(tab(/^Archived/));
+    expect(cardNames()).toEqual(expect.arrayContaining(['Rig Inspection Portal', 'Old Portal']));
   });
 
   it('shows archived projects only under their own tab, and keeps the tab in the address', async () => {

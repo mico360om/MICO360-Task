@@ -85,7 +85,17 @@ export function ProjectsPage() {
   useNewFromAddress(() => setForm('new'));
 
   const query = useQuery({ queryKey: OVERVIEW_KEY, queryFn: () => projectsApi(apiClient).overview() });
-  const all = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
+  // Companies: a project whose companies are all archived counts as archived (`archived` on the full
+  // records — the cards carry only its own status). Only administrators can see such a project.
+  const recordsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list(), enabled: admin });
+  const archivedIds = useMemo(
+    () => new Set((Array.isArray(recordsQ.data) ? recordsQ.data : []).filter((p) => p.archived ?? p.status === 'ARCHIVED').map((p) => p.id)),
+    [recordsQ.data],
+  );
+  const all = useMemo(() => {
+    const list = Array.isArray(query.data) ? query.data : [];
+    return list.map((p) => (p.status !== 'ARCHIVED' && archivedIds.has(p.id) ? { ...p, status: 'ARCHIVED' as const } : p));
+  }, [query.data, archivedIds]);
   // "Only my projects" is an administrator's filter; everyone else only sees theirs anyway.
   const mine = admin && state.mine;
   const owners = useMemo(() => ownerOptions(all), [all]);

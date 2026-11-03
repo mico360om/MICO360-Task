@@ -5,10 +5,19 @@ import { onCompaniesChanged } from './authedSocket';
 
 /**
  * What every cached answer was read under: the company picked in the top bar. These keep across a
- * change of pick — the site's settings and the picker's own list; everything else was read for one
+ * change of pick — the site's settings, the picker's own list, my own date settings and the footer's
+ * version and download checks (none of them is a company's); everything else was read for one
  * company (or for all of mine) and is dropped.
  */
-const KEPT: readonly (readonly string[])[] = [['app-config'], MY_COMPANIES_KEY];
+const KEPT: readonly (readonly string[])[] = [
+  ['app-config'],
+  MY_COMPANIES_KEY,
+  ['date-prefs'],
+  ['app-version'],
+  ['web-build'],
+  ['android-apk'],
+  ['hosted-download'],
+];
 
 function readForAPick(query: Query): boolean {
   const key = query.queryKey;

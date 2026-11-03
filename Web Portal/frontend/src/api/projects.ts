@@ -37,6 +37,23 @@ export interface ApiProject {
   canManage?: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Companies: the project's companies, its main company first (its logo and week). Missing from an older server. */
+  companies?: ApiProjectCompany[];
+  /** The main company's id (null: none yet). Missing from an older server. */
+  mainCompanyId?: string | null;
+  /** It counts as archived: its own status is archived, or all of its companies are. Missing from an older server. */
+  archived?: boolean;
+}
+
+/** One of a project's companies as its payload shows it. Every company uses the site's time zone. */
+export interface ApiProjectCompany {
+  id: string;
+  name: string;
+  code: string;
+  logoUrl: string | null;
+  isMain: boolean;
+  timeZone: string;
+  weekStart: 0 | 1 | 6;
 }
 
 /** A person on a project card: a face and a name. */
