@@ -17,6 +17,7 @@ import type { MeetingNotifyService } from '../meetings/meeting-notify-service';
 import type { ActionMeetingStamp, ActionTaskState, MicoAiWritePort } from './mico-ai-actions';
 import type { Viewer } from './mico-ai-data';
 import type { Priority } from './mico-ai-actions-types';
+import { assertProjectOpen, createPrismaArchiveLookup } from '../companies/archive-guard';
 
 /**
  * MICO AI's changes through the app's own services, as the person who confirmed them: the same
@@ -91,11 +92,19 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
     const ids = await projectAccess.accessibleProjectIds(viewer.userId, viewer.roles);
     return ids === null || ids.includes(projectId);
   }
+  // 1.22: an archived project is read-only, as on the routes (companies/archive-guard.ts).
+  const archive = createPrismaArchiveLookup(prisma);
   async function mayChangeTask(viewer: Viewer, taskId: string): Promise<void> {
     if (!(await projectAccess.canViewTask(viewer.userId, viewer.roles, taskId))) throw new ForbiddenError(NO_TASK);
+    await assertProjectOpen(archive, await archive.subjectOf('task', taskId));
   }
   async function mayChangeMeeting(viewer: Viewer, meetingId: string): Promise<void> {
     if (!(await meetingService.canEditMeeting(viewer.userId, viewer.roles, meetingId))) throw new ForbiddenError(NO_MEETING);
+  }
+  /** …and it is not in an archived project (removing it is still allowed, as deleting is). */
+  async function mayWriteMeeting(viewer: Viewer, meetingId: string): Promise<void> {
+    await mayChangeMeeting(viewer, meetingId);
+    await assertProjectOpen(archive, await archive.subjectOf('meeting', meetingId));
   }
 
   async function taskState(taskId: string): Promise<ActionTaskState | null> {
@@ -213,6 +222,7 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
     // The task and its people are one write; telling them (announceTask) comes after.
     async createTask(viewer, input) {
       if (!(await canUseProject(viewer, input.projectId))) throw new ForbiddenError(NO_PROJECT);
+      await assertProjectOpen(archive, { projectId: input.projectId });
       const assignees = await assigneeService.assertAssignable(input.projectId, input.assigneeIds);
       const created = await taskService.createTask({
         title: input.title,
@@ -289,6 +299,7 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
     // invited must be active; people and agenda are saved with it, all or nothing.
     async createMeeting(viewer, input) {
       if (input.projectId && !(await canUseProject(viewer, input.projectId))) throw new ForbiddenError(NO_PROJECT);
+      await assertProjectOpen(archive, { projectId: input.projectId ?? null });
       for (const userId of input.attendeeIds) if (!(await deps.isActiveUser(userId))) throw new ForbiddenError('Everyone invited must be an active user.');
       // companies: the meeting form's rules — its company (no project: the pick, else the organizer's
       // primary company), and everyone invited one of its candidates; nothing is made when either fails.
@@ -318,7 +329,7 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
     },
 
     async sendInvites(viewer, meetingId) {
-      await mayChangeMeeting(viewer, meetingId);
+      await mayWriteMeeting(viewer, meetingId);
       const r = await meetingNotify.sendInvites(meetingId);
       return { sent: r.sent, failed: r.failed };
     },
@@ -337,13 +348,13 @@ export function createMicoAiActionsPort(deps: MicoAiActionsPortDeps): MicoAiWrit
 
     // As PUT /meetings/:id/final-minutes (a draft): never approved, never emailed.
     async saveMinutes(viewer, meetingId, minutes) {
-      await mayChangeMeeting(viewer, meetingId);
+      await mayWriteMeeting(viewer, meetingId);
       const saved = await finalMinutes.save(meetingId, minutes);
       changedMinutes(meetingId);
       return saved;
     },
     async clearMinutes(viewer, meetingId) {
-      await mayChangeMeeting(viewer, meetingId);
+      await mayWriteMeeting(viewer, meetingId);
       await finalMinutes.remove(meetingId);
       changedMinutes(meetingId);
     },

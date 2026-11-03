@@ -32,6 +32,7 @@ import { createPrismaTemplateRepository } from './modules/templates/prisma-templ
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
 import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles, readMyProjectsOnly } from './modules/companies/company-access';
+import { createPrismaArchiveLookup } from './modules/companies/archive-guard';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
@@ -1597,6 +1598,8 @@ async function main(): Promise<void> {
     workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
     companyAccess,
+    // 1.22: an archived project is read-only on the server too (companies/archive-guard.ts).
+    archiveLookup: createPrismaArchiveLookup(prisma),
     companyService,
     companyMembership,
     projectCompanies,

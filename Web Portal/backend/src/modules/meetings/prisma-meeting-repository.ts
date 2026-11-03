@@ -12,7 +12,7 @@ import type {
   BusyMeetingsStore,
 } from './meeting-repository';
 import { BUSY_ROWS_LIMIT } from './meeting-repository';
-import { hasActiveCompany } from '../companies/company-access';
+import { hasActiveCompany, LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { MEETING_DEFAULT_LENGTH_MS } from './meeting-end';
 
 type Row = Meeting;
@@ -289,7 +289,16 @@ export function createPrismaMeetingRepository(
         where: { recurrenceParentId: null, recurrenceRule: { not: Prisma.DbNull } },
         take: 5000,
       });
-      return rows.map(withDeleted).filter((r) => r.recurrenceRule && !r.recurrenceRule.paused);
+      // 1.22: an archived project is read-only — its repeating meetings make no more meetings (its own
+      // status, or all its companies archived); reopening it lets the next top-up carry on.
+      const projectIds = [...new Set(rows.map((r) => r.projectId).filter((id): id is string => !!id))];
+      const archived = projectIds.length
+        ? new Set((await prisma.project.findMany({ where: { id: { in: projectIds }, NOT: LIVE_PROJECT_WHERE }, select: { id: true } })).map((p) => p.id))
+        : new Set<string>();
+      return rows
+        .filter((r) => !r.projectId || !archived.has(r.projectId))
+        .map(withDeleted)
+        .filter((r) => r.recurrenceRule && !r.recurrenceRule.paused);
     },
 
     async applySeriesChanges(changes, remove = []) {

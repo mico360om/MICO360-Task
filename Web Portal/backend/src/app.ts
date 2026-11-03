@@ -103,6 +103,7 @@ import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/in
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
 import type { CompanyAccess } from './modules/companies/company-access';
+import { createArchiveGuard, installArchiveGuard, type ArchiveLookup } from './modules/companies/archive-guard';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
 import { registerCompanyRoutes } from './modules/companies/company-routes';
 import type { CompanyService } from './modules/companies/company-service';
@@ -301,6 +302,8 @@ export interface AppDeps extends AuthRouteDeps {
    * project and people query is built from), and the company a request picked (X-Company-Id).
    */
   companyAccess?: CompanyAccess;
+  /** 1.22: an archived project is read-only on the server too — the facts its write routes' check reads. */
+  archiveLookup?: ArchiveLookup;
   /** companies: System → Companies (administrators) and each person's own companies (GET /me/companies). */
   companyService?: CompanyService;
   /** companies: people's companies and primary company (User Management; the Companies page's people). */
@@ -569,6 +572,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         ? async (req: FastifyRequest, projectId: string | null = null) =>
             projectId ? brands.project(projectId) : brands.scope({ id: req.user!.id, roles: req.user!.roles ?? [] }, await pickOf(req).catch(() => null))
         : undefined;
+      // 1.22: an archived project is read-only on the server too — each write route about one of its
+      // tasks, comments, files, checklists or meetings answers 409 PROJECT_ARCHIVED (companies/archive-guard.ts).
+      // Installed before the routes that need it; it answers only for what the person may see.
+      if (deps.archiveLookup) {
+        installArchiveGuard(
+          api,
+          createArchiveGuard({
+            lookup: deps.archiveLookup,
+            canSeeProject: canViewProject ?? (async () => true),
+            canSeeMeeting: meetingViewOf ? async (u, r, m) => (await meetingViewOf(u, r, m)) !== null : (canViewMeetingQuietly ?? (async () => true)),
+          }),
+          '/api/v1',
+        );
+      }
       if (deps.projectService) {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
