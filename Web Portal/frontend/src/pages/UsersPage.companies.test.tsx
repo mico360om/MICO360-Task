@@ -54,6 +54,16 @@ describe('UsersPage with one company', () => {
     expect(server.gets('/users')).toEqual(['/users']);
   });
 
+  it('a company picked before (now the only one) never narrows the list — there is no filter to undo it', async () => {
+    // An administrator picked Alpha and then archived Beta: one company left.
+    useCompanyStore.setState({ pick: 'ca', userId: 'me' });
+    const server = renderPage({ companies: [alpha], emailEnabled: false });
+    await screen.findByText('ana');
+    await waitFor(() => expect(server.gets('/me/companies')).toHaveLength(1));
+    expect(server.gets('/users').every((u) => u === '/users')).toBe(true);
+    expect(shownUsernames()).toEqual(expect.arrayContaining(['ana', 'sam', 'nia']));
+  });
+
   it('with email on, ticking people offers welcome emails only, never the company buttons', async () => {
     renderPage({ companies: [alpha] });
     await screen.findByText('ana');

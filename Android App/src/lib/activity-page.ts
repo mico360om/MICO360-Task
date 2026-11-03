@@ -33,6 +33,8 @@ export const ACTION_VERB: Record<string, string> = {
   APPROVED: 'approved',
   SENT_BACK: 'sent back',
   APPROVAL_WITHDRAWN: 'withdrew the approval request on',
+  // Companies: a line on the project itself (the website's words; MC3 shows it on the project).
+  PROJECT_COMPANIES_CHANGED: 'changed the companies of',
 };
 
 /** Each action's colour, as the website's (text-info, text-success …). */

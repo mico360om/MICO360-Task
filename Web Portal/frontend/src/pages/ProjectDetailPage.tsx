@@ -40,6 +40,7 @@ import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
 import { configApi } from '../api/config';
 import { ProjectInspectionsTab } from '../components/inspections/ProjectInspectionsTab';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
+import { isProjectArchived } from '../lib/project-archive';
 
 type Tab = 'overview' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
@@ -235,7 +236,9 @@ export function ProjectDetailPage() {
   }, [columns, tasks]);
 
   const overview = meetingsQ.data && Array.isArray(meetingsQ.data.meetings) ? meetingsQ.data : null;
-  const canSchedule = !!project && project.status !== 'ARCHIVED' && project.status !== 'COMPLETED';
+  // Companies: a project whose companies are all archived counts as archived (read-only) too.
+  const archived = !!project && isProjectArchived(project);
+  const canSchedule = !!project && !archived && project.status !== 'COMPLETED';
   // N adds a task to this project (a meeting on the Meetings tab); E edits the project.
   const [newTask, setNewTask] = useState(false);
   useShortcut('new', () => (tab === 'meetings' ? setNewMeeting(true) : setNewTask(true)), { enabled: canSchedule });
@@ -297,7 +300,7 @@ export function ProjectDetailPage() {
             <h1 dir="auto" className="min-w-0 break-words font-display text-2xl font-bold text-ink">
               {project.name}
             </h1>
-            <Badge tone={PROJECT_STATUS_TONE[project.status] ?? 'neutral'} dot>{statusLabel(project.status)}</Badge>
+            <Badge tone={PROJECT_STATUS_TONE[archived ? 'ARCHIVED' : project.status] ?? 'neutral'} dot>{statusLabel(archived ? 'ARCHIVED' : project.status)}</Badge>
           </div>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
               <span className="font-mono">{project.code}</span>
@@ -356,7 +359,7 @@ export function ProjectDetailPage() {
       </div>
       {editing && project ? <ProjectFormDialog project={project} onClose={() => setEditing(false)} /> : null}
       {sharing && project ? (
-        <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} archived={project.status === 'ARCHIVED'} onClose={() => setSharing(false)} />
+        <ClientSharePanel projectId={id} projectName={project.name} emailEnabled={configQ.data?.emailEnabled ?? true} archived={archived} onClose={() => setSharing(false)} />
       ) : null}
       {newTask ? <NewTaskModal projectId={id} onClose={() => setNewTask(false)} /> : null}
       {savingTemplate && project ? <SaveProjectTemplateDialog projectId={id} projectName={project.name} onClose={() => setSavingTemplate(false)} /> : null}

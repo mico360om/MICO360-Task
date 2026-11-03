@@ -66,24 +66,32 @@ describe('company scope', () => {
     expect(qc.getQueryData(['projects'])).toEqual(['B']);
   });
 
-  it('companies:changed re-reads my companies and resets lists', async () => {
+  it('companies:changed re-reads my companies and every list — what is on screen stays until the new answer comes', async () => {
+    // An open task (its drawer, its edit form) or a meeting being minuted must not vanish when an
+    // administrator changes someone's companies: read again, not dropped (a pick that is gone is
+    // cleared by useMyCompanies, and that change of pick resets everything).
+    qc.setQueryData(['task', 't1'], { id: 't1', title: 'Open in the drawer' });
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
     const reset = vi.spyOn(qc, 'resetQueries');
     openAuthedSocket();
     emitSocket('companies:changed', {});
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['me', 'companies'] }));
-    expect(reset).toHaveBeenCalled();
+    expect(invalidate.mock.calls.some(([f]) => typeof (f as { predicate?: unknown })?.predicate === 'function')).toBe(true);
+    expect(reset).not.toHaveBeenCalled();
+    expect(qc.getQueryData(['task', 't1'])).toEqual({ id: 't1', title: 'Open in the drawer' });
+    expect(qc.getQueryState(['task', 't1'])?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(['app-config'])).toBeUndefined();
   });
 
-  it('heard on every open socket at once, it resets the lists once', async () => {
-    const reset = vi.spyOn(qc, 'resetQueries');
+  it('heard on every open socket at once, it reads again once', async () => {
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
     openAuthedSocket();
     openAuthedSocket();
     openAuthedSocket();
     emitSocket('companies:changed', {});
-    await vi.waitFor(() => expect(reset).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
     await new Promise((r) => setTimeout(r, 400));
-    expect(reset).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledTimes(2);
   });
 
   it('once unbound, nothing happens', async () => {

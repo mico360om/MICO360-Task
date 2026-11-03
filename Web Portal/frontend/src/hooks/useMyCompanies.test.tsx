@@ -86,6 +86,16 @@ describe('useMyCompanies', () => {
     expect(useCompanyStore.getState().notice).toBe('You no longer have access to Beta Co. Showing all your companies.');
   });
 
+  it('one company left: a pick (still one of mine) is dropped quietly — no picker shows it, nothing narrows', async () => {
+    // e.g. an administrator who picked Alpha and then archived Beta: Alpha is the only active company.
+    useCompanyStore.setState({ pick: 'A', names: { A: 'Alpha Co' } });
+    localStorage.setItem('mico360.u.u1.company.pick', 'A');
+    renderHookWith(myCompanies([a]));
+    await waitFor(() => expect(useCompanyStore.getState().pick).toBeNull());
+    expect(useCompanyStore.getState().notice).toBeNull();
+    expect(localStorage.getItem('mico360.u.u1.company.pick')).toBeNull();
+  });
+
   it('before the answer arrives the pick is left alone and nothing extra shows', () => {
     useCompanyStore.setState({ pick: 'B' });
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));

@@ -18,6 +18,7 @@ import { formatDueDay } from '../lib/due-display';
 import { isOverdue } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useAuthStore } from '../stores/auth-store';
+import { isProjectArchived } from '../lib/project-archive';
 
 /** Words of at least this length are searched (as in the top-bar search). */
 const MIN_LETTERS = 2;
@@ -127,9 +128,9 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   const count = first ? (first.totalCapped ? '1000+ tasks' : `${first.total ?? hits.length} ${(first.total ?? hits.length) === 1 ? 'task' : 'tasks'}`) : null;
 
   const projects = (Array.isArray(projectsQ.data) ? projectsQ.data : [])
-    .filter((p) => filters.archived || p.status !== 'ARCHIVED' || p.id === filters.projectId)
-    // Archived projects after the others.
-    .sort((a, b) => Number(a.status === 'ARCHIVED') - Number(b.status === 'ARCHIVED') || a.name.localeCompare(b.name, 'en'));
+    .filter((p) => filters.archived || !isProjectArchived(p) || p.id === filters.projectId)
+    // Archived projects (or all their companies archived) after the others.
+    .sort((a, b) => Number(isProjectArchived(a)) - Number(isProjectArchived(b)) || a.name.localeCompare(b.name, 'en'));
   const people = (Array.isArray(peopleQ.data) ? peopleQ.data : [])
     .filter((u) => u.id !== myId && (u.active !== false || u.id === filters.assigneeId))
     .map((u) => ({ id: u.id, name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username }))
@@ -146,7 +147,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     const on = !filters.archived;
     // Turned off: an archived project chosen before is no longer one of the choices.
     const chosen = projectsQ.data?.find?.((p) => p.id === filters.projectId);
-    update({ archived: on || undefined, ...(!on && chosen?.status === 'ARCHIVED' ? { projectId: undefined } : {}) });
+    update({ archived: on || undefined, ...(!on && chosen && isProjectArchived(chosen) ? { projectId: undefined } : {}) });
   };
 
   const chip = (active: boolean) =>
@@ -182,7 +183,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
               <option value="">All projects</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.status === 'ARCHIVED' ? `${p.name} (archived)` : p.name}
+                  {isProjectArchived(p) ? `${p.name} (archived)` : p.name}
                 </option>
               ))}
             </select>

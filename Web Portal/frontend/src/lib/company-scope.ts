@@ -36,15 +36,19 @@ export function resetCompanyScopedQueries(qc: QueryClient): void {
 /**
  * Tie the query cache to the picked company: changing the pick (or the server refusing it) resets
  * every list, and when the server says my companies changed (`companies:changed`) the picker's list
- * is read again and the lists reset — a company taken away disappears at once. Returns an unsubscribe.
+ * and every list are read again — a company taken away disappears at once. Returns an unsubscribe.
  */
 export function bindQueryCacheToCompanyPick(qc: QueryClient): () => void {
   const offPick = useCompanyStore.subscribe((state, prev) => {
     if (state.pick !== prev.pick) resetCompanyScopedQueries(qc);
   });
+  // My companies changed (added to or taken out of one): read my companies and every list again, but
+  // keep what is on screen until the new answer comes — an open task, a meeting being minuted, a
+  // dialog must not vanish under someone's hands. A picked company I lost is cleared by
+  // useMyCompanies, and that change of pick resets everything.
   const offChanged = onCompaniesChanged(() => {
     void qc.invalidateQueries({ queryKey: MY_COMPANIES_KEY });
-    resetCompanyScopedQueries(qc);
+    void qc.invalidateQueries({ predicate: readForAPick });
   });
   return () => {
     offPick();

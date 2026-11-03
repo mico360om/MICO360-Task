@@ -43,6 +43,7 @@ import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from './ChecklistField';
 import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
 import { externalContactsApi } from '../../api/external-contacts';
+import { isProjectArchived } from '../../lib/project-archive';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -260,7 +261,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   // ── Where the task goes ──
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const allProjects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
-  const openProjects = useMemo(() => allProjects.filter((p) => p.status !== 'ARCHIVED'), [allProjects]);
+  // Archived — or all its companies archived: no new tasks there.
+  const openProjects = useMemo(() => allProjects.filter((p) => !isProjectArchived(p)), [allProjects]);
   const project = allProjects.find((p) => p.id === draft.projectId) ?? null;
   const projectFixed = editing || !!fixedProjectId;
   // "New tasks in this project need approval" ticks a new task's box (until you choose yourself).

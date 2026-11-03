@@ -299,6 +299,19 @@ describe('ProjectDetailPage', () => {
     expect(await within(panel).findByText('Not shared with anyone yet.')).toBeInTheDocument();
   });
 
+  it('a project whose companies are all archived reads Archived, offers no New task, and its client panel is read-only', async () => {
+    projectExtra = { canManage: true, status: 'ACTIVE', archived: true };
+    renderPage();
+    await screen.findByRole('heading', { name: 'MICO Platform' });
+    expect(screen.getByRole('heading', { name: 'MICO Platform' }).parentElement).toHaveTextContent(/Archived/);
+    await userEvent.click(screen.getByRole('button', { name: /share with client/i }));
+    const panel = await screen.findByRole('dialog', { name: 'Share with client' });
+    expect(within(panel).queryByLabelText('Client’s name')).toBeNull();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('tab', { name: /^Tasks/ }));
+    expect(screen.queryByRole('button', { name: /new task/i })).toBeNull();
+  });
+
   it('an archived project still offers the panel, read-only (clients can be removed, not added)', async () => {
     projectExtra = { canManage: true, status: 'ARCHIVED' };
     renderPage();

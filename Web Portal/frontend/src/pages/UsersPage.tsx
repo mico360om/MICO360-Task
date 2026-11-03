@@ -140,7 +140,8 @@ export function UsersPage() {
   const multi = companyChoices.show;
   const archivedIds = new Set(companyChoices.companies.filter((c) => c.status === 'ARCHIVED').map((c) => c.id));
   const [companyChoice, setCompanyChoice] = useState<{ pick: string | null; value: string }>({ pick, value: pick ?? '' });
-  const companyFilter = companyChoice.pick === pick ? companyChoice.value : (pick ?? '');
+  // Only with the filter on screen (two or more companies): a pick from before can't narrow the list unseen.
+  const companyFilter = !multi ? '' : companyChoice.pick === pick ? companyChoice.value : (pick ?? '');
   const [bulk, setBulk] = useState<'add' | 'remove' | null>(null);
   const q = useQuery({
     queryKey: ['users', companyFilter || 'all'],

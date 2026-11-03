@@ -32,6 +32,7 @@ import { TaskApproval } from './approvals/TaskApproval';
 import { TaskExternalContacts } from './task-drawer/TaskExternalContacts';
 import { approvalNotice } from '../lib/approvals';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from '../lib/task-delete-rule';
+import { isProjectArchived } from '../lib/project-archive';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -458,7 +459,7 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
                   taskId={taskId}
                   projectId={projectId}
                   task={{ id: taskId, key: taskQ.data!.key, title: taskQ.data!.title }}
-                  canStart={project?.status !== 'ARCHIVED'}
+                  canStart={!project || !isProjectArchived(project)}
                   form={taskQ.data!.inspectionFormId ? (taskQ.data!.inspectionForm ?? null) : null}
                   place={taskQ.data!.inspectionPlace ?? null}
                 />

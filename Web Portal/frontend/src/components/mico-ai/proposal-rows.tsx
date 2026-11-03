@@ -17,6 +17,7 @@ import { AssigneeSelect, type PersonOption } from '../task-form/AssigneeSelect';
 import { priorityLabel, priorityOptions, PriorityBars } from '../priority-option';
 import { projectOption } from '../project-option';
 import { useSourceTarget } from './AnswerParts';
+import { isProjectArchived } from '../../lib/project-archive';
 
 /**
  * One change on MICO AI's card: what it will do (a new task's details; a task change as
@@ -306,7 +307,7 @@ const named = (people: PersonOption[], ids: string[], known: MicoAiNamed[]): Mic
 
 function useProjects() {
   const q = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
-  return (Array.isArray(q.data) ? q.data : []).filter((p) => p.status !== 'ARCHIVED');
+  return (Array.isArray(q.data) ? q.data : []).filter((p) => !isProjectArchived(p));
 }
 
 function CreateEditor({ item, onEdit }: { item: CreateTaskChange; onEdit: EditFn }) {

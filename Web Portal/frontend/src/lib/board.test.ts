@@ -186,6 +186,10 @@ describe('the All projects board', () => {
   it('only lists the projects that can be shown', () => {
     expect(boardProjects(projects).map((p) => p.code)).toEqual(['MICO', 'RIG']);
   });
+
+  it('a project whose companies are all archived is left out too', () => {
+    expect(boardProjects(projects.map((p) => (p.code === 'RIG' ? { ...p, archived: true } : p))).map((p) => p.code)).toEqual(['MICO']);
+  });
 });
 
 describe('targetColumnFor (where a card dropped on a status lands in its own project)', () => {

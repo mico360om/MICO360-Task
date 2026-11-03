@@ -43,6 +43,9 @@ export function useMyCompanies(): MyCompaniesView {
     const store = useCompanyStore.getState();
     // First the notice (it names the company from what was known before), then the new names.
     if (store.pick !== null && validPick(store.pick, data.companies) === null) store.companyGone(store.pick);
+    // One company left (another one archived, or I was taken out of it): no picker shows the pick, so
+    // it must not narrow anything any more — dropped quietly (it is still mine: nothing to say).
+    else if (store.pick !== null && !showCompanyPicker(data.companies) && store.userId) store.setPick(store.userId, null);
     store.setNames(Object.fromEntries(data.companies.map((c) => [c.id, c.name])));
   }, [data, pick]);
 

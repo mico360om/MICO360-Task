@@ -331,6 +331,18 @@ describe('AppShell', () => {
       expect(btn.querySelector('img')?.getAttribute('src')).toMatch(/\/uploads\/beta-logo\.png$/);
     });
 
+    it('on a laptop a company without a logo shows its short code beside the building, so two such companies differ', async () => {
+      setWidth(1280);
+      useCompanyStore.setState({ pick: alpha.id });
+      renderCompanyShell({ companies: [alpha, beta], siteCompanyCount: 2 });
+      const btn = await screen.findByRole('button', { name: 'Company: Alpha Co' });
+      expect(btn).toHaveTextContent(alpha.code);
+      expect(btn).not.toHaveTextContent('Alpha Co');
+      // "All my companies" keeps its own icon, and a company with a logo its logo alone.
+      act(() => useCompanyStore.getState().setPick('u1', beta.id));
+      expect(screen.getByRole('button', { name: 'Company: Beta Co' })).not.toHaveTextContent(beta.code);
+    });
+
     it('on a wide screen the button shows the picked company’s logo and name', async () => {
       setWidth(1600);
       useCompanyStore.setState({ pick: beta.id });

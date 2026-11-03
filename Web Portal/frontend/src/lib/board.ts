@@ -130,9 +130,13 @@ export const statusOfBoardColumn = (columnId: string): TaskCategory | null =>
 
 const PRIORITY_RANK: Record<string, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
 
-/** The projects the combined board shows: not finished, not archived. */
-export function boardProjects<P extends Pick<ApiProject, 'status'>>(projects: P[]): P[] {
-  return projects.filter((p) => p.status !== 'COMPLETED' && p.status !== 'ARCHIVED');
+/**
+ * The projects the combined board shows: not finished, not archived — nor archived through their
+ * companies (`archived`, lib/project-archive's rule, written out here: the app's drift test loads this
+ * file on its own).
+ */
+export function boardProjects<P extends Pick<ApiProject, 'status'> & { archived?: boolean }>(projects: P[]): P[] {
+  return projects.filter((p) => p.status !== 'COMPLETED' && p.status !== 'ARCHIVED' && p.archived !== true);
 }
 
 /**

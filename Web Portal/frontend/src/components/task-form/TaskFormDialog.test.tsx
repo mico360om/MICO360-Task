@@ -28,6 +28,8 @@ const PROJECTS = [
   { id: 'p1', code: 'MICO', name: 'MICO360 Platform', status: 'ACTIVE', color: '#1E5A8B', icon: 'rocket', ownerId: 'u1', clientName: null },
   { id: 'p2', code: 'OPS', name: 'Ops Board', status: 'ACTIVE', color: '#0F766E', icon: null, ownerId: null, clientName: null },
   { id: 'p3', code: 'OLD', name: 'Old Archive', status: 'ARCHIVED', color: '#475569', icon: null, ownerId: null, clientName: null },
+  // Companies: its own status is Active, but all its companies are archived — it counts as archived.
+  { id: 'p4', code: 'GAM', name: 'Gamma Plant', status: 'ACTIVE', archived: true, color: '#475569', icon: null, ownerId: null, clientName: null },
 ];
 const COLUMNS: Record<string, unknown[]> = {
   p1: [
@@ -237,6 +239,7 @@ describe('New task form', () => {
     await addPerson('sa', 'Sara K');
     await userEvent.click(screen.getByRole('button', { name: 'Project' }));
     expect(screen.queryByRole('option', { name: /Old Archive/ })).not.toBeInTheDocument(); // archived: no new tasks
+    expect(screen.queryByRole('option', { name: /Gamma Plant/ })).not.toBeInTheDocument(); // its companies archived: neither
     expect(screen.getByRole('option', { name: /MICO360 Platform/ }).querySelector('[data-project-avatar="icon"]')).not.toBeNull();
     await userEvent.click(screen.getByRole('option', { name: /Ops Board/ }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Column' })).toHaveTextContent('In progress'));

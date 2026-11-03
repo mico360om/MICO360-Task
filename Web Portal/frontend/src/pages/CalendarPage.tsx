@@ -37,6 +37,7 @@ import { LegendButton, MeetingChip, TaskChip, dayLabel, useMediaQuery } from '..
 import { AgendaView, MobileMonth, MonthView, WeekView, type ViewProps } from '../components/calendar/views';
 import { DayDialog, MoveChoiceDialog, TaskPreview } from '../components/calendar/dialogs';
 import { projectOption } from '../components/project-option';
+import { isProjectArchived } from '../lib/project-archive';
 
 const VIEWS: CalendarView[] = ['month', 'week', 'agenda'];
 const isDay = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
@@ -140,7 +141,11 @@ export function CalendarPage() {
   const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const colorOf = useCallback((id: string) => projectById.get(id)?.color, [projectById]);
-  const projectStatus = useCallback((id: string) => projectById.get(id)?.status, [projectById]);
+  // Companies: a project whose companies are all archived reads as archived here too.
+  const projectStatus = useCallback((id: string) => {
+    const p = projectById.get(id);
+    return p && isProjectArchived(p) ? 'ARCHIVED' : p?.status;
+  }, [projectById]);
 
   const items = useMemo(() => buildItems(rangeQ.data ?? EMPTY, { today, timeZone, projectStatus }), [rangeQ.data, today, timeZone, projectStatus]);
   const shown = useMemo(() => applyFilters(items, filters, { myId }), [items, filters, myId]);
@@ -218,7 +223,7 @@ export function CalendarPage() {
     else move(item, toDay, 'occurrence');
   }
 
-  const canCreate = projects.some((p) => p.status !== 'ARCHIVED' && p.status !== 'COMPLETED');
+  const canCreate = projects.some((p) => !isProjectArchived(p) && p.status !== 'COMPLETED');
   // N adds a task due on the day the calendar is showing.
   useShortcut('new', () => setCreateOn(cursor), { enabled: canCreate });
   const viewProps: ViewProps = {

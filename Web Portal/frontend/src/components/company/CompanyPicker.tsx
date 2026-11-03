@@ -38,6 +38,9 @@ export function CompanyPicker({ place = 'bar' }: { place?: 'bar' | 'menu' } = {}
   // The name shows only where the top bar has room for it beside the clock and a full search box
   // (≥ 1536px, Tailwind's 2xl); narrower, the logo alone, its name on hover and in the button's name.
   const wideBar = useMediaQuery('(min-width: 96em)', true);
+  // From 640px, a company without a logo shows its short code beside the building, so two such
+  // companies don't look the same (on a phone: the icon alone, its name in the button's name).
+  const notPhone = useMediaQuery('(min-width: 40em)', true);
   const inMenu = place === 'menu';
   const wide = inMenu || wideBar;
   const [open, setOpen] = useState(false);
@@ -119,6 +122,7 @@ export function CompanyPicker({ place = 'bar' }: { place?: 'bar' | 'menu' } = {}
         className={`flex h-9 min-w-9 items-center gap-2 rounded-lg border border-line px-2 text-sm font-medium text-ink transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11 ${inMenu ? 'w-full' : 'justify-center'}`}
       >
         {current ? <CompanyLogo company={current} size={20} /> : <AllCompaniesIcon />}
+        {!wide && notPhone && current && !current.logoUrl ? <span className="max-w-[5rem] truncate text-xs font-semibold">{current.code}</span> : null}
         {wide ? (
           <>
             <bdi className={`truncate ${inMenu ? 'min-w-0 flex-1 text-start' : 'max-w-[10rem]'}`}>{label}</bdi>
