@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { chatApi, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary } from '../api/chat';
+import { chatApi, type ApiChatAttachment, type ApiMessage, type ConversationPrefs, type ConversationSummary, type MessageAuthor, type ReadOnlyNote } from '../api/chat';
 import { CHAT_INBOX_KEY, chatInboxQuery } from '../lib/chat-inbox-query';
 import { withConversationRead } from '../lib/chat-badge';
 import { projectsApi } from '../api/projects';
@@ -20,6 +20,7 @@ import { lastActiveLabel } from '../lib/lastActive';
 import { isChatMuted, setChatMuted, primeAudio } from '../lib/notificationSound';
 import { setViewingConversation } from '../lib/chat-sound';
 import type { MentionPerson } from '../lib/mentions';
+import { colleaguesOf } from '../lib/people';
 import {
   MAX_MESSAGE_LENGTH,
   buildTimeline,
@@ -51,6 +52,10 @@ export { MAX_MESSAGE_LENGTH };
 export const CHAT_PAGE_SIZE = 50;
 
 const NO_PREFS: ConversationPrefs = { favorite: false, archived: false, muted: false };
+/** companies: the authors of the messages loaded so far, by id (see `authors` on a page of history). */
+type AuthorMap = Record<string, MessageAuthor>;
+const CHAT_AUTHORS_KEY = ['chat', 'authors'] as const;
+const NO_AUTHORS: AuthorMap = {};
 /** How long a message found by search or a reply's quote stays marked. */
 const HIGHLIGHT_MS = 2500;
 
@@ -119,15 +124,34 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   const inbox = useMemo(() => (Array.isArray(inboxQ.data) ? inboxQ.data : []), [inboxQ.data]);
   const directory = useMemo(() => (Array.isArray(dirQ.data) ? dirQ.data : []), [dirQ.data]);
   const people = useMemo(() => new Map(directory.map((u) => [u.id, u])), [directory]);
+  // companies: who wrote the messages loaded (the server's `authors`) — names for people the
+  // directory doesn't have (someone you no longer share a company with still wrote what you read).
+  // Kept in the query cache beside the pages they came with, so they are there whenever those are.
+  const authorsQ = useQuery({ queryKey: CHAT_AUTHORS_KEY, queryFn: () => qc.getQueryData<AuthorMap>(CHAT_AUTHORS_KEY) ?? {}, enabled: false, staleTime: Infinity, gcTime: Infinity });
+  const authors = authorsQ.data ?? NO_AUTHORS;
+  const noteAuthors = useCallback((list: MessageAuthor[] | undefined) => {
+    if (!Array.isArray(list) || list.length === 0) return;
+    qc.setQueryData<AuthorMap>(CHAT_AUTHORS_KEY, (known = {}) => {
+      const fresh = list.filter((a) => {
+        const was = known[a.id];
+        return !was || was.name !== a.name || was.avatarUrl !== a.avatarUrl;
+      });
+      if (fresh.length === 0) return known;
+      return { ...known, ...Object.fromEntries(fresh.map((a) => [a.id, a])) };
+    });
+  }, [qc]);
 
   /** Someone's full name (yours too). */
   const fullName = useCallback((userId: string): string => {
     const u = people.get(userId);
-    return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : userId === myId ? 'You' : 'Someone';
-  }, [people, myId]);
+    return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : authors[userId]?.name || (userId === myId ? 'You' : 'Someone');
+  }, [people, authors, myId]);
   /** As shown on messages: "You" for your own. */
   const nameOf = useCallback((userId: string): string => (userId === myId ? 'You' : fullName(userId)), [fullName, myId]);
-  const avatarOf = useCallback((userId: string): string | null => (userId === myId ? me?.avatarUrl ?? null : people.get(userId)?.avatarUrl ?? null), [people, myId, me?.avatarUrl]);
+  const avatarOf = useCallback(
+    (userId: string): string | null => (userId === myId ? me?.avatarUrl ?? null : people.get(userId)?.avatarUrl ?? authors[userId]?.avatarUrl ?? null),
+    [people, authors, myId, me?.avatarUrl],
+  );
   const projectOf = useCallback((projectId?: string) => projects.find((p) => p.id === projectId), [projects]);
 
   // ── What is open ──
@@ -183,7 +207,11 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   // ── Messages: paged history, newest page first ──
   const messagesQ = useInfiniteQuery({
     queryKey: ['chat', 'messages', active?.id],
-    queryFn: ({ pageParam }) => chatApi(apiClient).messages(active!.id, pageParam, CHAT_PAGE_SIZE),
+    queryFn: async ({ pageParam }) => {
+      const page = await chatApi(apiClient).messages(active!.id, pageParam, CHAT_PAGE_SIZE);
+      noteAuthors(page.authors);
+      return page.messages;
+    },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: ApiMessage[]) => (Array.isArray(lastPage) && lastPage.length >= CHAT_PAGE_SIZE ? lastPage[0]?.createdAt : undefined),
     enabled: !!active,
@@ -207,6 +235,13 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
 
   const activeSummary = inbox.find((s) => s.conversation.id === active?.id);
   const activePrefs = activeSummary?.prefs ?? NO_PREFS;
+  // companies: a direct chat with someone I no longer share a company with is read-only. The inbox
+  // says so; a chat just started, or a send just refused for it, says so before the inbox is read again.
+  const [readOnlyNow, setReadOnlyNow] = useState<Record<string, { note: ReadOnlyNote; at: number }>>({});
+  const markReadOnly = useCallback((conversationId: string, note: ReadOnlyNote) => setReadOnlyNow((m) => ({ ...m, [conversationId]: { note, at: Date.now() } })), []);
+  const sticky = active ? readOnlyNow[active.id] : undefined;
+  const activeReadOnly: ReadOnlyNote | null =
+    active?.kind !== 'DIRECT' ? null : sticky && (!activeSummary || sticky.at >= inboxQ.dataUpdatedAt) ? sticky.note : (activeSummary?.readOnly ?? null);
 
   // ── Cache edits (live events and our own changes land here without reloading the history) ──
   const patchPages = useCallback((conversationId: string, fn: (pages: ApiMessage[][]) => ApiMessage[][]) => {
@@ -311,7 +346,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     setOpenError(null);
     setOpeningKey(`p-${projectId}`);
     try {
-      const { conversation } = await chatApi(apiClient).openProjectChannel(projectId);
+      const { conversation, authors: writers } = await chatApi(apiClient).openProjectChannel(projectId);
+      noteAuthors(writers);
       switchTo({ id: conversation.id, kind: 'PROJECT', projectId });
       markRead(conversation.id);
       return conversation.id;
@@ -330,6 +366,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
   async function openDirect(userId: string) {
     try {
       const conv = await chatApi(apiClient).startDirect(userId);
+      if (conv.readOnly?.message) markReadOnly(conv.id, conv.readOnly);
       switchTo({ id: conv.id, kind: 'DIRECT', partnerId: userId });
       void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
       markRead(conv.id);
@@ -440,6 +477,11 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
       if (err instanceof TypeError && isOffline()) {
         updatePending(p.clientId, () => ({ state: 'queued' }));
       } else {
+        // companies: the chat became read-only meanwhile — the box gives way to the server's words at once.
+        if (err instanceof ApiError && err.code === 'DM_READ_ONLY' && err.message) {
+          markReadOnly(p.conversationId, { message: err.message });
+          void qc.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+        }
         updatePending(p.clientId, () => ({ state: 'failed', error: reasonOf(err) }));
         showToast(errorText(err, file ? `Couldn’t upload “${file.name}”.` : 'Your message wasn’t sent.'));
       }
@@ -731,7 +773,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
         authorName={nameOf(m.userId)}
         authorAvatar={avatarOf(m.userId)}
         receipt={mine && active ? receiptState(m, { myId, kind: active.kind, participants, isOnline }) : undefined}
-        canEdit={mine && !m.pending}
+        canEdit={mine && !m.pending && !activeReadOnly}
+        writable={!activeReadOnly}
         canDelete={!m.pending && (mine || isAdmin)}
         editing={editingId === m.id}
         highlighted={highlightId === m.id}
@@ -745,7 +788,8 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
     );
   };
 
-  const dmOptions = directory
+  // companies: a new direct message only with colleagues (people who share a company with me).
+  const dmOptions = colleaguesOf(directory)
     .filter((u) => u.id !== myId)
     .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
 
@@ -858,6 +902,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
                 onToggleMembers={() => setMembersOpen((v) => !v)}
                 onToggleMute={() => changeActivePrefs({ muted: !activePrefs.muted })}
                 onToggleFavorite={() => changeActivePrefs({ favorite: !activePrefs.favorite })}
+                readOnly={activeReadOnly}
               />
               <ConnectionBanner status={connection} waiting={waiting} />
               {searchOpen ? (
@@ -932,6 +977,7 @@ export function ChatPage({ startDirectWith, openConversationId, onOpened }: Chat
                     onSend={sendText}
                     onFiles={sendFiles}
                     restore={restore?.conversationId === active.id ? restore : null}
+                    readOnly={activeReadOnly}
                   />
                 </div>
                 {membersOpen ? (

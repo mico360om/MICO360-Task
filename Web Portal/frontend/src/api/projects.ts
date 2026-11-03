@@ -114,6 +114,12 @@ export interface NewProjectInput {
   newTasksNeedApproval?: boolean;
   /** New projects only: people put on its team at once (the creator and the owner join it anyway). */
   memberIds?: string[];
+  /**
+   * companies: the project's companies, the first its MAIN company (1–20). Left out on a new project:
+   * the picked company, else the creator's primary one, else the site's only one. Sent on an update
+   * only when they change.
+   */
+  companyIds?: string[];
 }
 
 /** Whether a code can be used for a new project (deleted projects keep theirs). */

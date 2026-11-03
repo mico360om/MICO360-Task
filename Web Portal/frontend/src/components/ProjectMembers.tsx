@@ -9,6 +9,8 @@ export interface MemberRef {
   id: string;
   name: string;
   role: ProjectMemberRole;
+  /** companies: false when they're in none of the project's companies any more (they can't see it). Missing: they can. */
+  hasAccess?: boolean;
 }
 
 export interface ProjectMembersProps {
@@ -41,6 +43,12 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
               <span dir="auto" className="min-w-0 truncate text-ink" title={m.name}>{m.name}</span>
               {m.role === 'MANAGER' ? (
                 <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">Manager</span>
+              ) : null}
+              {m.hasAccess === false ? (
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+                  <span className="flex-none rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-warning">No access</span>
+                  <span className="text-xs text-ink-2">Not in any of this project’s companies any more.</span>
+                </span>
               ) : null}
               {canManage && onSetRole ? (
                 m.role === 'MANAGER' ? (

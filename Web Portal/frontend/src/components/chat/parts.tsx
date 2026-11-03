@@ -36,7 +36,7 @@ const headerButton = (on: boolean) =>
   `grid h-9 w-9 flex-none place-items-center rounded-lg transition-colors ${on ? 'bg-brand/10 text-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
 
 export function ConversationHeader({
-  title, kind, avatarUrl, project, online, subtitle, subtitleTone, prefs, searchOpen, membersOpen, onBack, onToggleSearch, onToggleMembers, onToggleMute, onToggleFavorite,
+  title, kind, avatarUrl, project, online, subtitle, subtitleTone, prefs, searchOpen, membersOpen, onBack, onToggleSearch, onToggleMembers, onToggleMute, onToggleFavorite, readOnly,
 }: {
   title: string;
   kind: 'PROJECT' | 'DIRECT';
@@ -53,6 +53,8 @@ export function ConversationHeader({
   onToggleMembers: () => void;
   onToggleMute: () => void;
   onToggleFavorite: () => void;
+  /** companies: a read-only direct chat — the server's words go under the name too. */
+  readOnly?: { message: string } | null;
 }) {
   return (
     <header className="flex flex-none items-center gap-2 border-b border-line bg-surface px-2 py-2 sm:px-4">
@@ -68,6 +70,7 @@ export function ConversationHeader({
           <span className="truncate">{subtitle}</span>
           {prefs.muted ? <span className="inline-flex flex-none items-center gap-0.5 text-ink-2"><BellOffIcon size={12} /> Muted</span> : null}
         </p>
+        {readOnly ? <p dir="auto" className="truncate text-xs font-medium text-warning" title={readOnly.message}>{readOnly.message}</p> : null}
       </div>
       <div className="flex flex-none items-center gap-0.5">
         <button type="button" onClick={onToggleSearch} aria-pressed={searchOpen} aria-label="Search in conversation" title="Search in conversation" className={headerButton(searchOpen)}>

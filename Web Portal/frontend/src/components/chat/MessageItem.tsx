@@ -50,6 +50,8 @@ export interface MessageItemProps {
   knownUsernames: readonly string[];
   nameOf: (userId: string) => string;
   actions: MessageActions;
+  /** companies: false in a read-only direct chat — no Reply, and a refused message can only be discarded. */
+  writable?: boolean;
 }
 
 /** "14:05" (the 24-hour clock, as everywhere in the app). */
@@ -286,7 +288,7 @@ const toolButton = 'grid h-8 w-8 place-items-center rounded-lg text-ink-2 transi
 
 /** One message: the bubble, what it answers, its files and reactions, and the actions on it. */
 export const MessageItem = memo(function MessageItem({
-  m, mine, groupStart, groupEnd, authorName, authorAvatar, receipt, canEdit, canDelete, editing, highlighted, revealed, myId, myUsername, knownUsernames, nameOf, actions,
+  m, mine, groupStart, groupEnd, authorName, authorAvatar, receipt, canEdit, canDelete, editing, highlighted, revealed, myId, myUsername, knownUsernames, nameOf, actions, writable = true,
 }: MessageItemProps) {
   const deleted = !!m.deletedAt;
   const hasText = !deleted && m.body.trim().length > 0;
@@ -320,9 +322,11 @@ export const MessageItem = memo(function MessageItem({
       <button ref={reactRef} type="button" onClick={() => setPopover((p) => (p === 'react' ? null : 'react'))} aria-label="Add reaction" aria-expanded={popover === 'react'} title="Add reaction" className={toolButton}>
         <SmileIcon size={17} />
       </button>
-      <button type="button" onClick={() => actions.reply(m)} aria-label="Reply" title="Reply" className={toolButton}>
-        <ReplyIcon size={17} />
-      </button>
+      {writable ? (
+        <button type="button" onClick={() => actions.reply(m)} aria-label="Reply" title="Reply" className={toolButton}>
+          <ReplyIcon size={17} />
+        </button>
+      ) : null}
       {menu.length > 0 ? (
         <button ref={moreRef} type="button" onClick={() => setPopover((p) => (p === 'more' ? null : 'more'))} aria-label="More actions" aria-haspopup="menu" aria-expanded={popover === 'more'} title="More actions" className={toolButton}>
           <MoreIcon size={17} />
@@ -399,8 +403,10 @@ export const MessageItem = memo(function MessageItem({
             <span dir="auto" className="inline-flex items-center gap-1 font-medium text-danger">
               <AlertIcon size={14} /> Not sent{m.error ? ` — ${m.error}` : ''}
             </span>
-            <button type="button" onClick={() => actions.retry(m)} className="rounded-md border border-line px-2 py-0.5 font-semibold text-brand hover:border-brand">Retry</button>
-            {m.body && !m.pendingFiles?.length ? (
+            {writable ? (
+              <button type="button" onClick={() => actions.retry(m)} className="rounded-md border border-line px-2 py-0.5 font-semibold text-brand hover:border-brand">Retry</button>
+            ) : null}
+            {writable && m.body && !m.pendingFiles?.length ? (
               <button type="button" onClick={() => actions.editUnsent(m)} className="rounded-md px-2 py-0.5 font-medium text-ink-2 hover:text-ink hover:underline">Edit</button>
             ) : null}
             <button type="button" onClick={() => actions.discard(m)} className="rounded-md px-2 py-0.5 font-medium text-ink-2 hover:text-ink hover:underline">Discard</button>

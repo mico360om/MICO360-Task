@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ClientViewScreen } from './ClientViewPage';
@@ -417,5 +417,51 @@ describe('the client page', () => {
     show(fakeApi());
     await screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });
     await waitFor(() => expect(document.head.querySelector('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer'));
+  });
+});
+
+describe('the client page — companies', () => {
+  const loaded = () => screen.findByRole('heading', { level: 1, name: 'Rig 7 Inspection' });
+  /** "Shared by {company}" (the name in its own <bdi>). */
+  const sharedBy = (name: string) => screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === `Shared by ${name}`);
+
+  it('one company: the client page is unchanged (MICO360 Tasks logo, no company line)', async () => {
+    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, company: null })) }));
+    await loaded();
+    expect(screen.getAllByRole('img', { name: 'MICO360 Tasks' }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Shared by/)).toBeNull();
+  });
+
+  it('an older server without the field: unchanged too', async () => {
+    show(fakeApi());
+    await loaded();
+    expect(screen.getAllByRole('img', { name: 'MICO360 Tasks' }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Shared by/)).toBeNull();
+  });
+
+  it('several companies: the main company’s logo and name', async () => {
+    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, company: { name: 'Alpha Co', logoUrl: '/uploads/companies/a/logo.png' } })) }));
+    await loaded();
+    expect(screen.getByRole('img', { name: 'Alpha Co' })).toHaveAttribute('src', expect.stringContaining('/uploads/companies/a/logo.png'));
+    expect(sharedBy('Alpha Co')).toBeInTheDocument();
+    expect(screen.getByText('Alpha Co', { selector: 'bdi' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'MICO360 Tasks' })).toBeNull();
+  });
+
+  it('a company without a logo keeps the built-in logo with its own name', async () => {
+    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, company: { name: 'Beta Co', logoUrl: null } })) }));
+    await loaded();
+    const logos = screen.getAllByRole('img', { name: 'Beta Co' });
+    expect(logos.length).toBeGreaterThan(0);
+    for (const l of logos) expect(l).toHaveAttribute('src', expect.stringMatching(/logo/));
+    expect(sharedBy('Beta Co')).toBeInTheDocument();
+  });
+
+  it('a logo that can’t be loaded gives way to the built-in one, still named for the company', async () => {
+    show(fakeApi({ view: vi.fn(async () => ({ ...VIEW, company: { name: 'Alpha Co', logoUrl: '/uploads/companies/a/gone.png' } })) }));
+    await loaded();
+    fireEvent.error(screen.getByRole('img', { name: 'Alpha Co' }));
+    const logos = screen.getAllByRole('img', { name: 'Alpha Co' });
+    for (const l of logos) expect(l.getAttribute('src')).not.toContain('gone.png');
   });
 });

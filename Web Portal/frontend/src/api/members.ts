@@ -9,6 +9,8 @@ export interface ApiMember {
   firstName: string;
   lastName: string;
   role: ProjectMemberRole;
+  /** companies: false when they're in none of the project's active companies any more, so they can't see it. Missing (older server): they can. */
+  hasAccess?: boolean;
 }
 
 export function membersApi(client: ApiClient) {

@@ -31,13 +31,15 @@ export interface ComposerProps {
   onFiles: (files: File[], caption: string) => boolean;
   /** Text put back into this box (an unsent message to change), counted so the same text can come twice. */
   restore: { text: string; n: number } | null;
+  /** companies: the conversation can't be written in — this note (the server's words) shows instead of the box. */
+  readOnly?: { message: string } | null;
 }
 
 /**
  * The message box. It grows with what you type, keeps an unsent draft for each conversation (also
  * across visits), and sends with Enter on a computer — Shift+Enter starts a new line.
  */
-export function Composer({ conversationId, placeholder, people, replyTo, onCancelReply, onSend, onFiles, restore }: ComposerProps) {
+export function Composer({ conversationId, placeholder, people, replyTo, onCancelReply, onSend, onFiles, restore, readOnly }: ComposerProps) {
   const [draft, setDraftState] = useState(() => loadDraft(conversationId));
   const setDraft = (text: string) => {
     setDraftState(text);
@@ -110,6 +112,16 @@ export function Composer({ conversationId, placeholder, people, replyTo, onCance
     } else if (e.key === 'Escape' && replyTo) {
       onCancelReply();
     }
+  }
+
+  if (readOnly) {
+    return (
+      <div className="flex-none border-t border-line bg-surface px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-4">
+        <p role="note" dir="auto" className="rounded-xl bg-ground px-3.5 py-2.5 text-center text-sm text-ink-2">
+          {readOnly.message}
+        </p>
+      </div>
+    );
   }
 
   return (

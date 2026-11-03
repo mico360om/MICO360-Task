@@ -24,6 +24,10 @@ import { todayKey } from '../../lib/due-date';
 import { isWholeDate } from '../../lib/date-box';
 import { useCompanyTimeZone } from '../../lib/useCompanyTimeZone';
 import { TemplateStart, useTemplatePlan, type TemplateChoice } from '../templates/TemplateStart';
+import type { DirectoryUser } from '../../api/users';
+import { useMyCompanies } from '../../hooks/useMyCompanies';
+import { CompanyChipsField } from '../company/CompanyChipsField';
+import { projectCompaniesOf, useTeamCandidateState } from '../company/team-candidates';
 
 const NAME_MAX = 191;
 const DESCRIPTION_MAX = 20_000;
@@ -100,6 +104,12 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
+/** The server's refusals of a project's companies: its words go under the Companies field. */
+const COMPANY_REFUSALS = new Set(['NO_COMPANY', 'NOT_YOUR_COMPANY', 'COMPANY_ARCHIVED', 'WOULD_LOSE_ACCESS']);
+const companyRefusal = (err: unknown): string | null => (err instanceof ApiError && COMPANY_REFUSALS.has(err.code) && err.message ? err.message : null);
+const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+const lockedTitle = (name: string) => `Only an administrator or a member of ${name} can change this.`;
+
 const reason = (err: unknown) => (err instanceof ApiError && err.message && !/^Request failed/.test(err.message) ? err.message : err instanceof TypeError ? 'The server couldn’t be reached.' : 'Please try again.');
 
 function Label({ htmlFor, required, optional, children }: { htmlFor: string; required?: boolean; optional?: boolean; children: ReactNode }) {
@@ -143,6 +153,21 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const [draft, setDraft] = useState<Draft>(() => draftOf(project, me));
   // New projects only: the people put on its team at once (the Team tab runs it afterwards).
   const [teamIds, setTeamIds] = useState<string[]>([]);
+  // companies: the project's companies as chosen here, main first (null: not touched — a new
+  // project's default company, or the project's own). The field shows with two or more to choose
+  // from, or on a project that already has two or more.
+  const myCompanies = useMyCompanies();
+  const [companyChoice, setCompanyChoice] = useState<string[] | null>(null);
+  const [companyError, setCompanyError] = useState<string | null>(null);
+  const savedCompanies = projectCompaniesOf(saved);
+  const startCompanies = editing ? savedCompanies.map((c) => c.id) : myCompanies.effective ? [myCompanies.effective.id] : [];
+  const companyIds = companyChoice ?? startCompanies;
+  const showCompanies = myCompanies.companies.length >= 2 || savedCompanies.length >= 2;
+  const companiesChanged = companyChoice !== null && !sameIds(companyChoice, startCompanies);
+  const chooseCompanies = (ids: string[]) => {
+    setCompanyChoice(ids);
+    setCompanyError(null);
+  };
   const [image, setImage] = useState<ImageChoice>({ kind: 'keep' });
   const [codeTouched, setCodeTouched] = useState(editing);
   const [errors, setErrors] = useState<{ name?: string; code?: string }>({});
@@ -155,13 +180,14 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const nameRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
   const bannerRef = useRef<HTMLParagraphElement>(null);
+  const companiesRef = useRef<HTMLDivElement>(null);
   // A message above a long form (Create is at its foot): brought into view when it appears.
   useEffect(() => {
     if (banner) bannerRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [banner]);
   const ids = { title: useId(), name: useId(), code: useId(), codeNote: useId(), client: useId(), clients: useId(), number: useId(), numberNote: useId(), desc: useId(), owner: useId(), handover: useId(), team: useId(), teamNote: useId(), carryHelp: useId(), carryOff: useId(), dueHelp: useId(), approvalHelp: useId() };
 
-  const dirty = image.kind !== 'keep' || teamIds.length > 0 || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = image.kind !== 'keep' || teamIds.length > 0 || companiesChanged || JSON.stringify(template) !== openedWith.current || JSON.stringify(draft) !== JSON.stringify(initial);
   const requestClose = () => {
     if (busy.current) return;
     if (dirty) setConfirmClose(true);
@@ -183,13 +209,40 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     return [...names].sort((a, b) => a.localeCompare(b, 'en'));
   }, [projectsQ.data]);
   const directory = useMemo(() => (Array.isArray(dirQ.data) ? dirQ.data : []), [dirQ.data]);
+  // companies: on a site with two or more, the owner and the team are people of the project's
+  // companies (the server refuses anyone else) — the field's choice, or the one company it goes into.
+  const { people: candidates, settled: candidatesSettled } = useTeamCandidateState(showCompanies ? companyIds : startCompanies);
+  const people = useMemo<DirectoryUser[]>(() => {
+    if (!candidates) return directory;
+    const pool: DirectoryUser[] = candidates.map((c) => ({ ...c, active: true }));
+    // The current owner and the person creating it stay choosable, as they are.
+    for (const id of [initial.ownerId, me]) if (id && !pool.some((u) => u.id === id)) pool.push(...directory.filter((u) => u.id === id));
+    return pool;
+  }, [candidates, directory, initial.ownerId, me]);
+  // A company taken off takes its people off the new team and the template's roles too — once the
+  // server has answered for the companies now chosen (not while it is asked again, nor if it failed).
+  useEffect(() => {
+    if (!candidates || !candidatesSettled) return;
+    const may = new Set(people.map((u) => u.id));
+    setTeamIds((ids) => (ids.every((id) => may.has(id)) ? ids : ids.filter((id) => may.has(id))));
+    setTemplate((t) => {
+      if (!t || Object.values(t.roles).every((id) => !id || may.has(id))) return t;
+      return { ...t, roles: Object.fromEntries(Object.entries(t.roles).filter(([, id]) => !id || may.has(id))) };
+    });
+  }, [candidates, candidatesSettled, people]);
+  // While the answer isn't in, people already picked keep their names (from the directory).
+  const shown = useMemo<DirectoryUser[]>(() => {
+    if (!candidates || candidatesSettled) return people;
+    const picked = new Set([...teamIds, ...Object.values(template?.roles ?? {})]);
+    return [...people, ...directory.filter((u) => picked.has(u.id) && !people.some((p) => p.id === u.id))];
+  }, [candidates, candidatesSettled, people, directory, teamIds, template]);
   // An employee's new project always has an owner (them, unless they pick someone else); an admin
   // may leave one without, and anyone may clear an existing project's owner.
-  const ownerOptions = useMemo(() => ownerChoices(directory, initial.ownerId, { allowNone: isAdmin || editing }), [directory, initial.ownerId, isAdmin, editing]);
+  const ownerOptions = useMemo(() => ownerChoices(shown, initial.ownerId, { allowNone: isAdmin || editing }), [shown, initial.ownerId, isAdmin, editing]);
   // The team picker: everyone active — except an employee themselves, who joins as a manager anyway.
   const teamPeople = useMemo(
-    () => activePeople(directory).filter((u) => isAdmin || u.id !== me).map((u) => ({ id: u.id, name: personName(u), username: u.username, avatarUrl: u.avatarUrl })),
-    [directory, isAdmin, me],
+    () => activePeople(shown).filter((u) => isAdmin || u.id !== me).map((u) => ({ id: u.id, name: personName(u), username: u.username, avatarUrl: u.avatarUrl })),
+    [shown, isAdmin, me],
   );
   // Whoever owned it stays on its team as a manager when the owner changes (the server does it, for
   // anyone making the change): say so before saving.
@@ -265,6 +318,12 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     setErrors(problems);
     if (problems.name) return nameRef.current?.focus();
     if (problems.code) return codeRef.current?.focus();
+    if (showCompanies && companyIds.length === 0) {
+      setCompanyError('Choose at least one company for this project.');
+      companiesRef.current?.scrollIntoView?.({ block: 'nearest' });
+      companiesRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+      return;
+    }
     if (!saved && template && !isWholeDate(template.startDate)) {
       setBanner('Choose the day the project starts: the template’s due dates count from it.');
       return;
@@ -273,6 +332,17 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     busy.current = true;
     setSaving(true);
     setBanner(null);
+    setCompanyError(null);
+    // A refusal of the companies, in the server's words: under the field (in the banner when it's hidden).
+    const refusedCompanies = (err: unknown, prefix: string) => {
+      const words = companyRefusal(err);
+      if (!words) return false;
+      if (showCompanies) {
+        setCompanyError(words);
+        companiesRef.current?.scrollIntoView?.({ block: 'nearest' });
+      } else setBanner(`${prefix} ${words}`);
+      return true;
+    };
     try {
       if (!saved) {
         let created: ApiProject;
@@ -287,6 +357,8 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
             priority: draft.priority,
             ownerId: draft.ownerId || null,
             ...(teamIds.length ? { memberIds: teamIds } : {}),
+            // Left out while the field is hidden: the server puts it in the picked, primary or only company.
+            ...(showCompanies ? { companyIds } : {}),
             icon: draft.icon,
             color: draft.color,
             // Only what differs from how every project starts (the server fills in the rest).
@@ -314,6 +386,8 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
             });
             void qc.invalidateQueries({ queryKey: ['templates', 'projects'] });
             setBanner(err.status === 404 ? 'That template no longer exists. Choose another one, or start a blank project.' : err.message);
+          } else if (refusedCompanies(err, 'Couldn’t create the project.')) {
+            // Shown at the companies.
           } else if (err instanceof ApiError && err.status === 409) {
             setErrors({ code: err.message || `${draft.code} is already used by another project.` });
             codeRef.current?.focus();
@@ -328,6 +402,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
           // The project exists (with its team): keep editing it, with the picture still here to try again.
           setSaved(created);
           setTeamIds([]);
+          setCompanyChoice(null);
           setInitial(draftOf(created));
           setDraft(draftOf(created));
           void qc.invalidateQueries({ queryKey: ['projects'] });
@@ -335,18 +410,19 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
         }
         return;
       }
-      const patch = changes(initial, draft);
+      const patch: Partial<NewProjectInput> = { ...changes(initial, draft), ...(companiesChanged ? { companyIds } : {}) };
       let result: ApiProject;
       try {
         result = Object.keys(patch).length ? await projectsApi(apiClient).update(saved.id, patch) : saved;
       } catch (err) {
-        setBanner(`Couldn’t save the changes. ${reason(err)}`);
+        if (!refusedCompanies(err, 'Couldn’t save the changes.')) setBanner(`Couldn’t save the changes. ${reason(err)}`);
         return;
       }
       // The details are saved: a retry only sends the picture.
       const detailsSaved = Object.keys(patch).length > 0;
       setSaved(result);
       setInitial(draft);
+      setCompanyChoice(null);
       try {
         finish((await uploadPicture(saved.id)) ?? result);
       } catch (err) {
@@ -389,7 +465,7 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                   choice={template}
                   onChange={setTemplate}
                   today={today}
-                  directory={directory}
+                  directory={shown}
                   ownerId={draft.ownerId}
                   plan={planQ.data}
                   planError={planQ.isError}
@@ -515,6 +591,21 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
                   <p id={ids.numberNote} className="mt-1 text-xs text-ink-2">The client’s job or contract number, if there is one.</p>
                 </div>
               </div>
+
+              {showCompanies ? (
+                <div ref={companiesRef}>
+                  <CompanyChipsField
+                    value={companyIds}
+                    onChange={chooseCompanies}
+                    usable={myCompanies.companies}
+                    all={[...myCompanies.companies, ...savedCompanies]}
+                    lockedTitle={lockedTitle}
+                    unlocked={isAdmin}
+                    error={companyError}
+                    disabled={saving}
+                  />
+                </div>
+              ) : null}
 
               <div>
                 <Label htmlFor={ids.desc} optional>Description</Label>
