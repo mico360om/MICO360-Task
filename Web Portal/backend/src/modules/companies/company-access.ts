@@ -5,7 +5,9 @@ import { CompanyNotAvailableError } from './company-pick';
  * Companies: the query pieces every project and people query is built from, and the access service.
  *
  * A non-admin sees a project when it is not deleted, today's team rule holds (owner, named manager or
- * team member) AND it belongs to an ACTIVE company the person belongs to. Admins see every project.
+ * team member) AND it belongs to an ACTIVE company the person belongs to. Admins see every project —
+ * and, 1.22, an administrator who turned on "Show my projects only" LISTS like a team member: the
+ * projects they own, manage or are on the team of (no company condition), still opening any by its link.
  * Nothing here is cached: membership and project companies are read inside each query, so a change
  * takes effect on the next request.
  */
@@ -70,6 +72,15 @@ export async function hasActiveCompany(db: Pick<PrismaClient, 'companyMember'>, 
   return (await db.companyMember.count({ where: { userId, company: { status: 'ACTIVE' } } })) > 0;
 }
 
+/**
+ * 1.22 "Show my projects only" (an administrator's own setting, users.myProjectsOnly): is it on? Read
+ * on every call, never cached, like the rest of access. Only administrators' lists change with it —
+ * see CompanyAccess.myProjectsOnly.
+ */
+export async function readMyProjectsOnly(db: Pick<PrismaClient, 'user'>, userId: string): Promise<boolean> {
+  return (await db.user.findUnique({ where: { id: userId }, select: { myProjectsOnly: true } }))?.myProjectsOnly === true;
+}
+
 /** People who share an active company with the viewer (the viewer included; callers leave them out). */
 export function colleagueWhere(viewerId: string): Prisma.UserWhereInput {
   return { companies: { some: { company: { status: 'ACTIVE', members: { some: { userId: viewerId } } } } } };
@@ -101,16 +112,27 @@ export interface CompanyAccess {
   activeCompanyIds(userId: string): Promise<string[]>;
   /** The pick if the person may use it (one of their active companies; for admins any company); otherwise CompanyNotAvailableError. */
   checkPick(viewer: Viewer, pick: string | null): Promise<string | null>;
-  /** The projects a list shows: admins every project (in the picked company); others their visible ones (in the pick). */
+  /**
+   * 1.22: does this person's every LIST use the team rule although they are an administrator ("Show
+   * my projects only" on)? Always false for anyone else (their lists use it anyway). Object routes
+   * (one thing by its link) and the admin pages never ask.
+   */
+  myProjectsOnly(viewer: Viewer): Promise<boolean>;
+  /**
+   * The projects a list shows: admins every project (in the picked company) — or, with "Show my
+   * projects only", the ones they own, manage or are on the team of; others their visible ones (in the pick).
+   */
   projectScope(viewer: Viewer, pick: string | null): Promise<Prisma.ProjectWhereInput>;
   /** The ids of projectScope — null only for an admin without a pick ("every project"). */
   visibleProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null>;
   /**
    * The projects (deleted ones too) in the person's active companies, in the pick when given — null only
    * for an admin without a pick. The bell's scope: companies add this one condition to what 1.20 showed
-   * (a task's notices reach its assignee even off the project's team).
+   * (a task's notices reach its assignee even off the project's team). 1.22: an administrator with
+   * "Show my projects only" gets the projects they own, manage or are on the team of (in the pick).
    */
   companyProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null>;
+  /** May this person open the project (an object check: administrators always — the setting never applies)? */
   canSeeProject(viewer: Viewer, projectId: string): Promise<boolean>;
   /** Of these people, who may see the project now: active admins, and team members sharing an active company with it. */
   whoCanSeeProject(projectId: string, userIds: readonly string[]): Promise<Set<string>>;
@@ -148,27 +170,40 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
     return pick;
   }
 
-  async function projectScope(viewer: Viewer, pick: string | null): Promise<Prisma.ProjectWhereInput> {
-    if (isAdminRoles(viewer.roles)) return pick ? { deletedAt: null, ...inCompanyWhere(pick) } : { deletedAt: null };
+  async function myProjectsOnly(viewer: Viewer): Promise<boolean> {
+    return isAdminRoles(viewer.roles) && (await readMyProjectsOnly(prisma, viewer.id));
+  }
+
+  /** An administrator's projects: every one — or, `mine`, the ones they own, manage or are on the team of — in the pick. */
+  const adminWhere = (viewer: Viewer, pick: string | null, mine: boolean): Prisma.ProjectWhereInput => ({
+    AND: [...(pick ? [inCompanyWhere(pick)] : []), ...(mine ? [teamWhere(viewer.id)] : [])],
+  });
+
+  /** `list`: a list asks, so "Show my projects only" applies; otherwise an object check (admin-wide). */
+  async function scopeOf(viewer: Viewer, pick: string | null, list: boolean): Promise<Prisma.ProjectWhereInput> {
+    if (isAdminRoles(viewer.roles)) return { deletedAt: null, ...adminWhere(viewer, pick, list && (await myProjectsOnly(viewer))) };
     if (!pick) return visibleProjectWhere(viewer.id);
     return { AND: [visibleProjectWhere(viewer.id), pickedCompanyWhere(viewer.id, pick)] };
   }
 
+  const projectScope = (viewer: Viewer, pick: string | null) => scopeOf(viewer, pick, true);
+
   async function visibleProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null> {
-    if (isAdminRoles(viewer.roles) && !pick) return null;
+    if (isAdminRoles(viewer.roles) && !pick && !(await myProjectsOnly(viewer))) return null;
     const rows = await prisma.project.findMany({ where: await projectScope(viewer, pick), select: { id: true } });
     return rows.map((r) => r.id);
   }
 
   async function companyProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null> {
     const admin = isAdminRoles(viewer.roles);
-    if (admin && !pick) return null;
-    const where: Prisma.ProjectWhereInput = admin ? inCompanyWhere(pick!) : pick ? pickedCompanyWhere(viewer.id, pick) : sharedCompanyWhere(viewer.id);
+    const mine = admin && (await myProjectsOnly(viewer));
+    if (admin && !pick && !mine) return null;
+    const where: Prisma.ProjectWhereInput = admin ? adminWhere(viewer, pick, mine) : pick ? pickedCompanyWhere(viewer.id, pick) : sharedCompanyWhere(viewer.id);
     return (await prisma.project.findMany({ where, select: { id: true } })).map((p) => p.id);
   }
 
   async function canSeeProject(viewer: Viewer, projectId: string): Promise<boolean> {
-    return (await prisma.project.count({ where: { AND: [{ id: projectId }, await projectScope(viewer, null)] } })) > 0;
+    return (await prisma.project.count({ where: { AND: [{ id: projectId }, await scopeOf(viewer, null, false)] } })) > 0;
   }
 
   async function whoCanSeeProject(projectId: string, userIds: readonly string[]): Promise<Set<string>> {
@@ -239,5 +274,5 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
     return shares > 0 ? 'full' : 'invitee';
   }
 
-  return { activeCompanyIds, checkPick, projectScope, visibleProjectIds, companyProjectIds, canSeeProject, whoCanSeeProject, isColleague, knownPeople, projectCompanyPeople, meetingView };
+  return { activeCompanyIds, checkPick, myProjectsOnly, projectScope, visibleProjectIds, companyProjectIds, canSeeProject, whoCanSeeProject, isColleague, knownPeople, projectCompanyPeople, meetingView };
 }

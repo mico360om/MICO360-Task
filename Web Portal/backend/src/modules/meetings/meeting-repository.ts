@@ -90,7 +90,13 @@ export interface MeetingListFilter {
    * (`everyone`). A meeting someone was only invited to (its project shares none of their companies)
    * shows under "All my companies" only.
    */
-  scope?: { userId: string; projectIds: string[] | null; pick?: { companyId: string; everyone: boolean } };
+  scope?: {
+    userId: string;
+    projectIds: string[] | null;
+    pick?: { companyId: string; everyone: boolean };
+    /** 1.22: an administrator listing like a team member ("Show my projects only"): their own meetings count without an active company. */
+    admin?: boolean;
+  };
 }
 
 /** Minimal facts the access layer needs to decide who can see a meeting. */

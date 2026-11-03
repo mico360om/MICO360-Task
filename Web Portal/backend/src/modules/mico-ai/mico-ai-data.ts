@@ -183,6 +183,8 @@ export interface AiActionItemWithMeeting extends AiActionItemRec {
 export interface MicoAiDataPort {
   /** The project-access rule the task, board and project pages use: null = admin (every project). */
   accessibleProjectIds(viewer: Viewer): Promise<string[] | null>;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? Absent: never. */
+  myProjectsOnly?(viewer: Viewer): Promise<boolean>;
   projects(ids: string[] | null): Promise<AiProjectRec[]>;
   tasks(filter: { projectIds: string[] | null; projectId?: string; assigneeId?: string }): Promise<AiTaskRec[]>;
   /** One task by key or id within the scope, or null. */

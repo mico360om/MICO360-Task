@@ -122,6 +122,11 @@ export interface TaskMoveServiceDeps {
   onStatusChanged?: (task: TaskRecord, prevColumnId: string, actorId: string, extra?: { approval: ApprovalEvent; requestedById: string | null }) => void | Promise<void>;
   /** A failure after a task already moved (a hook), or an unexpected one while moving several. */
   onError?: (err: unknown, taskId: string) => void;
+  /**
+   * 1.22: the projects the move dialog may list for an administrator (null = every one): with "Show my
+   * projects only", theirs. Only the list narrows — they may still move a task into any open project.
+   */
+  pickerProjectIds?: (actor: MoveActor) => Promise<string[] | null>;
 }
 
 /** How many consecutive numbers to try when other tasks take them at the same moment. */
@@ -180,7 +185,9 @@ export function createTaskMoveService(deps: TaskMoveServiceDeps) {
   async function targets(actor: MoveActor): Promise<MoveTargets> {
     const scope = await scopeOf(actor);
     const open = await repo.listOpenProjects();
-    return { managesAll: scope === null, managedProjectIds: scope ? [...scope] : [], projects: open.filter((p) => manages(scope, p.id)).map(summary) };
+    const listed = scope === null && deps.pickerProjectIds ? await deps.pickerProjectIds(actor) : null;
+    const shown = listed ? new Set(listed) : null;
+    return { managesAll: scope === null, managedProjectIds: scope ? [...scope] : [], projects: open.filter((p) => manages(scope, p.id) && (!shown || shown.has(p.id))).map(summary) };
   }
 
   /** The actor may move tasks into `to`, and it is open. */

@@ -43,6 +43,9 @@ export interface ActionItemRouteDeps {
   resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
   /** companies: the request's picked company (X-Company-Id); My Action Items follows it. Absent: no pick. */
   pickOf?: PickOf;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? With the list scope below. */
+  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
+  accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: how a person sees the meeting — an invitee from another company sees only their own items. */
   viewOf?: MeetingViewOf;
   /**
@@ -95,7 +98,11 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
     // companies: with a pick, only that company's items (none = everything assigned to them, as before).
     const pick = await (deps.pickOf ?? NO_PICK)(req);
     const scope = pick ? { pick: { companyId: pick } } : {};
-    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope, admin: isAdmin(req) })) };
+    // 1.22: an administrator with "Show my projects only" lists like a team member (a list call: the pick named).
+    const { id: userId, roles } = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const mineOnly = isAdmin(req) && deps.myProjectsOnly && deps.accessibleProjectIds && (await deps.myProjectsOnly({ id: userId, roles }));
+    const projectIds = mineOnly ? ((await deps.accessibleProjectIds!(userId, roles, pick)) ?? undefined) : undefined;
+    return { data: await withTaskKeys(await actionItemService.listMine(userId, { status: q.status, openOnly: q.openOnly, ...scope, admin: isAdmin(req), ...(projectIds ? { projectIds } : {}) })) };
   });
 
   // ── Meeting-scoped register ──

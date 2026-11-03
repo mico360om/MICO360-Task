@@ -139,6 +139,12 @@ export interface ProjectRepository {
    * merely created), inside one of their active companies, and with a pick in that company.
    */
   listForUser(userId: string, pick?: string | null): Promise<ProjectRecord[]>;
+  /**
+   * 1.22: the live projects this person owns, manages or is on the team of — the team rule alone, no
+   * company condition — and with a pick in that company: an administrator's own projects ("Show my
+   * projects only").
+   */
+  listTeamOf?(userId: string, pick?: string | null): Promise<ProjectRecord[]>;
   /** True if the user owns, manages or is on the team of the project and shares an active company with it. */
   isAccessibleTo(projectId: string, userId: string): Promise<boolean>;
   /**

@@ -13,6 +13,8 @@ export interface ProjectServiceDeps {
   people?: PeopleLookup;
   /** companies: which companies a project goes into and who may change them; without it, nothing is said about companies. */
   companies?: ProjectCompanyRules;
+  /** 1.22: has this administrator turned on "Show my projects only"? Absent: never. */
+  myProjectsOnly?: (userId: string) => Promise<boolean>;
 }
 
 /** Who is asking for a change: their id and roles. */
@@ -45,7 +47,7 @@ export function newProjectTeam({ creatorId, creatorIsAdmin, ownerId, memberIds }
 
 const isAdmin = (roles: string[]) => roles.includes('ADMIN');
 
-export function createProjectService({ projects, people, companies }: ProjectServiceDeps) {
+export function createProjectService({ projects, people, companies, myProjectsOnly }: ProjectServiceDeps) {
   /** Any project — deleted ones too — with this code. */
   const codeInUse = async (code: string) => (projects.codeInUse ? projects.codeInUse(code) : (await projects.findByCode(code)) !== null);
 
@@ -131,10 +133,17 @@ export function createProjectService({ projects, people, companies }: ProjectSer
     return projects.list();
   }
 
-  /** Projects the caller may see: everything for an admin, else only those they belong to. */
-  /** The projects a person may see; a picked company (already checked) narrows the list to it. */
-  async function listVisibleProjects(user: { id: string; roles: string[] }, pick?: string | null): Promise<ProjectRecord[]> {
-    if (isAdmin(user.roles)) return projects.list(pick ?? null);
+  /**
+   * The projects a person's lists show: everything for an admin, else only those they belong to; a
+   * picked company (already checked) narrows the list to it. 1.22: an administrator who turned on
+   * "Show my projects only" gets the projects they own, manage or are on the team of — unless
+   * `everyProject` (the Projects page's "Only my projects" unticked for one visit).
+   */
+  async function listVisibleProjects(user: { id: string; roles: string[] }, pick?: string | null, opts: { everyProject?: boolean } = {}): Promise<ProjectRecord[]> {
+    if (isAdmin(user.roles)) {
+      if (!opts.everyProject && projects.listTeamOf && (await myProjectsOnly?.(user.id))) return projects.listTeamOf(user.id, pick ?? null);
+      return projects.list(pick ?? null);
+    }
     return projects.listForUser(user.id, pick ?? null);
   }
 

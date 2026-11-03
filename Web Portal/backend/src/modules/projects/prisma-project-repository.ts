@@ -2,7 +2,7 @@ import { Prisma, type PrismaClient, type Project } from '@prisma/client';
 import { ConflictError } from '../../lib/http-errors';
 import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type ProjectRecord, type ProjectRepository, type UpdateProjectData } from './project-repository';
 import { writeStartingTasks } from './prisma-starting-content';
-import { pickedCompanyWhere, visibleProjectWhere } from '../companies/company-access';
+import { inCompanyWhere, pickedCompanyWhere, teamWhere, visibleProjectWhere } from '../companies/company-access';
 import { ARCHIVE_INCLUDE, archivedOf } from '../companies/project-archive';
 
 /** companies: a new project's company rows, as the rules chose them (`[0]`, its main company, is always one of them). */
@@ -144,6 +144,15 @@ export function createPrismaProjectRepository(prisma: PrismaClient): ProjectRepo
     async listForUser(userId, pick) {
       const ps = await prisma.project.findMany({
         where: pick ? { AND: [visibleProjectWhere(userId), pickedCompanyWhere(userId, pick)] } : visibleProjectWhere(userId),
+        orderBy: { createdAt: 'desc' },
+        include: ARCHIVE_INCLUDE,
+      });
+      return ps.map(toRecord);
+    },
+    // 1.22 "Show my projects only": an administrator's own projects — the team rule, no company condition.
+    async listTeamOf(userId, pick) {
+      const ps = await prisma.project.findMany({
+        where: { deletedAt: null, AND: [teamWhere(userId), ...(pick ? [inCompanyWhere(pick)] : [])] },
         orderBy: { createdAt: 'desc' },
         include: ARCHIVE_INCLUDE,
       });

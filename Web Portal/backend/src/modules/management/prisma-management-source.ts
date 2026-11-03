@@ -4,7 +4,7 @@ import { managedVisibleWhere } from '../projects/project-managers';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { ProjectStatus } from './management-rules';
 import type { ActionLine, ManagementSource, MgmtPerson, TaskLine } from './management-source';
-import { inCompanyWhere, pickedCompanyWhere } from '../companies/company-access';
+import { inCompanyWhere, pickedCompanyWhere, teamWhere } from '../companies/company-access';
 
 /**
  * The Management page's reads straight from the database: grouped queries with bound parameters,
@@ -78,11 +78,13 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
   }
 
   return {
-    async projects(runBy, pick) {
+    async projects(runBy, pick, opts) {
       // companies: inside the picked company too (a non-admin's pick must be one of their active companies).
       const inPick = pick ? [runBy ? pickedCompanyWhere(runBy, pick) : inCompanyWhere(pick)] : [];
+      // 1.22: an administrator's own projects ("Show my projects only": owner, named manager or on the team).
+      const team = opts?.teamOf ? [teamWhere(opts.teamOf)] : [];
       const rows = await prisma.project.findMany({
-        where: { AND: [{ deletedAt: null }, ...(runBy ? [managedVisibleWhere(runBy)] : []), ...inPick] },
+        where: { AND: [{ deletedAt: null }, ...(runBy ? [managedVisibleWhere(runBy)] : []), ...inPick, ...team] },
         select: { id: true, code: true, name: true, status: true, color: true, icon: true, imageUrl: true, ownerId: true, managerId: true, updatedAt: true, companies: ARCHIVE_SELECT.companies },
         orderBy: { name: 'asc' },
       });

@@ -151,7 +151,7 @@ export function createPrismaMeetingRepository(
         ];
       } else if (scope && scope.projectIds !== null) {
         // companies: being one of a meeting's people counts only with an active company of their own.
-        const or: Prisma.MeetingWhereInput[] = (await hasActiveCompany(prisma, scope.userId))
+        const or: Prisma.MeetingWhereInput[] = scope.admin || (await hasActiveCompany(prisma, scope.userId))
           ? [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }]
           : [{ id: '' }];
         if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });

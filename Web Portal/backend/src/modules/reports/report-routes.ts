@@ -137,11 +137,16 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
 
   /**
    * companies: what a picked company limits every report to — its projects' tasks, and on the
-   * workload its people plus whoever has a task there. Without a pick: everything, as before.
+   * workload its people plus whoever has a task there. Without a pick: everything, as before —
+   * 1.22: unless the administrator turned on "Show my projects only": their projects' tasks, and the
+   * people with tasks there (a list call: the pick named, null).
    */
   async function pickScopeOf(req: FastifyRequest): Promise<Pick<ReportFilter, 'projectIds' | 'peopleIds'>> {
     const pick = await (deps.pickOf ?? NO_PICK)(req);
-    if (!pick) return {};
+    if (!pick) {
+      const mine = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], null) : null;
+      return mine ? { projectIds: mine, peopleIds: [] } : {};
+    }
     const [projectIds, peopleIds] = await Promise.all([
       deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : Promise.resolve([]),
       deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([]),

@@ -61,6 +61,11 @@ export interface ManagementServiceDeps {
   settings: ManagementSettings;
   timeZone: string;
   now?: () => Date;
+  /**
+   * 1.22: does this administrator list like a team member ("Show my projects only")? The page and its
+   * PDF then show the projects they own, manage or are on the team of; the weekly email doesn't change.
+   */
+  myProjectsOnly?: (viewer: ManagementViewer) => Promise<boolean>;
 }
 
 export type ManagementScope = 'ALL' | 'RUN';
@@ -315,9 +320,10 @@ export function createManagementService(deps: ManagementServiceDeps) {
    * company (companies: X-Company-Id — someone who runs projects only elsewhere sees an empty page,
    * not a refusal), then the filters.
    */
-  async function scopeOf(viewer: ManagementViewer, f: ManagementFilters, pick: string | null = null) {
+  async function scopeOf(viewer: ManagementViewer, f: ManagementFilters, pick: string | null = null, opts: { page?: boolean } = {}) {
     const admin = isAdmin(viewer);
-    const runnable = await source.projects(admin ? null : viewer.id, pick);
+    const teamOf = admin && opts.page && deps.myProjectsOnly && (await deps.myProjectsOnly(viewer)) ? viewer.id : null;
+    const runnable = await source.projects(admin ? null : viewer.id, pick, teamOf ? { teamOf } : undefined);
     if (!admin && runnable.length === 0 && (!pick || (await source.runCount(viewer.id)) === 0)) {
       throw new ForbiddenError('Only administrators and the people who run a project can see the Management page.');
     }
@@ -448,7 +454,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
   }
 
   async function overview(viewer: ManagementViewer, filters: ManagementFilters, pick: string | null = null): Promise<ManagementOverview> {
-    const s = await scopeOf(viewer, filters, pick);
+    const s = await scopeOf(viewer, filters, pick, { page: true });
     const ctx = await contextOf(filters.weeks, viewer, pick);
     const ids = s.projects.map((p) => p.id);
     const from = ctx.trend[0]!.from;
@@ -564,7 +570,7 @@ export function createManagementService(deps: ManagementServiceDeps) {
     const needsPerson = metric === 'person-overloaded';
     if (needsPerson && !q.personId) throw new ValidationError('Say whose list to show.');
     if (metric === 'failed-item' && !q.itemId) throw new ValidationError('Say which item.');
-    const s = await scopeOf(viewer, filters, pick);
+    const s = await scopeOf(viewer, filters, pick, { page: true });
     if (q.projectId && !s.projects.some((p) => p.id === q.projectId)) throw new NotFoundError('Project not found.');
     const projects = q.projectId ? s.projects.filter((p) => p.id === q.projectId) : s.projects;
     const ids = projects.map((p) => p.id);

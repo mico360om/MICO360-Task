@@ -227,14 +227,18 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
    */
   async function scopeOf(viewer: Viewer) {
     const projectIds = await data.accessibleProjectIds(viewer);
-    const [projects, people, companyIds] = await Promise.all([
+    const admin = viewer.roles.includes('ADMIN');
+    const [projects, people, companyIds, mineOnly] = await Promise.all([
       data.projects(projectIds),
       data.people(viewer),
-      data.companiesOf && !viewer.roles.includes('ADMIN') ? data.companiesOf(viewer) : Promise.resolve(null),
+      data.companiesOf && !admin ? data.companiesOf(viewer) : Promise.resolve(null),
+      admin && data.myProjectsOnly ? data.myProjectsOnly(viewer) : Promise.resolve(false),
     ]);
     const visible = projectIds === null ? projects : projects.filter((p) => projectIds.includes(p.id));
     const allowed = (projectId: string | null | undefined) => !!projectId && (projectIds === null || projectIds.includes(projectId));
-    return { viewer, pick: viewer.pick ?? null, companyIds, projectIds, projects: visible, people, allowed, person: new Map(people.map((p) => [p.id, p])) };
+    // An administrator sees every meeting and channel — 1.22: unless "Show my projects only" (the team rule).
+    const everything = admin && !mineOnly;
+    return { viewer, pick: viewer.pick ?? null, companyIds, projectIds, projects: visible, people, allowed, everything, person: new Map(people.map((p) => [p.id, p])) };
   }
   type Scope = Awaited<ReturnType<typeof scopeOf>>;
 
@@ -312,7 +316,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
    * only invited to shows under "All my companies".
    */
   const meetingVisible = (s: Scope, m: AiMeetingRec) =>
-    (s.viewer.roles.includes('ADMIN') || ownMeeting(s, m) || s.allowed(m.projectId)) && (!s.pick || s.allowed(m.projectId) || !m.companyIds || m.companyIds.includes(s.pick));
+    (s.everything || ownMeeting(s, m) || s.allowed(m.projectId)) && (!s.pick || s.allowed(m.projectId) || !m.companyIds || m.companyIds.includes(s.pick));
   /** companies: invited to a meeting whose project shares none of their companies — no notes, decisions or others' items (§8.8). */
   const invitedTo = (s: Scope, m: AiMeetingRec) =>
     !!s.companyIds && !!m.projectId && !!m.companyIds && !s.allowed(m.projectId) && ownMeeting(s, m) && !m.companyIds.some((c) => s.companyIds!.includes(c));
@@ -825,7 +829,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const { from, to, fromKey, toKey } = range(a.from as string | undefined, a.to as string | undefined, 30, 0);
       const mine = await data.conversations(s.viewer);
       // The chat module's own list, with its rule again: a direct conversation needs the person in it.
-      const allowedConvs = mine.filter((c) => (c.kind === 'DIRECT' ? c.participantIds.includes(s.viewer.userId) : s.viewer.roles.includes('ADMIN') || s.allowed(c.projectId)));
+      const allowedConvs = mine.filter((c) => (c.kind === 'DIRECT' ? c.participantIds.includes(s.viewer.userId) : s.everything || s.allowed(c.projectId)));
       const allowedIds = new Set(allowedConvs.map((c) => c.id));
       const text = (a.text as string | undefined)?.trim();
       let convs = allowedConvs;
@@ -955,7 +959,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       ids('chat').length ? data.conversations(viewer) : [],
     ]);
     const meetingById = new Map(meetings.map((m) => [m.id, m]));
-    const openConvs = new Set(convs.filter((c) => (c.kind === 'DIRECT' ? c.participantIds.includes(viewer.userId) : viewer.roles.includes('ADMIN') || s.allowed(c.projectId))).map((c) => c.id));
+    const openConvs = new Set(convs.filter((c) => (c.kind === 'DIRECT' ? c.participantIds.includes(viewer.userId) : s.everything || s.allowed(c.projectId))).map((c) => c.id));
     const stillVisible = (ref: SourceRef): boolean => {
       switch (ref.type) {
         case 'task':

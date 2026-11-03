@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { isAdminRoles, readMyProjectsOnly } from '../companies/company-access';
 import { createPrismaWorkloadStore } from '../planning/prisma-workload-store';
 import type { SettingsService } from '../settings/settings-service';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
@@ -19,6 +20,8 @@ export function createManagementFromPrisma(prisma: PrismaClient, o: { settings: 
     settings: o.settings,
     timeZone: o.timeZone,
     ...(o.now ? { now: o.now } : {}),
+    // 1.22 "Show my projects only" (an administrator's own; the page and its PDF, not the weekly email).
+    myProjectsOnly: (viewer) => (isAdminRoles(viewer.roles) ? readMyProjectsOnly(prisma, viewer.id) : Promise.resolve(false)),
   });
 }
 

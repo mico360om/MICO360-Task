@@ -144,7 +144,10 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
   if (deps.overview) {
     app.get('/projects/overview', { preHandler: guard.authenticate }, async (req) => {
       const user = viewer(req);
-      const projects = await projectService.listVisibleProjects(user, await pickOf(req));
+      // 1.22: `?all=1` — an administrator's "Only my projects" unticked for this visit, past their
+      // "Show my projects only" setting (it widens nothing for anyone else).
+      const everyProject = (req.query as Record<string, unknown> | undefined)?.all === '1';
+      const projects = await projectService.listVisibleProjects(user, await pickOf(req), { everyProject });
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
       const ids = projects.map((p) => p.id);
       const [rows, can] = await Promise.all([deps.overview!.load(ids, ownerIds), manageable(user, ids)]);

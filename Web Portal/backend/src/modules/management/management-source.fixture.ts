@@ -85,9 +85,10 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
 
   return {
     calls,
-    async projects(runBy) {
-      calls.push(`projects:${runBy ?? 'all'}`);
-      return live.filter((p) => runBy === null || runs(p, runBy)).map(toProject);
+    async projects(runBy, _pick, opts) {
+      calls.push(`projects:${runBy ?? 'all'}${opts?.teamOf ? `:team of ${opts.teamOf}` : ''}`);
+      // (1.22 teamOf: here the people who run a project stand for its team.)
+      return live.filter((p) => (runBy === null || runs(p, runBy)) && (!opts?.teamOf || runs(p, opts.teamOf))).map(toProject);
     },
     async runCount(userId) {
       return live.filter((p) => runs(p, userId)).length;

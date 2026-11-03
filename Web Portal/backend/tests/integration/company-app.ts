@@ -2,7 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { buildApp, type AppDeps } from '../../src/app';
 import { createTokenService } from '../../src/modules/auth/token-service';
 import { createAuthService } from '../../src/modules/auth/auth-service';
-import { createCompanyAccess } from '../../src/modules/companies/company-access';
+import { createCompanyAccess, readMyProjectsOnly } from '../../src/modules/companies/company-access';
 import { createPrismaPeopleLookup, createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';
 import { createProjectService } from '../../src/modules/projects/project-service';
 import { createProjectAccess } from '../../src/modules/projects/project-access';
@@ -70,9 +70,11 @@ export async function buildCompanyApp(prisma: PrismaClient, extra: (base: Partia
     maxAttempts: 5,
   });
   const projectRepository = createPrismaProjectRepository(prisma);
-  const projectService = createProjectService({ projects: projectRepository, people: createPrismaPeopleLookup(prisma) });
+  // 1.22 "Show my projects only", as server.ts wires it.
+  const myProjectsOnly = (userId: string) => readMyProjectsOnly(prisma, userId);
+  const projectService = createProjectService({ projects: projectRepository, people: createPrismaPeopleLookup(prisma), myProjectsOnly });
   const projectAuthz = createProjectAuthz({ managers: createPrismaProjectManagerLookup(prisma) });
-  const projectAccess = createProjectAccess({ projects: projectRepository, managers: createPrismaProjectManagerLookup(prisma) });
+  const projectAccess = createProjectAccess({ projects: projectRepository, managers: createPrismaProjectManagerLookup(prisma), myProjectsOnly });
   const companyAccess = createCompanyAccess(prisma);
   const taskService = createTaskService({ tasks: createPrismaTaskRepository(prisma), projects: createPrismaProjectLookup(prisma), timeZone: TZ });
   const approvalSource = createPrismaApprovalSource(prisma, { canManageProject: (u, r, p) => projectAuthz.canManageProject(u, r, p) });

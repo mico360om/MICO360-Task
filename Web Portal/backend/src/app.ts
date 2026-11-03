@@ -546,6 +546,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const meetingAccessibleProjectIds = mAccess ? (u: string, r: string[], pick?: string | null) => mAccess.accessibleProjectIds(u, r, pick) : undefined;
       // companies: a company's active people (an administrator's Workload and Reports with a pick show them).
       const companies = deps.companyAccess;
+      // 1.22 "Show my projects only": does this administrator list like a team member? (Lists that have
+      // their own "administrators see everything" branch ask it; the project scope itself is in
+      // projectAccess.accessibleProjectIds — a call naming the pick is a list.)
+      const myProjectsOnly = companies ? (viewer: { id: string; roles: string[] }) => companies.myProjectsOnly(viewer) : undefined;
       const companyPeople = companies ? (companyId: string) => companies.projectCompanyPeople([companyId]) : undefined;
       // companies: a person's active companies, and who a search may find (colleagues, the viewer too;
       // with a pick that company's people; an administrator without a pick everyone: null).
@@ -599,6 +603,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           now: deps.planningNow,
           pickOf, // companies: Timeline and Workload follow the pick
           companyPeople,
+          myProjectsOnly,
         });
       }
       if (deps.columnService) {
@@ -798,13 +803,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, {
           meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser,
           // companies (MC1 Task 10): the invitee view, a standalone meeting's company, who may be invited.
-          viewOf: meetingViewOf, pickOf, meetingCompany: deps.meetingCompany, invitees: deps.meetingInvitees, knownIds,
+          viewOf: meetingViewOf, pickOf, meetingCompany: deps.meetingCompany, invitees: deps.meetingInvitees, knownIds, myProjectsOnly,
         });
       }
       if (deps.attendeeService) {
@@ -851,6 +856,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
           resolveTaskKeys: deps.resolveTaskKeys,
           pickOf, // companies: My Action Items follows the pick
+          myProjectsOnly, // 1.22, with the list scope
+          accessibleProjectIds: meetingAccessibleProjectIds,
         });
       }
       if (deps.noteService) {

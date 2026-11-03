@@ -7,6 +7,11 @@ export interface ProjectAccessRepo {
   listForUser(userId: string, pick?: string | null): Promise<{ id: string }[]>;
   /** Every live project, or a picked company's (an administrator with a pick). */
   list(pick?: string | null): Promise<{ id: string }[]>;
+  /**
+   * 1.22: the live projects this person owns, manages or is on the team of — the team rule alone, no
+   * company condition — in the pick: an administrator's own projects ("Show my projects only").
+   */
+  listTeamOf?(userId: string, pick?: string | null): Promise<{ id: string }[]>;
 }
 
 /** @deprecated Being assigned no longer grants access on its own; kept so older wiring still compiles. */
@@ -25,11 +30,17 @@ export interface TaskAssigneeLookup {
 export function createProjectAccess({
   projects,
   managers,
+  myProjectsOnly,
 }: {
   projects: ProjectAccessRepo;
   managers: Pick<ProjectManagerLookup, 'projectIdOfTask' | 'projectIdOfColumn'>;
   /** @deprecated Ignored — see TaskAssigneeLookup. */
   assignees?: TaskAssigneeLookup;
+  /**
+   * 1.22: has this administrator turned on "Show my projects only"? Read on every list (never cached).
+   * Absent: never (everything lists as before).
+   */
+  myProjectsOnly?: (userId: string) => Promise<boolean>;
 }) {
   const isAdmin = (roles: string[]) => roles.includes('ADMIN');
 
@@ -50,9 +61,18 @@ export function createProjectAccess({
   /**
    * Project ids a user may see, or `null` for an admin without a pick (meaning "all projects, no
    * scoping"). A picked company (already checked) narrows it; an admin with a pick gets that company's.
+   *
+   * 1.22 "Show my projects only": a call that NAMES the pick — a company id, or null for "all my
+   * companies" — is a LIST, and an administrator who turned the setting on gets the projects they own,
+   * manage or are on the team of (in the pick), like a team member. A call without a pick is an
+   * OBJECT check (one project, task or board by its link; may I use this project) and stays admin-wide.
    */
   async function accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null> {
-    if (isAdmin(roles)) return pick ? (await projects.list(pick)).map((p) => p.id) : null;
+    if (isAdmin(roles)) {
+      const listing = pick !== undefined;
+      if (listing && projects.listTeamOf && (await myProjectsOnly?.(userId))) return (await projects.listTeamOf(userId, pick)).map((p) => p.id);
+      return pick ? (await projects.list(pick)).map((p) => p.id) : null;
+    }
     return (await projects.listForUser(userId, pick ?? null)).map((p) => p.id);
   }
 
