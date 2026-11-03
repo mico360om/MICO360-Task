@@ -128,6 +128,20 @@ describe('Move to another project (one task)', () => {
     expect(moves()[0]!.body).toEqual({ projectId: 'ops', columnId: 'o-doing', assignees: 'UNASSIGN' });
   });
 
+  it('companies: someone who can’t join the new team — the server’s words, and "Unassign" is still there to choose', async () => {
+    previewTasks = [previewTask({ outsiders: [{ ...SARA, canJoin: false } as typeof SARA] })];
+    moveReply = () => json({ error: { code: 'CANT_JOIN_TEAM', message: 'Sara Al Balushi can’t join the Operations team: they aren’t in any of its companies. Unassign them instead.', details: { people: [SARA] } } }, 409);
+    const { onMoved, onClose } = open();
+    await chooseProject('Operations');
+    const group = await screen.findByRole('radiogroup', { name: 'Sara Al Balushi isn’t on the Operations team.' });
+    await userEvent.click(within(group).getByRole('radio', { name: 'Add Sara Al Balushi to the team' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Move task/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sara Al Balushi can’t join the Operations team: they aren’t in any of its companies. Unassign them instead.');
+    expect(onMoved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(group).getByRole('radio', { name: 'Unassign Sara Al Balushi' })).toBeEnabled();
+  });
+
   it('shows why a move was refused, and stays open', async () => {
     moveReply = () => json({ error: { code: 'TASK_MOVED', message: 'Someone else moved this task just now. Reload it and try again.' } }, 409);
     const { onMoved, onClose } = open();

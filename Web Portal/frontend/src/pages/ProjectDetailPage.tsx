@@ -11,6 +11,7 @@ import { meetingsApi } from '../api/meetings';
 import { aiApi } from '../api/ai';
 import { useAuthStore } from '../stores/auth-store';
 import { ProjectMembers } from '../components/ProjectMembers';
+import { projectCompaniesOf, useTeamCandidates } from '../components/company/team-candidates';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
@@ -175,6 +176,12 @@ export function ProjectDetailPage() {
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false, enabled: canShare });
 
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
+  // companies: with two or more on the site, new members come from the project's companies (mine only,
+  // unless I'm an administrator); null = the directory, as before.
+  const candidates = useTeamCandidates(canManage ? projectCompaniesOf(project).map((c) => c.id) : null);
+  const addable = candidates
+    ? candidates.map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const }))
+    : directory.filter((u) => u.active !== false).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const }));
   const personById = (userId: string) => {
     const u = directory.find((d) => d.id === userId);
     return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : 'Unknown';
@@ -457,8 +464,8 @@ export function ProjectDetailPage() {
               </p>
             ) : null}
             <ProjectMembers
-              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role }))}
-              addableUsers={canManage ? directory.filter((u) => u.active !== false).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const })) : []}
+              members={members.map((m) => ({ id: m.id, name: name(m), role: m.role, hasAccess: m.hasAccess }))}
+              addableUsers={canManage ? addable : []}
               canManage={canManage}
               onAdd={(userId) => addM.mutate(userId)}
               onRemove={(userId) => removeM.mutate(userId)}

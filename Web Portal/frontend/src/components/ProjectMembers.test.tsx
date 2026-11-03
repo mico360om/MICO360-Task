@@ -55,4 +55,17 @@ describe('ProjectMembers', () => {
     await userEvent.click(screen.getByRole('button', { name: /make Bea a manager/i }));
     expect(onSetRole).toHaveBeenCalledWith('u3', 'MANAGER');
   });
+
+  it('Team tab: someone without access shows "No access" with why', () => {
+    render(<ProjectMembers members={[{ id: 'ben', name: 'Ben Beta', role: 'MEMBER', hasAccess: false }, { id: 'u1', name: 'Ada Lovelace', role: 'MEMBER', hasAccess: true }]} addableUsers={[]} canManage={false} onAdd={vi.fn()} onRemove={vi.fn()} />);
+    expect(screen.getAllByText('No access')).toHaveLength(1);
+    expect(screen.getByText('Not in any of this project’s companies any more.')).toBeInTheDocument();
+    const ben = screen.getByText('Ben Beta').closest('li')!;
+    expect(ben).toHaveTextContent('No access');
+  });
+
+  it('members of a server that doesn’t say (no hasAccess) show no badge', () => {
+    render(<ProjectMembers members={members} addableUsers={[]} canManage={false} onAdd={vi.fn()} onRemove={vi.fn()} />);
+    expect(screen.queryByText('No access')).toBeNull();
+  });
 });
