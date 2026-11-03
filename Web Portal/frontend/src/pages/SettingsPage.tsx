@@ -14,6 +14,7 @@ import { LoadError } from '../components/ui/LoadError';
 import { photoUploadProblem } from '../lib/photo-upload';
 import { Toggle } from '../components/ui/Toggle';
 import { DailyEmailSettings } from '../components/settings/DailyEmailSettings';
+import { useScrollToHash } from '../lib/useScrollToHash';
 import { WeeklySummarySettings } from '../components/settings/WeeklySummarySettings';
 
 const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
@@ -101,6 +102,8 @@ export function SettingsPage() {
   }
 
   const prefsQ = useQuery({ queryKey: ['notification-prefs'], queryFn: () => notificationsApi(apiClient).getPreferences() });
+  // 1.22: the Notifications page's "Notification settings" link (/settings#notifications).
+  useScrollToHash('notifications', !prefsQ.isLoading);
   const prefs = prefsQ.data ?? { muted: [] };
   const muted = prefs.muted ?? [];
 
@@ -190,7 +193,7 @@ export function SettingsPage() {
         </section>
 
         {/* Notifications */}
-        <section className="card p-5">
+        <section id="notifications" className="card scroll-mt-20 p-5">
           <h2 className="eyebrow mb-4">Notifications</h2>
           {saveProblem ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{saveProblem}</p> : null}
           {prefsQ.isError ? (

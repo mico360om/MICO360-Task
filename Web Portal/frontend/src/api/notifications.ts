@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import type { InboxCounts, NotificationKind } from '../lib/notification-inbox';
 
 export interface ApiNotification {
   id: string;
@@ -10,11 +11,32 @@ export interface ApiNotification {
   entityId?: string | null;
   readAt: string | null;
   createdAt: string;
+  /** 1.22: the project it is about, with its look (none for a notice about no project). */
+  projectId?: string | null;
+  project?: { id: string; name: string; color: string | null; icon: string | null; imageUrl: string | null } | null;
 }
 
 /** One cache for the bell and the Notifications page, so read state always agrees. */
 export const NOTIFICATIONS_KEY = ['notifications'] as const;
 export const UNREAD_COUNT_KEY = ['notif-unread'] as const;
+/** 1.22: the page's lists (per tab and chips) and its unread counts — under NOTIFICATIONS_KEY, so refreshing the bell refreshes them too. */
+export const NOTIFICATION_PAGES_KEY = [...NOTIFICATIONS_KEY, 'pages'] as const;
+export const NOTIFICATION_COUNTS_KEY = [...NOTIFICATIONS_KEY, 'counts'] as const;
+
+/** A page of the list: newest first; `nextCursor` asks for the next (older) page, null at the end. */
+export interface NotificationPage {
+  data: ApiNotification[];
+  nextCursor: string | null;
+}
+
+export interface NotificationPageQuery {
+  cursor?: string;
+  limit?: number;
+  unread?: boolean;
+  kinds?: readonly NotificationKind[];
+}
+
+export type NotificationBulkAction = 'read' | 'unread' | 'remove';
 
 export interface NotificationPreferences {
   /** Notification type strings the user has muted (e.g. TASK_COMMENT). */
@@ -45,7 +67,26 @@ export function notificationsApi(client: ApiClient) {
     unreadCount: () => client.get<{ data: { count: number } }>('/notifications/unread-count').then((r) => r.data.count),
     markRead: (id: string) => client.put<{ data: ApiNotification }>(`/notifications/${id}/read`).then((r) => r.data),
     /** Read everything shown: `upTo` (the newest shown) leaves one that came in meanwhile unread. */
-    markAllRead: (upTo?: string) => client.post<{ data: { ok: boolean } }>('/notifications/read-all', upTo ? { upTo } : undefined),
+    /** With `kinds` (the page's chips), only those types are read. */
+    markAllRead: (upTo?: string, kinds?: readonly NotificationKind[]) =>
+      client.post<{ data: { ok: boolean } }>('/notifications/read-all', kinds?.length ? { ...(upTo ? { upTo } : {}), kinds } : upTo ? { upTo } : undefined),
+    /** 1.22: a page of the Notifications page (50 at a time, the Unread tab, the chips). */
+    page: (q: NotificationPageQuery = {}) => {
+      const params = new URLSearchParams();
+      if (q.limit) params.set('limit', String(q.limit));
+      if (q.cursor) params.set('cursor', q.cursor);
+      if (q.unread) params.set('unread', '1');
+      if (q.kinds?.length) params.set('kinds', q.kinds.join(','));
+      const qs = params.toString();
+      return client.get<NotificationPage>(`/notifications${qs ? `?${qs}` : ''}`).then((r) => ({ data: r.data, nextCursor: r.nextCursor ?? null }));
+    },
+    /** Unread per type chip, and in all. */
+    counts: () => client.get<{ data: InboxCounts }>('/notifications/counts').then((r) => r.data),
+    markUnread: (id: string) => client.post<{ data: ApiNotification }>(`/notifications/${id}/unread`).then((r) => r.data),
+    remove: (id: string) => client.del<{ data: { ok: boolean } }>(`/notifications/${id}`),
+    /** Several of your own at once (at most 200 to a request). */
+    bulk: (ids: readonly string[], action: NotificationBulkAction) =>
+      client.post<{ data: { count: number } }>('/notifications/bulk', { ids, action }).then((r) => r.data),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
     /** Saves what is sent; daily email settings left out are kept as they are. */
     setPreferences: (prefs: Partial<NotificationPreferences>) =>
