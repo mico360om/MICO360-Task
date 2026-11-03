@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-11-03
+
 ### New features
 - The Android app catches up with the website: the website's look (colours, fonts, drawn icons, a
   white top bar, a grouped menu and five tabs) and everything added since 1.11 — task approvals,
