@@ -12,6 +12,32 @@ const REVOKED_WITHIN_MS = 30_000;
 /** Server-initiated disconnects (token expiry / revocation) reconnected per minute before backing off. */
 const MAX_SERVER_RECONNECTS_PER_MIN = 3;
 
+/**
+ * Companies: `companies:changed` — the server says the signed-in person's companies changed (added
+ * to or taken out of one, a company archived or brought back). Every open socket hears it (the
+ * bell's, chat's, a board's…), so the copies that arrive together are taken as one: the listeners
+ * run once, this long after the last copy.
+ */
+const COMPANIES_CHANGED_SETTLE_MS = 200;
+const companiesChangedListeners = new Set<() => void>();
+let companiesChangedTimer: ReturnType<typeof setTimeout> | null = null;
+
+function companiesChanged(): void {
+  if (companiesChangedTimer) clearTimeout(companiesChangedTimer);
+  companiesChangedTimer = setTimeout(() => {
+    companiesChangedTimer = null;
+    for (const listener of [...companiesChangedListeners]) listener();
+  }, COMPANIES_CHANGED_SETTLE_MS);
+}
+
+/** Run `listener` when the signed-in person's companies change (see above). Returns an unsubscribe. */
+export function onCompaniesChanged(listener: () => void): () => void {
+  companiesChangedListeners.add(listener);
+  return () => {
+    companiesChangedListeners.delete(listener);
+  };
+}
+
 export interface AuthedSocketOptions {
   /**
    * Runs after every successful connection. `isReconnect` is true from the second connection on,
@@ -60,6 +86,8 @@ export function openAuthedSocket(opts: AuthedSocketOptions = {}): AuthedSocket {
   let refreshing = false;
   let lastRefreshAt = 0;
   let serverDisconnects: number[] = [];
+
+  socket.on('companies:changed', companiesChanged);
 
   socket.on('connect', () => {
     authRetries = 0;

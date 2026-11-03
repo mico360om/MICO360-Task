@@ -3,7 +3,8 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
+  // dist-*: other builds kept beside dist (a battery's build of this website).
+  { ignores: ['dist/**', 'dist-*/**', 'node_modules/**', 'coverage/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

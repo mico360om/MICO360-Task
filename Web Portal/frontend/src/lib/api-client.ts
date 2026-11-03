@@ -1,4 +1,5 @@
 import { fileNameFromDisposition } from './download';
+import { COMPANY_HEADER, isCompanyGone } from './companies';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -28,6 +29,17 @@ export interface ApiClientOptions {
   refreshTokens?: (rejectedToken: string | null) => Promise<RefreshOutcome | boolean>;
   /** Called only when the refresh token itself is rejected — the app should log out. */
   onUnauthorized?: () => void;
+  /**
+   * Headers sent with every request, uploads and downloads too — the picked company
+   * (`X-Company-Id`) while one is picked. Read again for each request.
+   */
+  getHeaders?: () => Record<string, string>;
+  /**
+   * The server refused the picked company (403 COMPANY_NOT_AVAILABLE): the request was sent once
+   * more without it, and that one wasn't refused, so it was the pick. Given the headers the refused
+   * request carried. The app clears the pick and says so.
+   */
+  onCompanyGone?: (sent: Record<string, string>) => void;
 }
 
 export interface RequestOptions {
@@ -74,7 +86,25 @@ function errorFrom(status: number, text: string): ApiError {
   return new ApiError(status, code, message, details);
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized }: ApiClientOptions): ApiClient {
+/** Is this answer the server refusing the picked company? */
+async function refusesCompany(status: number, text: () => Promise<string>): Promise<boolean> {
+  if (status !== 403) return false;
+  return isCompanyGone(errorFrom(status, await text()));
+}
+
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone }: ApiClientOptions): ApiClient {
+  /**
+   * The headers every request carries now, and the same without the picked company — for the one
+   * retry after the server refuses the pick (null: no company picked, or nobody to tell).
+   */
+  function sharedHeaders(): { sent: Record<string, string>; withoutPick: Record<string, string> | null } {
+    const sent = getHeaders?.() ?? {};
+    if (!onCompanyGone || !(COMPANY_HEADER in sent)) return { sent, withoutPick: null };
+    const withoutPick = { ...sent };
+    delete withoutPick[COMPANY_HEADER];
+    return { sent, withoutPick };
+  }
+
   // Single-flight token refresh: parallel 401s share one refresh instead of stampeding /auth/refresh.
   let refreshing: Promise<RefreshOutcome> | null = null;
   function refreshOnce(rejectedToken: string | null): Promise<RefreshOutcome> {
@@ -92,8 +122,8 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
 
   type FetchOpts = { body?: unknown; form?: FormData; headers?: Record<string, string> };
 
-  function doFetch(method: string, path: string, opts: FetchOpts, token: string | null): Promise<Response> {
-    const headers: Record<string, string> = { ...(opts.headers ?? {}) };
+  function doFetch(method: string, path: string, opts: FetchOpts, token: string | null, shared: Record<string, string>): Promise<Response> {
+    const headers: Record<string, string> = { ...shared, ...(opts.headers ?? {}) };
     // Only declare a JSON content-type when we actually send a JSON body — a bodyless POST
     // (e.g. watch / mark-all-read / provider sync) with an empty body + this header is rejected
     // by Fastify ("Body cannot be empty when content-type is set to 'application/json'").
@@ -111,17 +141,31 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
    * refresh token ends the session; a refresh that fails for any other reason (offline, 5xx, 429)
    * leaves the user signed in and just surfaces this request's error.
    */
-  async function authedFetch(method: string, path: string, opts: FetchOpts = {}): Promise<Response> {
+  async function fetchRefreshing(method: string, path: string, opts: FetchOpts, shared: Record<string, string>): Promise<Response> {
     // A failed login/OTP/refresh is not a token-expiry — never trigger a refresh for those.
     const canRefresh = !path.startsWith('/auth/');
     const token = getToken();
-    let res = await doFetch(method, path, opts, token);
+    let res = await doFetch(method, path, opts, token, shared);
     if (res.status === 401 && canRefresh) {
       const outcome = await refreshOnce(token);
-      if (outcome === 'refreshed') res = await doFetch(method, path, opts, getToken());
+      if (outcome === 'refreshed') res = await doFetch(method, path, opts, getToken(), shared);
       else if (outcome === 'invalid') onUnauthorized?.();
     }
     return res;
+  }
+
+  /**
+   * …and when the server refuses the picked company (taken away, archived), the request goes once
+   * more without it. Only if that one isn't refused too was it the pick (a company the request names
+   * itself, e.g. a picker's `companyIds`, is refused the same way) — then the app is told.
+   */
+  async function authedFetch(method: string, path: string, opts: FetchOpts = {}): Promise<Response> {
+    const { sent, withoutPick } = sharedHeaders();
+    const res = await fetchRefreshing(method, path, opts, sent);
+    if (!withoutPick || !(await refusesCompany(res.status, () => res.clone().text()))) return res;
+    const retry = await fetchRefreshing(method, path, opts, withoutPick);
+    if (!(await refusesCompany(retry.status, () => retry.clone().text()))) onCompanyGone?.(sent);
+    return retry;
   }
 
   async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions): Promise<T> {
@@ -132,10 +176,11 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   }
 
   /** One multipart POST over XMLHttpRequest — fetch can't report upload progress. */
-  function sendWithProgress(path: string, form: FormData, token: string | null, onProgress: (fraction: number) => void) {
+  function sendWithProgress(path: string, form: FormData, token: string | null, onProgress: (fraction: number) => void, shared: Record<string, string>) {
     return new Promise<{ status: number; text: string }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${baseUrl}${path}`);
+      for (const [name, value] of Object.entries(shared)) xhr.setRequestHeader(name, value);
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
@@ -155,13 +200,22 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       if (!res.ok) throw errorFrom(res.status, text);
       return (text ? JSON.parse(text) : {}) as T;
     }
-    // The same refresh-once-on-401 rule as every other request.
-    const token = getToken();
-    let res = await sendWithProgress(path, form, token, onProgress);
-    if (res.status === 401) {
-      const outcome = await refreshOnce(token);
-      if (outcome === 'refreshed') res = await sendWithProgress(path, form, getToken(), onProgress);
-      else if (outcome === 'invalid') onUnauthorized?.();
+    // The same refresh-once-on-401 and refused-pick rules as every other request.
+    const send = async (shared: Record<string, string>) => {
+      const token = getToken();
+      let answer = await sendWithProgress(path, form, token, onProgress, shared);
+      if (answer.status === 401) {
+        const outcome = await refreshOnce(token);
+        if (outcome === 'refreshed') answer = await sendWithProgress(path, form, getToken(), onProgress, shared);
+        else if (outcome === 'invalid') onUnauthorized?.();
+      }
+      return answer;
+    };
+    const { sent, withoutPick } = sharedHeaders();
+    let res = await send(sent);
+    if (withoutPick && (await refusesCompany(res.status, async () => res.text))) {
+      res = await send(withoutPick);
+      if (!(await refusesCompany(res.status, async () => res.text))) onCompanyGone?.(sent);
     }
     if (res.status < 200 || res.status >= 300) throw errorFrom(res.status, res.text);
     return (res.text ? JSON.parse(res.text) : {}) as T;

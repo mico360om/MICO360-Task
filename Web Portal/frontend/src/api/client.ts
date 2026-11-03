@@ -1,5 +1,7 @@
 import { createApiClient, type RefreshOutcome } from '../lib/api-client';
+import { COMPANY_HEADER, companyHeaders } from '../lib/companies';
 import { readStoredSession, useAuthStore, type Session } from '../stores/auth-store';
+import { useCompanyStore } from '../stores/company-store';
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -115,11 +117,17 @@ export async function refreshSession(): Promise<boolean> {
   return outcome === 'refreshed';
 }
 
-/** Shared API client — base URL from env, bearer token from the auth store, with silent refresh on 401. */
+/**
+ * Shared API client — base URL from env, bearer token from the auth store, with silent refresh on 401.
+ * Every request carries the company picked in the top bar (`X-Company-Id`), so lists, counts,
+ * exports, search and MICO AI follow it; a pick the server refuses is cleared, with a notice.
+ */
 export const apiClient = createApiClient({
   baseUrl,
   getToken: () => useAuthStore.getState().accessToken,
   refreshTokens,
   // The refresh token was rejected: the session truly ended → back to sign-in (never on 429/5xx/offline).
   onUnauthorized: () => useAuthStore.getState().logout('expired'),
+  getHeaders: () => companyHeaders(useCompanyStore.getState().pick),
+  onCompanyGone: (sent) => useCompanyStore.getState().companyGone(sent[COMPANY_HEADER] ?? null),
 });

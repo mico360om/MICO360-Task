@@ -5,13 +5,16 @@
  * All access is guarded: storage can be unavailable (private mode, blocked site data).
  */
 
+import { COMPANY_PICK_PREF } from './companies';
+
 const PREFIX = 'mico360.u.';
 
 /**
  * Per-user names kept across sign-out: things the person built or chose themselves, not cached data
- * (their saved My Tasks views; how many people a page the daily-email list shows).
+ * (their saved My Tasks views; how many people a page the daily-email list shows; the company they
+ * picked in the top bar).
  */
-const KEPT_ON_SIGN_OUT = new Set(['mytasks.views', 'daily-emails.perPage']);
+const KEPT_ON_SIGN_OUT = new Set(['mytasks.views', 'daily-emails.perPage', COMPANY_PICK_PREF]);
 
 /** Unscoped keys written by older builds. They can't be attributed to a user, so sign-out removes them. */
 export const LEGACY_PER_USER_KEYS = ['mico360.board.projectId', 'mico360.mytasks.view'] as const;

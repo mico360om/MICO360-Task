@@ -151,6 +151,20 @@ describe('api client', () => {
       FakeXhr.sent[1]!.onerror?.();
       await expect(dropped).rejects.toBeInstanceOf(TypeError);
     });
+
+    it('an upload carries the picked company too, and a refused pick is sent again without it', async () => {
+      const gone = vi.fn();
+      let h: Record<string, string> = { 'X-Company-Id': 'B' };
+      const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', getHeaders: () => h, onCompanyGone: () => { gone(); h = {}; } });
+      const done = api.upload<{ data: { id: string } }>('/tasks/t1/attachments', new FormData(), { onProgress: () => {} });
+      expect(FakeXhr.sent[0]!.headers['X-Company-Id']).toBe('B');
+      FakeXhr.sent[0]!.respond(403, { error: { code: 'COMPANY_NOT_AVAILABLE', message: 'You no longer have access to this company.' } });
+      await tick();
+      expect(FakeXhr.sent[1]!.headers['X-Company-Id']).toBeUndefined();
+      FakeXhr.sent[1]!.respond(201, { data: { id: 'a3' } });
+      expect((await done).data.id).toBe('a3');
+      expect(gone).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('getText returns the raw response body and attaches the bearer token', async () => {
@@ -315,5 +329,108 @@ describe('api client', () => {
     expect(headers['Idempotency-Key']).toBe('k-9');
     expect(headers['Authorization']).toBe('Bearer tok');
     expect(headers['Content-Type']).toBe('application/json');
+  });
+});
+
+describe('the picked company', () => {
+  type Call = [string, RequestInit];
+  const goneBody = { error: { code: 'COMPANY_NOT_AVAILABLE', message: 'You no longer have access to this company.' } };
+  function stubFetch(status: number, body: unknown) {
+    const f = vi.fn(async (_url: string, _init?: RequestInit) => jsonResponse(body, status));
+    vi.stubGlobal('fetch', f);
+    return f as unknown as { mock: { calls: Call[] } };
+  }
+  function stubFetchSeq(answers: [number, unknown][]) {
+    let i = 0;
+    const f = vi.fn(async (_url: string, _init?: RequestInit) => {
+      const [status, body] = answers[Math.min(i++, answers.length - 1)]!;
+      return jsonResponse(body, status);
+    });
+    vi.stubGlobal('fetch', f);
+    return f as unknown as { mock: { calls: Call[] } };
+  }
+  const client = (opts: { getHeaders?: () => Record<string, string>; onCompanyGone?: () => void }) =>
+    createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', ...opts });
+  const headersOf = (call: Call) => call[1].headers as Record<string, string>;
+
+  it('every request carries the picked company', async () => {
+    const f = stubFetch(200, {});
+    await client({ getHeaders: () => ({ 'X-Company-Id': 'B' }) }).get('/projects');
+    expect(headersOf(f.mock.calls[0]!)['X-Company-Id']).toBe('B');
+  });
+
+  it('writes, text and file downloads carry it as well; the request’s own headers still go', async () => {
+    const f = stubFetch(200, { data: {} });
+    const c = client({ getHeaders: () => ({ 'X-Company-Id': 'B' }) });
+    await c.post('/tasks', { title: 'x' }, { headers: { 'Idempotency-Key': 'k-1' } });
+    await c.getText('/reports/status.csv');
+    await c.getBlob('/reports/projects.pdf');
+    await c.upload('/tasks/t1/attachments', new FormData());
+    for (const call of f.mock.calls) expect(headersOf(call)['X-Company-Id']).toBe('B');
+    expect(headersOf(f.mock.calls[0]!)['Idempotency-Key']).toBe('k-1');
+    expect(headersOf(f.mock.calls[0]!)['Authorization']).toBe('Bearer tok');
+  });
+
+  it('with no company picked nothing is added', async () => {
+    const f = stubFetch(200, {});
+    await client({ getHeaders: () => ({}) }).get('/projects');
+    expect(headersOf(f.mock.calls[0]!)['X-Company-Id']).toBeUndefined();
+  });
+
+  it('a refused pick is cleared, retried without it, and noticed', async () => {
+    const gone = vi.fn();
+    const f = stubFetchSeq([[403, goneBody], [200, { data: [] }]]);
+    let h: Record<string, string> = { 'X-Company-Id': 'B' };
+    const c = client({ getHeaders: () => h, onCompanyGone: () => { gone(); h = {}; } });
+    // The client gives back the whole body (callers take `.data`).
+    expect(await c.get('/projects')).toEqual({ data: [] });
+    expect(gone).toHaveBeenCalledTimes(1);
+    expect(f.mock.calls).toHaveLength(2);
+    expect(headersOf(f.mock.calls[1]!)['X-Company-Id']).toBeUndefined();
+  });
+
+  it('the retry goes without the pick even while the store still holds it, and is sent once only', async () => {
+    const gone = vi.fn();
+    const f = stubFetchSeq([[403, goneBody], [200, { data: [] }]]);
+    const c = client({ getHeaders: () => ({ 'X-Company-Id': 'B' }), onCompanyGone: gone });
+    await c.get('/projects');
+    expect(f.mock.calls).toHaveLength(2);
+    expect(headersOf(f.mock.calls[1]!)['X-Company-Id']).toBeUndefined();
+    expect(gone).toHaveBeenCalledWith({ 'X-Company-Id': 'B' });
+  });
+
+  it('a company the request itself names (not the pick) is refused as it is: the pick stays', async () => {
+    const gone = vi.fn();
+    stubFetchSeq([[403, goneBody], [403, goneBody]]);
+    const c = client({ getHeaders: () => ({ 'X-Company-Id': 'B' }), onCompanyGone: gone });
+    await expect(c.get('/people/candidates?companyIds=Z')).rejects.toMatchObject({ status: 403, code: 'COMPANY_NOT_AVAILABLE' });
+    expect(gone).not.toHaveBeenCalled();
+  });
+
+  it('without a pick a COMPANY_NOT_AVAILABLE answer is not retried', async () => {
+    const gone = vi.fn();
+    const f = stubFetchSeq([[403, goneBody]]);
+    const c = client({ getHeaders: () => ({}), onCompanyGone: gone });
+    await expect(c.get('/people/candidates?companyIds=Z')).rejects.toMatchObject({ code: 'COMPANY_NOT_AVAILABLE' });
+    expect(f.mock.calls).toHaveLength(1);
+    expect(gone).not.toHaveBeenCalled();
+  });
+
+  it('another 403 is not about the pick', async () => {
+    const gone = vi.fn();
+    const f = stubFetchSeq([[403, { error: { code: 'FORBIDDEN', message: 'No.' } }]]);
+    const c = client({ getHeaders: () => ({ 'X-Company-Id': 'B' }), onCompanyGone: gone });
+    await expect(c.get('/projects/p1')).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
+    expect(f.mock.calls).toHaveLength(1);
+    expect(gone).not.toHaveBeenCalled();
+  });
+
+  it('a refused file download is fetched again without the pick', async () => {
+    const gone = vi.fn();
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => (n++ === 0 ? jsonResponse(goneBody, 403) : new Response('%PDF', { status: 200, headers: { 'content-type': 'application/pdf' } }))));
+    const blob = await client({ getHeaders: () => ({ 'X-Company-Id': 'B' }), onCompanyGone: gone }).getBlob('/reports/projects.pdf');
+    expect(blob.size).toBe(4);
+    expect(gone).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,7 +7,9 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { initTheme } from './lib/theme';
 import { createAppQueryClient } from './lib/query-client';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
+import { bindQueryCacheToCompanyPick } from './lib/company-scope';
 import { initAuthSync } from './stores/auth-store';
+import { bindCompanyPickToSession } from './stores/company-store';
 import { installKeyboardAwareness } from './lib/keyboard-aware';
 import { browserServiceWorkerWorld, setUpServiceWorker } from './lib/service-worker';
 import './index.css';
@@ -20,6 +22,10 @@ const queryClient = createAppQueryClient();
 // Signing out (or another person signing in) drops every cached query; tabs share one session.
 bindQueryCacheToSession(queryClient);
 initAuthSync();
+// The company picked in the top bar: the signed-in person's own (kept on this device); changing it,
+// or the server saying their companies changed, resets every list read for the old company.
+bindCompanyPickToSession();
+bindQueryCacheToCompanyPick(queryClient);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
