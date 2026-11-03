@@ -71,6 +71,11 @@ export interface ConversationPrefs {
   muted: boolean;
 }
 
+/** companies: why a direct chat can't be written in ("You no longer share a company with Sara."). */
+export interface ReadOnlyNote {
+  message: string;
+}
+
 export interface ConversationSummary {
   conversation: ApiConversation;
   participants: ApiParticipant[];
@@ -78,6 +83,22 @@ export interface ConversationSummary {
   lastMessage: (Omit<ApiMessage, 'reactions' | 'attachments'> & { reactions?: ReactionGroup[]; attachments?: ApiChatAttachment[] }) | null;
   /** Older servers leave it out: treat as all off. */
   prefs?: ConversationPrefs;
+  /** companies: a direct chat with someone I no longer share a company with is read-only (null or missing: writable). */
+  readOnly?: ReadOnlyNote | null;
+}
+
+/** companies: someone who wrote (or is quoted) on a page of messages — named even when the directory doesn't have them. */
+export interface MessageAuthor {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+/** A page of history, oldest first, and who wrote it. */
+export interface MessagesPage {
+  messages: ApiMessage[];
+  /** Older servers leave it out. */
+  authors: MessageAuthor[];
 }
 
 export function chatApi(client: ApiClient) {
@@ -86,20 +107,26 @@ export function chatApi(client: ApiClient) {
     conversations: () => client.get<{ data: ConversationSummary[] }>('/conversations').then((r) => r.data),
     /** Get-or-create a project's channel and its recent messages. */
     openProjectChannel: (projectId: string) =>
-      client.get<{ data: { conversation: ApiConversation; messages: ApiMessage[] } }>(`/projects/${projectId}/chat`).then((r) => r.data),
-    /** Get-or-create a 1:1 conversation with another user. */
+      client.get<{ data: { conversation: ApiConversation; messages: ApiMessage[]; authors?: MessageAuthor[] } }>(`/projects/${projectId}/chat`).then((r) => r.data),
+    /**
+     * Get-or-create a 1:1 conversation with another user (companies: a new one only with a colleague —
+     * 403 NOT_A_COLLEAGUE otherwise; an existing one comes back with `readOnly` when it is).
+     */
     startDirect: (userId: string) =>
-      client.post<{ data: ApiConversation }>('/conversations/direct', { userId }).then((r) => r.data),
+      client.post<{ data: ApiConversation & { readOnly?: ReadOnlyNote | null } }>('/conversations/direct', { userId }).then((r) => r.data),
     /**
      * One page of history, oldest-first. Without `before` it's the newest page; pass the oldest
      * loaded message's `createdAt` as `before` to load the page just older than it.
      */
-    messages: (conversationId: string, before?: string, limit?: number) => {
+    messages: (conversationId: string, before?: string, limit?: number): Promise<MessagesPage> => {
       const qs = new URLSearchParams();
       if (before) qs.set('before', before);
       if (limit) qs.set('limit', String(limit));
       const s = qs.toString();
-      return client.get<{ data: ApiMessage[] }>(`/conversations/${conversationId}/messages${s ? `?${s}` : ''}`).then((r) => r.data);
+      // companies: `authors` sits beside `data` (they name people the directory may not have).
+      return client
+        .get<{ data: ApiMessage[]; authors?: MessageAuthor[] }>(`/conversations/${conversationId}/messages${s ? `?${s}` : ''}`)
+        .then((r) => ({ messages: r.data, authors: Array.isArray(r.authors) ? r.authors : [] }));
     },
     /** Send. With a clientId a retry gets the first message back instead of a duplicate. */
     send: (conversationId: string, body: string, opts: { clientId?: string; replyToId?: string | null } = {}) =>

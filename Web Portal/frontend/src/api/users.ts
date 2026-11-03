@@ -87,6 +87,11 @@ export interface DirectoryUser {
   lastActiveAt?: string | null;
   /** False for an inactive or suspended account: still named in history, but not offered in pickers. */
   active?: boolean;
+  /**
+   * companies: true when they share a company with me (administrators: everyone); false for someone
+   * known only from a shared project or an old chat — named, but not offered outside projects.
+   */
+  colleague?: boolean;
 }
 
 export function usersApi(client: ApiClient) {

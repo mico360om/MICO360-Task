@@ -6,6 +6,7 @@ import { Avatar } from '../ui/Avatar';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { useInviteCandidates } from './invite-candidates';
+import { colleaguesOf } from '../../lib/people';
 
 /** Someone invited from the new-meeting form: a portal user, or an outside guest by email. */
 export type MeetingPerson = { kind: 'user'; id: string; name: string } | { kind: 'guest'; email: string; name: string };
@@ -33,7 +34,7 @@ export function PeopleField({
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const candidates = useInviteCandidates(target);
   const directory = Array.isArray(dirQ.data) ? dirQ.data : [];
-  const invitable: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null; active?: boolean }[] = candidates ?? directory;
+  const invitable: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null; active?: boolean }[] = candidates ?? colleaguesOf(directory);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [problem, setProblem] = useState<string | null>(null);

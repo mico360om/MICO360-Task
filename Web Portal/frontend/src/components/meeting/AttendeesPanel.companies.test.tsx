@@ -43,10 +43,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderPanel() {
+function renderPanel(m: Meeting = meeting, dir: typeof directory = directory) {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <AttendeesPanel meeting={meeting} attendees={[]} directory={directory} loading={false} loadError={false} onRetry={vi.fn()} canEdit />
+      <AttendeesPanel meeting={m} attendees={[]} directory={dir} loading={false} loadError={false} onRetry={vi.fn()} canEdit />
     </QueryClientProvider>,
   );
 }
@@ -65,6 +65,15 @@ describe('AttendeesPanel — companies', () => {
     await waitFor(() => expect(calls.some((u) => u.endsWith('/me/companies'))).toBe(true));
     await userEvent.click(screen.getByRole('button', { name: 'Team member to add' }));
     expect(await screen.findByRole('option', { name: /Amy Alphaonly/ })).toBeInTheDocument();
+    expect(calls.some((u) => u.includes('/invite-candidates'))).toBe(false);
+  });
+
+  it('a meeting with neither project nor company (made before companies): my colleagues from the directory', async () => {
+    renderPanel({ ...meeting, companyId: null }, [...directory.slice(0, 2), { ...directory[2]!, colleague: false } as (typeof directory)[number]]);
+    await waitFor(() => expect(calls.some((u) => u.endsWith('/me/companies'))).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: 'Team member to add' }));
+    expect(await screen.findByRole('option', { name: /Amy Alphaonly/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Bob Betaonly/ })).toBeNull();
     expect(calls.some((u) => u.includes('/invite-candidates'))).toBe(false);
   });
 });
