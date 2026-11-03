@@ -18,7 +18,7 @@ const MODES: { value: ActivityCalendarMode; label: string }[] = [
 ];
 
 /** A day's look by how busy it was: none, then four steps of the brand colour (the busiest in white on it). */
-const SHADE = ['bg-surface', 'bg-brand/10', 'bg-brand/25', 'bg-brand/45', 'bg-brand/75 text-white'] as const;
+const SHADE = ['bg-surface', 'bg-brand/15', 'bg-brand/30', 'bg-brand/50', 'bg-brand/80 text-white'] as const;
 
 const fullDay = (key: string) => dayText(key, { weekday: 'long', month: 'long' });
 
@@ -42,16 +42,18 @@ export function ActivityCalendar({
   const { companyTimeZone: timeZone, weekStart } = useDateSettings();
   const today = todayKey(timeZone);
   const [mode, setModeState] = useState<ActivityCalendarMode>(() => (readUserValue(useAuthStore.getState().user?.id, ACTIVITY_PERIOD_PREF) === 'week' ? 'week' : 'month'));
-  const setMode = (next: ActivityCalendarMode) => {
-    setModeState(next);
-    writeUserValue(userId, ACTIVITY_PERIOD_PREF, next);
-  };
   // null = today (it moves on at midnight with the page left open).
   const [cursor, setCursor] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const at = cursor ?? today;
   const day = picked ?? today;
   const period = useMemo(() => calendarPeriod(mode, at, weekStart), [mode, at, weekStart]);
+  const setMode = (next: ActivityCalendarMode) => {
+    // Into a week: the week of the day picked, when it's in the month shown (else the month's own).
+    if (next === 'week' && mode === 'month' && day >= period.from && day <= period.to) setCursor(day === today ? null : day);
+    setModeState(next);
+    writeUserValue(userId, ACTIVITY_PERIOD_PREF, next);
+  };
 
   const countsQ = useQuery({
     queryKey: ['activity', 'days', period.from, period.to, kind],
@@ -113,7 +115,7 @@ export function ActivityCalendar({
                 type="button"
                 aria-pressed={mode === m.value}
                 onClick={() => setMode(m.value)}
-                className={`h-8 rounded-lg px-3 text-sm font-medium transition-colors [@media(pointer:coarse)]:h-10 ${mode === m.value ? 'bg-brand text-white' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+                className={`h-8 rounded-lg px-3 text-sm font-medium transition-colors [@media(pointer:coarse)]:h-11 ${mode === m.value ? 'bg-brand text-white' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
               >
                 {m.label}
               </button>
@@ -146,7 +148,7 @@ export function ActivityCalendar({
                         aria-current={isToday ? 'date' : undefined}
                         aria-label={`${fullDay(cell.key)}: ${countsQ.data ? changesText(n) : 'loading'}${isToday ? ', today' : ''}`}
                         onClick={() => pick(cell.key)}
-                        className={`relative flex min-h-[2.75rem] flex-col items-center justify-between rounded-lg border px-1 py-1 text-center transition-colors sm:min-h-[4.25rem] sm:items-stretch sm:p-1.5 ${SHADE[step]} ${
+                        className={`relative flex !min-h-[2.75rem] flex-col items-center justify-between rounded-lg border px-1 py-1 text-center transition-colors sm:!min-h-[4.25rem] sm:items-stretch sm:p-1.5 ${SHADE[step]} ${
                           chosen ? 'border-brand ring-2 ring-brand/40' : 'border-line hover:border-brand/40'
                         } ${cell.inMonth ? '' : 'opacity-60'}`}
                       >

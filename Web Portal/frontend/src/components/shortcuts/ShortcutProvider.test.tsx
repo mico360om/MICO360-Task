@@ -258,6 +258,15 @@ describe('search, refresh and the list of shortcuts', () => {
     expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeTruthy();
   });
 
+  it('lists J and K for the task panel, and the switch names every single key (1.22)', () => {
+    wrap(<p>Page</p>);
+    press({ key: '/', code: 'Slash', ctrlKey: true }, document.body);
+    const list = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    expect(list.textContent).toContain('Next task');
+    expect(list.textContent).toContain('Previous task');
+    expect(document.getElementById('shortcuts-single-help')!.textContent).toMatch(/^N, E, Delete, R, \/, J, K and \? work when you’re not typing/);
+  });
+
   it('switches single-key shortcuts off from the list, and remembers it', () => {
     const onNew = vi.fn();
     wrap(<Page on={onNew} />);

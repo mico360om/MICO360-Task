@@ -161,7 +161,7 @@ export function ActivityPage() {
   const noProjectsYet = useNoProjectsYet();
 
   const chip = (active: boolean) =>
-    `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
+    `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
 
   return (
     // A readable width on a wide screen (centred, as About): a feed line across a 1,900px window is hard to follow.

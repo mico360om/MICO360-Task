@@ -6,7 +6,7 @@ import { defaultProjectOrder, projectOrderOf, projectOrderState } from '../../li
 import { stepsAt } from '../../lib/task-steps';
 
 const STEP =
-  'inline-flex h-8 flex-none items-center justify-center gap-1 rounded-lg border border-line bg-surface px-2.5 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand disabled:cursor-default disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink max-sm:h-11 max-sm:w-11 max-sm:px-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11';
+  'inline-flex h-8 flex-none items-center justify-center gap-1 rounded-lg border border-line bg-surface px-2.5 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand disabled:cursor-default disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink max-sm:h-11 max-sm:w-11 max-sm:px-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:!min-w-11';
 const Chevron = ({ back }: { back?: boolean }) => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="rtl:rotate-180">
     <path d={back ? 'M15 18l-6-6 6-6' : 'M9 18l6-6-6-6'} />

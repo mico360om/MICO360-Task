@@ -99,7 +99,7 @@ export function AppShell() {
   // Previous / Next through the list the task was opened from (a board, My Tasks, Search, a calendar day).
   const stepper = useTaskStepper(openTaskId);
   const closeTask = () => {
-    useTaskSteps.getState().clear();
+    useTaskSteps.getState().settle();
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);

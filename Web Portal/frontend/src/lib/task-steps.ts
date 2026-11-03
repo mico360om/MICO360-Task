@@ -18,6 +18,8 @@ export interface TaskStepsState {
   /** A task opened from this list (null: from no list). */
   open: (ids: string[] | null, path: string) => void;
   step: (direction: StepDirection) => void;
+  /** The panel closed: the list stays (Back reopens its last task with its steps); the step taken doesn't. */
+  settle: () => void;
   clear: () => void;
 }
 
@@ -27,6 +29,7 @@ export const useTaskSteps = create<TaskStepsState>((set) => ({
   stepped: null,
   open: (ids, path) => set({ ids: ids && ids.length ? [...ids] : null, path, stepped: null }),
   step: (direction) => set({ stepped: direction }),
+  settle: () => set({ stepped: null }),
   clear: () => set({ ids: null, path: null, stepped: null }),
 }));
 

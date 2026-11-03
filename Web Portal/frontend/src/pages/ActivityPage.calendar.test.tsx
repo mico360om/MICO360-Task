@@ -141,6 +141,15 @@ describe('Activity — the calendar', () => {
     expect(localStorage.getItem('mico360.u.me.activity.calendar')).toBe('week');
   });
 
+  it('Week opens on the week of the day picked in the month shown', async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Previous month' }));
+    await userEvent.click(await dayButton(/^Friday 23 October 2026/));
+    await userEvent.click(screen.getByRole('button', { name: 'Week' }));
+    expect(await screen.findByRole('heading', { name: '18 – 24 Oct 2026' })).toBeInTheDocument();
+    expect(await dayButton(/^Friday 23 October 2026/)).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('the week starts on the person’s own week start', async () => {
     prefs = { timeZone: null, weekStart: 1 };
     renderPage();

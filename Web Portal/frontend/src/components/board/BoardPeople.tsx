@@ -48,7 +48,7 @@ export function BoardPeople({ project }: { project: ApiProject }) {
         onClick={() => setOpen((o) => !o)}
         className="inline-flex h-9 flex-none items-center rounded-full border border-line bg-surface py-1 pe-2 ps-1.5 transition-colors hover:border-brand/40 [@media(pointer:coarse)]:h-11"
       >
-        <span className="flex items-center -space-x-1.5 rtl:space-x-reverse" aria-hidden="true">
+        <span className="flex items-center -space-x-1 rtl:space-x-reverse" aria-hidden="true">
           {shown.map((p) => (
             <span key={p.id} data-face className="inline-flex rounded-full ring-2 ring-surface">
               <Avatar name={p.name} src={p.avatarUrl} size="sm" />
@@ -82,7 +82,7 @@ export function BoardPeople({ project }: { project: ApiProject }) {
             <Link
               to={`/projects/${encodeURIComponent(project.id)}?tab=team`}
               data-popover-action
-              className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-line px-3 text-sm font-semibold text-brand transition-colors hover:border-brand [@media(pointer:coarse)]:min-h-11"
+              className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-line px-3 text-sm font-semibold text-brand transition-colors hover:border-brand [@media(pointer:coarse)]:!min-h-11"
             >
               Manage team
             </Link>

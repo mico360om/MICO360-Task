@@ -34,4 +34,10 @@ describe('useTaskSteps — the list the open task came from', () => {
     useTaskSteps.getState().open(null, '/board');
     expect(useTaskSteps.getState()).toMatchObject({ ids: null, stepped: null });
   });
+  it('closing the panel keeps the list (Back reopens the last task with its steps), but not the step taken', () => {
+    useTaskSteps.getState().open(['a', 'b'], '/board');
+    useTaskSteps.getState().step('next');
+    useTaskSteps.getState().settle();
+    expect(useTaskSteps.getState()).toMatchObject({ ids: ['a', 'b'], path: '/board', stepped: null });
+  });
 });
