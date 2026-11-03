@@ -293,7 +293,7 @@ export function SignaturePad({ label, defaultName = '', required = false, value,
       </div>
 
       <div className="mt-2 flex flex-col gap-1">
-        <FieldLabel htmlFor={ids.name} required>
+        <FieldLabel htmlFor={ids.name} required={required}>
           Signer’s name
         </FieldLabel>
         <input
@@ -301,8 +301,8 @@ export function SignaturePad({ label, defaultName = '', required = false, value,
           type="text"
           value={name}
           onChange={onNameChange}
-          required
-          aria-required="true"
+          required={required}
+          aria-required={required ? 'true' : undefined}
           aria-invalid={error && !signer ? true : undefined}
           autoComplete="name"
           maxLength={NAME_MAX}
