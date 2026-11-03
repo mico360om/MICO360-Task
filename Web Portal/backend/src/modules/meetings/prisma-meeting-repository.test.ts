@@ -14,7 +14,7 @@ function recorder(answers: Record<string, unknown> = {}) {
         return answers[`${name}.${op}`] ?? {};
       },
     });
-  const prisma = { meeting: model('meeting'), actionItem: model('actionItem'), meetingNote: model('meetingNote'), project: model('project') } as Record<string, unknown>;
+  const prisma = { meeting: model('meeting'), actionItem: model('actionItem'), meetingNote: model('meetingNote'), project: model('project'), companyMember: model('companyMember') } as Record<string, unknown>;
   prisma.$transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma);
   return { prisma: prisma as unknown as PrismaClient, calls };
 }
@@ -37,9 +37,9 @@ describe('Prisma meeting repository', () => {
   });
 
   it('filters "organized by me" on the organizer column (WEB-19)', async () => {
-    const { prisma, calls } = recorder({ 'meeting.findMany': [] });
+    const { prisma, calls } = recorder({ 'meeting.findMany': [], 'companyMember.count': 1 });
     await createPrismaMeetingRepository(prisma).list({ organizerId: 'u5', scope: { userId: 'u5', projectIds: [] } });
-    expect(calls[0]!.args.where).toMatchObject({ deletedAt: null, organizerId: 'u5' });
+    expect(calls.find((c) => c.op === 'meeting.findMany')!.args.where).toMatchObject({ deletedAt: null, organizerId: 'u5' });
   });
 
   it('lists a calendar range in start order', async () => {
@@ -106,7 +106,7 @@ describe('Prisma action item repository', () => {
       status: { notIn: ['COMPLETED', 'CANCELLED'] },
     });
     // companies: anyone else's list also stays inside their companies (the projects they share one with).
-    const other = recorder({ 'actionItem.findMany': [], 'project.findMany': [{ id: 'p1' }] });
+    const other = recorder({ 'actionItem.findMany': [], 'project.findMany': [{ id: 'p1' }], 'companyMember.count': 1 });
     await createPrismaActionItemRepository(other.prisma).listForAssignee('u2', { openOnly: true });
     const where = other.calls.find((c) => c.op === 'actionItem.findMany')!.args.where as Record<string, unknown>;
     expect(where).toMatchObject({ assigneeId: 'u2', OR: [{ meetingId: null }, { meeting: { is: { deletedAt: null } } }], status: { notIn: ['COMPLETED', 'CANCELLED'] } });

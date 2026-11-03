@@ -61,6 +61,15 @@ export const LIVE_PROJECT_WHERE: Prisma.ProjectWhereInput = {
   OR: [{ companies: { none: {} } }, { companies: { some: { company: { status: 'ACTIVE' } } } }],
 };
 
+/**
+ * The person belongs to at least one ACTIVE company. Owner, 3 Nov 2026: "archived means no access" —
+ * someone whose companies are all archived sees nothing of the meetings they are one of the people of
+ * (the invitation exception needs an active company of their own). Admins are checked by the callers.
+ */
+export async function hasActiveCompany(db: Pick<PrismaClient, 'companyMember'>, userId: string): Promise<boolean> {
+  return (await db.companyMember.count({ where: { userId, company: { status: 'ACTIVE' } } })) > 0;
+}
+
 /** People who share an active company with the viewer (the viewer included; callers leave them out). */
 export function colleagueWhere(viewerId: string): Prisma.UserWhereInput {
   return { companies: { some: { company: { status: 'ACTIVE', members: { some: { userId: viewerId } } } } } };
@@ -114,7 +123,8 @@ export interface CompanyAccess {
   /**
    * How an attendee (or the organizer / creator) sees a meeting: 'full', or 'invitee' when it has a
    * project and they share no active company with it. null when they aren't one of its people (team
-   * access to a project meeting is decided by canViewMeeting, as today). Admins: 'full'.
+   * access to a project meeting is decided by canViewMeeting, as today) — or when none of their own
+   * companies is active (archived means no access). Admins: 'full'.
    */
   meetingView(viewer: Viewer, m: { projectId: string | null; organizerId: string; createdById: string; attendeeUserIds: readonly string[] }): Promise<'full' | 'invitee' | null>;
 }
@@ -220,6 +230,8 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
     if (isAdminRoles(viewer.roles)) return 'full';
     const own = m.organizerId === viewer.id || m.createdById === viewer.id || m.attendeeUserIds.includes(viewer.id);
     if (!own) return null;
+    // Archived means no access (owner, 3 Nov 2026): no active company of their own, no meeting.
+    if (!(await hasActiveCompany(prisma, viewer.id))) return null;
     if (!m.projectId) return 'full';
     const shares = await prisma.companyMember.count({
       where: { userId: viewer.id, company: { status: 'ACTIVE', projects: { some: { projectId: m.projectId } } } },

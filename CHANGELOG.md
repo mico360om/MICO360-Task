@@ -20,7 +20,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - People see only the projects of their own companies, and only colleagues who share a company with
   them; administrators see everything. Inside a project shared by several companies, its whole team
   works together, and someone invited to a meeting from another company sees only that meeting, its
-  final minutes and their own action items.
+  final minutes and their own action items. An archived company gives no access: someone whose
+  companies are all archived sees nothing, not even meetings they were invited to.
 - Each company has its own name, logo, email sender name, week start and working hours; its PDFs,
   emails and client page carry its name and logo.
 

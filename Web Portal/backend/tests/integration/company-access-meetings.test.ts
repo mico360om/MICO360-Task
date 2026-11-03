@@ -206,4 +206,48 @@ describe('Meetings follow companies (integration)', () => {
     expect(sorted(userIds)).toEqual(sorted([w.people.ana, w.people.bob]));
     for (const id of userIds) expect((await h.get({ id, roles: ['EMPLOYEE'] }, `/meetings/${w.meetings.MA}`)).status).toBe(200);
   });
+
+  // Owner, 3 Nov 2026: "No, archived means no access." The invitation exception needs at least one
+  // ACTIVE company of the invitee: gus (Gamma, archived) sees nothing of the meetings he is one of the
+  // people of — no meeting, minutes, own action items, reminders or minutes email.
+  it('archived means no access: gus, invited to MA and organizing a Gamma meeting, sees nothing of them', async () => {
+    const { MA } = w.meetings;
+    const { gus, ana } = w.people;
+    const invite = await prisma.meetingAttendee.create({ data: { meetingId: MA, userId: gus, invitedAt: new Date() } });
+    const item = await prisma.actionItem.create({ data: { meetingId: MA, projectId: w.projects.PA, description: 'ZZALPHA action for gus', assigneeId: gus, createdById: ana } });
+    const own = await prisma.meeting.create({ data: { title: 'MN_C ZZGAMMA meeting', companyId: w.companies.C, organizerId: gus, createdById: gus, startAt: new Date(Date.now() + 86_400_000), status: 'SCHEDULED', attendees: { create: [{ userId: gus }] } } });
+    const copies = new Map<string, Buffer | null | undefined>();
+    const notify = {
+      async sendMinutes(_id: string, _pdf: Buffer, opts?: { attachmentFor?: (userId: string) => Promise<Buffer | null | undefined> }) {
+        for (const userId of [ana, gus]) copies.set(userId, opts?.attachmentFor ? await opts.attachmentFor(userId) : undefined);
+        return { sent: 1, failed: 0 };
+      },
+      async previewMinutes() { return {}; },
+    };
+    const mailing = await buildPeopleApp(prisma, { meetingNotifyService: notify as never });
+    try {
+      const core = { projectId: w.projects.PA, organizerId: ana, createdById: ana, attendeeUserIds: [ana, w.people.bob, gus] };
+      expect(await h.companyAccess.meetingView(w.as.gus, core)).toBeNull();
+      expect(await h.companyAccess.meetingView(w.as.gus, { projectId: null, organizerId: gus, createdById: gus, attendeeUserIds: [gus] })).toBeNull();
+      expect(await h.companyAccess.meetingView(w.as.bob, core)).toBe('invitee'); // bob's Beta is active: the exception stands
+      expect((await h.get(w.as.gus, `/meetings/${MA}`)).status).toBe(404);
+      expect((await h.get(w.as.gus, `/meetings/${own.id}`)).status).toBe(404);
+      const listed = (await h.get(w.as.gus, '/meetings')).data as { id: string }[];
+      expect(listed.map((m) => m.id)).not.toContain(MA);
+      expect(listed.map((m) => m.id)).not.toContain(own.id);
+      expect(JSON.stringify((await h.get(w.as.gus, '/me/action-items')).data)).not.toContain('ZZALPHA action for gus');
+      const source = createPrismaMeetingReminderSource(prisma);
+      expect([...(await source.people([gus, ana])).keys()]).toEqual([ana]);
+      expect((await mailing.post(w.as.ana, `/meetings/${MA}/final-minutes/approve`, { content: FINAL })).status).toBe(200);
+      expect((await mailing.post(w.as.ana, `/meetings/${MA}/minutes/send`, {})).status).toBe(200);
+      expect(copies.get(gus)).toBeNull();
+      expect((await pdfOf(w.as.gus, `/meetings/${MA}/minutes.pdf`)).status).toBe(404);
+    } finally {
+      await mailing.post(w.as.ana, `/meetings/${MA}/final-minutes/reopen`);
+      await mailing.close();
+      await prisma.actionItem.delete({ where: { id: item.id } });
+      await prisma.meetingAttendee.delete({ where: { id: invite.id } });
+      await prisma.meeting.delete({ where: { id: own.id } });
+    }
+  });
 });

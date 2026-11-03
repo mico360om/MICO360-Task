@@ -46,7 +46,13 @@ export function createPrismaMeetingReminderSource(prisma: PrismaClient): Meeting
     async people(userIds) {
       if (userIds.length === 0) return new Map();
       const rows = await prisma.user.findMany({
-        where: { id: { in: userIds }, deletedAt: null, status: 'ACTIVE' },
+        // companies: archived means no access — someone with no active company (an admin aside) is not reminded.
+        where: {
+          id: { in: userIds },
+          deletedAt: null,
+          status: 'ACTIVE',
+          OR: [{ roles: { some: { role: { name: 'ADMIN' } } } }, { companies: { some: { company: { status: 'ACTIVE' } } } }],
+        },
         select: { id: true, firstName: true, lastName: true, username: true, email: true, preferredTimeZone: true, notificationPrefs: true },
       });
       return new Map(

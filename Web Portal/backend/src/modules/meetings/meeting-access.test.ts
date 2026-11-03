@@ -77,4 +77,13 @@ describe('meeting access: the invitation exception (companies)', () => {
     expect(await access.viewOf('u2', [], 'm1')).toBe('full');
     expect(await access.viewOf('u9', [], 'm1')).toBeNull();
   });
+
+  // Owner, 3 Nov 2026: "archived means no access" — someone whose companies are all archived sees
+  // nothing of a meeting they were invited to (the companies rule says no view: null).
+  it('one of the meeting’s people the companies rule refuses (all their companies archived) gets no view', async () => {
+    const noAccess = createMeetingAccess({ meetings: lookup, projectAccess, meetingView: async (viewer) => (viewer.id === 'u5' ? null : 'full') });
+    expect(await noAccess.viewOf('u5', [], 'm3')).toBeNull();
+    expect(await noAccess.canViewMeeting('u5', [], 'm3')).toBe(false);
+    expect(await noAccess.viewOf('member2', [], 'm3')).toBe('full');
+  });
 });

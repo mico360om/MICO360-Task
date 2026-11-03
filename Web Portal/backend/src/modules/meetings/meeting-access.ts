@@ -45,7 +45,8 @@ export function createMeetingAccess({ meetings, projectAccess, meetingView }: Me
     const core = await meetings.accessCore(meetingId);
     if (!core) return null;
     if (core.organizerId === userId || core.createdById === userId || core.attendeeUserIds.includes(userId)) {
-      return meetingView ? ((await meetingView({ id: userId, roles }, core)) ?? 'full') : 'full';
+      // companies: 'full', 'invitee', or none at all (all their companies archived).
+      return meetingView ? await meetingView({ id: userId, roles }, core) : 'full';
     }
     if (core.projectId && projectAccess) return (await projectAccess.canViewProject(userId, roles, core.projectId)) ? 'full' : null;
     return null;

@@ -12,6 +12,7 @@ import type {
   BusyMeetingsStore,
 } from './meeting-repository';
 import { BUSY_ROWS_LIMIT } from './meeting-repository';
+import { hasActiveCompany } from '../companies/company-access';
 import { MEETING_DEFAULT_LENGTH_MS } from './meeting-end';
 
 type Row = Meeting;
@@ -149,10 +150,10 @@ export function createPrismaMeetingRepository(
           { projectId: null, companyId, ...own },
         ];
       } else if (scope && scope.projectIds !== null) {
-        const or: Prisma.MeetingWhereInput[] = [
-          { organizerId: scope.userId },
-          { attendees: { some: { userId: scope.userId } } },
-        ];
+        // companies: being one of a meeting's people counts only with an active company of their own.
+        const or: Prisma.MeetingWhereInput[] = (await hasActiveCompany(prisma, scope.userId))
+          ? [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }]
+          : [{ id: '' }];
         if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });
         where.OR = or;
       }
@@ -239,15 +240,12 @@ export function createPrismaMeetingRepository(
     async visibleTo(meetingIds, userId, projectIds) {
       if (meetingIds.length === 0) return new Set<string>();
       if (projectIds === null) return new Set(meetingIds);
+      // companies: being one of a meeting's people counts only with an active company of their own.
+      const own = (await hasActiveCompany(prisma, userId)) ? [{ organizerId: userId }, { createdById: userId }, { attendees: { some: { userId } } }] : [];
       const rows = await prisma.meeting.findMany({
         where: {
           id: { in: meetingIds },
-          OR: [
-            { organizerId: userId },
-            { createdById: userId },
-            { attendees: { some: { userId } } },
-            ...(projectIds.length ? [{ projectId: { in: projectIds } }] : []),
-          ],
+          OR: [...own, ...(projectIds.length ? [{ projectId: { in: projectIds } }] : []), { id: '' }],
         },
         select: { id: true },
       });
