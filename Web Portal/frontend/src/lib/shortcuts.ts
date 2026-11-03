@@ -3,13 +3,13 @@
  *
  * - Ctrl (⌘ on a Mac) shortcuts work anywhere, even while typing: Save, Submit, Search, the list of
  *   shortcuts. None of them takes a shortcut the browser keeps for itself (Ctrl+N, T, W, R, F, P…).
- * - Single keys (N, E, Delete, R, /, ?) work only when you're not typing, and can be switched off
+ * - Single keys (N, E, Delete, R, /, ?, J, K) work only when you're not typing, and can be switched off
  *   (a screen reader's own single-key navigation, or simply personal taste).
  * - Keys are matched by their place on the keyboard (`code`), so they work with the Arabic layout
  *   too, where the N key types "ى".
  */
 
-export type ShortcutAction = 'save' | 'submit' | 'search' | 'find' | 'new' | 'edit' | 'delete' | 'cancel' | 'refresh' | 'help';
+export type ShortcutAction = 'save' | 'submit' | 'search' | 'find' | 'new' | 'edit' | 'delete' | 'cancel' | 'refresh' | 'help' | 'next' | 'previous';
 export type Platform = 'mac' | 'other';
 export type ShortcutGroup = 'Anywhere' | 'Forms and dialogs' | 'On a page';
 
@@ -34,6 +34,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   { action: 'delete', label: 'Delete', description: 'Delete the open task or meeting (you’re asked first)', group: 'On a page', single: true },
   { action: 'refresh', label: 'Refresh', description: 'Load the latest data on this page', group: 'On a page', single: true },
   { action: 'find', label: 'Search this page', description: 'Jump to the page’s search box (or the main search)', group: 'On a page', single: true },
+  // 1.22: the task panel steps through the list the task was opened from.
+  { action: 'next', label: 'Next task', description: 'In the task panel: open the next task of the list it came from', group: 'On a page', single: true },
+  { action: 'previous', label: 'Previous task', description: 'In the task panel: open the previous task of that list', group: 'On a page', single: true },
 ];
 
 /** The keys of each shortcut, as shown. `mod` is Ctrl, or ⌘ on a Mac. */
@@ -48,6 +51,8 @@ const KEYS: Record<ShortcutAction, { mod?: true; key: string; macKey?: string; a
   delete: { key: 'Delete' },
   refresh: { key: 'R' },
   find: { key: '/' },
+  next: { key: 'J' },
+  previous: { key: 'K' },
 };
 
 export interface KeyLike {
@@ -97,6 +102,10 @@ export function matchShortcut(e: KeyLike, platform: Platform, opts: { typing: bo
       return 'refresh';
     case 'Delete':
       return 'delete';
+    case 'KeyJ':
+      return 'next';
+    case 'KeyK':
+      return 'previous';
     default:
       return null;
   }

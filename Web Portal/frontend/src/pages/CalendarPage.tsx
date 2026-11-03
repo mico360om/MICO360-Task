@@ -28,7 +28,7 @@ import { useDateSettings } from '../lib/useDatePrefs';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { PageTitle } from '../components/ui/PageHeader';
 import { useFrameOffset } from '../lib/useFrameOffset';
-import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
+import { useOpenTask } from '../lib/useOpenTask';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
@@ -171,7 +171,8 @@ export function CalendarPage() {
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [createOn, setCreateOn] = useState<string | null>(null);
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // A task opens in the app's task panel (?task=), with its day — as the day lists it — for Previous / Next.
+  const openTask = useOpenTask();
   const [choice, setChoice] = useState<{ item: CalItem; to: string } | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   useEffect(() => {
@@ -388,7 +389,7 @@ export function CalendarPage() {
           project={projectById.get(preview.task.projectId) ?? null}
           movable={canReschedule(preview)}
           onMove={(toDay, scope) => { setPreviewKey(null); move(preview, toDay, scope); }}
-          onOpenTask={(id) => { setPreviewKey(null); setOpenTaskId(id); }}
+          onOpenTask={(id) => { setPreviewKey(null); openTask(id, (byDay.get(preview.date) ?? []).map((i) => i.task.id)); }}
           onClose={() => setPreviewKey(null)}
         />
       ) : null}
@@ -403,7 +404,6 @@ export function CalendarPage() {
       {createOn ? (
         <NewTaskModal defaultDueDate={createOn} onClose={() => setCreateOn(null)} onCreated={() => void invalidateTaskQueries(qc)} />
       ) : null}
-      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
 
       {toast ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">

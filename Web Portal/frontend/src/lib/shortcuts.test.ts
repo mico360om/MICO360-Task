@@ -75,6 +75,46 @@ describe('matchShortcut: single keys', () => {
   });
 });
 
+describe('matchShortcut: stepping through tasks (1.22)', () => {
+  it('J opens the next task and K the previous one, when not typing', () => {
+    expect(matchShortcut(key({ key: 'j', code: 'KeyJ' }), 'other', ON)).toBe('next');
+    expect(matchShortcut(key({ key: 'k', code: 'KeyK' }), 'other', ON)).toBe('previous');
+    expect(matchShortcut(key({ key: 'j', code: 'KeyJ' }), 'mac', ON)).toBe('next');
+    // By the key's place: the Arabic layout's J and K keys.
+    expect(matchShortcut(key({ key: 'ت', code: 'KeyJ' }), 'other', ON)).toBe('next');
+  });
+
+  it('never while typing, when single keys are off, held down or with Shift', () => {
+    expect(matchShortcut(key({ key: 'j', code: 'KeyJ' }), 'other', TYPING)).toBeNull();
+    expect(matchShortcut(key({ key: 'k', code: 'KeyK' }), 'other', { typing: false, singleKeys: false })).toBeNull();
+    expect(matchShortcut(key({ key: 'j', code: 'KeyJ', repeat: true }), 'other', ON)).toBeNull();
+    expect(matchShortcut(key({ key: 'J', code: 'KeyJ', shiftKey: true }), 'other', ON)).toBeNull();
+  });
+
+  it('Ctrl+K is still Search (K alone is Previous)', () => {
+    expect(matchShortcut(key({ key: 'k', code: 'KeyK', ctrlKey: true }), 'other', TYPING)).toBe('search');
+    expect(matchShortcut(key({ key: 'k', code: 'KeyK', metaKey: true }), 'mac', ON)).toBe('search');
+  });
+
+  it('are listed under “?” with their keys', () => {
+    expect(SHORTCUTS.find((s) => s.action === 'next')).toMatchObject({ label: 'Next task', single: true, group: 'On a page' });
+    expect(SHORTCUTS.find((s) => s.action === 'previous')).toMatchObject({ label: 'Previous task', single: true, group: 'On a page' });
+    expect(shortcutLabel('next', 'other')).toBe('J');
+    expect(shortcutLabel('previous', 'mac')).toBe('K');
+    expect(ariaKeyshortcuts('next', 'other')).toBe('J');
+  });
+
+  it('no two shortcuts share a key', () => {
+    // As shown (Ctrl+K and ⌘K are Search; K alone is Previous): each key on one action only.
+    const all = SHORTCUTS.flatMap((s) => [...new Set([shortcutLabel(s.action, 'other'), shortcutLabel(s.action, 'mac')])]);
+    expect(new Set(all).size).toBe(all.length);
+    // Every single key does one thing (on both keyboards).
+    const singles = ['KeyN', 'KeyE', 'KeyR', 'Delete', 'KeyJ', 'KeyK', 'Slash'];
+    const done = singles.map((code) => matchShortcut(key({ code, key: code }), 'other', ON));
+    expect(new Set(done).size).toBe(singles.length);
+  });
+});
+
 describe('isTypingTarget', () => {
   const el = (html: string) => {
     const box = document.createElement('div');
@@ -129,7 +169,7 @@ describe('how shortcuts are shown', () => {
   it('lists every action once, with what it does', () => {
     const actions = SHORTCUTS.map((s) => s.action);
     expect(new Set(actions).size).toBe(actions.length);
-    expect(actions).toEqual(expect.arrayContaining(['save', 'submit', 'search', 'find', 'new', 'edit', 'delete', 'cancel', 'refresh', 'help']));
+    expect(actions).toEqual(expect.arrayContaining(['save', 'submit', 'search', 'find', 'new', 'edit', 'delete', 'cancel', 'refresh', 'help', 'next', 'previous']));
     expect(SHORTCUTS.every((s) => s.label && s.description)).toBe(true);
   });
 });

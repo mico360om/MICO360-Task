@@ -57,6 +57,7 @@ function ItemText({ item, onRename }: { item: DrawerChecklistItem; onRename?: (t
           aria-label="Checklist item"
           dir="auto"
           value={draft}
+          data-unsaved={draft.trim() !== item.text || undefined}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -394,6 +395,7 @@ export function ChecklistSection({
             dir="auto"
             aria-label="Add a checklist item"
             value={newItem}
+            data-unsaved={newItem.trim() !== '' || undefined}
             onChange={(e) => setNewItem(e.target.value)}
             onPaste={(e) => {
               const lines = e.clipboardData

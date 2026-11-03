@@ -64,6 +64,7 @@ export function InlineTitle({ title, onSave }: { title: string; onSave?: (title:
           dir="auto"
           maxLength={TITLE_MAX}
           value={draft}
+          data-unsaved={draft.trim() !== title || undefined}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || ((e.ctrlKey || e.metaKey) && e.code === 'KeyS')) {
@@ -149,6 +150,7 @@ export function InlineDescription({ description, onSave }: { description: string
           autoFocus
           rows={4}
           value={draft}
+          data-unsaved={draft.trim() !== (description ?? '').trim() || undefined}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if ((e.key === 'Enter' || e.code === 'KeyS') && (e.ctrlKey || e.metaKey)) {

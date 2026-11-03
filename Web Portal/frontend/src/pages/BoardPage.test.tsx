@@ -8,6 +8,7 @@ import { BOARD_FIT_QUERY } from '../lib/board';
 import { useAuthStore } from '../stores/auth-store';
 import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
 import { userStorageKey } from '../lib/user-storage';
+import { useTaskSteps } from '../lib/task-steps';
 
 // Capture the board's live-event handler instead of opening a real socket.
 let liveHandler: ((event: string, payload?: unknown) => void) | null = null;
@@ -313,6 +314,17 @@ describe('BoardPage', () => {
     expect(item!.ownerId).toBe('u1');
     expect(item!.payload).toMatchObject({ dueDate: '2026-10-05', assigneeIds: ['u2'] });
     expect(item!.idempotencyKey).toBe(post.headers['Idempotency-Key']);
+  });
+
+  it('a card opens with the board as its list, column by column and top to bottom (Previous / Next, 1.22)', async () => {
+    const base = fetch;
+    const t = (id: string, key: string, columnId: string, position: number) => ({ id, key, title: `Task ${key}`, description: null, projectId: 'p1', columnId, position, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' });
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) =>
+      /\/tasks\?/.test(String(url)) ? json({ data: [t('t2', 'MICO-2', 'c-p1-ip', 0), t('t3', 'MICO-3', 'c-p1', 1), t('t1', 'MICO-1', 'c-p1', 0)] }) : base(url, init)));
+    useTaskSteps.getState().clear();
+    renderPage('/board?project=p1');
+    await userEvent.click(await screen.findByText('Task MICO-2'));
+    expect(useTaskSteps.getState()).toMatchObject({ ids: ['t1', 't3', 't2'], path: '/board' });
   });
 
   it('opens the project named in ?project= (the "Open board" link), not the last-viewed one', async () => {

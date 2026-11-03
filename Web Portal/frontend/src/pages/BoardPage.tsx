@@ -643,7 +643,8 @@ export function BoardPage() {
           cardMenu={cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
-            if (id) openTask(id);
+            // The board as shown is its list for Previous / Next: column by column, top to bottom.
+            if (id) openTask(id, boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x))));
           }}
         />
         </div>

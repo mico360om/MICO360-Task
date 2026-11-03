@@ -5,17 +5,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { CalendarPage } from './CalendarPage';
 import { useAuthStore } from '../stores/auth-store';
+import { useTaskSteps } from '../lib/task-steps';
 import type { ApiTask } from '../api/tasks';
-
-// The full task panel has its own tests; here it only has to open for the right task.
-vi.mock('../components/TaskDrawerContainer', () => ({
-  TaskDrawerContainer: ({ taskId, onClose }: { taskId: string; onClose: () => void }) => (
-    <div role="dialog" aria-label="Task details panel">
-      open {taskId}
-      <button type="button" onClick={onClose}>Close panel</button>
-    </div>
-  ),
-}));
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -421,7 +412,23 @@ describe('CalendarPage — details', () => {
     expect(within(d).getByText('MICO360 Platform').parentElement!.querySelector('[data-project-avatar="icon"]')).not.toBeNull(); // its saved icon
     expect(screen.getByRole('button', { name: 'Project' }).querySelector('[data-project-avatar]')).toBeNull(); // "All projects" has no picture…
     await userEvent.click(within(d).getByRole('button', { name: 'Open task' }));
-    expect(await screen.findByRole('dialog', { name: 'Task details panel' })).toHaveTextContent('open r1');
+    // In the app's task panel, through the address (Back closes it), with the day as its list.
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('task=r1'));
+    expect(useTaskSteps.getState()).toMatchObject({ ids: ['r1'], path: '/calendar' });
+  });
+
+  it('a task opened from a day steps through that day’s tasks, as the day lists them (Previous / Next, 1.22)', async () => {
+    tasks = [
+      task({ id: 'a1', key: 'MICO-11', title: 'Alpha work', priority: 'LOW' }),
+      task({ id: 'a2', key: 'MICO-12', title: 'Bravo work', priority: 'URGENT' }),
+      task({ id: 'a3', key: 'MICO-13', title: 'Other day', dueDate: '2026-10-15T00:00:00.000Z' }),
+    ];
+    renderPage();
+    await userEvent.click(await chip(/Alpha work/));
+    await userEvent.click(within(await screen.findByRole('dialog', { name: /Alpha work/ })).getByRole('button', { name: 'Open task' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('task=a1'));
+    // 14 Oct: the urgent one first, as the day shows them; the 15th's task is not in the list.
+    expect(useTaskSteps.getState().ids).toEqual(['a2', 'a1']);
   });
 
   it('shows projected copies of a repeating task as such (not real tasks, not movable)', async () => {

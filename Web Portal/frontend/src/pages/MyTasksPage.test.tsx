@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MyTasksPage } from './MyTasksPage';
+import { useTaskSteps } from '../lib/task-steps';
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -18,7 +19,9 @@ describe('MyTasksPage', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
-        <MyTasksPage />
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
@@ -30,49 +33,53 @@ describe('MyTasksPage', () => {
       : json({ data: [{ id: 't1', key: 'MICO-1', title: 'Prepare report', description: null, projectId: 'p1', columnId: 'c1', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 20, completedAt: null, createdAt: '', updatedAt: '' }] })));
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <MyTasksPage />
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
     const label = (await screen.findAllByText('MICO Platform', { selector: '[title="MICO Platform"]' }))[0]!;
     expect(label.parentElement!.querySelector('[data-project-avatar="icon"]')).not.toBeNull();
   });
 
-  it('opens the task details drawer when a card is clicked', async () => {
-    const task = {
-      id: 't1', key: 'FIN-2', title: 'Finance Automation: work item 2', description: null,
-      projectId: 'p1', columnId: 'c1', position: 0, priority: 'URGENT',
-      startDate: null, dueDate: '2026-09-06', progress: 40, completedAt: null,
-      createdAt: '', updatedAt: '',
-    };
-    const calls: string[] = [];
+  it('opens a task in the app’s task panel through the address (?task=), with My Tasks as shown as its list', async () => {
+    const t = (id: string, key: string, title: string, priority: string, dueDate: string | null) => ({
+      id, key, title, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority,
+      startDate: null, dueDate, progress: 40, completedAt: null, createdAt: '', updatedAt: '',
+    });
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = String(url);
-      calls.push(u);
-      if (u.includes('/tasks/mine')) return json({ data: [task] });
-      if (/\/tasks\/t1(\?|$)/.test(u)) return json({ data: task });
-      if (u.includes('/dependencies')) return json({ data: { blockedBy: [], blocks: [] } });
+      if (u.includes('/tasks/mine')) return json({ data: [t('t1', 'FIN-2', 'Later work', 'URGENT', '2026-09-20'), t('t2', 'FIN-3', 'Sooner work', 'LOW', '2026-09-06'), t('t3', 'FIN-4', 'Undated work', 'HIGH', null)] });
       return json({ data: [] });
     }));
-
+    useTaskSteps.getState().clear();
+    let search = '';
+    function Address() {
+      search = useLocation().search;
+      return null;
+    }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={['/my-tasks']}>
           <MyTasksPage />
+          <Address />
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
     // The title is the control that opens the task (its hit area covers the whole card)…
-    const open = await screen.findByRole('button', { name: 'Finance Automation: work item 2' });
+    const open = await screen.findByRole('button', { name: 'Later work' });
     // …and the select checkbox is not nested inside another control, so assistive tech reaches both.
     for (const box of screen.getAllByRole('checkbox', { name: /^Select / })) {
       expect(box.closest('button, [role="button"]')).toBeNull();
     }
     fireEvent.click(open);
-    // Clicking mounts TaskDrawerContainer, which fetches the single task by id —
-    // this is the wiring that was missing (the card had no onClick / no drawer).
-    await waitFor(() => expect(calls.some((u) => /\/tasks\/t1(\?|$)/.test(u))).toBe(true));
+    await waitFor(() => expect(new URLSearchParams(search).get('task')).toBe('t1'));
+    // Sorted by due date (the default): sooner first, undated last.
+    expect(useTaskSteps.getState()).toMatchObject({ ids: ['t2', 't1', 't3'], path: '/my-tasks' });
+    // The app shell's panel opens it; the page has none of its own.
+    expect(screen.queryByRole('dialog', { name: /task/i })).not.toBeInTheDocument();
   });
 
   it('Space on a row checkbox selects the row instead of opening the task', async () => {

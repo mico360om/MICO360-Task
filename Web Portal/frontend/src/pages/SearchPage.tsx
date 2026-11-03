@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useOpenTask } from '../lib/useOpenTask';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { taskSearchApi, type TaskSearchParams } from '../api/search';
@@ -136,12 +137,9 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     .map((u) => ({ id: u.id, name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username }))
     .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 
-  const openTask = (id: string) =>
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set('task', id);
-      return next;
-    });
+  // In the app's task panel (?task=), with the results shown so far as its list for Previous / Next.
+  const showTask = useOpenTask();
+  const openTask = (id: string) => showTask(id, hits.map((h) => h.id));
 
   const toggleArchived = () => {
     const on = !filters.archived;
