@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dueWindows, dueTimesFor, reminderRecipients, reminderSends, REMINDER_GRACE_MS, type ReminderPerson } from './meeting-reminders';
+import { dueWindows, dueTimesFor, guestCatchUp, reminderRecipients, reminderSends, REMINDER_GRACE_MS, type ReminderPerson } from './meeting-reminders';
 import type { AttendeeRecord } from './attendee-repository';
 
 const NOW = new Date('2026-10-31T04:45:00Z');
@@ -109,5 +109,29 @@ describe('reminderSends: what goes to each person for one reminder time', () => 
     const keys = (minutes: number, email: boolean) => reminderSends(recipients, { minutes, email }).map((s) => s.recipient.key);
     expect(keys(1440, true)).not.toContain('user:mut');
     expect(keys(15, false)).not.toContain('guest:g@client.test');
+  });
+
+  it('a guest who missed their email reminder gets this time by email instead; colleagues are unchanged', () => {
+    const sends = reminderSends(recipients, { minutes: 15, email: false }, (key) => key === 'guest:g@client.test');
+    expect(sends.map((s) => `${s.recipient.key}/${s.channel}`)).toEqual(['user:org/APP', 'user:ann/APP', 'user:noe/APP', 'guest:g@client.test/EMAIL']);
+  });
+});
+
+describe('guestCatchUp: a guest invited too late for the email reminder gets the next one by email (owner, 3 Nov 2026)', () => {
+  const times = [{ minutes: 1440, email: true }, { minutes: 720, email: false }, { minutes: 15, email: false }];
+  const t = (minutes: number, email = false) => ({ minutes, email });
+
+  it('a later time stands in for a missed email-ticked one, until an email went to them for this start', () => {
+    expect(guestCatchUp(t(720), times, [t(720)], false)).toBe(true);
+    expect(guestCatchUp(t(15), times, [t(15)], false)).toBe(true);
+    expect(guestCatchUp(t(15), times, [t(15)], true)).toBe(false);
+  });
+
+  it('not for a time that is ticked itself, nor when no earlier time is ticked for email, nor when that one is due now too', () => {
+    expect(guestCatchUp(t(1440, true), times, [t(1440, true)], false)).toBe(false);
+    expect(guestCatchUp(t(720), [t(720), t(15, true)], [t(720)], false)).toBe(false);
+    expect(guestCatchUp(t(15), [t(15)], [t(15)], false)).toBe(false);
+    // Both due in the same sweep (a meeting made late): the ticked one goes by email as today.
+    expect(guestCatchUp(t(15), [t(20, true), t(15)], [t(20, true), t(15)], false)).toBe(false);
   });
 });

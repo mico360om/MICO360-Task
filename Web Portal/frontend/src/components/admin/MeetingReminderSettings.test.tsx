@@ -59,6 +59,8 @@ describe('System Settings: Meeting reminders', () => {
     expect([unit(1), unit(2), unit(3)].map((s) => (s as HTMLSelectElement).value)).toEqual(['hours', 'hours', 'minutes']);
     expect([email(1), email(2), email(3)].map((c) => (c as HTMLInputElement).checked)).toEqual([true, false, false]);
     expect(screen.getByText(/the organizer and everyone invited who hasn’t declined/)).toBeInTheDocument();
+    // Owner, 3 Nov 2026: a guest invited too late for the emailed ones gets the next reminder by email instead.
+    expect(screen.getByText(/invited too late for those get the next reminder by email instead/)).toBeInTheDocument();
   });
 
   it('the switch saves at once, keeping the times', async () => {
