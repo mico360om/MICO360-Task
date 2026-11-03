@@ -111,7 +111,7 @@ export const DEFAULT_FILTERS: CalendarFilters = {
 };
 
 export function applyFilters(items: CalItem[], f: CalendarFilters, ctx: { myId: string }): CalItem[] {
-  const q = f.q.trim().toLocaleLowerCase();
+  const q = f.q.trim().toLocaleLowerCase('en');
   return items.filter((i) => {
     const t = i.task;
     if (!f.showArchived && i.projectArchived) return false;
@@ -122,7 +122,7 @@ export function applyFilters(items: CalItem[], f: CalendarFilters, ctx: { myId: 
     if (f.mine && !(t.assignees ?? []).some((a) => a.id === ctx.myId)) return false;
     if (f.statuses.length && !f.statuses.includes(i.status === 'projected' ? 'todo' : i.status)) return false;
     if (f.priorities.length && !f.priorities.includes(t.priority)) return false;
-    if (q && !t.title.toLocaleLowerCase().includes(q) && !t.key.toLocaleLowerCase().includes(q)) return false;
+    if (q && !t.title.toLocaleLowerCase('en').includes(q) && !t.key.toLocaleLowerCase('en').includes(q)) return false;
     return true;
   });
 }
@@ -150,7 +150,7 @@ export function groupByDay(items: CalItem[]): Map<string, CalItem[]> {
   const days = new Map<string, CalItem[]>();
   for (const i of items) days.set(i.date, [...(days.get(i.date) ?? []), i]);
   for (const list of days.values()) {
-    list.sort((a, b) => ORDER[a.status] - ORDER[b.status] || PRIORITY_RANK[a.task.priority] - PRIORITY_RANK[b.task.priority] || a.task.title.localeCompare(b.task.title));
+    list.sort((a, b) => ORDER[a.status] - ORDER[b.status] || PRIORITY_RANK[a.task.priority] - PRIORITY_RANK[b.task.priority] || a.task.title.localeCompare(b.task.title, 'en'));
   }
   return days;
 }

@@ -76,7 +76,7 @@ export const EMOJI_GROUPS: EmojiEntry['group'][] = ['Smileys', 'Gestures', 'Hear
 
 /** Emoji whose name or related words contain every word of the search. */
 export function searchEmoji(query: string): EmojiEntry[] {
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const terms = query.trim().toLocaleLowerCase('en').split(/\s+/).filter(Boolean);
   if (terms.length === 0) return EMOJI;
   return EMOJI.filter((e) => terms.every((t) => e.words.includes(t)));
 }

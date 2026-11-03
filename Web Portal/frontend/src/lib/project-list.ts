@@ -70,9 +70,9 @@ export function writeListState(prev: URLSearchParams, changes: Partial<ProjectLi
 
 /** Every word must appear in the name, code, client or project number; case doesn't matter. */
 export function matchesSearch(p: Pick<ProjectOverview, 'name' | 'code' | 'clientName' | 'number'>, q: string): boolean {
-  const words = q.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const words = q.toLocaleLowerCase('en').split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const text = [p.name, p.code, p.clientName, p.number].filter(Boolean).join(' ').toLocaleLowerCase();
+  const text = [p.name, p.code, p.clientName, p.number].filter(Boolean).join(' ').toLocaleLowerCase('en');
   return words.every((w) => text.includes(w));
 }
 

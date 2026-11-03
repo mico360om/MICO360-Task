@@ -73,8 +73,8 @@ export function sortPeople(people: WorkloadPerson[]): WorkloadPerson[] {
 
 /** Every word must be in the name; case doesn't matter. */
 export function filterPeople(people: WorkloadPerson[], q: string): WorkloadPerson[] {
-  const words = q.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  return words.length ? people.filter((p) => words.every((w) => p.name.toLocaleLowerCase().includes(w))) : people;
+  const words = q.toLocaleLowerCase('en').split(/\s+/).filter(Boolean);
+  return words.length ? people.filter((p) => words.every((w) => p.name.toLocaleLowerCase('en').includes(w))) : people;
 }
 
 /** "1 person is over the daily limit on 2 days this week." */

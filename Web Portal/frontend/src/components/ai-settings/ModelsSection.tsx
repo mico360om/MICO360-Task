@@ -54,7 +54,7 @@ function ProviderModels({ provider: p, config, apply, api }: { provider: Redacte
       Number(b.enabled) - Number(a.enabled) ||
       Number(b.id === rec) - Number(a.id === rec) ||
       Number(b.available) - Number(a.available) ||
-      a.displayName.localeCompare(b.displayName),
+      a.displayName.localeCompare(b.displayName, 'en'),
   );
   const term = query.trim().toLowerCase();
   const matching = sorted.filter(

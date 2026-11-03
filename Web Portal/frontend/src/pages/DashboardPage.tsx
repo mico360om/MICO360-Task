@@ -128,7 +128,7 @@ export function DashboardPage() {
     () =>
       [...(allTasksQ.data ?? [])]
         .filter((t) => t.dueDate && !isTaskDone(t))
-        .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+        .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '', 'en'))
         .slice(0, 6),
     [allTasksQ.data],
   );
