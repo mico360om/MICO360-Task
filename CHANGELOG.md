@@ -14,6 +14,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Notifications page: All and Unread tabs ("Unread (12)") and type chips — Mentions, Assigned to me, Due & overdue, Comments, Approvals, Meetings — remembered in this browser, with an empty message for each.
+- Notifications page: notifications grouped by day (Today, Yesterday, "Mon 2 Nov"), each with an icon for its kind, its project's name and picture, and its time.
+- Notifications page: Mark read, Mark unread and Remove on each notification (Remove can be undone for 5 seconds), or on several at once with tick boxes and "Select all shown".
+- Notifications page: older notifications load 50 at a time as you scroll ("Show older"), past the newest 100; and a "Notification settings" link.
+
 ## [1.21.0] - 2026-11-04
 
 ### New features
