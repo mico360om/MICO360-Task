@@ -26,6 +26,14 @@ function inMemory(): ActivityRepository {
     async listRecent(limit) {
       return rows.slice().reverse().slice(0, limit ?? 50);
     },
+    async timesBetween(from, to) {
+      return rows.filter((a) => a.createdAt >= from && a.createdAt < to).map((a) => a.createdAt);
+    },
+    async listBetween(from, to, _scope, page) {
+      const day = rows.filter((a) => a.createdAt >= from && a.createdAt < to).reverse();
+      const start = page.before ? day.findIndex((a) => a.id === page.before) + 1 : 0;
+      return day.slice(start, start + page.limit);
+    },
   };
 }
 
@@ -56,5 +64,20 @@ describe('ActivityService', () => {
     expect(updated!.meta).toEqual({ changes: [{ field: 'priority', from: 'NORMAL', to: 'HIGH' }], via: 'mico-ai' });
     expect(created!.meta).toEqual({ via: 'mico-ai' });
     expect(comment!.meta).toEqual({ commentId: 'c1' });
+  });
+
+  it('counts a run of days per day of the site’s zone, and pages one day 100 at a time (1.22)', async () => {
+    const repo = inMemory();
+    const svc = createActivityService({ activities: repo });
+    // 101 changes recorded "now"; the calendar asks about today in UTC.
+    for (let i = 0; i < 101; i++) await svc.record({ taskId: 't1', projectId: 'p1', userId: 'u1', action: 'MOVED' });
+    const today = new Date().toISOString().slice(0, 10);
+    expect(await svc.countByDay(today, today, 'UTC', { projectIds: null })).toEqual([{ day: today, count: 101 }]);
+    const first = await svc.listDay(today, 'UTC', { projectIds: null });
+    expect(first.rows).toHaveLength(100);
+    expect(first.next).toBe(first.rows[99]!.id);
+    const second = await svc.listDay(today, 'UTC', { projectIds: null }, first.next);
+    expect(second.rows.map((r) => r.id)).toEqual(['a0']);
+    expect(second.next).toBeNull();
   });
 });

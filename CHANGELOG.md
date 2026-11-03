@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Activity: a calendar view beside the list. Each day of the month or the week shows how many
+  changes it had, shaded from quiet to busy; click a day to see its changes under the calendar. The
+  filters and the company picker apply to both views, and your choice of List or Calendar is kept.
+
 ## [1.21.0] - 2026-11-04
 
 ### New features

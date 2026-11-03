@@ -4,6 +4,8 @@ import type { ActivityRecord } from './activity-repository';
 import { withoutHiddenBlockers } from './hidden-blockers';
 import type { AuthGuard } from '../auth/auth-guard';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import { actionsOfKind, dayQuery, daysQuery } from './activity-days';
+import { ValidationError } from '../../lib/http-errors';
 
 export interface ActivityRouteDeps {
   activityService: ActivityService;
@@ -14,10 +16,13 @@ export interface ActivityRouteDeps {
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id); the global feed follows it. Absent: no pick. */
   pickOf?: PickOf;
+  /** The site's time zone: the calendar's days. Default Asia/Muscat. */
+  timeZone?: string;
 }
 
 export async function registerActivityRoutes(app: FastifyInstance, deps: ActivityRouteDeps): Promise<void> {
   const { activityService, guard } = deps;
+  const timeZone = deps.timeZone ?? 'Asia/Muscat';
   /** A blocker's name only for a reader who can open that task (see hidden-blockers.ts). */
   const asSeenBy = <T extends ActivityRecord>(rows: T[], user: { id: string; roles?: string[] }) =>
     deps.canViewTask ? withoutHiddenBlockers(rows, (taskId) => deps.canViewTask!(user.id, user.roles ?? [], taskId)) : rows;
@@ -31,12 +36,28 @@ export async function registerActivityRoutes(app: FastifyInstance, deps: Activit
   });
 
   app.get('/activity', { preHandler: guard.authenticate }, async (req) => {
+    // 1.22, the calendar: `?from=&to=` → how many changes fell on each day; `?day=` → that day's
+    // changes, 100 at a time (`before` = the last one shown). Days are the site's; the questions are
+    // checked before anything is read.
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    const asksDay = query.day !== undefined;
+    const asksDays = query.from !== undefined || query.to !== undefined;
+    if (asksDay && asksDays) throw new ValidationError('Ask for one day, or for a run of days — not both.');
+    const days = asksDays ? daysQuery.parse(query) : null;
+    const day = asksDay ? dayQuery.parse(query) : null;
+
     // Object-level scope: a non-admin only sees activity from projects they belong to. The scope
     // goes into the query, so the 50 rows are the newest *they* may see.
     // companies: …and inside the picked company (none = all the person's companies).
+    // The calendar's counts and days follow exactly the same scope.
     const pick = await (deps.pickOf ?? NO_PICK)(req);
     const allowed = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : null;
-    if (allowed !== null && allowed.length === 0) return { data: [] };
+    if (allowed !== null && allowed.length === 0) return day ? { data: [], next: null } : { data: [] };
+    if (days) return { data: await activityService.countByDay(days.from, days.to, timeZone, { projectIds: allowed, actions: actionsOfKind(days.kind) }) };
+    if (day) {
+      const { rows, next } = await activityService.listDay(day.day, timeZone, { projectIds: allowed, actions: actionsOfKind(day.kind) }, day.before);
+      return { data: await asSeenBy(rows, req.user!), next };
+    }
     const rows = await activityService.listRecent(50, allowed);
     if (allowed === null) return { data: await asSeenBy(rows, req.user!) };
     const allowedSet = new Set(allowed);
