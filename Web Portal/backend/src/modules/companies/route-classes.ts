@@ -278,9 +278,11 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /meetings': 'list',
   'GET /me/action-items': 'list',
   'GET /timeline': 'list',
-  'GET /timeline/projects/:id/tasks': 'list',
+  // MC1 Task 17: one named project's tasks, checked by getVisibleProject (the object rule) — `object`.
+  'GET /timeline/projects/:id/tasks': 'object',
   'GET /workload': 'list',
-  'GET /management/access': 'list',
+  // MC1 Task 17: the caller's own permission (may they open Management?), no company data — `own`.
+  'GET /management/access': 'own',
   'GET /management/overview': 'list',
   'GET /management/overview.pdf': 'list',
   'GET /management/items': 'list',

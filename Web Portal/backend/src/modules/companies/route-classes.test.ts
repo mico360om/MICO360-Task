@@ -52,6 +52,7 @@ describe('Every route has one company class', () => {
     expect(ROUTE_CLASSES['GET /client/view']).toBe('public');
     expect(ROUTE_CLASSES['POST /mico-ai/chats/:chatId/messages']).toBe('list');
     expect(ROUTE_CLASSES['GET /mico-ai/chats']).toBe('own');
+    expect(ROUTE_CLASSES['GET /management/access']).toBe('own'); // the caller's own permission, no company data
     expect(ROUTE_CLASSES['GET /reports/${def.key}.xlsx']).toBe('list');
   });
 });
