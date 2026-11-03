@@ -81,6 +81,12 @@ describe('People: one compact row each', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/attendees/a3'))?.body).toEqual({ externalEmail: 'walk@ext.co' }));
   });
 
+  it('someone else’s attendance, read only, still says what it is', () => {
+    renderPanel([person({ attendance: 'PRESENT' })], { status: 'COMPLETED' }, false);
+    expect(rowOf('Aisha Khan')).toHaveTextContent('Attendance: Present');
+    expect(screen.queryByRole('button', { name: /^Attendance for/ })).toBeNull();
+  });
+
   it('someone who can’t change the meeting reads "No email address", with no button', () => {
     renderPanel([person({ id: 'a3', userId: null, externalName: 'Walk-in', response: 'PENDING' })], {}, false);
     expect(rowOf('Walk-in')).toHaveTextContent('No email address');

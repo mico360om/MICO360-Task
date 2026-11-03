@@ -236,7 +236,7 @@ export function AttendeesPanel({
                         chipClassName={a.attendance === 'INVITED' ? 'bg-ground text-ink-3' : badgeToneClass(attendanceTone(a.attendance))}
                       />
                     ) : (
-                      <span className="text-xs text-ink-3">{ATTENDANCE_LABELS[a.attendance]}</span>
+                      <span className="text-xs text-ink-3">Attendance: {ATTENDANCE_LABELS[a.attendance]}</span>
                     )
                   ) : null}
                   <span className="ms-auto flex items-center">
