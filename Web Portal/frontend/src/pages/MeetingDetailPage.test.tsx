@@ -353,8 +353,41 @@ describe('MeetingDetailPage — minutes email', () => {
     expect(within(dialog).getByText('minutes-weekly-sync.pdf')).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('checkbox', { name: /guest one/i }));
     await userEvent.click(within(dialog).getByRole('button', { name: /send to 1 person/i }));
-    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/minutes/send'))?.body).toEqual({ recipients: ['aisha@x.co'] }));
+    // One email: its To line (the people left ticked) and Cc line.
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/minutes/send'))?.body).toEqual({ to: [{ email: 'aisha@x.co' }], cc: [] }));
     expect(await within(dialog).findByText(/sent to 1 of 1/i)).toBeInTheDocument();
+  });
+
+  const sent = {
+    id: 's1',
+    sentAt: '2026-10-01T08:00:00.000Z',
+    sentBy: { id: 'u1', name: 'Aisha Khan' },
+    final: false,
+    to: [{ email: 'aisha@x.co', name: 'Aisha Khan', copy: 'shared', ok: true }],
+    cc: [{ email: 'boss@outside.co', name: null, copy: 'shared', ok: true }],
+  };
+
+  it('the Final MOM card ends with the "Sent" log; Send again opens the email with the same To and Cc', async () => {
+    meetingData = meeting({ status: 'COMPLETED' });
+    override = (u, method) => (u.endsWith('/minutes/sends') && method === 'GET' ? json({ data: [sent] }) : undefined);
+    renderPage();
+    const card = (await screen.findByRole('heading', { name: /final mom/i })).closest('section')!;
+    const log = await within(card).findByRole('list', { name: 'Sent' });
+    expect(log).toHaveTextContent('Aisha Khan sent the draft minutes to 2 people');
+    await userEvent.click(within(log).getByRole('button', { name: 'Send again' }));
+    const dialog = await screen.findByRole('dialog', { name: /email the minutes/i });
+    await waitFor(() => expect(within(dialog).getByRole('checkbox', { name: /guest one/i })).not.toBeChecked());
+    expect(within(within(dialog).getByRole('group', { name: /^cc/i })).getByText('boss@outside.co')).toBeInTheDocument();
+  });
+
+  it('the "Sent" log is only for the people who may send', async () => {
+    meetingData = meeting({ status: 'COMPLETED', canEdit: false });
+    override = (u, method) => (u.endsWith('/minutes/sends') && method === 'GET' ? json({ data: [sent] }) : undefined);
+    renderPage();
+    await screen.findByRole('heading', { name: /final mom/i });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByRole('list', { name: 'Sent' })).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url.endsWith('/minutes/sends'))).toBe(false);
   });
 });
 

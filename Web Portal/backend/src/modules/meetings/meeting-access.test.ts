@@ -78,6 +78,29 @@ describe('meeting access: the invitation exception (companies)', () => {
     expect(await access.viewOf('u9', [], 'm1')).toBeNull();
   });
 
+  // The minutes email (1.22): someone added to it is asked about as if they were on the meeting.
+  it('recipientViewOf: how someone would see the meeting if they were one of its people', async () => {
+    const asked: Array<{ id: string; attendees: readonly string[] }> = [];
+    const rule = createMeetingAccess({
+      meetings: lookup,
+      projectAccess,
+      meetingView: async (viewer, m) => {
+        asked.push({ id: viewer.id, attendees: m.attendeeUserIds });
+        return viewer.id === 'u5' || viewer.id === 'u7' ? 'invitee' : viewer.id === 'gone' ? null : 'full';
+      },
+    });
+    expect(await rule.recipientViewOf('u9', [], 'm3')).toBe('full'); // not on it, not on the project: the company rule decides
+    expect(await rule.recipientViewOf('u7', [], 'm3')).toBe('invitee');
+    expect(await rule.recipientViewOf('gone', [], 'm3')).toBeNull();
+    expect(await rule.recipientViewOf('u5', [], 'm3')).toBe('invitee');
+    expect(await rule.recipientViewOf('admin', ['ADMIN'], 'm3')).toBe('full');
+    expect(await rule.recipientViewOf('u9', [], 'ghost')).toBeNull();
+    expect(asked.find((a) => a.id === 'u9')!.attendees).toEqual(['u5', 'member2', 'u9']);
+    expect(asked.find((a) => a.id === 'u5')!.attendees).toEqual(['u5', 'member2']);
+    // Without the companies rule, everyone is sent the meeting's own minutes.
+    expect(await access.recipientViewOf('u9', [], 'm1')).toBe('full');
+  });
+
   // Owner, 3 Nov 2026: "archived means no access" — someone whose companies are all archived sees
   // nothing of a meeting they were invited to (the companies rule says no view: null).
   it('one of the meeting’s people the companies rule refuses (all their companies archived) gets no view', async () => {

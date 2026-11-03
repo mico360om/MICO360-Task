@@ -26,7 +26,7 @@ async function setup(rule: RecurrenceRule = { freq: 'WEEKLY', interval: 1 }) {
     sendMeetingInvite: vi.fn(async (_to: string, _params: unknown, _ics: unknown) => {}),
     sendMeetingReminder: vi.fn(async () => {}),
     sendMeetingCancelled: vi.fn(async (_to: string, _params: unknown, _ics: unknown) => {}),
-    sendMeetingMinutes: vi.fn(async () => {}),
+    sendMeetingMinutes: vi.fn(async () => ({ suppressed: [] })),
   };
   const notify = createMeetingNotifyService({
     meetings,

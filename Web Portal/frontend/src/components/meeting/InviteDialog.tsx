@@ -36,9 +36,15 @@ export function SendResults({ report, what }: { report: SendReport; what: string
           ))}
         </ul>
       ) : null}
-      {report.skipped?.length ? (
-        <p className="text-xs text-ink-2">Skipped (no email address): {report.skipped.map((s) => s.name).join(', ')}</p>
-      ) : null}
+      {/* One line per reason: no email address, or (the minutes) someone who can't get them yet. */}
+      {[...new Set((report.skipped ?? []).map((s) => s.reason))].map((reason) => (
+        <p key={reason} className="text-xs text-ink-2">
+          {reason === 'no email address' ? 'Skipped (no email address)' : `Not sent (${reason})`}:{' '}
+          {report.skipped!.filter((s) => s.reason === reason).map((s, i) => (
+            <span key={`${s.name}-${i}`}>{i ? ', ' : ''}<bdi>{s.name}</bdi></span>
+          ))}
+        </p>
+      ))}
     </div>
   );
 }

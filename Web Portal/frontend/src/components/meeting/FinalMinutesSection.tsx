@@ -1,5 +1,5 @@
 import { dateTimeText } from '../../lib/day-words';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { meetingsApi, type FinalMinutes, type FinalMinutesContent } from '../../api/meetings';
 import { apiClient } from '../../api/client';
@@ -40,8 +40,9 @@ const isEmpty = (c: FinalMinutesContent) => !c.summary && !c.discussion.length &
  * AI from the meeting's agenda, notes and action items, or put together from the notes), edits it,
  * saves it and marks it final. Final minutes are read-only until reopened, open the minutes PDF (and
  * so the minutes email), marked final with who approved them, and are what attendees see.
+ * `footer`: what follows them in the card (the minutes' "Sent" log, for the people who may send).
  */
-export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone }: { meetingId: string; meetingTitle: string; canEdit: boolean; timeZone: string }) {
+export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone, footer }: { meetingId: string; meetingTitle: string; canEdit: boolean; timeZone: string; footer?: ReactNode }) {
   const qc = useQueryClient();
   const api = meetingsApi(apiClient);
   const key = ['meeting', meetingId, 'final-minutes'];
@@ -173,6 +174,7 @@ export function FinalMinutesSection({ meetingId, meetingTitle, canEdit, timeZone
       ) : fm ? (
         <p className="text-sm text-ink-3">The final minutes aren’t ready yet.</p>
       ) : null}
+      {footer}
     </Section>
   );
 }

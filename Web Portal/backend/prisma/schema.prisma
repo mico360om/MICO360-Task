@@ -970,6 +970,7 @@ model Meeting {
   minutes       MeetingMinutes?
   tasks         Task[]
   reminderSends MeetingReminderSend[]
+  minutesSends  MeetingMinutesSend[]
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
   companyId     String?
   company       Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
@@ -982,6 +983,27 @@ model Meeting {
   // One meeting per place in a series, so a series is never filled in twice.
   @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
+}
+
+/// One emailing of a meeting's minutes (1.22): who sent it and when, the draft or the final minutes, the
+/// To and Cc lines and each address's result — the meeting's "Sent" log, newest first. `sentById` is the
+/// sender's user id (no foreign key: the log outlives an account, as the audit log does).
+model MeetingMinutesSend {
+  id          String   @id @default(cuid())
+  meetingId   String
+  sentById    String?
+  sentAt      DateTime @default(now())
+  final       Boolean  @default(false)
+  /// The To line as sent: [{ email, name, userId?, copy }] — copy 'own': their own email (another company).
+  toAddresses Json
+  /// The Cc line, in the same form.
+  ccAddresses Json
+  /// Each address's result: [{ email, ok, error? }].
+  results     Json
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, sentAt])
+  @@map("meeting_minutes_sends")
 }
 
 /// One automatic meeting reminder to one person one way (the bell with its phone push, or email):

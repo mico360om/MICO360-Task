@@ -249,6 +249,8 @@ export interface AppDeps extends AuthRouteDeps {
   printableProjectImage?: (raw: Buffer) => Promise<Buffer | null>;
   /** Where meetings' final minutes (Final MOM) are kept. */
   finalMinutesRepository?: FinalMinutesRepository;
+  /** Each send of a meeting's minutes: its "Sent" log and the Cc suggestions (1.22). */
+  minutesSendRepository?: import('./modules/meetings/minutes-send-repository').MinutesSendRepository;
   /** Drafts final minutes with the AI from a meeting's facts. */
   draftMinutesWithAi?: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
   /** A meeting's final minutes were saved, approved or reopened (its live event). */
@@ -885,6 +887,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           rolesOf: deps.userState ? async (userId: string) => (await deps.userState!(userId))?.roles ?? [] : undefined,
           // companies: the meeting's company on its minutes PDF (MC1 Task 14).
           pdfBrand: brands ? (meetingId) => brands.meeting(meetingId) : undefined,
+          // 1.22: the minutes email's To and Cc — its "Sent" log, the audit log, and who may be picked or added.
+          minutesSends: deps.minutesSendRepository,
+          audit: deps.auditService,
+          recipientViewOf: mAccess?.recipientViewOf ? (u, r, m) => mAccess.recipientViewOf(u, r, m) : undefined,
+          invitees: deps.meetingInvitees,
+          inviteTargetOf: meetingTargetOf,
         });
       }
       if (deps.activityService) {

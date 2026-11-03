@@ -52,6 +52,20 @@ export function createMeetingAccess({ meetings, projectAccess, meetingView }: Me
     return null;
   }
 
+  /**
+   * The minutes email (1.22): how this person would see the meeting if they were one of its people —
+   * the companies rule asked as if they were on it ('invitee': another company, their own copy; null:
+   * no access). Without the rule: 'full' for anyone (the email is the sender's to address).
+   */
+  async function recipientViewOf(userId: string, roles: string[], meetingId: string): Promise<MeetingView> {
+    if (isAdmin(roles)) return 'full';
+    const core = await meetings.accessCore(meetingId);
+    if (!core) return null;
+    if (!meetingView) return 'full';
+    const onIt = core.attendeeUserIds.includes(userId) ? core : { ...core, attendeeUserIds: [...core.attendeeUserIds, userId] };
+    return meetingView({ id: userId, roles }, onIt);
+  }
+
   /** The full view: everything of the meeting the person's rights allow (not an invitee's view). */
   async function canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean> {
     return (await viewOf(userId, roles, meetingId)) === 'full';
@@ -82,7 +96,7 @@ export function createMeetingAccess({ meetings, projectAccess, meetingView }: Me
     return projectAccess ? projectAccess.accessibleProjectIds(userId, roles, pick) : [];
   }
 
-  return { canViewMeeting, viewOf, canEditMeeting, canEditMeetingRecord, accessibleProjectIds };
+  return { canViewMeeting, viewOf, recipientViewOf, canEditMeeting, canEditMeetingRecord, accessibleProjectIds };
 }
 
 export type MeetingAccess = ReturnType<typeof createMeetingAccess>;

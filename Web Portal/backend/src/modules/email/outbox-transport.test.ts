@@ -52,6 +52,22 @@ describe('outbox transport (local test mailbox)', () => {
     expect(readdirSync(dir).some((f) => f.endsWith('.pdf'))).toBe(false);
   });
 
+  it('writes an email to several people with its real To and Cc lines (names beside the addresses)', async () => {
+    const outbox = createOutboxTransport({ dir, now: () => new Date('2026-10-10T08:30:05.123Z') });
+    const res = await outbox.send({
+      to: 'ada@x.co',
+      toAll: [{ email: 'ada@x.co', name: 'Ada Lovelace' }, { email: 'ben@x.co' }, { email: 'cy@x.co', name: 'Smith, Cy' }],
+      cc: [{ email: 'dee@y.co', name: 'Dee\r\nBcc: evil@x.co' }],
+      subject: 'Minutes',
+      html: 'x',
+    });
+    expect(res.ok).toBe(true);
+    const txt = readFileSync(join(dir, readdirSync(dir).find((f) => f.endsWith('ada-x.co.txt'))!), 'utf8');
+    expect(txt.split('\n').slice(0, 3)).toEqual(['To: Ada Lovelace <ada@x.co>, ben@x.co, "Smith, Cy" <cy@x.co>', 'Cc: "Dee Bcc: evil@x.co" <dee@y.co>', 'Subject: Minutes']);
+    // One email: one pair of files, named after the first address.
+    expect(readdirSync(dir)).toHaveLength(2);
+  });
+
   it('notes the sender name an email goes out with, when it isn’t the site’s (companies)', async () => {
     const outbox = createOutboxTransport({ dir, now: () => new Date('2026-10-10T08:30:05.123Z') });
     await outbox.send({ to: 'a@b.co', subject: 'Welcome', html: 'x', fromName: 'Beta Team' });

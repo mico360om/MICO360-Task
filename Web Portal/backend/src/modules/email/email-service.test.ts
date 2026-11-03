@@ -158,6 +158,55 @@ describe('EmailService.sendPrepared (an email already built, e.g. the daily task
   });
 });
 
+describe('EmailService.sendMeetingMinutes (one email, real To and Cc lines)', () => {
+  const meeting = { title: 'Review', whenLabel: 'Mon 2 Nov 2026, 10:00', link: 'https://app.test/meetings/m1' };
+  const pdf = { filename: 'minutes-review.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF') };
+  const lines = {
+    to: [{ email: 'ada@x.co', name: 'Ada Lovelace' }, { email: 'ben@x.co', name: 'Ben' }],
+    cc: [{ email: 'cy@y.co', name: null }],
+  };
+
+  it('sends ONE email to every To and Cc address, the PDF attached, and logs a SENT row per address with its own message id', async () => {
+    const { transport, sent } = fakeTransport({ ok: true, status: 200, messageId: 'mj-1', messageIds: { 'ada@x.co': 'mj-1', 'ben@x.co': 'mj-2', 'cy@y.co': 'mj-3' } });
+    const { log, entries } = withLog();
+    expect(await createEmailService({ transport, log }).sendMeetingMinutes(lines, meeting, pdf)).toEqual({ suppressed: [] });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: 'ada@x.co', toAll: lines.to, cc: lines.cc, attachments: [pdf] });
+    expect(sent[0]!.subject).toMatch(/Review/);
+    expect(entries.map((e) => [e.toAddress, e.status, e.providerMessageId, e.template])).toEqual([
+      ['ada@x.co', 'SENT', 'mj-1', 'meeting-minutes'],
+      ['ben@x.co', 'SENT', 'mj-2', 'meeting-minutes'],
+      ['cy@y.co', 'SENT', 'mj-3', 'meeting-minutes'],
+    ]);
+  });
+
+  it('leaves a blocked address out of the email and says so; with every To address blocked, the Cc line becomes the To line', async () => {
+    const { transport, sent } = fakeTransport();
+    const svc = createEmailService({ transport, isSuppressed: async (email) => email !== 'cy@y.co' });
+    expect(await svc.sendMeetingMinutes(lines, meeting, pdf)).toEqual({ suppressed: ['ada@x.co', 'ben@x.co'] });
+    expect(sent[0]).toMatchObject({ to: 'cy@y.co', toAll: [{ email: 'cy@y.co', name: null }], cc: [] });
+  });
+
+  it('sends nothing when every address is blocked', async () => {
+    const { transport, sent } = fakeTransport();
+    const svc = createEmailService({ transport, isSuppressed: async () => true });
+    expect(await svc.sendMeetingMinutes(lines, meeting, pdf)).toEqual({ suppressed: ['ada@x.co', 'ben@x.co', 'cy@y.co'] });
+    expect(sent).toEqual([]);
+  });
+
+  it('a refused email fails for every address on it (FAILED rows), and throws', async () => {
+    const { transport } = fakeTransport({ ok: false, status: 400, error: 'Invalid email' });
+    const { log, entries } = withLog();
+    await expect(createEmailService({ transport, log }).sendMeetingMinutes(lines, meeting, pdf)).rejects.toBeInstanceOf(EmailDeliveryError);
+    expect(entries.map((e) => [e.toAddress, e.status])).toEqual([['ada@x.co', 'FAILED'], ['ben@x.co', 'FAILED'], ['cy@y.co', 'FAILED']]);
+  });
+
+  it('throws EmailNotConfiguredError without a mail provider', async () => {
+    const transport = createMailjetTransport({ apiKey: '', secretKey: '', from: 'x@y.z' });
+    await expect(createEmailService({ transport }).sendMeetingMinutes(lines, meeting, pdf)).rejects.toBeInstanceOf(EmailNotConfiguredError);
+  });
+});
+
 describe('EmailService: a company’s brand on every email (companies)', () => {
   const welcome = { firstName: 'Ada', username: 'ada', setPasswordLink: 'https://app.test/reset?token=t1&welcome=1', expiresInDays: 7 };
   const opts = { brand: { companyName: 'Beta LLC' }, fromName: 'Beta Team' };
@@ -173,7 +222,7 @@ describe('EmailService: a company’s brand on every email (companies)', () => {
     await svc.sendMention('ada@x.co', { mentionedBy: 'Ben', taskKey: 'PB-1', taskTitle: 'T', snippet: 's', link: 'https://app.test/t' }, opts);
     await svc.sendMeetingInvite('ada@x.co', meeting, ics, opts);
     await svc.sendMeetingCancelled('ada@x.co', meeting, ics, opts);
-    await svc.sendMeetingMinutes('ada@x.co', meeting, { filename: 'm.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF') }, opts);
+    await svc.sendMeetingMinutes({ to: [{ email: 'ada@x.co' }], cc: [] }, meeting, { filename: 'm.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF') }, opts);
     await svc.sendMeetingReminder('ada@x.co', { ...meeting, startsInLabel: 'in 15 minutes' }, opts);
     await svc.sendClientInvitation('ada@x.co', { clientName: 'Cli', sharedByName: 'Ben', projectName: 'P', link: 'https://app.test/client/x', email: 'ada@x.co' }, opts);
     await svc.sendClientCode('ada@x.co', { code: '123456', projectName: 'P', expiresInMinutes: 10 }, opts);

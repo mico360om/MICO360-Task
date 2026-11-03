@@ -8,6 +8,7 @@ import { wallOf } from './meeting-series';
 import type { Logger } from '../../lib/logger';
 import { EmailNotConfiguredError } from '../email/delivery-error';
 import type { EmailAttachment } from '../email/mailer';
+import type { MailLines } from '../email/email-service';
 import { meetingMinutesEmail, type MeetingEmailParams, type TemplateOptions } from '../email/email-templates';
 import type { MeetingRecord, MeetingRepository, MeetingSeriesStore, RecurrenceRule } from './meeting-repository';
 import type { AttendeeRecord } from './attendee-repository';
@@ -22,8 +23,18 @@ export interface NotifyPerson {
 export interface MeetingMailer {
   sendMeetingInvite(email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions): Promise<void>;
   sendMeetingCancelled(email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions): Promise<void>;
-  sendMeetingMinutes(email: string, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions): Promise<void>;
+  /** ONE email to its To and Cc lines; `suppressed`: blocked addresses it left out. */
+  sendMeetingMinutes(lines: MailLines, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions): Promise<{ suppressed: string[] }>;
 }
+
+/** Someone the minutes go to: a user (picked from the people list), or an email address. */
+export type MinutesAddressee = { userId: string } | { email: string };
+
+/** Which copy of the minutes a person gets: the shared email, their own (another company), later (once final) or none. */
+export type MinutesCopy = 'shared' | 'own' | 'later' | 'none';
+
+/** The most addresses one minutes send may go to (Mailjet takes 50 per email). */
+export const MAX_MINUTES_ADDRESSES = 50;
 
 export interface MeetingNotifyDeps {
   /** With the series store, a repeating series is sent as one calendar series (else meeting by meeting). */
@@ -37,6 +48,8 @@ export interface MeetingNotifyDeps {
   email: MeetingMailer;
   /** Resolve an internal user id to a name + email (null if unknown / no email). */
   resolveUser: (userId: string) => Promise<NotifyPerson | null>;
+  /** The active account an email address belongs to (a typed minutes address may be someone's). */
+  findUserByEmail?: (email: string) => Promise<{ id: string; name: string; email: string } | null>;
   /** Resolve a project id to its name (for the "Project" row). */
   resolveProjectName?: (projectId: string) => Promise<string | null>;
   /** A project's name, picture ('/uploads/…' or a full address) and colour: the minutes email is headed by them. */
@@ -78,6 +91,11 @@ export interface RecipientResult {
   kind: RecipientKind;
   ok: boolean;
   error?: string;
+  /** The minutes: the line they were on, and whether they got the shared email or their own (another company). */
+  line?: 'to' | 'cc';
+  copy?: 'shared' | 'own';
+  /** The minutes: their account, when they have one. */
+  userId?: string;
 }
 
 /** An explicit send's outcome: totals, each recipient's result, and who had no address. */
@@ -104,8 +122,26 @@ export interface MinutesPreview {
   html: string;
   text: string;
   attachmentName: string;
-  recipients: Recipient[];
+  /** The meeting's people, with their account and which copy they would get. */
+  recipients: Array<Recipient & { userId?: string; copy: MinutesCopy }>;
   missingEmail: Array<{ name: string; attendeeId: string }>;
+  /** The approved final minutes go out (else the draft minutes). */
+  final: boolean;
+}
+
+export interface MinutesSendOptions {
+  /** Older apps: some of the meeting's own people (by email), all on the To line. */
+  only?: string[];
+  /** The To line: the meeting's people chosen (by email) and anyone added. Omitted: `only`, else everyone. */
+  to?: MinutesAddressee[];
+  cc?: MinutesAddressee[];
+  /** The PDF is the approved final minutes (the attachment is named so). */
+  final?: boolean;
+  /**
+   * Companies: a user's own copy — a Buffer is theirs (sent in an email of their own), null sends
+   * them nothing, undefined the shared email. Addresses that aren't anyone's always get the shared email.
+   */
+  attachmentFor?: (userId: string) => Promise<Buffer | null | undefined>;
 }
 
 export interface MeetingNotifyService {
@@ -128,20 +164,30 @@ export interface MeetingNotifyService {
    * of the series they were taken off at the same time).
    */
   sendAttendeeRemoved(meetingId: string, attendee: AttendeeRecord, opts?: { alsoFrom?: MeetingRecord[] }): Promise<DeliveryReport>;
-  /** Email the minutes PDF; `only` limits it to some of the meeting's own recipients (by email). */
-  /** `final`: the PDF is the approved final minutes (the attachment is named so). */
   /**
-   * Email the minutes PDF to the organizer and attendees. `attachmentFor` (companies) chooses one of
-   * the meeting's users' own copy: a Buffer is theirs, null sends them nothing, undefined the shared PDF
-   * (guests by email always get the shared PDF, as today).
+   * Email the minutes PDF: ONE email with real To and Cc lines (everyone sees who got it) — to the
+   * organizer and attendees, or the To and Cc chosen. At most 50 addresses; an address once (To wins).
+   * Companies (`attachmentFor`): someone from another company gets their own copy in an email of their
+   * own, and the shared email doesn't list them.
    */
-  sendMinutes(meetingId: string, pdf: Buffer, opts?: { only?: string[]; final?: boolean; attachmentFor?: (userId: string) => Promise<Buffer | null | undefined> }): Promise<SendReport>;
-  /** The minutes email exactly as it would be sent, and to whom — sends nothing. */
-  previewMinutes(meetingId: string, opts?: { final?: boolean }): Promise<MinutesPreview>;
+  sendMinutes(meetingId: string, pdf: Buffer, opts?: MinutesSendOptions): Promise<SendReport>;
+  /** The minutes email exactly as it would be sent, and to whom — sends nothing. `copyOf`: each user's copy (companies). */
+  previewMinutes(meetingId: string, opts?: { final?: boolean; copyOf?: (userId: string) => Promise<MinutesCopy> }): Promise<MinutesPreview>;
 }
 
 /** One meeting of a repeating series, or all of it. */
 export type SeriesScope = 'one' | 'series';
+
+/** Someone the minutes go to, with the address and name they are sent under. */
+interface Addressed {
+  name: string;
+  email: string;
+  kind: RecipientKind;
+  userId?: string;
+}
+
+/** Why a blocked address (an earlier hard bounce or spam report) was left out of an email. */
+const BLOCKED = 'Blocked: earlier emails to this address bounced or were marked as spam.';
 
 function slugify(title: string): string {
   return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'meeting';
@@ -160,7 +206,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       ? {
           sendMeetingInvite: (to, params, ics) => deps.email.sendMeetingInvite(to, params, ics, brand),
           sendMeetingCancelled: (to, params, ics) => deps.email.sendMeetingCancelled(to, params, ics, brand),
-          sendMeetingMinutes: (to, params, pdf) => deps.email.sendMeetingMinutes(to, params, pdf, brand),
+          sendMeetingMinutes: (lines, params, pdf) => deps.email.sendMeetingMinutes(lines, params, pdf, brand),
         }
       : deps.email;
 
@@ -595,40 +641,155 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     async sendMinutes(meetingId, pdf, opts) {
       const m = await requireMeeting(meetingId);
       const { recipients, missingEmail, organizer, userIdOf } = await recipientsFor(m);
-      // Only the meeting's own people can be chosen — never an arbitrary address.
-      const chosen = opts?.only ? new Set(opts.only.map((e) => e.trim().toLowerCase())) : null;
-      const chosenTargets = chosen ? recipients.filter((r) => chosen.has(r.email.toLowerCase())) : recipients;
-      if (chosen && chosenTargets.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
-      // companies: each of the meeting's users may have their own copy (someone invited from another
-      // company: the invitee minutes), or none yet — they aren't sent the shared PDF instead.
-      const own = new Map<string, Buffer>();
-      const targets: Recipient[] = [];
-      for (const r of chosenTargets) {
-        const userId = userIdOf.get(r.email.toLowerCase());
-        const theirs = userId && opts?.attachmentFor ? await opts.attachmentFor(userId) : undefined;
-        if (theirs === null) continue;
-        if (theirs) own.set(r.email.toLowerCase(), theirs);
-        targets.push(r);
+      const ownPeople = new Map(recipients.map((r) => [r.email.toLowerCase(), r]));
+      const skipped: Array<{ name: string; reason: string }> = [];
+
+      // Who: the To and Cc chosen; older apps name some of the meeting's own people (never another
+      // address); with neither, everyone on the meeting.
+      let toList: MinutesAddressee[];
+      let ccList: MinutesAddressee[] = [];
+      if (opts?.to) {
+        toList = opts.to;
+        ccList = opts.cc ?? [];
+      } else if (opts?.only) {
+        const asked = new Set(opts.only.map((e) => e.trim().toLowerCase()));
+        toList = recipients.filter((r) => asked.has(r.email.toLowerCase())).map((r) => ({ email: r.email }));
+        if (toList.length === 0) throw new ValidationError('Choose at least one of the meeting’s people to send the minutes to.');
+      } else {
+        toList = recipients.map((r) => ({ email: r.email }));
+        skipped.push(...missingEmail.map((x) => ({ name: x.name, reason: 'no email address' })));
       }
+
+      /** An addressee as a person with an address: one of the meeting's people, a user, or just the address. */
+      const resolve = async (a: MinutesAddressee): Promise<Addressed | null> => {
+        if ('userId' in a) {
+          const person = await deps.resolveUser(a.userId);
+          if (!person?.email) {
+            skipped.push({ name: person?.name || 'A team member', reason: 'no email address' });
+            return null;
+          }
+          const mine = ownPeople.get(person.email.toLowerCase());
+          return { name: mine?.name ?? person.name, email: mine?.email ?? person.email, kind: mine?.kind ?? 'member', userId: a.userId };
+        }
+        const typed = a.email.trim();
+        const key = typed.toLowerCase();
+        const mine = ownPeople.get(key);
+        if (mine) return { name: mine.name, email: mine.email, kind: mine.kind, userId: userIdOf.get(key) };
+        // A typed address that is someone's account is that person (the company rule asks about them).
+        const user = deps.findUserByEmail ? await deps.findUserByEmail(typed).catch(() => null) : null;
+        if (user) return { name: user.name, email: user.email, kind: 'member', userId: user.id };
+        return { name: typed, email: typed, kind: 'guest' };
+      };
+
+      // Each address once: the To line first, so To wins over Cc.
+      const seen = new Set<string>();
+      const chosen: Array<Addressed & { line: 'to' | 'cc' }> = [];
+      for (const [line, list] of [['to', toList], ['cc', ccList]] as const) {
+        for (const a of list) {
+          const r = await resolve(a);
+          if (!r || seen.has(r.email.toLowerCase())) continue;
+          seen.add(r.email.toLowerCase());
+          chosen.push({ ...r, line });
+        }
+      }
+      if (chosen.length > MAX_MINUTES_ADDRESSES) throw new ValidationError(`Send the minutes to ${MAX_MINUTES_ADDRESSES} addresses at most.`);
+      if (chosen.length === 0) throw new ValidationError('Choose at least one person with an email address to send the minutes to.');
+
+      // companies: a user from another company gets their own copy (the invitee minutes) in an email of
+      // their own, or none yet — never the shared PDF, and the shared email doesn't list them.
+      const own = new Map<string, Buffer>();
+      const going: typeof chosen = [];
+      for (const r of chosen) {
+        const theirs = r.userId && opts?.attachmentFor ? await opts.attachmentFor(r.userId) : undefined;
+        if (theirs === null) {
+          skipped.push({ name: r.name, reason: 'can’t get these minutes yet' });
+          continue;
+        }
+        if (theirs) own.set(r.email.toLowerCase(), theirs);
+        going.push(r);
+      }
+
       const params = { ...(await emailParams(m, organizer)), project: await projectLook(m) };
       const filename = minutesAttachmentName(m.title, opts?.final);
-      const attachment: EmailAttachment = { filename, contentType: 'application/pdf', content: pdf };
-      const attachmentOf = (email: string): EmailAttachment => {
-        const theirs = own.get(email.toLowerCase());
-        return theirs ? { filename, contentType: 'application/pdf', content: theirs } : attachment;
-      };
       const mail = mailerFor(await brandOf(m));
-      const r = assertConfigured(await deliver(m, 'minutes', targets, (p) => mail.sendMeetingMinutes(p.email, params, attachmentOf(p.email))));
-      return report({ sent: r.sent, failed: r.failed, results: r.results.map(resultOf) }, chosen ? [] : missingEmail);
+      // The name beside an address on the To and Cc lines (none for a bare typed address).
+      const lineAddress = (r: Addressed) => ({ email: r.email, name: r.name && r.name !== r.email ? r.name : null });
+      const shared = going.filter((r) => !own.has(r.email.toLowerCase()));
+      const emails: Array<{ people: Addressed[]; lines: MailLines; content: Buffer; copy: 'shared' | 'own' }> = [];
+      if (shared.length) {
+        const to = shared.filter((r) => r.line === 'to').map(lineAddress);
+        const cc = shared.filter((r) => r.line === 'cc').map(lineAddress);
+        // An email needs a To line: with only people from another company in To, the Cc line moves up.
+        emails.push({ people: shared, copy: 'shared', content: pdf, lines: to.length ? { to, cc } : { to: cc, cc: [] } });
+      }
+      for (const r of going) {
+        const theirs = own.get(r.email.toLowerCase());
+        if (theirs) emails.push({ people: [r], copy: 'own', content: theirs, lines: { to: [lineAddress(r)], cc: [] } });
+      }
+
+      const outcome = new Map<string, RecipientResult>();
+      let sent = 0;
+      let failed = 0;
+      let notConfigured = 0;
+      for (const e of emails) {
+        let blocked = new Set<string>();
+        let error: string | null = null;
+        let off = false;
+        try {
+          const r = await mail.sendMeetingMinutes(e.lines, params, { filename, contentType: 'application/pdf', content: e.content });
+          blocked = new Set(r.suppressed.map((x) => x.toLowerCase()));
+        } catch (err) {
+          off = err instanceof EmailNotConfiguredError;
+          error = off ? 'Email isn’t set up on this server.' : 'The mail server didn’t accept it.';
+          deps.logger?.error('meeting minutes email failed', { err, meetingId: m.id });
+        }
+        for (const p of e.people) {
+          const why = error ?? (blocked.has(p.email.toLowerCase()) ? BLOCKED : null);
+          if (why) failed++;
+          else sent++;
+          if (off) notConfigured++;
+          const line = (p as Addressed & { line: 'to' | 'cc' }).line;
+          outcome.set(p.email.toLowerCase(), {
+            name: p.name,
+            email: p.email,
+            kind: p.kind,
+            ok: !why,
+            ...(why ? { error: why } : {}),
+            line,
+            copy: e.copy,
+            ...(p.userId ? { userId: p.userId } : {}),
+          });
+        }
+      }
+      // An explicit send that reached nobody because email isn't set up is an error, not "sent to 0".
+      if (sent === 0 && failed > 0 && notConfigured === failed) {
+        throw new HttpError('Email sending is not configured, so nothing was sent.', 'EMAIL_NOT_CONFIGURED', 503);
+      }
+      return { sent, failed, recipients: going.map((r) => outcome.get(r.email.toLowerCase())!), skipped };
     },
 
     async previewMinutes(meetingId, opts) {
       const m = await requireMeeting(meetingId);
-      const { recipients, missingEmail, organizer } = await recipientsFor(m);
+      const { recipients, missingEmail, organizer, userIdOf } = await recipientsFor(m);
       // The preview is the email as sent: with the meeting's company brand.
       const brand = await brandOf(m);
       const content = meetingMinutesEmail({ ...(await emailParams(m, organizer)), project: await projectLook(m) }, brand ?? undefined);
-      return { subject: content.subject, html: content.html, text: content.text, attachmentName: minutesAttachmentName(m.title, opts?.final), recipients, missingEmail };
+      // Each person's account and copy: the dialog shows who gets their own email, later or nothing.
+      const people: MinutesPreview['recipients'] = [];
+      for (const r of recipients) {
+        const userId = userIdOf.get(r.email.toLowerCase());
+        const copy: MinutesCopy = userId && opts?.copyOf ? await opts.copyOf(userId) : 'shared';
+        people.push({ ...r, ...(userId ? { userId } : {}), copy });
+      }
+      return {
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+        attachmentName: minutesAttachmentName(m.title, opts?.final),
+        recipients: people,
+        missingEmail,
+        final: Boolean(opts?.final),
+      };
     },
   };
 }
