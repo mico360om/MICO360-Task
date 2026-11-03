@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-11-04
+
 ### New features
 - Companies: one site can now hold several companies. Everyone and every project you have today are
   in "Prolens Projects LLC", so nothing changes until a second company is added.
