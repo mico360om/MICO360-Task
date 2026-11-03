@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { searchApi } from '../api/search';
 import { projectsApi } from '../api/projects';
+import { usersApi } from '../api/users';
+import type { SearchResults } from '../api/search';
 import { ProjectAvatar } from './ProjectAvatar';
 import { columnsApi } from '../api/columns';
 import { tasksApi } from '../api/tasks';
@@ -84,6 +86,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   });
   // Found projects show their picture; the project list is normally cached already.
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list(), enabled: searchEnabled });
+  // companies: found people are colleagues only (spec §3 "directory search"): a teammate from another
+  // company, known only from a shared project or an old chat, is left out (the directory says so).
+  const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory(), enabled: searchEnabled });
 
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
@@ -184,7 +189,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       out.push({ id: `nav-${nav.id}`, group: 'Go to', primary: nav.label, run: () => { navigate(nav.to); reset(); } });
     }
 
-    const r = q.data;
+    const r = colleaguesOnly(q.data, Array.isArray(directoryQ.data) ? directoryQ.data : []);
     if (searchEnabled && r) {
       for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, hint: keyHint(t), secondary: whereMatched(t), run: () => openTask(t.id) });
       // Every match, with filters, on the Search results page.
@@ -336,4 +341,11 @@ function groupItems(items: PaletteItem[]): [string, PaletteItem[]][] {
     map.get(it.group)!.push(it);
   }
   return order.map((g) => [g, map.get(g)!]);
+}
+
+/** The results without the people the directory marks as no colleague of mine (an older server marks nobody). */
+function colleaguesOnly(found: SearchResults | undefined, directory: readonly { id: string; colleague?: boolean }[]): SearchResults | undefined {
+  if (!found) return found;
+  const strangers = new Set(directory.filter((d) => d.colleague === false).map((d) => d.id));
+  return strangers.size ? { ...found, users: found.users.filter((u) => !strangers.has(u.id)) } : found;
 }

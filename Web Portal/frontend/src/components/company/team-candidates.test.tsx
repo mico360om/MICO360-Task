@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
-import { projectCompaniesOf, useTeamCandidates } from './team-candidates';
+import { useTeamCandidates } from './team-candidates';
 import { useAuthStore } from '../../stores/auth-store';
 import { useCompanyStore } from '../../stores/company-store';
 import type { MyCompany } from '../../api/companies';
@@ -27,11 +27,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function hook(companyIds: string[] | null, admin = false) {
+function hook(companyIds: string[] | null, admin = false, opts: { projectId?: string | null } = {}) {
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: admin ? ['ADMIN'] : [] }, accessToken: 'at', refreshToken: 'rt' });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
-  return renderHook(() => useTeamCandidates(companyIds), { wrapper });
+  return renderHook(() => useTeamCandidates(companyIds, opts), { wrapper });
 }
 const candidateAsks = () => asked.filter((u) => u.includes('/people/candidates')).map((u) => u.slice(u.indexOf('/people/')));
 
@@ -74,10 +74,20 @@ describe('useTeamCandidates', () => {
   });
 });
 
-describe('projectCompaniesOf', () => {
-  it('reads a project’s companies, main first as the server sends them; none from an older payload', () => {
-    expect(projectCompaniesOf({ companies: [{ id: 'cA', name: 'Alpha Co', logoUrl: null, isMain: true }] }).map((c) => c.id)).toEqual(['cA']);
-    expect(projectCompaniesOf({})).toEqual([]);
-    expect(projectCompaniesOf(null)).toEqual([]);
+describe('useTeamCandidates for a project that exists', () => {
+  it('its own team asks the project: people of ANY of its companies, mine or not (owner, 31 Oct)', async () => {
+    mine = { companies: [beta], siteCompanyCount: 2 };
+    const { result } = hook([alpha.id, beta.id], false, { projectId: 'p1' });
+    await waitFor(() => expect(result.current?.map((p) => p.id)).toEqual(['amy']));
+    expect(candidateAsks()).toEqual(['/people/candidates?projectId=p1']);
+  });
+
+  it('one company on the site: still nothing to ask', async () => {
+    mine = { companies: [alpha], siteCompanyCount: 1 };
+    const { result } = hook([alpha.id], false, { projectId: 'p1' });
+    await waitFor(() => expect(asked.some((u) => u.endsWith('/me/companies'))).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(result.current).toBeNull();
+    expect(candidateAsks()).toEqual([]);
   });
 });

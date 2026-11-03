@@ -24,6 +24,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   companies are all archived sees nothing, not even meetings they were invited to.
 - Each company has its own name, logo, email sender name, week start and working hours; its PDFs,
   emails and client page carry its name and logo.
+- Company picker: people in two or more companies can show "All my companies" or just one; every
+  page, count, export, search and MICO AI answer follows it, and the choice is kept on this device.
+- Companies page (Admin): add companies with their own name, short code, logo, week start, working
+  hours and email sender name; see each company's people and projects; archive a company.
+- User Management: each person's companies and primary company, a company filter, and adding or
+  removing several people at once.
+- A project can belong to several companies, one of them its main company; its team can take people
+  from any of them. A meeting without a project belongs to a company.
+- A direct chat with someone you no longer share a company with stays readable but can't get new
+  messages.
 
 ## [1.20.0] - 2026-11-03
 

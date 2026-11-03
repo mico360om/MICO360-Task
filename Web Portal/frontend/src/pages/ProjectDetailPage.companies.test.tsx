@@ -35,6 +35,8 @@ beforeEach(() => {
     calls.push(method === 'GET' ? u.slice(u.indexOf('/', 8)) : `${method} ${u}`);
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
     if (u.endsWith('/me/companies')) return json({ data: { companies: site >= 2 ? [beta] : [alpha], primaryCompanyId: null, allArchived: false, siteCompanyCount: site } });
+    // Its people: Beta's when asked by companies (only mine), every company's when asked by the project.
+    if (u.includes('/people/candidates?projectId=')) return json({ data: [{ id: 'amy', firstName: 'Amy', lastName: 'Alphaonly', username: 'amy', avatarUrl: null }, { id: 'bob', firstName: 'Bob', lastName: 'Betaonly', username: 'bob', avatarUrl: null }] });
     if (u.includes('/people/candidates')) return json({ data: [{ id: 'bob', firstName: 'Bob', lastName: 'Betaonly', username: 'bob', avatarUrl: null }] });
     if (u.includes('/members')) {
       return json({ data: [
@@ -74,12 +76,13 @@ function renderTeam() {
 }
 
 describe('Project page — Team tab with companies', () => {
-  it('"Add a member" offers people from the project’s companies that are mine, not the whole directory', async () => {
+  it('"Add a member" offers people from ANY of the project’s companies (not only mine), not the whole directory', async () => {
     renderTeam();
     await screen.findByRole('heading', { level: 1, name: 'Shared project' });
-    await waitFor(() => expect(calls).toContain(`/api/v1/people/candidates?companyIds=${beta.id}`));
+    await waitFor(() => expect(calls).toContain('/api/v1/people/candidates?projectId=p1'));
     const picker = await screen.findByLabelText(/add a member/i);
-    await waitFor(() => expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['Select a teammate…', 'Bob Betaonly']));
+    await waitFor(() => expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['Select a teammate…', 'Amy Alphaonly', 'Bob Betaonly']));
+    expect(calls.some((c) => c.includes('/people/candidates?companyIds='))).toBe(false);
   });
 
   it('a member who can no longer see the project says so', async () => {

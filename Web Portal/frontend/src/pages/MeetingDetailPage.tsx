@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { meetingsApi, type Meeting, type MeetingStatus } from '../api/meetings';
+import { meetingsApi, type Meeting, type MeetingPerson, type MeetingStatus } from '../api/meetings';
 import { projectsApi } from '../api/projects';
-import { usersApi } from '../api/users';
+import { usersApi, type DirectoryUser } from '../api/users';
 import { apiClient } from '../api/client';
 import { MeetingFormModal } from '../components/MeetingFormModal';
 import { PageProblem, isMissing } from '../components/ui/PageProblem';
@@ -54,9 +54,24 @@ export function MeetingDetailPage() {
   usePageName(meeting?.title);
   const live = meeting?.status === 'IN_PROGRESS';
   const pollMs = live ? LIVE_POLL_MS : false;
-  const attendeesQ = useQuery({ queryKey: ['meeting', id, 'attendees'], queryFn: () => meetingsApi(apiClient).listAttendees(id), enabled: !!id, refetchInterval: pollMs });
+  // companies: the roster comes with the meeting's people by name; they are kept beside it (its own
+  // cache entry), so the page can name people my directory doesn't know (an invitee's view).
+  const peopleKey = ['meeting', id, 'people'] as const;
+  const attendeesQ = useQuery({
+    queryKey: ['meeting', id, 'attendees'],
+    queryFn: async () => {
+      const { attendees, people } = await meetingsApi(apiClient).listAttendeesWithPeople(id);
+      qc.setQueryData(peopleKey, people);
+      return attendees;
+    },
+    enabled: !!id,
+    refetchInterval: pollMs,
+  });
+  const peopleQ = useQuery<MeetingPerson[]>({ queryKey: peopleKey, queryFn: async () => [], enabled: false });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
+  const people = peopleQ.data;
+  const knownPeople = useMemo(() => withMeetingPeople(Array.isArray(dirQ.data) ? dirQ.data : [], Array.isArray(people) ? people : []), [dirQ.data, people]);
   // The final minutes (Final MOM), shared with their card: once final, the minutes PDF opens with them.
   const finalQ = useQuery({ queryKey: ['meeting', id, 'final-minutes'], queryFn: () => meetingsApi(apiClient).getFinalMinutes(id), enabled: !!id });
   // companies: invited from outside its project's companies — the server sends only their own action items.
@@ -142,7 +157,7 @@ export function MeetingDetailPage() {
         attendeesLoading={attendeesQ.isLoading}
         attendeesError={attendeesQ.isError}
         onRetryAttendees={() => void attendeesQ.refetch()}
-        directory={Array.isArray(dirQ.data) ? dirQ.data : []}
+        directory={knownPeople}
         timeZone={timeZone}
       />
     );
@@ -150,7 +165,7 @@ export function MeetingDetailPage() {
 
   // Only organizers/managers may manage the meeting; older servers don't send the flag (→ allowed).
   const canEdit = meeting.canEdit !== false;
-  const directory = Array.isArray(dirQ.data) ? dirQ.data : [];
+  const directory = knownPeople;
   const project = meeting.projectId ? (Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === meeting.projectId) ?? null : null;
   const ended = meeting.status === 'CANCELLED' || meeting.status === 'COMPLETED';
   const primary = primaryAction(meeting, canEdit);
@@ -269,4 +284,14 @@ export function MeetingDetailPage() {
       {dialog === 'delete' ? <DeleteMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={() => navigate('/meetings')} /> : null}
     </div>
   );
+}
+
+/**
+ * The people directory plus the meeting's people it doesn't know (named by the roster): they are
+ * named on the page, never offered in a picker (colleague: false keeps them out of pickers).
+ */
+function withMeetingPeople(directory: DirectoryUser[], people: MeetingPerson[]): DirectoryUser[] {
+  const known = new Set(directory.map((d) => d.id));
+  const extra = people.filter((p) => !known.has(p.id)).map((p): DirectoryUser => ({ id: p.id, username: '', firstName: p.name, lastName: '', avatarUrl: p.avatarUrl, colleague: false }));
+  return extra.length ? [...directory, ...extra] : directory;
 }

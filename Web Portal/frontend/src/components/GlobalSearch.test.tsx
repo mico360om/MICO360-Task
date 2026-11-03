@@ -81,6 +81,26 @@ describe('GlobalSearch', () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/search'))).toBe(false);
   });
 
+  it('people results are colleagues only: a teammate from another company is not offered (spec §3 directory search)', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      const u = String(url);
+      if (u.endsWith('/users/directory')) {
+        return Promise.resolve(json({ data: [
+          { id: 'ana', username: 'ana', firstName: 'Ana', lastName: 'Alpha', avatarUrl: null, colleague: false },
+          { id: 'bob', username: 'bob', firstName: 'Bob', lastName: 'Betaonly', avatarUrl: null, colleague: true },
+        ] }));
+      }
+      return Promise.resolve(json({ data: { tasks: [], projects: [], users: [
+        { id: 'ana', username: 'ana', email: '', firstName: 'Ana', lastName: 'Alpha' },
+        { id: 'bob', username: 'bob', email: '', firstName: 'Bob', lastName: 'Betaonly' },
+      ] } }));
+    }));
+    setup(<GlobalSearch />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'people');
+    expect(await screen.findByText('Bob Betaonly')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Ana Alpha')).toBeNull());
+  });
+
   it('offers a "go to" navigation command', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);

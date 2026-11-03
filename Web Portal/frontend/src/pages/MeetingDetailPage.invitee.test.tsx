@@ -23,8 +23,11 @@ const bobItem = {
 
 let calls: string[];
 let meeting: ReturnType<typeof ma>;
+/** The server names the meeting's people beside its roster (false: an older server). */
+let withPeople = true;
 beforeEach(() => {
   calls = [];
+  withPeople = true;
   meeting = ma();
   useAuthStore.getState().setSession({ user: { id: 'bob', email: 'b@x', username: 'bob', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -33,7 +36,9 @@ beforeEach(() => {
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: new Date().toISOString() } });
     if (u.endsWith('/meetings/ma')) return json({ data: meeting });
     if (u.endsWith('/meetings/ma/attendees')) {
-      return json({ data: [{ id: 'a1', meetingId: 'ma', userId: 'bob', externalName: null, externalEmail: null, role: 'REQUIRED', attendance: 'INVITED', response: 'PENDING', respondedAt: null, invitedAt: null, department: null, createdAt: '' }] });
+      const row = (id: string, userId: string) => ({ id, meetingId: 'ma', userId, externalName: null, externalEmail: null, role: 'REQUIRED', attendance: 'INVITED', response: 'PENDING', respondedAt: null, invitedAt: null, department: null, createdAt: '' });
+      // The roster names the meeting's people (the organizer first): bob's directory has no Alpha people.
+      return json({ data: [row('a0', 'ana'), row('a1', 'bob')], ...(withPeople ? { people: [{ id: 'ana', name: 'Ana Alpha', avatarUrl: null }, { id: 'bob', name: 'Bob Betaonly', avatarUrl: null }] } : {}) });
     }
     if (u.endsWith('/meetings/ma/agenda')) return json({ data: [] });
     if (u.endsWith('/meetings/ma/final-minutes')) return json({ error: { code: 'NOT_FOUND', message: 'Meeting not found.' } }, 404);
@@ -60,6 +65,15 @@ function renderPage() {
 }
 
 describe('Meeting page — invited from another company', () => {
+  it('the organizer and the people are named, though my directory doesn’t know them', async () => {
+    renderPage();
+    expect(await screen.findByText('You can see this meeting because you were invited.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Organizer:/).textContent).toBe('Organizer: Ana Alpha'));
+    const people = screen.getByRole('region', { name: /People/ });
+    await waitFor(() => expect(within(people).getByText('Ana Alpha')).toBeInTheDocument());
+    expect(within(people).queryByText('Unknown member')).toBeNull();
+  });
+
   it('shows the invitee view: no notes asked for, the minutes not ready, my action items', async () => {
     renderPage();
     expect(await screen.findByText('You can see this meeting because you were invited.')).toBeInTheDocument();

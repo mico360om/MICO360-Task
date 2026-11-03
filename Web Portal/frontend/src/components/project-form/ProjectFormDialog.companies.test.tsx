@@ -64,6 +64,7 @@ beforeEach(() => {
     const o = override(u, method);
     if (o) return o;
     if (u.endsWith('/me/companies')) return json({ data: { ...mine, allArchived: false } });
+    if (u.includes('/people/candidates?projectId=')) return json({ data: Object.values(people).flat() });
     if (u.includes('/people/candidates')) {
       const ids = new URL(u, 'http://t').searchParams.get('companyIds')!.split(',');
       return json({ data: ids.flatMap((id) => people[id] ?? []) });
@@ -200,6 +201,14 @@ describe('Project form — companies', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(put()).toEqual({ name: 'Shared project 2' });
+  });
+
+  it('editing: while its companies stay, the owner comes from ANY of the project’s companies (asked by the project)', async () => {
+    usable([beta], { site: 2 });
+    renderForm({ project: existing });
+    await companiesGroup();
+    await waitFor(() => expect(candidateAsks()).toContain('/people/candidates?projectId=p1'));
+    expect(candidateAsks().some((a) => a.includes('companyIds='))).toBe(false);
   });
 
   it('a new main company is sent as the first of the companies', async () => {

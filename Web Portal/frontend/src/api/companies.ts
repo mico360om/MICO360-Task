@@ -135,5 +135,8 @@ export function companiesApi(client: ApiClient) {
     /** Who may be on the team of a project in these companies (each must be one of mine; administrators: any). */
     candidates: (companyIds: string[]) =>
       client.get<{ data: CompanyPersonOption[] }>(`/people/candidates?companyIds=${companyIds.map(encodeURIComponent).join(',')}`).then((r) => r.data),
+    /** Who may join this project's team: the people of ANY of its companies (for those who may run its team). */
+    projectCandidates: (projectId: string) =>
+      client.get<{ data: CompanyPersonOption[] }>(`/people/candidates?projectId=${encodeURIComponent(projectId)}`).then((r) => r.data),
   };
 }

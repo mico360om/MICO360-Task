@@ -211,7 +211,8 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
   const directory = useMemo(() => (Array.isArray(dirQ.data) ? dirQ.data : []), [dirQ.data]);
   // companies: on a site with two or more, the owner and the team are people of the project's
   // companies (the server refuses anyone else) — the field's choice, or the one company it goes into.
-  const { people: candidates, settled: candidatesSettled } = useTeamCandidateState(showCompanies ? companyIds : startCompanies);
+  // Editing with the companies as they are: the project's own candidates (people of ANY of its companies).
+  const { people: candidates, settled: candidatesSettled } = useTeamCandidateState(showCompanies ? companyIds : startCompanies, { projectId: editing && !companiesChanged ? saved!.id : null });
   const people = useMemo<DirectoryUser[]>(() => {
     if (!candidates) return directory;
     const pool: DirectoryUser[] = candidates.map((c) => ({ ...c, active: true }));

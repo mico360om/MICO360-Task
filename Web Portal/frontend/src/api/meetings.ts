@@ -443,6 +443,13 @@ function queryString(params: Record<string, string | undefined>): string {
   return s ? `?${s}` : '';
 }
 
+/** One of a meeting's people as its roster names them (companies). */
+export interface MeetingPerson {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
 export function meetingsApi(client: ApiClient) {
   return {
     list: (filter: MeetingListFilter = {}) =>
@@ -478,6 +485,12 @@ export function meetingsApi(client: ApiClient) {
 
     // Attendees (sub-resource)
     listAttendees: (meetingId: string) => client.get<{ data: Attendee[] }>(`/meetings/${meetingId}/attendees`).then((r) => r.data),
+    /**
+     * companies: the roster and the meeting's people by name (its organizer first) — someone invited
+     * from another company doesn't find them in their directory. `people` is empty from an older server.
+     */
+    listAttendeesWithPeople: (meetingId: string) =>
+      client.get<{ data: Attendee[]; people?: MeetingPerson[] }>(`/meetings/${meetingId}/attendees`).then((r) => ({ attendees: r.data, people: Array.isArray(r.people) ? r.people : [] })),
     addAttendee: (meetingId: string, input: NewAttendeeInput) =>
       client.post<{ data: Attendee }>(`/meetings/${meetingId}/attendees`, input).then((r) => r.data),
     updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; response?: InvitationResponse; department?: string | null }) =>

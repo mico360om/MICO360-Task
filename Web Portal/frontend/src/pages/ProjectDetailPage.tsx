@@ -179,7 +179,8 @@ export function ProjectDetailPage() {
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
   // companies: with two or more on the site, new members come from the project's companies (mine only,
   // unless I'm an administrator); null = the directory, as before.
-  const candidates = useTeamCandidates(canManage ? projectCompaniesOf(project).map((c) => c.id) : null);
+  // companies: …from ANY of the project's companies (owner, 31 Oct) — asked by the project.
+  const candidates = useTeamCandidates(canManage ? projectCompaniesOf(project).map((c) => c.id) : null, { projectId: canManage ? id : null });
   const addable = candidates
     ? candidates.map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const }))
     : directory.filter((u) => u.active !== false).map((u) => ({ id: u.id, name: name(u), role: 'MEMBER' as const }));
