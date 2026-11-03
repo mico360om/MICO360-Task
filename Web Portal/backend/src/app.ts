@@ -778,7 +778,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.notificationService) {
         // companies: the bell follows the person's projects and the pick.
-        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds, pickOf });
+        // companies: the bell hides notices about projects outside the person's active companies (and the
+        // pick); the team rule stays as in 1.20 (an assignee off the team keeps their task's notices).
+        const companies = deps.companyAccess;
+        const noticeScope = companies ? (u: string, r: string[], pick?: string | null) => companies.companyProjectIds({ id: u, roles: r }, pick ?? null) : accessibleProjectIds;
+        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds: noticeScope, pickOf });
       }
       if (deps.dailyEmails) {
         await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });

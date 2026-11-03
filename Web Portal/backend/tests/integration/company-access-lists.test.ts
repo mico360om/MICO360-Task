@@ -162,6 +162,24 @@ describe('lists follow companies and the pick (companies)', () => {
     expect(await api.get(ana, '/notifications/unread-count')).toEqual({ count: unreadVisible });
   });
 
+  // A one-company site is unchanged: 1.20's bell shows a task's notices to its assignee even when they
+  // aren't on the project's team (the demo and the owner's data have such assignees). Companies add one
+  // condition only: the project must be in one of the person's active companies.
+  it('notifications: an assignee off the team still sees the task’s notices inside their company — not outside it', async () => {
+    const { amy, bob } = w.as;
+    await prisma.notification.createMany({
+      data: [
+        { userId: amy.id, type: 'TASK_OVERDUE', title: 'amy ZZALPHA overdue', entityType: 'task', entityId: w.tasks.TA1, projectId: w.projects.PA },
+        { userId: bob.id, type: 'TASK_OVERDUE', title: 'bob ZZALPHA overdue', entityType: 'task', entityId: w.tasks.TA1, projectId: w.projects.PA },
+      ],
+    });
+    expect(titlesOf(await api.get(amy, '/notifications'))).toEqual(['amy ZZALPHA overdue']); // amy: Alpha, not on PA's team
+    expect(await api.get(amy, '/notifications/unread-count')).toEqual({ count: 1 });
+    expect(titlesOf(await api.get(amy, '/notifications', { 'x-company-id': w.companies.A }))).toEqual(['amy ZZALPHA overdue']);
+    expect(titlesOf(await api.get(bob, '/notifications'))).toEqual([]); // bob: Beta only
+    expect(await api.get(bob, '/notifications/unread-count')).toEqual({ count: 0 });
+  });
+
   it('new notices carry their project', async () => {
     const notifications = createNotificationService({ notifications: createPrismaNotificationRepository(prisma) });
     await notifications.notify({ userId: w.people.ana, type: 'TASK_COMMENT', title: 'New comment on your task', entityType: 'task', entityId: w.tasks.TA1 });

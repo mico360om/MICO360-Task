@@ -19,7 +19,7 @@ if (!OLD || !NEW || USERS.length === 0) {
 }
 
 const NEW_KEYS = new Set(['companies', 'mainCompanyId', 'archived', 'colleague', 'hasAccess', 'readOnly', 'authors', 'companyId', 'view', 'company', 'primaryCompanyId']);
-const VOLATILE = new Set(['serverTime', 'lastActiveAt']);
+const VOLATILE = new Set(['serverTime', 'lastActiveAt', 'generatedAt']);
 const strip = (v) =>
   Array.isArray(v)
     ? v.map(strip)
@@ -74,12 +74,22 @@ async function get(base, token, url) {
   return { status: r.status, json };
 }
 
+/**
+ * Notifications made after the copies were restored (each server's own sweeps — reminders, digests)
+ * get their own ids, times and order: compare them as a set of what they say.
+ */
+const asSet = (rows) =>
+  Array.isArray(rows)
+    ? rows.map(({ id: _i, createdAt: _c, readAt, ...r }) => ({ ...r, read: !!readAt })).map((r) => JSON.stringify(strip(r))).sort()
+    : rows;
+const normalize = (url, json) => (url === '/notifications' && json && typeof json === 'object' ? { ...json, data: asSet(json.data) } : json);
+
 let diffs = 0;
 for (const user of USERS) {
   const [oldTok, newTok] = await Promise.all([login(OLD, user), login(NEW, user)]);
   for (const url of ROUTES) {
     const [a, b] = await Promise.all([get(OLD, oldTok, url), get(NEW, newTok, url)]);
-    const d = a.status !== b.status ? `status ${a.status} ≠ ${b.status}` : firstDiff(strip(a.json), strip(b.json));
+    const d = a.status !== b.status ? `status ${a.status} ≠ ${b.status}` : firstDiff(strip(normalize(url, a.json)), strip(normalize(url, b.json)));
     if (d) diffs++;
     console.log(`${d ? 'DIFF' : 'SAME'} ${user} GET ${url} (${b.status})${d ? ` — ${d}` : ''}`);
   }

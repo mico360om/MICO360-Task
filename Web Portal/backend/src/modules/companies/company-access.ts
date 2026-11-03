@@ -96,6 +96,12 @@ export interface CompanyAccess {
   projectScope(viewer: Viewer, pick: string | null): Promise<Prisma.ProjectWhereInput>;
   /** The ids of projectScope — null only for an admin without a pick ("every project"). */
   visibleProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null>;
+  /**
+   * The projects (deleted ones too) in the person's active companies, in the pick when given — null only
+   * for an admin without a pick. The bell's scope: companies add this one condition to what 1.20 showed
+   * (a task's notices reach its assignee even off the project's team).
+   */
+  companyProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null>;
   canSeeProject(viewer: Viewer, projectId: string): Promise<boolean>;
   /** Of these people, who may see the project now: active admins, and team members sharing an active company with it. */
   whoCanSeeProject(projectId: string, userIds: readonly string[]): Promise<Set<string>>;
@@ -142,6 +148,13 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
     if (isAdminRoles(viewer.roles) && !pick) return null;
     const rows = await prisma.project.findMany({ where: await projectScope(viewer, pick), select: { id: true } });
     return rows.map((r) => r.id);
+  }
+
+  async function companyProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null> {
+    const admin = isAdminRoles(viewer.roles);
+    if (admin && !pick) return null;
+    const where: Prisma.ProjectWhereInput = admin ? inCompanyWhere(pick!) : pick ? pickedCompanyWhere(viewer.id, pick) : sharedCompanyWhere(viewer.id);
+    return (await prisma.project.findMany({ where, select: { id: true } })).map((p) => p.id);
   }
 
   async function canSeeProject(viewer: Viewer, projectId: string): Promise<boolean> {
@@ -214,5 +227,5 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
     return shares > 0 ? 'full' : 'invitee';
   }
 
-  return { activeCompanyIds, checkPick, projectScope, visibleProjectIds, canSeeProject, whoCanSeeProject, isColleague, knownPeople, projectCompanyPeople, meetingView };
+  return { activeCompanyIds, checkPick, projectScope, visibleProjectIds, companyProjectIds, canSeeProject, whoCanSeeProject, isColleague, knownPeople, projectCompanyPeople, meetingView };
 }
