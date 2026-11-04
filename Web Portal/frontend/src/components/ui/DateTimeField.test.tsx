@@ -102,6 +102,31 @@ describe('DateTimeField: the site’s day and 24-hour time', () => {
   });
 });
 
+// 1.22 QA: on a phone (375×812) the Starts calendar opened below its field at y 452, 404px tall, so its
+// Today / Clear row was below the screen — there was room neither below nor above the field.
+describe('DateTimeField: the calendar stays on the screen', () => {
+  it('with no room below or above its field, it is moved up to fit, never past the screen’s edge', async () => {
+    const height = Object.getOwnPropertyDescriptor(window, 'innerHeight');
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 812 });
+    const offH = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(404);
+    const offW = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(304);
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 402, bottom: 446, left: 16, right: 200, width: 184, height: 44, x: 16, y: 402, toJSON: () => ({}) } as DOMRect);
+    try {
+      render(<Harness />);
+      await userEvent.click(screen.getByRole('button', { name: 'Starts: day, Wed 4 Nov 2026' }));
+      const box = screen.getByRole('dialog', { name: 'Choose a day' });
+      const top = parseFloat(box.style.top);
+      expect(top).toBeGreaterThanOrEqual(8);
+      expect(top + 404).toBeLessThanOrEqual(812 - 8);
+    } finally {
+      offH.mockRestore();
+      offW.mockRestore();
+      rect.mockRestore();
+      if (height) Object.defineProperty(window, 'innerHeight', height);
+    }
+  });
+});
+
 describe('DayPickerButton (a due date chip)', () => {
   it('shows the day or "No due date", picks a day, and can clear it', async () => {
     const onPick = vi.fn();

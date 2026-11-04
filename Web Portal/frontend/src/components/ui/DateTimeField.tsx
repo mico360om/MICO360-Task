@@ -122,7 +122,10 @@ function CalendarPopover({ anchor, onClose, children }: { anchor: RefObject<HTML
       if (!a || !el) return;
       const [w, h] = [el.offsetWidth, el.offsetHeight];
       const below = a.bottom + 6;
-      const top = below + h > window.innerHeight - 8 && a.top - 6 - h >= 8 ? a.top - 6 - h : below;
+      const above = a.top - 6 - h;
+      // Below its button, else above it; with room for neither (a phone), as low as still fits on the screen.
+      const fits = below + h <= window.innerHeight - 8;
+      const top = fits ? below : above >= 8 ? above : Math.max(8, window.innerHeight - 8 - h);
       setPos({ top, left: Math.max(8, Math.min(a.left, window.innerWidth - w - 8)) });
     };
     place();
@@ -162,7 +165,7 @@ function CalendarPopover({ anchor, onClose, children }: { anchor: RefObject<HTML
         const to = e.relatedTarget as Node | null;
         if (to && !root.current?.contains(to) && !anchor.current?.contains(to)) close.current();
       }}
-      style={{ position: 'fixed', top: pos?.top ?? 0, left: pos?.left ?? 0, zIndex: 70, visibility: pos ? 'visible' : 'hidden' }}
+      style={{ position: 'fixed', top: pos?.top ?? 0, left: pos?.left ?? 0, zIndex: 70, visibility: pos ? 'visible' : 'hidden', maxHeight: 'calc(100vh - 1rem)', overflowY: 'auto' }}
       className="w-[min(19rem,calc(100vw-1rem))] rounded-xl border border-line bg-surface p-3 text-sm shadow-lift animate-fade-in"
     >
       {children}
