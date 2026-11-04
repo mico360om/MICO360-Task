@@ -1,7 +1,17 @@
-import { PdfDocument, hexToRgb } from '../../lib/pdf-document';
-import { isolate, textDirection } from '../../lib/pdf-text';
-import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
-import { fmtDate, fmtDay, fmtTimeRange, resolveMinutesTimeZone, type MinutesBrand } from '../meetings/minutes';
+import { PdfDocument } from '../../lib/pdf-document';
+import { isolate } from '../../lib/pdf-text';
+import {
+  MINUTES_TYPE,
+  fmtDate,
+  fmtDay,
+  fmtTimeRange,
+  minutesProjectHeader,
+  minutesTitle,
+  printFinalMinutes,
+  projectFacts,
+  resolveMinutesTimeZone,
+  type MinutesBrand,
+} from '../meetings/minutes';
 import type { FinalMinutesContent } from '../meetings/final-minutes';
 
 /**
@@ -33,8 +43,6 @@ export interface ClientMinutesPdfData {
   logo?: Buffer | null;
 }
 
-const INK: [number, number, number] = [0.11, 0.1, 0.09];
-
 export function buildClientMinutesPdf(data: ClientMinutesPdfData): Buffer {
   const { brand, project, meeting, content: c } = data;
   const tz = resolveMinutesTimeZone(meeting.timeZone, data.companyTimeZone);
@@ -46,63 +54,30 @@ export function buildClientMinutesPdf(data: ClientMinutesPdfData): Buffer {
     .filter(Boolean)
     .join('\n');
 
+  // The staff minutes' compact look (see meetings/minutes.ts).
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,
     palette: { brand: brand.colors?.brand, ink: brand.colors?.ink, muted: brand.colors?.muted, line: brand.colors?.line },
     footerLeft: footer,
+    density: 'compact',
     ...(data.logo ? { logo: data.logo } : {}),
   });
 
-  const subtitle = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName]
-    .filter((b): b is string => Boolean(b))
-    .map(isolate)
-    .join('  ·  ');
-  doc.identityHeader({
-    image: project.image,
-    icon: project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
-    initials: projectInitials(project.name),
-    color: project.color ? hexToRgb(project.color, hexToRgb(brand.colors?.brand ?? '#8B1E1E')) : undefined,
-    eyebrow: 'Minutes of Meeting',
-    title: project.name,
-    subtitle: subtitle || undefined,
-    badge: { text: 'Final', tone: 'success' },
-  });
-
-  doc.text(meeting.title, { bold: true, size: 20, color: INK, gap: 6, family: 'display' });
+  minutesProjectHeader(doc, project, brand.colors?.brand, { text: 'Final', tone: 'success' });
+  minutesTitle(doc, meeting.title);
+  // When on the left; the project (its name, code, number and client) on the right.
   doc.keyValueColumns(
     [
       ['Date', fmtDate(meeting.startAt, tz)],
       ['Time', fmtTimeRange(meeting.startAt, meeting.endAt, tz)],
+      ['Time zone', tz],
     ],
-    [['Project', project.name]],
+    projectFacts(project),
+    { size: MINUTES_TYPE.facts },
   );
 
   doc.spacer(6);
   doc.statusStrip(data.approvedAt ? `FINAL · Approved on ${isolate(fmtDay(data.approvedAt, tz))}` : 'FINAL', 'success');
-
-  if (c.summary) {
-    doc.subheading('Summary');
-    doc.text(c.summary, { direction: textDirection(c.summary) });
-  }
-  if (c.discussion.length > 0) {
-    doc.subheading('Discussion', { keepWith: 30 });
-    for (const d of c.discussion) {
-      doc.text(d.topic, { bold: true, size: 10.5, color: INK, gap: 1, direction: textDirection(d.topic) });
-      for (const line of d.text.split('\n').filter((l) => l.trim())) doc.text(line.trim(), { gap: 1, direction: textDirection(line) });
-      doc.spacer(4);
-    }
-  }
-  if (c.decisions.length > 0) {
-    doc.subheading('Decisions', { keepWith: 30 });
-    c.decisions.forEach((d, i) => doc.numbered(`${i + 1}.`, d, { direction: textDirection(d) }));
-  }
-  if (c.risks.length > 0) {
-    doc.subheading('Risks & Open Issues', { keepWith: 30 });
-    for (const r of c.risks) doc.bullet(r, { direction: textDirection(r) });
-  }
-  if (c.nextSteps.length > 0) {
-    doc.subheading('Next Steps', { keepWith: 30 });
-    for (const n of c.nextSteps) doc.bullet(n, { direction: textDirection(n) });
-  }
+  printFinalMinutes(doc, c);
   return doc.build();
 }

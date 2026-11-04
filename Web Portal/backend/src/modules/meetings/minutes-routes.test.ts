@@ -432,7 +432,8 @@ describe('Minutes PDF route: the project header', () => {
     expect(res.statusCode).toBe(200);
     const { pages, contents } = inspectPdf(res.rawPayload);
     expect(read).toEqual(['/uploads/projects/falcon.jpg']);
-    expect(pages[0]).toContain('FAL  ·  Project no. PDO-2026-014  ·  Acme Corp');
+    // Its code, number and client are among the facts under the title.
+    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'FAL', 'Project no.', 'PDO-2026-014', 'Client', 'Acme Corp']));
     expect(contents[0]).toMatch(/\/I\d+ Do/);
   });
 
