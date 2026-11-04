@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { MyActionItemsPage } from './MyActionItemsPage';
 import { MeetingsPage } from './MeetingsPage';
 import { todayKey, shiftDayKey } from '../lib/due-date';
@@ -38,7 +39,25 @@ function renderIt(ui: React.ReactElement) {
   );
 }
 
+function Where() {
+  return <output data-testid="where">{useLocation().search}</output>;
+}
+
 describe('MyActionItemsPage', () => {
+  it('shows the linked task’s number as the chip, which opens the task (1.22.3)', async () => {
+    routes = (u) =>
+      u.includes('/me/action-items')
+        ? json({ data: [item({ id: 'a', description: 'Order the valves', taskId: 't9', taskKey: 'MICO-142' }), item({ id: 'b', description: 'No task here' })] })
+        : undefined;
+    renderIt(<><MyActionItemsPage /><Where /></>);
+    const row = (await screen.findByText('Order the valves')).closest('li')!;
+    const open = within(row).getByRole('button', { name: 'Open MICO-142: Order the valves' });
+    expect(open.querySelector('[data-task-key="MICO-142"]')).not.toBeNull();
+    await userEvent.click(open);
+    expect(screen.getByTestId('where')).toHaveTextContent('task=t9');
+    expect(screen.getByText('No task here').closest('li')!.querySelector('[data-task-key]')).toBeNull();
+  });
+
   it('counts overdue by calendar day in company time — due today is not overdue (XP-03)', async () => {
     const today = todayKey('Asia/Muscat');
     routes = (u) =>

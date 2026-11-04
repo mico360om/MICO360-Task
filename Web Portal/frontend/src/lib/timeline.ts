@@ -423,11 +423,11 @@ export function markerLabel(g: MeetingMarker): string {
   return g.items.length === 1 ? `Meeting ${g.items[0]!.title}, ${markerDays(g)}` : `${g.items.length} meetings, ${markerDays(g)}`;
 }
 
-/** "Milestone Beta build, 6 Nov, not reached yet", "2 milestones, 6–7 Nov, 1 reached". */
+/** "Milestone MOB-2 Beta build, 6 Nov, not reached yet" (its number first, 1.22.3), "2 milestones, 6–7 Nov, 1 reached". */
 export function milestoneMarkerLabel(g: MilestoneMarker, today: string): string {
   if (g.items.length === 1) {
     const m = g.items[0]!;
-    return `Milestone ${m.title}, ${shortDay(m.date!, today)}, ${m.done ? 'reached' : 'not reached yet'}`;
+    return `Milestone ${m.key ? `${m.key} ` : ''}${m.title}, ${shortDay(m.date!, today)}, ${m.done ? 'reached' : 'not reached yet'}`;
   }
   const reached = g.items.filter((m) => m.done).length;
   const state = reached === g.items.length ? 'all reached' : reached ? `${reached} reached` : 'not reached yet';

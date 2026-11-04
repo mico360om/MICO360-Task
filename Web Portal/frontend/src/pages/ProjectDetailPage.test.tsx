@@ -130,10 +130,16 @@ describe('ProjectDetailPage: the dashboard', () => {
   it('gives the overview: milestones, deadlines, the manager, and the next meeting', async () => {
     renderPage();
     const marks = await screen.findByRole('region', { name: 'Milestones' });
-    expect(await within(marks).findByRole('button', { name: 'Go-live' })).toBeInTheDocument();
+    const goLive = await within(marks).findByRole('button', { name: 'Go-live' });
+    expect(goLive).toBeInTheDocument();
+    // 1.22.3: each milestone shows its number, the chip before the title.
+    const mark = within(marks).getByText('T4');
+    expect(mark).toHaveAttribute('data-task-key', 'T4');
+    expect(mark.compareDocumentPosition(goLive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(marks).getByText(/10 Oct 2026 · Due in 10 days/)).toBeInTheDocument();
     const soon = screen.getByRole('region', { name: 'Upcoming deadlines' });
     expect(within(soon).getByText('Task t2')).toBeInTheDocument(); // overdue, listed first
+    expect(within(soon).getByText('T2')).toHaveAttribute('data-task-key', 'T2');
     expect(within(soon).getByText(/^Late/)).toBeInTheDocument();
     const team = screen.getByRole('region', { name: 'Team' });
     expect(within(team).getByText('Mona M')).toBeInTheDocument();

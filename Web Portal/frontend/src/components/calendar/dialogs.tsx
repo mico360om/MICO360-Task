@@ -9,6 +9,11 @@ import { MeetingChip, PRIORITY_LABEL, STATUS_META, TaskChip, dayLabel, fullDayLa
 import { ProjectAvatar, type ProjectLook } from '../ProjectAvatar';
 import { ApprovalChip } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
+import { TaskKey } from '../TaskKey';
+
+/** The line under a task in a day's list: who has it (its number is the chip before the title, 1.22.3); a repeat not created yet says so. */
+const dayMeta = (item: CalItem): string | undefined =>
+  [item.kind === 'task' ? null : 'Not created yet', item.task.assignees?.map((a) => a.name).join(', ')].filter(Boolean).join(' · ') || undefined;
 
 function Shell({ label, onClose, children, wide = false }: { label: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useDialog(onClose, { initialFocus: 'container' });
@@ -78,7 +83,7 @@ export function DayDialog({ day, items, meetings = [], colorOf, canDrag, canCrea
             ))}
             {items.map((item) => (
               <li key={item.key}>
-                <TaskChip item={item} color={colorOf(item.task.projectId)} draggable={canDrag(item)} onOpen={onOpen} meta={`${item.task.key}${item.task.assignees?.length ? ` · ${item.task.assignees.map((a) => a.name).join(', ')}` : ''}`} />
+                <TaskChip item={item} color={colorOf(item.task.projectId)} draggable={canDrag(item)} onOpen={onOpen} meta={dayMeta(item)} />
               </li>
             ))}
           </ul>
@@ -189,7 +194,7 @@ export function TaskPreview({
     <Shell label={t.title} onClose={onClose} wide>
       <Header
         title={<span dir="auto">{t.title}</span>}
-        sub={<span className="font-mono">{t.key}</span>}
+        sub={item.kind === 'task' ? <TaskKey value={t.key} /> : null}
         onClose={onClose}
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">

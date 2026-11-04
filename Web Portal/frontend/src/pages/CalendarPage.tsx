@@ -249,7 +249,8 @@ export function CalendarPage() {
   const meta = (item: CalItem) => {
     const p = projectById.get(item.task.projectId);
     const people = item.task.assignees?.map((a) => a.name).join(', ');
-    return [item.kind === 'task' ? item.task.key : 'Not created yet', p?.name, people].filter(Boolean).join(' · ');
+    // The number is the chip before the title (1.22.3); a repeat not created yet says so instead.
+    return [item.kind === 'task' ? null : 'Not created yet', p?.name, people].filter(Boolean).join(' · ');
   };
 
   const label = periodLabel(view, cursor, weekStart);

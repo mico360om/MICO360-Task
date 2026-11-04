@@ -5,6 +5,7 @@ import { datesLine, doneLine, lateNote, markerDays, nextLine, shortDay, weekdayD
 import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { HealthPill } from './parts';
 import type { TimelineDetail } from './TimelineChart';
+import { TaskKey } from '../TaskKey';
 
 const LINK = 'inline-flex min-h-[2rem] [@media(pointer:coarse)]:min-h-11 items-center rounded-lg border px-2.5 text-xs font-bold transition-colors';
 const MAIN_LINK = `${LINK} border-info/40 bg-info-soft text-info hover:border-info`;
@@ -88,7 +89,7 @@ export function TimelineDetails({
           <span aria-hidden="true">◆ </span>
           {single.title}
         </h3>
-        <p className="font-mono text-[11px] text-ink-2">{single.key}</p>
+        <p><TaskKey value={single.key} /></p>
         <Facts
           rows={[
             ['Project', project.name],
@@ -105,10 +106,10 @@ export function TimelineDetails({
           {list.map((m) => (
             <li key={m.id} className="py-1.5">
               <span aria-hidden="true">◆ </span>
+              <TaskKey value={m.key} className="me-1.5" />
               <span className="font-medium text-ink">{m.title}</span>
               <span className="block text-xs text-ink-2">
-                {m.key}
-                {detail.first === detail.last ? '' : ` · ${shortDay(m.date!, today)}`} · {stateOf(m)}
+                {detail.first === detail.last ? '' : `${shortDay(m.date!, today)} · `}{stateOf(m)}
               </span>
             </li>
           ))}

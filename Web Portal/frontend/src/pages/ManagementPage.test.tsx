@@ -192,6 +192,11 @@ describe('ManagementPage', () => {
     expect(rows[1]).toHaveTextContent('Red');
     expect(rows[1]).toHaveTextContent('Milestone “Handover” is 3 days late');
     expect(rows[1]).toHaveTextContent('3 days late');
+    // 1.22.3: the next milestone shows its number, the chip before its title (table and phone cards).
+    for (const chip of within(health).getAllByText('RIG-1')) {
+      expect(chip).toHaveAttribute('data-task-key', 'RIG-1');
+      expect(chip.closest('button')).toHaveAccessibleName('RIG-1 Handover');
+    }
     expect(rows[2]).toHaveTextContent('Green');
     expect(rows[2]).toHaveTextContent('On track');
     // An Arabic name sits at the start like the others, read right to left inside its own <bdi> (D3).

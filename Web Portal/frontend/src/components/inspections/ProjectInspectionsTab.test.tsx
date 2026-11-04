@@ -111,7 +111,7 @@ describe('a project’s Inspections tab', () => {
     const finished = screen.getByRole('region', { name: 'Finished (1)' });
     expect(within(finished).getByText('2 failed')).toBeInTheDocument();
     expect(within(finished).getByText('Visible to client')).toBeInTheDocument();
-    expect(within(finished).getByText('RIG-1')).toBeInTheDocument();
+    expect(within(finished).getByText('RIG-1')).toHaveAttribute('data-task-key', 'RIG-1'); // 1.22.3: the chip
   });
 
   it('starts one from a form, for a task and a place, then opens it', async () => {
@@ -246,6 +246,21 @@ describe('scheduled inspections on the Inspections tab', () => {
     expect(row).toHaveTextContent('Last done 27 Oct 2026');
     expect(within(row!).getByText('1 late').className).toMatch(/text-danger/);
     expect(within(row!).getByLabelText('Inspectors: Ali Hassan and Sara Al Balushi')).toBeInTheDocument();
+  });
+
+  it('a schedule row and a due check show the task’s number as the chip, before the name (1.22.3)', async () => {
+    schedules = { ...schedules, schedules: [SCHEDULE] };
+    checks = { total: 1, checks: [check('1')] };
+    show({ onOpenTask: vi.fn() });
+    const region = await screen.findByRole('region', { name: 'Schedules (1)' });
+    const [row] = within(region).getAllByRole('listitem');
+    const chip = within(row!).getByText('RIG-31');
+    expect(chip).toHaveAttribute('data-task-key', 'RIG-31');
+    expect(chip.compareDocumentPosition(within(row!).getByText('Daily rig check – Rig 3')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const due = await screen.findByRole('region', { name: 'Due checks (1)' });
+    const key = within(due).getByText('RIG-1');
+    expect(key).toHaveAttribute('data-task-key', 'RIG-1');
+    expect(key.compareDocumentPosition(within(due).getByRole('button', { name: 'Daily rig check – Rig 3' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('an older schedule that waits for each check says so (no next day while one is open)', async () => {

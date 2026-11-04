@@ -263,7 +263,8 @@ describe('markers', () => {
       ['2026-11-20', 'c', false],
     ]);
     expect(milestoneMarkerLabel(groups[0]!, TODAY)).toBe('2 milestones, 6 Nov, 1 reached');
-    expect(milestoneMarkerLabel(groups[1]!, TODAY)).toBe('Milestone Milestone c, 20 Nov, not reached yet');
+    // 1.22.3: a milestone's own marker names its number, before its title (as a task row does).
+    expect(milestoneMarkerLabel(groups[1]!, TODAY)).toBe('Milestone MOB-c Milestone c, 20 Nov, not reached yet');
     const reached = milestoneMarkers([ms('a', '2026-11-06', true), ms('b', '2026-11-07', true)], 7)[0]!;
     expect(reached.done).toBe(true);
     expect(milestoneMarkerLabel(reached, TODAY)).toBe('2 milestones, 6–7 Nov, all reached');

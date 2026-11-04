@@ -46,6 +46,14 @@ export function managementPdfFileName(o: ManagementOverview): string {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** A project's next milestone in the health table: "RIG-1 · Handover · 24 Oct 2026 (3 days late)" — its number first (1.22.3). */
+export function milestoneCell(m: ManagementOverview['projects'][number]['nextMilestone']): string {
+  if (!m) return '—';
+  const when = m.due ? formatDay(m.due) : 'no date';
+  const state = m.waiting ? ' (waiting for approval)' : m.daysLeft !== null && m.daysLeft < 0 ? ` (${plural(-m.daysLeft, 'day')} late)` : '';
+  return `${m.key} · ${m.title} · ${when}${state}`;
+}
+
 export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: string | null; company?: PdfBrand | null }): Buffer {
   const generated = `Generated ${formatDateTime(new Date(o.generatedAt), o.timeZone)} (${o.timeZone})${meta.generatedBy ? ` by ${meta.generatedBy}` : ''}`;
   // Companies: the company's name before the product's (2+ companies), and its logo.
@@ -89,9 +97,7 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     p.owner?.name ?? '—',
     `${p.completionPct}%`,
     String(p.late),
-    p.nextMilestone
-      ? `${p.nextMilestone.title} · ${p.nextMilestone.due ? formatDay(p.nextMilestone.due) : 'no date'}${p.nextMilestone.waiting ? ' (waiting for approval)' : p.nextMilestone.daysLeft !== null && p.nextMilestone.daysLeft < 0 ? ` (${plural(-p.nextMilestone.daysLeft, 'day')} late)` : ''}`
-      : '—',
+    milestoneCell(p.nextMilestone),
     formatDay(zonedDayKey(new Date(p.lastActivityAt), o.timeZone)),
     p.reasons.map((r) => r.text).join('; '),
   ]);
