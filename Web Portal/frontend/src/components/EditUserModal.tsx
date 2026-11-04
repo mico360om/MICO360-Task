@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { usersApi, type ApiUser, type UserStatus } from '../api/users';
@@ -17,6 +17,9 @@ export interface EditUserModalProps {
   user: ApiUser;
   onClose: () => void;
 }
+
+/** Said on the New password box when Save changes is pressed with a password typed but not reset. */
+const UNAPPLIED_PASSWORD = 'This new password isn’t set yet. Press Reset to set it, or clear this box.';
 
 const ROLE_OPTIONS: { value: string; label: string; hint: string }[] = [
   { value: 'ADMIN', label: 'Administrator', hint: 'Full access — manage users, settings and every project.' },
@@ -69,6 +72,8 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
 
   const [newPassword, setNewPassword] = useState('');
   const [pwNotice, setPwNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const newPwRef = useRef<HTMLInputElement>(null);
+  const resetFormId = `${useId()}-reset`;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
 
@@ -128,6 +133,13 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
   function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    // 1.22 review: a new password typed but not reset is never dropped by Save changes — the dialog
+    // stays open and says so on the box (Reset sets it; clearing the box lets Save go ahead).
+    if (newPassword !== '') {
+      setPwNotice({ text: UNAPPLIED_PASSWORD, error: true });
+      newPwRef.current?.focus();
+      return;
+    }
     if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim()) {
       setError('First name, last name, username and email are all required.');
       return;
@@ -139,7 +151,8 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     saveMut.mutate();
   }
 
-  function resetPassword() {
+  function resetPassword(e?: FormEvent) {
+    e?.preventDefault();
     setPwNotice(null);
     if (!isStrongPassword(newPassword)) {
       setPwNotice({ text: PASSWORD_RULE_ERROR, error: true });
@@ -216,14 +229,15 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
       </div>
     </fieldset>
   );
-  // Reset password sits inside the profile's form (the two columns are one form), but is its own
-  // action: Enter in its field resets the password and never saves the profile.
+  // Reset password is its own form (1.22 review): its box and Reset button belong to the reset form
+  // (the `form` attribute — that form sits after the profile's, so both layouts keep their places).
+  // Enter in the box or Reset resets the password and never saves the profile.
   const passwordFields = (
     <section aria-labelledby="eu-reset-title" className="flex flex-col gap-1.5 border-t border-line pt-4">
       <p id="eu-reset-title" className={SECTION}>Reset password</p>
       <p className="text-xs text-ink-2">Set a new password for this user. They can change it after signing in. Resetting also unlocks a locked account.</p>
       {pwNotice ? (
-        <p role={pwNotice.error ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
+        <p id="eu-newpw-notice" role={pwNotice.error ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
           {pwNotice.text}
         </p>
       ) : null}
@@ -231,7 +245,9 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
         <div className="flex flex-1 flex-col gap-1.5">
           <FieldLabel htmlFor="eu-newpw">New password</FieldLabel>
           <input
+            ref={newPwRef}
             id="eu-newpw"
+            form={resetFormId}
             type="password"
             value={newPassword}
             onChange={(e) => { setNewPassword(e.target.value); setPwNotice(null); }}
@@ -241,11 +257,12 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
               if (newPassword && !resetPwMut.isPending) resetPassword();
             }}
             autoComplete="new-password"
-            aria-describedby="eu-newpw-hint"
+            aria-describedby={pwNotice ? 'eu-newpw-notice eu-newpw-hint' : 'eu-newpw-hint'}
+            aria-invalid={pwNotice?.error ? true : undefined}
             className={fieldClass(false)}
           />
         </div>
-        <Button type="button" variant="secondary" disabled={!newPassword || resetPwMut.isPending} loading={resetPwMut.isPending} onClick={resetPassword} className="[@media(pointer:coarse)]:!min-h-11">
+        <Button type="submit" form={resetFormId} variant="secondary" disabled={!newPassword || resetPwMut.isPending} loading={resetPwMut.isPending} className="[@media(pointer:coarse)]:!min-h-11">
           Reset
         </Button>
       </div>
@@ -307,6 +324,8 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
               </Button>
             </div>
           </form>
+          {/* Reset password's own form: its box and Reset button point here with `form`. */}
+          <form id={resetFormId} onSubmit={resetPassword} hidden />
         </div>
       </div>
     </ModalPortal>

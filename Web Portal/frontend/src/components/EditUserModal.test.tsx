@@ -168,6 +168,64 @@ describe('EditUserModal: a big form (1.22)', () => {
   });
 });
 
+// 1.22 review I2: a typed new password is never silently lost by Save changes.
+describe('EditUserModal: Reset password is its own form (1.22 review)', () => {
+  for (const width of [1280, 800]) {
+    it(`${width}px: Reset password has its own form and Reset button, outside the profile form`, async () => {
+      windowWidth(width);
+      companyServer({ companies: [alpha, beta] });
+      open(sam);
+      await screen.findByRole('group', { name: 'Companies' });
+      const box = screen.getByLabelText(/new password/i) as HTMLInputElement;
+      const profileForm = (screen.getByLabelText(/first name/i) as HTMLInputElement).form;
+      expect(profileForm).not.toBeNull();
+      expect(box.form).not.toBeNull();
+      expect(box.form).not.toBe(profileForm);
+      expect(profileForm!.contains(box.form)).toBe(false);
+      const reset = screen.getByRole('button', { name: /^reset$/i }) as HTMLButtonElement;
+      expect(reset.type).toBe('submit');
+      expect(reset.form).toBe(box.form);
+      expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).form).toBe(profileForm);
+      expect(box).toHaveAttribute('autocomplete', 'new-password');
+    });
+
+    it(`${width}px: Save changes with a new password typed but not reset keeps the dialog open and says so on the field`, async () => {
+      windowWidth(width);
+      const server = companyServer({ companies: [alpha, beta] });
+      open(sam);
+      await screen.findByRole('group', { name: 'Companies' });
+      const box = screen.getByLabelText(/new password/i);
+      await userEvent.type(box, 'Newpass123');
+      await save();
+      expect(await screen.findByText(/press reset to set it, or clear this box/i)).toBeInTheDocument();
+      expect(box).toHaveAccessibleDescription(/press reset to set it, or clear this box/i);
+      expect(box).toHaveFocus();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(server.requests('PUT', '/users/u-sam')).toHaveLength(0);
+      expect(server.requests('POST', '/users/u-sam/password')).toHaveLength(0);
+      // Reset sets it; then Save changes saves the profile and closes.
+      await userEvent.click(screen.getByRole('button', { name: /^reset$/i }));
+      await waitFor(() => expect(server.requests('POST', '/users/u-sam/password')).toHaveLength(1));
+      await save();
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(server.requests('PUT', '/users/u-sam')).toHaveLength(1);
+    });
+  }
+
+  it('a cleared box no longer holds Save changes back', async () => {
+    const server = companyServer({ companies: [alpha, beta] });
+    open(sam);
+    await screen.findByRole('group', { name: 'Companies' });
+    await userEvent.type(screen.getByLabelText(/new password/i), 'Newpass123');
+    await save();
+    await screen.findByText(/press reset to set it, or clear this box/i);
+    await userEvent.clear(screen.getByLabelText(/new password/i));
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.requests('PUT', '/users/u-sam')).toHaveLength(1);
+  });
+});
+
 // 1.22 review I3: Enter in "Search companies" filters; it never submits the form.
 describe('EditUserModal: Search companies (1.22 review)', () => {
   it('Enter in Search companies filters the list and doesn’t save', async () => {
