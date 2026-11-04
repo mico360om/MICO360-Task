@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadEnv } from './env';
+import { aiJobRetryDelays, loadEnv } from './env';
 
 const base = {
   DATABASE_URL: 'postgres://localhost/db',
@@ -43,6 +43,13 @@ describe('loadEnv', () => {
     expect(env.AI_USER_REQUESTS_PER_MINUTE).toBe(10);
     expect(env.AI_USER_REQUESTS_PER_DAY).toBe(200);
     expect(env.SECRETS_ENCRYPTION_KEY).toBe('');
+  });
+
+  it('AI_JOB_RETRY_DELAYS_MS: read outside production only, as whole milliseconds; anything else is the default', () => {
+    expect(aiJobRetryDelays(loadEnv({ ...base, NODE_ENV: 'development' } as NodeJS.ProcessEnv))).toBeUndefined();
+    expect(aiJobRetryDelays(loadEnv({ ...base, NODE_ENV: 'development', AI_JOB_RETRY_DELAYS_MS: '2000, 3000,4000' } as NodeJS.ProcessEnv))).toEqual([2000, 3000, 4000]);
+    expect(aiJobRetryDelays(loadEnv({ ...base, NODE_ENV: 'development', AI_JOB_RETRY_DELAYS_MS: '2000,soon' } as NodeJS.ProcessEnv))).toBeUndefined();
+    expect(aiJobRetryDelays({ NODE_ENV: 'production', AI_JOB_RETRY_DELAYS_MS: '1,1,1' })).toBeUndefined();
   });
 
   it('reads AI_ALLOW_PRIVATE_HOSTS as a real boolean ("false" stays false)', () => {

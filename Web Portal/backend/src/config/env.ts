@@ -99,9 +99,21 @@ const EnvSchema = z.object({
   // Per-user AI request budget.
   AI_USER_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   AI_USER_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(200),
+  /**
+   * Development and tests only (ignored in production): the waits before AI work running in the
+   * background tries again, in ms ("2000,2000,2000"); empty = 30 s, 2 min, 5 min (1.22 §10).
+   */
+  AI_JOB_RETRY_DELAYS_MS: z.string().optional().default(''),
 }).transform((env) => ({ ...env, BACKUP_NIGHTLY: env.BACKUP_NIGHTLY ?? env.NODE_ENV === 'production' }));
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/** 1.22: the background AI work's retry waits from AI_JOB_RETRY_DELAYS_MS (never in production); undefined = the defaults. */
+export function aiJobRetryDelays(env: Pick<Env, 'NODE_ENV' | 'AI_JOB_RETRY_DELAYS_MS'>): number[] | undefined {
+  if (env.NODE_ENV === 'production' || !env.AI_JOB_RETRY_DELAYS_MS.trim()) return undefined;
+  const waits = env.AI_JOB_RETRY_DELAYS_MS.split(',').map((x) => Number(x.trim()));
+  return waits.length && waits.every((w) => Number.isInteger(w) && w >= 0) ? waits : undefined;
+}
 
 /**
  * Parse TRUST_PROXY into Fastify's `trustProxy` option: 'true'/'false', a hop count ('1'),

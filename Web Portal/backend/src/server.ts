@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { getEnv, parseTrustProxy } from './config/env';
+import { aiJobRetryDelays, getEnv, parseTrustProxy } from './config/env';
 import { prisma } from './lib/prisma';
 import { buildApp } from './app';
 import { createPrismaIdempotencyStore } from './lib/idempotency';
@@ -1093,7 +1093,7 @@ async function main(): Promise<void> {
   // stopped server's job), each taken under a renewed lease so several servers never run one twice
   // and a restart resumes it.
   const aiJobStore = createPrismaAiJobStore(prisma);
-  const aiJobs = createAiJobRunner({ store: aiJobStore, logger });
+  const aiJobs = createAiJobRunner({ store: aiJobStore, logger, retryDelaysMs: aiJobRetryDelays(env) });
   const micoAiService = createMicoAiService({
     repo: micoAiRepository,
     tools: createMicoAiTools({ data: micoAiData, timeZone: companyTz }),
