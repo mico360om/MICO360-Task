@@ -201,6 +201,40 @@ describe('the minutes email in the companies world: one email, real To and Cc; a
       await h.close();
     }
   });
+
+  // 1.22 QA: an administrator may name everyone, so their send keeps ben's name and id; the "Sent" log
+  // read by ana (Alpha, who shares no company with ben and doesn't have him on the meeting) must not
+  // show them — only the address. bob is on the meeting, so ana still sees his name.
+  it('the "Sent" log names only the reader’s colleagues and the meeting’s own people, whoever sent it', async () => {
+    const { h } = await mailingApp();
+    const ben = await prisma.user.findUniqueOrThrow({ where: { id: w.people.ben } });
+    const before = new Date(Date.now() - 1000);
+    const newest = <T extends { sentAt: string }>(list: T[]) => list.filter((s) => new Date(s.sentAt) >= before).sort((a, b) => b.sentAt.localeCompare(a.sentAt))[0]!;
+    try {
+      expect((await h.post(w.as.ana, `/meetings/${w.meetings.MA}/final-minutes/approve`, { content: FINAL })).status).toBe(200);
+      const sent = await h.post(w.as.admin, `/meetings/${w.meetings.MA}/minutes/send`, { to: [{ email: emailOf('ana') }, { email: emailOf('bob') }], cc: [{ email: emailOf('ben') }] });
+      expect(sent.status).toBe(200);
+      // The administrator sent it: the kept row may name ben.
+      const kept = await prisma.meetingMinutesSend.findFirstOrThrow({ where: { meetingId: w.meetings.MA, sentAt: { gte: before } }, orderBy: { sentAt: 'desc' } });
+      expect(JSON.stringify(kept.ccAddresses)).toContain(ben.id);
+      type Line = { email: string; name: string | null; userId?: string };
+      const log = (await h.get(w.as.ana, `/meetings/${w.meetings.MA}/minutes/sends`)).data as Array<{ sentAt: string; to: Line[]; cc: Line[] }>;
+      const mine = newest(log);
+      const text = JSON.stringify(mine);
+      expect(text).not.toContain(ben.id);
+      expect(text).not.toContain(ben.lastName);
+      expect(mine.cc).toEqual([expect.objectContaining({ email: emailOf('ben'), name: null })]);
+      expect(mine.cc[0]).not.toHaveProperty('userId');
+      // bob is one of the meeting's people: his name stays.
+      expect(mine.to.find((a) => a.email.toLowerCase() === emailOf('bob'))).toMatchObject({ name: 'Bob Betaonly', userId: w.people.bob });
+      // The administrator still sees everything they sent.
+      const adminLog = (await h.get(w.as.admin, `/meetings/${w.meetings.MA}/minutes/sends`)).data as Array<{ sentAt: string; to: Line[]; cc: Line[] }>;
+      expect(newest(adminLog).cc[0]).toMatchObject({ userId: w.people.ben });
+    } finally {
+      await h.post(w.as.ana, `/meetings/${w.meetings.MA}/final-minutes/reopen`);
+      await h.close();
+    }
+  });
 });
 
 describe('meeting_minutes_sends', () => {

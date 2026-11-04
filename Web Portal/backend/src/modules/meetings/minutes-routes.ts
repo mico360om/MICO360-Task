@@ -471,12 +471,13 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     const sends = deps.minutesSends ? await deps.minutesSends.listByMeeting(id) : [];
     const senders = [...new Set(sends.flatMap((s) => (s.sentById ? [s.sentById] : [])))];
     const names = senders.length ? await deps.resolveUserNames(senders) : new Map<string, string>();
+    const named = await namedFor(req, id, sends.flatMap((s) => [...s.to, ...s.cc]));
     return {
       data: sends.map((s) => {
         const results = new Map(s.results.map((r) => [r.email.toLowerCase(), r]));
         const withResult = (a: MinutesSendAddress) => {
           const r = results.get(a.email.toLowerCase());
-          return { ...a, ok: r?.ok ?? false, ...(r?.error ? { error: r.error } : {}) };
+          return { ...named(a), ok: r?.ok ?? false, ...(r?.error ? { error: r.error } : {}) };
         };
         return {
           id: s.id,
@@ -495,8 +496,32 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     const { id } = req.params as { id: string };
     if (!(await mayOpen(req, reply, id))) return reply;
     const found = deps.minutesSends ? await deps.minutesSends.recentAddresses(id) : [];
-    return { data: found.map((a) => ({ email: a.email, name: a.name })) };
+    const named = await namedFor(req, id, found);
+    return { data: found.map((a) => ({ email: a.email, name: named(a).name })) };
   });
+
+  /**
+   * 1.22 QA: whose names (and account ids) the reader of the "Sent" log or the Cc suggestions may see.
+   * A send keeps the names its sender may see (an administrator: everyone), so another reader is shown
+   * only their own colleagues and the meeting's own people by name; anyone else is just the address —
+   * as when the reader types it themselves.
+   */
+  async function namedFor<A extends { email: string; name: string | null; userId?: string | null }>(req: FastifyRequest, meetingId: string, addresses: readonly A[]): Promise<(a: A) => A> {
+    const isColleague = deps.isColleague;
+    const accounts = [...new Set(addresses.flatMap((a) => (a.userId ? [a.userId] : [])))];
+    if (!isColleague || accounts.length === 0) return (a) => a;
+    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const meeting = await meetingService.getMeeting(meetingId);
+    const own = new Set([meeting.organizerId, ...(await deps.attendeeService.listAttendees(meetingId)).flatMap((a) => (a.userId ? [a.userId] : []))]);
+    const allowed = new Set<string>();
+    for (const userId of accounts) if (own.has(userId) || (await isColleague(viewer, userId).catch(() => false))) allowed.add(userId);
+    return (a) => {
+      if (!a.userId || allowed.has(a.userId)) return a;
+      const { userId: _hidden, ...rest } = a;
+      void _hidden;
+      return { ...rest, name: null } as A;
+    };
+  }
 
   // ── Final minutes (Final MOM): drafted (by the AI or from the notes), edited, then marked final ──
   if (deps.finalMinutes) {
