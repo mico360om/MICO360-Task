@@ -116,6 +116,8 @@ import { inviteTargetOf, type MeetingInvitees } from './modules/meetings/meeting
 import type { MeetingCompanyRule } from './modules/meetings/meeting-company';
 import type { PdfBrands } from './modules/companies/company-branding';
 import type { CompanyTime } from './modules/companies/company-time';
+import { registerErrorLogRoutes } from './modules/error-log/error-log-routes';
+import type { ErrorLogService } from './modules/error-log/error-log-service';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -331,6 +333,11 @@ export interface AppDeps extends AuthRouteDeps {
   pdfBranding?: PdfBrands;
   /** Companies: each company's week start and working days and hours (MC1 Task 15). Absent: the site's. */
   companyTime?: Pick<CompanyTime, 'hoursFor'>;
+  /**
+   * 1.22.4 the Error log: browsers' reports (POST /client-errors, /client-errors/csp) and System
+   * Settings → Error log (administrators). The server's own errors reach it through the logger.
+   */
+  errorLog?: ErrorLogService;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -455,7 +462,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     if (status >= 500) {
       // Fastify's own logger is disabled; log structured JSON (or console fallback).
-      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, status, err });
+      // The route pattern and the person go to the Error log with it (1.22.4; never the address, which can carry a token).
+      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, route: req.routeOptions?.url, status, err, userId: req.user?.id });
       else console.error(`[${req.method} ${req.url}] ${status}`, err);
       deps.errorReporter?.captureException(err, { method: req.method, url: req.url });
     }
@@ -497,6 +505,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // The phone app says "new version" only when this download is newer than itself, so a release
       // that changes only the website never asks anyone to update.
       androidAppVersion: deps.appConfig?.androidAppVersion?.() ?? null,
+      // 1.22.4: whether the page sends its errors, blocked files and slow pages to the Error log
+      // (System Settings → "Collect browser errors"; off where there is no Error log).
+      collectBrowserErrors: deps.errorLog ? await deps.errorLog.collectingNow() : false,
       serverTime: new Date().toISOString(),
     },
   }));
@@ -987,6 +998,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // companies: the Companies admin API and GET /me/companies.
       if (deps.companyService) {
         await registerCompanyRoutes(api, { service: deps.companyService, guard });
+      }
+      // 1.22.4: the Error log — browsers' reports (any page, signed in or not) and its admin page.
+      if (deps.errorLog) {
+        await registerErrorLogRoutes(api, { service: deps.errorLog, guard, userIdOf, audit: deps.auditService });
       }
       // companies: people for pickers inside projects — GET /people/candidates (MC1 Task 9).
       if (deps.companyAccess && deps.personOptions) {

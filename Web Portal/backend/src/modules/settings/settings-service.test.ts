@@ -222,6 +222,20 @@ describe('SettingsService: the company week and the weekly management summary', 
     // A broken stored value never turns it off by accident.
     expect(await createSettingsService({ settings: inMemory({ 'weeklySummary.enabled': 'off' }) }).weeklySummaryEnabled()).toBe(true);
   });
+
+  it('1.22.4 collectBrowserErrors() — "Collect browser errors" is on until an admin turns it off', async () => {
+    const svc = createSettingsService({ settings: inMemory() });
+    expect(await svc.collectBrowserErrors()).toBe(true);
+    await svc.set('errorLog.collectBrowserErrors', false);
+    expect(await svc.collectBrowserErrors()).toBe(false);
+    expect((await svc.getAll()).map((s) => s.key)).toContain('errorLog.collectBrowserErrors');
+    await expect(svc.set('errorLog.collectBrowserErrors', 'off')).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(await createSettingsService({ settings: inMemory({ 'errorLog.collectBrowserErrors': 'off' }) }).collectBrowserErrors()).toBe(true);
+    // An administrator's last visit to the Error log is kept beside the settings, never listed or written through them.
+    const visits = createSettingsService({ settings: inMemory({ 'errorLog.lastVisit.admin1': '2026-11-05T08:00:00.000Z' }) });
+    expect((await visits.getAll()).map((s) => s.key)).not.toContain('errorLog.lastVisit.admin1');
+    await expect(visits.set('errorLog.lastVisit.admin1', 'x')).rejects.toMatchObject({ code: 'UNKNOWN_SETTING' });
+  });
 });
 
 describe('SettingsService: meeting reminders (System Settings → Meeting reminders)', () => {

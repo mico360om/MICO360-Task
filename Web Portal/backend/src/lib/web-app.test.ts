@@ -34,6 +34,25 @@ describe('webAppCsp', () => {
     expect(csp).not.toMatch(/googleapis|gstatic/);
   });
 
+  it('1.22.4: exactly as strict as before, and tells the server what it blocks (the Error log)', () => {
+    expect(webAppCsp('task.mico360.com')).toBe(
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "font-src 'self' data:",
+        "img-src 'self' data: blob:",
+        "connect-src 'self' ws://task.mico360.com wss://task.mico360.com",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "form-action 'self'",
+        'report-uri /api/v1/client-errors/csp',
+        'report-to mico360-csp',
+      ].join('; '),
+    );
+  });
+
   it('never echoes an unsafe Host header', () => {
     const csp = webAppCsp("evil.example; script-src 'unsafe-inline'");
     expect(csp).toContain("connect-src 'self';");
@@ -142,6 +161,34 @@ describe('registerWebApp', () => {
     expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(res.headers['content-security-policy']).toContain('ws://localhost:4000');
     expect(res.headers['x-frame-options']).toBe('DENY');
+  });
+
+  it('1.22.4: every page names where the browser sends what the security policy blocks', async () => {
+    const res = await app.inject({ method: 'GET', url: '/dashboard', headers: { host: 'localhost:4000' } });
+    expect(res.headers['content-security-policy']).toContain('report-uri /api/v1/client-errors/csp; report-to mico360-csp');
+    expect(res.headers['reporting-endpoints']).toBe('mico360-csp="http://localhost:4000/api/v1/client-errors/csp"');
+    expect(JSON.parse(String(res.headers['report-to']))).toEqual({ group: 'mico360-csp', max_age: 10886400, endpoints: [{ url: 'http://localhost:4000/api/v1/client-errors/csp' }] });
+    // An unsafe Host is never echoed: the endpoint is then named by its path only, and Report-To (which needs a full address) is left out.
+    const odd = await app.inject({ method: 'GET', url: '/dashboard', headers: { host: 'evil"example' } });
+    expect(odd.headers['reporting-endpoints']).toBe('mico360-csp="/api/v1/client-errors/csp"');
+    expect(odd.headers['report-to']).toBeUndefined();
+  });
+
+  it('1.22.4: the hidden source maps are never served (404), compressed copies neither', async () => {
+    writeFileSync(join(root, 'assets', 'app-abc123.js.map'), '{"version":3,"sources":["../../src/secret.ts"],"mappings":""}');
+    writeFileSync(join(root, 'assets', 'app-abc123.js.map.br'), brotliCompressSync(Buffer.from('{"version":3}')));
+    for (const url of ['/assets/app-abc123.js.map', '/assets/app-abc123.js.map?x=1', '/assets/app-abc123.js.map.br', '/assets/missing.js.map']) {
+      const res = await app.inject({ method: 'GET', url, headers: { 'accept-encoding': 'br, gzip' } });
+      expect(res.statusCode, url).toBe(404);
+      expect(res.body, url).not.toContain('sources');
+      expect(res.headers['content-type'], url).not.toMatch(/html/);
+    }
+    // Another letter case: refused too (403 on a disk that ignores case, as for any file there; 404 on Linux).
+    const upper = await app.inject({ method: 'GET', url: '/assets/APP-ABC123.JS.MAP' });
+    expect([403, 404]).toContain(upper.statusCode);
+    expect(upper.body).not.toContain('sources');
+    // The bundle itself is still served.
+    expect((await app.inject({ method: 'GET', url: '/assets/app-abc123.js' })).statusCode).toBe(200);
   });
 
   it('serves the new index.html after the web app is rebuilt in place, without a restart', async () => {

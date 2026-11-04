@@ -223,13 +223,41 @@ import { createPrismaEmailEventStore, createPrismaEmailLogStore, createPrismaSup
 import { createRealtime } from './realtime/realtime';
 import { createLogger } from './lib/logger';
 import { createErrorReporter } from './lib/error-reporter';
+import { withErrorLog } from './lib/error-log-logger';
+import { createErrorLogService } from './modules/error-log/error-log-service';
+import { createPrismaErrorLogRepository } from './modules/error-log/prisma-error-log-repository';
+import { createMapStore } from './modules/error-log/stack';
 
 async function main(): Promise<void> {
   const env = getEnv();
-  const logger = createLogger({ service: 'mico360-api', level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
+  const baseLogger = createLogger({ service: 'mico360-api', level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
+  // ── The Error log (1.22.4, System Settings → Error log) ──────────────────────
+  // What browsers report (errors, blocked files and scripts, slow pages) and the server's own errors:
+  // every error line of `logger` below also goes there (lib/error-log-logger.ts) — a failed request
+  // by its route, a background job by its name (logger.job). The hidden source maps of the web app
+  // (WEB_ROOT/assets) and of this server's build (beside dist/src) give the original file:line.
+  // Its own trouble is a warning line on the plain logger, so it never fails twice or loops.
+  let serverVersion = 'unknown'; // set once the build's release file is read (below)
+  let collectSetting: () => Promise<boolean> = async () => true; // the system setting, once settings exist (below)
+  let collecting = { at: 0, on: true };
+  const errorLog = createErrorLogService({
+    repo: createPrismaErrorLogRepository(prisma),
+    maps: createMapStore({ webRoot: env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null, serverRoot: resolvePath(__dirname, '..') }),
+    timeZone: resolveTimeZone(env.COMPANY_TIMEZONE),
+    serverVersion: () => serverVersion,
+    // "Collect browser errors", read at most every 30 seconds (each report asks).
+    collecting: async () => {
+      if (Date.now() - collecting.at > 30_000) collecting = { at: Date.now(), on: await collectSetting().catch(() => collecting.on) };
+      return collecting.on;
+    },
+    warn: (message, meta) => baseLogger.warn(message, meta),
+    userNames: (ids) => resolveUserNames(ids),
+  });
+  const logger = withErrorLog(baseLogger, (message, ctx) => errorLog.recordServer(message, ctx));
   const errorReporter = createErrorReporter({
     dsn: env.SENTRY_DSN || undefined,
-    onReport: (err, ctx) => logger.error('reported to error tracker', { err, ...ctx }),
+    // The failed request itself is already in the log and the Error log ("request failed").
+    onReport: (err, ctx) => baseLogger.error('reported to error tracker', { err, ...ctx }),
   });
 
   const authService = createAuthService({
@@ -871,8 +899,13 @@ async function main(): Promise<void> {
   // carry-forward across a multi-instance deployment. The lease expires so a crash never deadlocks it.
   const jobLock = createPrismaJobLockStore(prisma);
   const SWEEP_LEASE_MS = 10 * 60 * 1000;
+  // 1.22.4: a sweep that fails says so (some were dropped without a word), in the Error log too.
+  const sweepFailed = (job: string, what: string) => (err: unknown) => {
+    logger.job(job).error(`${what} failed`, { err });
+    return false;
+  };
   const runReminders = () =>
-    runExclusive(jobLock, 'reminder-sweep', SWEEP_LEASE_MS, () => new Date(), runReminderSweep).catch(() => false);
+    runExclusive(jobLock, 'reminder-sweep', SWEEP_LEASE_MS, () => new Date(), runReminderSweep).catch(sweepFailed('reminder-sweep', 'deadline reminder sweep'));
   void runReminders();
   const reminderTimer = setInterval(() => void runReminders(), 6 * 60 * 60 * 1000);
   reminderTimer.unref?.();
@@ -960,6 +993,7 @@ async function main(): Promise<void> {
   onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });
+  collectSetting = () => settingsService.collectBrowserErrors(); // the Error log's "Collect browser errors"
   // companies: System → Companies and each person's companies (GET /me/companies). A company inherits
   // the site's week start, working hours and sender name until it has its own; the site's time zone
   // always. Logos go where uploads go, made at most 512 pixels on their long side.
@@ -1014,10 +1048,7 @@ async function main(): Promise<void> {
     runExclusive(jobLock, 'ai-model-refresh', SWEEP_LEASE_MS, () => new Date(), async () => {
       const { refreshed, failed } = await aiConfigService.refreshDueProviders();
       if (refreshed || failed) logger.info('AI model lists refreshed', { refreshed, failed });
-    }).catch((err) => {
-      logger.error('AI model refresh failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('ai-model-refresh', 'AI model refresh'));
   void runAiModelRefresh();
   const aiModelTimer = setInterval(() => void runAiModelRefresh(), 60 * 60 * 1000);
   aiModelTimer.unref?.();
@@ -1094,7 +1125,7 @@ async function main(): Promise<void> {
   // stopped server's job), each taken under a renewed lease so several servers never run one twice
   // and a restart resumes it.
   const aiJobStore = createPrismaAiJobStore(prisma);
-  const aiJobs = createAiJobRunner({ store: aiJobStore, logger, retryDelaysMs: aiJobRetryDelays(env) });
+  const aiJobs = createAiJobRunner({ store: aiJobStore, logger: logger.job('ai-jobs'), retryDelaysMs: aiJobRetryDelays(env) });
   const micoAiService = createMicoAiService({
     repo: micoAiRepository,
     tools: createMicoAiTools({ data: micoAiData, timeZone: companyTz }),
@@ -1157,7 +1188,7 @@ async function main(): Promise<void> {
   const runCarryForward = () =>
     runExclusive(jobLock, 'carry-forward-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       await carryForwardService.run();
-    }).catch(() => false);
+    }).catch(sweepFailed('carry-forward-sweep', 'carry-forward sweep'));
   void runCarryForward();
   // Re-check hourly so the sweep fires soon after local midnight without a precise scheduler.
   const carryTimer = setInterval(() => void runCarryForward(), 60 * 60 * 1000);
@@ -1251,11 +1282,8 @@ async function main(): Promise<void> {
   // Keep repeating meetings created ~3 months ahead (one lease-locked instance, every 6 hours).
   const runMeetingSeriesTopUp = () =>
     runExclusive(jobLock, 'meeting-series-top-up', SWEEP_LEASE_MS, () => new Date(), async () => {
-      await meetingSeriesService.extendAll((err, rootId) => logger.error('meeting series top-up failed', { err, meetingId: rootId }));
-    }).catch((err) => {
-      logger.error('meeting series top-up failed', { err });
-      return false;
-    });
+      await meetingSeriesService.extendAll((err, rootId) => logger.job('meeting-series-top-up').error('meeting series top-up failed', { err, meetingId: rootId }));
+    }).catch(sweepFailed('meeting-series-top-up', 'meeting series top-up'));
   void runMeetingSeriesTopUp();
   const meetingSeriesTimer = setInterval(() => void runMeetingSeriesTopUp(), 6 * 60 * 60 * 1000);
   meetingSeriesTimer.unref?.();
@@ -1272,17 +1300,14 @@ async function main(): Promise<void> {
     email: emailService,
     appUrl: env.APP_URL,
     defaultTimeZone: companyTz,
-    logger,
+    logger: logger.job('meeting-reminders'),
     emailOptions: documentBrands.email.meeting, // companies: the meeting's company
   });
   const MEETING_REMINDER_LEASE_MS = 55 * 1000;
   const runMeetingReminders = () =>
     runExclusive(jobLock, 'meeting-reminders', MEETING_REMINDER_LEASE_MS, () => new Date(), async () => {
       await meetingReminderService.runSweep();
-    }).catch((err) => {
-      logger.error('meeting reminder sweep failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('meeting-reminders', 'meeting reminder sweep'));
   void runMeetingReminders();
   const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 60 * 1000);
   meetingReminderTimer.unref?.();
@@ -1291,10 +1316,7 @@ async function main(): Promise<void> {
   const runMeetingCompletion = () =>
     runExclusive(jobLock, 'meeting-completion-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       for (const id of await meetingRepository.completeEnded(new Date())) broadcastMeetingChange(id, 'meeting:updated');
-    }).catch((err) => {
-      logger.error('meeting completion sweep failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('meeting-completion-sweep', 'meeting completion sweep'));
   void runMeetingCompletion();
   const meetingCompletionTimer = setInterval(() => void runMeetingCompletion(), 5 * 60 * 1000);
   meetingCompletionTimer.unref?.();
@@ -1371,8 +1393,8 @@ async function main(): Promise<void> {
     await dispatchReminders(planned, { period: day, store: reminderLogStore, notify: (n) => notificationService.notify(n) });
   }
 
-  const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(() => false);
-  const runEscalation = () => runExclusive(jobLock, 'escalation-sweep', SWEEP_LEASE_MS, () => new Date(), runEscalationSweep).catch(() => false);
+  const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
+  const runEscalation = () => runExclusive(jobLock, 'escalation-sweep', SWEEP_LEASE_MS, () => new Date(), runEscalationSweep).catch(sweepFailed('escalation-sweep', 'escalation sweep'));
   void runDigest();
   void runEscalation();
   const digestTimer = setInterval(() => { void runDigest(); void runEscalation(); }, 60 * 60 * 1000);
@@ -1397,7 +1419,7 @@ async function main(): Promise<void> {
     appUrl: env.APP_URL,
     // Project pictures are served by this server (/uploads/…), as in the minutes email.
     assetUrl: env.API_BASE_URL,
-    logger,
+    logger: logger.job('daily-task-emails'),
     // When the sweep last checked: in the database, so a restart or another server still knows it.
     checks: createPrismaDailyEmailCheckStore(prisma),
   });
@@ -1408,10 +1430,7 @@ async function main(): Promise<void> {
   const runDailyEmails = () =>
     runExclusive(jobLock, 'daily-task-emails', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
       await dailyEmailService.runSweep();
-    }).catch((err) => {
-      logger.error('daily task email sweep failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('daily-task-emails', 'daily task email sweep'));
   void runDailyEmails();
   const dailyEmailTimer = setInterval(() => void runDailyEmails(), 60 * 1000);
   dailyEmailTimer.unref?.();
@@ -1431,7 +1450,7 @@ async function main(): Promise<void> {
     isConfigured: () => emailService.isConfigured(),
     companyTimeZone: companyTz,
     appUrl: env.APP_URL,
-    logger,
+    logger: logger.job('weekly-management-summary'),
     // companies: each person's summary goes on their primary company's first working day.
     calendarOf: (userId) => companyTime.calendarOf(userId),
     calendars: () => companyTime.calendars(),
@@ -1439,10 +1458,7 @@ async function main(): Promise<void> {
   const runWeeklySummary = () =>
     runExclusive(jobLock, 'weekly-management-summary', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
       await weeklySummaryService.runSweep();
-    }).catch((err) => {
-      logger.error('weekly management summary sweep failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('weekly-management-summary', 'weekly management summary sweep'));
   void runWeeklySummary();
   const weeklySummaryTimer = setInterval(() => void runWeeklySummary(), 60 * 1000);
   weeklySummaryTimer.unref?.();
@@ -1486,6 +1502,7 @@ async function main(): Promise<void> {
   const packageFile = [resolvePath(__dirname, '..', 'package.json'), resolvePath(__dirname, '..', '..', 'package.json')].find((f) => existsSync(f))!;
   const packageVersion = (JSON.parse(readFileSync(packageFile, 'utf8')) as { version: string }).version;
   const release = loadReleaseFile(resolvePath(__dirname, 'release.json'), { version: packageVersion, startedAt: new Date() });
+  serverVersion = release.build.version; // server errors in the Error log carry it
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
   // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).
@@ -1535,16 +1552,13 @@ async function main(): Promise<void> {
           .catch((err) => logger.warn('backup alert email failed', { err, to: u.email }));
       }
     },
-    logger,
+    logger: logger.job('backups'),
   });
   logger.info('Backups', { folder: backups.backupDir, nightly: env.BACKUP_NIGHTLY, encrypted: Boolean(env.BACKUP_ENCRYPTION_KEY), googleDrive: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) });
   const runNightlyBackup = () =>
     runExclusive(jobLock, 'nightly-backup', 9 * 60 * 1000, () => new Date(), async () => {
       await backups.service.runNightlyIfDue();
-    }).catch((err) => {
-      logger.error('nightly backup sweep failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('nightly-backup', 'nightly backup sweep'));
   const firstBackupCheck = setTimeout(() => void runNightlyBackup(), 2 * 60 * 1000);
   firstBackupCheck.unref?.();
   const backupTimer = setInterval(() => void runNightlyBackup(), 10 * 60 * 1000);
@@ -1636,6 +1650,7 @@ async function main(): Promise<void> {
     chatService,
     logger,
     errorReporter,
+    errorLog, // 1.22.4: browsers' reports and System Settings → Error log
     authService,
     tokenService,
     otpService,
@@ -1924,10 +1939,7 @@ async function main(): Promise<void> {
           await notificationService.notify({ userId, type: 'TASK_ASSIGNED', title: 'A recurring task is ready', body: taskNoticeBody(task), entityType: 'task', entityId: task.id });
         }
       }
-    }).catch((err) => {
-      logger.error('recurrence schedule sweep failed', { err });
-      return false;
-    });
+    }).catch(sweepFailed('recurrence-schedule-sweep', 'recurrence schedule sweep'));
   void runRecurrenceSchedule();
   const recurrenceTimer = setInterval(() => void runRecurrenceSchedule(), 60 * 60 * 1000);
   recurrenceTimer.unref?.();
@@ -1937,6 +1949,17 @@ async function main(): Promise<void> {
   // and every six hours every task whose words changed any other way (a removed comment, a renamed
   // tag) — and an index built with an older version is rebuilt (task-search-sweeps).
   startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
+
+  // 1.22.4 the Error log keeps 30 days: once a day (and at start-up), on one instance, occurrences
+  // older than that and rows not seen since go.
+  const runErrorLogRetention = () =>
+    runExclusive(jobLock, 'error-log-retention', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const gone = await errorLog.sweep();
+      if (gone.groups || gone.events) logger.info('Error log: old entries removed', { ...gone });
+    }).catch(sweepFailed('error-log-retention', 'error log clean-up'));
+  void runErrorLogRetention();
+  const errorLogTimer = setInterval(() => void runErrorLogRetention(), 24 * 60 * 60 * 1000);
+  errorLogTimer.unref?.();
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

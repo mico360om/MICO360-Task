@@ -76,6 +76,8 @@ export const SETTING_SCHEMAS = {
   'company.weekStart': z.union([z.literal(0), z.literal(1), z.literal(6)]),
   // The weekly management summary email, for everyone who can see the Management page (each can turn theirs off).
   'weeklySummary.enabled': z.boolean(),
+  // 1.22.4: browsers send their errors, blocked files and slow pages to the Error log (on by default).
+  'errorLog.collectBrowserErrors': z.boolean(),
   // Automatic meeting reminders: on/off and when (each also by email or not); one of each time, longest first.
   'meetings.reminders': z
     .object({ enabled: z.boolean(), times: z.array(meetingReminderTime).min(1).max(MEETING_REMINDER_MAX_TIMES) })
@@ -159,6 +161,12 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return parsed.success ? parsed.data : true;
   }
 
+  /** 1.22.4 "Collect browser errors" (System Settings → Error log): on unless an administrator turned it off; a broken value keeps it on. */
+  async function collectBrowserErrors(): Promise<boolean> {
+    const parsed = SETTING_SCHEMAS['errorLog.collectBrowserErrors'].safeParse(await get('errorLog.collectBrowserErrors'));
+    return parsed.success ? parsed.data : true;
+  }
+
   /** The meeting reminder times in force: the saved ones, else the defaults (also when the stored value is broken). */
   async function meetingReminders(): Promise<MeetingReminderSettings> {
     const parsed = SETTING_SCHEMAS['meetings.reminders'].safeParse(await get('meetings.reminders'));
@@ -174,7 +182,7 @@ export function createSettingsService({ settings }: SettingsServiceDeps) {
     return { weekStart: week.success ? week.data : DEFAULT_COMPANY_WEEK_START, weeklySummaryEnabled: on.success ? on.data : true };
   }
 
-  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings, meetingReminders };
+  return { getAll, get, set, getCarryForward, workingHours, dailyLimit, companyWeekStart, weeklySummaryEnabled, companySettings, meetingReminders, collectBrowserErrors };
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;

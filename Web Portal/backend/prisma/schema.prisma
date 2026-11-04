@@ -1794,3 +1794,79 @@ model BackupRun {
   @@index([localDate])
   @@map("backup_runs")
 }
+
+/// 1.22.4 Error log (System Settings → Error log): one row per distinct error — what browsers report
+/// (errors, network problems, blocked files and scripts, slow pages) and the server's own (failed
+/// requests, background jobs). The same error is one row: `fingerprint` is a sha-256 of its kind, its
+/// message with numbers and ids normalised, and the site's own top frame (original file + function).
+/// Kept 30 days after it was last seen.
+model ErrorGroup {
+  id             String       @id @default(cuid())
+  fingerprint    String       @unique @db.Char(64)
+  /// ERROR, NETWORK, BLOCKED, SLOW or SERVER.
+  kind           String       @db.VarChar(16)
+  /// What happened, in the words of its latest occurrence (secrets taken out).
+  title          String       @db.VarChar(500)
+  /// The site's own top frame: its original file (src/pages/BoardPage.tsx), the latest line, the function.
+  topFile        String?      @db.VarChar(300)
+  topLine        Int?
+  topFunction    String?      @db.VarChar(120)
+  count          Int          @default(0)
+  /// The distinct people it happened to (plain ids, at most 500) and how many.
+  people         Json?
+  peopleCount    Int          @default(0)
+  firstSeenAt    DateTime
+  lastSeenAt     DateTime
+  /// The newest version it happened in.
+  lastVersion    String?      @db.VarChar(32)
+  /// OPEN, or FIXED ("Mark as fixed": hidden until it happens again in a newer version).
+  status         String       @default("OPEN") @db.VarChar(8)
+  fixedAt        DateTime?
+  fixedById      String?
+  fixedInVersion String?      @db.VarChar(32)
+  /// When it came back after being marked fixed.
+  reopenedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  events         ErrorEvent[]
+
+  @@index([lastSeenAt])
+  @@index([status, kind, lastSeenAt])
+  @@map("error_groups")
+}
+
+/// One occurrence of an error-log row (each row keeps its 20 newest). Never typed text, form values,
+/// tokens, cookies, storage or request bodies: the page's route as a pattern, the browser and system
+/// in two words, the screen size, the signed-in person's id (a plain id: the row outlives the person).
+model ErrorEvent {
+  id        String     @id @default(cuid())
+  groupId   String
+  at        DateTime
+  kind      String     @db.VarChar(16)
+  /// error, rejection, boundary, chunk · api, socket · resource, csp, csp-report · load, lcp, inp, cls · request, job, background.
+  detail    String?    @db.VarChar(32)
+  message   String     @db.VarChar(500)
+  /// The stack with the site's original file:line (trimmed to 4 KB).
+  stack     String?    @db.Text
+  /// The page's route pattern (/projects/:id); a failed request's "GET /api/v1/…" route.
+  page      String?    @db.VarChar(300)
+  /// A background job's name (server errors).
+  job       String?    @db.VarChar(100)
+  /// A blocked file or address, or a slow request.
+  resource  String?    @db.VarChar(300)
+  /// Milliseconds, or the layout-shift score.
+  value     Float?
+  count     Int        @default(1)
+  version   String?    @db.VarChar(32)
+  browser   String?    @db.VarChar(60)
+  system    String?    @db.VarChar(40)
+  screen    String?    @db.VarChar(20)
+  userId    String?
+  signedIn  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  group     ErrorGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, at])
+  @@index([at])
+  @@map("error_events")
+}

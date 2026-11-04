@@ -84,6 +84,13 @@ const SERVER_PREFIXES = ['/api/', '/socket.io/', '/uploads/', '/email-assets/'];
 /** Host header values safe to echo into the CSP (host, IPv4, [IPv6], optional port). */
 const SAFE_HOST = /^[a-z0-9.-]+(:\d{1,5})?$|^\[[0-9a-f:.]+\](:\d{1,5})?$/i;
 
+/**
+ * 1.22.4 (the Error log): where browsers send what the policy blocks — `report-uri` (Firefox, Safari)
+ * and the Reporting API group `report-to` names (Chrome, Edge). The policy itself is not changed.
+ */
+export const CSP_REPORT_PATH = '/api/v1/client-errors/csp';
+export const CSP_REPORT_GROUP = 'mico360-csp';
+
 /** The page CSP; the realtime socket is same-origin, named explicitly for older browsers. */
 export function webAppCsp(host: string | undefined): string {
   const ws = host && SAFE_HOST.test(host) ? ` ws://${host} wss://${host}` : '';
@@ -98,7 +105,23 @@ export function webAppCsp(host: string | undefined): string {
     "base-uri 'self'",
     "object-src 'none'",
     "form-action 'self'",
+    `report-uri ${CSP_REPORT_PATH}`,
+    `report-to ${CSP_REPORT_GROUP}`,
   ].join('; ');
+}
+
+/**
+ * The Reporting API endpoint headers for the policy's `report-to` group: Reporting-Endpoints (current
+ * browsers) and Report-To (older Chrome, which needs a full address). An unsafe Host is never echoed:
+ * the endpoint is then named by its path, and Report-To is left out.
+ */
+export function reportingHeaders(host: string | undefined, protocol: string): Record<string, string> {
+  if (!host || !SAFE_HOST.test(host)) return { 'Reporting-Endpoints': `${CSP_REPORT_GROUP}="${CSP_REPORT_PATH}"` };
+  const url = `${protocol === 'https' ? 'https' : 'http'}://${host}${CSP_REPORT_PATH}`;
+  return {
+    'Reporting-Endpoints': `${CSP_REPORT_GROUP}="${url}"`,
+    'Report-To': JSON.stringify({ group: CSP_REPORT_GROUP, max_age: 10886400, endpoints: [{ url }] }),
+  };
 }
 
 /** Whether a request may be answered with index.html (a client-side route). */
@@ -126,6 +149,11 @@ export function robotsTagFor(url: string): string | null {
 
 /** A pre-compressed copy written by the web build (see the frontend's vite.config). */
 const COMPRESSED_COPY = /\.(br|gz)$/i;
+/**
+ * 1.22.4: the build's hidden source maps sit beside the bundle for the Error log (the server reads
+ * them to show the site's own file and line) and are never served: they are the site's source code.
+ */
+const SOURCE_MAP = /\.map$/i;
 
 /** Cache policy for a web-app file: hashed build assets are immutable, everything else revalidates. */
 export function cacheControlFor(url: string): string {
@@ -139,6 +167,7 @@ function applyPageHeaders(req: FastifyRequest, reply: FastifyReply): void {
   // A client page's address carries its private link: never send it on as a referrer.
   reply.header('Referrer-Policy', req.url.startsWith('/client/') ? 'no-referrer' : 'strict-origin-when-cross-origin');
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  for (const [name, value] of Object.entries(reportingHeaders(req.headers.host, req.protocol))) reply.header(name, value);
 }
 
 /** Headers for a hosted download (the APK, the extension): under its own name, always checked for a newer build. */
@@ -205,8 +234,8 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string;
     // one gets it (about a third of the bytes); when there is no copy the plain file is sent. This
     // matters where nothing in front of the API compresses for it (the Windows server install).
     preCompressed: true,
-    // The copies are an encoding of a file, never a file to ask for by name.
-    allowedPath: (pathName) => !COMPRESSED_COPY.test(pathName),
+    // The copies are an encoding of a file, never a file to ask for by name; source maps are never served.
+    allowedPath: (pathName) => !COMPRESSED_COPY.test(pathName) && !SOURCE_MAP.test(pathName),
     setHeaders: (reply) => {
       reply.header('Cache-Control', cacheControlFor(reply.request.url));
       // The Android app and the extension download under their own names from any link (a shared

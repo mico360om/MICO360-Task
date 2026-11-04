@@ -373,4 +373,13 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // 1.22 Lane AI (§10): the AI's draft offered beside a meeting's minutes — Use it, Discard (editors of the meeting).
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'object',
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'object',
+  // 1.22.4 the Error log: what any page's browser reports (signed in or not — the sign-in page and,
+  // from 1.23.0, a client's own pages too), and System Settings → Error log (administrators only).
+  'POST /client-errors': 'public',
+  'POST /client-errors/csp': 'public',
+  'GET /error-log': 'admin',
+  'GET /error-log/:id': 'admin',
+  'POST /error-log/:id/fixed': 'admin',
+  'DELETE /error-log/:id/fixed': 'admin',
+  'POST /error-log/visit': 'admin',
 };
