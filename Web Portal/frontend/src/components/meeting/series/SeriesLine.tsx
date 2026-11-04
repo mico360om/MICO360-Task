@@ -1,3 +1,4 @@
+import type React from 'react';
 import { Link } from 'react-router-dom';
 import type { MeetingSeriesContext, SeriesNeighbour } from '../../../api/meeting-series';
 import { seriesDay, seriesHref } from '../../../lib/meeting-series';
@@ -35,12 +36,13 @@ function Neighbour({ which, to, timeZone, now }: { which: 'previous' | 'next'; t
  */
 export function SeriesLine({ context, timeZone, now = new Date() }: { context: MeetingSeriesContext; timeZone: string; now?: Date }) {
   const { series, position, total, previous, next } = context;
-  // Real spaces between the parts (a flex row draws the gaps), so the line reads and copies as words.
-  const dot = (
-    <>
-      {' '}
+  // Each part carries its "·" in front, so a part that wraps takes its dot with it (none left at a line's
+  // end); real spaces between, so the line reads and copies as words (a flex row draws the gaps).
+  const part = (key: string, content: React.ReactNode) => (
+    <span key={key} className="inline-flex items-center gap-x-2">
       <span aria-hidden="true" className="text-ink-3">·</span>{' '}
-    </>
+      {content}
+    </span>
   );
   return (
     <nav aria-label="Meeting series" className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
@@ -50,27 +52,10 @@ export function SeriesLine({ context, timeZone, now = new Date() }: { context: M
         <Link to={seriesHref(series.id)} className={`${linkClass} min-w-0 font-semibold`}>
           <bdi className="truncate">{series.name}</bdi>
         </Link>
-      </span>
-      {position !== null && total > 1 ? (
-        <>
-          {dot}
-          <span className="tabular-nums">
-            {position} of {total}
-          </span>
-        </>
-      ) : null}
-      {previous ? (
-        <>
-          {dot}
-          <Neighbour which="previous" to={previous} timeZone={timeZone} now={now} />
-        </>
-      ) : null}
-      {next ? (
-        <>
-          {dot}
-          <Neighbour which="next" to={next} timeZone={timeZone} now={now} />
-        </>
-      ) : null}
+      </span>{' '}
+      {position !== null && total > 1 ? part('position', <span className="tabular-nums">{position} of {total}</span>) : null}{' '}
+      {previous ? part('previous', <Neighbour which="previous" to={previous} timeZone={timeZone} now={now} />) : null}{' '}
+      {next ? part('next', <Neighbour which="next" to={next} timeZone={timeZone} now={now} />) : null}
     </nav>
   );
 }
