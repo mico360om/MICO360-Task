@@ -163,6 +163,13 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /ai/suggest-priority': 'a read: nothing is saved',
   'POST /ai/draft-agenda': 'a read: nothing is saved',
   'POST /ai/write-meeting-description': 'a read: nothing is saved',
+  // 1.22 integration (lane N's Notifications page): a notification is the person's own row, read or
+  // removed by them alone — not a change to the project it is about.
+  'PUT /notifications/:id/read': 'the person’s own notification, not a change to its project',
+  'POST /notifications/read-all': 'the person’s own notifications, not a change to any project',
+  'POST /notifications/:id/unread': 'the person’s own notification, not a change to its project',
+  'DELETE /notifications/:id': 'the person’s own notification, not a change to its project',
+  'POST /notifications/bulk': 'the person’s own notifications, not a change to any project',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

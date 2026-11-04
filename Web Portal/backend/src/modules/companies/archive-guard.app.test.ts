@@ -78,6 +78,20 @@ describe.each(Object.keys(ARCHIVE_REFUSED))('%s, as the server registers it', (k
   });
 });
 
+describe('1.22 integration: lane M’s "Add email" on a guest, as the server registers it', () => {
+  it('PATCH an attendee with { externalEmail } answers 409 PROJECT_ARCHIVED before the attendee service is asked', async () => {
+    const token = (await tokenService.issueTokens({ id: 'u1', roles: ['ADMIN'] })).accessToken;
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/meetings/x1/attendees/a1',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { externalEmail: 'walkin@visitor.co' },
+    });
+    expect(res.json(), res.body).toEqual({ error: { code: 'PROJECT_ARCHIVED', message: PROJECT_ARCHIVED_MESSAGE } });
+    expect(res.statusCode).toBe(409);
+  });
+});
+
 describe('the check comes after sign-in', () => {
   it('a request without sign-in still gets 401, not a word about the project', async () => {
     const res = await app.inject({ method: 'PUT', url: '/api/v1/tasks/x1', payload: { title: 'x' } });

@@ -164,6 +164,38 @@ describe('an action item', () => {
   });
 });
 
+// 1.22 integration: the write routes lanes M, B and N added or widened, each said for (lane S's table
+// was written against 1.21's routes).
+describe('1.22 lanes M, B and N: their write routes are said for', () => {
+  it('lane M: "Add email" on a guest (PATCH an attendee with externalEmail) is refused in an archived project', async () => {
+    const key = 'PATCH /meetings/:id/attendees/:attendeeId';
+    expect(ARCHIVE_REFUSED[key]).toBe('meeting');
+    const arch = await ask(key, 'arch', { body: { externalEmail: 'walkin@visitor.co' } });
+    expect(arch.statusCode).toBe(409);
+    expect(arch.json()).toEqual({ error: { code: 'PROJECT_ARCHIVED', message: PROJECT_ARCHIVED_MESSAGE } });
+    expect((await ask(key, 'live', { body: { externalEmail: 'walkin@visitor.co' } })).statusCode).toBe(200);
+  });
+
+  it('lane M: sending the minutes with To and Cc stays allowed (an export of the minutes as they are)', async () => {
+    const key = 'POST /meetings/:id/minutes/send';
+    expect(ARCHIVE_ALLOWED[key]).toMatch(/export/);
+    expect((await ask(key, 'arch', { body: { final: true, to: [{ email: 'a@b.co' }], cc: [{ email: 'c@d.co' }] } })).statusCode).toBe(200);
+  });
+
+  it('lane N: every notification write is the caller’s own row, allowed with why', async () => {
+    for (const key of ['PUT /notifications/:id/read', 'POST /notifications/read-all', 'POST /notifications/:id/unread', 'DELETE /notifications/:id', 'POST /notifications/bulk']) {
+      expect(ROUTE_CLASSES[key], key).toBe('own');
+      expect(ARCHIVE_ALLOWED[key], key).toMatch(/own/);
+      expect((await ask(key, 'arch', { body: { ids: ['arch-1'], action: 'remove' } })).statusCode, key).toBe(200);
+    }
+  });
+
+  it('lane B: the Activity calendar adds reads only (no write route under /activity)', () => {
+    expect(ROUTE_CLASSES['GET /activity']).toBe('list');
+    expect(Object.keys(ROUTE_CLASSES).filter((k) => /^(POST|PUT|PATCH|DELETE) \/activity/.test(k))).toEqual([]);
+  });
+});
+
 describe.each(Object.keys(ARCHIVE_ALLOWED))('%s (allowed on an archived project)', (key) => {
   it('goes through', async () => {
     expect((await ask(key, 'arch')).statusCode).toBe(200);
