@@ -52,6 +52,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   and moving a task into or out of it are refused with "This project is archived — reopen it first."
   Reading, exporting, reopening it, changing its team or companies, and deleting stay as they were.
   The nightly carry-forward and repeating meetings skip archived projects, as repeating tasks already did.
+- Wider windows, one size for each kind: questions and short prompts stay narrow; normal forms are
+  720px; the big forms — New user and Manage account, New and Edit task, New and Edit project, a
+  company, Schedule a meeting — are 960px with two columns on a desktop, one column on a tablet, and
+  fill the screen on a phone.
+- A person's companies (New user, Manage account): one company per line with its logo and its whole
+  name, the ticked ones first, and a search box when there are more than 6. "Add to a company…" and
+  the company menus show whole names too.
+- Touch screens: every form field, Search's All / Open / Done, the task keys on Activity and the
+  dashboard, and many smaller buttons are now 44px tall to a finger.
+- Meeting page: a new action item's priority and due date, and a new attendee's role, use the site's
+  own pickers, like the owner beside them.
+- My Action Items no longer squeezes an item's words to one word a line on a 1024px screen, and a
+  popover such as the board's people list fits on a phone's screen.
 
 ## [1.21.0] - 2026-11-04
 
