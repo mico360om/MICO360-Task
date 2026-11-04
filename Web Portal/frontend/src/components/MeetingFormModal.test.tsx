@@ -135,7 +135,7 @@ describe('MeetingFormModal: repeating meetings', () => {
     await userEvent.type(screen.getByLabelText(/title/i), 'Special sync');
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
-    await userEvent.click(within(ask).getByRole('radio', { name: /this meeting only/i }));
+    await userEvent.click(within(ask).getByRole('radio', { name: /^this meeting /i }));
     await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     const put = calls.find((c) => c.method === 'PUT')!;
@@ -149,7 +149,7 @@ describe('MeetingFormModal: repeating meetings', () => {
     await userEvent.type(screen.getByLabelText(/location/i), 'Room 5');
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
-    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming repeats of this meeting/i }));
     await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     const put = calls.find((c) => c.method === 'PUT')!;
@@ -180,9 +180,9 @@ describe('MeetingFormModal: repeating meetings', () => {
     await pick('Repeat', 'Daily');
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
-    expect(within(ask).getByRole('radio', { name: /this meeting only/i })).toBeDisabled();
-    expect(within(ask).getByRole('radio', { name: /all upcoming meetings/i })).toBeChecked();
-    expect(within(ask).getByText(/a new repeat changes the whole series/i)).toBeInTheDocument();
+    expect(within(ask).getByRole('radio', { name: /^this meeting /i })).toBeDisabled();
+    expect(within(ask).getByRole('radio', { name: /all upcoming repeats of this meeting/i })).toBeChecked();
+    expect(within(ask).getByText(/a new repeat changes all its upcoming repeats/i)).toBeInTheDocument();
   });
 
   it('says when the first meeting will move onto the repeat’s first day', async () => {
@@ -218,7 +218,7 @@ describe('MeetingFormModal: repeating meetings', () => {
     const { onClose } = renderModal(seriesMeeting);
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
-    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming repeats of this meeting/i }));
     await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(calls.some((c) => c.method === 'PUT')).toBe(false);
@@ -233,7 +233,7 @@ describe('MeetingFormModal: repeating meetings', () => {
     await userEvent.type(screen.getByLabelText(/title/i), 'Renamed sync');
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
     const ask = await screen.findByRole('alertdialog', { name: /save changes to a repeating meeting/i });
-    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(within(ask).getByRole('radio', { name: /all upcoming repeats of this meeting/i }));
     await userEvent.click(within(ask).getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ title: 'Renamed sync' });

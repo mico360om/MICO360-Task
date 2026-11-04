@@ -32,12 +32,15 @@ import { useMyCompanies } from '../hooks/useMyCompanies';
 import { COMPANY_GONE_CODE } from '../lib/companies';
 import { DateTimeField } from './ui/DateTimeField';
 import { useDateSettings } from '../lib/useDatePrefs';
+import { meetingSeriesApi, type SeriesPrefill } from '../api/meeting-series';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
   meeting?: Meeting;
   /** A new meeting's project (e.g. scheduled from the project's dashboard). */
   defaultProjectId?: string;
+  /** 1.23 "New meeting in this series": the form starts from the series' latest meeting, and the meeting joins it. */
+  prefill?: SeriesPrefill;
   onClose: () => void;
   onSaved?: (id: string) => void;
 }
@@ -63,7 +66,7 @@ const RepeatIcon = () => (
  * meetings or on a date); editing a meeting of a series asks whether the change is for this
  * meeting only or for all its upcoming meetings.
  */
-export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }: MeetingFormModalProps) {
+export function MeetingFormModal({ meeting, defaultProjectId, prefill, onClose, onSaved }: MeetingFormModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const timeZone = useCompanyTimeZone();
@@ -76,17 +79,19 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   // The meeting as the form opened it: a series change sends only what was changed from this, even
   // if someone else changes the meeting (and the page refreshes it) while the form is open.
   const [opened] = useState(meeting);
-  const [title, setTitle] = useState(meeting?.title ?? '');
+  const fill = !meeting ? prefill : undefined;
+  const [title, setTitle] = useState(meeting?.title ?? fill?.title ?? '');
   const [start, setStart] = useState(() => (meeting ? toLocalInputValue(meeting.startAt, timeZone) : nextHourInputValue(timeZone)));
-  const [end, setEnd] = useState(() => (meeting ? toLocalInputValue(meeting.endAt, timeZone) : ''));
-  const [location, setLocation] = useState(meeting?.location ?? '');
-  const [onlineLink, setOnlineLink] = useState(meeting?.onlineLink ?? '');
-  const [projectId, setProjectId] = useState(meeting?.projectId ?? defaultProjectId ?? '');
+  // "New meeting in this series": the latest meeting's length (the person picks the day).
+  const [end, setEnd] = useState(() => (meeting ? toLocalInputValue(meeting.endAt, timeZone) : fill?.durationMinutes ? endAfter(nextHourInputValue(timeZone), fill.durationMinutes, timeZone) : ''));
+  const [location, setLocation] = useState(meeting?.location ?? fill?.location ?? '');
+  const [onlineLink, setOnlineLink] = useState(meeting?.onlineLink ?? fill?.onlineLink ?? '');
+  const [projectId, setProjectId] = useState(meeting?.projectId ?? fill?.projectId ?? defaultProjectId ?? '');
   const [status, setStatus] = useState<MeetingStatus>(meeting?.status ?? 'SCHEDULED');
-  const [description, setDescription] = useState(meeting?.description ?? '');
+  const [description, setDescription] = useState(meeting?.description ?? fill?.description ?? '');
   // A new meeting's people and agenda (an existing meeting's are on its page).
-  const [people, setPeople] = useState<MeetingPerson[]>([]);
-  const [agenda, setAgenda] = useState<AgendaDraft[]>([]);
+  const [people, setPeople] = useState<MeetingPerson[]>(() => fill?.people ?? []);
+  const [agenda, setAgenda] = useState<AgendaDraft[]>(() => (fill?.agendaItems ?? []).map((g) => ({ key: newAgendaKey(), title: g.title, ownerId: g.ownerId, minutes: g.expectedMinutes })));
   const organizerId = useAuthStore((s) => s.user?.id ?? null);
   // The last sentence given to "Describe the meeting": Draft agenda and Write description use it too.
   const [sentence, setSentence] = useState('');
@@ -97,13 +102,19 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   // companies: a meeting without a project belongs to one of my companies — the picked one, else my
   // primary one (a meeting's own when editing). The field shows with two or more to choose from.
   const myCompanies = useMyCompanies();
-  const [companyChoice, setCompanyChoice] = useState<string | null>(null);
+  const [companyChoice, setCompanyChoice] = useState<string | null>(fill && !fill.projectId ? fill.companyId : null);
   const companyId = companyChoice ?? (editing ? (meeting?.companyId ?? null) : (myCompanies.effective?.id ?? null));
   const companyOptions = [...myCompanies.companies].sort((a, b) => a.name.localeCompare(b.name, 'en'));
   // (A meeting kept in a company that isn't one of mine stays there: no field to move it.)
   const showCompany = !projectId && companyOptions.length >= 2 && (companyId === null || companyOptions.some((c) => c.id === companyId));
   // What the meeting's people and its free times are worked out for: its project, else its company.
   const target = projectId ? { projectId, companyId: null } : { projectId: null, companyId };
+  // 1.23 Meeting series: a new meeting joins the series only in its project (company); an edited one
+  // moved to another project leaves its series — both said before saving.
+  const seriesQ = useQuery({ queryKey: ['meeting', meeting?.id, 'series'], queryFn: () => meetingSeriesApi(apiClient).ofMeeting(meeting!.id), enabled: !!meeting?.seriesId });
+  const seriesPlace = fill ? { projectId: fill.projectId, companyId: fill.companyId } : null;
+  const joinsSeries = !!fill && (seriesPlace!.projectId ? projectId === seriesPlace!.projectId : !projectId && companyId === seriesPlace!.companyId);
+  const leavesSeries = !!opened?.seriesId && (projectId || null) !== (opened.projectId ?? null) ? (seriesQ.data?.series.name ?? opened.seriesName ?? 'its series') : null;
 
   // A later meeting of a series doesn't carry the rule — its own record names the series'.
   const ownQ = useQuery({
@@ -224,6 +235,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         status,
         description: description.trim() || null,
         ...(showCompany && companyId ? { companyId } : {}),
+        ...(!editing && joinsSeries ? { seriesId: fill!.seriesId, ...(!projectId && companyId ? { companyId } : {}) } : {}),
       };
       if (editing && seriesId && as === 'series') {
         // The series' upcoming meetings get only what was changed here, so a meeting changed on its
@@ -397,7 +409,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                     if (v !== (rule?.freq ?? 'NONE')) changeRule(withFrequency(rule, v));
                   }}
                 />
-                {seriesId ? <p className="text-xs text-ink-2">This meeting is part of a repeating series.</p> : null}
+                {seriesId ? <p className="text-xs text-ink-2">This meeting repeats.</p> : null}
               </div>
               {rule ? (
                 <fieldset role="group" aria-label="Repeat schedule" className="rounded-2xl border border-line bg-ground/50 p-3.5">
@@ -413,7 +425,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                     </p>
                   ) : null}
                   <p className="mt-2 text-xs text-ink-2">
-                    {seriesId ? 'A new repeat applies to all upcoming meetings of the series.' : 'Each meeting is created for the next three months, and more follow as time goes on.'}
+                    {seriesId ? 'A new repeat applies to all its upcoming repeats.' : 'Each meeting is created for the next three months, and more follow as time goes on.'}
                   </p>
                 </fieldset>
               ) : null}
@@ -425,6 +437,11 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                 <FieldLabel>Project</FieldLabel>
                 <SearchableSelect ariaLabel="Project" placeholder="No project (standalone)" options={projectOptions} value={projectId} onChange={setProjectId} />
                 <p className="text-xs text-ink-2">Optional — leave blank for a standalone meeting.</p>
+                {leavesSeries ? (
+                  <p role="status" className="text-xs font-medium text-warning">
+                    This meeting will leave the series “<bdi>{leavesSeries}</bdi>”.
+                  </p>
+                ) : null}
               </div>
               {showCompany ? (
                 <div className="flex flex-col gap-1.5">
@@ -528,6 +545,11 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
             <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
               <h2 className="mb-1 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
+              {fill ? (
+                <p className="-mt-1 text-sm text-ink-2">
+                  {joinsSeries ? <>In the series “<bdi className="font-medium text-ink">{fill.seriesName}</bdi>” — filled in from its latest meeting. Choose the day.</> : <>This meeting won’t be in the series “<bdi>{fill.seriesName}</bdi>”: it is in another project now.</>}
+                </p>
+              ) : null}
               {error ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
               ) : null}
@@ -589,12 +611,18 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
           <SeriesScopeChoice
             value={scope}
             onChange={setScope}
-            oneDisabled={ruleChanged ? 'A new repeat changes the whole series.' : null}
-            one={{ label: 'This meeting only', hint: 'The other meetings of the series stay as they are.' }}
-            series={{ label: 'All upcoming meetings in the series', hint: 'Meetings already held stay as they were.' }}
+            oneDisabled={ruleChanged ? 'A new repeat changes all its upcoming repeats.' : null}
+            one={{ label: 'This meeting', hint: 'Its other repeats stay as they are.' }}
+            series={{ label: 'All upcoming repeats of this meeting', hint: 'Meetings already held stay as they were.' }}
           />
         </ConfirmDialog>
       ) : null}
     </ModalPortal>
   );
+}
+
+/** The end, `minutes` after a start given as the form's local date-time ('' when the start is unreadable). */
+function endAfter(start: string, minutes: number, timeZone: string): string {
+  const from = fromLocalInputValue(start, timeZone);
+  return from ? toLocalInputValue(new Date(Date.parse(from) + minutes * 60_000).toISOString(), timeZone) : '';
 }

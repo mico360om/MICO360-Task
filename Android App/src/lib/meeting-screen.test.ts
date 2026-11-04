@@ -256,7 +256,9 @@ describe.skipIf(!hasWeb('frontend/src/components/meeting/NotesSection.tsx', 'fro
     for (const t of [...Object.values(NOTES_EMPTY), ...Object.values(AGENDA_EMPTY_ENDED)]) expect(w, t).toContain(t.trim());
     expect(w).not.toContain('the Final MOM below');
     const page = readWeb('frontend/src/pages/MeetingDetailPage.tsx');
-    expect(page).toMatch(/finished \? \[finalMom, actions, agenda, notes\]/);
+    // (1.23: the website puts "Open from earlier meetings" of a meeting series after its action items;
+    // the app shows meetings as before — the rest of the order is the same.)
+    expect(page).toMatch(/finished \? \[finalMom, actions, (?:carryOver, )?agenda, notes\]/);
     // "Ended" for the notes and agenda words is the website's `finished`: the meeting is COMPLETED.
     expect(page).toMatch(/const finished = meeting\.status === 'COMPLETED';/);
     expect(page).toMatch(/<NotesSection[^>]*ended=\{finished\}/);

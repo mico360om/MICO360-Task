@@ -44,6 +44,7 @@ export function MeetingHeader({
   onPrimary,
   menu,
   note,
+  series,
 }: {
   meeting: Meeting;
   project: ProjectLook | null;
@@ -56,6 +57,8 @@ export function MeetingHeader({
   menu: ActionMenuItem[];
   /** A line under the title (why this person sees the meeting as they do). */
   note?: ReactNode;
+  /** 1.23: the meeting's series line ("Series: … · 3 of 5 · ‹ Previous · Next ›"), under the title. */
+  series?: ReactNode;
 }) {
   const zone = meeting.timeZone || timeZone;
   const joinHref = safeMeetingHref(meeting.onlineLink);
@@ -82,6 +85,7 @@ export function MeetingHeader({
             <bdi>{meeting.title}</bdi>
           </h1>
           {note ? <p className="mt-1 text-sm text-ink-2">{note}</p> : null}
+          {series}
           <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-ink-2">
             <Fact icon={project ? <ProjectAvatar project={project} size="xs" /> : Icon.folder}>{project ? <bdi>{project.name}</bdi> : meeting.projectId ? 'Project' : 'Standalone meeting'}</Fact>
             <Fact icon={Icon.calendar}>{formatMeetingDay(meeting.startAt, zone)}</Fact>

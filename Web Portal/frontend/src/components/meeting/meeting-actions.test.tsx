@@ -33,7 +33,7 @@ describe('cancelling and deleting a meeting of a series', () => {
   it('cancels just this meeting by default', async () => {
     const onDone = vi.fn();
     renderWith(<CancelMeetingDialog meeting={base} onClose={() => {}} onDone={onDone} />);
-    expect(screen.getByRole('radio', { name: /this meeting only/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /^this meeting /i })).toBeChecked();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel meeting' }));
     await waitFor(() => expect(onDone).toHaveBeenCalledWith('one'));
     expect(calls[0]).toEqual({ url: expect.stringMatching(/\/meetings\/m2\/cancel$/), method: 'POST' });
@@ -42,7 +42,7 @@ describe('cancelling and deleting a meeting of a series', () => {
   it('cancels every upcoming meeting of the series when asked', async () => {
     const onDone = vi.fn();
     renderWith(<CancelMeetingDialog meeting={base} onClose={() => {}} onDone={onDone} />);
-    await userEvent.click(screen.getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(screen.getByRole('radio', { name: /all upcoming repeats of this meeting/i }));
     await userEvent.click(screen.getByRole('button', { name: 'Cancel meetings' }));
     await waitFor(() => expect(onDone).toHaveBeenCalledWith('series'));
     expect(calls[0]!.url).toMatch(/\/meetings\/m2\/cancel\?scope=series$/);
@@ -51,7 +51,7 @@ describe('cancelling and deleting a meeting of a series', () => {
   it('deletes every upcoming meeting of the series when asked', async () => {
     const onDone = vi.fn();
     renderWith(<DeleteMeetingDialog meeting={base} onClose={() => {}} onDone={onDone} />);
-    await userEvent.click(screen.getByRole('radio', { name: /all upcoming meetings/i }));
+    await userEvent.click(screen.getByRole('radio', { name: /all upcoming repeats of this meeting/i }));
     expect(screen.getByText(/the upcoming meetings and their agenda/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Delete meetings' }));
     await waitFor(() => expect(onDone).toHaveBeenCalledWith('series'));

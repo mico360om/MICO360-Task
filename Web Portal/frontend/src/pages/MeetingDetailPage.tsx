@@ -28,11 +28,15 @@ import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useMeetingRealtime, type MeetingChangeKind } from '../lib/useMeetingRealtime';
 import { useCurrentProject } from '../components/CurrentProject';
 import { usePageName } from '../lib/page-meta';
+import { meetingSeriesApi } from '../api/meeting-series';
+import { SeriesLine } from '../components/meeting/series/SeriesLine';
+import { CarryOverSection, SeriesSection } from '../components/meeting/series/SeriesSection';
+import { AddToSeriesDialog, RemoveFromSeriesDialog } from '../components/meeting/series/SeriesDialogs';
 
 /** While a meeting is running, poll its live parts so standalone meetings (no socket room) stay current too. */
 const LIVE_POLL_MS = 10_000;
 
-type Dialog = 'edit' | 'invite' | 'minutes' | 'cancel' | 'delete' | null;
+type Dialog = 'edit' | 'invite' | 'minutes' | 'cancel' | 'delete' | 'add-series' | 'remove-series' | null;
 
 export function MeetingDetailPage() {
   const { id = '' } = useParams();
@@ -81,6 +85,9 @@ export function MeetingDetailPage() {
   // companies: invited from outside its project's companies — the server sends only their own action items.
   const invitee = meeting?.view === 'invitee';
   const myItemsQ = useQuery({ queryKey: ['meeting', id, 'action-items'], queryFn: () => meetingsApi(apiClient).listActionItems(id), enabled: !!id && invitee, refetchInterval: pollMs });
+  // 1.23: its series — the meetings of it this person may open, where this one sits, and the carry-over.
+  const seriesQ = useQuery({ queryKey: ['meeting', id, 'series'], queryFn: () => meetingSeriesApi(apiClient).ofMeeting(id), enabled: !!id && !!meeting?.seriesId });
+  const seriesContext = meeting?.seriesId ? (seriesQ.data ?? null) : null;
 
   // Live updates from other people in the meeting (notes, agenda, attendees, action items).
   useMeetingRealtime(id, meeting?.projectId ?? null, (kind: MeetingChangeKind) => {
@@ -90,12 +97,14 @@ export function MeetingDetailPage() {
     }
     if (kind === 'meeting') {
       void qc.invalidateQueries({ queryKey: ['meeting', id], exact: true });
+      void qc.invalidateQueries({ queryKey: ['meeting', id, 'series'] }); // its series changed, or a meeting of it
       void qc.invalidateQueries({ queryKey: ['meeting', id, 'final-minutes'] }); // saved, approved or reopened by someone else
       void qc.invalidateQueries({ queryKey: ['meetings'] });
       return;
     }
     void qc.invalidateQueries({ queryKey: ['meeting', id, kind] });
     if (kind === 'action-items') void qc.invalidateQueries({ queryKey: ['my-action-items'] });
+    if (kind === 'action-items') void qc.invalidateQueries({ queryKey: ['meeting', id, 'series'] });
   });
 
   const statusMut = useMutation({
@@ -163,6 +172,7 @@ export function MeetingDetailPage() {
         onRetryAttendees={() => void attendeesQ.refetch()}
         directory={knownPeople}
         timeZone={timeZone}
+        series={seriesContext}
       />
     );
   }
@@ -192,6 +202,9 @@ export function MeetingDetailPage() {
   if (canEdit && meeting.status !== 'CANCELLED' && primary !== 'email-minutes') menu.push({ label: 'Email minutes…', onSelect: () => setDialog('minutes') });
   if (primary !== 'export-minutes') menu.push({ label: 'Export minutes (PDF)', onSelect: exportPdf });
   if (primary !== 'duplicate') menu.push({ label: 'Duplicate', onSelect: () => duplicate.mutate(meeting.id) });
+  // 1.23: put it in a series, or take it out (its organizer, the project's managers, an administrator).
+  if (canEdit && meeting.seriesId === null) menu.push({ label: 'Add to a series…', onSelect: () => setDialog('add-series') });
+  if (seriesContext?.canRemove) menu.push({ label: 'Remove from series…', onSelect: () => setDialog('remove-series') });
   if (canEdit && !ended) menu.push({ label: 'Cancel meeting…', danger: true, onSelect: () => setDialog('cancel') });
   if (canEdit) menu.push({ label: 'Delete meeting…', danger: true, shortcut: 'delete', onSelect: () => setDialog('delete') });
 
@@ -224,6 +237,8 @@ export function MeetingDetailPage() {
   );
   const notes = <NotesSection key="notes" meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
   const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
+  // 1.23: the open action items of the series' earlier meetings (the same items: their status changes everywhere).
+  const carryOver = seriesContext ? <CarryOverSection key="carry-over" context={seriesContext} meetingId={id} timeZone={timeZone} editable /> : null;
   // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).
   const sentLog = canEdit ? (
     <MinutesSentLog
@@ -266,6 +281,7 @@ export function MeetingDetailPage() {
         primaryBusy={statusMut.isPending || duplicate.isPending}
         onPrimary={runPrimary}
         menu={menu}
+        series={seriesContext ? <SeriesLine context={seriesContext} timeZone={timeZone} /> : null}
       />
 
       {notice ? (
@@ -283,7 +299,7 @@ export function MeetingDetailPage() {
           {/* Planned or under way: the agenda and the live notes lead. Once finished, what came of it
               leads — the Final MOM and the action items, above the agenda and notes they came from. The
               page's own order (not CSS order), so the keyboard and a screen reader follow it too. */}
-          {finished ? [finalMom, actions, agenda, notes] : [agenda, notes, actions, finalMom]}
+          {finished ? [finalMom, actions, carryOver, agenda, notes] : [agenda, carryOver, notes, actions, finalMom]}
         </div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
@@ -306,6 +322,7 @@ export function MeetingDetailPage() {
             onRetry={() => void attendeesQ.refetch()}
             canEdit={canEdit}
           />
+          {seriesContext ? <SeriesSection context={seriesContext} meetingId={id} timeZone={timeZone} canAddNew /> : null}
         </aside>
       </div>
 
@@ -321,8 +338,18 @@ export function MeetingDetailPage() {
           }}
         />
       ) : null}
-      {dialog === 'cancel' ? <CancelMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are cancelled.' : 'Meeting cancelled.' })} /> : null}
+      {dialog === 'cancel' ? <CancelMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming repeats of this meeting are cancelled.' : 'Meeting cancelled.' })} /> : null}
       {dialog === 'delete' ? <DeleteMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={() => navigate('/meetings')} /> : null}
+      {dialog === 'add-series' ? <AddToSeriesDialog meeting={meeting} onClose={() => setDialog(null)} onDone={(name) => setNotice({ text: `Added to the series “${name}”.` })} /> : null}
+      {dialog === 'remove-series' && seriesContext ? (
+        <RemoveFromSeriesDialog
+          series={seriesContext.series}
+          meetingId={meeting.id}
+          repeats={!!seriesContext.meetings.find((m) => m.id === meeting.id)?.repeats}
+          onClose={() => setDialog(null)}
+          onDone={() => setNotice({ text: 'Removed from the series.' })}
+        />
+      ) : null}
     </div>
   );
 }

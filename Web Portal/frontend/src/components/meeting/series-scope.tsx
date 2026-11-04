@@ -6,7 +6,7 @@ export interface ScopeOption {
 }
 
 /**
- * "This meeting" or "All upcoming meetings in the series" — asked before changing, cancelling or
+ * "This meeting" or "All upcoming repeats of this meeting" — asked before changing, cancelling or
  * deleting a meeting of a repeating series. `oneDisabled` explains why only the series can change.
  */
 export function SeriesScopeChoice({

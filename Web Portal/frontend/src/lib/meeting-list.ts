@@ -51,6 +51,8 @@ export interface MeetingFilters {
   to?: string;
   /** Only the meetings behind one of the numbers above the list. */
   focus?: MeetingFocus;
+  /** 1.23: only the meetings of one series. */
+  seriesId?: string;
 }
 
 export const EMPTY_FILTERS: MeetingFilters = { q: '', projectId: '', status: 'ALL', range: 'any' };
@@ -68,6 +70,8 @@ export interface ListContext {
   now: Date;
   projectName: (projectId: string) => string | null;
   organizerName: (userId: string) => string | null;
+  /** 1.23: a series' name (its chip); absent: "a series". */
+  seriesName?: (seriesId: string) => string | null;
 }
 
 export type GroupKey = 'today' | 'next7' | 'later' | 'drafts' | 'past';
@@ -79,7 +83,7 @@ export interface MeetingGroup {
 }
 
 export function hasActiveFilters(f: MeetingFilters): boolean {
-  return f.q.trim() !== '' || f.projectId !== '' || f.status !== 'ALL' || f.range !== 'any' || f.focus !== undefined;
+  return f.q.trim() !== '' || f.projectId !== '' || f.status !== 'ALL' || f.range !== 'any' || f.focus !== undefined || !!f.seriesId;
 }
 
 const dayOf = (m: Meeting, timeZone: string): string => zonedDayKey(new Date(m.startAt), timeZone);
@@ -112,6 +116,7 @@ export function filterMeetings(list: Meeting[], f: MeetingFilters, ctx: ListCont
     if (f.projectId === 'none' ? m.projectId !== null : f.projectId !== '' && m.projectId !== f.projectId) return false;
     if (f.range !== 'any' && !inRange(dayOf(m, ctx.timeZone), f, today)) return false;
     if (f.focus && !inFocus(m, f.focus, ctx, today)) return false;
+    if (f.seriesId && m.seriesId !== f.seriesId) return false;
     if (!q) return true;
     const haystack = [m.title, m.location, m.category, m.projectId ? ctx.projectName(m.projectId) : null, ctx.organizerName(m.organizerId)];
     return haystack.some((s) => s != null && s.toLocaleLowerCase('en').includes(q));
@@ -259,14 +264,14 @@ export function startsLabel(m: Pick<Meeting, 'status' | 'startAt' | 'endAt'>, no
 }
 
 export interface FilterChip {
-  key: 'project' | 'date' | 'status' | 'sort' | 'focus';
+  key: 'project' | 'date' | 'status' | 'sort' | 'focus' | 'series';
   label: string;
 }
 
 const longDay = (key: string) => dayText(key);
 
 /** Each filter in use as a short label (and a sort other than by date), to show and remove one by one. */
-export function filterChips(f: MeetingFilters, sort: MeetingSort, ctx: Pick<ListContext, 'projectName'>): FilterChip[] {
+export function filterChips(f: MeetingFilters, sort: MeetingSort, ctx: Pick<ListContext, 'projectName' | 'seriesName'>): FilterChip[] {
   const chips: FilterChip[] = [];
   if (f.projectId === 'none') chips.push({ key: 'project', label: 'Standalone meetings only' });
   else if (f.projectId) chips.push({ key: 'project', label: `Project: ${ctx.projectName(f.projectId) ?? 'a project'}` });
@@ -274,9 +279,17 @@ export function filterChips(f: MeetingFilters, sort: MeetingSort, ctx: Pick<List
     const span = f.from && f.to ? `${longDay(f.from)} – ${longDay(f.to)}` : f.from ? `from ${longDay(f.from)}` : f.to ? `until ${longDay(f.to)}` : 'any';
     chips.push({ key: 'date', label: `Date: ${span}` });
   } else if (f.range !== 'any') chips.push({ key: 'date', label: `Date: ${DATE_RANGES.find((r) => r.value === f.range)?.label ?? f.range}` });
+  if (f.seriesId) chips.push({ key: 'series', label: `Series: ${ctx.seriesName?.(f.seriesId) ?? 'a series'}` });
   if (f.status !== 'ALL') chips.push({ key: 'status', label: `Status: ${MEETING_STATUS_LABELS[f.status]}` });
   if (f.focus) chips.push({ key: 'focus', label: FOCUS_CHIPS[f.focus] });
   if (sort === 'title') chips.push({ key: 'sort', label: 'Sorted by title' });
   if (sort === 'updated') chips.push({ key: 'sort', label: 'Recently updated first' });
   return chips;
+}
+
+/** 1.23: the series of the meetings listed, each once, by name — the Series filter's choices. */
+export function seriesOptions(list: readonly Meeting[]): Array<{ id: string; name: string }> {
+  const byId = new Map<string, string>();
+  for (const m of list) if (m.seriesId && m.seriesName && !byId.has(m.seriesId)) byId.set(m.seriesId, m.seriesName);
+  return [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
 }

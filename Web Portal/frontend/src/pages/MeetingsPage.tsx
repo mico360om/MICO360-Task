@@ -16,7 +16,7 @@ import { NothingComingUp } from '../components/meeting/NothingComingUp';
 import { MeetingSummaryStrip, STRIP_GRID } from '../components/meeting/MeetingSummaryStrip';
 import { FilterChips, FiltersButton } from '../components/meeting/MeetingListFilters';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
-import { FOCUSES, filterChips, filterMeetings, groupMeetings, hasActiveFilters, lastMeeting, meetingSummary, nextUpMeeting, type DateRange, type FilterChip, type GroupKey, type MeetingFilters, type MeetingFocus, type MeetingSort } from '../lib/meeting-list';
+import { FOCUSES, filterChips, filterMeetings, groupMeetings, hasActiveFilters, lastMeeting, meetingSummary, nextUpMeeting, seriesOptions, type DateRange, type FilterChip, type GroupKey, type MeetingFilters, type MeetingFocus, type MeetingSort } from '../lib/meeting-list';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useNow } from '../lib/useNow';
 import { useShortcut } from '../components/shortcuts/ShortcutProvider';
@@ -37,6 +37,7 @@ const CHIP_CLEARS: Record<FilterChip['key'], Record<string, undefined>> = {
   status: { status: undefined },
   sort: { sort: undefined },
   focus: { show: undefined },
+  series: { series: undefined },
 };
 
 /** Filters live in the address, so a refresh, a shared link or Back keeps them. */
@@ -50,6 +51,7 @@ function useListState() {
     from: params.get('from') ?? undefined,
     to: params.get('to') ?? undefined,
     focus: FOCUSES.find((f) => f === params.get('show')),
+    seriesId: params.get('series') ?? undefined,
   };
   const scope: Scope = params.get('scope') === 'mine' ? 'mine' : 'all';
   const sort = (params.get('sort') as MeetingSort | null) ?? 'date';
@@ -104,7 +106,13 @@ export function MeetingsPage() {
   }, [dirQ.data]);
 
   const all = useMemo(() => (Array.isArray(meetingsQ.data) ? meetingsQ.data : []), [meetingsQ.data]);
-  const ctx = { timeZone, now, projectName, organizerName };
+  // 1.23: the Series filter's choices — the series of the meetings listed.
+  const seriesList = useMemo(() => seriesOptions(all), [all]);
+  const seriesName = useMemo(() => {
+    const map = new Map(seriesList.map((s) => [s.id, s.name]));
+    return (id: string) => map.get(id) ?? null;
+  }, [seriesList]);
+  const ctx = { timeZone, now, projectName, organizerName, seriesName };
   const visible = filterMeetings(all, filters, ctx);
   const groups = groupMeetings(visible, ctx, sort);
   const draftCount = all.filter((m) => m.status === 'DRAFT').length;
@@ -121,8 +129,8 @@ export function MeetingsPage() {
     setShown({});
     set(changes);
   };
-  const clearFilters = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, show: undefined });
-  const clearAll = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, show: undefined, sort: undefined });
+  const clearFilters = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, show: undefined, series: undefined });
+  const clearAll = () => update({ q: undefined, project: undefined, status: undefined, date: undefined, from: undefined, to: undefined, show: undefined, sort: undefined, series: undefined });
   const showFocus = (focus: MeetingFocus | undefined) => update({ show: focus });
 
   function rowActions(m: Meeting): ActionMenuItem[] {
@@ -162,7 +170,7 @@ export function MeetingsPage() {
               className="h-10 w-full rounded-xl border border-line bg-surface pe-3 ps-9 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20"
             />
           </label>
-          <FiltersButton filters={filters} sort={sort} count={filterCount} projects={projects} onChange={update} onClearAll={clearAll} />
+          <FiltersButton filters={filters} sort={sort} count={filterCount} projects={projects} series={seriesList} onChange={update} onClearAll={clearAll} />
           {/* Whose meetings: a choice of its own, apart from the filters. */}
           <div role="group" aria-label="Whose meetings" className="inline-flex rounded-xl border border-line bg-surface p-0.5">
             {(['all', 'mine'] as Scope[]).map((s) => (
@@ -305,8 +313,8 @@ export function MeetingsPage() {
 
       {showNew ? <MeetingFormModal onClose={() => setShowNew(false)} onSaved={(id) => navigate(`/meetings/${id}`)} /> : null}
       {editing ? <MeetingFormModal meeting={editing} onClose={() => setEditing(null)} /> : null}
-      {cancelling ? <CancelMeetingDialog meeting={cancelling} onClose={() => setCancelling(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are cancelled.' : 'Meeting cancelled.' })} /> : null}
-      {deleting ? <DeleteMeetingDialog meeting={deleting} onClose={() => setDeleting(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are deleted.' : 'Meeting deleted.' })} /> : null}
+      {cancelling ? <CancelMeetingDialog meeting={cancelling} onClose={() => setCancelling(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming repeats of this meeting are cancelled.' : 'Meeting cancelled.' })} /> : null}
+      {deleting ? <DeleteMeetingDialog meeting={deleting} onClose={() => setDeleting(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming repeats of this meeting are deleted.' : 'Meeting deleted.' })} /> : null}
     </div>
   );
 }

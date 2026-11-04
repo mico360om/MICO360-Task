@@ -38,7 +38,7 @@ function MeetingCard({ m, timeZone }: { m: ProjectMeeting; timeZone: string }) {
           </Link>
           {m.phase === 'ongoing' ? <Badge tone="brand" dot>Under way</Badge> : m.status !== 'SCHEDULED' ? <Badge tone={meetingStatusTone(m.status)}>{MEETING_STATUS_LABELS[m.status]}</Badge> : null}
           {m.seriesId ? (
-            <span className="inline-flex items-center gap-1 text-xs text-ink-3" title="Part of a repeating series"><RepeatIcon /> Repeats</span>
+            <span className="inline-flex items-center gap-1 text-xs text-ink-3" title="A repeating meeting"><RepeatIcon /> Repeats</span>
           ) : null}
         </div>
         <p className="mt-0.5 text-sm text-ink-2">

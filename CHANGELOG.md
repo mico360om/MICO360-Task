@@ -14,7 +14,36 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Meeting series: related meetings can be linked into a named series (for example "Monthly OXY
+  review", made by hand each month). On a meeting: ⋯ → "Add to a series…" picks one of the project's
+  series or makes a new one (named after the meeting); "Remove from series…" takes it out. The
+  meeting's organizer, the project's owner and managers, and administrators can do this.
+- Each meeting of a series says so under its title — "Series: Monthly OXY review · 3 of 5 · ‹ Previous
+  (3 Nov) · Next (3 Dec) ›" — and lists the series' meetings (earlier ones, this one marked, those to
+  come, with "Minutes final"). Only meetings the person may open are counted and shown: someone who
+  can open just one meeting sees the series' name and nothing of the others.
+- "Open from earlier meetings": each meeting of a series shows the action items still open from the
+  series' earlier meetings, with the meeting each came from, its owner, due date and status — the same
+  items, so changing one's status there changes it everywhere. Someone invited from another company
+  sees only their own. The minutes PDF has the section too, and names the series; the AI's Final MOM
+  draft is given these items to follow up.
+- The Series page (open it from a meeting, or from the Series chip on a Meetings card): every meeting
+  of the series you may open, coming up and earlier, its open action items, "New meeting in this
+  series" (the form starts from the latest meeting — title, project, people, place, online link,
+  length and agenda — and you pick the day), "Add existing meetings", remove a meeting, rename the
+  series, "Merge another series into this one" and delete the series (its meetings stay).
+- Meetings page: cards of meetings in a series show a Series chip (it opens the Series page), and the
+  Filters panel has a Series filter.
+- Repeating meetings are a series automatically: every existing repeating meeting has a series named
+  after its first meeting, and a new one gets its own. A repeating meeting that was split earlier (a new
+  schedule part-way) is two series; merge them on the Series page. Adding a repeating meeting to
+  another series brings all its meetings; moving meetings to another project takes them out of their
+  series (the form says so before saving).
+
 ### Improvements
+- Repeating meetings: when changing, cancelling or deleting one, the choice is now "This meeting" or
+  "All upcoming repeats of this meeting", so it isn't mixed up with the new named series.
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.
   An administrator can turn it on or off for any administrator — their lists then show only the
   projects they own, manage or are on the team of, from their next page. It is the same setting as
