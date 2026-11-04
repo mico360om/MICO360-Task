@@ -6,6 +6,7 @@ import { TaskFormDialog } from './TaskFormDialog';
 import type { ApiTask } from '../../api/tasks';
 import { useAuthStore } from '../../stores/auth-store';
 import { windowWidth } from '../../test/window-width';
+import { useTaskNotice } from '../../lib/task-notice';
 
 // Files go up after the task is created; the test decides how each upload goes.
 const uploads: Array<{ taskId: string; name: string; type: string }> = [];
@@ -152,6 +153,9 @@ describe('New task form', () => {
     expect(calls.some((c) => c.url.includes('/assignees'))).toBe(false);
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
+    // 1.22.3: "Task MICO-143 created", with Open (the app's toast shows it, wherever the form was opened).
+    const created = onCreated.mock.calls[0]![0] as ApiTask;
+    expect(useTaskNotice.getState().notice).toEqual({ text: `Task ${created.key} created`, taskId: created.id, key: created.key });
   });
 
   it('a new task can need approval (ticked here, sent with it)', async () => {

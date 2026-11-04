@@ -30,6 +30,7 @@ import { CompanyPicker } from './company/CompanyPicker';
 import { CompanyNotice } from './company/CompanyNotice';
 import { ArchivedProjectNotice } from './projects/ArchivedProjectNotice';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
+import { TaskNoticeToast } from './TaskNoticeToast';
 
 /** The pages that still open when all of someone's companies are archived. */
 const OPEN_WHEN_ARCHIVED = ['/settings', '/profile', '/about'];
@@ -222,6 +223,8 @@ export function AppShell() {
       {/* A meeting reminder pops up in the corner of every page (after the page in reading order, so
           "Skip to content" stays first); every new notification refreshes the bell. */}
       <MeetingReminderPopup />
+      {/* 1.22.3: "Task MICO-143 created · Open" after the task form (or an offline task's sync). */}
+      <TaskNoticeToast />
     </div>
     </CurrentProjectProvider>
     </ShortcutProvider>

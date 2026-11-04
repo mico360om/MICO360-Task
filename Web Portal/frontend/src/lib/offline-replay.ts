@@ -14,6 +14,7 @@ import {
   type FlushResult,
   type QueuedMutation,
 } from './offline-queue';
+import { showTaskNotice, taskSavedNotice } from './task-notice';
 
 export type OfflineKind = 'task.create' | 'task.move';
 
@@ -35,11 +36,15 @@ function classify(e: unknown): Error {
   return fail(e.message || `Rejected (${e.status})`);
 }
 
+/** 1.22.3: the tasks made offline that this flush saved, for the "Task MICO-143 saved" notice. */
+let savedThisFlush: Array<{ id: string; key: string }> = [];
+
 /** Replay one queued task mutation through the API. */
 async function replayMutation(m: QueuedMutation): Promise<void> {
   try {
     if (m.kind === 'task.create') {
-      await tasksApi(apiClient).create(m.payload as NewTaskInput, { idempotencyKey: m.idempotencyKey });
+      const task = await tasksApi(apiClient).create(m.payload as NewTaskInput, { idempotencyKey: m.idempotencyKey });
+      if (task?.id && task.key) savedThisFlush.push({ id: task.id, key: task.key });
       return;
     }
     if (m.kind === 'task.move') {
@@ -125,7 +130,12 @@ export function flushOfflineQueue(): Promise<FlushResult> {
   if (flushing) return flushing;
   flushing = withQueueLock(async () => {
     removeOrphans(localStorageQueueStore);
-    return flushQueue(localStorageQueueStore, replayMutation, { ownerId });
+    savedThisFlush = [];
+    const res = await flushQueue(localStorageQueueStore, replayMutation, { ownerId });
+    // 1.22.3: "Task MICO-143 saved" (with Open) once a task made offline is on the server.
+    showTaskNotice(taskSavedNotice(savedThisFlush));
+    savedThisFlush = [];
+    return res;
   }, idle).finally(() => {
     flushing = null;
   });

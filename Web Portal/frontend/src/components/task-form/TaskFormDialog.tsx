@@ -46,6 +46,7 @@ import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, t
 import { externalContactsApi } from '../../api/external-contacts';
 import { isProjectArchived } from '../../lib/project-archive';
 import { TaskKey } from '../TaskKey';
+import { showTaskNotice, taskCreatedNotice } from '../../lib/task-notice';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -218,6 +219,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
     draft.columnId !== saved.columnId;
   const finish = (task: ApiTask) => {
+    // 1.22.3: "Task MICO-143 created", with Open — the app shell shows it, wherever the form was opened.
+    showTaskNotice(taskCreatedNotice(task));
     onCreated?.(task);
     onClose();
   };

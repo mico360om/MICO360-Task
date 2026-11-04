@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
 import type { MyCompanies, MyCompany } from '../api/companies';
 import { enqueueOffline } from '../lib/offline-replay';
+import { clearTaskNotice, showTaskNotice, taskCreatedNotice } from '../lib/task-notice';
 import { clearQueue, getQueue, localStorageQueueStore } from '../lib/offline-queue';
 
 // The shell opens a live-update socket: keep it off the network, or a server running on this computer
@@ -66,6 +67,17 @@ describe('AppShell', () => {
     expect(skip.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(main.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(main.contains(live)).toBe(false);
+  });
+
+  it('shows the "Task MICO-143 created" notice on every page, whatever made the task (1.22.3)', () => {
+    renderShell();
+    try {
+      act(() => showTaskNotice(taskCreatedNotice({ id: 't1', key: 'MICO-143' })));
+      const toast = screen.getByText('Task MICO-143 created').closest('[role="status"]')!;
+      expect(within(toast as HTMLElement).getByRole('button', { name: 'Open MICO-143' })).toBeInTheDocument();
+    } finally {
+      act(() => clearTaskNotice());
+    }
   });
 
   it('logs the user out from the profile menu', async () => {
