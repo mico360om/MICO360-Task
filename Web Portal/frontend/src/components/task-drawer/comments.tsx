@@ -132,7 +132,7 @@ function CommentItem({
         ) : (
           <div className="mt-1.5 flex flex-col gap-2">
             <div className="relative">
-              <textarea ref={draftRef} dir="auto" aria-label="Edit comment" autoFocus value={draft} {...draftMentions.inputProps} rows={2} className={textBox} />
+              <textarea ref={draftRef} dir="auto" aria-label="Edit comment" autoFocus value={draft} data-unsaved={draft.trim() !== c.body.trim() || undefined} {...draftMentions.inputProps} rows={2} className={textBox} />
               <MentionList mentions={draftMentions} emptyText={noOneOnProject} />
             </div>
             {problem ? (
@@ -219,6 +219,7 @@ export function CommentsSection({
               dir="auto"
               aria-label="Add a comment"
               value={draft}
+              data-unsaved={draft.trim() !== '' || undefined}
               {...mentions.inputProps}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

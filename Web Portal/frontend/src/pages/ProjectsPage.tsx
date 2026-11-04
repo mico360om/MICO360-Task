@@ -97,6 +97,8 @@ export function ProjectsPage() {
   const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, mine }), [all, q, owner, mine]);
   const counts = tabCounts(filtered);
   const visible = sortProjects(filtered.filter((p) => inTab(p, state.status)), state.sort, today, timeZone);
+  // The order as shown, handed on to the project opened (its Previous / Next project, 1.22).
+  const order = visible.map((p) => p.id);
   const filtersOn = Boolean(q.trim() || owner || mine);
 
   // …and taken out of the address, in place.
@@ -344,6 +346,7 @@ export function ProjectsPage() {
                   onChangeStatus={can ? changeStatus : undefined}
                   onEdit={can ? (project) => void openEdit(project) : undefined}
                   onArchive={can ? (project) => changeStatus(project, 'ARCHIVED') : undefined}
+                  order={order}
                 />
               );
             })}

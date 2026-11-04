@@ -24,6 +24,8 @@ import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } fro
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
 import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import type { StepDirection, TaskStepper } from '../lib/task-steps';
 
 /** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
 const carriedDay = (key: string) => dayText(key) || key;
@@ -121,8 +123,23 @@ export interface TaskDrawerProps {
   approval?: ReactNode;
   /** The "External contacts" section (people outside the company responsible for the task), under its details. */
   externalContacts?: ReactNode;
+  /** Previous / Next through the list the task was opened from (none: no steps shown). */
+  stepper?: TaskStepper;
   onClose: () => void;
 }
+
+export type { TaskStepper };
+
+/** Something typed in the panel and not yet saved (a title, description, comment or checklist box marks itself). */
+export const UNSAVED_FIELD = '[data-unsaved]';
+
+const STEP_BUTTON =
+  'inline-flex h-9 flex-none items-center justify-center gap-1 rounded-lg border border-line px-2 text-sm font-semibold text-ink transition-colors hover:border-brand hover:text-brand disabled:cursor-default disabled:opacity-40 disabled:hover:border-line disabled:hover:text-ink max-sm:w-11 max-sm:px-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:!min-w-11';
+const Chevron = ({ dir }: { dir: StepDirection }) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="rtl:rotate-180">
+    <path d={dir === 'previous' ? 'M15 18l-6-6 6-6' : 'M9 18l6-6-6-6'} />
+  </svg>
+);
 
 const NO_PEOPLE: MentionPerson[] = [];
 
@@ -252,6 +269,7 @@ export function TaskDrawer({
   inspections,
   approval,
   externalContacts,
+  stepper,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -263,6 +281,31 @@ export function TaskDrawer({
   useShortcut('delete', () => setConfirmingDelete(true), { scope: rootRef, enabled: !!onDelete && !deleteBlocked });
   const editHint = useShortcutHint('edit');
   const deleteHint = useShortcutHint('delete');
+  // Previous / Next (and K / J): something typed and not saved asks first, as the edit form does.
+  const [askStep, setAskStep] = useState<StepDirection | null>(null);
+  const previousRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
+  const stepTo = (dir: StepDirection) => (dir === 'next' ? stepper?.onNext : stepper?.onPrevious);
+  const step = (dir: StepDirection) => {
+    const go = stepTo(dir);
+    if (!go) return;
+    if (rootRef.current?.querySelector(UNSAVED_FIELD)) setAskStep(dir);
+    else go();
+  };
+  useShortcut('next', () => step('next'), { scope: rootRef, enabled: !!stepper?.onNext });
+  useShortcut('previous', () => step('previous'), { scope: rootRef, enabled: !!stepper?.onPrevious });
+  const nextHint = useShortcutHint('next');
+  const previousHint = useShortcutHint('previous');
+  const placeId = useId();
+  // The panel of the task just stepped to: focus stays on the step pressed (the other at the end).
+  const stepFocus = useRef(stepper?.focus ?? null);
+  useEffect(() => {
+    const dir = stepFocus.current;
+    if (!dir) return;
+    const pressed = dir === 'next' ? nextRef.current : previousRef.current;
+    const other = dir === 'next' ? previousRef.current : nextRef.current;
+    (pressed && !pressed.disabled ? pressed : other)?.focus();
+  }, []);
   const deleteWhyId = useId();
   const seriesWhyId = useId();
   // Asked to delete: focus moves to the safe answer, so Enter keeps the task.
@@ -301,7 +344,7 @@ export function TaskDrawer({
     <div ref={rootRef} data-shortcut-refresh role="dialog" aria-modal="true" aria-label={`Task ${task.key}`} className="keyboard-flow flex h-full w-full flex-col border-s border-line bg-surface shadow-lg">
       {/* A plain div, not <header>: inside a dialog that would be a second page "banner" landmark. */}
       <div data-testid="task-header" className="flex-none border-b border-line px-4 pb-3 pt-3 sm:px-6 sm:pt-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-sm:flex-wrap">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
             {project ? (
               <span data-testid="task-project" className="inline-flex min-w-0 max-w-[14rem] items-center gap-1.5 text-xs font-medium text-ink-2">
@@ -339,6 +382,47 @@ export function TaskDrawer({
               </span>
             ) : null}
           </div>
+          {stepper ? (
+            <div
+              role="group"
+              aria-label="Step through the list"
+              // From a small tablet up, beside the actions; on a phone a row of its own under them (the key,
+              // status and dates keep their room), the steps spread across it.
+              className="flex flex-none items-center gap-1 border-e border-line pe-1.5 max-sm:order-last max-sm:basis-full max-sm:justify-between max-sm:border-e-0 max-sm:pe-0"
+            >
+              <button
+                ref={previousRef}
+                type="button"
+                onClick={() => step('previous')}
+                disabled={!stepper.onPrevious}
+                aria-label="Previous task"
+                aria-describedby={placeId}
+                title={previousHint ? previousHint.title('Previous task') : 'Previous task'}
+                aria-keyshortcuts={previousHint?.aria}
+                className={STEP_BUTTON}
+              >
+                <Chevron dir="previous" />
+                <span className="max-sm:sr-only">Previous</span>
+              </button>
+              <span id={placeId} className="whitespace-nowrap px-0.5 text-xs tabular-nums text-ink-2">
+                {stepper.position} of {stepper.total}
+              </span>
+              <button
+                ref={nextRef}
+                type="button"
+                onClick={() => step('next')}
+                disabled={!stepper.onNext}
+                aria-label="Next task"
+                aria-describedby={placeId}
+                title={nextHint ? nextHint.title('Next task') : 'Next task'}
+                aria-keyshortcuts={nextHint?.aria}
+                className={STEP_BUTTON}
+              >
+                <span className="max-sm:sr-only">Next</span>
+                <Chevron dir="next" />
+              </button>
+            </div>
+          ) : null}
           <div className="flex flex-none items-center gap-1.5">
             {onEdit ? (
               <button
@@ -531,6 +615,21 @@ export function TaskDrawer({
             </div>
           )}
         </div>
+      ) : null}
+      {askStep ? (
+        <ConfirmDialog
+          title="Discard your changes?"
+          confirmLabel="Discard"
+          keepLabel="Keep editing"
+          onConfirm={() => {
+            const go = stepTo(askStep);
+            setAskStep(null);
+            go?.();
+          }}
+          onClose={() => setAskStep(null)}
+        >
+          What you typed in this task hasn’t been saved. It is lost if you open the {askStep === 'next' ? 'next' : 'previous'} task.
+        </ConfirmDialog>
       ) : null}
     </div>
   );

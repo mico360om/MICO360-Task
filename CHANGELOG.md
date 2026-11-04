@@ -19,6 +19,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   Cc; someone invited from another company still gets their own copy.
 - Every send of the minutes is kept under "Sent" on the meeting's minutes: when, who sent it, draft or
   final, To and Cc with each address's result, and "Send again".
+- Activity: a calendar view beside the list. Each day of the month or the week shows how many
+  changes it had, shaded from quiet to busy; click a day to see its changes under the calendar. The
+  filters and the company picker apply to both views, and your choice of List or Calendar is kept.
+- Kanban Board: the faces of the people who can open a project's board — its owner, manager and
+  team — sit at the top of the board. Click them for the full list with each person's role; whoever
+  runs the project can go from there to its Team tab.
+- Previous and Next: an open task steps through the list it was opened from — a board (column by
+  column), My Tasks (as sorted and filtered), the Search results or a calendar day — with "3 of 18"
+  in its header, and J and K on the keyboard. A project's page steps to the previous or next
+  project in the Projects page's order. Back goes back, and something typed but not saved is asked
+  about first.
 
 ### Improvements
 - Schedule a meeting: a wider dialog with two columns on a desktop, and Starts/Ends picked as the site

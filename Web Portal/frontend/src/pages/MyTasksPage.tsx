@@ -6,7 +6,7 @@ import { projectsApi } from '../api/projects';
 import { columnsApi, type ApiColumn } from '../api/columns';
 import { assigneesApi } from '../api/assignees';
 import { usersApi } from '../api/users';
-import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
+import { useOpenTask } from '../lib/useOpenTask';
 import { SavedViewsBar } from '../components/SavedViewsBar';
 import { BulkActionBar } from '../components/BulkActionBar';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -88,7 +88,9 @@ export function MyTasksPage() {
   const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
   const noProjectsYet = useNoProjectsYet();
 
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // A task opens in the app's task panel (?task=, so Back closes it), with the list as shown —
+  // its sort and filters — for the panel's Previous / Next.
+  const openTask = useOpenTask();
   // "Today" / "overdue" are company calendar days (a task due today is never overdue; finished work never is).
   const timeZone = useCompanyTimeZone();
   const userId = useAuthStore((s) => s.user?.id);
@@ -222,6 +224,7 @@ export function MyTasksPage() {
 
   // Selection scoped to what's currently visible, so hidden tasks are never acted on by surprise.
   const selectedList = useMemo(() => sorted.filter((e) => selected.has(e.task.id)), [sorted, selected]);
+  const sortedIds = useMemo(() => sorted.map((e) => e.task.id), [sorted]);
   const toggleSelect = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const clearSelection = () => setSelected(new Set());
   const allVisibleSelected = sorted.length > 0 && selectedList.length === sorted.length;
@@ -328,7 +331,7 @@ export function MyTasksPage() {
       />
 
       {/* Tasks waiting for my approval (people who run a project, and admins). */}
-      <ToApproveSection onOpen={setOpenTaskId} />
+      <ToApproveSection onOpen={(id) => openTask(id)} />
 
       {/* Saved filter presets */}
       {counts.total > 0 ? <SavedViewsBar current={currentFilters} onApply={applyView} /> : null}
@@ -431,11 +434,11 @@ export function MyTasksPage() {
           </div>
           {view === 'grid' ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {sorted.map((e) => <MyTaskCard key={e.task.id} e={e} onOpen={() => setOpenTaskId(e.task.id)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
+              {sorted.map((e) => <MyTaskCard key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
             </div>
           ) : (
             <div className="card divide-y divide-line overflow-hidden">
-              {sorted.map((e) => <MyTaskRow key={e.task.id} e={e} onOpen={() => setOpenTaskId(e.task.id)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
+              {sorted.map((e) => <MyTaskRow key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
             </div>
           )}
         </>
@@ -485,7 +488,6 @@ export function MyTasksPage() {
         />
       ) : null}
 
-      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={() => setOpenTaskId(null)} /> : null}
     </div>
   );
 }

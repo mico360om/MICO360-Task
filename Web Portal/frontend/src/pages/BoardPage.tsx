@@ -17,6 +17,7 @@ import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { ALL_PROJECTS, BOARD_FIT_QUERY, boardCompanies, boardProjects, composeAllProjectsBoard, composeBoard, filterBoardByCompany, fullColumnIndex, moveTaskInBoard, reorderColumnInBoard, statusOfBoardColumn, targetColumnFor } from '../lib/board';
 import { STATUS_META, type TaskCategory } from '../lib/taskStatus';
 import { ProjectFilter } from '../components/board/ProjectFilter';
+import { BoardPeople } from '../components/board/BoardPeople';
 import type { KanbanColumnData } from '../components/KanbanColumn';
 import { KanbanBoard } from '../components/KanbanBoard';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -563,6 +564,8 @@ export function BoardPage() {
             </div>
           ) : null}
           {isAll ? <p className="ms-auto hidden text-sm text-ink-2 lg:block">All projects — drag a card to change its status in its own project.</p> : null}
+          {/* 1.22: who can open this project's board (not on All projects). */}
+          {!isAll && project ? <div className="ms-auto"><BoardPeople project={project} /></div> : null}
         </div>
       ) : null}
 
@@ -640,7 +643,8 @@ export function BoardPage() {
           cardMenu={cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
-            if (id) openTask(id);
+            // The board as shown is its list for Previous / Next: column by column, top to bottom.
+            if (id) openTask(id, boardColumns.flatMap((c) => c.tasks.map((t) => idByKey[t.key]).filter((x): x is string => Boolean(x))));
           }}
         />
         </div>

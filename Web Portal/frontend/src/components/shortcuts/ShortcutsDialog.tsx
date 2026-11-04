@@ -1,8 +1,10 @@
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
-import { SHORTCUTS, shortcutKeys, type Platform, type ShortcutGroup } from '../../lib/shortcuts';
+import { SHORTCUTS, shortcutKeys, shortcutLabel, type Platform, type ShortcutGroup } from '../../lib/shortcuts';
 
 const GROUPS: ShortcutGroup[] = ['Anywhere', 'Forms and dialogs', 'On a page'];
+/** The single keys, as the switch names them: "N, E, Delete, R, /, J, K and ?" (from the list, so a new one is never left out). */
+const SINGLE_KEYS = `${SHORTCUTS.filter((s) => s.single).map((s) => shortcutLabel(s.action, 'other')).join(', ')} and ?`;
 
 /**
  * The list of keyboard shortcuts (Ctrl+/ or ?), grouped by where they work, with the keys as this
@@ -96,7 +98,7 @@ export function ShortcutsDialog({
             <div className="min-w-0 text-xs text-ink-2">
               <p className="font-semibold text-ink">Single-key shortcuts</p>
               <p id="shortcuts-single-help">
-                N, E, Delete, R, / and ? work when you’re not typing in a box. Switch them off if they get in your way (for
+                {SINGLE_KEYS} work when you’re not typing in a box. Switch them off if they get in your way (for
                 example with a screen reader).
               </p>
             </div>

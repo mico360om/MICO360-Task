@@ -27,6 +27,7 @@ import { SaveProjectTemplateDialog } from '../components/templates/SaveAsTemplat
 import { TemplateGlyph } from '../components/templates/TemplateCard';
 import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
+import { ProjectSteps } from '../components/projects/ProjectSteps';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
 import { ProjectCompanies } from '../components/company/ProjectCompanies';
@@ -282,7 +283,10 @@ export function ProjectDetailPage() {
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: project && !firstLoad ? <bdi>{project.name}</bdi> : '…' }]} />
+      <Breadcrumbs items={[{ label: 'Projects', to: '/projects' }, { label: project && !firstLoad ? <bdi>{project.name}</bdi> : '…' }]}>
+        {/* 1.22: Previous / Next project, in the Projects page's order (else active projects A–Z). */}
+        <ProjectSteps projectId={id} />
+      </Breadcrumbs>
 
       {firstLoad || !project ? (
         <ProjectPageSkeleton key="loading" />

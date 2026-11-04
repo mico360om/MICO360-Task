@@ -274,6 +274,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /tasks/mine': 'list',
   'GET /calendar': 'list',
   'GET /tasks/approvals': 'list',
+  // 1.22: also the Activity calendar's two questions on the same route — `?from=&to=` (changes per
+  // day) and `?day=` (one day's changes, 100 at a time) — with exactly the feed's scope and pick.
   'GET /activity': 'list',
   'GET /notifications': 'list',
   'GET /notifications/unread-count': 'list',

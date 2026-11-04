@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { SearchPage } from './SearchPage';
+import { useTaskSteps } from '../lib/task-steps';
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -90,11 +91,13 @@ describe('Search results page', () => {
     expect(first).toHaveTextContent('Bilal Ahmed +2');
   });
 
-  it('opens a task in its panel', async () => {
+  it('opens a task in its panel, with the results as its list (Previous / Next)', async () => {
+    useTaskSteps.getState().clear();
     serve();
     open();
     await userEvent.click(await row('Check the scaffold 2'));
     expect(screen.getByTestId('where').textContent).toContain('task=t2');
+    expect(useTaskSteps.getState()).toMatchObject({ ids: ['t1', 't2'], path: '/search' });
   });
 
   it('asks again as the words change, and keeps them in the address', async () => {

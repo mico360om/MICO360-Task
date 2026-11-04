@@ -896,7 +896,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.activityService) {
-        await registerActivityRoutes(api, { activityService: deps.activityService, guard, canViewTask, accessibleProjectIds, pickOf });
+        await registerActivityRoutes(api, { activityService: deps.activityService, guard, canViewTask, accessibleProjectIds, pickOf, timeZone: deps.appConfig?.timeZone ?? defaultCompanyTimeZone() });
       }
       if (deps.auditService) {
         await registerAuditRoutes(api, { auditService: deps.auditService, guard, timeZone: deps.appConfig?.timeZone });

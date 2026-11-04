@@ -20,7 +20,7 @@ import { invalidateTaskQueries } from '../lib/task-cache';
 import { useCompanyTimeZone } from '../lib/company-clock';
 import { useDialog } from '../hooks/useDialog';
 import { useAuthStore } from '../stores/auth-store';
-import { TaskDrawer, type DrawerTaskRef } from './TaskDrawer';
+import { TaskDrawer, type DrawerTaskRef, type TaskStepper } from './TaskDrawer';
 import { TaskFormDialog } from './task-form/TaskFormDialog';
 import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
 import { SaveTaskTemplateDialog } from './templates/SaveAsTemplate';
@@ -37,6 +37,8 @@ import { isProjectArchived } from '../lib/project-archive';
 export interface TaskDrawerContainerProps {
   taskId: string;
   onClose: () => void;
+  /** Previous / Next through the list the task was opened from (the app shell's panel; 1.22). */
+  stepper?: TaskStepper;
 }
 
 /** A readable message for a failed drawer action (the server's own message when it sent one). */
@@ -65,7 +67,7 @@ async function attempt<T>(action: () => Promise<T>, fallback: string): Promise<T
 const fullName = (u: { firstName: string | null; lastName: string | null; username: string }) =>
   [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
-export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProps) {
+export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerContainerProps) {
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -84,6 +86,16 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
     return () => clearTimeout(t);
   }, [toast]);
   const failed = (fallback: string) => (e: unknown) => setActionError(failureText(e, fallback));
+  // Stepped to another task (Previous / Next): nothing of the last one's stays open over it.
+  const [shownTaskId, setShownTaskId] = useState(taskId);
+  if (shownTaskId !== taskId) {
+    setShownTaskId(taskId);
+    setActionError(null);
+    setEditing(false);
+    setMoving(false);
+    setSavingTemplate(false);
+    setToast(null);
+  }
 
   const taskQ = useQuery({ queryKey: ['task', taskId], queryFn: () => tasksApi(apiClient).get(taskId) });
   const checklistQ = useQuery({ queryKey: ['checklist', taskId], queryFn: () => checklistApi(apiClient).list(taskId) });
@@ -328,7 +340,10 @@ export function TaskDrawerContainer({ taskId, onClose }: TaskDrawerContainerProp
       >
         {taskQ.data ? (
           <TaskDrawer
+            // A task of its own each step: the last one's drafts and questions don't carry over.
+            key={taskQ.data.id}
             task={taskQ.data}
+            stepper={stepper}
             timeZone={timeZone}
             actionError={actionError}
             onDismissError={() => setActionError(null)}

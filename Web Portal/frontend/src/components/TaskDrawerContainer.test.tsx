@@ -519,3 +519,33 @@ describe('TaskDrawerContainer — who may delete this task (its creator, or the 
     expect(mine).not.toHaveAttribute('aria-disabled');
   });
 });
+
+describe('TaskDrawerContainer — Previous / Next (1.22)', () => {
+  it('shows the panel’s steps; a step to another task leaves nothing of the last one open over it', async () => {
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) =>
+      String(url).endsWith('/tasks/t2')
+        ? json({ data: { id: 't2', key: 'MICO-2', title: 'Do first', description: '', projectId: 'p1', columnId: 'c1', position: 1, priority: 'NORMAL', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' } })
+        : base(url, init)));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} stepper={{ position: 1, total: 2, onNext: vi.fn() }} />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('dialog', { name: 'Task MICO-1' });
+    expect(screen.getByText('1 of 2')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Edit task' }));
+    expect(await screen.findByRole('dialog', { name: 'Edit task' })).toBeInTheDocument();
+    rerender(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t2" onClose={() => {}} stepper={{ position: 2, total: 2, onPrevious: vi.fn(), focus: 'next' }} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole('dialog', { name: 'Task MICO-2' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Edit task' })).not.toBeInTheDocument();
+    expect(screen.getByText('2 of 2')).toBeInTheDocument();
+    // Next was pressed and is greyed out now: focus is on Previous.
+    expect(screen.getByRole('button', { name: 'Previous task' })).toHaveFocus();
+  });
+});
