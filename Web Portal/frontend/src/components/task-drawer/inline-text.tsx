@@ -64,7 +64,9 @@ export function InlineTitle({ title, onSave }: { title: string; onSave?: (title:
           dir="auto"
           maxLength={TITLE_MAX}
           value={draft}
-          data-unsaved={draft.trim() !== title || undefined}
+          // Leaving the box saves it (stepping to another task too), so a typed title is not "unsaved" —
+          // unless that save was refused (an empty title): then Previous / Next ask first.
+          data-unsaved={save.state.status === 'error' || undefined}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || ((e.ctrlKey || e.metaKey) && e.code === 'KeyS')) {

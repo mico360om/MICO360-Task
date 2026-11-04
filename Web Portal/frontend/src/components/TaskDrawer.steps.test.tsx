@@ -89,6 +89,39 @@ describe('the task panel’s Previous / Next', () => {
     expect(onNext).toHaveBeenCalledTimes(1);
   });
 
+  // 1.22 QA: the title (and a checklist item being renamed) save themselves when you leave the box —
+  // clicking Next leaves it. Asking "Discard?" then was wrong: the title was saved whatever you picked.
+  it('a title or checklist item being edited is saved by stepping, as leaving the box saves it — no question', async () => {
+    const onNext = vi.fn();
+    const onSaveEdit = vi.fn();
+    const onRenameChecklistItem = vi.fn();
+    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { onSaveEdit, onRenameChecklistItem, checklist: [{ id: 'k1', text: 'Collect figures', done: false, position: 0 }] });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    const title = screen.getByRole('textbox', { name: 'Title' });
+    await userEvent.clear(title);
+    await userEvent.type(title, 'Reworked report');
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
+    expect(screen.queryByRole('alertdialog', { name: 'Discard your changes?' })).not.toBeInTheDocument();
+    expect(onSaveEdit).toHaveBeenCalledWith({ title: 'Reworked report' }, undefined);
+    expect(onNext).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit “Collect figures”' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Checklist item' }), ' and costs');
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
+    expect(screen.queryByRole('alertdialog', { name: 'Discard your changes?' })).not.toBeInTheDocument();
+    expect(onRenameChecklistItem).toHaveBeenCalledWith('k1', 'Collect figures and costs');
+    expect(onNext).toHaveBeenCalledTimes(2);
+  });
+
+  it('a title that couldn’t be saved (left empty) still asks first', async () => {
+    const onNext = vi.fn();
+    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    await userEvent.clear(screen.getByRole('textbox', { name: 'Title' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
   it('a comment being written counts as unsaved too; an empty box does not', async () => {
     const onNext = vi.fn();
     drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext });

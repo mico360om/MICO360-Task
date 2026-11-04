@@ -57,7 +57,8 @@ function ItemText({ item, onRename }: { item: DrawerChecklistItem; onRename?: (t
           aria-label="Checklist item"
           dir="auto"
           value={draft}
-          data-unsaved={draft.trim() !== item.text || undefined}
+          // Leaving the box saves the new wording (stepping to another task too); only a refused save is unsaved.
+          data-unsaved={problem ? true : undefined}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
