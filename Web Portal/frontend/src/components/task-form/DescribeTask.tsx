@@ -184,7 +184,7 @@ export function DescribeTask({ onParse, current, initial, onApply, projects, pro
               ))}
             </ul>
             <div className="mt-2.5 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => setFound(null)} className="min-h-[36px] rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">Dismiss</button>
+              <button type="button" onClick={() => setFound(null)} className="min-h-[36px] [@media(pointer:coarse)]:!min-h-11 rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">Dismiss</button>
               <Button type="button" size="sm" onClick={apply} disabled={!found.some((s) => s.checked)} className="min-h-[36px]">Use selected details</Button>
             </div>
           </div>

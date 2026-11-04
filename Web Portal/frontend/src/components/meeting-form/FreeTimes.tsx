@@ -75,7 +75,7 @@ export function FreeTimes({ userIds, startAt, minutes, rule, excludeMeetingId, p
             if (showSuggestions || q.isStale) void q.refetch();
             setShowSuggestions(true);
           }}
-          className="min-h-9 rounded-lg border border-line bg-surface px-3 text-sm font-semibold text-brand hover:border-brand/40 disabled:opacity-50"
+          className="min-h-9 [@media(pointer:coarse)]:!min-h-11 rounded-lg border border-line bg-surface px-3 text-sm font-semibold text-brand hover:border-brand/40 disabled:opacity-50"
         >
           Suggest 3 times
         </button>
@@ -88,7 +88,7 @@ export function FreeTimes({ userIds, startAt, minutes, rule, excludeMeetingId, p
         ) : data.suggestions.length ? (
           <div role="group" aria-label="Suggested times" className="flex flex-wrap gap-1.5">
             {data.suggestions.map((s) => (
-              <button key={s} type="button" onClick={() => onPick(s)} className="min-h-9 rounded-lg border border-brand/40 bg-surface px-3 text-sm font-medium text-ink hover:bg-brand/10">
+              <button key={s} type="button" onClick={() => onPick(s)} className="min-h-9 [@media(pointer:coarse)]:!min-h-11 rounded-lg border border-brand/40 bg-surface px-3 text-sm font-medium text-ink hover:bg-brand/10">
                 {formatMeetingRange(s, null, timeZone)}
               </button>
             ))}

@@ -177,7 +177,7 @@ function OfficeView({ preview }: { preview: OfficePreview }) {
               role="tab"
               aria-selected={i === sheet}
               onClick={() => setSheet(i)}
-              className={`min-h-9 whitespace-nowrap rounded-t-md px-3 text-xs font-medium ${i === sheet ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+              className={`min-h-9 [@media(pointer:coarse)]:!min-h-11 whitespace-nowrap rounded-t-md px-3 text-xs font-medium ${i === sheet ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
             >
               {s.name}
             </button>

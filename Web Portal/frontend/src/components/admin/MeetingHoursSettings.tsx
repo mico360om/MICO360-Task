@@ -77,7 +77,7 @@ export function MeetingHoursSettings() {
             type="button"
             aria-pressed={draft.days.includes(day)}
             onClick={() => toggle(day)}
-            className={`min-h-9 min-w-[3rem] rounded-lg border px-2.5 text-sm font-semibold transition-colors ${draft.days.includes(day) ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:border-brand/40'}`}
+            className={`min-h-9 [@media(pointer:coarse)]:!min-h-11 min-w-[3rem] rounded-lg border px-2.5 text-sm font-semibold transition-colors ${draft.days.includes(day) ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:border-brand/40'}`}
           >
             {name}
           </button>

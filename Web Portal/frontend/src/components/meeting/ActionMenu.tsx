@@ -103,7 +103,7 @@ export function ActionMenu({
         trigger.current?.focus();
         it.onSelect();
       }}
-      className={`flex min-h-10 w-full items-center gap-2 px-3 py-2 text-start text-sm focus-visible:outline-none sm:min-h-0 sm:py-1.5 ${
+      className={`flex min-h-10 [@media(pointer:coarse)]:!min-h-11 w-full items-center gap-2 px-3 py-2 text-start text-sm focus-visible:outline-none sm:min-h-0 sm:py-1.5 ${
         it.danger ? 'text-danger hover:bg-danger-soft focus-visible:bg-danger-soft' : 'text-ink hover:bg-ground focus-visible:bg-ground'
       }`}
     >

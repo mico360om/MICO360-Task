@@ -288,7 +288,7 @@ export function AttendeesPanel({
             })}
           </ul>
           {attendees.length > FIRST ? (
-            <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 min-h-9 text-sm font-medium text-brand hover:underline">
+            <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 min-h-9 [@media(pointer:coarse)]:!min-h-11 text-sm font-medium text-brand hover:underline">
               {showAll ? 'Show fewer' : `Show all ${attendees.length}`}
             </button>
           ) : null}
