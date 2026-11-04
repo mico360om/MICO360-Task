@@ -52,7 +52,8 @@ describe('a meeting waiting for its Teams link', () => {
   it('its organizer sees the plain notice and Make Teams link', async () => {
     const onMade = vi.fn();
     renderIt(<TeamsLinkNotice meeting={meeting} onMade={onMade} />);
-    expect((await screen.findByRole('alert')).textContent).toMatch(/The Teams link couldn’t be made — try again\./);
+    // A lasting note (role status), not an alert announced on every visit.
+    expect((await screen.findByRole('status')).textContent).toMatch(/The Teams link couldn’t be made — try again\./);
     await userEvent.click(screen.getByRole('button', { name: 'Make Teams link' }));
     await waitFor(() => expect(onMade).toHaveBeenCalled());
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/meetings/m1/teams-link'))).toBe(true);

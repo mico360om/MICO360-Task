@@ -61,9 +61,9 @@ describe('no Microsoft token, secret, code or verifier anywhere it could be seen
       return res;
     };
     const connect = async () => {
-      const start = await call('GET', (await call('POST', '/api/v1/integrations/microsoft/connect')).json().data.url, {});
-      const back = new URL((await fetch(String(start.headers.location), { redirect: 'manual' })).headers.get('location')!);
-      return call('GET', `${back.pathname}${back.search}`, { cookie: String(start.headers['set-cookie']).split(';')[0]! });
+      const begun = await call('POST', '/api/v1/integrations/microsoft/connect');
+      const back = new URL((await fetch(begun.json().data.url as string, { redirect: 'manual' })).headers.get('location')!);
+      return call('GET', `${back.pathname}${back.search}`, { cookie: String(begun.headers['set-cookie']).split(';')[0]! });
     };
     const attempt = async (fn: () => Promise<unknown>) => {
       try {

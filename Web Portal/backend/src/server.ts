@@ -1296,6 +1296,8 @@ async function main(): Promise<void> {
   const runMeetingSeriesTopUp = () =>
     runExclusive(jobLock, 'meeting-series-top-up', SWEEP_LEASE_MS, () => new Date(), async () => {
       await meetingSeriesService.extendAll((err, rootId) => logger.error('meeting series top-up failed', { err, meetingId: rootId }));
+      // 1.23: Teams meetings left behind by cancelled or deleted meetings (every delete try failed) go now.
+      await teamsMeetings.sweepLeftovers().catch((err) => logger.error('Microsoft Teams: sweeping left-over Teams meetings failed', { err }));
     }).catch((err) => {
       logger.error('meeting series top-up failed', { err });
       return false;

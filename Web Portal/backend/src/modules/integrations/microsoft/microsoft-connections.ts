@@ -9,11 +9,12 @@ import { createTokenSealer } from './token-crypto';
  * with PKCE S256), the access tokens Teams calls use, Disconnect, and removal when an account is
  * deactivated.
  *
- * Connecting: the website asks for a start ticket (2 minutes, single use, signed for the person); the
- * browser opens /start with it, which sets a flow cookie (HttpOnly) and goes to Microsoft with a state
+ * Connecting: the person's own signed-in page asks to connect (an authenticated request); its answer
+ * sets a flow cookie (HttpOnly) in that browser and names Microsoft's sign-in address, with a state
  * (10 minutes, single use, signed, naming the person) and the PKCE challenge. Microsoft's callback must
- * bring that state back to the same browser (the cookie) — a leaked link can't connect someone else's
- * Microsoft account. The PKCE verifier and the pending flows stay in this server's memory.
+ * bring that state back to the same browser (the cookie). Nothing a link can open sets the cookie, so
+ * neither a leaked sign-in address nor a link from someone else can tie one person's Microsoft account
+ * to another person. The PKCE verifier and the pending flows stay in this server's memory.
  *
  * Refresh tokens are sealed (token-crypto.ts) in the database; access tokens live only in memory; both
  * are never logged, returned or put in an error message. Every token's tenant is checked.
@@ -50,7 +51,6 @@ export interface MicrosoftConnectionsDeps {
 }
 
 export const FLOW_COOKIE = 'mico_ms_flow';
-const TICKET_TTL_MS = 2 * 60_000;
 const STATE_TTL_MS = 10 * 60_000;
 const MAX_PENDING = 1000;
 /** Microsoft's tenant for personal accounts: they can't make Teams meetings through this API. */
@@ -93,16 +93,13 @@ export function createMicrosoftConnections(deps: MicrosoftConnectionsDeps) {
   const { config, client, store } = deps;
   const now = deps.now ?? (() => new Date());
   const sealer = createTokenSealer(config.tokenKey);
-  const tickets = signer(config.tokenKey, 'start-ticket', now);
   const states = signer(config.tokenKey, 'state', now);
-  const usedTickets = new Map<string, number>();
   const pending = new Map<string, { userId: string; verifier: string; browser: Buffer; exp: number }>();
   const access = new Map<string, { token: string; until: number }>();
   const refreshing = new Map<string, Promise<string>>();
 
   function prune(): void {
     const t = now().getTime();
-    for (const [n, exp] of usedTickets) if (exp < t) usedTickets.delete(n);
     for (const [n, p] of pending) if (p.exp < t) pending.delete(n);
     while (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value!);
   }
@@ -128,26 +125,20 @@ export function createMicrosoftConnections(deps: MicrosoftConnectionsDeps) {
     };
   }
 
-  /** The start address's ticket for this person (2 minutes, once). */
-  function connectTicket(userId: string): string {
-    return tickets.issue({ u: userId }, TICKET_TTL_MS);
-  }
-
-  /** /start: Microsoft's sign-in address and the flow cookie, or null when the ticket is no good. */
-  function begin(ticket: unknown): { authorizeUrl: string; cookie: { name: string; value: string; maxAgeSeconds: number }; userId: string } | null {
+  /**
+   * Connect, asked by the signed-in person's own page: Microsoft's sign-in address, and the flow cookie
+   * the answer sets in that browser (the callback needs both).
+   */
+  function begin(userId: string): { authorizeUrl: string; cookie: { name: string; value: string; maxAgeSeconds: number } } {
     prune();
-    const t = tickets.read(ticket);
-    if (!t?.u || usedTickets.has(t.n)) return null;
-    usedTickets.set(t.n, t.exp);
     const verifier = randomBytes(32).toString('base64url');
     const browser = randomBytes(24).toString('base64url');
-    const state = states.issue({ u: t.u }, STATE_TTL_MS);
+    const state = states.issue({ u: userId }, STATE_TTL_MS);
     const nonce = states.read(state)!.n;
-    pending.set(nonce, { userId: t.u, verifier, browser: sha256(browser), exp: now().getTime() + STATE_TTL_MS });
+    pending.set(nonce, { userId, verifier, browser: sha256(browser), exp: now().getTime() + STATE_TTL_MS });
     return {
       authorizeUrl: client.authorizeUrl({ state, codeChallenge: createHash('sha256').update(verifier).digest('base64url') }),
       cookie: { name: FLOW_COOKIE, value: browser, maxAgeSeconds: STATE_TTL_MS / 1000 },
-      userId: t.u,
     };
   }
 
@@ -176,8 +167,8 @@ export function createMicrosoftConnections(deps: MicrosoftConnectionsDeps) {
         userId,
         tenantId: tid!,
         microsoftUserId: me.id,
-        email: me.email,
-        displayName: me.displayName,
+        email: me.email?.slice(0, 320) ?? null,
+        displayName: me.displayName?.slice(0, 200) ?? null,
         refreshTokenEnc: sealer.seal(set.refreshToken, userId),
         problem: null,
         connectedAt: now(),
@@ -204,9 +195,19 @@ export function createMicrosoftConnections(deps: MicrosoftConnectionsDeps) {
     try {
       set = await client.refresh(refresh);
     } catch (err) {
+      if (err instanceof MicrosoftError && err.kind === 'config') {
+        // The server's own app settings (client secret) are refused: the person's connection is fine.
+        warn('Microsoft Teams: Microsoft refused this server’s app settings — check MS_CLIENT_ID and MS_CLIENT_SECRET (setup problem; connections are kept)', err, { userId });
+        throw err;
+      }
       if (err instanceof MicrosoftError && err.kind === 'auth') await store.setProblem(userId, REFUSED);
       warn('Microsoft Teams: refreshing the connection failed', err, { userId });
       throw err;
+    }
+    // Disconnected (or connected again) while Microsoft answered: this answer belongs to no connection now.
+    const still = await store.get(userId);
+    if (!still?.refreshTokenEnc || still.connectedAt.getTime() !== row.connectedAt.getTime() || still.microsoftUserId !== row.microsoftUserId) {
+      throw new NotConnectedError();
     }
     const tid = tenantOfAccessToken(set.accessToken);
     if (!tenantAllowed(tid) || tid !== row.tenantId.toLowerCase()) {
@@ -249,7 +250,6 @@ export function createMicrosoftConnections(deps: MicrosoftConnectionsDeps) {
 
   return {
     status,
-    connectTicket,
     begin,
     complete,
     accessToken,

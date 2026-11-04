@@ -969,7 +969,8 @@ model Meeting {
   projectId          String?
   organizerId        String
   location           String?
-  onlineLink         String?
+  /// 1.23: up to 2048 characters (a Teams join link is about 250; the API has always taken 2048).
+  onlineLink         String?       @db.VarChar(2048)
   /// 1.23: 'TEAMS' when the online link was (or is to be) made by Microsoft Teams; null for a hand-pasted link.
   onlineMeetingProvider String?    @db.VarChar(16)
   /// 1.23: the Teams meeting's id in Microsoft Graph (null: none made yet). Never sent to the apps.

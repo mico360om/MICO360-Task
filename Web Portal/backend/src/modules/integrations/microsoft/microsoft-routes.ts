@@ -29,18 +29,14 @@ export interface MicrosoftRouteDeps {
 }
 
 const COOKIE_PATH = '/api/v1/integrations/microsoft';
-const ticketQuery = z.object({ ticket: z.string().max(2000).optional() });
 const callbackQuery = z.object({ code: z.string().max(4000).optional(), state: z.string().max(2000).optional(), error: z.string().max(200).optional() });
 const NOT_SET_UP = 'Teams links aren’t set up on this site yet.';
 
-function plain(reply: FastifyReply, status: number, text: string) {
-  return reply.status(status).header('content-type', 'text/plain; charset=utf-8').header('cache-control', 'no-store').send(text);
-}
-
 /**
  * Settings → Microsoft Teams (each person's own Microsoft account, staff only) and Make Teams link on a
- * meeting. /start and /callback are opened by the browser itself (no sign-in header): the signed ticket,
- * state and flow cookie stand in for it.
+ * meeting. Connect is asked by the person's own signed-in page; its answer sets the flow cookie in that
+ * browser. The callback is opened by the browser itself (no sign-in header): the signed, single-use
+ * state and that cookie stand in for the sign-in. Nothing a link opens begins a connection.
  */
 export async function registerMicrosoftRoutes(app: FastifyInstance, deps: MicrosoftRouteDeps): Promise<void> {
   // Staff only: client accounts (1.23) never connect anything or make links.
@@ -62,31 +58,33 @@ export async function registerMicrosoftRoutes(app: FastifyInstance, deps: Micros
     return { data: await deps.connections.status(req.user!.id) };
   });
 
-  // The browser then opens this address on the server itself (it sets the flow cookie, then goes to Microsoft).
-  app.post('/integrations/microsoft/connect', staff, async (req) => {
+  // Connect: the person's own page asks (signed in); the answer sets this browser's flow cookie and names
+  // Microsoft's sign-in page, which the page then opens.
+  app.post('/integrations/microsoft/connect', staff, async (req, reply) => {
     if (!deps.connections) throw new ConflictError(NOT_SET_UP, 'TEAMS_NOT_SET_UP');
-    return { data: { url: `${COOKIE_PATH}/start?${new URLSearchParams({ ticket: deps.connections.connectTicket(req.user!.id) })}` } };
+    const begun = deps.connections.begin(req.user!.id);
+    reply.header('set-cookie', cookie(req, begun.cookie.value, begun.cookie.maxAgeSeconds));
+    return { data: { url: begun.authorizeUrl } };
   });
 
-  app.get('/integrations/microsoft/start', async (req, reply) => {
-    if (!deps.connections) return plain(reply, 404, NOT_SET_UP);
-    const { ticket } = ticketQuery.parse(req.query);
-    const begun = ticket ? deps.connections.begin(ticket) : null;
-    if (!begun) return plain(reply, 410, 'This link has expired or was already used. Go back to Settings → Microsoft Teams and press Connect again.');
-    return reply.header('set-cookie', cookie(req, begun.cookie.value, begun.cookie.maxAgeSeconds)).header('cache-control', 'no-store').redirect(begun.authorizeUrl, 302);
-  });
-
-  // Microsoft sends the person here after its sign-in and consent page.
+  // Microsoft sends the person here after its sign-in and consent page. Whatever happens, back to
+  // Settings — never an error page (its address carries the sign-in code).
   app.get('/integrations/microsoft/callback', async (req, reply) => {
     reply.header('set-cookie', cookie(req, '', 0)).header('cache-control', 'no-store');
     if (!deps.connections) return reply.redirect(settingsUrl('failed'), 302);
-    const answer = callbackQuery.safeParse(req.query);
-    const done = answer.success ? await deps.connections.complete(answer.data, readCookie(req.headers.cookie, FLOW_COOKIE)) : { result: 'failed' as const, userId: null, email: null };
-    if (done.result === 'connected') await record({ userId: done.userId, ip: req.ip ?? null, action: 'microsoft.connect', newValue: { email: done.email } });
-    else if (done.userId && 'reason' in done && (done.reason === 'tenant' || done.reason === 'browser')) {
-      await record({ userId: done.userId, ip: req.ip ?? null, action: 'microsoft.connect-refused', newValue: { reason: done.reason } });
+    let result: 'connected' | 'denied' | 'failed' = 'failed';
+    try {
+      const answer = callbackQuery.safeParse(req.query);
+      const done = answer.success ? await deps.connections.complete(answer.data, readCookie(req.headers.cookie, FLOW_COOKIE)) : { result: 'failed' as const, userId: null, email: null };
+      result = done.result;
+      if (done.result === 'connected') await record({ userId: done.userId, ip: req.ip ?? null, action: 'microsoft.connect', newValue: { email: done.email } });
+      else if (done.userId && 'reason' in done && (done.reason === 'tenant' || done.reason === 'browser')) {
+        await record({ userId: done.userId, ip: req.ip ?? null, action: 'microsoft.connect-refused', newValue: { reason: done.reason } });
+      }
+    } catch (err) {
+      deps.logger?.error('Microsoft Teams: the sign-in callback failed', { reason: err instanceof Error ? err.name : 'unknown' });
     }
-    return reply.redirect(settingsUrl(done.result), 302);
+    return reply.redirect(settingsUrl(result), 302);
   });
 
   app.delete('/integrations/microsoft', staff, async (req) => {

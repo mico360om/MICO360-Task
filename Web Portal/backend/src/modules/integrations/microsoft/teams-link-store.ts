@@ -39,6 +39,10 @@ export interface TeamsLinkStore {
   write(ids: string[], fields: TeamsLinkFields): Promise<void>;
   /** Make these meetings' links plain again: no Teams marker; the link itself goes where it is still `joinUrl`. */
   clear(ids: string[], joinUrl: string | null): Promise<void>;
+  /** The Teams meeting is deleted: every meeting that held it (deleted ones too) forgets it. */
+  forget(teamsId: string, joinUrl: string | null): Promise<void>;
+  /** Teams meetings still held by cancelled or deleted meetings (the daily sweep checks each). */
+  leftovers(): Promise<Array<{ teamsId: string; ownerId: string | null; organizerId: string; joinUrl: string | null }>>;
 }
 
 const SELECT = {
@@ -96,6 +100,22 @@ export function createPrismaTeamsLinkStore(prisma: PrismaClient): TeamsLinkStore
         prisma.meeting.updateMany({ where: { id: { in: ids } }, data: { onlineMeetingProvider: null, onlineMeetingId: null, onlineMeetingOwnerId: null } }),
       ]);
     },
+    async forget(teamsId, joinUrl) {
+      await prisma.$transaction([
+        ...(joinUrl ? [prisma.meeting.updateMany({ where: { onlineMeetingId: teamsId, onlineLink: joinUrl }, data: { onlineLink: null } })] : []),
+        prisma.meeting.updateMany({ where: { onlineMeetingId: teamsId }, data: { onlineMeetingProvider: null, onlineMeetingId: null, onlineMeetingOwnerId: null } }),
+      ]);
+    },
+    async leftovers() {
+      const rows = await prisma.meeting.findMany({
+        where: { onlineMeetingId: { not: null }, OR: [{ deletedAt: { not: null } }, { status: 'CANCELLED' }] },
+        select: { onlineMeetingId: true, onlineMeetingOwnerId: true, organizerId: true, onlineLink: true },
+        take: 500,
+      });
+      const byId = new Map<string, { teamsId: string; ownerId: string | null; organizerId: string; joinUrl: string | null }>();
+      for (const r of rows) if (r.onlineMeetingId && !byId.has(r.onlineMeetingId)) byId.set(r.onlineMeetingId, { teamsId: r.onlineMeetingId, ownerId: r.onlineMeetingOwnerId, organizerId: r.organizerId, joinUrl: r.onlineLink });
+      return [...byId.values()];
+    },
   };
 }
 
@@ -150,6 +170,19 @@ export function memoryTeamsLinkStore(rows: Map<string, MeetingRecord>): TeamsLin
         if (!m) continue;
         set(id, { provider: null, teamsId: null, ownerId: null, ...(joinUrl && m.onlineLink === joinUrl ? { onlineLink: null } : {}) });
       }
+    },
+    async forget(teamsId, joinUrl) {
+      const holders = [...rows.values()].filter((m) => ids.get(m.id)?.teamsId === teamsId).map((m) => m.id);
+      await this.clear(holders, joinUrl);
+    },
+    async leftovers() {
+      const out = new Map<string, { teamsId: string; ownerId: string | null; organizerId: string; joinUrl: string | null }>();
+      for (const m of rows.values()) {
+        const own = ids.get(m.id);
+        if (!own?.teamsId || (!m.deletedAt && m.status !== 'CANCELLED') || out.has(own.teamsId)) continue;
+        out.set(own.teamsId, { teamsId: own.teamsId, ownerId: own.ownerId, organizerId: m.organizerId, joinUrl: m.onlineLink });
+      }
+      return [...out.values()];
     },
   };
 }

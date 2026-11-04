@@ -10,7 +10,7 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-type Call = { url: string; method: string };
+type Call = { url: string; method: string; credentials?: RequestCredentials };
 let calls: Call[];
 let available: boolean;
 let status: Record<string, unknown>;
@@ -26,9 +26,9 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
       const method = init?.method ?? 'GET';
-      calls.push({ url: u, method });
+      calls.push({ url: u, method, credentials: init?.credentials });
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: 'x', companyName: 'y', serverTime: new Date().toISOString(), microsoftTeams: available } });
-      if (u.endsWith('/integrations/microsoft/connect')) return json({ data: { url: '/api/v1/integrations/microsoft/start?ticket=t1' } });
+      if (u.endsWith('/integrations/microsoft/connect')) return json({ data: { url: 'https://login.microsoftonline.com/t1/oauth2/v2.0/authorize?client_id=c&state=s' } });
       if (u.endsWith('/integrations/microsoft') && method === 'DELETE') {
         status = { ...status, connected: false, email: null, name: null };
         return json({ data: { disconnected: true } });
@@ -61,12 +61,15 @@ describe('Settings → Microsoft Teams', () => {
     expect(calls.some((c) => c.url.endsWith('/integrations/microsoft'))).toBe(false);
   });
 
-  it('not connected: Connect Microsoft account goes to the server’s start address (then Microsoft)', async () => {
+  it('not connected: Connect Microsoft account asks the server (sending this browser’s cookies), then opens Microsoft’s page', async () => {
     const { open } = renderIt();
     expect(await screen.findByRole('heading', { name: 'Microsoft Teams' })).toBeTruthy();
     await userEvent.click(await screen.findByRole('button', { name: 'Connect Microsoft account' }));
-    await waitFor(() => expect(open).toHaveBeenCalledWith(expect.stringMatching(/\/api\/v1\/integrations\/microsoft\/start\?ticket=t1$/)));
-    expect(calls.find((c) => c.url.endsWith('/integrations/microsoft/connect'))?.method).toBe('POST');
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://login.microsoftonline.com/t1/oauth2/v2.0/authorize?client_id=c&state=s'));
+    const call = calls.find((c) => c.url.endsWith('/integrations/microsoft/connect'));
+    expect(call?.method).toBe('POST');
+    // Its answer sets the flow cookie in this browser (also with the website on another origin).
+    expect(call?.credentials).toBe('include');
   });
 
   it('connected: "Connected as …" and Disconnect (asked first)', async () => {

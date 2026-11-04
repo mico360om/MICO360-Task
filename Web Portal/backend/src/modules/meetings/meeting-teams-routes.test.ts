@@ -74,7 +74,7 @@ beforeEach(async () => {
     } as never,
   });
   // The organizer's own Microsoft account is connected.
-  const begun = connections.begin(connections.connectTicket('org'))!;
+  const begun = connections.begin('org');
   const back = new URL((await fetch(begun.authorizeUrl, { redirect: 'manual' })).headers.get('location')!);
   await connections.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, begun.cookie.value);
 });
@@ -119,8 +119,9 @@ describe('New meeting with "Create a Teams link"', () => {
     for (const r of family) expect(r).toMatchObject({ onlineLink: join, onlineMeetingProvider: 'TEAMS' });
   });
 
-  it('an administrator scheduling for someone else: saved, "only the organizer" notice, nothing made', async () => {
-    const res = await create({ teamsLink: true, organizerId: 'org' }, 'admin', ['ADMIN']);
+  it('an administrator scheduling for someone else: saved with their pasted link, "only the organizer" notice, nothing made', async () => {
+    const res = await create({ teamsLink: true, organizerId: 'org', onlineLink: 'https://meet.example.com/kept' }, 'admin', ['ADMIN']);
+    expect(res.json().data.onlineLink).toBe('https://meet.example.com/kept');
     expect(res.statusCode).toBe(201);
     expect(res.json().data.teamsNotice.code).toBe('TEAMS_NOT_ORGANIZER');
     expect(ms.meetings.size).toBe(0);

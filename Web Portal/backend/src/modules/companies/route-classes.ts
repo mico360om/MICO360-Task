@@ -373,13 +373,12 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // 1.22 Lane AI (§10): the AI's draft offered beside a meeting's minutes — Use it, Discard (editors of the meeting).
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'object',
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'object',
-  // 1.23 Teams links: each person's own Microsoft connection (staff only; clients refused), the browser's
-  // way to Microsoft and back (a signed ticket / state and the flow cookie stand in for the sign-in), and
+  // 1.23 Teams links: each person's own Microsoft connection (staff only; clients refused), Microsoft's
+  // way back (the signed single-use state and the flow cookie stand in for the sign-in), and
   // Make Teams link on one meeting (the meeting's view and edit rules; the organizer's own account).
   'GET /integrations/microsoft': 'own',
   'POST /integrations/microsoft/connect': 'own',
   'DELETE /integrations/microsoft': 'own',
-  'GET /integrations/microsoft/start': 'public',
   'GET /integrations/microsoft/callback': 'public',
   'POST /meetings/:id/teams-link': 'object',
 };

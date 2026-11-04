@@ -8,7 +8,8 @@ import { MS_SCOPES } from './microsoft-config';
  * own plain words and Microsoft's error code, never a token or a response body.
  */
 
-export type MicrosoftErrorKind = 'auth' | 'denied' | 'forbidden' | 'throttled' | 'unavailable' | 'network' | 'timeout' | 'not-found' | 'bad-response' | 'tenant';
+/** `config`: the server's own Microsoft settings are refused (a wrong or expired client secret) — no person's connection is at fault. */
+export type MicrosoftErrorKind = 'auth' | 'config' | 'denied' | 'forbidden' | 'throttled' | 'unavailable' | 'network' | 'timeout' | 'not-found' | 'bad-response' | 'tenant';
 
 export class MicrosoftError extends Error {
   constructor(
@@ -64,7 +65,7 @@ export function tenantOfAccessToken(token: string): string | null {
   }
 }
 
-async function errorFrom(res: Response, what: string): Promise<MicrosoftError> {
+async function errorFrom(res: Response, what: string, tokenEndpoint = false): Promise<MicrosoftError> {
   let code: string | undefined;
   let suberror: string | undefined;
   try {
@@ -75,7 +76,13 @@ async function errorFrom(res: Response, what: string): Promise<MicrosoftError> {
     /* not JSON */
   }
   const s = res.status;
-  if (code === 'invalid_grant' || code === 'invalid_client' || code === 'unauthorized_client' || s === 401) {
+  // The sign-in server refusing the APP (its client secret expired or was mistyped) is the server's setup:
+  // every person's connection is still good once the setting is put right.
+  if (tokenEndpoint && (code === 'invalid_client' || code === 'unauthorized_client' || (s === 401 && code !== 'invalid_grant'))) {
+    return new MicrosoftError('config', `Microsoft refused this server's app settings — check MS_CLIENT_ID and MS_CLIENT_SECRET (${what}).`, s, code);
+  }
+  // The person's own connection: refused, revoked, or Microsoft wants them to sign in again.
+  if (code === 'invalid_grant' || code === 'interaction_required' || code === 'consent_required' || code === 'login_required' || s === 401) {
     return new MicrosoftError('auth', suberror === 'consent_required' ? `Microsoft needs consent again (${what}).` : `Microsoft no longer accepts this connection (${what}).`, s, code);
   }
   if (code === 'access_denied') return new MicrosoftError('denied', `Microsoft access was declined (${what}).`, s, code);
@@ -121,14 +128,15 @@ export function createMicrosoftClient(opts: MicrosoftClientOptions) {
     if (!again) return res;
     const after = Number(res.headers.get('retry-after'));
     await res.body?.cancel().catch(() => undefined);
-    await sleep(Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 2000, Math.max(retryDelay, 1)) : retryDelay);
+    // Microsoft's Retry-After, up to 2 s (a save never waits longer); else the usual short wait.
+    await sleep(Number.isFinite(after) && after > 0 ? Math.min(Math.max(after * 1000, retryDelay), 2000) : retryDelay);
     return once(url, init, what);
   }
 
   async function token(form: Record<string, string>, what: string): Promise<TokenSet> {
     const body = new URLSearchParams({ client_id: opts.clientId, client_secret: opts.clientSecret, scope, ...form });
     const res = await call(`${login}/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: body.toString() }, what, true);
-    if (!res.ok) throw await errorFrom(res, what);
+    if (!res.ok) throw await errorFrom(res, what, true);
     const data = (await res.json().catch(() => null)) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown } | null;
     if (!data || typeof data.access_token !== 'string' || typeof data.refresh_token !== 'string') {
       throw new MicrosoftError('bad-response', `Microsoft’s answer had no tokens (${what}).`);

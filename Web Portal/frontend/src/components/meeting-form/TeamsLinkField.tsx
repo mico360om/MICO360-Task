@@ -40,7 +40,9 @@ export function TeamsLinkField({ checked, onChange, organizerIsMe, hadTeams, pen
   const hint = checked
     ? hadTeams && !pending
       ? 'Made by Microsoft Teams. Untick it to take the Teams link away.'
-      : `Made with your Microsoft account when you save${repeating ? ' — one link for all its meetings' : ''}.`
+      : !organizerIsMe
+        ? 'Waiting for the organizer to make the Teams link with their Microsoft account. Untick it to paste a link instead.'
+        : `Made with your Microsoft account when you save${repeating ? ' — one link for all its meetings' : ''}.`
     : 'Or paste a link in Online link.';
   return (
     <div className="sm:col-span-2">

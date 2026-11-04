@@ -116,6 +116,8 @@ const updateSchema = z.object({
  * it was ticked, take it away when unticked, or make it plain when another link was pasted over it.
  */
 export interface MeetingTeamsLinks {
+  /** Teams links are set up on this server. */
+  available: boolean;
   afterSave(input: {
     meetingId: string;
     actor: { id: string };
@@ -392,8 +394,9 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const organizerId = body.organizerId ?? req.user!.id;
     // companies: a meeting without a project belongs to a company (chosen, picked, or the organizer's primary).
     const { companyId: chosenCompany, ...fields } = body;
-    // 1.23: with "Create a Teams link" the Teams join link fills the online link (a pasted one is ignored).
-    if (teamsLink && deps.teams) fields.onlineLink = null;
+    // 1.23: with "Create a Teams link" the Teams join link fills the online link (a pasted one is ignored) —
+    // when the Teams link can be made here: the site has them and the person saving organizes it.
+    if (teamsLink && deps.teams?.available && organizerId === req.user!.id) fields.onlineLink = null;
     const companyId = deps.meetingCompany ? await deps.meetingCompany.forNew(actor(req), { projectId: body.projectId, companyId: chosenCompany, organizerId }, await pickFor(req)) : undefined;
 
     // People and agenda are checked before anything is saved, so a bad one creates nothing.
@@ -529,9 +532,10 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
     const { scope } = scopeQuery.parse(req.query);
     const { teamsLink, ...patch } = updateSchema.parse(req.body);
-    // 1.23: with "Create a Teams link" ticked the Teams link fills the online link (a pasted one is ignored).
-    if (teamsLink && deps.teams) delete patch.onlineLink;
     const before = await meetingService.getMeeting(id);
+    // 1.23: with "Create a Teams link" ticked the Teams link fills the online link (a pasted one is ignored)
+    // — when it can be made here: the site has Teams links and the person saving organizes the meeting.
+    if (teamsLink && deps.teams?.available && (patch.organizerId ?? before.organizerId) === req.user!.id) delete patch.onlineLink;
     const seriesId = seriesIdOf(before);
     // 1.23: after the save — make, take away or make plain the Teams link (the meeting is saved either way).
     const teamsAfter = (meetingId: string) => (deps.teams ? deps.teams.afterSave({ meetingId, actor: actor(req), wanted: teamsLink, before }) : Promise.resolve(null));

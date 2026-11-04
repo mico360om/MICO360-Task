@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, assetOrigin } from '../../api/client';
+import { apiClient } from '../../api/client';
 import { microsoftApi } from '../../api/microsoft';
 import { ApiError } from '../../lib/api-client';
 import { formatMeetingDay } from '../../lib/meetingFormat';
@@ -54,8 +54,8 @@ export function MicrosoftTeamsSettings({ open = (url: string) => window.location
 
   const connect = useMutation({
     mutationFn: () => microsoftApi(apiClient).connect(),
-    // The server's own address: it remembers this browser, then sends it on to Microsoft.
-    onSuccess: (url) => open(`${assetOrigin}${url}`),
+    // Microsoft's own sign-in page (the answer remembered this browser for the way back).
+    onSuccess: (url) => open(url),
     onError: (e) => setNote({ ok: false, text: e instanceof ApiError && e.status < 500 && e.message ? e.message : 'Couldn’t open Microsoft’s page. Please try again.' }),
   });
   const disconnect = useMutation({

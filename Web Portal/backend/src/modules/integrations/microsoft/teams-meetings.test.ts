@@ -23,12 +23,14 @@ let teams: TeamsMeetings;
 let meetingService: MeetingService;
 let series: MeetingSeriesService;
 let logs: string[];
+let client: ReturnType<typeof createMicrosoftClient>;
+let logger: { warn: (m: string, c?: Record<string, unknown>) => void; info: (m: string, c?: Record<string, unknown>) => void; error: (m: string, c?: Record<string, unknown>) => void };
 
 /** Whole hours from now, so the stand-in, the services and "upcoming" agree. */
 const at = (hours: number) => new Date(Math.ceil(Date.now() / HOUR) * HOUR + hours * HOUR);
 
 async function connect(userId: string) {
-  const begun = connections.begin(connections.connectTicket(userId))!;
+  const begun = connections.begin(userId);
   const back = new URL((await fetch(begun.authorizeUrl, { redirect: 'manual' })).headers.get('location')!);
   const done = await connections.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, begun.cookie.value);
   expect(done.result).toBe('connected');
@@ -50,7 +52,7 @@ beforeEach(async () => {
   meetings = memoryMeetings();
   store = memoryTeamsLinkStore(meetings.rows);
   logs = [];
-  const logger = {
+  logger = {
     warn: (m: string, c?: Record<string, unknown>) => logs.push(`${m} ${JSON.stringify(c ?? {})}`),
     info: (m: string, c?: Record<string, unknown>) => logs.push(`${m} ${JSON.stringify(c ?? {})}`),
     error: (m: string, c?: Record<string, unknown>) => logs.push(`${m} ${JSON.stringify(c ?? {}, (_k, v) => (v instanceof Error ? { name: v.name, message: v.message } : v))}`),
@@ -59,9 +61,9 @@ beforeEach(async () => {
     clientId: ms.clientId, clientSecret: ms.clientSecret, tenant: { mode: 'single', tenantId: ms.tenantId }, authority: ms.tenantId,
     tokenKey: randomBytes(32), redirectUri: 'http://localhost:4780/api/v1/integrations/microsoft/callback', loginBase: ms.loginBase, graphBase: ms.graphBase,
   };
-  const client = createMicrosoftClient({ ...cfg, timeoutMs: 300, retryDelayMs: 1 });
+  client = createMicrosoftClient({ ...cfg, timeoutMs: 300, retryDelayMs: 1 });
   connections = createMicrosoftConnections({ config: cfg, client, store: createMemoryConnectionStore(), isActiveUser: async () => true, logger });
-  teams = createTeamsMeetings({ connections, client, store, logger, delayMs: 0 });
+  teams = createTeamsMeetings({ connections, client, store, logger, delayMs: 0, retryDelaysMs: [5, 5, 5] });
   const onChanged = (m: Parameters<TeamsMeetings['onMeetingChanged']>[0], kind: Parameters<TeamsMeetings['onMeetingChanged']>[1]) => teams.onMeetingChanged(m, kind);
   meetingService = createMeetingService({ meetings, onChanged, defaultTimeZone: TZ });
   series = createMeetingSeriesService({ meetings, attendees: memoryAttendees(), defaultTimeZone: TZ, onChanged });
@@ -295,5 +297,75 @@ describe('taking the Teams link away', () => {
     await teams.plainLinkGiven(m.id, solo);
     await teams.idle();
     expect(ms.meetings.size).toBe(1);
+  });
+});
+
+describe('review fixes', () => {
+  it('when the link can’t be saved after Microsoft made the meeting, that Teams meeting is deleted again (no leftover)', async () => {
+    const m = await oneOff();
+    const failing = { ...store, write: async (ids: string[], f: Parameters<typeof store.write>[1]) => {
+      if (f.teamsId) throw new Error('Data too long for column onlineLink');
+      return store.write(ids, f);
+    } };
+    const t = createTeamsMeetings({ connections, client, store: failing, logger, delayMs: 0 });
+    expect((await t.makeLink(m.id, { id: 'org' })).notice?.code).toBe('TEAMS_FAILED');
+    expect(ms.meetings.size).toBe(0);
+    expect(row(m.id)).toMatchObject({ onlineMeetingProvider: 'TEAMS', teamsLinkPending: true });
+  });
+
+  it('a delete Microsoft refuses for a moment is tried again later', async () => {
+    const m = await oneOff();
+    await teams.makeLink(m.id, { id: 'org' });
+    ms.failNext('delete', 500, 2); // the first try (and its quick retry)
+    await meetingService.cancelMeeting(m.id);
+    await teams.idle();
+    expect(ms.meetings.size).toBe(0);
+  });
+
+  it('a Teams meeting left behind (every try failed) is deleted by the daily sweep', async () => {
+    const m = await oneOff();
+    await teams.makeLink(m.id, { id: 'org' });
+    ms.failNext('delete', 500, 8); // two calls per try, four tries
+    await meetingService.deleteMeeting(m.id);
+    await teams.idle();
+    expect(ms.meetings.size).toBe(1);
+    expect(await teams.sweepLeftovers()).toBe(1);
+    expect(ms.meetings.size).toBe(0);
+    expect(await teams.sweepLeftovers()).toBe(0); // nothing left to sweep
+  });
+
+  it('a cancelled or finished meeting doesn’t get a Teams link', async () => {
+    const a = await oneOff('Cancelled');
+    await meetingService.cancelMeeting(a.id);
+    expect((await teams.makeLink(a.id, { id: 'org' })).notice?.code).toBe('TEAMS_NOT_OPEN');
+    const b = await oneOff('Held');
+    await meetingService.updateMeeting(b.id, { status: 'COMPLETED' });
+    expect((await teams.makeLink(b.id, { id: 'org' })).notice?.code).toBe('TEAMS_NOT_OPEN');
+    expect(ms.meetings.size).toBe(0);
+  });
+
+  it('two presses at once make one Teams meeting', async () => {
+    const m = await oneOff();
+    const [x, y] = await Promise.all([teams.makeLink(m.id, { id: 'org' }), teams.makeLink(m.id, { id: 'org' })]);
+    expect([x.made, y.made].filter(Boolean)).toHaveLength(1);
+    expect(ms.meetings.size).toBe(1);
+  });
+
+  it('a repeat that has its own pasted link keeps it when the family gets its Teams link', async () => {
+    const root = await weekly();
+    const own = family(root.id)[2]!;
+    await meetingService.updateMeeting(own.id, { onlineLink: 'https://meet.example.com/own-room' });
+    await teams.makeLink(root.id, { id: 'org' });
+    expect(row(own.id)).toMatchObject({ onlineLink: 'https://meet.example.com/own-room' });
+    expect(row(own.id).onlineMeetingProvider ?? null).toBeNull();
+    expect(row(family(root.id)[1]!.id).onlineMeetingProvider).toBe('TEAMS');
+  });
+
+  it('after a save, the Teams step never fails the request: a store failure becomes the plain notice', async () => {
+    const m = await oneOff();
+    const broken = { ...store, get: async () => { throw new Error('database down'); } };
+    const t = createTeamsMeetings({ connections, client, store: broken, logger, delayMs: 0 });
+    const out = await t.afterSave({ meetingId: m.id, actor: { id: 'org' }, wanted: true });
+    expect(out.notice?.code).toBe('TEAMS_FAILED');
   });
 });

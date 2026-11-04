@@ -30,7 +30,7 @@ export interface FakeMicrosoftUser {
 
 export type FakeOp = 'authorize' | 'token' | 'me' | 'create' | 'update' | 'delete';
 /** A status to answer with, a call that never answers ('hang'), a closed connection ('drop'), or a refused refresh token. */
-export type FakeFailure = number | 'hang' | 'drop' | 'invalid_grant' | 'consent_required';
+export type FakeFailure = number | 'hang' | 'drop' | 'invalid_grant' | 'consent_required' | 'interaction_required';
 
 export interface FakeMicrosoft {
   base: string;
@@ -130,6 +130,10 @@ export async function startFakeMicrosoft(opts: FakeMicrosoftOptions = {}): Promi
     }
     if (how === 'invalid_grant') {
       json(res, 400, { error: 'invalid_grant', error_description: 'AADSTS70008: The provided authorization code or refresh token has expired due to inactivity.', error_codes: [70008] });
+      return true;
+    }
+    if (how === 'interaction_required') {
+      json(res, 400, { error: 'interaction_required', error_description: 'AADSTS50076: Due to a configuration change made by your administrator, you must use multi-factor authentication.', error_codes: [50076] });
       return true;
     }
     if (how === 'consent_required') {
@@ -254,13 +258,15 @@ export async function startFakeMicrosoft(opts: FakeMicrosoftOptions = {}): Promi
           if (req.method === 'POST' && path === '/v1.0/me/onlineMeetings') {
             const b = (body ?? {}) as Partial<FakeTeamsMeeting>;
             if (!b.startDateTime || !b.endDateTime) return json(res, 400, graphError('BadRequest', 'startDateTime and endDateTime are required.'));
-            const id = `MSo${randomBytes(18).toString('base64url')}`;
+            // Ids and join links as long as Microsoft's real ones (a join link is about 250 characters).
+            const thread = Buffer.from(randomBytes(36)).toString('base64').replace(/[+/=]/g, 'x');
+            const id = `MSo${Buffer.from(`1*${who.id}*0**19:meeting_${thread}@thread.v2`).toString('base64url')}`;
             const meeting: FakeTeamsMeeting = {
               id,
               subject: b.subject ?? '',
               startDateTime: b.startDateTime,
               endDateTime: b.endDateTime,
-              joinWebUrl: `https://teams.microsoft.com/l/meetup-join/19%3ameeting_${randomBytes(12).toString('hex')}%40thread.v2/0?context=%7b%22Tid%22%3a%22${tokenTenant ?? ''}%22%7d`,
+              joinWebUrl: `https://teams.microsoft.com/l/meetup-join/19%3ameeting_${thread}%40thread.v2/0?context=%7b%22Tid%22%3a%22${tokenTenant ?? ''}%22%2c%22Oid%22%3a%22${who.id}%22%7d`,
               ownerOid: who.id,
             };
             meetings.set(id, meeting);

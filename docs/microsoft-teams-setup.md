@@ -170,4 +170,4 @@ meetings keep the links they have.
 | Microsoft says **Need admin approval** / **AADSTS65001** | Step 3's "Grant admin consent" (or, for another company's tenant, their administrator — see above). |
 | Back in Settings with "couldn't be connected" | Try again; if it repeats, check the server log for "Microsoft Teams:" lines (they name the reason, never a token). A tenant not allowed by `MS_TENANT_ID` / `MS_ALLOWED_TENANTS` is refused. |
 | Settings says "Microsoft no longer accepts this connection" | The person removed the app, their password policy ended the session, or the app's consent was taken back: press **Connect again**. |
-| Every connection fails after about two years | The client secret expired (**AADSTS7000222**): make a new one (step 2), replace `MS_CLIENT_SECRET`, restart. |
+| Every Teams link fails, and the server log says "Microsoft refused this server's app settings" | The client secret expired (**AADSTS7000222**, after up to two years) or was mistyped: make a new one (step 2), replace `MS_CLIENT_SECRET`, restart. Everyone's connection is kept — nobody connects again. |

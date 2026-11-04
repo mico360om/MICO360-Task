@@ -33,6 +33,7 @@ let audited: Array<Record<string, unknown>>;
 let meetings: MemoryMeetings;
 let invites: string[];
 
+let activeCheck: (id: string) => Promise<boolean> = async () => true;
 async function build(enabled = true) {
   const cfg: MicrosoftConfig = {
     clientId: ms.clientId, clientSecret: ms.clientSecret, tenant: { mode: 'single', tenantId: ms.tenantId }, authority: ms.tenantId,
@@ -40,7 +41,7 @@ async function build(enabled = true) {
   };
   const client = createMicrosoftClient({ ...cfg, timeoutMs: 300, retryDelayMs: 1 });
   store = createMemoryConnectionStore();
-  connections = enabled ? createMicrosoftConnections({ config: cfg, client, store, isActiveUser: async () => true }) : null;
+  connections = enabled ? createMicrosoftConnections({ config: cfg, client, store, isActiveUser: (id) => activeCheck(id) }) : null;
   meetings = memoryMeetings();
   const teams = createTeamsMeetings({ connections, client: enabled ? client : null, store: memoryTeamsLinkStore(meetings.rows), delayMs: 0 });
   app = Fastify();
@@ -66,18 +67,17 @@ async function build(enabled = true) {
   );
 }
 
-/** Connect as `userId` through the HTTP routes, the way the browser goes: Settings → start → Microsoft → callback. */
+/** Connect as `userId` through the HTTP routes, the way the browser goes: Settings (Connect) → Microsoft → callback. */
 async function connectOverHttp(userId: string, opts: { dropCookie?: boolean } = {}) {
   const res = await app.inject({ method: 'POST', url: '/api/v1/integrations/microsoft/connect', headers: await bearer(userId) });
   expect(res.statusCode).toBe(200);
-  const startUrl = res.json().data.url as string;
-  expect(startUrl).toMatch(/^\/api\/v1\/integrations\/microsoft\/start\?ticket=/);
-  const start = await app.inject({ method: 'GET', url: startUrl });
-  expect(start.statusCode).toBe(302);
-  const setCookie = String(start.headers['set-cookie']);
+  // The signed-in page's own answer sets the flow cookie and names Microsoft's page.
+  const setCookie = String(res.headers['set-cookie']);
   expect(setCookie).toMatch(new RegExp(`^${FLOW_COOKIE}=[^;]+; Path=/api/v1/integrations/microsoft; Max-Age=600; HttpOnly; SameSite=Lax`));
+  const url = res.json().data.url as string;
+  expect(url.startsWith(`${ms.loginBase}/${ms.tenantId}/oauth2/v2.0/authorize?`)).toBe(true);
   const cookie = setCookie.split(';')[0]!;
-  const atMicrosoft = await fetch(String(start.headers.location), { redirect: 'manual' });
+  const atMicrosoft = await fetch(url, { redirect: 'manual' });
   const back = new URL(atMicrosoft.headers.get('location')!);
   return app.inject({ method: 'GET', url: `${back.pathname}${back.search}`, headers: opts.dropCookie ? {} : { cookie } });
 }
@@ -89,6 +89,7 @@ afterAll(async () => {
   await ms.close();
 });
 beforeEach(async () => {
+  activeCheck = async () => true;
   audited = [];
   invites = [];
   ms.setDeny(false);
@@ -122,16 +123,35 @@ describe('Settings → Microsoft Teams (staff routes)', () => {
     expect(await store.get('u1')).toBeNull();
   });
 
-  it('a made-up, missing or used start ticket is refused in plain words', async () => {
-    const bad = await app.inject({ method: 'GET', url: '/api/v1/integrations/microsoft/start?ticket=made.up' });
-    expect(bad.statusCode).toBe(410);
-    expect(bad.body).toMatch(/Settings/);
-    const none = await app.inject({ method: 'GET', url: '/api/v1/integrations/microsoft/start' });
-    expect(none.statusCode).toBe(410);
-    const res = await app.inject({ method: 'POST', url: '/api/v1/integrations/microsoft/connect', headers: await bearer('u1') });
-    const url = res.json().data.url as string;
-    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(302);
-    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(410);
+  it('a link from another staff member can’t tie the victim’s Microsoft account to them (connect CSRF)', async () => {
+    // Nothing a link opens sets the flow cookie: there is no GET that begins a connection.
+    for (const url of ['/api/v1/integrations/microsoft/start?ticket=x', '/api/v1/integrations/microsoft/connect']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(404);
+      expect(res.headers['set-cookie']).toBeUndefined();
+    }
+    // The attacker begins with their own session and sends the victim Microsoft's address.
+    const mine = await app.inject({ method: 'POST', url: '/api/v1/integrations/microsoft/connect', headers: await bearer('attacker') });
+    const atMicrosoft = await fetch(mine.json().data.url as string, { redirect: 'manual' });
+    const back = new URL(atMicrosoft.headers.get('location')!);
+    // The victim's browser (no cookie, or the cookie of its own Connect) comes back: nothing is saved.
+    const victimOwn = await app.inject({ method: 'POST', url: '/api/v1/integrations/microsoft/connect', headers: await bearer('victim') });
+    const victimCookie = String(victimOwn.headers['set-cookie']).split(';')[0]!;
+    for (const headers of [{}, { cookie: victimCookie }]) {
+      const res = await app.inject({ method: 'GET', url: `${back.pathname}${back.search}`, headers });
+      expect(res.headers.location).toBe('http://localhost:4780/settings?teams=failed#microsoft-teams');
+    }
+    expect(await store.get('attacker')).toBeNull();
+    expect(await store.get('victim')).toBeNull();
+  });
+
+  it('an unexpected failure at the callback goes back to Settings ("failed"), never an error page carrying the code', async () => {
+    activeCheck = async () => {
+      throw new Error('database down');
+    };
+    const back = await connectOverHttp('u1');
+    expect(back.statusCode).toBe(302);
+    expect(back.headers.location).toBe('http://localhost:4780/settings?teams=failed#microsoft-teams');
   });
 
   it('a callback with a forged or missing state goes back to Settings with "failed"', async () => {

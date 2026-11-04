@@ -151,3 +151,28 @@ describe('tenant of an access token', () => {
     expect(tenantOfAccessToken('opaque-token')).toBeNull();
   });
 });
+
+describe('review fixes', () => {
+  it('a wrong client secret is the server’s setup (kind config), not the person’s connection', async () => {
+    const { code } = await codeFor(client.authorizeUrl({ state: 's', codeChallenge: CHALLENGE }));
+    const set = await client.exchangeCode(code!, VERIFIER);
+    const wrong = createMicrosoftClient({ clientId: ms.clientId, clientSecret: 'mistyped', authority: ms.tenantId, loginBase: ms.loginBase, graphBase: ms.graphBase, redirectUri: REDIRECT, timeoutMs: 400, retryDelayMs: 1 });
+    await expect(wrong.refresh(set.refreshToken)).rejects.toMatchObject({ kind: 'config', code: 'invalid_client' });
+  });
+
+  it('interaction_required on a refresh ends the connection (kind auth)', async () => {
+    const { code } = await codeFor(client.authorizeUrl({ state: 's', codeChallenge: CHALLENGE }));
+    const set = await client.exchangeCode(code!, VERIFIER);
+    ms.failNext('token', 'interaction_required');
+    await expect(client.refresh(set.refreshToken)).rejects.toMatchObject({ kind: 'auth', code: 'interaction_required' });
+  });
+
+  it('honours Retry-After (up to 2 s) before the one retry', async () => {
+    const { code } = await codeFor(client.authorizeUrl({ state: 's', codeChallenge: CHALLENGE }));
+    const access = (await client.exchangeCode(code!, VERIFIER)).accessToken;
+    ms.failNext('create', 429); // the stand-in says Retry-After: 1
+    const t0 = Date.now();
+    await client.createMeeting(access, { subject: 'wait', start: new Date(), end: new Date(Date.now() + 3600_000) });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(900);
+  });
+});

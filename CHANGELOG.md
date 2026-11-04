@@ -71,6 +71,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   account is deactivated. Only the organizer's own account is ever used; client accounts can't use
   it. Connecting and disconnecting are in the audit log.
 
+### Bug fixes
+- A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
+  link pasted by hand, used to be refused as "too long".
+
 ## [1.22.2] - 2026-11-04
 
 ### Improvements

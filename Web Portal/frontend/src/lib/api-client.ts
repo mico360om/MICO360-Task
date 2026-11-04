@@ -52,6 +52,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Sent as the page goes (reload, another address, the tab closing): the browser finishes it anyway. */
   keepalive?: boolean;
+  /** 'include': this browser's cookies go with it, and a cookie the answer sets is kept (also across origins). */
+  credentials?: RequestCredentials;
 }
 
 export interface ApiClient {
@@ -137,7 +139,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return refreshing;
   }
 
-  type FetchOpts = { body?: unknown; form?: FormData; headers?: Record<string, string>; keepalive?: boolean };
+  type FetchOpts = { body?: unknown; form?: FormData; headers?: Record<string, string>; keepalive?: boolean; credentials?: RequestCredentials };
 
   function doFetch(method: string, path: string, opts: FetchOpts, token: string | null, shared: Record<string, string>): Promise<Response> {
     const headers: Record<string, string> = { ...shared, ...(opts.headers ?? {}) };
@@ -151,6 +153,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       headers,
       body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
       ...(opts.keepalive ? { keepalive: true } : {}),
+      ...(opts.credentials ? { credentials: opts.credentials } : {}),
     });
   }
 
@@ -187,7 +190,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   }
 
   async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions): Promise<T> {
-    const res = await authedFetch(method, path, { body, headers: reqOpts?.headers, ...(reqOpts?.keepalive ? { keepalive: true } : {}) });
+    const res = await authedFetch(method, path, { body, headers: reqOpts?.headers, ...(reqOpts?.keepalive ? { keepalive: true } : {}), ...(reqOpts?.credentials ? { credentials: reqOpts.credentials } : {}) });
     const text = await res.text();
     if (!res.ok) throw method === 'GET' ? errorFrom(res.status, text) : refusal(res.status, text);
     return (text ? JSON.parse(text) : {}) as T;

@@ -49,14 +49,14 @@ const baseMeeting: Meeting = {
   createdById: 'u1', createdAt: '', updatedAt: '',
 };
 
-function renderModal(meeting?: Meeting) {
+function renderModal(meeting?: Meeting, opts: { defaultTeamsLink?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
   const onSaved = vi.fn();
   render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <MeetingFormModal meeting={meeting} onClose={onClose} onSaved={onSaved} />
+        <MeetingFormModal meeting={meeting} defaultTeamsLink={opts.defaultTeamsLink} onClose={onClose} onSaved={onSaved} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -146,5 +146,46 @@ describe('the "Create a Teams link" tick', () => {
     await userEvent.click(screen.getByRole('button', { name: /Save changes/ }));
     await waitFor(() => expect(putOf()).toBeTruthy());
     expect(putOf()).toMatchObject({ teamsLink: true });
+  });
+
+  it('pre-ticked (a series’ next meeting) for someone not connected: the link field stays usable and no tick is sent', async () => {
+    connected = false;
+    renderModal(undefined, { defaultTeamsLink: true });
+    await screen.findByRole('link', { name: 'Connect Microsoft Teams in Settings' });
+    const field = screen.getByLabelText('Online link') as HTMLInputElement;
+    expect(field.disabled).toBe(false);
+    await userEvent.type(screen.getByLabelText(/Title/), 'Next in series');
+    await userEvent.type(field, 'meet.example.com/x');
+    await userEvent.click(screen.getByRole('button', { name: /Schedule meeting/ }));
+    await waitFor(() => expect(postOf()).toBeTruthy());
+    expect(postOf()).not.toHaveProperty('teamsLink');
+    expect(postOf()).toMatchObject({ onlineLink: 'https://meet.example.com/x' });
+  });
+
+  it('saved but not connected after all: the notice links to Settings', async () => {
+    createReply = { id: 'm-new', onlineMeetingProvider: 'TEAMS', onlineLink: null, teamsLinkPending: true, teamsNotice: { code: 'TEAMS_NOT_CONNECTED', message: 'The Teams link couldn’t be made: connect Microsoft Teams in Settings, then press Make Teams link.' } };
+    renderModal();
+    await userEvent.type(screen.getByLabelText(/Title/), 'OXY review');
+    await userEvent.click(await tick());
+    await userEvent.click(screen.getByRole('button', { name: /Schedule meeting/ }));
+    expect(await screen.findByText('Meeting saved')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Settings' }).getAttribute('href')).toBe('/settings#microsoft-teams');
+  });
+
+  it('saved, but only the organizer can make the link: said plainly, no Make Teams link', async () => {
+    createReply = { id: 'm-new', onlineMeetingProvider: null, onlineLink: null, teamsNotice: { code: 'TEAMS_NOT_ORGANIZER', message: 'Only the meeting’s organizer can make its Teams link, with their own Microsoft account.' } };
+    const { onClose } = renderModal();
+    await userEvent.type(screen.getByLabelText(/Title/), 'OXY review');
+    await userEvent.click(await tick());
+    await userEvent.click(screen.getByRole('button', { name: /Schedule meeting/ }));
+    expect(await screen.findByText(/Only the meeting’s organizer can make its Teams link/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Make Teams link' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('someone else’s meeting waiting for its link: the hint names the organizer, not you', async () => {
+    renderModal({ ...baseMeeting, organizerId: 'u9', onlineMeetingProvider: 'TEAMS', teamsLinkPending: true });
+    expect(await screen.findByText(/Waiting for the organizer to make the Teams link/)).toBeTruthy();
   });
 });

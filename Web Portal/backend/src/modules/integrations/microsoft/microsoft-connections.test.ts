@@ -44,9 +44,7 @@ function build(tenant: MicrosoftConfig['tenant'] = { mode: 'single', tenantId: m
 
 /** Press Connect, go through the stand-in sign-in, come back to the callback with the browser's cookie. */
 async function connect(userId: string, opts: { cookie?: (c: string) => string; state?: (s: string) => string } = {}) {
-  const ticket = svc.connectTicket(userId);
-  const begun = svc.begin(ticket);
-  if (!begun) throw new Error('no begin');
+  const begun = svc.begin(userId);
   const res = await fetch(begun.authorizeUrl, { redirect: 'manual' });
   const back = new URL(res.headers.get('location')!);
   const state = back.searchParams.get('state') ?? '';
@@ -91,14 +89,16 @@ describe('Connect Microsoft account (PKCE + a single-use state bound to the pers
     expect(tok.get('code_verifier')).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
   });
 
-  it('the start ticket works once and only for two minutes', () => {
-    const ticket = svc.connectTicket('u1');
-    expect(svc.begin(ticket)).not.toBeNull();
-    expect(svc.begin(ticket)).toBeNull();
-    const late = svc.connectTicket('u1');
-    clock += 2 * 60_000 + 1;
-    expect(svc.begin(late)).toBeNull();
-    expect(svc.begin('made.up')).toBeNull();
+  it('a flow begun by one person can’t connect another person’s Microsoft account (the browser cookie is theirs)', async () => {
+    // The attacker begins (their own signed-in page gets the cookie) and sends the victim Microsoft's address.
+    const attacker = svc.begin('u1');
+    const back = new URL((await fetch(attacker.authorizeUrl, { redirect: 'manual' })).headers.get('location')!);
+    // The victim's browser comes back without the attacker's cookie (or with one of its own flow).
+    const own = svc.begin('u2');
+    expect((await svc.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, own.cookie.value)).result).toBe('failed');
+    expect((await svc.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, null)).result).toBe('failed');
+    expect(await store.get('u1')).toBeNull();
+    expect(await store.get('u2')).toBeNull();
   });
 
   it('refuses a missing, changed, expired or reused state — nothing is saved', async () => {
@@ -106,8 +106,7 @@ describe('Connect Microsoft account (PKCE + a single-use state bound to the pers
     expect((await connect('u1', { state: (s) => s.slice(0, -2) + (s.endsWith('A') ? 'BB' : 'AA') })).done.result).toBe('failed');
     expect(await store.get('u1')).toBeNull();
     // Expired: the sign-in took longer than ten minutes.
-    const ticket = svc.connectTicket('u1');
-    const begun = svc.begin(ticket)!;
+    const begun = svc.begin('u1');
     const back = new URL((await fetch(begun.authorizeUrl, { redirect: 'manual' })).headers.get('location')!);
     clock += 10 * 60_000 + 1;
     expect((await svc.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, begun.cookie.value)).result).toBe('failed');
@@ -131,8 +130,7 @@ describe('Connect Microsoft account (PKCE + a single-use state bound to the pers
   });
 
   it('a person deactivated meanwhile is not connected', async () => {
-    const ticket = svc.connectTicket('u1');
-    const begun = svc.begin(ticket)!;
+    const begun = svc.begin('u1');
     const back = new URL((await fetch(begun.authorizeUrl, { redirect: 'manual' })).headers.get('location')!);
     active.delete('u1');
     expect((await svc.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, begun.cookie.value)).result).toBe('failed');
@@ -237,5 +235,56 @@ describe('disconnect and deactivation', () => {
     expect(await store.get('u1')).toBeNull();
     active.delete('u2');
     await expect(svc.accessToken('u2')).rejects.toBeInstanceOf(NotConnectedError);
+  });
+});
+
+describe('review fixes: which refusals end a connection', () => {
+  it('a wrong or expired client secret (the server’s setup) keeps everyone’s connection: no problem, the sealed token stays', async () => {
+    const key = randomBytes(32);
+    const good = { ...config({ mode: 'single', tenantId: ms.tenantId }), tokenKey: key };
+    build(undefined, good);
+    await connect('u1');
+    build(undefined, { ...good, clientSecret: 'a-mistyped-secret' });
+    await expect(svc.accessToken('u1')).rejects.toMatchObject({ kind: 'config' });
+    const row = await store.get('u1');
+    expect(row?.refreshTokenEnc).toBeTruthy();
+    expect(row?.problem).toBeNull();
+    expect(logs.join('\n')).toMatch(/client secret|setup/i);
+    // The secret is put right: the same connection works again — nobody connects again.
+    build(undefined, good);
+    expect(await svc.accessToken('u1')).toBeTruthy();
+  });
+
+  it('Microsoft asking the person to sign in again (conditional access) ends it: Settings says connect again', async () => {
+    const key = randomBytes(32);
+    const good = { ...config({ mode: 'single', tenantId: ms.tenantId }), tokenKey: key };
+    build(undefined, good);
+    await connect('u1');
+    svc.forgetAccess('u1');
+    ms.failNext('token', 'interaction_required');
+    await expect(svc.accessToken('u1')).rejects.toMatchObject({ kind: 'auth' });
+    expect((await svc.status('u1')).problem).toMatch(/again/i);
+  });
+
+  it('Disconnect while a refresh is on its way: the refreshed token is not kept', async () => {
+    const key = randomBytes(32);
+    build(undefined, { ...config({ mode: 'single', tenantId: ms.tenantId }), tokenKey: key });
+    await connect('u1');
+    svc.forgetAccess('u1');
+    const pending = svc.accessToken('u1');
+    await svc.disconnect('u1');
+    await expect(pending).rejects.toBeInstanceOf(NotConnectedError);
+    expect(await store.get('u1')).toBeNull();
+    await expect(svc.accessToken('u1')).rejects.toBeInstanceOf(NotConnectedError);
+  });
+
+  it('a very long Microsoft display name still connects (kept to the column’s 200 characters)', async () => {
+    ms.setUser({ displayName: 'N'.repeat(256) });
+    try {
+      expect((await connect('u1')).done.result).toBe('connected');
+      expect((await store.get('u1'))!.displayName!.length).toBeLessThanOrEqual(200);
+    } finally {
+      ms.setUser({ displayName: 'Khurram Test' });
+    }
   });
 });
