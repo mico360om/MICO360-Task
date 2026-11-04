@@ -55,6 +55,15 @@ export interface SearchAllInput {
   withCounts?: boolean;
   /** Only these items (meaning-search candidates): visibility and filters still apply. */
   only?: { kind: SearchKind; id: string }[];
+  /**
+   * The archived projects (by their own status or all their companies), read once for this search
+   * (`withArchived`) instead of for every row; absent: the rule is asked row by row (LIVE_PROJECT_SQL).
+   */
+  archivedIds?: string[];
+  /** Deleted projects, read with the archived ones (prepare). */
+  deletedIds?: string[];
+  /** What is the person's own, read once for the search (prepare): ranking only, never visibility. */
+  mine?: { tasks: string[]; projects: string[]; meetings: string[] };
 }
 
 export interface SearchAllResult {
@@ -86,6 +95,23 @@ const allOf = (col: Prisma.Sql, groups: Group[]) => (groups.length ? Prisma.sql`
 const howMany = (col: Prisma.Sql, groups: Group[]) => (groups.length ? Prisma.sql`(${Prisma.join(groups.map((g) => Prisma.sql`(${anyOf(col, g)})`), ' + ')})` : Prisma.sql`0`);
 const ids = (list: readonly string[]) => (list.length ? Prisma.join(list) : Prisma.sql`NULL`);
 const inList = (col: Prisma.Sql, list: readonly string[] | null) => (list === null ? Prisma.sql`TRUE` : list.length ? Prisma.sql`${col} IN (${ids(list)})` : Prisma.sql`FALSE`);
+/** Every word starts a word of the title (after a line break or a space): "found" in "foundation", not "crack" in "hydrocracker". */
+const startsAWord = (a: string) => [`%\n${escapeLike(a)}%`, `% ${escapeLike(a)}%`].map((pattern) => Prisma.sql`si.head LIKE ${Buffer.from(pattern, 'utf8')} ESCAPE '!'`);
+const wordStarts = (groups: Group[]) =>
+  groups.length ? Prisma.sql`(${Prisma.join(groups.map((g) => Prisma.sql`(${Prisma.join(g.flatMap(startsAWord), ' OR ')})`), ' AND ')})` : Prisma.sql`FALSE`;
+const notIn = (col: Prisma.Sql, list: readonly string[]) => (list.length ? Prisma.sql`${col} NOT IN (${Prisma.join(list)})` : Prisma.sql`TRUE`);
+/** The person's own item (see SearchAllInput.mine), for the ranking. */
+const mineOf = (mine: NonNullable<SearchAllInput['mine']>, viewerId: string) => Prisma.sql`(CASE si.kind
+  WHEN 'project' THEN ${inList(Prisma.sql`si.recordId`, mine.projects)}
+  WHEN 'meeting' THEN ${inList(Prisma.sql`m.id`, mine.meetings)}
+  WHEN 'minutes' THEN ${inList(Prisma.sql`m.id`, mine.meetings)}
+  ELSE si.personId = ${viewerId} END)`;
+/** A live project (not archived), from the archived ones read for the search; null: ask row by row; TRUE with archived ones asked for. */
+const liveSql = (input: { includeArchived?: boolean; archivedIds?: string[] }): Prisma.Sql | null => {
+  if (input.includeArchived) return Prisma.sql`TRUE`;
+  if (!input.archivedIds) return null;
+  return input.archivedIds.length ? Prisma.sql`p.id NOT IN (${Prisma.join(input.archivedIds)})` : Prisma.sql`TRUE`;
+};
 const recency = (at: Prisma.Sql) => Prisma.sql`GREATEST(0, 25 - LEAST(25, ABS(DATEDIFF(${at}, NOW())) / 7))`;
 
 export function createSearchEngine({
@@ -107,8 +133,15 @@ export function createSearchEngine({
     if (kinds && !kinds.includes('task')) return null;
     const onlyTasks = input.only?.filter((o) => o.kind === 'task').map((o) => o.id);
     if (onlyTasks && onlyTasks.length === 0) return null;
-    const visible = visibleTasksSql({ projectIds: input.scope.projectIds }, { includeArchived: input.includeArchived, ...(pass.byNumber ? { archivedWhen: pass.byNumber } : {}) });
+    const prepared = !!input.deletedIds && (!!input.archivedIds || !!input.includeArchived);
+    // visibleTasksSql's rule, with the deleted and archived projects read once for the search (the same
+    // projects): no project row needs reading for each task.
+    const live = input.includeArchived ? Prisma.sql`TRUE` : notIn(Prisma.sql`t.projectId`, input.archivedIds ?? []);
+    const visible = prepared
+      ? Prisma.sql`t.deletedAt IS NULL AND ${notIn(Prisma.sql`t.projectId`, input.deletedIds!)} AND ${pass.byNumber ? Prisma.sql`(${live} OR ${pass.byNumber})` : live} AND ${inList(Prisma.sql`t.projectId`, input.scope.projectIds)}`
+      : visibleTasksSql({ projectIds: input.scope.projectIds }, { includeArchived: input.includeArchived, ...(pass.byNumber ? { archivedWhen: pass.byNumber } : {}) });
     const doc = Prisma.sql`si.doc`;
+    const some = pass.min < pass.groups.length;
     const words = pass.min >= pass.groups.length ? allOf(doc, pass.groups) : Prisma.sql`${howMany(doc, pass.groups)} >= ${pass.min}`;
     const where: Prisma.Sql[] = [visible, pass.byNumber ? Prisma.sql`(${words} OR ${pass.byNumber})` : words];
     if (onlyTasks) where.push(Prisma.sql`t.id IN (${Prisma.join(onlyTasks)})`);
@@ -123,14 +156,16 @@ export function createSearchEngine({
     if (input.to) where.push(Prisma.sql`t.dueDate < ${input.to}`);
     const score = scored
       ? Prisma.sql`(${pass.byNumber ?? Prisma.sql`FALSE`}) * 1000
-        + (${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20
-        + ${pass.phrase ? Prisma.sql`(si.head LIKE ${like(pass.phrase)} ESCAPE '!') * 100 + (si.doc LIKE ${like(pass.phrase)} ESCAPE '!') * 60` : Prisma.sql`0`}
+        + (${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20 + (${wordStarts(pass.groups)}) * 50
+        + ${pass.phrase ? Prisma.sql`(si.head LIKE ${like(pass.phrase)} ESCAPE '!') * 100 + (si.doc LIKE ${like(pass.phrase)} ESCAPE '!') * 300` : Prisma.sql`0`}
         + (${allOf(Prisma.sql`COALESCE(si.lead, '')`, pass.groups)}) * 80
-        + ${howMany(doc, pass.groups)} * 40 + 10
-        + (NOT ${done}) * 30 + (${assigned(input.viewerId)}) * 15 + ${recency(Prisma.sql`t.updatedAt`)}`
+        + ${some ? Prisma.sql`${howMany(doc, pass.groups)} * 40` : Prisma.sql`0`} + 10
+        + (NOT ${done}) * 30 + (${input.mine ? inList(Prisma.sql`t.id`, input.mine.tasks) : assigned(input.viewerId)}) * 15 + ${recency(Prisma.sql`t.updatedAt`)}`
       : Prisma.sql`0`;
+    // The index first (one quick pass over the words), then only the matching tasks are read: left to
+    // itself the planner reads every task of every project first.
     return Prisma.sql`SELECT 'task' AS kind, t.id AS id, ${score} AS score, t.updatedAt AS at
-      FROM task_search_index si JOIN tasks t ON t.id = si.taskId JOIN projects p ON p.id = t.projectId JOIN kanban_columns c ON c.id = t.columnId
+      FROM task_search_index si STRAIGHT_JOIN tasks t ON t.id = si.taskId ${prepared ? Prisma.empty : Prisma.sql`STRAIGHT_JOIN projects p ON p.id = t.projectId`} STRAIGHT_JOIN kanban_columns c ON c.id = t.columnId
       WHERE ${Prisma.join(where, ' AND ')}`;
   }
 
@@ -143,7 +178,8 @@ export function createSearchEngine({
     const invitee = meetings.invitee;
     // What a meeting seen as an invitee is searched by: its limited text (never decisions or action items).
     const txt = invitee.length ? Prisma.sql`(CASE WHEN si.kind = 'meeting' AND si.meetingId IN (${ids(invitee)}) THEN si.limited ELSE si.doc END)` : Prisma.sql`si.doc`;
-    const live = input.includeArchived ? Prisma.sql`TRUE` : LIVE_PROJECT_SQL;
+    const live = liveSql(input) ?? (input.includeArchived ? Prisma.sql`TRUE` : LIVE_PROJECT_SQL);
+    const some = pass.min < pass.groups.length;
     const full = inList(Prisma.sql`m.id`, meetings.full);
     const seen = Prisma.sql`(${full} OR ${inList(Prisma.sql`m.id`, invitee)})`;
     const editable = inList(Prisma.sql`m.id`, meetings.editable);
@@ -181,11 +217,11 @@ export function createSearchEngine({
     const leadWeight = Prisma.sql`(CASE si.kind WHEN 'file' THEN 0 WHEN 'note' THEN 30 WHEN 'minutes' THEN 50 ELSE 80 END)`;
     const kindWeight = Prisma.sql`(CASE si.kind WHEN 'file' THEN -20 WHEN 'note' THEN 0 WHEN 'minutes' THEN 0 ELSE 10 END)`;
     const score = scored
-      ? Prisma.sql`(${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20
-        + ${pass.phrase ? Prisma.sql`(si.head LIKE ${like(pass.phrase)} ESCAPE '!') * 100 + (${txt} LIKE ${like(pass.phrase)} ESCAPE '!') * 60` : Prisma.sql`0`}
+      ? Prisma.sql`(${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20 + (${wordStarts(pass.groups)}) * 50
+        + ${pass.phrase ? Prisma.sql`(si.head LIKE ${like(pass.phrase)} ESCAPE '!') * 100 + (${txt} LIKE ${like(pass.phrase)} ESCAPE '!') * 300` : Prisma.sql`0`}
         + (${allOf(Prisma.sql`COALESCE(si.lead, '')`, pass.groups)}) * ${leadWeight}
-        + ${howMany(txt, pass.groups)} * 40 + ${kindWeight}
-        + (NOT COALESCE(${done}, FALSE)) * 30 + COALESCE(${theirs(input.viewerId)}, FALSE) * 15 + ${recency(when)}`
+        + ${some ? Prisma.sql`${howMany(txt, pass.groups)} * 40` : Prisma.sql`0`} + ${kindWeight}
+        + (NOT COALESCE(${done}, FALSE)) * 30 + COALESCE(${input.mine ? mineOf(input.mine, input.viewerId) : theirs(input.viewerId)}, FALSE) * 15 + ${recency(when)}`
       : Prisma.sql`0`;
     return Prisma.sql`SELECT si.kind AS kind, si.recordId AS id, ${score} AS score, ${when} AS at
       FROM search_index si
@@ -196,15 +232,47 @@ export function createSearchEngine({
       WHERE ${Prisma.join(where, ' AND ')}`;
   }
 
-  const union = (pass: Pass, input: SearchAllInput, scored: boolean): Prisma.Sql | null => {
-    const parts = [taskPart(pass, input, scored), indexPart(pass, input, scored)].filter((p): p is Prisma.Sql => !!p);
-    return parts.length ? Prisma.join(parts, ' UNION ALL ') : null;
-  };
-
+  /**
+   * The best `limit` from `offset`, best first: each half ordered and cut on its own (a sort that keeps
+   * only the best few), then the two merged in the same order — one order across both indexes.
+   */
   async function rows(pass: Pass, input: SearchAllInput, limit: number, offset: number): Promise<{ kind: SearchKind; id: string }[]> {
-    const u = union(pass, input, true);
-    if (!u) return [];
-    return prisma.$queryRaw<{ kind: SearchKind; id: string }[]>`SELECT kind, id FROM (${u}) x ORDER BY score DESC, at DESC, id DESC LIMIT ${limit} OFFSET ${offset}`;
+    const parts = [taskPart(pass, input, true), indexPart(pass, input, true)].filter((p): p is Prisma.Sql => !!p);
+    if (parts.length === 0) return [];
+    const need = offset + limit;
+    const lists = await Promise.all(
+      parts.map((part) => prisma.$queryRaw<{ kind: SearchKind; id: string; score: unknown; at: Date | null }[]>`SELECT kind, id, score, at FROM (${part}) x ORDER BY score DESC, at DESC, id DESC LIMIT ${need}`),
+    );
+    const time = (d: Date | null) => (d ? new Date(d).getTime() : 0);
+    return lists
+      .flat()
+      .map((r) => ({ ...r, score: Number(r.score) }))
+      .sort((a, b) => b.score - a.score || time(b.at) - time(a.at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+      .slice(offset, need)
+      .map(({ kind, id }) => ({ kind, id }));
+  }
+
+  /**
+   * What a search reads once instead of for each row: the deleted and the archived projects (the same
+   * rule, LIVE_PROJECT_SQL) and what is the person's own (their tasks, projects and meetings — for the
+   * ranking's "own a little first"; a very busy person's is asked row by row instead).
+   */
+  async function withArchived(input: SearchAllInput): Promise<SearchAllInput> {
+    if (input.deletedIds) return input;
+    const MINE_CAP = 5000;
+    const [projects, tasks, ownProjects, meetings] = await Promise.all([
+      prisma.$queryRaw<{ id: string; deleted: number | bigint; live: number | bigint }[]>`SELECT p.id AS id, (p.deletedAt IS NOT NULL) AS deleted, ${LIVE_PROJECT_SQL} AS live FROM projects p WHERE p.deletedAt IS NOT NULL OR NOT ${LIVE_PROJECT_SQL}`,
+      prisma.$queryRaw<{ id: string }[]>`SELECT taskId AS id FROM task_assignees WHERE userId = ${input.viewerId} LIMIT ${MINE_CAP + 1}`,
+      prisma.$queryRaw<{ id: string }[]>`SELECT p.id AS id FROM projects p WHERE p.ownerId = ${input.viewerId} OR p.managerId = ${input.viewerId} OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.projectId = p.id AND pm.userId = ${input.viewerId}) LIMIT ${MINE_CAP + 1}`,
+      prisma.$queryRaw<{ id: string }[]>`SELECT m.id AS id FROM meetings m WHERE m.organizerId = ${input.viewerId} OR EXISTS (SELECT 1 FROM meeting_attendees ma WHERE ma.meetingId = m.id AND ma.userId = ${input.viewerId}) LIMIT ${MINE_CAP + 1}`,
+    ]);
+    const busy = tasks.length > MINE_CAP || ownProjects.length > MINE_CAP || meetings.length > MINE_CAP;
+    return {
+      ...input,
+      deletedIds: projects.filter((p) => Number(p.deleted)).map((p) => p.id),
+      ...(input.includeArchived ? {} : { archivedIds: projects.filter((p) => !Number(p.deleted) && !Number(p.live)).map((p) => p.id) }),
+      ...(busy ? {} : { mine: { tasks: tasks.map((r) => r.id), projects: ownProjects.map((r) => r.id), meetings: meetings.map((r) => r.id) } }),
+    };
   }
 
   async function counts(pass: Pass, input: SearchAllInput): Promise<Record<SearchKind, number>> {
@@ -234,8 +302,9 @@ export function createSearchEngine({
     return out;
   }
 
-  async function search(input: SearchAllInput): Promise<SearchAllResult> {
-    const { terms, whole } = parseTaskQuery(input.q);
+  async function search(given: SearchAllInput): Promise<SearchAllResult> {
+    const { terms, whole } = parseTaskQuery(given.q);
+    const input = terms.length ? await withArchived(given) : given;
     const limit = Math.max(1, Math.min(50, Math.floor(input.limit)));
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
     const empty: SearchAllResult = { hits: [], next: null, corrected: [], ...(input.withCounts ? { counts: Object.fromEntries(SEARCH_KINDS.map((k) => [k, 0])) as Record<SearchKind, number>, total: 0, totalCapped: false } : {}) };
@@ -264,8 +333,10 @@ export function createSearchEngine({
           ...(input.withCounts && counted ? { counts: facets ?? counted, total: total!, totalCapped: Object.values(counted).some((n) => n > COUNT_CAP) } : {}),
         };
       }
+      // Fewer than FEW hold every word: they are all in this first page already.
+      return withExtras(input, exact, terms, limit, 0, byNumber, page.slice(0, FEW));
     }
-    return withExtras(input, exact, terms, limit, input.extra ? offset : 0, byNumber);
+    return withExtras(input, exact, terms, limit, offset, byNumber);
   }
 
   const narrowed = (input: SearchAllInput) => Boolean(input.kinds?.length || input.taskStatuses?.length);
@@ -275,7 +346,15 @@ export function createSearchEngine({
    * Few hold every word: those, then items found by corrected spellings, then items holding some of
    * the words — one list (each pass's best), paged in memory.
    */
-  async function withExtras(input: SearchAllInput, exact: Pass, terms: string[], limit: number, offset: number, byNumber: (task: { key: string; formerKeys: string[] }) => string | null): Promise<SearchAllResult> {
+  async function withExtras(
+    input: SearchAllInput,
+    exact: Pass,
+    terms: string[],
+    limit: number,
+    offset: number,
+    byNumber: (task: { key: string; formerKeys: string[] }) => string | null,
+    exactRows?: { kind: SearchKind; id: string }[],
+  ): Promise<SearchAllResult> {
     // Spelling mistakes: each word of 4 letters or more also as the indexed words it may be a mistake for.
     const alternatives = new Map<string, string[]>();
     if (suggest) for (const t of terms.slice(0, 6)) if (allowedTypos(t) > 0) {
@@ -284,16 +363,16 @@ export function createSearchEngine({
     }
     const closeGroups = terms.map((t) => [t, ...(alternatives.get(t) ?? [])]);
     /** The exact few, then the corrected spellings' results, then those with some of the words. */
-    const buildList = async (from: SearchAllInput) => {
-      const firstRows = await rows(exact, from, FEW, 0);
+    const buildList = async (from: SearchAllInput, known?: { kind: SearchKind; id: string }[]) => {
+      const firstRows = known ?? (await rows(exact, from, FEW, 0));
       const seen = new Set(firstRows.map((r) => `${r.kind}:${r.id}`));
       const list: { kind: SearchKind; id: string; match?: 'close' | 'some' }[] = [...firstRows];
       const fresh = (r: { kind: SearchKind; id: string }) => !seen.has(`${r.kind}:${r.id}`) && (seen.add(`${r.kind}:${r.id}`), true);
       if (alternatives.size) {
         for (const r of await rows({ groups: closeGroups, min: terms.length, byNumber: null, phrase: null }, from, EXTRA, 0)) if (fresh(r)) list.push({ ...r, match: 'close' });
       }
-      // Some of the words (two words or more): at least half of them.
-      if (terms.length > 1) {
+      // Some of the words (two words or more): at least half of them — only while there are still few.
+      if (terms.length > 1 && list.length < FEW) {
         for (const r of await rows({ groups: closeGroups, min: Math.ceil(terms.length / 2), byNumber: null, phrase: null }, from, EXTRA, 0)) if (fresh(r)) list.push({ ...r, match: 'some' });
       }
       return list;
@@ -314,7 +393,7 @@ export function createSearchEngine({
       const extras = kindsOf((await buildList(all)).filter((i) => i.match));
       return Object.fromEntries(SEARCH_KINDS.map((k) => [k, exactCounts[k] + extras[k]])) as Record<SearchKind, number>;
     };
-    const [list, facets] = await Promise.all([buildList(input), input.withCounts && narrowed(input) ? facetsOf() : Promise.resolve(null)]);
+    const [list, facets] = await Promise.all([buildList(input, exactRows), input.withCounts && narrowed(input) ? facetsOf() : Promise.resolve(null)]);
 
     const flat = [...new Set(closeGroups.flat())];
     const groupsFound = (words: string[]) => closeGroups.filter((g) => g.some((a) => words.includes(a))).length;
@@ -346,9 +425,10 @@ export function createSearchEngine({
    * The AI panel's candidates: items holding any of these words (more of them first), or — `only`, no
    * words — just those items (meaning-search candidates); the person's scope and filters as always.
    */
-  async function anyWords(input: SearchAllInput & { words: string[] }): Promise<SearchHit[]> {
-    const groups = [...new Set(input.words.map(normalizeForSearch).filter(Boolean))].map((w) => [w]);
-    if (groups.length === 0 && !input.only?.length) return [];
+  async function anyWords(given: SearchAllInput & { words: string[] }): Promise<SearchHit[]> {
+    const groups = [...new Set(given.words.map(normalizeForSearch).filter(Boolean))].map((w) => [w]);
+    if (groups.length === 0 && !given.only?.length) return [];
+    const input = await withArchived(given);
     const found = await rows({ groups, min: groups.length ? 1 : 0, byNumber: null, phrase: null }, input, Math.max(1, Math.min(50, input.limit)), 0);
     return describe(found, groups.flat(), (words) => groups.length === 0 || words.length > 0, input);
   }
