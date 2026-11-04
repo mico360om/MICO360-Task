@@ -20,6 +20,7 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { LoadError } from '../ui/LoadError';
 import { ModalPortal } from '../ui/ModalPortal';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import {
   KIND_LABEL,
   KIND_NAME,
@@ -757,7 +758,7 @@ function PreviewDialog({ person, kind, onClose }: { person: DailyEmailOverviewPe
   const empty: ReactNode = `Nothing to send right now: there’s nothing in ${person.name}’s daily email.`;
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -765,7 +766,7 @@ function PreviewDialog({ person, kind, onClose }: { person: DailyEmailOverviewPe
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={noteId}
-          className="card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-2xl animate-scale-in flex-col overflow-hidden"
+          className={`card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}
         >
           <div className="border-b border-line px-5 py-4">
             <h2 id={titleId} dir="auto" className="font-display text-lg font-semibold text-ink">{label} for {person.name}</h2>

@@ -35,8 +35,8 @@ describe('the one window size scale (1.22)', () => {
 });
 
 // Every window sizes itself from the scale — no window picks its own width. Panels that are not
-// windows on the scale: side panels and sheets, the phone menu, picture viewers, the calendar's
-// bottom sheets, and the daily-email log (lane E's area in 1.22, to be moved onto the scale later).
+// windows on the scale: side panels and sheets, the phone menu, picture viewers and the calendar's
+// bottom sheets.
 const NOT_ON_THE_SCALE = new Set([
   'components/AppShell.tsx',
   'components/chat/parts.tsx',
@@ -46,7 +46,6 @@ const NOT_ON_THE_SCALE = new Set([
   'components/TaskDrawerContainer.tsx',
   'components/calendar/dialogs.tsx',
   'components/shortcuts/ShortcutProvider.tsx',
-  'components/admin/DailyEmailLog.tsx',
   'pages/MicoAiPage.tsx',
 ]);
 const src = resolve(__dirname, '../..');
