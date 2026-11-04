@@ -20,6 +20,8 @@ import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesSendOptions, type 
 import type { MinutesSendAddress, MinutesSendRepository } from './minutes-send-repository';
 import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
 import type { FinalMinutesAi } from './final-minutes-ai';
+import type { MeetingRecord } from './meeting-repository';
+import type { MinutesSeries as SeriesFacts } from './named-series-service';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -132,7 +134,18 @@ export interface MinutesRouteDeps {
    */
   isColleague?: (viewer: { id: string; roles: string[] }, otherId: string) => Promise<boolean>;
   inviteTargetOf?: (meetingId: string) => Promise<InviteTarget | null>;
+  /**
+   * 1.23 Meeting series: the meeting's series and the open action items of its earlier meetings, as
+   * `who` sees them (`ownOnly`: an invitee's own copy — only their own items). Absent: no series facts.
+   */
+  seriesFacts?: (meeting: MeetingRecord, who: { userId: string; ownOnly?: boolean }) => Promise<SeriesFacts | null>;
 }
+
+/**
+ * Whose view of the series' earlier meetings the minutes carry: the reader's (the default), the
+ * organizer's (the AI's Final MOM draft — the organizer reviews its text), or someone's own items only.
+ */
+export type MinutesSeriesFor = 'organizer' | { userId: string; ownOnly?: boolean };
 
 /** Someone the minutes go to: a colleague picked by name, or an email address (checked as one). */
 const addressee = z.union([z.object({ userId: z.string().trim().min(1).max(64) }).strict(), z.object({ email: z.string().trim().email().max(254) }).strict()]);
@@ -154,22 +167,25 @@ const sendBody = z
  * person may see the meeting. (MICO AI drafts final minutes from the same facts.)
  */
 export function createMinutesData(
-  deps: Pick<MinutesRouteDeps, 'meetingService' | 'attendeeService' | 'agendaService' | 'noteService' | 'actionItemService' | 'resolveUserNames' | 'resolveProject' | 'readProjectImage' | 'printableProjectImage' | 'resolveTaskKeys'>,
+  deps: Pick<MinutesRouteDeps, 'meetingService' | 'attendeeService' | 'agendaService' | 'noteService' | 'actionItemService' | 'resolveUserNames' | 'resolveProject' | 'readProjectImage' | 'printableProjectImage' | 'resolveTaskKeys' | 'seriesFacts'>,
 ) {
   const { meetingService, attendeeService, agendaService, noteService } = deps;
-  /** The minutes data of a meeting, for the person `viewerId` (`alsoName`: more people to name). */
+  /** The minutes data of a meeting, for the person `viewerId` (`alsoName`: more people to name; `seriesFor`: whose carry-over). */
   return async function gather(
     viewerId: string,
     id: string,
     alsoName: string[] = [],
+    opts: { seriesFor?: MinutesSeriesFor } = {},
   ): Promise<{ data: MinutesData; title: string; nameOf: (uid: string | null) => string | null }> {
     const meeting = await meetingService.getMeeting(id);
-    const [attendees, agenda, notes, projectSrc, actionItems] = await Promise.all([
+    const seriesWho = opts.seriesFor === 'organizer' ? { userId: meeting.organizerId } : (opts.seriesFor ?? { userId: viewerId });
+    const [attendees, agenda, notes, projectSrc, actionItems, series] = await Promise.all([
       attendeeService.listAttendees(id),
       agendaService.listAgenda(id),
       noteService.listNotes(id),
       meeting.projectId && deps.resolveProject ? deps.resolveProject(meeting.projectId) : Promise.resolve(null),
       deps.actionItemService ? deps.actionItemService.listByMeeting(id) : Promise.resolve([]),
+      deps.seriesFacts ? deps.seriesFacts(meeting, seriesWho) : Promise.resolve(null),
     ]);
 
     const ids = new Set<string>();
@@ -266,6 +282,21 @@ export function createMinutesData(
       })),
       generatedAt: new Date().toISOString(),
       generatedByName: nameOf(viewerId),
+      series: series
+        ? {
+            name: series.name,
+            openFromEarlier: series.openFromEarlier.map((a) => ({
+              description: a.description,
+              ownerName: a.assigneeName,
+              dueDate: dueDayKey(a.dueDate, resolveMinutesTimeZone(meeting.timeZone)),
+              statusLabel: ACTION_STATUS_LABELS[a.status] ?? a.status,
+              priorityLabel: PRIORITY_LABELS[a.priority] ?? a.priority,
+              taskKey: a.taskKey,
+              open: true,
+              meetingStartAt: a.meeting.startAt.toISOString(),
+            })),
+          }
+        : null,
     };
 
     return { data, title: meeting.title, nameOf };
@@ -280,7 +311,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
 
   /** Assemble the minutes data of a meeting the caller may view (`alsoName`: more people to name). */
   const gatherFor = createMinutesData(deps);
-  const gather = (req: FastifyRequest, id: string, alsoName: string[] = []) => gatherFor(req.user!.id, id, alsoName);
+  const gather = (req: FastifyRequest, id: string, alsoName: string[] = [], opts: { seriesFor?: MinutesSeriesFor } = {}) => gatherFor(req.user!.id, id, alsoName, opts);
   /**
    * companies: an invitee's minutes — no live notes, only their own action items, no project tasks.
    * `forUserId`: whose copy (the person asking, or a recipient of the minutes email).
@@ -292,7 +323,8 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       actionItemService: deps.actionItemService && {
         listByMeeting: async (mid: string) => (await deps.actionItemService!.listByMeeting(mid)).filter((a) => a.assigneeId === forUserId).map((a) => ({ ...a, taskId: null })),
       },
-    })(req.user!.id, id, alsoName);
+      // 1.23: "Open from earlier meetings" in their copy: only their own items.
+    })(req.user!.id, id, alsoName, { seriesFor: { userId: forUserId, ownOnly: true } });
   const viewOf = async (req: FastifyRequest, id: string) =>
     deps.viewOf ? deps.viewOf(req.user!.id, req.user!.roles ?? [], id) : (await canView(req, id)) ? ('full' as const) : null;
 
@@ -575,7 +607,8 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       if (source === 'ai' && ai) {
         const current = await store.get(id);
         const viewer = { userId: req.user!.id, roles: req.user!.roles ?? [] };
-        const facts = async () => minutesFacts((await gather(req, id)).data);
+        // 1.23: the series' carry-over as the organizer sees it (they review and approve the text).
+        const facts = async () => minutesFacts((await gather(req, id, [], { seriesFor: 'organizer' })).data);
         const { job, joined } = await ai.start(viewer, id, { title: (await meetingService.getMeeting(id)).title, facts, waiting: !background }, current);
         if (!joined) deps.onFinalMinutesChanged?.(id);
         if (background) return reply.status(202).send({ data: { source, joined, aiDraft: await ai.view(id, current, viewer.userId, { watch: false }) } });
@@ -586,7 +619,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         });
         return { data: { content: await ai.waitForContent(job.id, id, viewer.userId, gone.signal), source } };
       }
-      const { data } = await gather(req, id);
+      const { data } = await gather(req, id, [], { seriesFor: 'organizer' });
       if (source === 'notes') return { data: { content: draftFromNotes(data), source } };
       if (!deps.draftMinutesWithAi) throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
       const raw = await deps.draftMinutesWithAi(minutesFacts(data), { userId: req.user!.id, roles: req.user!.roles ?? [] });

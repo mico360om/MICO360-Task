@@ -26,6 +26,7 @@ import type { MeetingViewOf } from './invitee-view';
 import type { MeetingCompanyRule } from './meeting-company';
 import { inviteTargetOf, type MeetingInvitees } from './meeting-invitees';
 import type { Viewer } from '../companies/company-access';
+import type { NamedSeriesService } from './named-series-service';
 
 /** companies: a standalone meeting's company (the project's company otherwise). */
 const companyField = z.string().min(1).max(64).nullable().optional();
@@ -89,6 +90,8 @@ const createSchema = z.object({
     )
     .max(50)
     .optional(),
+  // 1.23: "New meeting in this series" — the named series it joins (checked: same project, theirs to add).
+  seriesId: z.string().min(1).max(64).optional(),
 });
 
 const updateSchema = z.object({
@@ -168,6 +171,8 @@ export interface MeetingRouteDeps {
   invitees?: MeetingInvitees;
   /** companies: of these people, the ones the asker knows (free times show only them). */
   knownIds?: (viewer: Viewer, userIds: string[]) => Promise<string[]>;
+  /** 1.23 Meeting series: a new meeting joining one ("New meeting in this series"), and the list's series names. */
+  namedSeries?: Pick<NamedSeriesService, 'checkJoin' | 'names'>;
 }
 
 /** Companies: what a meeting's working hours are asked for — its project, company or the meeting itself, and who asks. */
@@ -303,6 +308,14 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     );
   }
 
+  /** 1.23: each listed meeting's series name (the cards' Series chip; anyone who sees the meeting may see it). */
+  async function withSeriesNames<T extends MeetingRecord>(list: T[]): Promise<Array<T & { seriesName?: string | null }>> {
+    if (!deps.namedSeries) return list;
+    const ids = [...new Set(list.flatMap((m) => (m.seriesId ? [m.seriesId] : [])))];
+    const names = ids.length ? await deps.namedSeries.names(ids) : new Map<string, string>();
+    return list.map((m) => ({ ...m, seriesName: m.seriesId ? (names.get(m.seriesId) ?? null) : null }));
+  }
+
   /** Fire a best-effort email job without failing (or slowing) the request. */
   function background(job: Promise<unknown>, what: string, meetingId: string): void {
     job.catch((err) => deps.logger?.error(what, { err, meetingId }));
@@ -332,7 +345,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
           ? { userId, projectIds: [] }
           : { userId, projectIds, ...(mineOnly ? { admin: true } : {}) },
     });
-    const flagged = await withEditFlags(req, data);
+    const flagged = await withSeriesNames(await withEditFlags(req, data));
     if (!deps.listCounts || flagged.length === 0) return { data: flagged };
     const counts = await deps.listCounts(flagged.map((m) => m.id), req.user!.id);
     return {
@@ -372,8 +385,12 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (problem) return reply.status(400).send(badRule(problem));
     const organizerId = body.organizerId ?? req.user!.id;
     // companies: a meeting without a project belongs to a company (chosen, picked, or the organizer's primary).
-    const { companyId: chosenCompany, ...fields } = body;
+    const { companyId: chosenCompany, seriesId: askedSeries, ...fields } = body;
     const companyId = deps.meetingCompany ? await deps.meetingCompany.forNew(actor(req), { projectId: body.projectId, companyId: chosenCompany, organizerId }, await pickFor(req)) : undefined;
+    // 1.23: joining a series — its project (company), and the person may add the meeting to it.
+    const seriesId = askedSeries && deps.namedSeries
+      ? await deps.namedSeries.checkJoin(actor(req), askedSeries, { projectId: body.projectId ?? null, companyId: body.projectId ? null : (companyId ?? chosenCompany ?? null), organizerId })
+      : undefined;
 
     // People and agenda are checked before anything is saved, so a bad one creates nothing.
     const { attendeeService, agendaService } = deps;
@@ -397,7 +414,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       return reply.status(400).send(badRule('An agenda lead must be one of the meeting’s people or the organizer.'));
     }
 
-    let meeting = await meetingService.createMeeting({ ...fields, ...(companyId !== undefined ? { companyId } : {}), organizerId, createdById: req.user!.id });
+    let meeting = await meetingService.createMeeting({ ...fields, ...(companyId !== undefined ? { companyId } : {}), ...(seriesId ? { seriesId } : {}), organizerId, createdById: req.user!.id });
     try {
       for (const p of people) {
         // A guest given only as an email is named from the part before the @.

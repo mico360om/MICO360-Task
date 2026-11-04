@@ -46,7 +46,7 @@ export function memoryMeetings(): MemoryMeetings {
         timeZone: d.timeZone ?? null, recurrenceRule: d.recurrenceRule ?? null, recurrenceParentId: d.recurrenceParentId ?? null,
         recurrenceStart: d.recurrenceStart ?? null, templateId: d.templateId ?? null, transcript: null,
         invitesSentAt: d.invitesSentAt ?? null, reminderSentAt: null, createdById: d.createdById, createdAt: now, updatedAt: now,
-        deletedAt: null,
+        deletedAt: null, seriesId: d.seriesId ?? null,
       };
       rows.set(rec.id, rec);
       return strip(rec);

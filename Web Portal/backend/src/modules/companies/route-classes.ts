@@ -373,4 +373,17 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // 1.22 Lane AI (§10): the AI's draft offered beside a meeting's minutes — Use it, Discard (editors of the meeting).
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'object',
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'object',
+  // 1.23 Meeting series: one meeting's series, or one series — each checked by the meeting rule
+  // (only the meetings a person may open count; a series they can't see answers 404).
+  'GET /meetings/:id/series': 'object',
+  'GET /meetings/:id/series-options': 'object',
+  'POST /meeting-series': 'object',
+  'GET /meeting-series/:id': 'object',
+  'PATCH /meeting-series/:id': 'object',
+  'DELETE /meeting-series/:id': 'object',
+  'POST /meeting-series/:id/meetings': 'object',
+  'DELETE /meeting-series/:id/meetings/:meetingId': 'object',
+  'POST /meeting-series/:id/merge': 'object',
+  'GET /meeting-series/:id/candidates': 'object',
+  'GET /meeting-series/:id/prefill': 'object',
 };

@@ -47,6 +47,11 @@ export interface MeetingRecord {
   updatedAt: Date;
   /** Set only on records read with their deleted series meetings (series bookkeeping). */
   deletedAt?: Date | null;
+  /**
+   * 1.23: the named series it is in ("Monthly OXY review", named-series.ts), or null — not its repeat
+   * family (that is recurrenceParentId / the `series` the routes add).
+   */
+  seriesId?: string | null;
 }
 
 export interface CreateMeetingData {
@@ -70,6 +75,8 @@ export interface CreateMeetingData {
   /** A new meeting of an already-invited series is in attendees' calendars already. */
   invitesSentAt?: Date | null;
   createdById: string;
+  /** 1.23: the named series it joins (checked by the caller: same project or company). */
+  seriesId?: string | null;
 }
 
 export type UpdateMeetingData = Partial<Omit<CreateMeetingData, 'createdById'>>;

@@ -47,6 +47,7 @@ beforeAll(async () => {
     'projectService', 'columnService', 'memberService', 'taskService', 'approvalSource', 'taskMoveService', 'assigneeService', 'watcherService',
     'tagService', 'checklistService', 'externalContactService', 'commentService', 'attachmentService', 'dependencyService', 'meetingService',
     'attendeeService', 'agendaService', 'actionItemService', 'noteService', 'clientView',
+    'namedSeriesService', // 1.23 Meeting series
   ] as const;
   const deps = Object.fromEntries(services.map((s) => [s, untouched(s)])) as Partial<AppDeps>;
   app = await buildApp({
@@ -72,7 +73,7 @@ describe.each(Object.keys(ARCHIVE_REFUSED))('%s, as the server registers it', (k
       method: method as 'POST',
       url: `/api/v1${path.replace(/:(\w+)/g, 'x1')}`,
       headers: { authorization: `Bearer ${token}` },
-      payload: { projectId: 'PX', columnId: 'c1', taskIds: ['x1'], title: 'A task' },
+      payload: { projectId: 'PX', columnId: 'c1', taskIds: ['x1'], title: 'A task', meetingId: 'x1' },
     });
     expect(res.json(), res.body).toEqual({ error: { code: 'PROJECT_ARCHIVED', message: PROJECT_ARCHIVED_MESSAGE } });
     expect(res.statusCode).toBe(409);
