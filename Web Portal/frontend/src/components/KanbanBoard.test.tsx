@@ -105,9 +105,22 @@ describe('KanbanBoard — adding a task from a column', () => {
     expect(onAddTask).toHaveBeenCalledWith('c3');
   });
 
-  it('without a way to add (read-only), the columns offer none', () => {
-    render(<KanbanBoard columns={withEmpty} />);
+  it('without a way to add, the columns offer none (cards can still be dropped there)', () => {
+    render(<KanbanBoard columns={withEmpty} onMove={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /add a task/i })).not.toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Drop a card here')).toBeInTheDocument();
+  });
+
+  it('1.22.3 review: without a way to add, move or reorder (a read-only board), cards only open — none can be picked up, nothing says to drop one', async () => {
+    const onTaskClick = vi.fn();
+    render(<KanbanBoard columns={withEmpty} onTaskClick={onTaskClick} />);
+    expect(screen.queryByRole('button', { name: /add a task/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/drop a card here/i)).not.toBeInTheDocument();
+    const card = screen.getByRole('button', { name: 'MICO-1: Task A' });
+    expect(card).not.toHaveAttribute('aria-roledescription');
+    expect(card).not.toHaveAttribute('aria-disabled');
+    card.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onTaskClick).toHaveBeenCalledWith('MICO-1');
   });
 });

@@ -9,11 +9,17 @@ import { TaskCard, type TaskCardTask } from './TaskCard';
  *
  * This wrapper is the card's single tab stop: Enter opens the task, Space picks it up for a
  * keyboard move (arrow keys, Space to drop, Escape to cancel).
+ *
+ * `disabled` (1.22.3 review: a read-only board — an archived or completed project's): the card
+ * doesn't move and says nothing about dragging; it is a button that opens its task.
  */
-export function DraggableTaskCard({ task, onClick, timeZone, menuSpace }: { task: TaskCardTask; onClick?: () => void; timeZone?: string; menuSpace?: boolean }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.key });
+export function DraggableTaskCard({ task, onClick, timeZone, menuSpace, disabled = false }: { task: TaskCardTask; onClick?: () => void; timeZone?: string; menuSpace?: boolean; disabled?: boolean }) {
+  const sortable = useSortable({ id: task.key, disabled });
+  const { listeners, setNodeRef, transform, transition, isDragging } = sortable;
+  // Still dragged: dnd-kit's own (role, tab stop, "sortable", how to pick it up). Read-only: a plain button.
+  const attributes = disabled ? { role: 'button', tabIndex: 0 } : sortable.attributes;
   const style: React.CSSProperties = {
-    cursor: 'grab',
+    cursor: disabled ? 'pointer' : 'grab',
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     transition,
     opacity: isDragging ? 0.4 : 1,

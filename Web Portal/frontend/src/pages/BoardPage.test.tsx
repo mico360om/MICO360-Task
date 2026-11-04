@@ -234,6 +234,34 @@ describe('BoardPage', () => {
     expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('1.22.3 review: an archived or completed project chosen in the picker shows a read-only board (as its project page’s Board tab)', async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let p2Status = 'ARCHIVED';
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/projects')) return json({ data: PROJECTS.map((p) => (p.id === 'p2' ? { ...p, status: p2Status } : p)) });
+      return base(url, init);
+    });
+    for (const [status, words] of [['ARCHIVED', 'This project is archived — reopen it first.'], ['COMPLETED', 'This project is completed — reopen it first.']] as const) {
+      p2Status = status;
+      localStorage.clear();
+      const { unmount } = renderPage();
+      expect(await screen.findByRole('button', { name: /\+ new task/i })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Select project' }));
+      await userEvent.click(await screen.findByRole('option', { name: /Operations/ }));
+      expect(await screen.findByRole('region', { name: 'Ops To Do' })).toBeInTheDocument();
+      expect(screen.getByText(words).closest('[role="status"]'), status).not.toBeNull();
+      expect(screen.queryByRole('button', { name: /\+ new task/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Manage columns' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Add a task to/ })).toBeNull();
+      // Back on an open project: everything is offered again.
+      await userEvent.click(screen.getByRole('button', { name: 'Select project' }));
+      await userEvent.click(await screen.findByRole('option', { name: /MICO360 Platform/ }));
+      expect(await screen.findByRole('button', { name: /\+ new task/i })).toBeInTheDocument();
+      expect(screen.queryByText(/reopen it first/)).toBeNull();
+      unmount();
+    }
+  });
+
   it('offers Manage columns to an employee who runs the project, and not to one who doesn’t', async () => {
     useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
     const base = vi.mocked(fetch).getMockImplementation()!;

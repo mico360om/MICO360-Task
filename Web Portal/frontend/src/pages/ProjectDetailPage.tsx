@@ -42,7 +42,7 @@ import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
 import { configApi } from '../api/config';
 import { ProjectInspectionsTab } from '../components/inspections/ProjectInspectionsTab';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
-import { isProjectArchived } from '../lib/project-archive';
+import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
 
 type Tab = 'overview' | 'board' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
@@ -242,7 +242,9 @@ export function ProjectDetailPage() {
   const overview = meetingsQ.data && Array.isArray(meetingsQ.data.meetings) ? meetingsQ.data : null;
   // Companies: a project whose companies are all archived counts as archived (read-only) too.
   const archived = !!project && isProjectArchived(project);
-  const canSchedule = !!project && !archived && project.status !== 'COMPLETED';
+  // Archived or completed: no new tasks or meetings, and (1.22.3 review) its Board tab takes no changes.
+  const readOnly = project ? projectReadOnly(project) : null;
+  const canSchedule = !!project && readOnly === null;
   // N adds a task to this project (a meeting on the Meetings tab; on the Board tab, the board's own:
   // to its first column, on its day); E edits the project.
   const [newTask, setNewTask] = useState(false);
@@ -447,7 +449,7 @@ export function ProjectDetailPage() {
         ) : null}
 
         {/* The board's own header is the project's (above); the board keeps its day, people and buttons. */}
-        {tab === 'board' ? <BoardTab key={id} project={project} /> : null}
+        {tab === 'board' ? <BoardTab key={id} project={project} readOnly={readOnly} /> : null}
 
         {tab === 'tasks' ? (
           <TasksTab groups={groups} today={today} timeZone={timeZone} loading={tasksQ.isLoading || columnsQ.isLoading} filter={taskFilter} onFilter={setTaskFilter} onOpen={setOpenTaskId} onNew={canSchedule ? () => setNewTask(true) : undefined} />

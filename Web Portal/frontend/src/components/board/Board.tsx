@@ -37,6 +37,7 @@ import { moveAvailability, movedText } from '../../lib/task-move';
 import { useMyProjectsOnly } from '../../lib/useMyProjectsOnly';
 import { MyProjectsLine } from '../projects/MyProjectsLine';
 import { isArchivedRefusal } from '../../stores/archived-notice-store';
+import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archive';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
@@ -65,6 +66,12 @@ export interface BoardProps {
   header?: (actions: ReactNode) => ReactNode;
   /** This person was taken off the board's project (after the board has said so). */
   onRemoved?: () => void;
+  /**
+   * 1.22.3 review: the project takes no changes — archived (or all its companies), or completed; the
+   * same rule as the project page's New task (lib/project-archive projectReadOnly). Its board is there
+   * to look at: no New task, column "+", Manage columns, card menu or dragging, and it says why.
+   */
+  readOnly?: ProjectReadOnly | null;
 }
 
 /**
@@ -73,7 +80,7 @@ export interface BoardProps {
  * task panel (Previous / Next follow the columns), the people strip, column management, live
  * updates and the N shortcut — or, on the Board page, All projects under six shared statuses.
  */
-export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved }: BoardProps) {
+export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null }: BoardProps) {
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
@@ -98,6 +105,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const myOnly = useMyProjectsOnly();
   const isAll = projectId === ALL_PROJECTS;
   const project = isAll ? undefined : projects.find((p) => p.id === projectId);
+  // A read-only project's board (never All projects, whose projects are all open ones).
+  const locked = !isAll && Boolean(projectId) && readOnly !== null;
   const shownProjects = useMemo(() => boardProjects(projects), [projects]);
   const listLoading = list?.loading ?? false;
   const removed = useRef(onRemoved);
@@ -359,7 +368,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     else setNewTaskColumn(columnId ?? boardColumns[0]?.id ?? '');
     setAddingTask(true);
   }
-  useShortcut('new', () => openAddTask(), { enabled: boardColumns.length > 0 });
+  useShortcut('new', () => openAddTask(), { enabled: boardColumns.length > 0 && !locked });
 
   // Live board: refetch when another client creates/moves/updates/deletes/reassigns a task (T7.4).
   const onLiveEvent = useCallback(
@@ -425,7 +434,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const loading = listLoading || linking || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
   const error = (list?.failed ?? false) || (isAll ? allQ.isError : boardQ.isError);
   // A day with nothing on it says so once, above the columns (each column only says "No tasks").
-  const emptyDay = !loading && !error && Boolean(projectId) && fullColumns.length > 0 && fullColumns.every((c) => c.tasks.length === 0);
+  // (Not on a read-only board: its notice says why nothing can be added.)
+  const emptyDay = !locked && !loading && !error && Boolean(projectId) && fullColumns.length > 0 && fullColumns.every((c) => c.tasks.length === 0);
   // The company filter leaves no card on a board that has some.
   const noneFromCompany = !emptyDay && Boolean(company) && boardColumns.length > 0 && boardColumns.every((c) => c.tasks.length === 0);
 
@@ -437,7 +447,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const pageTop = useFrameOffset(pageRef, fit);
 
   // The board's own buttons: in the page's header, or (no header: a project page's Board tab) in the day row.
-  const actions = projectId ? (
+  // A read-only project's board has none.
+  const actions = projectId && !locked ? (
     <>
       {/* Whoever runs the project (the server says) and admins change its columns. */}
       {(isAdmin || project?.canManage === true) && !isAll ? (
@@ -522,7 +533,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : null}
 
-      {manageColumns && projectId && !isAll ? (
+      {manageColumns && projectId && !isAll && !locked ? (
         <div className="card mb-4 p-5">
           <h2 className="eyebrow mb-3">Columns</h2>
           <ColumnManager
@@ -542,6 +553,16 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             </p>
           ) : null}
         </div>
+      ) : null}
+
+      {locked && readOnly ? (
+        <p role="status" data-read-only={readOnly} className="mb-3 flex flex-none items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-ink-3">
+            <rect x="3" y="4" width="18" height="5" rx="1" />
+            <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" />
+          </svg>
+          <span>{READ_ONLY_NOTICE[readOnly]}</span>
+        </p>
       ) : null}
 
       {moveError ? (
@@ -588,12 +609,13 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           fit={fit}
           columns={boardColumns}
           timeZone={timeZone}
-          onMove={onMove}
+          // A read-only project's board: cards only open (no dragging, no "+", no card menu).
+          onMove={locked ? undefined : onMove}
           // On All projects a status mixes projects: cards keep their order (due date, then priority).
           // Filtered by company, some cards are hidden: a column's order can't be set from what is shown.
-          onReorder={isAll || company ? undefined : onReorder}
-          onAddTask={(columnId) => openAddTask(columnId)}
-          cardMenu={cardMenu}
+          onReorder={isAll || company || locked ? undefined : onReorder}
+          onAddTask={locked ? undefined : (columnId) => openAddTask(columnId)}
+          cardMenu={locked ? undefined : cardMenu}
           onTaskClick={(key) => {
             const id = idByKey[key];
             // The board as shown is its list for Previous / Next: column by column, top to bottom.
@@ -630,7 +652,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         </div>
       ) : null}
 
-      {addingTask && projectId ? (
+      {addingTask && projectId && !locked ? (
         // One request creates the task with its people; the board day keeps it on the day being viewed.
         // On All projects the project is chosen in the form.
         <TaskFormDialog

@@ -21,7 +21,10 @@ import { boardCollisionDetection, boardKeyboardCoordinates } from '../lib/board-
 export interface KanbanBoardProps {
   columns: KanbanColumnData[];
   onTaskClick?: (taskKey: string) => void;
-  /** Move a task to a different column, at `toIndex` (where it was dropped) in that column. */
+  /**
+   * Move a task to a different column, at `toIndex` (where it was dropped) in that column. Without it
+   * and onReorder (1.22.3 review: a read-only board), cards don't drag at all — they only open.
+   */
   onMove?: (taskKey: string, toColumnId: string, toIndex: number) => void;
   /** Re-sequence a column's tasks (intra-column reorder), given the new key order. */
   onReorder?: (columnId: string, orderedKeys: string[]) => void;
@@ -48,6 +51,7 @@ const KEYBOARD_CODES = { start: ['Space'], cancel: ['Escape'], end: ['Space'] };
  * board's horizontal scroll. The container persists the change via the API (broadcast over realtime).
  */
 export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone, onAddTask, cardMenu, fit = false }: KanbanBoardProps) {
+  const canDrag = Boolean(onMove || onReorder);
   // Mouse drags after a small move; touch needs a short press so a swipe still scrolls the board;
   // keyboard users pick cards up with Space and move them with the arrow keys.
   const sensors = useSensors(
@@ -131,6 +135,7 @@ export function KanbanBoard({ columns, onTaskClick, onMove, onReorder, timeZone,
             cardMenu={cardMenu}
             dragging={activeKey !== null}
             fit={fit}
+            canDrag={canDrag}
           />
         ))}
       </div>

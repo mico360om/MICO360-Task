@@ -24,6 +24,8 @@ export interface KanbanColumnProps {
   dragging?: boolean;
   /** The board fits the window: the cards scroll inside the column, under its header. */
   fit?: boolean;
+  /** Cards may be dragged (default). False (1.22.3 review): a read-only board — they only open. */
+  canDrag?: boolean;
 }
 
 const PLUS = <path d="M12 5v14M5 12h14" />;
@@ -43,7 +45,7 @@ function AddTaskButton({ name, onAddTask }: { name: string; onAddTask: () => voi
   );
 }
 
-export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false, fit = false }: KanbanColumnProps) {
+export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMenu, dragging = false, fit = false, canDrag = true }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -108,10 +110,10 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>
           {column.tasks.map((task) => {
             const items = cardMenu?.(task.key) ?? null;
-            if (!items || items.length === 0) return <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} />;
+            if (!items || items.length === 0) return <DraggableTaskCard key={task.key} task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} disabled={!canDrag} />;
             return (
               <div key={task.key} className="group/card relative">
-                <DraggableTaskCard task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} menuSpace />
+                <DraggableTaskCard task={task} timeZone={timeZone} onClick={() => onTaskClick?.(task.key)} menuSpace disabled={!canDrag} />
                 {dragging ? null : <CardMenu taskKey={task.key} items={items} />}
               </div>
             );
@@ -133,9 +135,9 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
             </button>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-start gap-1.5 rounded-xl border border-dashed border-line/70 px-2 py-7 text-center max-md:flex-none">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg>
+              {canDrag ? <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-ink-3"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M12 8v8M8 12h8" /></svg> : null}
               <p className="text-xs font-medium text-ink-3">No tasks</p>
-              <p className="text-xs text-ink-3">Drop a card here</p>
+              {canDrag ? <p className="text-xs text-ink-3">Drop a card here</p> : null}
             </div>
           )
         ) : null}

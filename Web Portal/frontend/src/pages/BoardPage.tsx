@@ -10,6 +10,7 @@ import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { useAuthStore } from '../stores/auth-store';
 import { projectOption } from '../components/project-option';
 import { useProjectsWith } from '../lib/useProjectsWith';
+import { projectReadOnly } from '../lib/project-archive';
 
 // The board itself (1.22.3) is components/board/Board.tsx — the same one a project page's Board tab shows.
 export { emptyDayText } from '../components/board/Board';
@@ -101,6 +102,8 @@ export function BoardPage() {
       linking={linking}
       hiddenProjects={hiddenProjects}
       onRemoved={forgetProject}
+      // 1.22.3 review: an archived or completed project chosen in the picker — the project page's rule.
+      readOnly={project ? projectReadOnly(project) : null}
       header={(boardActions) => (
         <PageHeader
           eyebrow="Workspace"

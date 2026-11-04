@@ -196,6 +196,42 @@ describe('ProjectDetailPage: the Board tab (1.22.3)', () => {
     expect(within(within(panel).getByRole('region', { name: 'To Do' })).getByText('Task t1')).toBeInTheDocument();
   });
 
+  it('1.22.3 review: an archived or completed project’s board is read-only — no New task, column +, Manage columns, card menu or dragging; it says why, and cards still open', async () => {
+    for (const [look, words] of [
+      [{ status: 'ARCHIVED' }, 'This project is archived — reopen it first.'],
+      [{ status: 'ACTIVE', archived: true }, 'This project is archived — reopen it first.'], // all its companies archived
+      [{ status: 'COMPLETED' }, 'This project is completed — reopen it first.'],
+    ] as const) {
+      project = { ...PROJECT, ...look, canManage: true };
+      const { unmount } = renderPage();
+      const panel = await screen.findByRole('tabpanel', { name: 'Board' });
+      const todo = await within(panel).findByRole('region', { name: 'To Do' });
+      expect(within(panel).getByText(words).closest('[role="status"]'), look.status).not.toBeNull();
+      expect(within(panel).queryByRole('button', { name: /\+ new task/i })).toBeNull();
+      expect(within(panel).queryByRole('button', { name: 'Manage columns' })).toBeNull();
+      expect(within(panel).queryByRole('button', { name: /^Add a task to/ })).toBeNull();
+      expect(within(panel).queryByRole('button', { name: /^More actions for/ })).toBeNull();
+      // A card can't be picked up (it isn't a draggable "sortable"), and nothing says to drop one.
+      const card = panel.querySelector('[data-card-key="MICO-1"]')!;
+      expect(card).not.toHaveAttribute('aria-roledescription');
+      expect(card).not.toHaveAttribute('aria-disabled');
+      expect(within(panel).queryByText(/drop a card here/i)).toBeNull();
+      // …and still opens its task.
+      await userEvent.click(within(todo).getByText('Task t1'));
+      expect(where()).toBe('/projects/p1?tab=board&task=t1');
+      unmount();
+    }
+  });
+
+  it('1.22.3 review: an open project’s board keeps every change (no read-only notice)', async () => {
+    renderPage();
+    const panel = await screen.findByRole('tabpanel', { name: 'Board' });
+    await within(panel).findByRole('region', { name: 'To Do' });
+    expect(within(panel).queryByText(/reopen it first/)).toBeNull();
+    expect(within(panel).getAllByRole('button', { name: /^Add a task to/ }).length).toBeGreaterThan(0);
+    expect(panel.querySelector('[data-card-key="MICO-1"]')).toHaveAttribute('aria-roledescription', 'sortable');
+  });
+
   it('leaving the Board tab keeps New task in this project (the page says which project it is)', async () => {
     renderPage();
     await screen.findByRole('region', { name: 'Board columns' });
