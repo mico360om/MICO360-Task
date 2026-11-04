@@ -11,9 +11,10 @@ const VIEW: ClientView = {
   project: { name: 'Rig 7 Inspection', code: 'RIG', number: 'OD-2231', clientName: 'Oman Drilling Co.', status: 'ACTIVE', statusLabel: 'In progress', color: '#1E6B8B', icon: null, imageUrl: null },
   progress: { percentDone: 38 },
   timeline: { startDate: '2026-10-01', targetDate: '2026-11-20', today: '2026-10-26', elapsedPercent: 50 },
-  milestones: [{ title: 'مسح الموقع', status: 'Done', dueDate: '2026-10-10' }],
+  milestones: [{ key: 'RIG-1', title: 'مسح الموقع', status: 'Done', dueDate: '2026-10-10' }],
   tasks: [
-    { title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02', late: false },
+    { key: 'RIG-2', title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02', late: false },
+    // An older server sends no number: the row is as before.
     { title: 'Report draft', status: 'Not started', dueDate: null, late: false },
   ],
   minutes: [
@@ -269,6 +270,17 @@ describe('the client page', () => {
     expect(minutes.querySelector('summary, details')).toBeNull();
     expect(within(minutes).getByText('Agreed the plan.')).toBeInTheDocument();
     expect(within(minutes).getByRole('button', { name: 'Download the minutes of Kick-off (PDF)' })).toBeInTheDocument();
+  });
+
+  it('shows each shared task’s and milestone’s number as the chip, before its title (owner, 4 Nov: 1.22.3)', async () => {
+    show(fakeApi());
+    const milestones = await screen.findByRole('region', { name: 'Milestones' });
+    const mark = within(milestones).getByText('RIG-1');
+    expect(mark).toHaveAttribute('data-task-key', 'RIG-1');
+    expect(mark.compareDocumentPosition(within(milestones).getByText('مسح الموقع')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const tasks = screen.getByRole('region', { name: 'Tasks' });
+    expect(within(tasks).getByText('RIG-2')).toHaveAttribute('data-task-key', 'RIG-2');
+    expect(within(tasks).getByText('Report draft').closest('li')!.querySelector('[data-task-key]')).toBeNull();
   });
 
   it('lets each line of the minutes take its own direction, so an Arabic line among English ones reads right', async () => {

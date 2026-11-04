@@ -79,7 +79,9 @@ describe('client view in the database', () => {
     await task(b.id, b.todo, 'Another project’s marked task', { clientVisible: true });
     const items = await source.items(a.id);
     expect(items.map((i) => i.title).sort()).toEqual(['Marked and done', 'Marked milestone']);
-    expect(items.find((i) => i.title === 'Marked and done')).toEqual({ title: 'Marked and done', isMilestone: false, clientVisible: true, dueDate: null, completedAt: null, columnCategory: 'DONE' });
+    const done = items.find((i) => i.title === 'Marked and done')!;
+    // 1.22.3: with its number (the owner: the client page shows task numbers) — and nothing else new.
+    expect(done).toEqual({ key: expect.stringMatching(/^CV-/), title: 'Marked and done', isMilestone: false, clientVisible: true, dueDate: null, completedAt: null, columnCategory: 'DONE' });
     expect(JSON.stringify(items)).not.toContain('INTERNAL');
     expect(JSON.stringify(items)).not.toContain('Waiting on Ahmed');
   });

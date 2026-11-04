@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { fieldClass } from '../components/ui/Field';
 import { askedTooSoon, codeStepMemory, linkTag, NEW_CODE_SENT, RESEND_AFTER_MS, waitFromAnswer, type CodeStepMemory } from '../lib/login-code-step';
 import { dateTimeText } from '../lib/day-words';
+import { TaskKey } from '../components/TaskKey';
 
 /**
  * The client page: someone outside the company follows one shared project, read-only, with no
@@ -522,8 +523,12 @@ function Items({ items, empty, milestone = false }: { items: ClientViewItem[]; e
             <span aria-hidden="true" className="mt-1.5 block h-2.5 w-2.5 flex-none rounded-full border-2 border-ink-3" />
           )}
           <div className="min-w-0 flex-1">
-            {/* bdi: an Arabic title reads right-to-left but starts on the row's side, beside its due date. */}
-            <p className="break-words text-sm font-medium text-ink"><bdi>{t.title}</bdi></p>
+            {/* bdi: an Arabic title reads right-to-left but starts on the row's side, beside its due date.
+                1.22.3 (owner): the task's number first, the chip the staff see. */}
+            <p className="break-words text-sm font-medium text-ink">
+              {t.key ? <TaskKey value={t.key} className="me-1.5 align-[1px]" /> : null}
+              <bdi>{t.title}</bdi>
+            </p>
             <p className="text-xs text-ink-2">{t.dueDate ? `Due ${dayText(t.dueDate)}` : 'No due date'}</p>
           </div>
           {/* Past its due day and not done, as the staff see it — in words, not by colour alone. */}

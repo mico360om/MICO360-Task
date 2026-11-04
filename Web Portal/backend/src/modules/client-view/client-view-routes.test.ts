@@ -65,9 +65,9 @@ async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; pdf
   const source = createMemoryClientViewSource();
   source.addProject('p1', { name: 'Rig 7 Inspection', code: 'RIG', number: null, clientName: 'Oman Drilling Co.', status: 'ACTIVE', color: '#1E6B8B', icon: null, imageUrl: null, startDate: null, targetDate: null });
   source.addProject('p2', { name: 'Other Confidential Project', code: 'OCP', number: null, clientName: null, status: 'ACTIVE', color: '#000000', icon: null, imageUrl: null, startDate: null, targetDate: null });
-  source.addTask('p1', { title: 'Marked milestone', isMilestone: true, clientVisible: true, columnCategory: 'IN_PROGRESS', completedAt: null, dueDate: null });
-  source.addTask('p1', { title: 'Unmarked internal step', isMilestone: false, clientVisible: false, columnCategory: 'TODO', completedAt: null, dueDate: null });
-  source.addTask('p2', { title: 'Other project marked task', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: null });
+  source.addTask('p1', { key: 'RIG-1', title: 'Marked milestone', isMilestone: true, clientVisible: true, columnCategory: 'IN_PROGRESS', completedAt: null, dueDate: null });
+  source.addTask('p1', { key: 'RIG-2', title: 'Unmarked internal step', isMilestone: false, clientVisible: false, columnCategory: 'TODO', completedAt: null, dueDate: null });
+  source.addTask('p2', { key: 'OTH-1', title: 'Other project marked task', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: null });
   const tasks: Fixture['tasks'] = new Map([
     ['t1', { projectId: 'p1', clientVisible: false, title: 'Pour the foundation' }],
     ['t2', { projectId: 'p2', clientVisible: false, title: 'P2 task' }],
@@ -366,8 +366,9 @@ describe('the client’s own routes', () => {
     expect(page.statusCode).toBe(200);
     const body = page.body;
     expect(page.json().data.project.name).toBe('Rig 7 Inspection');
-    expect(page.json().data.milestones).toEqual([{ title: 'Marked milestone', status: 'In progress', dueDate: null, late: false }]);
-    for (const hidden of ['Unmarked internal step', 'Other project', 'Other Confidential Project', 'Omar Ahmed', OWNER, NAMED, MEMBER, 'ownerId', 'managerId', 'assignee', 'description', 'comment']) {
+    // 1.22.3: with its number; an unmarked task's and another project's numbers never appear.
+    expect(page.json().data.milestones).toEqual([{ key: 'RIG-1', title: 'Marked milestone', status: 'In progress', dueDate: null, late: false }]);
+    for (const hidden of ['Unmarked internal step', 'RIG-2', 'OTH-1', 'Other project', 'Other Confidential Project', 'Omar Ahmed', OWNER, NAMED, MEMBER, 'ownerId', 'managerId', 'assignee', 'description', 'comment']) {
       expect(body).not.toContain(hidden);
     }
   });

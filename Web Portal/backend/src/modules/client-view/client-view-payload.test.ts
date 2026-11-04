@@ -21,9 +21,9 @@ function input(over: Partial<ClientViewInput> = {}): ClientViewInput {
     },
     counts: { total: 8, done: 3 },
     items: [
-      { title: 'Site survey', isMilestone: true, clientVisible: true, columnCategory: 'DONE', completedAt: new Date('2026-10-10T00:00:00Z'), dueDate: new Date('2026-10-10T00:00:00Z') },
-      { title: 'Install sensors', isMilestone: false, clientVisible: true, columnCategory: 'IN_PROGRESS', completedAt: null, dueDate: new Date('2026-11-02T00:00:00Z') },
-      { title: 'Report draft', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: null },
+      { key: 'RIG-1', title: 'Site survey', isMilestone: true, clientVisible: true, columnCategory: 'DONE', completedAt: new Date('2026-10-10T00:00:00Z'), dueDate: new Date('2026-10-10T00:00:00Z') },
+      { key: 'RIG-2', title: 'Install sensors', isMilestone: false, clientVisible: true, columnCategory: 'IN_PROGRESS', completedAt: null, dueDate: new Date('2026-11-02T00:00:00Z') },
+      { key: 'RIG-3', title: 'Report draft', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: null },
     ],
     minutes: [
       {
@@ -65,8 +65,9 @@ describe('the client page payload: an explicit allow-list', () => {
         'project.color', 'project.icon', 'project.imageUrl',
         'progress', 'progress.percentDone',
         'timeline', 'timeline.startDate', 'timeline.targetDate', 'timeline.today', 'timeline.elapsedPercent',
-        'milestones', 'milestones[].title', 'milestones[].status', 'milestones[].dueDate', 'milestones[].late',
-        'tasks', 'tasks[].title', 'tasks[].status', 'tasks[].dueDate', 'tasks[].late',
+        // 1.22.3 (owner): each task's and milestone's number too — still no person.
+        'milestones', 'milestones[].key', 'milestones[].title', 'milestones[].status', 'milestones[].dueDate', 'milestones[].late',
+        'tasks', 'tasks[].key', 'tasks[].title', 'tasks[].status', 'tasks[].dueDate', 'tasks[].late',
         'minutes', 'minutes[].id', 'minutes[].title', 'minutes[].date', 'minutes[].approvedOn', 'minutes[].content',
         'minutes[].content.summary', 'minutes[].content.discussion', 'minutes[].content.discussion[].topic', 'minutes[].content.discussion[].text',
         'minutes[].content.decisions', 'minutes[].content.risks', 'minutes[].content.nextSteps',
@@ -141,11 +142,16 @@ describe('the client page payload: an explicit allow-list', () => {
 
   it('splits milestones from tasks, soonest due first (no date last)', () => {
     const v = buildClientView(input());
-    expect(v.milestones).toEqual([{ title: 'Site survey', status: 'Done', dueDate: '2026-10-10', late: false }]);
+    expect(v.milestones).toEqual([{ key: 'RIG-1', title: 'Site survey', status: 'Done', dueDate: '2026-10-10', late: false }]);
     expect(v.tasks).toEqual([
-      { title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02', late: false },
-      { title: 'Report draft', status: 'Not started', dueDate: null, late: false },
+      { key: 'RIG-2', title: 'Install sensors', status: 'In progress', dueDate: '2026-11-02', late: false },
+      { key: 'RIG-3', title: 'Report draft', status: 'Not started', dueDate: null, late: false },
     ]);
+  });
+
+  it('1.22.3: a task’s number is copied as words only (an older source without one gives null)', () => {
+    const odd = input({ items: [{ key: { toString: () => 'RIG-9' } as unknown as string, title: 'Odd', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: null }, { title: 'No key', isMilestone: false, clientVisible: true, columnCategory: 'TODO', completedAt: null, dueDate: null }] });
+    expect(buildClientView(odd).tasks.map((t) => [t.title, t.key])).toEqual([['No key', null], ['Odd', 'RIG-9']]);
   });
 
   it('marks a task or milestone past its due day and not done as late — never one waiting for approval (owner, 30 Oct)', () => {

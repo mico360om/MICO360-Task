@@ -8,7 +8,8 @@ import type { ClientInspectionSummary } from '../inspections/inspection-client-c
 /**
  * What a shared client's page shows, built from an explicit allow-list: every field below is copied
  * one by one, so nothing else a row carries (people, descriptions, comments, files, internal notes,
- * column names, ids of anything but the minutes) can reach the client. Only tasks (milestones are
+ * column names, ids of anything but the minutes) can reach the client. A task's number (1.22.3) names no
+ * one. Only tasks (milestones are
  * tasks), approved final minutes and finished inspection reports marked "Show to client" are listed
  * (a report, opened, shows its item notes and the signers' names: see inspection-client-copy, and
  * the wording of the staff's Share with client panel); the project's % done counts every task
@@ -31,6 +32,8 @@ export interface ClientProjectSource {
 }
 
 export interface ClientTaskSource {
+  /** 1.22.3: the task's number (MICO-142), shown beside it (owner: the client page shows numbers too). */
+  key?: string | null;
   title: string;
   isMilestone: boolean;
   clientVisible: boolean;
@@ -78,6 +81,8 @@ export interface ClientViewInput {
 export type ClientTaskStatus = 'Not started' | 'In progress' | 'In review' | 'On hold' | 'Done';
 
 export interface ClientItem {
+  /** 1.22.3: the task's number (MICO-142); null from a source that has none. */
+  key: string | null;
   title: string;
   status: ClientTaskStatus;
   /** 'YYYY-MM-DD'. */
@@ -161,6 +166,7 @@ const byDueThenTitle = (a: ClientItem, b: ClientItem) => (a.dueDate ?? '9999-12-
 
 function item(t: ClientTaskSource, timeZone: string, now: Date): ClientItem {
   return {
+    key: t.key == null ? null : String(t.key),
     title: String(t.title),
     status: clientTaskStatus(t),
     dueDate: dueDayKey(t.dueDate, timeZone),
