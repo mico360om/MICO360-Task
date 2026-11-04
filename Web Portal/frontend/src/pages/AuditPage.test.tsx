@@ -52,6 +52,21 @@ describe('AuditPage', () => {
     await waitFor(() => expect(screen.getByText('USER_CREATED')).toBeInTheDocument());
   });
 
+  it('a task’s entries name the task by its current number (the chip) and title, instead of its raw id (1.22.3)', async () => {
+    pages = () => [
+      entry({ id: 'a1', action: 'task.approve', module: 'tasks', entityId: 'ckz9taskid', task: { key: 'MICO-142', title: 'Fix the pump' } }),
+      entry({ id: 'a2', action: 'USER_CREATED', module: 'users', entityId: 'u9', task: null }),
+    ];
+    renderPage();
+    const chip = await screen.findByText('MICO-142');
+    expect(chip).toHaveAttribute('data-task-key', 'MICO-142');
+    const cell = chip.closest('td')!;
+    expect(cell).toHaveTextContent('MICO-142Fix the pump');
+    expect(cell).not.toHaveTextContent('ckz9taskid');
+    // Anything else keeps its id.
+    expect(screen.getByText('u9')).toBeInTheDocument();
+  });
+
   it('says when, day before month and on the 24-hour clock, in the company zone', async () => {
     renderPage();
     // 12:00 UTC is 16:00 in Muscat.

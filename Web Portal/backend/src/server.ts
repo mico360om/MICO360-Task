@@ -185,7 +185,7 @@ import { createPrismaActionItemRepository } from './modules/meetings/prisma-acti
 import { createActivityService } from './modules/activity/activity-service';
 import { createPrismaActivityRepository } from './modules/activity/prisma-activity-repository';
 import { createAuditService } from './modules/audit/audit-service';
-import { createPrismaAuditRepository } from './modules/audit/prisma-audit-repository';
+import { createPrismaAuditRepository, createPrismaAuditTaskRefs } from './modules/audit/prisma-audit-repository';
 import { createSettingsService } from './modules/settings/settings-service';
 import { createAiConfigService } from './modules/ai/ai-config-service';
 import { createAiFeatureService } from './modules/ai/ai-feature-service';
@@ -956,7 +956,7 @@ async function main(): Promise<void> {
     await notificationService.markEntityRead(userId, 'conversation', conversationId);
   };
 
-  const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma) });
+  const auditService = createAuditService({ audit: createPrismaAuditRepository(prisma), tasks: createPrismaAuditTaskRefs(prisma) });
   onClientMinutesHidden = auditMinutesMovedAway(auditService);
 
   const settingsService = createSettingsService({ settings: createPrismaSettingsRepository(prisma) });

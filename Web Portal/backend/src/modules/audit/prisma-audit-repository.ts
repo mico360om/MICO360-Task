@@ -1,6 +1,11 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { AuditRepository, CreateAuditData } from './audit-repository';
 
+/** 1.22.3: the tasks among some entity ids — their current number and title (also one in the trash). */
+export function createPrismaAuditTaskRefs(prisma: PrismaClient) {
+  return (ids: readonly string[]) => prisma.task.findMany({ where: { id: { in: [...ids] } }, select: { id: true, key: true, title: true } });
+}
+
 export function createPrismaAuditRepository(prisma: PrismaClient): AuditRepository {
   return {
     async create(data: CreateAuditData) {

@@ -12,6 +12,8 @@ export interface ApiAuditLog {
   newValue?: unknown;
   ip?: string | null;
   createdAt: string;
+  /** 1.22.3: the task it is about — its current number and title (null for anything else; an older server sends none). */
+  task?: { key: string; title: string } | null;
 }
 
 export interface AuditQuery {
