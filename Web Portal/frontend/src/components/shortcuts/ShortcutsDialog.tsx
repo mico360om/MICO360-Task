@@ -52,7 +52,8 @@ export function ShortcutsDialog({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {/* Taller than the window with every shortcut: Tab reaches it, so the arrow keys scroll it. */}
+          <div tabIndex={0} role="region" aria-label="All shortcuts" className="min-h-0 flex-1 overflow-y-auto px-5 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40">
             {GROUPS.map((group) => (
               <section key={group} aria-labelledby={`shortcuts-${group}`} className="mb-4 last:mb-0">
                 <h3 id={`shortcuts-${group}`} className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">

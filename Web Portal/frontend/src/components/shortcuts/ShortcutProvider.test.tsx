@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useRef, type ReactNode } from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ShortcutProvider, useShortcut } from './ShortcutProvider';
 import type { ShortcutAction } from '../../lib/shortcuts';
@@ -265,6 +265,16 @@ describe('search, refresh and the list of shortcuts', () => {
     expect(list.textContent).toContain('Next task');
     expect(list.textContent).toContain('Previous task');
     expect(document.getElementById('shortcuts-single-help')!.textContent).toMatch(/^N, E, Delete, R, \/, J, K and \? work when you’re not typing/);
+  });
+
+  // 1.22 QA: with J and K added the list is taller than the window, and only the dialog had the
+  // keyboard — the arrow keys couldn't scroll to the last shortcuts (axe: scrollable-region-focusable).
+  it('the list scrolls from the keyboard: it is a region of its own that Tab reaches', () => {
+    wrap(<p>Page</p>);
+    press({ key: '/', code: 'Slash', ctrlKey: true }, document.body);
+    const region = within(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).getByRole('region', { name: 'All shortcuts' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(region.textContent).toContain('Previous task');
   });
 
   it('switches single-key shortcuts off from the list, and remembers it', () => {
