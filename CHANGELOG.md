@@ -40,6 +40,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Notifications page: notifications grouped by day (Today, Yesterday, "Mon 2 Nov"), each with an icon for its kind, its project's name and picture, and its time.
 - Notifications page: Mark read, Mark unread and Remove on each notification (Remove can be undone for 5 seconds), or on several at once with tick boxes and "Select all shown".
 - Notifications page: older notifications load 50 at a time as you scroll ("Show older"), past the newest 100; and a "Notification settings" link.
+- The daily email, rebuilt: one email each morning instead of two (pending tasks; completed yesterday).
+  In order: the day's numbers; Today's schedule (your meetings and tasks due at a time, by time);
+  Overdue & urgent (days overdue, most first); your other tasks by project, most urgent first; "In your
+  projects" for people who run a project (its overdue tasks and those waiting for approval); and
+  Recently completed (since your last email).
+- Each task in the daily email shows its ID, project and client, status, priority, start and due date
+  (and time), checklist ("3 of 5"), a short description, its latest update, and "Waiting for approval"
+  or "Blocked" — only what it has. Times are in your own time zone, and every task, project and meeting
+  links to its page, with a button to the dashboard.
+- Settings → Daily email: turn each part on or off, choose the time, and "Send me a test" to get your
+  real email now. Your earlier choices carry over: with both old emails off, no email comes.
 
 ### Improvements
 - Schedule a meeting: a wider dialog with two columns on a desktop, and Starts/Ends picked as the site
@@ -52,6 +63,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   and moving a task into or out of it are refused with "This project is archived — reopen it first."
   Reading, exporting, reopening it, changing its team or companies, and deleting stay as they were.
   The nightly carry-forward and repeating meetings skip archived projects, as repeating tasks already did.
+- The daily email is laid out to read well in Outlook and Gmail, on phones and in dark mode, and stays
+  under Gmail's size limit — a long list ends "and 12 more · open the dashboard".
+- System Settings → Daily email: one email per person; days before the change still show the
+  "Completed yesterday" email they had.
 
 ## [1.21.0] - 2026-11-04
 

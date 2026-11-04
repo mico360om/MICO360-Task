@@ -69,7 +69,7 @@ describe('SystemSettingsPage — meeting hours', () => {
 describe('SystemSettingsPage — daily task emails', () => {
   it('has the daily task email log', async () => {
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'Daily task emails' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Daily email' })).toBeInTheDocument();
   });
 });
 

@@ -52,11 +52,13 @@ describe('SettingsPage — layout', () => {
   });
 });
 
-describe('SettingsPage — daily task emails', () => {
-  it('has the daily task emails card', async () => {
-    renderPage();
-    expect(await screen.findByRole('heading', { name: 'Daily task emails' })).toBeInTheDocument();
-    expect(await screen.findByRole('switch', { name: 'Pending tasks email' })).toBeInTheDocument();
+describe('SettingsPage — the daily email', () => {
+  it('has the daily email card, and the places its links open (its settings, the time zone)', async () => {
+    const { container } = renderPage();
+    expect(await screen.findByRole('heading', { name: 'Daily email' })).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: 'Daily email' })).toBeInTheDocument();
+    expect(container.querySelector('section#daily-email')).not.toBeNull();
+    expect(container.querySelector('section#time-zone')).toHaveTextContent('Calendar & dates');
   });
 });
 

@@ -22,6 +22,8 @@ import { LoadError } from '../ui/LoadError';
 import { ModalPortal } from '../ui/ModalPortal';
 import {
   KIND_LABEL,
+  KIND_NAME,
+  RETIRED_WHY,
   STATE_TONE,
   checkLateText,
   dayLabel,
@@ -47,14 +49,14 @@ const POLL_MS = 3000;
 /** Shared reasons a Send can't be used, said once on the page (each button points to it). */
 const NOT_SET_UP_ID = 'daily-emails-not-set-up';
 const OTHER_DAY_ID = 'daily-emails-other-day';
-const KINDS: DailyEmailKind[] = ['PENDING', 'COMPLETED'];
 const emailOf = (p: DailyEmailOverviewPerson, kind: DailyEmailKind) => (kind === 'PENDING' ? p.pending : p.completed);
-
-/** Which email the list is about: both, or one (each card then shows only that email, and Status is about it). */
-const EMAIL_OPTIONS: { value: '' | DailyEmailKind; label: string }[] = [
-  { value: '', label: 'Both' },
-  ...KINDS.map((kind) => ({ value: kind, label: KIND_LABEL[kind] })),
-];
+/** Records of a day (not "off", "to come", "late" or "none"). */
+const RECORDED: ReadonlySet<DailyEmailState> = new Set(['SENDING', 'SENT', 'SKIPPED', 'RETRY', 'FAILED']);
+/**
+ * 1.22: the emails a person's card shows — the one daily email, and the old "Completed yesterday"
+ * email only on a day that has its record (days before 1.22).
+ */
+const kindsOf = (p: DailyEmailOverviewPerson): DailyEmailKind[] => (RECORDED.has(p.completed.state) ? ['PENDING', 'COMPLETED'] : ['PENDING']);
 
 const STATUS_OPTIONS: { value: '' | DailyEmailState; label: string }[] = [
   { value: '', label: 'All' },
@@ -124,7 +126,7 @@ function problemText(e: unknown, fallback: string, timeout: string): string {
 }
 
 /**
- * System Settings → Daily task emails: the day at a glance for administrators. Today's numbers, when
+ * System Settings → Daily email: the day at a glance for administrators. Today's numbers, when
  * the server last checked and the next send, and "Send today's emails now" (it runs on the server in the
  * background; this shows how far it has got); then everyone with an email address — each email on or
  * off, their send time and time zone, and how that email is doing today — with Send (Resend for one
@@ -136,7 +138,6 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   const timeZone = useCompanyTimeZone();
   const today = todayKey(timeZone);
   const [day, setDay] = useState(''); // '' = today (each person's own)
-  const [kind, setKind] = useState<'' | DailyEmailKind>(''); // '' = both emails
   const [status, setStatus] = useState<'' | DailyEmailState>('');
   const [search, setSearch] = useState('');
   const userId = useAuthStore((s) => s.user?.id);
@@ -185,8 +186,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
   };
   const words = searchWords(search);
   const filtered = Boolean(status || words.length);
-  const kinds = kind ? [kind] : KINDS;
-  const matches = (p: DailyEmailOverviewPerson) => (!status || kinds.some((k) => emailOf(p, k).state === status)) && foundBy(p, words);
+  const matches = (p: DailyEmailOverviewPerson) => (!status || kindsOf(p).some((k) => emailOf(p, k).state === status)) && foundBy(p, words);
   const everyone = data?.people ?? [];
   let people = everyone.filter(matches);
   if (kept) {
@@ -260,10 +260,10 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
 
   return (
     <section ref={sectionRef} id={DAILY_EMAILS_ANCHOR} className="card min-w-0 p-5 lg:col-span-2" aria-labelledby="daily-email-log-heading">
-      <h2 ref={headingRef} tabIndex={-1} id="daily-email-log-heading" className="eyebrow mb-1 outline-none">Daily task emails</h2>
+      <h2 ref={headingRef} tabIndex={-1} id="daily-email-log-heading" className="eyebrow mb-1 outline-none">Daily email</h2>
       <p className="mb-4 text-sm text-ink-2">
-        The morning emails each person gets (pending tasks; tasks completed yesterday). A failed send is tried again after 5, 15 and 45
-        minutes before it counts as failed. Days are each person’s own calendar day.
+        The daily email each person gets every morning. A failed send is tried again after 5, 15 and 45 minutes before it counts as
+        failed. Days are each person’s own calendar day; days before the one daily email also show the “Completed yesterday” email.
       </p>
       {data?.emailEnabled === false ? (
         <p id={NOT_SET_UP_ID} className="mb-4 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
@@ -300,14 +300,6 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
                 onChange={(e) => filtering(() => setDay(!e.target.value || e.target.value === today ? '' : e.target.value))}
                 className={fieldClass}
               />
-            </label>
-            <label className="flex w-full flex-col gap-1 text-xs font-medium text-ink-2 sm:w-auto">
-              Email
-              <select value={kind} onChange={(e) => filtering(() => setKind(e.target.value as '' | DailyEmailKind))} className={fieldClass}>
-                {EMAIL_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
             </label>
             <label className="flex w-full flex-col gap-1 text-xs font-medium text-ink-2 sm:w-auto">
               Status
@@ -351,7 +343,7 @@ export function DailyEmailLog({ pollMs = POLL_MS }: { pollMs?: number } = {}) {
                     person={p}
                     emailEnabled={data.emailEnabled !== false}
                     viewDay={viewDay}
-                    kinds={kinds}
+                    kinds={kindsOf(p)}
                     outsideFilter={!matches(p)}
                     onActed={actedOn}
                     onResult={setResult}
@@ -552,7 +544,7 @@ function PersonCard({
   emailEnabled: boolean;
   /** The day the page shows (the company's today, or the day chosen). */
   viewDay: string;
-  /** The emails shown: both, or the one chosen. */
+  /** The emails shown: the daily email (and an old "Completed yesterday" record on a day that has one). */
   kinds: DailyEmailKind[];
   /** Kept in view after a send, though it no longer matches the filters. */
   outsideFilter: boolean;
@@ -653,7 +645,7 @@ function PersonCard({
           }}
           onClose={() => setAsk(null)}
         >
-          {person.name}’s {KIND_LABEL[ask.kind]} email is built again from their tasks as they are now.
+          {person.name}’s {KIND_NAME[ask.kind]} email is built again from their tasks and day as they are now.
         </ConfirmDialog>
       ) : null}
       {ask && ask.why === 'early' ? (
@@ -668,7 +660,7 @@ function PersonCard({
           }}
           onClose={() => setAsk(null)}
         >
-          Their emails go at {person.time}, their time. Sent now, it counts as today’s, so they won’t get it again at {person.time}.
+          Their email goes at {person.time}, their time. Sent now, it counts as today’s, so they won’t get it again at {person.time}.
         </ConfirmDialog>
       ) : null}
       {preview ? <PreviewDialog person={person} kind={preview} onClose={() => setPreview(null)} /> : null}
@@ -692,19 +684,21 @@ function EmailBlock(props: {
   const { person, kind, email, emailEnabled, goneWhy, busy, sending } = props;
   const whyId = useId();
   const label = KIND_LABEL[kind];
+  const name = KIND_NAME[kind];
   const tone = STATE_TONE[email.state] ?? 'neutral';
   const resend = email.state === 'SENT';
+  const retired = kind === 'COMPLETED';
   // Why Send can't be used, in words on the page: this email's own reason under the buttons; a reason
   // shared by everyone (email not set up, another day) is said once above, and the button points to it.
   const ownWhy: string | null =
-    goneWhy ?? (!email.on ? `${person.name} turned this email off.` : email.state === 'SENDING' ? 'It’s being sent right now.' : null);
+    goneWhy ?? (retired ? RETIRED_WHY : !email.on ? `${person.name} turned this email off.` : email.state === 'SENDING' ? 'It’s being sent right now.' : null);
   const sharedWhyId = ownWhy ? null : !emailEnabled ? NOT_SET_UP_ID : person.day !== person.today ? OTHER_DAY_ID : null;
   const unavailable = Boolean(ownWhy || sharedWhyId);
   return (
     <div className="min-w-0 rounded-lg bg-ground/60 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-ink">{label}</span>
-        {goneWhy ? null : <OnOff on={email.on} />}
+        {goneWhy || retired ? null : <OnOff on={email.on} />}
       </div>
       <p className={`mt-1 flex items-start gap-1.5 text-sm ${TONE_TEXT[tone]}`}>
         <span className={`mt-1.5 h-1.5 w-1.5 flex-none rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
@@ -717,7 +711,7 @@ function EmailBlock(props: {
           disabled={unavailable}
           loading={!unavailable && sending}
           aria-disabled={!unavailable && busy ? true : undefined}
-          aria-label={`${resend ? 'Resend' : 'Send'} ${person.name}’s ${label} email`}
+          aria-label={`${resend ? 'Resend' : 'Send'} ${person.name}’s ${name} email`}
           aria-describedby={ownWhy ? whyId : sharedWhyId ?? undefined}
           onClick={props.onSend}
         >
@@ -726,9 +720,9 @@ function EmailBlock(props: {
         <Button
           size="sm"
           variant="ghost"
-          disabled={Boolean(goneWhy)}
-          aria-describedby={goneWhy ? whyId : undefined}
-          aria-label={`Preview ${person.name}’s ${label} email`}
+          disabled={Boolean(goneWhy) || retired}
+          aria-describedby={goneWhy || retired ? whyId : undefined}
+          aria-label={`Preview ${person.name}’s ${name} email`}
           onClick={props.onPreview}
         >
           Preview
@@ -760,10 +754,7 @@ function PreviewDialog({ person, kind, onClose }: { person: DailyEmailOverviewPe
   });
   const email = emailOf(person, kind);
   const label = KIND_LABEL[kind];
-  const empty: ReactNode =
-    kind === 'PENDING'
-      ? `Nothing to send right now: ${person.name} has no pending tasks.`
-      : `Nothing to send right now: none of ${person.name}’s tasks were completed yesterday.`;
+  const empty: ReactNode = `Nothing to send right now: there’s nothing in ${person.name}’s daily email.`;
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-50 grid place-items-center p-4">
@@ -777,11 +768,11 @@ function PreviewDialog({ person, kind, onClose }: { person: DailyEmailOverviewPe
           className="card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-2xl animate-scale-in flex-col overflow-hidden"
         >
           <div className="border-b border-line px-5 py-4">
-            <h2 id={titleId} dir="auto" className="font-display text-lg font-semibold text-ink">{label} email for {person.name}</h2>
+            <h2 id={titleId} dir="auto" className="font-display text-lg font-semibold text-ink">{label} for {person.name}</h2>
             <p id={noteId} className="mt-1 text-sm text-ink-2">
               {email.state === 'SENT'
                 ? `As it would be sent now — not a copy of the one they got${email.sentAt ? ` at ${when(email.sentAt, person.timeZone)}` : ''}. The server keeps no copy of sent emails.`
-                : 'As it would be sent now, from their tasks as they are now.'}
+                : 'As it would be sent now, from their tasks and day as they are now.'}
             </p>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
