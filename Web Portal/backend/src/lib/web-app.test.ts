@@ -34,7 +34,7 @@ describe('webAppCsp', () => {
     expect(csp).not.toMatch(/googleapis|gstatic/);
   });
 
-  it('1.22.4: exactly as strict as before, and tells the server what it blocks (the Error log)', () => {
+  it('1.22.4: exactly as strict as before — plus the site’s own blob: frames (the PDF preview) — and tells the server what it blocks', () => {
     expect(webAppCsp('task.mico360.com')).toBe(
       [
         "default-src 'self'",
@@ -43,6 +43,7 @@ describe('webAppCsp', () => {
         "font-src 'self' data:",
         "img-src 'self' data: blob:",
         "connect-src 'self' ws://task.mico360.com wss://task.mico360.com",
+        "frame-src 'self' blob:",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "object-src 'none'",

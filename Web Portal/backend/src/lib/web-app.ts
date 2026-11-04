@@ -101,6 +101,9 @@ export function webAppCsp(host: string | undefined): string {
     "font-src 'self' data:",
     "img-src 'self' data: blob:",
     `connect-src 'self'${ws}`,
+    // 1.22.4: the task panel's PDF preview is a frame of the site's own blob: copy of the file;
+    // default-src 'self' refused it (scripts stay 'self' only).
+    "frame-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "object-src 'none'",

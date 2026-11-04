@@ -400,7 +400,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     origin: deps.corsOrigins ?? true,
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    exposedHeaders: ['Content-Disposition'],
+    // 1.22.4: X-Collect-Browser-Errors tells a page on another origin (development) that the Error log is off.
+    exposedHeaders: ['Content-Disposition', 'X-Collect-Browser-Errors'],
   });
   // Must be added before the rate-limit plugin so its per-route config is in place when the
   // plugin's own onRoute hook reads it.

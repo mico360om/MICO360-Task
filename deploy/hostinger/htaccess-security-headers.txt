@@ -15,7 +15,7 @@
   Header always set Referrer-Policy "no-referrer" env=MICO360_CLIENT_PAGE
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
   # What the policy blocks is reported to the server's Error log (1.22.4), as lib/web-app.ts does.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss://task.mico360.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; report-uri /api/v1/client-errors/csp; report-to mico360-csp"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' wss://task.mico360.com; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; report-uri /api/v1/client-errors/csp; report-to mico360-csp"
   Header always set Reporting-Endpoints "mico360-csp=\"https://task.mico360.com/api/v1/client-errors/csp\""
   Header always set Report-To "{\"group\":\"mico360-csp\",\"max_age\":10886400,\"endpoints\":[{\"url\":\"https://task.mico360.com/api/v1/client-errors/csp\"}]}"
 

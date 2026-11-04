@@ -14,7 +14,8 @@ export function describeUserAgent(ua: string | null | undefined): { browser: str
   pick('Opera', /\bOPR\/(\d+)/);
   pick('Samsung Internet', /\bSamsungBrowser\/(\d+)/);
   pick('Firefox', /\b(?:Firefox|FxiOS)\/(\d+)/);
-  pick('Chrome', /\b(?:Chrome|CriOS)\/(\d+)/);
+  // HeadlessChrome: an automated Chrome (a test, a monitoring tool).
+  pick('Chrome', /\b(?:HeadlessChrome|Chrome|CriOS)\/(\d+)/);
   if (browser === 'Unknown browser' && /\bSafari\//.test(s)) pick('Safari', /\bVersion\/(\d+)/);
 
   let system = 'Unknown system';

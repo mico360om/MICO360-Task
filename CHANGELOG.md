@@ -75,9 +75,14 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   server.
 
 ### Security
-- The site's security policy is exactly as strict as before; browsers now also report to the
-  server (the Error log) what it blocks. The website's source maps, made for the Error log, stay on
-  the server and are never served to browsers.
+- The site's security policy is as strict as before — it now only also lets the task panel show
+  the site's own PDF previews — and browsers now also report to the server (the Error log) what it
+  blocks. The website's source maps, made for the Error log, stay on the server and are never
+  served to browsers.
+
+### Bug fixes
+- Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing
+  the preview, so the box stayed empty.
 
 ## [1.22.2] - 2026-11-04
 

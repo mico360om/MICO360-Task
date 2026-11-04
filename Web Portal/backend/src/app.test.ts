@@ -64,6 +64,8 @@ describe('CORS for trusted origins (the Chrome extension, a separately hosted we
     const app = await buildApp({ authService, tokenService, corsOrigins: ['chrome-extension://abc'] });
     const res = await app.inject({ method: 'GET', url: '/api/v1/health', headers: { origin: 'chrome-extension://abc' } });
     expect(String(res.headers['access-control-expose-headers'])).toContain('Content-Disposition');
+    // 1.22.4: and whether the Error log is collecting (a page on another origin, in development).
+    expect(String(res.headers['access-control-expose-headers'])).toContain('X-Collect-Browser-Errors');
   });
 
   // Companies: the picked company travels in X-Company-Id on every call (CORS reflects the asked-for
