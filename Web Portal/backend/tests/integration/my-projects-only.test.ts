@@ -41,6 +41,23 @@ const asAi = (v: { id: string; roles: string[] }, pick: string | null = null): A
 const refsOf = (out: { rows: { ref?: { type: string; id?: string } | null }[] }, type: string) =>
   sorted(out.rows.map((r) => r.ref).filter((ref): ref is { type: string; id: string } => !!ref && ref.type === type && !!ref.id).map((ref) => ref.id));
 
+/** The Activity calendar around today: the days' counts summed, and every counted day's changes (all pages). */
+async function activityCalendar(viewer: { id: string; roles: string[] }, headers: Record<string, string> = {}) {
+  const days = (await api.get(viewer, `/activity?from=${dayKey(-1)}&to=${dayKey(1)}`, headers)) as { day: string; count: number }[];
+  const rows: Row[] = [];
+  for (const { day } of days) {
+    let before: string | null = null;
+    do {
+      const res = await api.getRaw(viewer, `/activity?day=${day}${before ? `&before=${encodeURIComponent(before)}` : ''}`, headers);
+      expect(res.statusCode, res.body).toBe(200);
+      const page = res.json() as { data: Row[]; next: string | null };
+      rows.push(...page.data);
+      before = page.next;
+    } while (before);
+  }
+  return { total: days.reduce((n, d) => n + d.count, 0), rows };
+}
+
 beforeAll(async () => {
   await prisma.$connect();
   w = await buildCompanyWorld(prisma);
@@ -161,6 +178,20 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       // MA (PA), and MN_B — no project, the administrator is one of its people. Not MB (PB) or MN_A.
       expect(idsOf(await api.get(admin, '/meetings'))).toEqual(sorted([w.meetings.MA, w.meetings.MN_B]));
       expect((await api.get(admin, '/me/action-items') as { description: string }[]).map((i) => i.description)).toEqual(['admin ZZALPHA action']);
+    });
+
+    // 1.22 integration: lane B's Activity calendar (`?from=&to=` per day, `?day=` a day's changes)
+    // follows the setting as the list does — with and without a picked company.
+    it('the Activity calendar: its counts and each day’s changes hold only PA and PAB (with a pick, PAB)', async () => {
+      const { admin } = w.as;
+      for (const [headers, mine] of [
+        [{}, sorted([w.projects.PA, w.projects.PAB])],
+        [{ 'x-company-id': w.companies.B }, [w.projects.PAB]],
+      ] as const) {
+        const cal = await activityCalendar(admin, headers);
+        expect(projectIdsOf(cal.rows)).toEqual(mine);
+        expect(cal.total).toBe(cal.rows.length); // the counts are of the same changes
+      }
     });
 
     it('Timeline, Workload, Management and Reports', async () => {
