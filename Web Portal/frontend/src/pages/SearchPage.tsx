@@ -20,6 +20,7 @@ import { isOverdue } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useAuthStore } from '../stores/auth-store';
 import { isProjectArchived } from '../lib/project-archive';
+import { FoundTaskKey } from '../components/TaskKey';
 
 /** Words of at least this length are searched (as in the top-bar search). */
 const MIN_LETTERS = 2;
@@ -46,8 +47,6 @@ function assigneeSummary(t: TaskSearchHit): string {
   const more = (t.assigneeCount ?? t.assignees!.length) - 1;
   return more > 0 ? `${first.name} +${more}` : first.name;
 }
-
-const keyHint = (t: TaskSearchHit) => (t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key);
 
 const DONE_CHOICES: { label: string; value: boolean | undefined }[] = [
   { label: 'All', value: undefined },
@@ -258,7 +257,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
                 <li key={t.id}>
                   <button type="button" onClick={() => openTask(t.id)} className="flex w-full flex-col gap-1 rounded-lg border border-line bg-surface p-3 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:!min-h-11">
                     <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                      <span className="font-mono text-xs text-ink-2">{keyHint(t)}</span>
+                      <FoundTaskKey value={t.key} former={t.formerKeys} />
                       <span dir="auto" className={`min-w-0 text-sm font-semibold [overflow-wrap:anywhere] ${t.done ? 'text-ink-2' : 'text-ink'}`}>
                         <Highlighted text={t.title} ranges={t.titleRanges} />
                       </span>

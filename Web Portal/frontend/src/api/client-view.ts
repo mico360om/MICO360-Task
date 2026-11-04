@@ -14,6 +14,8 @@ export type { ClientInspection, ClientInspectionSummary };
 const DEFAULT_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
 
 export interface ClientViewItem {
+  /** 1.22.3: the task's number (MICO-142); an older server sends none. */
+  key?: string | null;
   title: string;
   /** 'Not started' | 'In progress' | 'In review' | 'On hold' | 'Done'. */
   status: string;

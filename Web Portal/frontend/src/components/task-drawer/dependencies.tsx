@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { statusMeta } from '../../lib/taskStatus';
-import { filterTasks } from '../../lib/task-picker';
+import { pickTasks } from '../../lib/task-picker-numbers';
 import { ComboPicker } from './combo-picker';
 import { failureMessage } from './save-state';
+import { TaskKey } from '../TaskKey';
 
 export interface DrawerTaskRef {
   id: string;
@@ -36,7 +37,7 @@ function TaskLine({ t, onRemove }: { t: DrawerTaskRef; onRemove?: () => void }) 
       ) : (
         <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full bg-warning" />
       )}
-      <span className="flex-none font-mono text-xs text-ink-2">{t.key}</span>
+      <TaskKey value={t.key} />
       <span dir="auto" className={`min-w-0 flex-1 truncate ${t.done ? 'text-ink-3 line-through' : 'text-ink'}`} title={t.title}>
         {t.title}
       </span>
@@ -80,7 +81,8 @@ export function DependenciesSection({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const exclude = new Set([taskId, ...dependencies.blockedBy.map((d) => d.id), ...dependencies.blocks.map((d) => d.id)]);
-  const matches = filterTasks(availableTasks, query, exclude);
+  // 1.22.3: the task whose number was typed — any way ("mico142", "#MICO-142") — first.
+  const matches = pickTasks(availableTasks, query, exclude);
   const open = dependencies.blockedBy.filter((d) => !d.done).length;
 
   async function add(id: string) {
@@ -140,7 +142,7 @@ export function DependenciesSection({
             options={matches.map((t) => ({
               id: t.id,
               label: t.title,
-              lead: <span className="flex-none font-mono text-xs text-ink-2">{t.key}</span>,
+              lead: <TaskKey value={t.key} />,
               trail: <Status t={t} />,
             }))}
             emptyText="No task matches (a task can’t block itself or one it already blocks)."

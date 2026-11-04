@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { enqueueOffline, flushOfflineQueue, pendingCount, failedChanges, discardChange } from './offline-replay';
 import { clearQueue, getQueue, localStorageQueueStore } from './offline-queue';
 import { useAuthStore } from '../stores/auth-store';
+import { useTaskNotice } from './task-notice';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -20,6 +21,18 @@ afterEach(() => {
 });
 
 describe('offline-replay', () => {
+  it('a task made offline says "Task MICO-143 saved" once it syncs (1.22.3)', async () => {
+    useTaskNotice.setState({ notice: null });
+    vi.stubGlobal('fetch', vi.fn(async () => json({ data: { id: 't9', key: 'MICO-143', title: 'X' } }, 201)));
+    enqueueOffline('task.create', { title: 'X', projectId: 'p1', columnId: 'c1' }, { idempotencyKey: 'k-9' });
+    await flushOfflineQueue();
+    expect(useTaskNotice.getState().notice).toEqual({ text: 'Task MICO-143 saved', taskId: 't9', key: 'MICO-143' });
+    // Nothing synced: no notice.
+    useTaskNotice.setState({ notice: null });
+    await flushOfflineQueue();
+    expect(useTaskNotice.getState().notice).toBeNull();
+  });
+
   it('replays a queued task.create through the API with its Idempotency-Key and empties the queue', async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json({ data: { id: 't1' } }, 201));
     vi.stubGlobal('fetch', fetchMock);

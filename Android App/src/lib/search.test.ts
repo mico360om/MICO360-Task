@@ -245,7 +245,7 @@ it('no command is offered to MICO AI: not "go to …", not the task-changing one
   expect(searchItems({ raw: 'ab', ...base }).at(-1)!.target).toEqual({ kind: 'askMicoAi', text: 'ab' });
 });
 describe.skipIf(!existsSync(webSearch))('the website’s rule', () => {
-  it('same words and condition', () => { const g = readFileSync(webSearch, 'utf8'); expect(g).toContain('if (raw.length >= 2 && !parsed) {'); expect(g).toContain("group: 'MICO AI', primary: <>Ask MICO AI: “"); });
+  it('same words and condition', () => { const g = readFileSync(webSearch, 'utf8'); /* 1.22.3: the website also offers it for a loosely typed number ("mico 142") that matches no task; the app has no loose numbers, so its rule stays `!parsed`. */ expect(g).toContain('if (raw.length >= 2 && (!parsed || loose === null)) {'); expect(g).toContain("group: 'MICO AI', primary: <>Ask MICO AI: “"); });
 });
 
 // Stage 2 Task 7 — Review Focus 3: a moved task's old key ("RIG-4") still opens it.

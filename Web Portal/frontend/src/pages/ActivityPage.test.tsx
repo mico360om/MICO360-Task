@@ -65,6 +65,7 @@ describe('ActivityPage', () => {
   it('a task’s key opens it, and is 44px tall on a touch screen (the ! form beats the base 32px button rule)', async () => {
     renderPage();
     const key = await screen.findByRole('button', { name: 'MICO-7' });
+    expect(key.querySelector('[data-task-key="MICO-7"]')).not.toBeNull(); // 1.22.3: the chip, inside the link
     expect(key.className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
   });
 

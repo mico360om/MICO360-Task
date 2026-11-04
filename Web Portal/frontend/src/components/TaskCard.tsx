@@ -10,6 +10,7 @@ import { InspectionChip } from './inspections/inspection-ui';
 import { ApprovalChip } from './approvals/ApprovalChip';
 import type { ExternalContactSummary } from '../lib/external-contacts';
 import { ExternalContactsLine } from './ExternalContactsLine';
+import { TaskKey } from './TaskKey';
 
 export interface TaskCardTask {
   key: string;
@@ -147,10 +148,10 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         </span>
       ) : null}
 
-      <div className={`flex items-center justify-between gap-2 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="whitespace-nowrap rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
-        </span>
+      {/* The number never shrinks under the flags (a long one, e.g. TN2FF00336-2, once ran under the
+          milestone flag): in a narrow column the flags and the priority wrap to the next line instead. */}
+      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
+        <TaskKey value={task.key} />
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
             <span className="inline-flex items-center gap-1 rounded bg-danger-soft px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger">

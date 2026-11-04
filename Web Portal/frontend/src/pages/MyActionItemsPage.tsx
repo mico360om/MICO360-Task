@@ -11,6 +11,8 @@ import { formatDueDate, isActionItemOverdue } from '../lib/meetingFormat';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { Icon } from '../components/meeting/kit';
 import { TOUCH_TALL } from '../lib/touch';
+import { TaskKeyButton } from '../components/TaskKey';
+import { useOpenTask } from '../lib/useOpenTask';
 
 /**
  * A row: one column on a phone (the words, where it came from, the status picker under them); the
@@ -27,6 +29,7 @@ export function MyActionItemsPage() {
   const timeZone = useCompanyTimeZone();
   const [scope, setScope] = useState<Scope>('open');
   const [statusError, setStatusError] = useState<string | null>(null);
+  const openTask = useOpenTask();
 
   const itemsQ = useQuery({
     queryKey: ['my-action-items', scope],
@@ -122,6 +125,7 @@ export function MyActionItemsPage() {
                 timeZone={timeZone}
                 meetingName={item.meetingId ? meetingTitle.get(item.meetingId) ?? null : null}
                 onStatus={(status) => statusMut.mutate({ id: item.id, status })}
+                onOpenTask={openTask}
               />
             ))}
           </ul>
@@ -137,18 +141,24 @@ function ActionRow({
   timeZone,
   meetingName,
   onStatus,
+  onOpenTask,
 }: {
   item: ActionItem;
   overdue: boolean;
   timeZone: string;
   meetingName: string | null;
   onStatus: (s: ActionItemStatus) => void;
+  onOpenTask: (taskId: string) => void;
 }) {
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   return (
     <li className={ROW}>
-      {/* bdi: an Arabic description reads right-to-left but stays on the row's side. */}
-      <p className={`min-w-0 text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{item.description}</bdi></p>
+      {/* bdi: an Arabic description reads right-to-left but stays on the row's side. 1.22.3: the linked
+          task's number first, as the chip that opens the task in the panel. */}
+      <p className={`min-w-0 text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>
+        {item.taskId && item.taskKey ? <TaskKeyButton value={item.taskKey} title={item.description} onClick={() => onOpenTask(item.taskId!)} className="me-1.5 align-middle" /> : null}
+        <bdi>{item.description}</bdi>
+      </p>
       {/* Where it came from and when it's due: one line under the words; their own columns on a laptop. */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:col-start-1 sm:row-start-2 lg:contents">
         {item.meetingId ? (

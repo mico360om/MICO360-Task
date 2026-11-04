@@ -1,10 +1,13 @@
 import type { CreateNotificationData } from './notification-repository';
 import { daysUntilDue } from '../../lib/due-date';
 import { defaultCompanyTimeZone, isTaskDone } from '../tasks/task-status';
+import { taskNoticeBody } from './task-notice';
 
 /** A task considered for deadline reminders. */
 export interface ReminderTask {
   id: string;
+  /** The task's number (1.22.3): the notice reads "MICO-142 · Title", like every other task notice. */
+  key?: string;
   title: string;
   dueDate: Date | null;
   /** The task's current column category — DONE tasks are never reminded. */
@@ -51,17 +54,18 @@ export function planReminders(tasks: ReminderTask[], opts: PlanRemindersOptions 
     if (isTaskDone(task) || task.approvalRequestedAt) continue;
     const days = daysUntilDue(task.dueDate, timeZone, now);
     if (days === null) continue;
+    const body = (task.key ? taskNoticeBody({ key: task.key, title: task.title }) : null) ?? task.title;
 
     for (const userId of task.assigneeIds) {
       if (days < 0) {
-        out.push({ userId, type: 'TASK_OVERDUE', title: 'A task is overdue', body: task.title, entityType: 'task', entityId: task.id });
+        out.push({ userId, type: 'TASK_OVERDUE', title: 'A task is overdue', body, entityType: 'task', entityId: task.id });
         continue;
       }
       // Due-soon threshold is per-user: their lead time or the default window, in days.
       const leadMin = opts.leadMinutesFor?.(userId);
       const window = leadMin != null ? leadDays(leadMin * 60_000) : defaultDays;
       if (days <= window) {
-        out.push({ userId, type: 'TASK_DUE_SOON', title: 'A task is due soon', body: task.title, entityType: 'task', entityId: task.id });
+        out.push({ userId, type: 'TASK_DUE_SOON', title: 'A task is due soon', body, entityType: 'task', entityId: task.id });
       }
     }
   }

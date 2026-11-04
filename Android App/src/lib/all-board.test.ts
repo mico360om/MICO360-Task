@@ -240,8 +240,10 @@ describe('the All projects board follows the website’s rules (drift)', () => {
     for (const w of [ALL_PROJECTS_TEXT.showAll, ALL_PROJECTS_TEXT.showNone, ALL_PROJECTS_TEXT.noMatch]) expect(filter).toContain(`>${w}<`);
     expect(filter).toContain(`aria-label="${ALL_PROJECTS_TEXT.filterTitle}"`);
     expect(filter).toContain(`placeholder="${ALL_PROJECTS_TEXT.find}"`);
+    // 1.22.3: the board itself moved into components/board/Board.tsx (shared with the project page's Board tab).
+    const board = web('components/board/Board.tsx');
+    expect(board).toMatch(/has no “\$\{STATUS_META\[status\]!\.label\}” column, so \$\{taskKey\} stayed where it was\./);
     const page = web('pages/BoardPage.tsx');
-    expect(page).toMatch(/has no “\$\{STATUS_META\[status\]!\.label\}” column, so \$\{taskKey\} stayed where it was\./);
     expect(page).toContain(`label: '${ALL_PROJECTS_TEXT.title}'`);
   });
 });

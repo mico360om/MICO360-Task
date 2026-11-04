@@ -13,6 +13,7 @@ import { formatMeetingDay, formatMeetingTimes } from '../../lib/meetingFormat';
 import { TOUCH_TALL } from '../../lib/touch';
 import { EmptyNote, FlagIcon, LinkButton, ProgressBar, RepeatIcon, SectionCard, dayText, relativeDays } from './parts';
 import type { TaskFilter, TaskGroup } from './TasksTab';
+import { TaskKey } from '../TaskKey';
 
 const PROJECT_STATUS_TONE: Record<string, BadgeTone> = { PLANNING: 'info', ACTIVE: 'success', ON_HOLD: 'warning', COMPLETED: 'brand', ARCHIVED: 'neutral' };
 const words = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replace('_', ' ');
@@ -152,9 +153,13 @@ export function OverviewTab(p: OverviewProps) {
                   <li key={m.task.id} className="flex items-start gap-2.5">
                     <span className={`mt-0.5 ${MILESTONE_LOOK[m.state]}`}><FlagIcon /></span>
                     <span className="min-w-0 flex-1">
-                      <button type="button" onClick={() => p.onOpenTask(m.task.id)} className={`block max-w-full truncate text-start text-sm font-medium hover:text-brand ${m.state === 'done' ? 'text-ink-2 line-through' : 'text-ink'}`}>
-                        <bdi>{m.task.title}</bdi>
-                      </button>
+                      {/* The number before the title; the title truncates, the number never does. */}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <TaskKey value={m.task.key} />
+                        <button type="button" onClick={() => p.onOpenTask(m.task.id)} className={`block min-w-0 truncate text-start text-sm font-medium hover:text-brand ${m.state === 'done' ? 'text-ink-2 line-through' : 'text-ink'}`}>
+                          <bdi>{m.task.title}</bdi>
+                        </button>
+                      </span>
                       <span className={`text-xs ${m.state === 'overdue' ? 'font-semibold text-danger' : 'text-ink-2'}`}>
                         {m.due ? `${dayText(m.due)} · ` : ''}{milestoneNote(m.state, m.daysLeft)}
                       </span>
@@ -177,7 +182,7 @@ export function OverviewTab(p: OverviewProps) {
                     <button type="button" onClick={() => p.onOpenTask(d.task.id)} title={d.task.title} className={`group block w-full min-w-0 text-start ${TOUCH_TALL}`}>
                       <span dir="auto" className="block truncate text-sm font-medium text-ink group-hover:text-brand">{d.task.title}</span>
                       <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
-                        <span className="font-mono text-[11px] text-ink-3">{d.task.key}</span>
+                        <TaskKey value={d.task.key} />
                         {d.waiting && d.daysLeft < 0 ? (
                           // Past its day but waiting for approval: its badge, never "Late" (owner, 30 Oct).
                           <ApprovalChip />

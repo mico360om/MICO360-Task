@@ -11,6 +11,7 @@ import { auditApi, type ApiAuditLog, type AuditQuery } from '../api/audit';
 import { usersApi } from '../api/users';
 import { zonedDayKey } from '../lib/due-date';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
+import { TaskKey } from '../components/TaskKey';
 
 /** Entries per page ("Load older entries" fetches the next page before the oldest one shown). */
 export const AUDIT_PAGE_SIZE = 100;
@@ -223,7 +224,17 @@ export function AuditPage() {
                     <td dir="auto" className="p-3 font-medium text-ink">{nameOf(a.userId)}</td>
                     <td className="p-3"><Badge tone={actionTone(a.action)} dot className="whitespace-nowrap">{a.action}</Badge></td>
                     <td className="p-3 text-ink-2">{a.module}</td>
-                    <td className="p-3 font-mono text-xs text-ink-2">{a.entityId ?? '—'}</td>
+                    {/* 1.22.3: a task's entries name it by its number now (the chip) and its title. */}
+                    {a.task ? (
+                      <td className="p-3 text-xs text-ink-2">
+                        <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                          <TaskKey value={a.task.key} />
+                          <bdi className="break-words">{a.task.title}</bdi>
+                        </span>
+                      </td>
+                    ) : (
+                      <td className="p-3 font-mono text-xs text-ink-2">{a.entityId ?? '—'}</td>
+                    )}
                     <td className="p-3 text-xs text-ink-2">
                       {changes.length === 0 ? '—' : (
                         <ul className="flex flex-col gap-0.5">

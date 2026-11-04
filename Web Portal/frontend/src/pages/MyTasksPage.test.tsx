@@ -207,6 +207,25 @@ describe('MyTasksPage', () => {
     expect(row.querySelector('[data-phone-meta]')).toHaveTextContent('To Do');
   });
 
+  it('shows the number as the TaskKey chip on cards and in the list, whole on a wide screen and on a phone (1.22.3)', async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const card = (await screen.findByRole('button', { name: 'Prepare report' })).closest('[data-task-key]')!;
+    const cardChip = card.querySelector('span[data-task-key="MICO-1"]')!;
+    expect(cardChip).toHaveClass('whitespace-nowrap', 'shrink-0');
+    fireEvent.click(screen.getByRole('button', { name: /list view/i }));
+    const row = (await screen.findByRole('button', { name: 'Prepare report' })).closest('[data-task-key]')!;
+    const chips = [...row.querySelectorAll('span[data-task-key="MICO-1"]')];
+    expect(chips).toHaveLength(2); // the column on a wide screen, the second line on a phone
+    for (const chip of chips) expect(chip.className.split(' ')).not.toContain('truncate');
+    expect(row.querySelector('[data-phone-meta]')!.querySelector('[data-task-key="MICO-1"]')).not.toBeNull();
+  });
+
   it('on a phone, keeps the five filters behind one “Filters” button that counts the ones in use', async () => {
     const mm = vi.fn((q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false }));
     vi.stubGlobal('matchMedia', mm);

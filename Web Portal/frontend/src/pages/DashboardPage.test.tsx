@@ -267,8 +267,11 @@ describe('DashboardPage', () => {
         : ok(...args),
     ));
     renderPage();
-    const line = (await screen.findByRole('button', { name: 'MICO-3' })).closest('p')!;
+    const link = await screen.findByRole('button', { name: 'MICO-3' });
+    const line = link.closest('p')!;
     expect(line).toHaveTextContent('Aisha Khan assigned MICO-3 to Omar Ahmed');
+    // 1.22.3: the number is the chip, inside the link that opens the task.
+    expect(link.querySelector('[data-task-key="MICO-3"]')).not.toBeNull();
   });
 
   it('a project’s companies changed reads “changed the companies of {project}” in Recent activity', async () => {

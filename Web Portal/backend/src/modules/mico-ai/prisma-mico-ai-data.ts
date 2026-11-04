@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { noteText } from '../../lib/rich-text';
+import { pickByTaskNumber, taskNumberKeys } from '../../lib/task-number';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { FinalMinutesRepository } from '../meetings/final-minutes-repository';
 import { createCompanyAccess, hasActiveCompany } from '../companies/company-access';
@@ -177,11 +178,22 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
 
     async findTask(projectIds, keyOrId) {
       if (projectIds !== null && projectIds.length === 0) return null;
-      const t = await prisma.task.findFirst({
-        where: { deletedAt: null, project: { is: { deletedAt: null } }, ...inScope(projectIds), OR: [{ id: keyOrId }, { key: keyOrId.toUpperCase() }] },
-        include: taskInclude,
+      // 1.22.3: its number however it is typed ("maia 1", "MAIA1", "MAIA_1"), now or before it moved.
+      const keys = [...new Set([keyOrId.trim().toUpperCase(), ...taskNumberKeys(keyOrId)])];
+      const rows = await prisma.task.findMany({
+        where: {
+          deletedAt: null,
+          project: { is: { deletedAt: null } },
+          ...inScope(projectIds),
+          OR: [{ id: keyOrId }, { key: { in: keys } }, { keyAliases: { some: { key: { in: keys } } } }],
+        },
+        include: { ...taskInclude, keyAliases: { select: { key: true } } },
+        take: 20,
       });
-      return t && (projectIds === null || projectIds.includes(t.projectId)) ? toTask(t) : null;
+      const visible = rows.filter((t) => projectIds === null || projectIds.includes(t.projectId)).map((t) => ({ ...t, formerKeys: t.keyAliases.map((a) => a.key) }));
+      // By id, else the task with that number now, else the one that had it (each split tried in order).
+      const t = visible.find((r) => r.id === keyOrId) ?? pickByTaskNumber(visible, keys);
+      return t ? toTask(t) : null;
     },
 
     async taskProjectIds(ids) {

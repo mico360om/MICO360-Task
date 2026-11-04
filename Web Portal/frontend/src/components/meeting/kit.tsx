@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { DirectoryUser } from '../../api/users';
 import { TOUCH_TALL } from '../../lib/touch';
+import { TaskKey } from '../TaskKey';
+
+/**
+ * A linked task's number (a note's task, an action item's task): the TaskKey chip, one look with the
+ * rest of the site (1.22.3; it was a green pill) — or the word "Task" while its number isn't known.
+ * Inside a link or button with `group`, it lights up with it.
+ */
+export function TaskNumber({ value }: { value: string | null | undefined }) {
+  return value ? <TaskKey value={value} className="transition-colors group-hover:text-brand group-hover:underline" /> : <span>Task</span>;
+}
 
 /** A titled card section of the meeting page. `compact`: one line, the title and its aside side by side. */
 export function Section({

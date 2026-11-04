@@ -5,8 +5,9 @@ import { createNotificationService } from '../../src/modules/notifications/notif
 
 // The Notifications page (1.22) on the database: pages by a cursor (rows of the same moment too), the
 // Unread tab and the type chips, the companies scope, counts per type, Mark unread, Remove and the
-// same for several at once — the caller's own only. Requires TEST_DATABASE_URL with migrations
-// applied. Only this file's people (@ninbox.test) and projects (code NIB…) are made and removed.
+// same for several at once — the caller's own only; 1.22.3: each task notice's current number. Requires
+// TEST_DATABASE_URL with migrations applied. Only this file's people (@ninbox.test), projects (code
+// NIB…) and their tasks are made and removed.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
 const repo = createPrismaNotificationRepository(prisma);
 const svc = createNotificationService({ notifications: repo });
@@ -21,6 +22,8 @@ let fin: string;
 async function clean() {
   const ids = (await prisma.user.findMany({ where: { email: { endsWith: DOMAIN } }, select: { id: true } })).map((u) => u.id);
   await prisma.notification.deleteMany({ where: { userId: { in: ids } } });
+  // 1.22.3: this file's tasks first (one moves to the other project, keeping its first column).
+  await prisma.task.deleteMany({ where: { project: { code: { startsWith: 'NIB' } } } });
   await prisma.project.deleteMany({ where: { code: { startsWith: 'NIB' } } });
   await prisma.user.deleteMany({ where: { id: { in: ids } } });
 }
@@ -167,5 +170,33 @@ describe('Mark unread, Remove, several at once — the caller’s own only', () 
     expect(await svc.unreadCount(ada)).toBe(2);
     expect(await svc.bulk(ada, ids, 'remove')).toEqual({ count: 2 });
     expect(await prisma.notification.count({ where: { id: { in: ids } } })).toBe(1);
+  });
+});
+
+describe('1.22.3: each task notice names the task’s current number (taskKey)', () => {
+  it('the number the task has now — also after a move; none for a task in the trash or for another notice', async () => {
+    const col = await prisma.kanbanColumn.create({ data: { projectId: rig, name: 'To do', category: 'TODO', position: 0 } });
+    const live = await prisma.task.create({ data: { key: 'NIBRIG-7', title: 'Pump', projectId: rig, columnId: col.id, createdById: ada } });
+    const trashed = await prisma.task.create({ data: { key: 'NIBRIG-8', title: 'Old', projectId: rig, columnId: col.id, createdById: ada, deletedAt: new Date() } });
+    await prisma.notification.createMany({
+      data: [
+        { userId: ada, type: 'TASK_OVERDUE', title: 'A task is overdue', body: 'NIBRIG-7 · Pump', entityType: 'task', entityId: live.id, projectId: rig, createdAt: new Date(base + 3000) },
+        { userId: ada, type: 'TASK_COMMENT', title: 'trashed', entityType: 'task', entityId: trashed.id, projectId: rig, createdAt: new Date(base + 2000) },
+        { userId: ada, type: 'CHAT_MENTION', title: 'chat', entityType: 'conversation', entityId: live.id, createdAt: new Date(base + 1000) },
+      ],
+    });
+    const rows = (await svc.listPage(ada)).data;
+    expect(rows.map((n) => [n.title, n.taskKey])).toEqual([
+      ['A task is overdue', 'NIBRIG-7'],
+      ['trashed', null],
+      ['chat', null],
+    ]);
+    // Moved to Finance (a new number): the notice shows the new one, its stored words unchanged.
+    await prisma.task.update({ where: { id: live.id }, data: { key: 'NIBFIN-1', projectId: fin } });
+    const [moved] = (await svc.listPage(ada)).data;
+    expect(moved).toMatchObject({ taskKey: 'NIBFIN-1', body: 'NIBRIG-7 · Pump' });
+    // …but not to someone who no longer sees the project it is in now.
+    const [scoped] = (await svc.listPage(ada, { projectIds: [rig], pick: null })).data;
+    expect(scoped).toMatchObject({ title: 'A task is overdue', taskKey: null });
   });
 });

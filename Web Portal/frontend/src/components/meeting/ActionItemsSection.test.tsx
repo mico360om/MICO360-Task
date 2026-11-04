@@ -106,7 +106,11 @@ describe('Meeting page: action items, one line each', () => {
     const row = title.closest('li')!;
     expect(row.className).toMatch(/opacity-/);
     expect(row).toHaveTextContent('From a note');
-    expect(within(row).getByRole('link', { name: /FAL-7/ })).toHaveAttribute('href', expect.stringContaining('task=t7'));
+    const link = within(row).getByRole('link', { name: /FAL-7/ });
+    expect(link).toHaveAttribute('href', expect.stringContaining('task=t7'));
+    // 1.22.3: the number is the chip, inside the link (not the old green pill).
+    expect(link.querySelector('[data-task-key="FAL-7"]')).not.toBeNull();
+    expect(link.className).not.toMatch(/bg-success-soft/);
   });
 
   it('a finished meeting with none: one line, "No action items · Add one", which opens the form', async () => {

@@ -3,6 +3,7 @@ import { clockText } from '../../lib/day-words';
 import { TOUCH_SQUARE } from '../../lib/touch';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { NotificationKindIcon, notificationKindLook } from './NotificationKindIcon';
+import { TaskKey, bodyWithoutKey } from '../TaskKey';
 
 export interface NotificationRowProps {
   n: ApiNotification;
@@ -27,6 +28,7 @@ export function NotificationRow({ n, timeZone, selectable, selected, onToggleSel
   const read = !!n.readAt;
   const kind = notificationKindLook(n.type);
   const time = clockText(n.createdAt, timeZone);
+  const body = bodyWithoutKey(n.body, n.taskKey);
   return (
     <li
       data-notification-id={n.id}
@@ -42,7 +44,15 @@ export function NotificationRow({ n, timeZone, selectable, selected, onToggleSel
       <button type="button" data-open onClick={onOpen} className="min-w-0 flex-1 rounded text-start [@media(pointer:coarse)]:!min-h-11">
         <span className="sr-only">{`${kind.name}:`} </span>
         <span dir="auto" className={`block text-sm ${read ? 'text-ink-2' : 'font-medium text-ink'}`}>{n.title}</span>
-        {n.body ? <span dir="auto" className="mt-0.5 block whitespace-pre-line text-xs text-ink-2 [overflow-wrap:anywhere]">{n.body}</span> : null}
+        {/* 1.22.3: the task's number now, as the chip; the words then skip the number they start with. */}
+        {n.taskKey ? (
+          <span className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
+            <TaskKey value={n.taskKey} />
+            {body ? <span dir="auto" className="min-w-0 whitespace-pre-line text-xs text-ink-2 [overflow-wrap:anywhere]">{body}</span> : null}
+          </span>
+        ) : body ? (
+          <span dir="auto" className="mt-0.5 block whitespace-pre-line text-xs text-ink-2 [overflow-wrap:anywhere]">{body}</span>
+        ) : null}
         {n.project ? (
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-ink-3">
             <ProjectAvatar project={n.project} size="xs" />

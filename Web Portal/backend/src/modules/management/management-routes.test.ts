@@ -154,6 +154,7 @@ describe('Management routes', () => {
       'Project health',
       'Rig Inspection Portal',
       'Milestone “Handover” is 3 days late',
+      'R1 · Handover', // 1.22.3: the next milestone by its number
       'مشروع الحفر',
       'Inspections',
       'Valve sealed',

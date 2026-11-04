@@ -264,8 +264,8 @@ describe('TimelinePage', () => {
   it('opens a milestone’s details from its marker, marking those reached', async () => {
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
-    expect(screen.getByRole('button', { name: 'Milestone Kick-off, 6 Oct, reached' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Milestone Beta build, 6 Nov, not reached yet' }));
+    expect(screen.getByRole('button', { name: 'Milestone MOB-1 Kick-off, 6 Oct, reached' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Milestone MOB-2 Beta build, 6 Nov, not reached yet' }));
     const details = await screen.findByRole('dialog', { name: 'Beta build' });
     expect(details).toHaveTextContent('ProjectMobile App (Phase 2)');
     expect(details).toHaveTextContent('Due6 Nov 2026 · not reached yet');
@@ -328,10 +328,12 @@ describe('TimelinePage', () => {
     projects = PROJECTS.map((p) => (p.id === 'mob' ? { ...p, milestones: [...p.milestones, docs], milestoneCount: 3 } : p));
     renderPage();
     await screen.findByRole('list', { name: 'Projects' });
-    expect(screen.queryByRole('button', { name: /^Milestone Beta build/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Milestone MOB-2 Beta build/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '2 milestones, 6 Nov, 1 reached' }));
     const details = await screen.findByRole('dialog', { name: 'Milestones · 6 Nov' });
-    expect(within(details).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['◆ Beta buildMOB-2 · not reached yet', '◆ Beta docsMOB-3 · reached']);
+    // 1.22.3: each with its number as the chip, before its title.
+    expect(within(details).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['◆ MOB-2Beta buildnot reached yet', '◆ MOB-3Beta docsreached']);
+    expect(within(details).getByText('MOB-2')).toHaveAttribute('data-task-key', 'MOB-2');
   });
 
   it('shows meeting times in the company’s time, the zone the days are placed in — also for someone set to another zone', async () => {

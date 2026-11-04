@@ -26,7 +26,8 @@ export interface NotificationPush {
 }
 
 /** A row of the list as the apps get it (1.22): with the project it is about, when it has one. */
-export type NotificationView = NotificationRecord & { projectId: string | null; project: NotificationProject | null };
+/** 1.22.3: `taskKey` — the current number of the task a notice is about (null for any other notice). */
+export type NotificationView = NotificationRecord & { projectId: string | null; project: NotificationProject | null; taskKey: string | null };
 
 /** What a page of the list asks for (1.22). */
 export interface NotificationPageQuery {
@@ -178,9 +179,22 @@ export function createNotificationService({ notifications, preferences, push, lo
     const page = rows.slice(0, limit);
     const projectIds = [...new Set(page.map((n) => n.projectId).filter((id): id is string => !!id))];
     const looks = new Map((projectIds.length ? await notifications.projectLooks(projectIds) : []).map((p) => [p.id, p]));
+    // 1.22.3: each task notice names the task's number now — the website shows it as the chip, so a
+    // notice made before 1.22.3, or before the task moved, shows the right one. Never the number of a
+    // task now in a project outside the reader's scope.
+    const taskIds = [...new Set(page.filter((n) => n.entityType === 'task' && n.entityId).map((n) => n.entityId!))];
+    const visible = scope?.projectIds ? new Set(scope.projectIds) : null;
+    const keys = new Map(
+      (taskIds.length ? await notifications.taskKeys(taskIds) : []).filter((t) => !visible || visible.has(t.projectId)).map((t) => [t.id, t.key]),
+    );
     const last = page[page.length - 1];
     return {
-      data: page.map((n) => ({ ...n, projectId: n.projectId ?? null, project: (n.projectId && looks.get(n.projectId)) || null })),
+      data: page.map((n) => ({
+        ...n,
+        projectId: n.projectId ?? null,
+        project: (n.projectId && looks.get(n.projectId)) || null,
+        taskKey: (n.entityType === 'task' && n.entityId && keys.get(n.entityId)) || null,
+      })),
       nextCursor: rows.length > limit && last ? encodeNotificationCursor(last) : null,
     };
   }

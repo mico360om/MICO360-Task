@@ -61,6 +61,7 @@ export function createMemoryUserRepository() {
         lastLoginAt: null,
         welcomeSentAt: null,
         roles: data.roleNames,
+        myProjectsOnly: false,
       };
       if ([...rows.values()].some((r) => r.user.email === data.email || r.user.username === data.username)) {
         throw new Error('unique constraint'); // like the database, deleted rows still hold their identity

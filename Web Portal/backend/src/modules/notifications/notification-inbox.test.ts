@@ -16,6 +16,10 @@ beforeEach(() => {
       { id: 'p1', name: 'Rig Inspection', color: '#0E7490', icon: 'wrench', imageUrl: null },
       { id: 'p2', name: 'Finance', color: '#7C3AED', icon: null, imageUrl: '/uploads/fin.png' },
     ],
+    tasks: [
+      { id: 't1', key: 'RIG-7', projectId: 'p1' },
+      { id: 't2', key: 'FIN-3', projectId: 'p2' }, // moved to Finance since its notice was made
+    ],
   });
   svc = createNotificationService({ notifications: repo });
 });
@@ -121,6 +125,38 @@ describe('the project each is about', () => {
     await svc.listPage('u1');
     expect(looks).toHaveBeenCalledTimes(1);
     expect([...(looks.mock.calls[0]![0] as string[])].sort()).toEqual(['p1', 'p2']);
+  });
+});
+
+describe('the task each is about, by its current number (1.22.3)', () => {
+  it('carries taskKey for a task notice — the task’s number now (also for a notice made before a move); null otherwise', async () => {
+    repo.seed({ userId: 'u1', type: 'TASK_OVERDUE', title: 'A task is overdue', body: 'RIG-7 · Pump', entityType: 'task', entityId: 't1', projectId: 'p1', createdAt: at(4) });
+    repo.seed({ userId: 'u1', type: 'TASK_COMMENT', title: 'Ada commented', body: 'RIG-2 · Budget', entityType: 'task', entityId: 't2', projectId: 'p1', createdAt: at(3) });
+    repo.seed({ userId: 'u1', type: 'TASK_ASSIGNED', title: 'gone', entityType: 'task', entityId: 't-gone', createdAt: at(2) });
+    repo.seed({ userId: 'u1', type: 'CHAT_MENTION', title: 'chat', entityType: 'conversation', entityId: 't1', createdAt: at(1) });
+    const rows = (await svc.listPage('u1')).data;
+    expect(rows.map((n) => [n.title, n.taskKey])).toEqual([
+      ['A task is overdue', 'RIG-7'],
+      ['Ada commented', 'FIN-3'],
+      ['gone', null],
+      ['chat', null],
+    ]);
+    // The stored words stay as they were (the phone app and the extension read `body`).
+    expect(rows[1]!.body).toBe('RIG-2 · Budget');
+  });
+
+  it('asks for each page’s tasks once', async () => {
+    const keys = vi.spyOn(repo, 'taskKeys');
+    for (let i = 0; i < 4; i++) repo.seed({ userId: 'u1', type: 'TASK_COMMENT', title: `c${i}`, entityType: 'task', entityId: i % 2 ? 't1' : 't2', createdAt: at(i) });
+    await svc.listPage('u1');
+    expect(keys).toHaveBeenCalledTimes(1);
+    expect([...(keys.mock.calls[0]![0] as string[])].sort()).toEqual(['t1', 't2']);
+  });
+
+  it('names no number of a task now in a project outside the reader’s scope', async () => {
+    repo.seed({ userId: 'u1', type: 'TASK_COMMENT', title: 'moved away', entityType: 'task', entityId: 't2', projectId: 'p1', createdAt: at(1) });
+    const [row] = (await svc.listPage('u1', { projectIds: ['p1'], pick: 'A' })).data;
+    expect(row).toMatchObject({ title: 'moved away', taskKey: null });
   });
 });
 

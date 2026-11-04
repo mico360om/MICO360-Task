@@ -45,6 +45,8 @@ import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from
 import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
 import { externalContactsApi } from '../../api/external-contacts';
 import { isProjectArchived } from '../../lib/project-archive';
+import { TaskKey } from '../TaskKey';
+import { showTaskNotice, taskCreatedNotice } from '../../lib/task-notice';
 
 export interface TaskFormDialogProps {
   onClose: () => void;
@@ -217,6 +219,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
     JSON.stringify({ ...draft, projectId: '', columnId: '' }) !== JSON.stringify({ ...saved, projectId: '', columnId: '' }) ||
     draft.columnId !== saved.columnId;
   const finish = (task: ApiTask) => {
+    // 1.22.3: "Task MICO-143 created", with Open — the app shell shows it, wherever the form was opened.
+    showTaskNotice(taskCreatedNotice(task));
     onCreated?.(task);
     onClose();
   };
@@ -889,7 +893,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-4 py-3.5 sm:px-6">
             <h2 className="font-display text-xl font-bold text-ink">{heading}</h2>
-            {task ? <span className="rounded-md bg-ground px-1.5 py-0.5 font-mono text-xs font-semibold text-ink-2">{task.key}</span> : null}
+            {task ? <TaskKey value={task.key} size="lg" /> : null}
             <button type="button" onClick={requestClose} aria-label="Close" title="Close (Esc)" className="ms-auto grid h-10 w-10 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>

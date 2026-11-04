@@ -24,6 +24,38 @@ describe('AuditService', () => {
   });
 });
 
+describe('AuditService: a task’s entries name the task (1.22.3)', () => {
+  it('adds the task’s current number and title to entries about a task (one lookup per page); none for anything else', async () => {
+    const repo = createMemoryAuditRepository();
+    const asked: string[][] = [];
+    const svc = createAuditService({
+      audit: repo,
+      tasks: async (ids) => {
+        asked.push([...ids]);
+        return [{ id: 't1', key: 'MICO-142', title: 'Fix the pump' }];
+      },
+    });
+    await svc.record({ action: 'task.approve', module: 'tasks', entityId: 't1', newValue: { key: 'RIG-4' } });
+    await svc.record({ action: 'client-view.task.shown', module: 'client-view', entityId: 't1' });
+    await svc.record({ action: 'USER_CREATED', module: 'users', entityId: 'u9' });
+    await svc.record({ action: 'settings.change', module: 'settings' });
+    const list = await svc.list();
+    expect(asked).toEqual([['u9', 't1']]);
+    expect(list.map((r) => [r.action, r.task])).toEqual([
+      ['settings.change', null],
+      ['USER_CREATED', null],
+      ['client-view.task.shown', { key: 'MICO-142', title: 'Fix the pump' }],
+      ['task.approve', { key: 'MICO-142', title: 'Fix the pump' }],
+    ]);
+  });
+
+  it('without the lookup (older wiring) every entry’s task is null', async () => {
+    const svc = createAuditService({ audit: createMemoryAuditRepository() });
+    await svc.record({ action: 'task.approve', module: 'tasks', entityId: 't1' });
+    expect((await svc.list())[0]!.task).toBeNull();
+  });
+});
+
 describe('redactSecrets', () => {
   it('masks credential fields at any depth and leaves the rest', () => {
     expect(

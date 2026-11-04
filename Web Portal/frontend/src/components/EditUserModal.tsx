@@ -14,6 +14,11 @@ import { ModalPortal } from './ui/ModalPortal';
 import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
+import { Toggle } from './ui/Toggle';
+import { MY_PROJECTS_WORDS } from './settings/MyProjectsSettings';
+import { DATE_PREFS_KEY } from '../lib/useDatePrefs';
+import { resetCompanyScopedQueries } from '../lib/company-scope';
+import type { DatePreferences } from '../api/preferences';
 import { ClientAccessEditor } from './clients/ClientAccessEditor';
 import { grantsChanged, grantsOf, noModuleText, rowsFromAccount, rowsWithoutModule, type AccessRow } from './clients/client-access';
 
@@ -269,6 +274,13 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
     companyChoices.show &&
     (companyIds.length !== savedCompanyIds.length || companyIds.some((id) => !savedCompanyIds.includes(id)) || primaryCompanyId !== savedPrimary);
 
+  // 1.22.3 "Show my projects only": an administrator's setting (Settings has the same switch for
+  // your own). Shown while Administrator is ticked; sent only when changed, and only then.
+  const savedMine = user.myProjectsOnly === true;
+  const [mine, setMine] = useState(savedMine);
+  const adminInForm = roles.has('ADMIN');
+  const mineChanged = adminInForm && mine !== savedMine;
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
   const password = usePasswordReset(user.id, invalidate);
 
@@ -282,6 +294,7 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
         // Your own roles are never sent, so they can't change from this dialog.
         ...(isSelf ? {} : { roleNames: [...roles] }),
         ...(companiesChanged ? { companyIds, primaryCompanyId } : {}),
+        ...(mineChanged ? { myProjectsOnly: mine } : {}),
       });
       if (!isSelf && status !== user.status) {
         try {
@@ -293,6 +306,13 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
     },
     onSuccess: () => {
       invalidate();
+      // Your own: Settings and the Projects page's tick read it again, and every list too (it changes
+      // what they hold) — as turning it on or off in Settings does.
+      if (isSelf && mineChanged) {
+        qc.setQueryData<DatePreferences>(DATE_PREFS_KEY, (prev) => (prev ? { ...prev, myProjectsOnly: mine } : prev));
+        void qc.invalidateQueries({ queryKey: DATE_PREFS_KEY });
+        resetCompanyScopedQueries(qc);
+      }
       onClose();
     },
     onError: (err) => {
@@ -366,6 +386,20 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
     </fieldset>
   );
 
+  // Outside Access: on your own account the roles are locked, this isn't (Settings has it too).
+  const projectsField = adminInForm ? (
+    <section aria-labelledby="eu-projects-title" className="flex flex-col gap-2">
+      <p id="eu-projects-title" className={SECTION}>{MY_PROJECTS_WORDS.heading}</p>
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-line p-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">{MY_PROJECTS_WORDS.label}</div>
+          <div id="eu-my-projects-hint" className="text-xs text-ink-2">{isSelf ? MY_PROJECTS_WORDS.hint : MY_PROJECTS_WORDS.hintTheirs}</div>
+        </div>
+        <Toggle on={mine} onChange={() => setMine((v) => !v)} label={MY_PROJECTS_WORDS.label} describedBy="eu-my-projects-hint" />
+      </div>
+    </section>
+  ) : null;
+
   // Big form (1.22): 960px and two columns from 1024px — the profile and the password on the left,
   // companies and access on the right; Close and Save in a footer that stays in view.
   return (
@@ -375,8 +409,8 @@ function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
           {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
           <AccountColumns
             left={<>{profileFields}{password.section}</>}
-            right={<>{companiesField}{accessFields}</>}
-            single={<>{profileFields}{companiesField}{accessFields}{password.section}</>}
+            right={<>{companiesField}{accessFields}{projectsField}</>}
+            single={<>{profileFields}{companiesField}{accessFields}{projectsField}{password.section}</>}
           />
         </div>
         <DialogFooter onClose={onClose} saving={saveMut.isPending} />

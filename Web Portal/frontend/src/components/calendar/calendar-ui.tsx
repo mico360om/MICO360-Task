@@ -6,6 +6,7 @@ import type { CalItem, CalStatus } from '../../lib/calendar-model';
 import type { CalMeeting } from '../../lib/calendar-meetings';
 import { WaitingIcon } from '../approvals/ApprovalChip';
 import { isWaitingForApproval } from '../../lib/approvals';
+import { TaskKey } from '../TaskKey';
 
 /**
  * 'Sat 10 Oct' for a 'YYYY-MM-DD' day (formatted as that day, whatever the device's zone): the
@@ -173,10 +174,11 @@ export function MeetingChip({ meeting: m, color, meta, lines = 1 }: { meeting: C
 /** A task finished but waiting for approval (never a projected copy, never a done one). */
 const waits = (item: CalItem) => item.kind === 'task' && item.status !== 'done' && isWaitingForApproval(item.task);
 
-/** The words a screen reader hears for a task on the calendar. */
+/** The words a screen reader hears for a task on the calendar: its number first (1.22.3), as the chip shows it. */
 export function itemName(item: CalItem): string {
   const t = item.task;
-  const parts = [t.title];
+  // A repeat not created yet has no number of its own (the series' is another task's).
+  const parts = [item.kind === 'task' && t.key ? `${t.key} ${t.title}` : t.title];
   if (item.kind === 'projected') parts.push(`repeat, not created yet, ${dayLabel(item.date)}`);
   else parts.push(STATUS_META[item.status].label.toLowerCase());
   if (item.kind === 'task' && item.recurring) parts.push('repeats');
@@ -186,9 +188,10 @@ export function itemName(item: CalItem): string {
 }
 
 /**
- * A task on the calendar: status icon and colours, the project's colour on its edge, and up to two
- * lines of its title (one in the month grid, where the whole title is its tooltip). Click for
- * details; drag to another day when allowed.
+ * A task on the calendar: status icon and colours, the project's colour on its edge, its number (the
+ * TaskKey chip, 1.22.3) and up to two lines of its title (one in the month grid, where the title
+ * truncates and never the number, and the whole title is its tooltip). Click for details; drag to
+ * another day when allowed. A repeat not created yet shows no number: it has none yet.
  */
 export function TaskChip({
   item,
@@ -211,6 +214,7 @@ export function TaskChip({
   meta?: ReactNode;
 }) {
   const s = STATUS_META[item.status];
+  const number = item.kind === 'task' ? item.task.key : null;
   return (
     <button
       type="button"
@@ -230,7 +234,17 @@ export function TaskChip({
     >
       <span className="mt-px">{s.icon}</span>
       <span className="min-w-0 flex-1">
-        <span dir="auto" className={`font-medium ${lines === 1 ? 'block truncate' : 'line-clamp-2 [overflow-wrap:anywhere]'}`}>{item.task.title}</span>
+        {lines === 1 ? (
+          <span className="flex min-w-0 items-center gap-1">
+            {number ? <TaskKey value={number} dense /> : null}
+            <span dir="auto" className="block min-w-0 truncate font-medium">{item.task.title}</span>
+          </span>
+        ) : (
+          <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">
+            {number ? <TaskKey value={number} dense className="me-1" /> : null}
+            <span dir="auto">{item.task.title}</span>
+          </span>
+        )}
         {meta ? <span className="mt-0.5 block truncate text-[11px] font-normal">{meta}</span> : null}
       </span>
       {/* Waiting for approval: an hourglass, as on the board (its words are in the chip's name, and on hover). */}

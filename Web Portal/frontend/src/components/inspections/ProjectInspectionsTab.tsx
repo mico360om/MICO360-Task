@@ -15,6 +15,7 @@ import { DueChecksSection, SchedulesSection, scheduleKeys } from './ScheduledIns
 import { EmptyState } from '../ui/EmptyState';
 import { TOUCH_TALL } from '../../lib/touch';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { TaskKey } from '../TaskKey';
 
 export interface InspectionTaskOption {
   id: string;
@@ -55,7 +56,7 @@ function Row({ x, timeZone }: { x: InspectionListItem; timeZone: string }) {
               <bdi>{x.inspector.name}</bdi>,
               x.task ? (
                 <span>
-                  For <span className="font-mono">{x.task.key}</span>
+                  For <TaskKey value={x.task.key} />
                 </span>
               ) : null,
             ]
@@ -191,7 +192,7 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
               </fieldset>
               {fixedTask ? (
                 <p className="text-sm text-ink-2">
-                  For the task <span className="font-mono">{fixedTask.key}</span> <bdi>{fixedTask.title}</bdi>
+                  For the task <TaskKey value={fixedTask.key} /> <bdi>{fixedTask.title}</bdi>
                 </p>
               ) : (
                 <div>

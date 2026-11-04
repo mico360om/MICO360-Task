@@ -89,6 +89,7 @@ describe('Search results page', () => {
     expect(first).toHaveTextContent('To do');
     expect(first).toHaveTextContent('Due 30 Oct 2026');
     expect(first).toHaveTextContent('Bilal Ahmed +2');
+    expect(first.querySelector('[data-task-key="RIG-1"]')).not.toBeNull(); // 1.22.3: the number is the chip
   });
 
   it('opens a task in its panel, with the results as its list (Previous / Next)', async () => {

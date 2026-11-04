@@ -75,6 +75,10 @@ describe('TaskDrawer', () => {
       />,
     );
     expect(screen.getByRole('dialog', { name: /MICO-1/ })).toBeInTheDocument();
+    // 1.22.3: the header's number is the shared chip, at the size of the pills beside it.
+    const chip = within(screen.getByTestId('task-header')).getByText('MICO-1');
+    expect(chip).toHaveAttribute('data-task-key', 'MICO-1');
+    expect(chip).toHaveClass('text-xs', 'font-semibold', 'whitespace-nowrap');
     expect(screen.getByText('Prepare monthly report')).toBeInTheDocument();
     expect(screen.getByText('Gather figures and write it up.')).toBeInTheDocument();
     expect(screen.getByText('Verify quotation')).toBeInTheDocument();

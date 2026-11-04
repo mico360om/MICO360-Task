@@ -1,11 +1,11 @@
-import type { NotificationListOptions, NotificationProject, NotificationRecord, NotificationRepository, NotificationScope } from './notification-repository';
+import type { NotificationListOptions, NotificationProject, NotificationRecord, NotificationRepository, NotificationScope, NotificationTaskKey } from './notification-repository';
 
 /**
  * An in-memory notification repository for tests, with the database's rules: newest first (by time,
  * then id), the companies scope (rows about no project, or about a project in scope), pages before a
  * row, the Unread tab and types. `seed` adds a row as it is, with its own times.
  */
-export function createMemoryNotificationRepository({ projects = [] }: { projects?: NotificationProject[] } = {}) {
+export function createMemoryNotificationRepository({ projects = [], tasks = [] }: { projects?: NotificationProject[]; tasks?: NotificationTaskKey[] } = {}) {
   const rows = new Map<string, NotificationRecord>();
   let seq = 0;
   const inScope = (n: NotificationRecord, scope?: NotificationScope) => !scope || !n.projectId || scope.includes(n.projectId);
@@ -97,6 +97,9 @@ export function createMemoryNotificationRepository({ projects = [] }: { projects
     },
     async projectLooks(ids) {
       return projects.filter((p) => ids.includes(p.id));
+    },
+    async taskKeys(ids) {
+      return tasks.filter((t) => ids.includes(t.id));
     },
   };
   return repo;

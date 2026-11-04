@@ -14,6 +14,41 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- User Management → Manage account: an administrator's account has a "Show my projects only" switch.
+  An administrator can turn it on or off for any administrator — their lists then show only the
+  projects they own, manage or are on the team of, from their next page. It is the same setting as
+  Settings → "Show my projects only", so on your own account both always agree. Only administrators
+  have it; someone taken off the Administrator role has it turned off. Each change is in the audit log.
+- Project page: a new "Board" tab, after Overview, shows the project's Kanban board right on its
+  page — drag cards between columns, add a task to a column, open a task (Previous / Next follow the
+  columns), see who is on the board, manage its columns, with live updates and the N shortcut, just
+  like the Kanban Board page. A link can open it directly (…?tab=board). On a phone the columns
+  scroll sideways. The Kanban Board page and its "Open board" links work as before.
+- Search finds a task by its number however it is typed: MICO-142, mico-142, MICO142, mico 142,
+  MICO_142 or #MICO-142 all find MICO-142 first, and so does a number the task had before it moved
+  project. Just "142" lists the tasks numbered 142 in any project first. The same works in the top bar
+  ("open mico 142"), the Calendar's "Search tasks", a project's Tasks tab, the blocker picker and
+  MICO AI.
+- Task numbers look the same everywhere: every place a task is listed shows its number (for example
+  MICO-142) as the same small grey label before its title — the board and the All projects board, My
+  Tasks (cards and list, also on a phone), the task panel, the dashboard and Activity, approvals,
+  timeline, workload, the Management page, search, inspections and MICO AI. A long number such as
+  MICO360-10 now always stays on one line (on a project's Tasks tab it used to break in two); the
+  title gives way instead.
+- Task numbers where they were missing: the calendar's task chips (also in the month grid), a
+  project's Milestones card, the Management page's next milestone and its PDF, the timeline's
+  milestone markers (for screen readers), scheduled inspections, My Action Items (the number opens
+  the task), meeting notes and action items (the task's number instead of the word "Task"), the
+  Audit page (a task's entries show its number and title instead of a code) and the client page
+  (each shared task and milestone; it still names no one).
+- Notifications: overdue and due-soon notices now say which task, "MICO-142 · Title", like every
+  other task notice. The bell and the Notifications page show the task's number as the label — its
+  number today, also for older notices and for a task that has moved project since.
+- New task: after you create a task with the form, a short notice says "Task MICO-143 created" with
+  Open, which opens it. A task created while offline says "Task MICO-143 saved" once it reaches the
+  server.
+
 ## [1.22.2] - 2026-11-04
 
 ### Improvements

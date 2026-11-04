@@ -54,6 +54,29 @@ describe('NotificationsBell', () => {
     expect(screen.getByText('10m ago')).toBeInTheDocument();
   });
 
+  it('shows the task’s current number as the chip, and the number once (1.22.3)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/unread-count')) return json({ data: { count: 2 } });
+      if (u.endsWith('/notifications'))
+        return json({ data: [
+          // Made before the task moved (RIG-4 → OPS-17): the chip shows the number it has now.
+          { id: 'n1', type: 'TASK_ASSIGNED', title: 'You were assigned a task', body: 'RIG-4 · Inspect the rig', entityType: 'task', entityId: 't4', taskKey: 'OPS-17', readAt: null, createdAt: '' },
+          { id: 'n2', type: 'TASK_OVERDUE', title: 'A task is overdue', body: 'Old words', entityType: 'task', entityId: 't5', taskKey: 'OPS-18', readAt: null, createdAt: '' },
+        ] });
+      return json({ data: {} });
+    }));
+    withQuery(<NotificationsBell />);
+    await userEvent.click(await screen.findByRole('button', { name: /notifications/i }));
+    const chip = await screen.findByText('OPS-17');
+    expect(chip).toHaveAttribute('data-task-key', 'OPS-17');
+    expect(screen.getByText('Inspect the rig')).toBeInTheDocument();
+    expect(screen.queryByText(/RIG-4/)).toBeNull();
+    // A notice made before 1.22.3 (just the title): the chip, then its words.
+    expect(screen.getByText('OPS-18')).toHaveAttribute('data-task-key', 'OPS-18');
+    expect(screen.getByText('Old words')).toBeInTheDocument();
+  });
+
   it('shows a read notification in a quieter tone, not faded out (faded text failed the contrast check)', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = String(url);

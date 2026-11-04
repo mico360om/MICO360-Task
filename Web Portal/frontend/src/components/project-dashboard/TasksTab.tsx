@@ -3,6 +3,7 @@ import type { ApiTask } from '../../api/tasks';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { Avatar } from '../ui/Avatar';
 import { taskPhase, type TaskPhase } from '../../lib/project-dashboard';
+import { matchesTaskNumber } from '../../lib/task-number';
 import { formatDueDay } from '../../lib/due-display';
 import { EmptyNote, FlagIcon } from './parts';
 import { ClientEyeIcon } from '../TaskCard';
@@ -12,6 +13,7 @@ import { Button } from '../ui/Button';
 import { ApprovalChip } from '../approvals/ApprovalChip';
 import { ExternalContactsLine } from '../ExternalContactsLine';
 import { matchesExternalContact } from '../../lib/external-contacts';
+import { TaskKey } from '../TaskKey';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -38,7 +40,8 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
   return (
     <button type="button" onClick={onOpen} className="flex w-full flex-col gap-1.5 px-4 py-2.5 text-start transition-colors hover:bg-ground/60 sm:flex-row sm:items-center sm:gap-3">
       <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="w-16 flex-none font-mono text-xs text-ink-3">{task.key}</span>
+        {/* At least 4rem so the titles line up; a longer number (MICO360-10) widens it, never breaks. */}
+        <span className="flex min-w-16 flex-none"><TaskKey value={task.key} /></span>
         {task.isMilestone ? <span className="text-brand" role="img" aria-label="Milestone" title="Milestone"><FlagIcon /></span> : null}
         {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
         <span className="flex min-w-0 flex-1 flex-col">
@@ -114,7 +117,7 @@ export function TasksTab({
   const words = q.trim().toLocaleLowerCase('en');
   const keep = (t: ApiTask) =>
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
-    (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || matchesExternalContact(t.externalSummary, words));
+    (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || matchesExternalContact(t.externalSummary, words) || matchesTaskNumber(words, t.key, t.formerKeys));
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;

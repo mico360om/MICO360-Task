@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { WorkloadCell, WorkloadPerson, WorkloadTask } from '../../api/planning';
 import { popoverSub, popoverTitle, suggestionLabel, suggestionText } from '../../lib/workload';
 import { AnchoredPopover } from '../ui/AnchoredPopover';
+import { TaskKey } from '../TaskKey';
 
 const ACTION = 'inline-flex min-h-[1.75rem] flex-none items-center whitespace-nowrap rounded-lg border border-info/40 bg-info-soft px-2 text-xs font-bold text-info transition-colors hover:border-info aria-disabled:cursor-wait aria-disabled:opacity-60';
 const QUIET = 'inline-flex min-h-[1.75rem] flex-none items-center whitespace-nowrap rounded-lg border border-line bg-surface px-2 text-xs font-bold text-ink transition-colors hover:border-brand/40';
@@ -54,7 +55,7 @@ export function WorkloadPopover({
         <ul>
           {listed.map((t) => (
             <li key={t.id} className="flex items-center gap-2 border-t border-line-2 py-1.5">
-              <span className="flex-none rounded-md bg-ground px-1.5 font-mono text-[11px] text-ink-2">{t.key}</span>
+              <TaskKey value={t.key} />
               <button type="button" onClick={() => onOpenTask(t.id)} title="Open the task" className="min-w-0 flex-1 truncate text-start text-ink hover:text-brand hover:underline">
                 {t.title}
               </button>

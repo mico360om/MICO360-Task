@@ -36,6 +36,7 @@ import { ShortcutHint, useShortcut, useShortcutHint } from '../components/shortc
 import { OverviewTab } from '../components/project-dashboard/OverviewTab';
 import { TasksTab, type TaskFilter, type TaskGroup } from '../components/project-dashboard/TasksTab';
 import { MeetingsTab } from '../components/project-dashboard/MeetingsTab';
+import { BoardTab } from '../components/project-dashboard/BoardTab';
 import { usePageName } from '../lib/page-meta';
 import { ApiError } from '../lib/api-client';
 import { ClientSharePanel } from '../components/client-share/ClientSharePanel';
@@ -44,9 +45,11 @@ import { ProjectInspectionsTab } from '../components/inspections/ProjectInspecti
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { isProjectArchived } from '../lib/project-archive';
 
-type Tab = 'overview' | 'tasks' | 'meetings' | 'inspections' | 'team';
+type Tab = 'overview' | 'board' | 'tasks' | 'meetings' | 'inspections' | 'team';
 const TABS: Array<{ v: Tab; label: string }> = [
   { v: 'overview', label: 'Overview' },
+  // 1.22.3 (owner): the project's Kanban board, inside its page (?tab=board).
+  { v: 'board', label: 'Board' },
   { v: 'tasks', label: 'Tasks' },
   { v: 'meetings', label: 'Meetings' },
   { v: 'inspections', label: 'Inspections' },
@@ -241,9 +244,10 @@ export function ProjectDetailPage() {
   // Companies: a project whose companies are all archived counts as archived (read-only) too.
   const archived = !!project && isProjectArchived(project);
   const canSchedule = !!project && !archived && project.status !== 'COMPLETED';
-  // N adds a task to this project (a meeting on the Meetings tab); E edits the project.
+  // N adds a task to this project (a meeting on the Meetings tab; on the Board tab, the board's own:
+  // to its first column, on its day); E edits the project.
   const [newTask, setNewTask] = useState(false);
-  useShortcut('new', () => (tab === 'meetings' ? setNewMeeting(true) : setNewTask(true)), { enabled: canSchedule });
+  useShortcut('new', () => (tab === 'meetings' ? setNewMeeting(true) : setNewTask(true)), { enabled: canSchedule && tab !== 'board' });
   useShortcut('edit', () => setEditing(true), { enabled: canEditProject && !!project });
   const editHint = useShortcutHint('edit');
 
@@ -442,6 +446,9 @@ export function ProjectDetailPage() {
             />
           )
         ) : null}
+
+        {/* The board's own header is the project's (above); the board keeps its day, people and buttons. */}
+        {tab === 'board' ? <BoardTab key={id} project={project} /> : null}
 
         {tab === 'tasks' ? (
           <TasksTab groups={groups} today={today} timeZone={timeZone} loading={tasksQ.isLoading || columnsQ.isLoading} filter={taskFilter} onFilter={setTaskFilter} onOpen={setOpenTaskId} onNew={canSchedule ? () => setNewTask(true) : undefined} />

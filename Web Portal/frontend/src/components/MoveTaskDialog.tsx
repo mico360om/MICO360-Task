@@ -14,6 +14,7 @@ import { FieldLabel } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
 import { projectOption } from './project-option';
 import { dialogLayer, dialogPanel } from './ui/dialog-size';
+import { TaskKey } from './TaskKey';
 
 /** A task to move, as the place it is moved from knows it. */
 export interface MoveTaskRef {
@@ -166,8 +167,7 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
   const title = single ? 'Move to another project' : `Move ${tasks.length} tasks to another project`;
   const subtitle = single ? (
     <>
-      <span className="font-mono text-xs font-semibold text-ink-2">{tasks[0]!.key}</span>
-      <span aria-hidden="true"> · </span>
+      <TaskKey value={tasks[0]!.key} className="me-1.5" />
       <span dir="auto">{tasks[0]!.title}</span>
     </>
   ) : (

@@ -142,6 +142,20 @@ describe('TaskCard on a board of several projects', () => {
     expect(key.parentElement).not.toContainElement(screen.getByText('Inspection'));
   });
 
+  it('shows the number as the shared TaskKey chip (1.22.3)', () => {
+    render(<TaskCard task={{ ...task, key: 'MICO360-10' }} />);
+    const chip = screen.getByText('MICO360-10');
+    expect(chip).toHaveAttribute('data-task-key', 'MICO360-10');
+    expect(chip).toHaveClass('whitespace-nowrap', 'shrink-0');
+  });
+
+  it('a long number never sits under the flags: the flags and priority wrap to the next line instead', () => {
+    render(<TaskCard task={{ ...task, key: 'TN2FF00336-2', milestone: true, clientVisible: true, blocked: true }} />);
+    const row = screen.getByText('TN2FF00336-2').parentElement!;
+    expect(row).toHaveClass('flex-wrap');
+    expect(row).toContainElement(screen.getByLabelText('Milestone'));
+  });
+
   it('shows no project line on a single project’s board', () => {
     render(<TaskCard task={task} />);
     expect(screen.queryByTestId('card-project')).not.toBeInTheDocument();

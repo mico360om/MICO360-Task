@@ -5,6 +5,7 @@ import { tasksApi, type ApprovalTask } from '../../api/tasks';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { relativeTime } from '../../lib/relative-time';
 import { ProjectAvatar } from '../ProjectAvatar';
+import { TaskKey } from '../TaskKey';
 import { Button } from '../ui/Button';
 import { SendBackDialog } from './SendBackDialog';
 import { WaitingIcon } from './ApprovalChip';
@@ -86,7 +87,7 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
                     aria-label={`Open ${t.key}: ${t.title}`}
                     className="flex min-w-0 max-w-full items-center gap-2 text-start [@media(pointer:coarse)]:!min-h-11"
                   >
-                    <span className="flex-none rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
+                    <TaskKey value={t.key} />
                     <bdi className="truncate text-sm font-medium text-ink hover:text-brand">{t.title}</bdi>
                   </button>
                   <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-ink-2">

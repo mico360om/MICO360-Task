@@ -176,6 +176,26 @@ describe('CalendarPage — toolbar and views', () => {
 });
 
 describe('CalendarPage — how tasks look', () => {
+  it('a month-grid chip shows the task’s number before its title (the title truncates first) and says it (1.22.3)', async () => {
+    renderPage();
+    const c = await chip(/Late invoice/);
+    const key = within(c).getByText('MICO-2');
+    expect(key).toHaveAttribute('data-task-key', 'MICO-2');
+    expect(key).toHaveClass('py-0', 'shrink-0'); // dense: the one-line chip keeps its 24px
+    const title = within(c).getByText('Late invoice');
+    expect(key.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(title).toHaveClass('truncate');
+    expect(c).toHaveAccessibleName(/^MICO-2 Late invoice, /);
+  });
+
+  it('week and day chips show the number as the chip too, and the line under the title no longer repeats it', async () => {
+    renderPage('/calendar?view=week&date=2026-10-14');
+    const c = await chip(/Prepare report/);
+    expect(within(c).getByText('MICO-1')).toHaveAttribute('data-task-key', 'MICO-1');
+    expect(c).toHaveTextContent('MICO360 Platform · Mo Me');
+    expect(c.textContent!.match(/MICO-1/g)).toHaveLength(1);
+  });
+
   it('reserves red for overdue, and says blocked and done in words and icons too', async () => {
     renderPage();
     const late = await chip(/Late invoice/);

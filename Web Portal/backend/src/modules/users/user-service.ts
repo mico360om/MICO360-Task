@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
 import { WeakPasswordError } from '../auth/errors';
 import { assertRoleSet, assertSameKind } from '../clients/client-kind';
 import type { NewUser, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
+import { MY_PROJECTS_ONLY_REFUSED } from './user-preferences';
 
 export interface SessionTokens {
   accessToken: string;
@@ -129,6 +130,12 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
       assertSameKind(current.roles, next.roleNames);
       if (isActiveAdmin(current) && !next.roleNames.includes(ADMIN)) await ensureAnotherActiveAdmin(id);
     }
+    // 1.22.3 "Show my projects only" (User Management): an administrator's setting — judged by the
+    // roles this change leaves them with. Off is always allowed; taken off the Administrator role,
+    // it goes off with it (made an administrator again later, they start with every project).
+    const willBeAdmin = (next.roleNames ?? current.roles).includes(ADMIN);
+    if (patch.myProjectsOnly === true && !willBeAdmin) throw new ForbiddenError(MY_PROJECTS_ONLY_REFUSED);
+    if (!willBeAdmin && current.myProjectsOnly === true && patch.myProjectsOnly === undefined) next.myProjectsOnly = false;
     // Guard email/username uniqueness across other users before writing.
     if (patch.email !== undefined || patch.username !== undefined) {
       const email = patch.email ?? current.email;

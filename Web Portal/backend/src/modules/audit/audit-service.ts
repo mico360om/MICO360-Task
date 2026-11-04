@@ -2,7 +2,15 @@ import type { AuditListQuery, AuditRecord, AuditRepository, CreateAuditData } fr
 
 export interface AuditServiceDeps {
   audit: AuditRepository;
+  /**
+   * 1.22.3: the tasks among a page's entity ids — each one's current number and title (a task in the
+   * trash too; one deleted for good is left out). The Audit page names a task's entries by them.
+   */
+  tasks?: (ids: readonly string[]) => Promise<Array<{ id: string; key: string; title: string }>>;
 }
+
+/** An entry as the Audit page reads it: 1.22.3 adds the task it is about (its number now, and title), or null. */
+export type AuditEntry = AuditRecord & { task: { key: string; title: string } | null };
 
 export const REDACTED = '[redacted]';
 
@@ -20,16 +28,21 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   return out;
 }
 
-export function createAuditService({ audit }: AuditServiceDeps) {
+export function createAuditService({ audit, tasks }: AuditServiceDeps) {
   /** Record an entry; secrets are masked before they are stored. */
   async function record(data: CreateAuditData): Promise<AuditRecord> {
     return audit.create({ ...data, oldValue: redactSecrets(data.oldValue), newValue: redactSecrets(data.newValue) });
   }
 
-  /** Newest-first page of entries; secrets are masked again on the way out (covers entries written before masking). */
-  async function list(query: AuditListQuery = {}): Promise<AuditRecord[]> {
+  /**
+   * Newest-first page of entries; secrets are masked again on the way out (covers entries written
+   * before masking). 1.22.3: an entry about a task names it (`task`: its current number and title).
+   */
+  async function list(query: AuditListQuery = {}): Promise<AuditEntry[]> {
     const rows = await audit.list(query);
-    return rows.map((r) => ({ ...r, oldValue: redactSecrets(r.oldValue), newValue: redactSecrets(r.newValue) }));
+    const ids = [...new Set(rows.map((r) => r.entityId).filter((id): id is string => !!id))];
+    const found = new Map((tasks && ids.length ? await tasks(ids) : []).map((t) => [t.id, { key: t.key, title: t.title }]));
+    return rows.map((r) => ({ ...r, oldValue: redactSecrets(r.oldValue), newValue: redactSecrets(r.newValue), task: (r.entityId && found.get(r.entityId)) || null }));
   }
 
   /** Every module the log holds, A–Z. */

@@ -56,6 +56,8 @@ export interface CompanyApp {
   getRaw(viewer: Viewer, path: string, headers?: Record<string, string>): Promise<{ statusCode: number; body: string; rawPayload: Buffer; headers: Record<string, unknown>; json(): unknown }>;
   /** POST as this person; the whole answer. */
   post(viewer: Viewer, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; body: string; json(): unknown }>;
+  /** PUT as this person; the whole answer. */
+  put(viewer: Viewer, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; body: string; json(): unknown }>;
   close(): Promise<void>;
 }
 
@@ -146,9 +148,11 @@ export async function buildCompanyApp(prisma: PrismaClient, extra: (base: Partia
     if (res.statusCode !== 200) throw new Error(`GET ${path} → ${res.statusCode}: ${res.body}`);
     return (res.json() as { data: unknown }).data;
   }
-  async function post(viewer: Viewer, path: string, body: unknown = {}, headers: Record<string, string> = {}) {
-    const res = await app.inject({ method: 'POST', url: `/api/v1${path}`, payload: body as object, headers: { authorization: await auth(viewer), ...headers } });
+  async function send(method: 'POST' | 'PUT', viewer: Viewer, path: string, body: unknown, headers: Record<string, string>) {
+    const res = await app.inject({ method, url: `/api/v1${path}`, payload: body as object, headers: { authorization: await auth(viewer), ...headers } });
     return res as unknown as { statusCode: number; body: string; json(): unknown };
   }
-  return { app, deps, get, getRaw, post, close: () => app.close() };
+  const post = (viewer: Viewer, path: string, body: unknown = {}, headers: Record<string, string> = {}) => send('POST', viewer, path, body, headers);
+  const put = (viewer: Viewer, path: string, body: unknown = {}, headers: Record<string, string> = {}) => send('PUT', viewer, path, body, headers);
+  return { app, deps, get, getRaw, post, put, close: () => app.close() };
 }

@@ -5,6 +5,7 @@ import { ProjectAvatar } from '../ProjectAvatar';
 import { EmptyState } from '../ui/EmptyState';
 import { STATUS_LABEL, idleText, milestoneText } from '../../lib/management';
 import { ListButton, NumberButton, RagMark, Section, plural, type OpenList } from './parts';
+import { TaskKey } from '../TaskKey';
 
 type Sort = 'worst' | 'name' | 'late' | 'done';
 const SORTS: { value: Sort; label: string }[] = [
@@ -40,8 +41,10 @@ function Milestone({ row, onOpen, onOpenTask }: { row: HealthRow; onOpen: OpenLi
   const late = !m.waiting && m.daysLeft !== null && m.daysLeft < 0;
   return (
     <span className="block min-w-0">
-      <button type="button" onClick={() => onOpenTask(m.id)} className={`block min-w-0 max-w-full text-start hover:underline ${TOUCH}`}>
-        <span className="block truncate font-medium text-ink" title={m.title}>
+      {/* 1.22.3: its number first; the title truncates, the number never does. */}
+      <button type="button" onClick={() => onOpenTask(m.id)} className={`flex min-w-0 max-w-full items-center gap-1.5 text-start hover:underline ${TOUCH}`}>
+        <TaskKey value={m.key} />
+        <span className="block min-w-0 truncate font-medium text-ink" title={m.title}>
           <bdi>{m.title}</bdi>
         </span>
       </button>

@@ -19,13 +19,17 @@ const tokenService = createTokenService({
 
 let mem: ReturnType<typeof createMemoryUserRepository>;
 let audited: { action: string; entityId: string | null }[];
+/** What each audited change recorded (its new values), in order. */
+let auditedValues: { action: string; entityId: string | null; newValue: unknown }[];
 
 async function makeApp() {
   mem = createMemoryUserRepository();
   audited = [];
+  auditedValues = [];
   const auditService = {
-    async record(d: { action: string; entityId?: string | null }) {
+    async record(d: { action: string; entityId?: string | null; newValue?: unknown }) {
       audited.push({ action: d.action, entityId: d.entityId ?? null });
+      auditedValues.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue });
       return {} as never;
     },
     async list() {
@@ -223,6 +227,78 @@ describe('User profile & role editing', () => {
       payload: { firstName: 'Nope' },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('“Show my projects only” from User Management → Manage account (1.22.3)', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+  const make = async (roleNames: string[], who = 'sara') =>
+    (await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: { ...newUser, email: `${who}@x.co`, username: who, ...{ roleNames } } })).json().data as { id: string };
+  const put = async (id: string, payload: Record<string, unknown>, headers?: Record<string, string>) =>
+    app.inject({ method: 'PUT', url: `/api/v1/users/${id}`, headers: headers ?? (await admin()), payload });
+  const listed = async () =>
+    Object.fromEntries((await app.inject({ method: 'GET', url: '/api/v1/users', headers: await admin() })).json().data.map((u: { username: string; myProjectsOnly: boolean }) => [u.username, u.myProjectsOnly]));
+
+  it('the user list and a user’s answer say whether it is on (off for everyone at first)', async () => {
+    const { id } = await make(['ADMIN']);
+    await make(['EMPLOYEE'], 'omar');
+    expect(await listed()).toEqual({ sara: false, omar: false });
+    const one = await app.inject({ method: 'GET', url: `/api/v1/users/${id}`, headers: await admin() });
+    expect(one.json().data.myProjectsOnly).toBe(false);
+  });
+
+  it('an administrator turns it on and off for another administrator; the answer and the list show it', async () => {
+    const { id } = await make(['ADMIN']);
+    const on = await put(id, { myProjectsOnly: true });
+    expect(on.statusCode).toBe(200);
+    expect(on.json().data.myProjectsOnly).toBe(true);
+    expect(await listed()).toEqual({ sara: true });
+    const off = await put(id, { myProjectsOnly: false });
+    expect(off.json().data.myProjectsOnly).toBe(false);
+    expect(await listed()).toEqual({ sara: false });
+  });
+
+  it('is saved with the rest of the form, and audited like other user changes', async () => {
+    const { id } = await make(['ADMIN']);
+    expect((await put(id, { firstName: 'Sarah', myProjectsOnly: true })).statusCode).toBe(200);
+    expect(auditedValues.filter((a) => a.action === 'user.update')).toEqual([{ action: 'user.update', entityId: id, newValue: { firstName: 'Sarah', myProjectsOnly: true } }]);
+  });
+
+  it('a change that doesn’t name it leaves it as it was', async () => {
+    const { id } = await make(['ADMIN']);
+    await put(id, { myProjectsOnly: true });
+    expect((await put(id, { lastName: 'B', roleNames: ['ADMIN'] })).json().data.myProjectsOnly).toBe(true);
+  });
+
+  it('only administrators have it: turning it on for anyone else is refused and saves nothing; off is harmless', async () => {
+    const { id } = await make(['EMPLOYEE']);
+    const res = await put(id, { firstName: 'Sarah', myProjectsOnly: true });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.message).toBe('Only administrators have this setting.');
+    const after = (await app.inject({ method: 'GET', url: `/api/v1/users/${id}`, headers: await admin() })).json().data;
+    expect(after).toMatchObject({ firstName: 'Sara', myProjectsOnly: false });
+    expect((await put(id, { myProjectsOnly: false })).statusCode).toBe(200);
+  });
+
+  it('judged by the roles the save leaves them with: made an administrator in the same save, it may be turned on', async () => {
+    const { id } = await make(['EMPLOYEE']);
+    const res = await put(id, { roleNames: ['ADMIN'], myProjectsOnly: true });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ roles: ['ADMIN'], myProjectsOnly: true });
+    // …and taken off the Administrator role in the same save as turning it on: refused.
+    const { id: omar } = await make(['ADMIN'], 'omar');
+    expect((await put(omar, { roleNames: ['EMPLOYEE'], myProjectsOnly: true })).statusCode).toBe(403);
+  });
+
+  it('only administrators may change it for someone: an employee is refused (403)', async () => {
+    const { id } = await make(['ADMIN']);
+    expect((await put(id, { myProjectsOnly: true }, { authorization: `Bearer ${await tokenFor('emp', ['EMPLOYEE'])}` })).statusCode).toBe(403);
+    expect(await listed()).toEqual({ sara: false });
+  });
+
+  it('refuses a value that isn’t on or off (400)', async () => {
+    const { id } = await make(['ADMIN']);
+    for (const myProjectsOnly of ['yes', null, 1]) expect((await put(id, { myProjectsOnly })).statusCode).toBe(400);
   });
 });
 

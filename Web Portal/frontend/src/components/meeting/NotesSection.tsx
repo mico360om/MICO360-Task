@@ -11,9 +11,10 @@ import { RichTextEditor } from '../rich-text/RichTextEditor';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { plainToRichHtml } from '../../lib/rich-note';
 import { SaveIndicator, useSaveState } from '../task-drawer/save-state';
-import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, userName } from './kit';
+import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, TaskNumber, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { formatClockTime } from '../../lib/meetingFormat';
+import { TOUCH_TALL } from '../../lib/touch';
 
 const NOTE_TYPES: MeetingNoteType[] = ['DISCUSSION', 'DECISION', 'ACTION', 'ISSUE', 'QUESTION', 'INFORMATION'];
 
@@ -89,7 +90,8 @@ export function NotesSection({
   // Same query as the action items section: names the task a note became.
   const itemsQ = useQuery({ queryKey: ['meeting', meetingId, 'action-items'], queryFn: () => meetingsApi(apiClient).listActionItems(meetingId), enabled: !!meetingId, refetchInterval: pollMs });
   const notes = Array.isArray(notesQ.data) ? notesQ.data : [];
-  const taskKeyOf = (note: MeetingNote) => (Array.isArray(itemsQ.data) ? itemsQ.data : []).find((i) => i.taskId && i.taskId === note.taskId)?.taskKey ?? null;
+  // 1.22.3: the notes list names the task's number itself (also a task with no action item).
+  const taskKeyOf = (note: MeetingNote) => note.taskKey ?? (Array.isArray(itemsQ.data) ? itemsQ.data : []).find((i) => i.taskId && i.taskId === note.taskId)?.taskKey ?? null;
   const counts = new Map<string, number>();
   for (const n of notes) counts.set(n.type, (counts.get(n.type) ?? 0) + 1);
   const keyCount = notes.filter((n) => n.highlighted).length;
@@ -243,8 +245,9 @@ export function NotesSection({
                     <span className="text-ink-2"><bdi>{userName(directory, note.authorId) ?? 'Someone'}</bdi></span>
                     <span className="text-ink-3">· {formatClockTime(note.createdAt, timeZone)}{note.editedAt ? editedMark(note, directory) : ''}</span>
                     {note.taskId ? (
-                      <button type="button" onClick={() => openTask(note.taskId!)} className="inline-flex min-h-7 items-center gap-1 rounded-full bg-success-soft px-2 font-medium text-success hover:brightness-95">
-                        {Icon.task} {taskKeyOf(note) ?? 'Task'} <span className="sr-only">— open the task made from this note</span>
+                      <button type="button" onClick={() => openTask(note.taskId!)} className={`group inline-flex min-h-7 items-center gap-1 rounded-md px-1 font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>
+                        <span className="text-success">{Icon.task}</span>
+                        <TaskNumber value={taskKeyOf(note)} /> <span className="sr-only">— open the task made from this note</span>
                       </button>
                     ) : null}
                   </div>

@@ -14,6 +14,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { dayText, InspectIcon, problemText } from './inspection-ui';
 import { isStaleSchedule, ScheduleDialog } from './ScheduleDialog';
 import { TOUCH_TALL } from '../../lib/touch';
+import { TaskKey } from '../TaskKey';
 
 /** The query keys of a project's scheduled inspections (under the tab's own key, so they refresh with it). */
 export const scheduleKeys = {
@@ -88,6 +89,8 @@ function CheckRow({ c, today, canStart, onOpenTask, onStart, starting }: { c: Du
     <li className={`rounded-xl border bg-surface p-3 sm:p-4 ${late ? 'border-danger/40' : 'border-line'}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
+          {/* 1.22.3: the task's number first, as the chip. */}
+          <TaskKey value={c.key} className="me-1.5 align-[1px]" />
           {onOpenTask ? (
             <button type="button" onClick={() => onOpenTask(c.taskId)} className={`text-start font-semibold text-ink hover:text-brand hover:underline ${coarse}`}>
               <bdi>{c.title}</bdi>
@@ -99,7 +102,6 @@ function CheckRow({ c, today, canStart, onOpenTask, onStart, starting }: { c: Du
           )}
           <Facts>
             {[
-              <span className="font-mono">{c.key}</span>,
               c.place ? <span dir="auto">{c.place}</span> : null,
               <FormName form={c.form} />,
             ]}
@@ -213,7 +215,9 @@ function ScheduleRow({ s, timeZone, canChange, onEdit, onStop }: { s: Inspection
     <li className="rounded-xl border border-line bg-surface p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
+          {/* 1.22.3: the number of its newest check, as the chip. */}
           <p className="font-semibold text-ink">
+            <TaskKey value={s.key} className="me-1.5 align-[1px]" />
             <bdi>{s.title}</bdi>
           </p>
           <Facts>{[<FormName form={s.form} />, s.place ? <span dir="auto">{s.place}</span> : null, <span className="text-ink-2"><Inspectors people={s.assignees} /></span>]}</Facts>

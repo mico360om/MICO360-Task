@@ -113,9 +113,10 @@ export function createPrismaClientViewSource(prisma: PrismaClient): ClientViewSo
     async items(projectId) {
       const rows = await prisma.task.findMany({
         where: { projectId, deletedAt: null, clientVisible: true },
-        select: { title: true, isMilestone: true, clientVisible: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } } },
+        select: { key: true, title: true, isMilestone: true, clientVisible: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } } },
       });
       return rows.map((t) => ({
+        key: t.key, // 1.22.3: the client page shows each task's number
         title: t.title,
         isMilestone: t.isMilestone,
         clientVisible: t.clientVisible,
