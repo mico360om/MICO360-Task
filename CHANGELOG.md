@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-11-04
+
 ### New features
 - Minutes email: one email with real To and Cc lines — add colleagues or any email address to To or
   Cc; someone invited from another company still gets their own copy.
