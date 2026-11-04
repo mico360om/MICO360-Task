@@ -14,7 +14,37 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Client accounts: people outside the company (your clients) can now have their own sign-in. In User
+  Management → New user, choose Role "Client": enter their name, username, email, organisation and
+  phone, send the welcome email (or give a temporary password), and under Project access pick their
+  projects. For each project tick what they may see — "Progress, milestones and tasks" and/or
+  "Meetings and minutes" — and what they may do: comment on tasks, sign off finished tasks, reply to
+  meeting invitations (and mark their own action items done), and download PDFs. Everything is off
+  until ticked. Clients are listed in User Management with a "Client" badge and a role filter, and
+  Manage account on a client changes their details and project access.
+- Admin → Clients: a page with every client account — their organisation, projects and last sign-in —
+  to add a client, change what they can see, send the welcome email again, unlock, deactivate,
+  reactivate or delete.
+- The Client portal: a client signs in like everyone else (password, emailed code or the welcome
+  email's link) and lands on their own portal. They see only their projects, each with its company's
+  logo and its progress; inside a project only the parts they were given. Progress shows the
+  milestones and the tasks marked "Show to client" (number, status, due date). Where allowed they can
+  comment on a task, Accept a finished task or Send it back with a reason, answer meeting invitations,
+  mark their own action items done, read approved minutes shown to them, and download the task list
+  and the minutes as PDFs. Clients never see any other page of the site. It works on phones.
+- The team's side: a client's comment shows their name with a "Client" badge. When you reply to it you
+  can tick "Visible to client" — only then does the client see the reply (and get it by email). A task
+  the client accepted shows "Client accepted · 30 Oct 2026"; a task sent back returns to In progress
+  with the client's reason as a comment, and its assignees and managers are told. The project's Team
+  tab lists the "Clients with access" and what each may do (only administrators change it). Clients who
+  have a project's Meetings module can be invited to its meetings; they are marked "Client".
+
 ### Improvements
+- Show to client: a new tick "Also show its description" — the Client portal shows a task's
+  description only when it is ticked. A task moved to another project is no longer shown to clients.
+- Task history says "(client)" after a client's name, and words a client's sign-off and send-back.
+  Notifications have a new "Client sign-off" switch.
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.
   An administrator can turn it on or off for any administrator — their lists then show only the
   projects they own, manage or are on the team of, from their next page. It is the same setting as
@@ -48,6 +78,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - New task: after you create a task with the form, a short notice says "Task MICO-143 created" with
   Open, which opens it. A task created while offline says "Task MICO-143 saved" once it reaches the
   server.
+
+### Security
+- Client accounts can use only the Client portal: the server refuses every other page and request to
+  them, and refuses the portal to staff. Every portal request is checked, in order, for an active
+  client account, access to that project, the part of the project, the action, and that the item is
+  shown to clients (or the client was invited) — anything else is refused without showing any of it.
+  Clients are never in a company or a project team, never offered in people lists, @mentions, chats,
+  Workload, Reports or search, and get no notifications, reminders or daily and weekly emails.
+- Clients receive only these emails: the welcome email, meeting invitations (while they may see that
+  project's meetings), the client copy of approved minutes shown to them, and replies marked "Visible
+  to client". They are never sent the team's minutes. Every client change and every client action is
+  in the audit log.
 
 ## [1.22.2] - 2026-11-04
 
