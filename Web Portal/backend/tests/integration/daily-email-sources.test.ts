@@ -100,6 +100,12 @@ describe('Daily email sources (integration)', () => {
     expect(tasks.map((t) => t.key)).toEqual(['DM-4']);
     expect(await sources.tasks.completedBetween(bo, new Date('2026-10-20T00:00:00Z'), new Date('2026-10-21T00:00:00Z'))).toEqual([]);
   });
+
+  it('1.22: completed: never a task of an archived project', async () => {
+    await prisma.task.updateMany({ where: { key: 'DM-7', project: { code: 'DMOLD' } }, data: { completedAt: new Date('2026-10-20T11:00:00Z') } });
+    const tasks = await sources.tasks.completedBetween(ada, new Date('2026-10-20T00:00:00Z'), new Date('2026-10-21T00:00:00Z'));
+    expect(tasks.map((t) => t.key)).toEqual(['DM-4']);
+  });
 });
 
 describe('Daily email sources, 1.22: the card’s details, the day’s meetings, the projects the person runs (integration)', () => {

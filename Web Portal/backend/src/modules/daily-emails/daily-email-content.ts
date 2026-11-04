@@ -274,7 +274,12 @@ function classify(input: DailyEmailInput) {
   const managed = parts.managed
     ? input.managed
         .filter((t) => waiting(t) || isOverdue(t))
-        .sort((a, b) => Number(waiting(a)) - Number(waiting(b)) || dueKey(a).localeCompare(dueKey(b)) || (a.waitingSince?.getTime() ?? 0) - (b.waitingSince?.getTime() ?? 0) || byKey(a, b))
+        .sort(
+          (a, b) =>
+            Number(waiting(a)) - Number(waiting(b)) ||
+            (waiting(a) ? a.waitingSince!.getTime() - b.waitingSince!.getTime() : dueKey(a).localeCompare(dueKey(b))) ||
+            byKey(a, b),
+        )
     : [];
 
   const approvals = parts.urgent || parts.pending || parts.managed ? input.awaitingApproval : 0;

@@ -56,7 +56,7 @@ describe('SettingsPage — the daily email', () => {
   it('has the daily email card, and the places its links open (its settings, the time zone)', async () => {
     const { container } = renderPage();
     expect(await screen.findByRole('heading', { name: 'Daily email' })).toBeInTheDocument();
-    expect(await screen.findByRole('switch', { name: 'Daily email' })).toBeInTheDocument();
+    expect(await screen.findByRole('switch', { name: 'Send me the daily email' })).toBeInTheDocument();
     expect(container.querySelector('section#daily-email')).not.toBeNull();
     expect(container.querySelector('section#time-zone')).toHaveTextContent('Calendar & dates');
   });

@@ -159,10 +159,10 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         });
         return rows.map(toTask);
       },
-      /** Assigned to them and completed in [from, to), whoever completed them. */
+      /** Assigned to them and completed in [from, to), whoever completed them — never in an archived project. */
       async completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
-          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: await companyScope(userId) },
+          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
           select: taskSelect,
           orderBy: { completedAt: 'asc' },
           take: 500,

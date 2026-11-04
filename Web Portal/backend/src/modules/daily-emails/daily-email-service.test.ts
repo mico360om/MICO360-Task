@@ -53,7 +53,8 @@ function memoryRepo(clock: () => Date = () => new Date()) {
     },
     async lastSent(userId, kind, beforeDay) {
       const sent = rows.filter((r) => r.userId === userId && r.kind === kind && r.status === 'SENT' && r.sentAt && r.day < beforeDay);
-      return sent.sort((a, b) => b.sentAt!.getTime() - a.sentAt!.getTime())[0]?.sentAt ?? null;
+      const last = sent.sort((a, b) => b.sentAt!.getTime() - a.sentAt!.getTime())[0];
+      return last ? { day: last.day, sentAt: last.sentAt! } : null;
     },
   };
   return { repo, rows, failFinishes: (n: number) => { failFinishes = n; }, failClaimsFor };
@@ -220,6 +221,40 @@ describe('the daily email: the morning sweep', () => {
     t.rows.push(record({ id: 'w', userId: 'ada', day: '2026-10-01', kind: 'PENDING', status: 'SENT', sentAt: at('2026-10-01T02:00:00Z') }));
     await t.service.runSweep();
     expect(t.completedBetween.mock.calls[0]![1].toISOString()).toBe('2026-10-13T20:00:00.000Z'); // 14 Oct 00:00 in Muscat
+  });
+
+  it('1.22 review: the first email after the upgrade starts "Recently completed" where the old completed email ended (that day’s start)', async () => {
+    const s = setup();
+    s.rows.push(
+      record({ id: 'p', userId: 'ada', day: '2026-10-20', kind: 'PENDING', status: 'SENT', sentAt: at('2026-10-20T02:00:00Z') }),
+      record({ id: 'c', userId: 'ada', day: '2026-10-20', kind: 'COMPLETED', status: 'SENT', sentAt: at('2026-10-20T02:00:00Z') }),
+    );
+    await s.service.runSweep();
+    expect(s.completedBetween.mock.calls[0]![1].toISOString()).toBe('2026-10-19T20:00:00.000Z'); // 20 Oct 00:00 in Muscat
+  });
+
+  it('1.22 review: the upgrade day — someone who already got today’s old "Completed yesterday" email gets no second one', async () => {
+    const s = setup({ people: [person('ada', { prefs: { muted: [], dailyEmails: { pending: false, completed: true, time: '06:00' } } })] });
+    s.rows.push(record({ id: 'c', userId: 'ada', kind: 'COMPLETED', status: 'SENT', sentAt: at('2026-10-21T02:00:00Z') }));
+    s.setNow('2026-10-21T03:00:00Z');
+    expect(await sendNowAll(s)).toMatchObject({ sent: 0, alreadyDone: 1 });
+    await s.service.runSweep();
+    expect(s.sent).toEqual([]);
+    expect(s.rows.find((r) => r.kind === 'PENDING')).toMatchObject({ status: 'SKIPPED', lastError: 'Already got today’s “Completed yesterday” email (before the one daily email).' });
+    s.setNow('2026-10-22T02:00:00Z'); // the next morning: the one daily email
+    await s.service.runSweep();
+    expect(s.sent.map((m) => m.template)).toEqual(['daily-email']);
+  });
+
+  it('1.22 review: a retry after midnight is about the new day (its meetings), as its date and counts are', async () => {
+    const s = setup({ people: [person('ada', { prefs: { muted: [], dailyEmails: { pending: true, completed: true, time: '23:50' } } })], failures: 1 });
+    s.setNow('2026-10-21T19:50:00Z'); // 23:50 on 21 Oct in Muscat: fails
+    await s.service.runSweep();
+    s.meetingsBetween.mockClear();
+    s.setNow('2026-10-21T20:05:00Z'); // 00:05 on 22 Oct: the retry
+    await s.service.runSweep();
+    expect(s.sent).toHaveLength(1);
+    expect(s.meetingsBetween.mock.calls[0]![1].toISOString()).toBe('2026-10-21T20:00:00.000Z'); // 22 Oct 00:00 in Muscat
   });
 
   it('asks only for the parts that are on', async () => {

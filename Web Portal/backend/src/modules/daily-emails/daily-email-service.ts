@@ -315,22 +315,35 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
 
   /**
    * Where "Recently completed" starts: the last daily email that went before `day` — so nothing is
-   * missed or shown twice — else the start of yesterday; never more than a week back.
+   * missed or shown twice — else the start of yesterday; never more than a week back. The day the old
+   * "Completed yesterday" email went too, it covered only up to that day's start: from there.
    */
   async function completedSince(person: DailyRecipient, day: string, timeZone: string): Promise<Date> {
     const floor = zonedStartOfDay(shiftDayKey(day, -COMPLETED_LOOKBACK_DAYS), timeZone);
     const last = await deps.repo.lastSent(person.id, 'PENDING', day).catch(() => null);
     if (!last) return zonedStartOfDay(shiftDayKey(day, -1), timeZone);
-    return last > floor ? last : floor;
+    const old = await deps.repo.find(person.id, last.day, 'COMPLETED').catch(() => null);
+    const start = old?.status === 'SENT' ? zonedStartOfDay(last.day, timeZone) : last.sentAt;
+    const since = start < last.sentAt ? start : last.sentAt;
+    return since > floor ? since : floor;
+  }
+
+  /** 1.22: the upgrade day — someone who already got today's old "Completed yesterday" email gets no second one. */
+  const UPGRADE_NOTE = 'Already got today’s “Completed yesterday” email (before the one daily email).';
+  async function hadOldEmailToday(userId: string, day: string): Promise<boolean> {
+    return (await deps.repo.find(userId, day, 'COMPLETED').catch(() => null))?.status === 'SENT';
   }
 
   /**
-   * The person's daily email for `day` as of `at` (null: nothing in it). `test`: "Send me a test" —
+   * The person's daily email as of `at` (null: nothing in it). `test`: "Send me a test" —
    * with every part turned off it shows them the whole email.
    */
-  async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date, o: { test?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string }> {
+  async function build(kind: DailyEmailKind, person: DailyRecipient, at: Date, o: { test?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string }> {
     if (kind !== 'PENDING') return { count: 0, content: null };
     const timeZone = zoneOf(person);
+    // The person's day as it is now (not the record's): a retry after midnight is about the new day,
+    // as its date and counts are.
+    const day = localClock(at, timeZone).day;
     const prefs = dailyEmailPrefs(person.prefs);
     const parts = o.test && !dailyEmailOn(prefs) ? ALL_PARTS : prefs;
     const brand = await brandOf(person);
@@ -446,7 +459,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
 
     let built: { count: number; content: EmailContent | null; fromName?: string } = { count: 0, content: null };
     try {
-      if (person.email && isOn(dailyEmailPrefs(person.prefs), taken.kind)) built = await build(taken.kind, person, taken.day, at);
+      if (person.email && isOn(dailyEmailPrefs(person.prefs), taken.kind)) built = await build(taken.kind, person, at);
     } catch (err) {
       return failed(err);
     }
@@ -486,7 +499,13 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       for (const kind of KINDS) {
         if (!isOn(prefs, kind)) continue;
         const row = await deps.repo.claim(person.id, today, kind);
-        if (row) count((await attempt(row, person)).status);
+        if (!row) continue;
+        if (kind === 'PENDING' && (await hadOldEmailToday(person.id, today))) {
+          await deps.repo.finish(row, { status: 'SKIPPED', taskCount: 0, nextAttemptAt: null, lastError: UPGRADE_NOTE });
+          count('SKIPPED');
+          continue;
+        }
+        count((await attempt(row, person)).status);
       }
     }
 
@@ -515,8 +534,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     const person = await deps.people.find(userId);
     if (!person?.email) throw new Error('Your account has no email address.');
     const at = now();
-    const { day } = localClock(at, zoneOf(person));
-    const { content, fromName } = await build('PENDING', person, day, at, { test: true });
+    const { content, fromName } = await build('PENDING', person, at, { test: true });
     let outcome: TestOutcome = 'empty';
     if (content) outcome = (await sendBuilt(person.email, { content, fromName }, `${TEMPLATE.PENDING}-test`)) === 'suppressed' ? 'blocked' : 'sent';
     return { daily: outcome, pending: outcome, completed: outcome };
@@ -602,7 +620,9 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
       const kinds: DailyEmailKind[] = [];
       for (const kind of KINDS) {
         const row = rows.get(`${person.id}|${today}|${kind}`);
+        const oldToday = kind === 'PENDING' && rows.get(`${person.id}|${today}|COMPLETED`)?.status === 'SENT';
         if (!isOn(prefs, kind)) c.off++;
+        else if (!row && oldToday) c.alreadyDone++; // the upgrade day: today's old email went
         else if (!due) c.notYet++; // theirs go at their time, by the sweep
         else if (!row || row.status === 'FAILED' || row.status === 'RETRY') kinds.push(kind);
         else if (row.status === 'SENDING') c.sending++; // the sweep is sending it right now
@@ -652,7 +672,7 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
     if (!person?.email) return null;
     const at = now();
     const { day } = localClock(at, zoneOf(person));
-    const { count, content } = await build(kind, person, day, at);
+    const { count, content } = await build(kind, person, at);
     return {
       userId: person.id,
       name: person.name,

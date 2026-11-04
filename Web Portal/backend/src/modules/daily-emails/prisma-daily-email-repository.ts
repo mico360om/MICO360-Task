@@ -128,9 +128,9 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
       const row = await prisma.dailyTaskEmail.findFirst({
         where: { userId, kind, status: 'SENT', sentAt: { not: null }, day: { lt: beforeDay } },
         orderBy: { sentAt: 'desc' },
-        select: { sentAt: true },
+        select: { day: true, sentAt: true },
       });
-      return row?.sentAt ?? null;
+      return row?.sentAt ? { day: row.day, sentAt: row.sentAt } : null;
     },
   };
 }

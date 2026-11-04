@@ -149,7 +149,7 @@ describe('PrismaDailyEmailRepository (integration)', () => {
     await send('2026-10-20', '2026-10-20T02:10:00Z');
     await send('2026-10-21', null, 'FAILED');
     await send('2026-10-22', '2026-10-22T02:00:00Z'); // the day asked about itself: not counted
-    expect(await repo.lastSent(userId, 'PENDING', '2026-10-22')).toEqual(new Date('2026-10-20T02:10:00Z'));
+    expect(await repo.lastSent(userId, 'PENDING', '2026-10-22')).toEqual({ day: '2026-10-20', sentAt: new Date('2026-10-20T02:10:00Z') });
     expect(await repo.lastSent(userId, 'COMPLETED', '2026-10-22')).toBeNull();
   });
 });

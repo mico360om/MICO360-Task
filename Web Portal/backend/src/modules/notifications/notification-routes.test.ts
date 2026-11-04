@@ -99,6 +99,19 @@ describe('Notification preferences: daily task emails', () => {
     expect(await put({ pending: true, completed: false, time: '06:00' })).toMatchObject({ pending: true, urgent: true, completed: false });
   });
 
+  it('1.22 review: an older app always sends both old switches — a save that changes neither keeps the parts chosen on the website', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    const put = async (dailyEmails: Record<string, unknown>) =>
+      (await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails } })).json().data.dailyEmails;
+    // On the website: only the schedule and Overdue & urgent.
+    await put({ schedule: true, urgent: true, pending: false, managed: false, completed: false, time: '06:00' });
+    // The extension changes only the time (it sends the two old switches as they are).
+    expect(await put({ pending: false, completed: false, time: '07:00' })).toEqual({ pending: false, completed: false, time: '07:00', schedule: true, urgent: true, managed: false });
+    // It turns "Completed yesterday" on: Overdue & urgent stays as chosen.
+    expect(await put({ pending: false, completed: true, time: '07:00' })).toEqual({ pending: false, completed: true, time: '07:00', schedule: true, urgent: true, managed: false });
+  });
+
   it('saves them without losing other settings, and an app that doesn’t know them keeps them', async () => {
     const a = await appWithStore();
     const auth = { authorization: `Bearer ${await token()}` };

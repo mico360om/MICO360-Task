@@ -48,9 +48,12 @@ const bulkSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max
 function dailyEmailsSaved(current: DailyEmailPrefs, sent: z.infer<typeof prefsSchema>['dailyEmails'] & object): DailyEmailPrefs {
   const next = { ...current, ...sent };
   const older = sent.schedule === undefined && sent.urgent === undefined && sent.managed === undefined;
-  if (!older || (sent.pending === undefined && sent.completed === undefined)) return next;
+  // Only a switch the save changes means something (older apps send both, as they are, with the time).
+  const pendingChanged = sent.pending !== undefined && sent.pending !== current.pending;
+  const completedChanged = sent.completed !== undefined && sent.completed !== current.completed;
+  if (!older || (!pendingChanged && !completedChanged)) return next;
   const off = !next.pending && !next.completed;
-  return { ...next, urgent: next.pending, ...(off ? { schedule: false, managed: false } : {}) };
+  return { ...next, ...(pendingChanged ? { urgent: next.pending } : {}), ...(off ? { schedule: false, urgent: false, managed: false } : {}) };
 }
 
 /** Preferences as the apps read them: the daily email settings and the weekly summary switch always filled in. */

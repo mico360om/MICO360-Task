@@ -60,7 +60,7 @@ const puts = () => calls.filter((c) => c.method === 'PUT');
 describe('Settings: the daily email (1.22: one email, in parts)', () => {
   it('shows the email on, every part on, and its time', async () => {
     renderIt();
-    expect(await screen.findByRole('switch', { name: 'Daily email' })).toHaveAttribute('aria-checked', 'true');
+    expect(await screen.findByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
     for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('button', { name: 'Send it at: 06:00' })).toHaveTextContent('06:00');
   });
@@ -71,17 +71,17 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, completed: false } });
     expect(screen.getByRole('switch', { name: 'Recently completed' })).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByRole('switch', { name: 'Daily email' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('the whole email off — every part off, and said so — and on again', async () => {
     renderIt();
-    await userEvent.click(await screen.findByRole('switch', { name: 'Daily email' }));
+    await userEvent.click(await screen.findByRole('switch', { name: 'Send me the daily email' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0]!.body).toEqual({ dailyEmails: { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false } });
     expect(await screen.findByText('You get no daily email. Turn on any part to get it again.')).toBeInTheDocument();
     for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'false');
-    await userEvent.click(screen.getByRole('switch', { name: 'Daily email' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'Send me the daily email' }));
     await waitFor(() => expect(puts()).toHaveLength(2));
     expect(puts()[1]!.body).toEqual({ dailyEmails: ALL_ON });
   });
@@ -107,6 +107,8 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
 
   it('"Send me a test" sends the real email now and says so', async () => {
     renderIt();
+    // 44 px on a touch screen: the important form, or the site's global 32 px rule for buttons wins.
+    expect((await screen.findByRole('button', { name: 'Send me a test' })).className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
     await userEvent.click(await screen.findByRole('button', { name: 'Send me a test' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Sent your daily email as it is now. Check your inbox.');
     expect(calls.filter((c) => c.url.endsWith('/notifications/daily-emails/test') && c.method === 'POST')).toHaveLength(1);
@@ -139,6 +141,6 @@ describe('Settings: the daily email (1.22: one email, in parts)', () => {
     renderIt();
     expect(await screen.findByText(/Email isn’t set up on this server yet/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send me a test' })).not.toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Daily email' })).toBeInTheDocument(); // settings can still be chosen
+    expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toBeInTheDocument(); // settings can still be chosen
   });
 });

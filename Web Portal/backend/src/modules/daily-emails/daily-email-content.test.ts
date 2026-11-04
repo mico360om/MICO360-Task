@@ -339,6 +339,17 @@ describe('In your projects (people who run a project)', () => {
     expect(html).toContain('https://task.example/projects/p-rig?task=rig-9');
   });
 
+  it('1.22 review: those waiting for approval, the longest-waiting first (whatever their due dates)', () => {
+    const { text } = build({
+      tasks: [task('RIG-1')],
+      managed: [
+        task('RIG-21', { waitingSince: new Date('2026-11-03T08:00:00Z'), dueDate: day('2026-11-06') }),
+        task('RIG-22', { waitingSince: new Date('2026-10-25T08:00:00Z') }),
+      ],
+    });
+    expect(text.indexOf('(RIG-22)')).toBeLessThan(text.indexOf('(RIG-21)'));
+  });
+
   it('nothing overdue or waiting, or turned off: no section', () => {
     expect(build({ managed: [managed[2]!], tasks: [task('RIG-1')] }).text).not.toContain('In your projects');
     expect(build({ managed, tasks: [task('RIG-1')], parts: { ...DEFAULT_DAILY_EMAILS, managed: false } }).text).not.toContain('In your projects');

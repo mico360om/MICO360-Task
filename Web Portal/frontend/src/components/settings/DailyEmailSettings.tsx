@@ -34,7 +34,8 @@ function testOutcome(r: DailyEmailTestResult): 'sent' | 'empty' | 'blocked' {
   return r.pending === 'sent' || r.completed === 'sent' ? 'sent' : 'empty';
 }
 
-const touch = '[@media(pointer:coarse)]:min-h-11';
+/** 44 px on a touch screen (`!`: the site's global touch rule gives buttons 32 px and would win otherwise). */
+const touch = '[@media(pointer:coarse)]:!min-h-11';
 const linkClass = `inline-flex items-center font-semibold text-brand hover:underline ${touch}`;
 
 /**
@@ -103,7 +104,7 @@ export function DailyEmailSettings() {
             <div className="text-sm font-medium text-ink">Send me the daily email</div>
             <div className="text-xs text-ink-2">{on ? 'Every morning, with the parts turned on below.' : 'You get no daily email. Turn on any part to get it again.'}</div>
           </div>
-          <Toggle on={on} onChange={() => save.mutate({ ...daily, ...allParts(!on) })} label="Daily email" disabled={prefsQ.isLoading} />
+          <Toggle on={on} onChange={() => save.mutate({ ...daily, ...allParts(!on) })} label="Send me the daily email" disabled={prefsQ.isLoading} />
         </li>
         <li className="flex flex-wrap items-center justify-between gap-3 py-3">
           <div className="min-w-0">
