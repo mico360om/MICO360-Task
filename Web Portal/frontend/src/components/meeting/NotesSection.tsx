@@ -11,7 +11,7 @@ import { RichTextEditor } from '../rich-text/RichTextEditor';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { plainToRichHtml } from '../../lib/rich-note';
 import { SaveIndicator, useSaveState } from '../task-drawer/save-state';
-import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, userName } from './kit';
+import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { formatClockTime } from '../../lib/meetingFormat';
 
@@ -68,6 +68,8 @@ export function NotesSection({
   const myId = useAuthStore((s) => s.user?.id);
   const [, setSearchParams] = useSearchParams();
   const [type, setType] = useState<MeetingNoteType>('DISCUSSION');
+  // Opened by hand from its one-line form (a finished meeting with no notes).
+  const [opened, setOpened] = useState(false);
   const [body, setBody] = useState('');
   const [highlight, setHighlight] = useState(false);
   const [filter, setFilter] = useState<MeetingNoteType | 'ALL' | 'KEY'>('ALL');
@@ -150,6 +152,11 @@ export function NotesSection({
     ...(keyCount ? [{ key: 'KEY' as const, label: 'Key points', n: keyCount }] : []),
     ...NOTE_TYPES.filter((t) => counts.get(t)).map((t) => ({ key: t, label: NOTE_TYPE_LABELS[t], n: counts.get(t)! })),
   ];
+
+  // A finished meeting with no notes: one line, until someone adds what was discussed.
+  if (ended && !opened && notesQ.isSuccess && notes.length === 0) {
+    return <ShrunkSection id="notes" title="Live notes" empty="No notes" addLabel="Add a note" onAdd={() => setOpened(true)} />;
+  }
 
   return (
     <Section id="notes" title="Live notes" count={notes.length || undefined}>

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createMailjetTransport, type MailjetConfig, type SendEmailInput, type SendResult, type Transport } from './mailer';
+import { createMailjetTransport, oneLineName, type EmailAddress, type MailjetConfig, type SendEmailInput, type SendResult, type Transport } from './mailer';
 
 /**
  * A local test mailbox: every email is saved as two files instead of being sent — the HTML as the
@@ -18,6 +18,12 @@ export interface OutboxConfig {
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace('T', '-').replace('.', '').slice(0, 18);
 /** A file-name-safe form of the address. */
 const slug = (to: string) => to.trim().toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+/** "Ada Lovelace <ada@x.co>" (a name with a comma or the like is quoted), or the bare address. */
+const addressText = (a: EmailAddress): string => {
+  const name = oneLineName(a.name);
+  if (!name) return a.email;
+  return `${/[",;<>@]/.test(name) ? `"${name.replace(/"/g, "'")}"` : name} <${a.email}>`;
+};
 
 export function createOutboxTransport({ dir, now = () => new Date() }: OutboxConfig): Transport {
   let sequence = 0;
@@ -28,7 +34,9 @@ export function createOutboxTransport({ dir, now = () => new Date() }: OutboxCon
       const base = `${stamp(now())}${sequence++ ? `-${sequence}` : ''}-${slug(input.to)}`;
       const attachments = (input.attachments ?? []).map((a) => `${a.filename} (${a.contentType}, ${a.content.length} bytes)`);
       const header = [
-        `To: ${input.to}`,
+        // An email to several people: its real To and Cc lines, as each of them sees them.
+        `To: ${input.toAll?.length ? input.toAll.map(addressText).join(', ') : input.to}`,
+        ...(input.cc?.length ? [`Cc: ${input.cc.map(addressText).join(', ')}`] : []),
         `Subject: ${input.subject}`,
         // companies: the sender name, only when it isn't MAIL_FROM's (a company's own).
         ...(input.fromName ? [`From: ${input.fromName}`] : []),

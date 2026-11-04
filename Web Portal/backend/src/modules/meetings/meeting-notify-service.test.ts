@@ -24,7 +24,20 @@ const directory: Record<string, { name: string; email: string }> = {
   u2: { name: 'Khurram Admin', email: 'khurram@mico360.test' },
 };
 
-function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRecord[]; failFor?: (email: string) => Error | null } = {}) {
+type Lines = { to: Array<{ email: string; name?: string | null }>; cc: Array<{ email: string; name?: string | null }> };
+/** The addresses of one minutes email: its To line, then its Cc line. */
+const linesOf = (l: Lines) => ({ to: l.to.map((a) => a.email), cc: l.cc.map((a) => a.email) });
+
+function makeService(
+  over: {
+    meetingRow?: MeetingRecord;
+    attendees?: AttendeeRecord[];
+    failFor?: (email: string) => Error | null;
+    /** Blocked addresses (after a bounce): the minutes email leaves them out. */
+    blocked?: string[];
+    users?: Record<string, { id: string; name: string; email: string }>;
+  } = {},
+) {
   const row = over.meetingRow ?? meeting();
   // Mirrors the email service contract: a failed delivery throws (EmailDeliveryError).
   const maybeFail = (to: string) => {
@@ -34,7 +47,11 @@ function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRec
   const email = {
     sendMeetingInvite: vi.fn(async (to: string, _params: unknown, _ics: unknown) => maybeFail(to)),
     sendMeetingCancelled: vi.fn(async (to: string, _params: unknown, _ics: unknown) => maybeFail(to)),
-    sendMeetingMinutes: vi.fn(async (to: string, _params: unknown, _pdf: unknown) => maybeFail(to)),
+    // One email to everyone on it: refused for one address, refused for all of them.
+    sendMeetingMinutes: vi.fn(async (lines: Lines, _params: unknown, _pdf: unknown) => {
+      for (const a of [...lines.to, ...lines.cc]) maybeFail(a.email);
+      return { suppressed: [...lines.to, ...lines.cc].map((a) => a.email).filter((e) => over.blocked?.includes(e)) };
+    }),
   };
   const meetings = {
     findById: vi.fn(async (id: string) => (id === row.id ? row : null)),
@@ -46,7 +63,7 @@ function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRec
     meetings: meetings as never,
     attendees,
     email,
-    resolveUser: async (uid: string) => directory[uid] ?? null,
+    resolveUser: async (uid: string) => directory[uid] ?? over.users?.[uid] ?? null,
     resolveProjectName: async () => 'Falcon CRM',
     resolveProjectLook: async () => ({ name: 'Falcon CRM', imageUrl: '/uploads/projects/falcon.png', color: '#0F766E' }),
     assetBaseUrl: 'https://api.mico360.test/',
@@ -54,6 +71,8 @@ function makeService(over: { meetingRow?: MeetingRecord; attendees?: AttendeeRec
     defaultTimeZone: 'Asia/Muscat',
     logger,
     now: () => new Date('2026-10-05T13:00:00Z'),
+    // A typed address that is someone's account (case aside).
+    findUserByEmail: async (address: string) => Object.values(over.users ?? {}).find((u) => u.email.toLowerCase() === address.toLowerCase()) ?? null,
   });
   return { svc, email, meetings, attendees, logger };
 }
@@ -99,19 +118,29 @@ describe('MeetingNotifyService', () => {
     expect(ics.content.toString('utf8')).toContain('STATUS:CANCELLED');
   });
 
-  it('emails minutes with the PDF attached', async () => {
+  it('emails the minutes as ONE email to the organizer and attendees (real To line, names beside the addresses), the PDF attached', async () => {
     const { svc, email } = makeService({ attendees: [attendee({ userId: 'u2' })] });
     const pdf = Buffer.from('%PDF-1.4 fake');
     const res = await svc.sendMinutes('m1', pdf);
     expect(res.sent).toBe(2);
+    expect(email.sendMeetingMinutes).toHaveBeenCalledTimes(1);
+    expect(email.sendMeetingMinutes.mock.calls[0]![0]).toEqual({
+      to: [{ email: 'aisha@mico360.test', name: 'Aisha Khan' }, { email: 'khurram@mico360.test', name: 'Khurram Admin' }],
+      cc: [],
+    });
     const att = email.sendMeetingMinutes.mock.calls[0]![2] as { contentType: string; content: Buffer };
     expect(att.contentType).toContain('application/pdf');
     expect(att.content).toBe(pdf);
+    expect(res.recipients.map((r) => [r.email, r.line, r.copy, r.ok])).toEqual([
+      ['aisha@mico360.test', 'to', 'shared', true],
+      ['khurram@mico360.test', 'to', 'shared', true],
+    ]);
   });
 
   // Companies: someone invited from another company gets their own copy (the invitee minutes: no live
-  // notes, only their own action items), or nothing while the minutes aren't final.
-  it('companies: each of the meeting’s users gets their own copy of the minutes — another PDF, or none', async () => {
+  // notes, only their own action items) in an email of their own, or nothing while the minutes aren't
+  // final — and the shared email never lists them.
+  it('companies: someone from another company gets their own email with their own copy; the shared email doesn’t list them', async () => {
     const { svc, email } = makeService({
       attendees: [attendee({ id: 'a2', userId: 'u2' }), attendee({ id: 'a3', userId: 'u3' }), attendee({ id: 'a4', externalName: 'Guest', externalEmail: 'guest@ext.co' })],
     });
@@ -126,9 +155,14 @@ describe('MeetingNotifyService', () => {
           return userId === 'u2' ? theirs : userId === 'u3' ? null : undefined;
         },
       });
-      const sent = Object.fromEntries(email.sendMeetingMinutes.mock.calls.map((c) => [c[0], (c[2] as { content: Buffer }).content.toString()]));
-      expect(sent).toEqual({ 'aisha@mico360.test': '%PDF full', 'khurram@mico360.test': '%PDF invitee u2', 'guest@ext.co': '%PDF full' });
+      const sent = email.sendMeetingMinutes.mock.calls.map((c) => [linesOf(c[0]), (c[2] as { content: Buffer }).content.toString()]);
+      expect(sent).toEqual([
+        [{ to: ['aisha@mico360.test', 'guest@ext.co'], cc: [] }, '%PDF full'],
+        [{ to: ['khurram@mico360.test'], cc: [] }, '%PDF invitee u2'],
+      ]);
       expect(res.sent).toBe(3); // u3 gets nothing (not final yet for them)
+      expect(res.recipients.find((r) => r.email === 'khurram@mico360.test')).toMatchObject({ copy: 'own', ok: true });
+      expect(res.skipped).toEqual([{ name: 'Bob Betaonly', reason: 'can’t get these minutes yet' }]);
       expect(asked.sort()).toEqual(['u1', 'u2', 'u3']); // asked for each of the meeting's users, never for a guest
     } finally {
       delete directory.u3;
@@ -178,9 +212,114 @@ describe('MeetingNotifyService — delivery results (NTF-02)', () => {
   it('counts cancellation and minutes results too', async () => {
     const { svc } = makeService({ attendees: guests, failFor: (to) => (to === 'khurram@mico360.test' ? new EmailDeliveryError(to) : null) });
     expect(await svc.sendCancellation('m1')).toEqual({ sent: 2, failed: 1 });
-    expect(await svc.sendMinutes('m1', Buffer.from('%PDF'))).toMatchObject({ sent: 2, failed: 1 });
+    // The minutes are ONE email: refused, it failed for every address on it.
+    const minutes = await svc.sendMinutes('m1', Buffer.from('%PDF'));
+    expect(minutes).toMatchObject({ sent: 0, failed: 3 });
+    expect(minutes.recipients.every((r) => !r.ok && r.error === 'The mail server didn’t accept it.')).toBe(true);
   });
 
+  it('a blocked address (an earlier bounce) is left out of the minutes email and reported as failed, with why', async () => {
+    const { svc } = makeService({ attendees: guests, blocked: ['guest@ext.co'] });
+    const r = await svc.sendMinutes('m1', Buffer.from('%PDF'));
+    expect(r).toMatchObject({ sent: 2, failed: 1 });
+    expect(r.recipients.find((x) => x.email === 'guest@ext.co')).toMatchObject({ ok: false, error: 'Blocked: earlier emails to this address bounced or were marked as spam.' });
+  });
+});
+
+describe('MeetingNotifyService — the minutes email’s To and Cc lines', () => {
+  const roster = [attendee({ id: 'a-u2', userId: 'u2' }), attendee({ id: 'a-guest', externalName: 'Late Guest', externalEmail: 'late@ext.co' })];
+  const users = { u5: { id: 'u5', name: 'Sara Ahmed', email: 'sara@mico360.test' }, u6: { id: 'u6', name: 'Omar Beta', email: 'omar@beta.test' } };
+
+  it('one email: the chosen people and those added in To, the Cc line, an address only once (To wins over Cc)', async () => {
+    const { svc, email } = makeService({ attendees: roster, users });
+    const r = await svc.sendMinutes('m1', Buffer.from('%PDF'), {
+      to: [{ email: 'AISHA@mico360.test' }, { userId: 'u5' }, { email: 'client@outside.co' }],
+      cc: [{ email: 'late@ext.co' }, { email: 'aisha@mico360.test' }, { email: 'boss@outside.co' }, { userId: 'u5' }],
+    });
+    expect(email.sendMeetingMinutes).toHaveBeenCalledTimes(1);
+    expect(email.sendMeetingMinutes.mock.calls[0]![0]).toEqual({
+      to: [{ email: 'aisha@mico360.test', name: 'Aisha Khan' }, { email: 'sara@mico360.test', name: 'Sara Ahmed' }, { email: 'client@outside.co', name: null }],
+      cc: [{ email: 'late@ext.co', name: 'Late Guest' }, { email: 'boss@outside.co', name: null }],
+    });
+    expect(r.recipients.map((x) => [x.email, x.line, x.kind])).toEqual([
+      ['aisha@mico360.test', 'to', 'organizer'],
+      ['sara@mico360.test', 'to', 'member'],
+      ['client@outside.co', 'to', 'guest'],
+      ['late@ext.co', 'cc', 'guest'],
+      ['boss@outside.co', 'cc', 'guest'],
+    ]);
+    expect(r.recipients.find((x) => x.email === 'sara@mico360.test')).toMatchObject({ userId: 'u5', name: 'Sara Ahmed' });
+    // People the organizer left out aren't listed as skipped: they weren't chosen.
+    expect(r.skipped).toEqual([]);
+  });
+
+  it('a typed address that is someone’s account is that person: the company rule asks about them', async () => {
+    const { svc, email } = makeService({ attendees: roster, users });
+    const asked: string[] = [];
+    const r = await svc.sendMinutes('m1', Buffer.from('%PDF full'), {
+      to: [{ email: 'aisha@mico360.test' }],
+      cc: [{ email: 'Omar@Beta.test' }],
+      attachmentFor: async (userId) => {
+        asked.push(userId);
+        return userId === 'u6' ? Buffer.from('%PDF their own') : undefined;
+      },
+    });
+    expect(asked).toEqual(['u1', 'u6']);
+    expect(email.sendMeetingMinutes.mock.calls.map((c) => [linesOf(c[0]), (c[2] as { content: Buffer }).content.toString()])).toEqual([
+      [{ to: ['aisha@mico360.test'], cc: [] }, '%PDF full'],
+      [{ to: ['omar@beta.test'], cc: [] }, '%PDF their own'],
+    ]);
+    expect(r.recipients.find((x) => x.email === 'omar@beta.test')).toMatchObject({ line: 'cc', copy: 'own', userId: 'u6', name: 'Omar Beta' });
+  });
+
+  it('with only people from another company in To, the shared email goes to its Cc line', async () => {
+    const { svc, email } = makeService({ attendees: roster });
+    await svc.sendMinutes('m1', Buffer.from('%PDF'), {
+      to: [{ email: 'khurram@mico360.test' }],
+      cc: [{ email: 'late@ext.co' }],
+      attachmentFor: async (userId) => (userId === 'u2' ? Buffer.from('%PDF own') : undefined),
+    });
+    expect(email.sendMeetingMinutes.mock.calls.map((c) => linesOf(c[0]))).toEqual([
+      { to: ['late@ext.co'], cc: [] },
+      { to: ['khurram@mico360.test'], cc: [] },
+    ]);
+  });
+
+  it('refuses more than 50 addresses, and a send with nobody to send to', async () => {
+    const { svc, email } = makeService({ attendees: roster });
+    const many = Array.from({ length: 50 }, (_, i) => ({ email: `p${i}@outside.co` }));
+    await expect(svc.sendMinutes('m1', Buffer.from('%PDF'), { to: [{ email: 'aisha@mico360.test' }], cc: many })).rejects.toMatchObject({
+      status: 400,
+      message: 'Send the minutes to 50 addresses at most.',
+    });
+    // The same address twice counts once.
+    await expect(svc.sendMinutes('m1', Buffer.from('%PDF'), { to: [{ email: 'p0@outside.co' }], cc: many })).resolves.toMatchObject({ sent: 50 });
+    await expect(svc.sendMinutes('m1', Buffer.from('%PDF'), { to: [{ userId: 'ghost' }] })).rejects.toMatchObject({ status: 400 });
+    expect(email.sendMeetingMinutes).toHaveBeenCalledTimes(1);
+  });
+
+  it('someone added without an email address is reported as skipped', async () => {
+    const { svc } = makeService({ attendees: roster, users: { u7: { id: 'u7', name: 'No Mail', email: '' } } });
+    const r = await svc.sendMinutes('m1', Buffer.from('%PDF'), { to: [{ email: 'aisha@mico360.test' }, { userId: 'u7' }] });
+    expect(r.skipped).toEqual([{ name: 'No Mail', reason: 'no email address' }]);
+  });
+
+  it('the preview names each person’s account and copy: the shared email, their own (another company), later or none', async () => {
+    const { svc } = makeService({ attendees: [...roster, attendee({ id: 'a-u3', userId: 'u3' })] });
+    directory.u3 = { name: 'Bob Betaonly', email: 'bob@beta.test' };
+    try {
+      const p = await svc.previewMinutes('m1', { final: true, copyOf: async (userId) => (userId === 'u2' ? 'own' : userId === 'u3' ? 'none' : 'shared') });
+      expect(p.recipients.map((r) => [r.email, r.userId ?? null, r.copy])).toEqual([
+        ['aisha@mico360.test', 'u1', 'shared'],
+        ['khurram@mico360.test', 'u2', 'own'],
+        ['late@ext.co', null, 'shared'],
+        ['bob@beta.test', 'u3', 'none'],
+      ]);
+      expect(p.final).toBe(true);
+    } finally {
+      delete directory.u3;
+    }
+  });
 });
 
 describe('MeetingNotifyService — checking before sending, and who got what', () => {
@@ -240,10 +379,10 @@ describe('MeetingNotifyService — checking before sending, and who got what', (
     expect(past.problems).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringMatching(/already/i) }));
   });
 
-  it('emails the minutes only to the recipients chosen', async () => {
+  it('emails the minutes only to the recipients chosen (older apps: some of the meeting’s own people, never another address)', async () => {
     const { svc, email } = makeService({ attendees: roster });
     const r = await svc.sendMinutes('m1', Buffer.from('%PDF'), { only: ['LATE@ext.co', 'stranger@evil.example'] });
-    expect(email.sendMeetingMinutes.mock.calls.map((c) => c[0])).toEqual(['late@ext.co']);
+    expect(email.sendMeetingMinutes.mock.calls.map((c) => linesOf(c[0]))).toEqual([{ to: ['late@ext.co'], cc: [] }]);
     expect(r).toMatchObject({ sent: 1, failed: 0 });
     await expect(svc.sendMinutes('m1', Buffer.from('%PDF'), { only: ['stranger@evil.example'] })).rejects.toMatchObject({ status: 400 });
   });
@@ -332,7 +471,7 @@ describe('MeetingNotifyService — the meeting’s company brand (companies)', (
     const email = {
       sendMeetingInvite: vi.fn(async (..._args: unknown[]) => {}),
       sendMeetingCancelled: vi.fn(async (..._args: unknown[]) => {}),
-      sendMeetingMinutes: vi.fn(async (..._args: unknown[]) => {}),
+      sendMeetingMinutes: vi.fn(async (..._args: unknown[]) => ({ suppressed: [] as string[] })),
     };
     const row = meeting({ invitesSentAt: new Date('2026-10-04T10:00:00Z') });
     const svc = createMeetingNotifyService({

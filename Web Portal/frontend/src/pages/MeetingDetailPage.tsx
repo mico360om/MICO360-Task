@@ -14,7 +14,8 @@ import { NotesSection } from '../components/meeting/NotesSection';
 import { ActionItemsSection } from '../components/meeting/ActionItemsSection';
 import { AttendeesPanel } from '../components/meeting/AttendeesPanel';
 import { InviteDialog } from '../components/meeting/InviteDialog';
-import { MinutesEmailDialog } from '../components/meeting/MinutesEmailDialog';
+import { MinutesEmailDialog, type MinutesPrefill } from '../components/meeting/MinutesEmailDialog';
+import { MinutesSentLog } from '../components/meeting/MinutesSentLog';
 import { FinalMinutesSection } from '../components/meeting/FinalMinutesSection';
 import { InviteeView } from '../components/meeting/InviteeView';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
@@ -39,6 +40,8 @@ export function MeetingDetailPage() {
   const qc = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const [dialog, setDialog] = useState<Dialog>(null);
+  // Send again (from the minutes' "Sent" log): the email opens with that send's To and Cc.
+  const [minutesPrefill, setMinutesPrefill] = useState<MinutesPrefill | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
   const meetingQ = useQuery({
@@ -219,8 +222,36 @@ export function MeetingDetailPage() {
     />
   );
   const notes = <NotesSection key="notes" meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
-  const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} />;
-  const finalMom = <FinalMinutesSection key="final" meetingId={id} meetingTitle={meeting.title} canEdit={canEdit} timeZone={timeZone} />;
+  const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
+  // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).
+  const sentLog = canEdit ? (
+    <MinutesSentLog
+      meetingId={id}
+      timeZone={timeZone}
+      ended={finished}
+      canSend={meeting.status !== 'CANCELLED'}
+      onSendAgain={(prefill) => {
+        setMinutesPrefill(prefill);
+        setDialog('minutes');
+      }}
+    />
+  ) : null;
+  const finalMom = (
+    <FinalMinutesSection
+      key="final"
+      meetingId={id}
+      meetingTitle={meeting.title}
+      canEdit={canEdit}
+      timeZone={timeZone}
+      footer={sentLog}
+      // A finished meeting: Notes → Final MOM → Approved → Emailed, with the one next button.
+      finished={finished}
+      onEmail={() => {
+        setMinutesPrefill(null);
+        setDialog('minutes');
+      }}
+    />
+  );
 
   return (
     <div>
@@ -279,7 +310,16 @@ export function MeetingDetailPage() {
 
       {dialog === 'edit' ? <MeetingFormModal meeting={meeting} onClose={() => setDialog(null)} /> : null}
       {dialog === 'invite' ? <InviteDialog meeting={meeting} onClose={() => setDialog(null)} /> : null}
-      {dialog === 'minutes' ? <MinutesEmailDialog meeting={meeting} onClose={() => setDialog(null)} /> : null}
+      {dialog === 'minutes' ? (
+        <MinutesEmailDialog
+          meeting={meeting}
+          prefill={minutesPrefill ?? undefined}
+          onClose={() => {
+            setDialog(null);
+            setMinutesPrefill(null);
+          }}
+        />
+      ) : null}
       {dialog === 'cancel' ? <CancelMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={(scope) => setNotice({ text: scope === 'series' ? 'The upcoming meetings of the series are cancelled.' : 'Meeting cancelled.' })} /> : null}
       {dialog === 'delete' ? <DeleteMeetingDialog meeting={meeting} onClose={() => setDialog(null)} onDone={() => navigate('/meetings')} /> : null}
     </div>

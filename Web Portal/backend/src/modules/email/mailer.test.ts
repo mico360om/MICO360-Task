@@ -37,6 +37,33 @@ describe('Mailjet transport', () => {
     expect(JSON.parse(calls[1]!.init.body as string).Messages[0].From).toEqual({ Email: 'no-reply@mico360.test', Name: 'MICO360 Tasks' });
   });
 
+  it('sends one email to several people: every To address with its name, and the Cc line, each with its own message id', async () => {
+    const { impl, calls } = fakeFetch(200, {
+      Messages: [{ Status: 'success', To: [{ Email: 'ada@x.co', MessageID: 11 }, { Email: 'Ben@x.co', MessageID: 12 }], Cc: [{ Email: 'cy@y.co', MessageID: 13 }] }],
+    });
+    const transport = createMailjetTransport({ apiKey: 'k', secretKey: 's', from: 'x@y.z', fetchImpl: impl });
+    const res = await transport.send({
+      to: 'ada@x.co',
+      toAll: [{ email: 'ada@x.co', name: 'Ada Lovelace' }, { email: 'Ben@x.co' }],
+      cc: [{ email: 'cy@y.co', name: 'Cy' }],
+      subject: 'Minutes',
+      html: 'x',
+    });
+    const message = JSON.parse(calls[0]!.init.body as string).Messages[0];
+    expect(message.To).toEqual([{ Email: 'ada@x.co', Name: 'Ada Lovelace' }, { Email: 'Ben@x.co' }]);
+    expect(message.Cc).toEqual([{ Email: 'cy@y.co', Name: 'Cy' }]);
+    expect(res).toMatchObject({ ok: true, messageId: '11', messageIds: { 'ada@x.co': '11', 'ben@x.co': '12', 'cy@y.co': '13' } });
+  });
+
+  it('keeps names to one line (no header tricks), and sends no Cc when there is none', async () => {
+    const { impl, calls } = fakeFetch(200, { Messages: [{ Status: 'success' }] });
+    const transport = createMailjetTransport({ apiKey: 'k', secretKey: 's', from: 'x@y.z', fetchImpl: impl });
+    await transport.send({ to: 'ada@x.co', toAll: [{ email: 'ada@x.co', name: 'Ada\r\nBcc: evil@x.co' }], cc: [], subject: 'Minutes', html: 'x' });
+    const message = JSON.parse(calls[0]!.init.body as string).Messages[0];
+    expect(message.To).toEqual([{ Email: 'ada@x.co', Name: 'Ada Bcc: evil@x.co' }]);
+    expect('Cc' in message).toBe(false);
+  });
+
   it('reports a non-2xx answer as a failure with the provider’s error text', async () => {
     const { impl } = fakeFetch(401, { ErrorMessage: 'API key authentication/authorization failure' });
     const transport = createMailjetTransport({ apiKey: 'k', secretKey: 's', from: 'x@y.z', fetchImpl: impl });

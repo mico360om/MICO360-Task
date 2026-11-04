@@ -15,6 +15,10 @@ import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-er
 import { draftFromNotes, minutesFacts, normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
 import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
 import type { PdfBrand } from '../companies/company-branding';
+import type { AuditService } from '../audit/audit-service';
+import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesSendOptions, type RecipientResult } from './meeting-notify-service';
+import type { MinutesSendAddress, MinutesSendRepository } from './minutes-send-repository';
+import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -101,18 +105,37 @@ export interface MinutesRouteDeps {
   pdfBrand?: (meetingId: string) => Promise<PdfBrand>;
   /** Email distribution of the minutes PDF (enables POST /meetings/:id/minutes/send). */
   notify?: {
-    sendMinutes: (
-      meetingId: string,
-      pdf: Buffer,
-      opts?: { only?: string[]; final?: boolean; attachmentFor?: (userId: string) => Promise<Buffer | null | undefined> },
-    ) => Promise<{ sent: number; failed?: number }>;
+    sendMinutes: (meetingId: string, pdf: Buffer, opts?: MinutesSendOptions) => Promise<{ sent: number; failed?: number; recipients?: RecipientResult[] }>;
     /** The minutes email as it would be sent, and to whom (enables GET /meetings/:id/minutes/preview). */
-    previewMinutes?: (meetingId: string, opts?: { final?: boolean }) => Promise<unknown>;
+    previewMinutes?: (meetingId: string, opts?: { final?: boolean; copyOf?: (userId: string) => Promise<MinutesCopy> }) => Promise<unknown>;
   };
+  /** Where each send of the minutes is kept: the meeting's "Sent" log (GET …/minutes/sends) and the Cc suggestions. */
+  minutesSends?: MinutesSendRepository;
+  /** The audit log: each send of the minutes is recorded. */
+  audit?: Pick<AuditService, 'record'>;
+  /**
+   * companies: how someone the minutes go to would see the meeting if they were on it (an added
+   * colleague or a typed address that is someone's account too); absent: `viewOf`.
+   */
+  recipientViewOf?: (userId: string, roles: string[], meetingId: string) => Promise<'full' | 'invitee' | null>;
+  /** A colleague picked by name must be one the invite picker offers (the meeting's own people always are). */
+  invitees?: Pick<MeetingInvitees, 'assertInvitable'>;
+  inviteTargetOf?: (meetingId: string) => Promise<InviteTarget | null>;
 }
 
-/** Who gets the minutes: some of the meeting's own people (by email); omitted = everyone. */
-const sendBody = z.object({ recipients: z.array(z.string().trim().email()).min(1).max(500).optional() });
+/** Someone the minutes go to: a colleague picked by name, or an email address (checked as one). */
+const addressee = z.union([z.object({ userId: z.string().trim().min(1).max(64) }).strict(), z.object({ email: z.string().trim().email().max(254) }).strict()]);
+/**
+ * Who gets the minutes: the To and Cc lines (at most 50 addresses; the meeting's people by email);
+ * older apps: some of the meeting's own people (`recipients`, by email); nothing = everyone on it.
+ */
+const sendBody = z
+  .object({
+    recipients: z.array(z.string().trim().email()).min(1).max(500).optional(),
+    to: z.array(addressee).min(1).max(MAX_MINUTES_ADDRESSES).optional(),
+    cc: z.array(addressee).max(MAX_MINUTES_ADDRESSES).optional(),
+  })
+  .refine((b) => !b.cc || b.to, { message: 'Add at least one person to To.', path: ['to'] });
 
 /**
  * What a meeting's minutes are made of — the meeting, its people, agenda, notes and action items,
@@ -305,45 +328,162 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       .send(pdf);
   });
 
-  // Email the branded minutes PDF to the organizer + attendees.
+  /**
+   * The minutes email and its pages (the preview, the "Sent" log, the Cc suggestions) are for the
+   * people who may send: emailing everyone is the organizer's call (or the project manager's, an
+   * admin's), not any attendee's.
+   */
+  const mayOpen = async (req: FastifyRequest, reply: FastifyReply, id: string): Promise<boolean> => {
+    if (!(await canView(req, id))) {
+      await reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this meeting.' } });
+      return false;
+    }
+    if (!(await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id))) {
+      await reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can send the minutes.' } });
+      return false;
+    }
+    return true;
+  };
+
+  // Email the branded minutes PDF: ONE email to its To and Cc lines (the organizer and attendees by default).
   app.post('/meetings/:id/minutes/send', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
-    if (!(await canView(req, id))) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this meeting.' } });
-    // Emailing everyone is the organizer's call, not any attendee's.
-    if (!(await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id))) {
-      return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can send the minutes.' } });
-    }
+    if (!(await mayOpen(req, reply, id))) return reply;
     if (!deps.notify) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
     const body = sendBody.parse(req.body ?? {});
+    // A colleague picked by name is one the invite picker offers (as for inviting); the meeting's own
+    // people always may be. Addresses are the sender's to type.
+    const picked = [...(body.to ?? []), ...(body.cc ?? [])].flatMap((a) => ('userId' in a ? [a.userId] : []));
+    if (picked.length && deps.invitees && deps.inviteTargetOf) {
+      const meeting = await meetingService.getMeeting(id);
+      const own = new Set([meeting.organizerId, ...(await deps.attendeeService.listAttendees(id)).flatMap((a) => (a.userId ? [a.userId] : []))]);
+      const others = [...new Set(picked.filter((u) => !own.has(u)))];
+      const target = others.length ? await deps.inviteTargetOf(id) : null;
+      if (target) await deps.invitees.assertInvitable({ id: req.user!.id, roles: req.user!.roles ?? [] }, target, others);
+    }
     // Once the minutes are final they open the PDF; a Final MOM still being written never goes out.
     const { pdf, final } = await buildPdf(req, id);
-    // companies: someone invited from another company gets what the minutes route serves them — their
-    // own copy (no live notes, no one else's action items, no task keys), and only once the minutes
-    // are final; nothing before. The team (and guests by email) get the shared PDF, as before.
-    const viewOfMeeting = deps.viewOf;
-    const attachmentFor = viewOfMeeting
+    const copyOf = copyRule(id, final);
+    // companies: someone from another company gets what the minutes route serves them — their own copy
+    // (no live notes, no one else's action items, no task keys), and only once the minutes are final;
+    // nothing before. The team (and guests by email) get the shared PDF, as before.
+    const attachmentFor = copyOf
       ? async (userId: string): Promise<Buffer | null | undefined> => {
-          const view = await viewOfMeeting(userId, deps.rolesOf ? await deps.rolesOf(userId) : [], id);
-          if (view === 'full') return undefined;
-          if (view === null || !final) return null;
+          const copy = await copyOf(userId);
+          if (copy === 'shared') return undefined;
+          if (copy !== 'own') return null;
           return (await buildPdf(req, id, { invitee: true, inviteeId: userId })).pdf;
         }
       : undefined;
-    const opts = { ...(body.recipients ? { only: body.recipients } : {}), ...(final ? { final: true } : {}), ...(attachmentFor ? { attachmentFor } : {}) };
+    const opts: MinutesSendOptions = {
+      ...(body.to ? { to: body.to, cc: body.cc ?? [] } : body.recipients ? { only: body.recipients } : {}),
+      ...(final ? { final: true } : {}),
+      ...(attachmentFor ? { attachmentFor } : {}),
+    };
     const result = Object.keys(opts).length ? await deps.notify.sendMinutes(id, pdf, opts) : await deps.notify.sendMinutes(id, pdf);
+    await keepSend(req, id, final, result);
     return { data: result };
   });
+
+  /**
+   * Which copy of the minutes someone gets (companies): the shared email ('full' view), their own
+   * once the minutes are final (another company), or nothing. Without companies: everyone the shared one.
+   */
+  function copyRule(meetingId: string, final: boolean): ((userId: string) => Promise<MinutesCopy>) | undefined {
+    const viewOfMeeting = deps.recipientViewOf ?? deps.viewOf;
+    if (!viewOfMeeting) return undefined;
+    return async (userId) => {
+      const view = await viewOfMeeting(userId, deps.rolesOf ? await deps.rolesOf(userId) : [], meetingId);
+      if (view === 'full') return 'shared';
+      if (view === 'invitee') return final ? 'own' : 'later';
+      return 'none';
+    };
+  }
+
+  /**
+   * The send in the meeting's "Sent" log and the audit log. The email has gone either way: a log that
+   * can't be written is not worth an error (that would invite sending it again).
+   */
+  async function keepSend(req: FastifyRequest, meetingId: string, final: boolean, result: { sent: number; failed?: number; recipients?: RecipientResult[] }): Promise<void> {
+    const people = result.recipients ?? [];
+    if (people.length === 0) return;
+    const address = (r: RecipientResult): MinutesSendAddress => ({
+      email: r.email,
+      name: r.name && r.name !== r.email ? r.name : null,
+      ...(r.userId ? { userId: r.userId } : {}),
+      copy: r.copy ?? 'shared',
+    });
+    const to = people.filter((r) => r.line !== 'cc').map(address);
+    const cc = people.filter((r) => r.line === 'cc').map(address);
+    try {
+      await deps.minutesSends?.create({
+        meetingId,
+        sentById: req.user!.id,
+        final,
+        to,
+        cc,
+        results: people.map((r) => ({ email: r.email, ok: r.ok, ...(r.error ? { error: r.error } : {}) })),
+      });
+    } catch {
+      // The email went out; only its line in the log is missing.
+    }
+    try {
+      await deps.audit?.record({
+        userId: req.user!.id,
+        ip: req.ip ?? null,
+        module: 'meetings',
+        action: 'meeting.minutes.send',
+        entityId: meetingId,
+        newValue: { final, to: to.map((a) => a.email), cc: cc.map((a) => a.email), sent: result.sent, failed: result.failed ?? 0 },
+      });
+    } catch {
+      // As above: the email went out.
+    }
+  }
 
   // The minutes email exactly as it would be sent, and to whom (sends nothing).
   app.get('/meetings/:id/minutes/preview', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as { id: string };
-    if (!(await canView(req, id))) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have access to this meeting.' } });
-    if (!(await meetingService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id))) {
-      return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can send the minutes.' } });
-    }
+    if (!(await mayOpen(req, reply, id))) return reply;
     if (!deps.notify?.previewMinutes) return reply.status(503).send({ error: { code: 'UNAVAILABLE', message: 'Email is not configured.' } });
     const final = (await finalOf(id))?.status === 'APPROVED';
-    return { data: await deps.notify.previewMinutes(id, final ? { final: true } : undefined) };
+    const copyOf = copyRule(id, final);
+    return { data: await deps.notify.previewMinutes(id, { ...(final ? { final: true } : {}), ...(copyOf ? { copyOf } : {}) }) };
+  });
+
+  // The meeting's "Sent" log: each send, newest first — who sent it and when, draft or final, its To
+  // and Cc lines with each address's result.
+  app.get('/meetings/:id/minutes/sends', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { id } = req.params as { id: string };
+    if (!(await mayOpen(req, reply, id))) return reply;
+    const sends = deps.minutesSends ? await deps.minutesSends.listByMeeting(id) : [];
+    const senders = [...new Set(sends.flatMap((s) => (s.sentById ? [s.sentById] : [])))];
+    const names = senders.length ? await deps.resolveUserNames(senders) : new Map<string, string>();
+    return {
+      data: sends.map((s) => {
+        const results = new Map(s.results.map((r) => [r.email.toLowerCase(), r]));
+        const withResult = (a: MinutesSendAddress) => {
+          const r = results.get(a.email.toLowerCase());
+          return { ...a, ok: r?.ok ?? false, ...(r?.error ? { error: r.error } : {}) };
+        };
+        return {
+          id: s.id,
+          sentAt: s.sentAt.toISOString(),
+          sentBy: s.sentById ? { id: s.sentById, name: names.get(s.sentById) ?? null } : null,
+          final: s.final,
+          to: s.to.map(withResult),
+          cc: s.cc.map(withResult),
+        };
+      }),
+    };
+  });
+
+  // The Cc picker's suggestions: addresses used in earlier sends of this project's meetings.
+  app.get('/meetings/:id/minutes/suggestions', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { id } = req.params as { id: string };
+    if (!(await mayOpen(req, reply, id))) return reply;
+    const found = deps.minutesSends ? await deps.minutesSends.recentAddresses(id) : [];
+    return { data: found.map((a) => ({ email: a.email, name: a.name })) };
   });
 
   // ── Final minutes (Final MOM): drafted (by the AI or from the notes), edited, then marked final ──

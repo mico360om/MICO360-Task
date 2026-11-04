@@ -226,6 +226,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /meetings/:id/minutes.pdf': 'object',
   'GET /meetings/:id/minutes/preview': 'object',
   'POST /meetings/:id/minutes/send': 'object',
+  'GET /meetings/:id/minutes/sends': 'object',
+  'GET /meetings/:id/minutes/suggestions': 'object',
   'GET /meetings/:id/client-visibility': 'object',
   'PUT /meetings/:id/client-visibility': 'object',
   'GET /meetings/:id/client-visibility/preview': 'object',

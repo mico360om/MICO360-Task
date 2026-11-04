@@ -7,8 +7,20 @@ export interface EmailAttachment {
   content: Buffer;
 }
 
+/** One address on an email's To or Cc line, with the name shown beside it. */
+export interface EmailAddress {
+  email: string;
+  name?: string | null;
+}
+
 export interface SendEmailInput {
   to: string;
+  /**
+   * One email to several people, everyone seeing who got it: every To address with its name (`to` is
+   * the first one's address) and the Cc line. Omitted: the email goes to `to` alone, as before.
+   */
+  toAll?: EmailAddress[];
+  cc?: EmailAddress[];
   subject: string;
   html: string;
   /** Optional plain-text alternative (improves deliverability + accessibility). */
@@ -29,6 +41,8 @@ export interface SendResult {
   status: number;
   /** Provider message id, when the provider returned one. */
   messageId?: string;
+  /** An email to several people: each address's own message id (lower-cased address → id), when given. */
+  messageIds?: Record<string, string>;
   /** Provider error text for a failed send. */
   error?: string;
 }
@@ -55,10 +69,22 @@ function parseFrom(from: string): { Email: string; Name?: string } {
   return { Email: from.trim() };
 }
 
+type MailjetRecipient = { Email?: string; MessageID?: string | number };
+
 interface MailjetResponse {
-  Messages?: Array<{ Status?: string; To?: Array<{ MessageID?: string | number }>; Errors?: Array<{ ErrorMessage?: string }> }>;
+  Messages?: Array<{ Status?: string; To?: MailjetRecipient[]; Cc?: MailjetRecipient[]; Errors?: Array<{ ErrorMessage?: string }> }>;
   ErrorMessage?: string;
 }
+
+/** A name on one line: no line breaks or other control characters (they could start a header of their own). */
+export const oneLineName = (name: string | null | undefined): string =>
+  // eslint-disable-next-line no-control-regex
+  (name ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+const mailjetAddress = (a: EmailAddress): { Email: string; Name?: string } => {
+  const name = oneLineName(a.name);
+  return name ? { Email: a.email, Name: name } : { Email: a.email };
+};
 
 /** Mailjet Send API v3.1 transport. */
 export function createMailjetTransport(config: MailjetConfig): Transport {
@@ -78,7 +104,8 @@ export function createMailjetTransport(config: MailjetConfig): Transport {
           Messages: [
             {
               From: input.fromName ? { ...from, Name: input.fromName } : from,
-              To: [{ Email: input.to }],
+              To: input.toAll?.length ? input.toAll.map(mailjetAddress) : [{ Email: input.to }],
+              ...(input.cc?.length ? { Cc: input.cc.map(mailjetAddress) } : {}),
               Subject: input.subject,
               HTMLPart: input.html,
               ...(input.text ? { TextPart: input.text } : {}),
@@ -106,8 +133,18 @@ export function createMailjetTransport(config: MailjetConfig): Transport {
       // v3.1 reports per-message status; a 2xx with Status "error" is still a failure.
       const ok = res.ok && (!message?.Status || message.Status === 'success');
       const messageId = message?.To?.[0]?.MessageID;
+      const messageIds: Record<string, string> = {};
+      for (const r of [...(message?.To ?? []), ...(message?.Cc ?? [])]) {
+        if (r.Email && r.MessageID != null) messageIds[r.Email.toLowerCase()] = String(r.MessageID);
+      }
       const error = ok ? undefined : message?.Errors?.map((e) => e.ErrorMessage).filter(Boolean).join('; ') || body.ErrorMessage || `HTTP ${res.status}`;
-      return { ok, status: res.status, ...(messageId != null ? { messageId: String(messageId) } : {}), ...(error ? { error } : {}) };
+      return {
+        ok,
+        status: res.status,
+        ...(messageId != null ? { messageId: String(messageId) } : {}),
+        ...(input.toAll?.length && Object.keys(messageIds).length ? { messageIds } : {}),
+        ...(error ? { error } : {}),
+      };
     },
   };
 }

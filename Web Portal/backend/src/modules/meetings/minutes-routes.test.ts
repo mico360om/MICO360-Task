@@ -3,7 +3,8 @@ import { inspectPdf } from '../../lib/pdf-inspect';
 import { solidPng } from '../../lib/test-images';
 import { buildApp } from '../../app';
 import { createMemoryFinalMinutesRepository } from './final-minutes-repository';
-import { ValidationError } from '../../lib/http-errors';
+import { createMemoryMinutesSendRepository } from './minutes-send-repository';
+import { HttpError, ValidationError } from '../../lib/http-errors';
 import { createMeetingService } from './meeting-service';
 import { createMeetingAccess } from './meeting-access';
 import { createAttendeeService } from './attendee-service';
@@ -240,6 +241,147 @@ describe('Minutes email route', () => {
     expect(notify.sendMinutes).not.toHaveBeenCalled();
     const attendee = await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` } });
     expect(attendee.statusCode).toBe(403);
+  });
+
+  it('the preview says which copy each of the meeting’s users gets (without companies: the shared email)', async () => {
+    const notify = notifyFake();
+    const app = await makeApp({}, undefined, notify);
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: auth } });
+    const opts = (notify.previewMinutes.mock.calls[0] as unknown as [string, { copyOf: (u: string) => Promise<string> }])[1];
+    expect(await opts.copyOf('u1')).toBe('shared');
+    expect(await opts.copyOf('u7')).toBe('shared');
+  });
+});
+
+describe('Minutes email route: To, Cc and the sent log (1.22)', () => {
+  const report = {
+    sent: 2,
+    failed: 1,
+    skipped: [],
+    recipients: [
+      { name: 'User u1', email: 'u1@x.co', kind: 'organizer', ok: true, line: 'to', copy: 'shared', userId: 'u1' },
+      { name: 'client@outside.co', email: 'client@outside.co', kind: 'guest', ok: true, line: 'to', copy: 'shared' },
+      { name: 'boss@outside.co', email: 'boss@outside.co', kind: 'guest', ok: false, error: 'The mail server didn’t accept it.', line: 'cc', copy: 'shared' },
+    ],
+  };
+  async function sendingApp(sendMinutes: (...a: unknown[]) => Promise<unknown> = async () => report) {
+    const notify = { sendMinutes: vi.fn(sendMinutes), previewMinutes: vi.fn(async () => ({})) };
+    const sends = createMemoryMinutesSendRepository();
+    const audit = { record: vi.fn(async () => ({})), list: async () => [], modules: async () => [] };
+    // The invite picker offers nobody here: a picked colleague other than the meeting's own people is refused.
+    const invitees = {
+      candidates: async () => [],
+      assertInvitable: vi.fn(async (_viewer: unknown, _target: unknown, ids: readonly string[]) => {
+        if (ids.length) throw new ValidationError(`User ${ids[0]} can’t be invited: they aren’t in this meeting’s companies.`);
+      }),
+    };
+    const app = await makeApp({}, undefined, notify, { minutesSendRepository: sends, auditService: audit, meetingInvitees: invitees });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id as string;
+    const send = (payload: unknown) => app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth }, payload: payload as object });
+    const get = async (path: string, who = 'u1') => app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/${path}`, headers: { authorization: `Bearer ${await tokenFor(who, ['EMPLOYEE'])}` } });
+    return { app, notify, sends, audit, invitees, id, send, get };
+  }
+
+  it('sends to the To and Cc chosen, keeps the send in the meeting’s log, and records it in the audit log', async () => {
+    const { notify, audit, id, send, get } = await sendingApp();
+    const res = await send({ to: [{ email: 'u1@x.co' }, { email: 'client@outside.co' }], cc: [{ email: 'boss@outside.co' }] });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ sent: 2, failed: 1 });
+    expect(notify.sendMinutes).toHaveBeenCalledWith(id, expect.any(Buffer), {
+      to: [{ email: 'u1@x.co' }, { email: 'client@outside.co' }],
+      cc: [{ email: 'boss@outside.co' }],
+      attachmentFor: expect.any(Function),
+    });
+    const log = await get('sends');
+    expect(log.statusCode).toBe(200);
+    expect(log.json().data).toEqual([
+      {
+        id: expect.any(String),
+        sentAt: expect.any(String),
+        sentBy: { id: 'u1', name: 'User u1' },
+        final: false,
+        to: [
+          { email: 'u1@x.co', name: 'User u1', userId: 'u1', copy: 'shared', ok: true },
+          { email: 'client@outside.co', name: null, copy: 'shared', ok: true },
+        ],
+        cc: [{ email: 'boss@outside.co', name: null, copy: 'shared', ok: false, error: 'The mail server didn’t accept it.' }],
+      },
+    ]);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u1',
+        module: 'meetings',
+        action: 'meeting.minutes.send',
+        entityId: id,
+        newValue: { final: false, to: ['u1@x.co', 'client@outside.co'], cc: ['boss@outside.co'], sent: 2, failed: 1 },
+      }),
+    );
+  });
+
+  it('lists the sends newest first', async () => {
+    const { send, get } = await sendingApp();
+    await send({ to: [{ email: 'u1@x.co' }] });
+    await new Promise((r) => setTimeout(r, 5));
+    await send({ to: [{ email: 'client@outside.co' }] });
+    const sentAt = (await get('sends')).json().data.map((s: { sentAt: string }) => Date.parse(s.sentAt));
+    expect(sentAt).toHaveLength(2);
+    expect(sentAt[0]).toBeGreaterThan(sentAt[1]);
+  });
+
+  it('the log and the Cc suggestions are for the people who may send', async () => {
+    const { send, get } = await sendingApp();
+    await send({ to: [{ email: 'u1@x.co' }], cc: [{ email: 'boss@outside.co' }] });
+    expect((await get('sends', 'u2')).statusCode).toBe(403);
+    expect((await get('suggestions', 'u2')).statusCode).toBe(403);
+    const suggested = await get('suggestions');
+    expect(suggested.statusCode).toBe(200);
+    expect(suggested.json().data).toEqual([
+      { email: 'u1@x.co', name: 'User u1' },
+      { email: 'client@outside.co', name: null },
+      { email: 'boss@outside.co', name: null },
+    ]);
+  });
+
+  it('checks every address as an email, at most 50, and To can’t be empty', async () => {
+    const { notify, send } = await sendingApp();
+    const many = Array.from({ length: 51 }, (_, i) => ({ email: `p${i}@outside.co` }));
+    expect((await send({ to: many })).statusCode).toBe(400);
+    expect((await send({ to: [{ email: 'not an address' }] })).statusCode).toBe(400);
+    expect((await send({ to: [] })).statusCode).toBe(400);
+    expect((await send({ cc: [{ email: 'boss@outside.co' }] })).statusCode).toBe(400);
+    expect(notify.sendMinutes).not.toHaveBeenCalled();
+  });
+
+  it('a colleague picked by name must be one the invite picker offers (the meeting’s own people always are)', async () => {
+    const { notify, invitees, send, get } = await sendingApp();
+    const refused = await send({ to: [{ email: 'u1@x.co' }], cc: [{ userId: 'u9' }] });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/User u9 can’t be invited/);
+    expect(notify.sendMinutes).not.toHaveBeenCalled();
+    expect((await send({ to: [{ userId: 'u1' }] })).statusCode).toBe(200); // the organizer
+    expect(invitees.assertInvitable).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), ['u9']);
+    expect((await get('sends')).json().data).toHaveLength(1);
+  });
+
+  it('nothing is logged when nothing could be sent (email isn’t set up)', async () => {
+    const { send, get } = await sendingApp(async () => {
+      throw new HttpError('Email sending is not configured, so nothing was sent.', 'EMAIL_NOT_CONFIGURED', 503);
+    });
+    expect((await send({ to: [{ email: 'u1@x.co' }] })).statusCode).toBe(503);
+    expect((await get('sends')).json().data).toEqual([]);
+  });
+
+  it('the email still counts as sent when the log can’t be written', async () => {
+    const { sends, send } = await sendingApp();
+    sends.create = async () => {
+      throw new Error('database away');
+    };
+    const res = await send({ to: [{ email: 'u1@x.co' }] });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ sent: 2 });
   });
 });
 

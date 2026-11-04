@@ -272,3 +272,79 @@ describe('Final minutes: shown to the project’s client', () => {
     await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.path === '/meetings/m1/client-visibility').length).toBeGreaterThanOrEqual(2));
   });
 });
+
+// 1.22 (owner): a finished meeting shows where its minutes are — Notes → Final MOM → Approved → Emailed —
+// with the one next button.
+describe('Final minutes: the next steps of a finished meeting', () => {
+  let notes: unknown[];
+  let sends: unknown[];
+  beforeEach(() => {
+    notes = [{ id: 'n1' }];
+    sends = [];
+    answer['GET /meetings/m1/notes'] = () => json({ data: notes });
+    answer['GET /meetings/m1/minutes/sends'] = () => json({ data: sends });
+  });
+  function renderFinished(onEmail = vi.fn(), canEdit = true, finished = true) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <FinalMinutesSection meetingId="m1" meetingTitle="Weekly review" canEdit={canEdit} timeZone="Asia/Muscat" finished={finished} onEmail={onEmail} />
+      </QueryClientProvider>,
+    );
+    return onEmail;
+  }
+  const steps = () => screen.findByRole('navigation', { name: 'Next steps' });
+  const stepTexts = (bar: HTMLElement) => within(bar).getAllByRole('listitem').map((li) => `${li.textContent}${li.getAttribute('aria-current') ? ' <' : ''}`);
+
+  it('notes taken, no Final MOM yet: the Final MOM is next — Draft with AI', async () => {
+    renderFinished();
+    const bar = await steps();
+    await waitFor(() => expect(stepTexts(bar)).toEqual([expect.stringMatching(/Notes.*done/), expect.stringMatching(/Final MOM.* <$/), expect.stringMatching(/^3?Approved/), expect.stringMatching(/Emailed/)]));
+    answer['POST /meetings/m1/final-minutes/draft'] = () => json({ data: { content, source: 'ai' } });
+    await userEvent.click(within(bar).getByRole('button', { name: 'Draft with AI' }));
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/draft'))?.body).toEqual({ source: 'ai' }));
+  });
+
+  it('a draft written: Approved is next — Approve marks it final', async () => {
+    current = draft;
+    answer['POST /meetings/m1/final-minutes/approve'] = () => json({ data: final });
+    renderFinished();
+    const bar = await steps();
+    await waitFor(() => expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Approved'));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/approve'))?.body).toEqual({ content }));
+  });
+
+  it('approved, not emailed yet: Emailed is next — Email minutes… opens the email', async () => {
+    current = final;
+    sends = [{ id: 's0', final: false, sentAt: '2026-10-14T08:00:00.000Z', sentBy: null, to: [], cc: [] }]; // the draft went out: doesn't count
+    const onEmail = renderFinished();
+    const bar = await steps();
+    await waitFor(() => expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Emailed'));
+    await userEvent.click(within(bar).getByRole('button', { name: 'Email minutes…' }));
+    expect(onEmail).toHaveBeenCalled();
+  });
+
+  it('the final minutes emailed: every step done, no button', async () => {
+    current = final;
+    sends = [{ id: 's1', final: true, sentAt: '2026-10-14T10:00:00.000Z', sentBy: null, to: [], cc: [] }];
+    renderFinished();
+    const bar = await steps();
+    await waitFor(() => expect(bar).toHaveTextContent('All done'));
+    expect(within(bar).queryByRole('listitem', { current: 'step' })).toBeNull();
+    expect(within(bar).queryByRole('button')).toBeNull();
+  });
+
+  it('not before the meeting has ended, and not for someone who can’t change the minutes', async () => {
+    renderFinished(vi.fn(), true, false);
+    await screen.findByRole('region', { name: /final mom/i });
+    expect(screen.queryByRole('navigation', { name: 'Next steps' })).toBeNull();
+  });
+
+  it('nor for someone who can’t change the minutes', async () => {
+    current = { ...final, canEdit: false };
+    renderFinished(vi.fn(), false, true);
+    await screen.findByText(/approved by/i);
+    expect(screen.queryByRole('navigation', { name: 'Next steps' })).toBeNull();
+  });
+});

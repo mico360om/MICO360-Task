@@ -326,20 +326,53 @@ export interface InvitePreview {
   invitesSentAt: string | null;
 }
 
+/**
+ * Which copy of the minutes one of the meeting's people gets: the shared email, their own email
+ * (invited from another company), later (theirs once the minutes are final) or none (no access).
+ */
+export type MinutesCopy = 'shared' | 'own' | 'later' | 'none';
+
 export interface MinutesPreview {
   subject: string;
   html: string;
   text: string;
   attachmentName: string;
-  recipients: Recipient[];
+  /** The meeting's people; newer servers add each one's account and copy. */
+  recipients: Array<Recipient & { userId?: string; copy?: MinutesCopy }>;
   missingEmail: { name: string; attendeeId: string }[];
+  /** The approved final minutes go out (else the draft minutes). */
+  final?: boolean;
+}
+
+/** Someone the minutes go to: a colleague picked by name, or an email address. */
+export type MinutesAddressee = { userId: string } | { email: string };
+
+/** One address of a sent minutes email, with how it went. */
+export interface MinutesSentAddress {
+  email: string;
+  name: string | null;
+  userId?: string;
+  /** The shared email, or their own (someone from another company). */
+  copy: 'shared' | 'own';
+  ok: boolean;
+  error?: string;
+}
+
+/** One emailing of the minutes, as the meeting's "Sent" log shows it. */
+export interface MinutesSend {
+  id: string;
+  sentAt: string;
+  sentBy: { id: string; name: string | null } | null;
+  final: boolean;
+  to: MinutesSentAddress[];
+  cc: MinutesSentAddress[];
 }
 
 /** What happened to each email of a send. Older servers answer with the totals only. */
 export interface SendReport {
   sent: number;
   failed?: number;
-  recipients?: { name: string; email: string; kind: RecipientKind; ok: boolean; error?: string }[];
+  recipients?: { name: string; email: string; kind: RecipientKind; ok: boolean; error?: string; line?: 'to' | 'cc'; copy?: 'shared' | 'own' }[];
   skipped?: { name: string; reason: string }[];
 }
 
@@ -493,7 +526,8 @@ export function meetingsApi(client: ApiClient) {
       client.get<{ data: Attendee[]; people?: MeetingPerson[] }>(`/meetings/${meetingId}/attendees`).then((r) => ({ attendees: r.data, people: Array.isArray(r.people) ? r.people : [] })),
     addAttendee: (meetingId: string, input: NewAttendeeInput) =>
       client.post<{ data: Attendee }>(`/meetings/${meetingId}/attendees`, input).then((r) => r.data),
-    updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; response?: InvitationResponse; department?: string | null }) =>
+    /** `externalEmail`: a guest's address, added later ("Add email"). */
+    updateAttendee: (meetingId: string, attendeeId: string, patch: { role?: AttendeeRole; attendance?: AttendanceStatus; response?: InvitationResponse; department?: string | null; externalEmail?: string }) =>
       client.patch<{ data: Attendee }>(`/meetings/${meetingId}/attendees/${attendeeId}`, patch).then((r) => r.data),
     removeAttendee: (meetingId: string, attendeeId: string) => client.del<void>(`/meetings/${meetingId}/attendees/${attendeeId}`),
     suggestAttendees: (meetingId: string, previousMeetingIds: string[]) =>
@@ -565,8 +599,13 @@ export function meetingsApi(client: ApiClient) {
       client.post<{ data: SendReport }>(`/meetings/${meetingId}/invites`, opts).then((r) => r.data),
     /** The minutes email as it will be sent, and to whom (sends nothing). */
     previewMinutes: (meetingId: string) => client.get<{ data: MinutesPreview }>(`/meetings/${meetingId}/minutes/preview`).then((r) => r.data),
-    /** Email the branded minutes PDF — to everyone, or to the chosen people's addresses. */
-    sendMinutes: (meetingId: string, recipients?: string[]) =>
-      client.post<{ data: SendReport }>(`/meetings/${meetingId}/minutes/send`, recipients ? { recipients } : {}).then((r) => r.data),
+    /** Email the branded minutes PDF: ONE email to its To and Cc lines (the meeting's people by email). */
+    sendMinutes: (meetingId: string, lines: { to: MinutesAddressee[]; cc: MinutesAddressee[] }) =>
+      client.post<{ data: SendReport }>(`/meetings/${meetingId}/minutes/send`, lines).then((r) => r.data),
+    /** The meeting's "Sent" log, newest first (for the people who may send). */
+    listMinutesSends: (meetingId: string) => client.get<{ data: MinutesSend[] }>(`/meetings/${meetingId}/minutes/sends`).then((r) => r.data),
+    /** The Cc picker's suggestions: addresses used in earlier sends of this project's meetings. */
+    minutesSuggestions: (meetingId: string) =>
+      client.get<{ data: Array<{ email: string; name: string | null }> }>(`/meetings/${meetingId}/minutes/suggestions`).then((r) => r.data),
   };
 }

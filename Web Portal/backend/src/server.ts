@@ -189,6 +189,7 @@ import { createSettingsService } from './modules/settings/settings-service';
 import { createAiConfigService } from './modules/ai/ai-config-service';
 import { createAiFeatureService } from './modules/ai/ai-feature-service';
 import { createPrismaFinalMinutesRepository } from './modules/meetings/final-minutes-repository';
+import { createPrismaMinutesSendRepository } from './modules/meetings/minutes-send-repository';
 import { createMicoAiService } from './modules/mico-ai/mico-ai-service';
 import { createMicoAiTools } from './modules/mico-ai/mico-ai-tools';
 import { createPrismaMicoAiData } from './modules/mico-ai/prisma-mico-ai-data';
@@ -1177,6 +1178,11 @@ async function main(): Promise<void> {
     },
     email: emailService,
     resolveUser: resolveMeetingUser,
+    // A typed minutes address that is someone's account (case aside: the column's collation).
+    findUserByEmail: async (email) => {
+      const u = await prisma.user.findFirst({ where: { email, deletedAt: null, status: 'ACTIVE' }, select: { id: true, email: true, firstName: true, lastName: true, username: true } });
+      return u ? { id: u.id, email: u.email, name: `${u.firstName} ${u.lastName}`.trim() || u.username } : null;
+    },
     resolveProjectName: async (projectId) => (await resolveProject(projectId))?.name ?? null,
     resolveProjectLook: async (projectId) => {
       const p = await resolveProject(projectId);
@@ -1706,6 +1712,8 @@ async function main(): Promise<void> {
     resolveProject,
     // Final minutes (Final MOM): kept in the meeting_minutes table, drafted by the same AI as the other features.
     finalMinutesRepository: createPrismaFinalMinutesRepository(prisma),
+    // The minutes email's "Sent" log (meeting_minutes_sends) and the Cc suggestions.
+    minutesSendRepository: createPrismaMinutesSendRepository(prisma),
     draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }) => aiFeatureService.draftMinutes(facts, requester),
     // Final minutes saved, approved or reopened: `meeting:updated`, which every client (the apps
     // since 2a included) already answers by loading the meeting, its final minutes and the lists.

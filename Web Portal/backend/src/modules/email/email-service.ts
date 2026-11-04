@@ -1,4 +1,4 @@
-import type { Transport, EmailAttachment } from './mailer';
+import type { Transport, EmailAttachment, EmailAddress } from './mailer';
 import { EmailDeliveryError, EmailNotConfiguredError } from './delivery-error';
 import {
   meetingInviteEmail,
@@ -58,6 +58,12 @@ export interface EmailServiceDeps {
   /** Where every send attempt is recorded (SENT / FAILED). */
   log?: EmailLogStore;
   logger?: EmailLogger;
+}
+
+/** The To and Cc lines of one email to several people. */
+export interface MailLines {
+  to: EmailAddress[];
+  cc: EmailAddress[];
 }
 
 /** How a send went: it went, or the address is blocked (suppressed) and it was skipped. */
@@ -141,6 +147,73 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     await deliverResult(template, email, content, opts);
   }
 
+  /**
+   * ONE email to several people, everyone seeing who got it (its To and Cc lines). A blocked address
+   * is left out (and returned in `suppressed`); with every To address blocked the Cc line moves up to
+   * To. Each address gets its own row in the email log. Throws, as one-person sends do, when it isn't
+   * delivered — for every address on it.
+   */
+  async function deliverToMany(template: string, lines: MailLines, content: EmailContent, opts: DeliverOptions = {}): Promise<{ suppressed: string[] }> {
+    const all = [...lines.to, ...lines.cc];
+    const rows = (addresses: EmailAddress[], entry: Omit<EmailLogEntry, 'toAddress' | 'template' | 'subject'>, ids: Record<string, string> = {}) =>
+      Promise.all(
+        addresses.map((a) => {
+          const id = ids[a.email.toLowerCase()] ?? entry.providerMessageId;
+          return record({ toAddress: a.email, template, subject: content.subject, ...entry, ...(id ? { providerMessageId: id } : {}) });
+        }),
+      );
+    if (!isConfigured()) {
+      await rows(all, { status: 'FAILED', error: 'Email sending is not configured.' });
+      throw new EmailNotConfiguredError(all[0]?.email ?? '');
+    }
+    const suppressed: string[] = [];
+    const keep = async (addresses: EmailAddress[]) => {
+      const kept: EmailAddress[] = [];
+      for (const a of addresses) {
+        if (isSuppressed && (await isSuppressed(a.email))) {
+          logger?.info('email skipped: address is suppressed', { template, to: a.email });
+          suppressed.push(a.email);
+        } else kept.push(a);
+      }
+      return kept;
+    };
+    let to = await keep(lines.to);
+    let cc = await keep(lines.cc);
+    if (to.length === 0) [to, cc] = [cc, []];
+    const first = to[0];
+    if (!first) return { suppressed };
+    const sent = [...to, ...cc];
+
+    let result;
+    try {
+      result = await transport.send({
+        to: first.email,
+        toAll: to,
+        cc,
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+        ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+        ...(opts.secretLinks ? { secretLinks: true } : {}),
+        ...sender(opts),
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await rows(sent, { status: 'FAILED', error });
+      logger?.warn('email could not be sent', { template, to: first.email, recipients: sent.length, error });
+      if (err instanceof EmailDeliveryError) throw err;
+      throw new EmailDeliveryError(first.email, undefined, `Email could not be delivered: ${error}`);
+    }
+    if (!result.ok) {
+      const error = result.error ?? `HTTP ${result.status}`;
+      await rows(sent, { status: 'FAILED', error });
+      logger?.warn('email rejected by the provider', { template, to: first.email, recipients: sent.length, status: result.status, error });
+      throw new EmailDeliveryError(first.email, result.status, `Email could not be delivered (HTTP ${result.status}).`);
+    }
+    await rows(sent, { status: 'SENT', ...(result.messageId ? { providerMessageId: result.messageId } : {}) }, result.messageIds);
+    return { suppressed };
+  }
+
   return {
     /** False when no mail provider is configured, so nothing can be sent. */
     isConfigured,
@@ -202,8 +275,9 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       deliver('meeting-reminder', email, meetingReminderEmail(params, opts), sender(opts)),
     sendMeetingCancelled: (email: string, params: MeetingEmailParams, ics: EmailAttachment, opts?: TemplateOptions) =>
       deliver('meeting-cancelled', email, meetingCancelledEmail(params, opts), { ...sender(opts), attachments: [ics] }),
-    sendMeetingMinutes: (email: string, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions) =>
-      deliver('meeting-minutes', email, meetingMinutesEmail(params, opts), { ...sender(opts), attachments: [pdf] }),
+    /** The minutes: ONE email to its To and Cc lines (everyone sees who got it); `suppressed`: blocked addresses left out. */
+    sendMeetingMinutes: (lines: MailLines, params: MeetingEmailParams, pdf: EmailAttachment, opts?: TemplateOptions) =>
+      deliverToMany('meeting-minutes', lines, meetingMinutesEmail(params, opts), { ...sender(opts), attachments: [pdf] }),
 
     // Client view — a client following one project. The invitation is skipped for a blocked address
     // ('suppressed'); the code is sign-in mail, never dropped because of an old bounce.

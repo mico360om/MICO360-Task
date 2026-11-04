@@ -132,15 +132,21 @@ describe('Meeting page: agenda rows', () => {
 });
 
 describe('Meeting page: the agenda of a meeting that is over', () => {
-  it('speaks of it in the past, and still lets the organizer write down what was covered', async () => {
+  // 1.22 (owner): an empty section on a finished meeting shrinks to one line.
+  it('with none, it shrinks to one line — "No agenda · Add a topic" — which opens the form to write down what was covered', async () => {
     renderIt(true, true);
-    expect(await screen.findByText(/no agenda was set for this meeting/i)).toBeInTheDocument();
+    const card = (await screen.findByText('No agenda')).closest('section')!;
+    expect(screen.queryByLabelText('New agenda item')).not.toBeInTheDocument();
+    expect(card.className).toMatch(/py-2\.5/);
+    await userEvent.click(within(card).getByRole('button', { name: 'Add a topic' }));
+    expect(screen.getByText(/no agenda was set for this meeting/i)).toBeInTheDocument();
     expect(screen.queryByText(/topics you plan to cover/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText('New agenda item')).toBeEnabled();
+    expect(screen.getByLabelText('New agenda item')).toHaveFocus();
   });
 
-  it('for someone who can’t change it, simply says none was set', async () => {
+  it('for someone who can’t change it, just "No agenda"', async () => {
     renderIt(false, true);
-    expect(await screen.findByText('No agenda was set for this meeting.')).toBeInTheDocument();
+    const card = (await screen.findByText('No agenda')).closest('section')!;
+    expect(within(card).queryByRole('button', { name: 'Add a topic' })).not.toBeInTheDocument();
   });
 });

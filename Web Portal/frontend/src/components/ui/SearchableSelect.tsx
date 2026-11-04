@@ -33,9 +33,14 @@ export interface SearchableSelectProps {
   /** Marks the field as wrong (with its message's id in `describedBy`). */
   invalid?: boolean;
   describedBy?: string;
-  /** 'lg': as tall as the large form fields (44px). */
-  size?: 'md' | 'lg';
+  /** 'lg': as tall as the large form fields (44px). 'chip': a small pill as wide as its words (its list stays readable). */
+  size?: 'md' | 'lg' | 'chip';
+  /** A chip's own colours (e.g. a status tone). */
+  chipClassName?: string;
 }
+
+/** A chip's list is at least this wide, however narrow the chip. */
+const CHIP_PANEL_MIN = 224;
 
 /**
  * Accessible, dependency-free combobox: a trigger button that opens a filterable option list.
@@ -57,7 +62,9 @@ export function SearchableSelect({
   invalid,
   describedBy,
   size = 'md',
+  chipClassName = 'bg-ground text-ink-2',
 }: SearchableSelectProps) {
+  const chip = size === 'chip';
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -76,11 +83,9 @@ export function SearchableSelect({
     const below = window.innerHeight - r.bottom;
     const PANEL_MAX = 300; // filter input + max list height
     const dropUp = below < PANEL_MAX && r.top > below;
-    setRect(
-      dropUp
-        ? { left: r.left, width: r.width, bottom: window.innerHeight - r.top + 4 }
-        : { left: r.left, width: r.width, top: r.bottom + 4 },
-    );
+    const width = chip ? Math.max(r.width, CHIP_PANEL_MIN) : r.width;
+    const left = chip ? Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) : r.left;
+    setRect(dropUp ? { left, width, bottom: window.innerHeight - r.top + 4 } : { left, width, top: r.bottom + 4 });
   };
 
   useLayoutEffect(() => {
@@ -159,7 +164,7 @@ export function SearchableSelect({
   };
 
   return (
-    <div ref={rootRef} className={`relative ${className ?? ''}`}>
+    <div ref={rootRef} className={`relative ${chip ? 'inline-flex max-w-full' : ''} ${className ?? ''}`}>
       <button
         ref={triggerRef}
         type="button"
@@ -171,15 +176,19 @@ export function SearchableSelect({
         aria-describedby={describedBy}
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
-        className={`flex w-full items-center justify-between gap-2 border bg-surface text-left text-sm text-ink ${size === 'lg' ? '!min-h-[44px] rounded-xl px-3.5 py-2' : `rounded-lg px-3 py-2 ${TOUCH_TALL}`} outline-none transition-colors focus:ring-2 disabled:opacity-50 ${invalid ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-line focus:border-brand focus:ring-brand/20'}`}
+        className={
+          chip
+            ? `inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium outline-none transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 ${chipClassName} ${TOUCH_TALL}`
+            : `flex w-full items-center justify-between gap-2 border bg-surface text-left text-sm text-ink ${size === 'lg' ? '!min-h-[44px] rounded-xl px-3.5 py-2' : `rounded-lg px-3 py-2 ${TOUCH_TALL}`} outline-none transition-colors focus:ring-2 disabled:opacity-50 ${invalid ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-line focus:border-brand focus:ring-brand/20'}`
+        }
       >
         <span className="flex min-w-0 items-center gap-2">
           {selected?.icon ? <span aria-hidden="true" className="flex flex-none">{selected.icon}</span> : null}
-          <span ref={labelRef} dir="auto" title={labelCut ? shownLabel : undefined} className={`truncate text-start ${selected ? 'text-ink' : 'text-ink-2'}`}>
+          <span ref={labelRef} dir="auto" title={labelCut ? shownLabel : undefined} className={`truncate text-start ${chip ? '' : selected ? 'text-ink' : 'text-ink-2'}`}>
             {shownLabel}
           </span>
         </span>
-        <span aria-hidden className="shrink-0 text-ink-2">▾</span>
+        <span aria-hidden className={`shrink-0 ${chip ? 'text-[10px] opacity-70' : 'text-ink-2'}`}>▾</span>
       </button>
 
       {open

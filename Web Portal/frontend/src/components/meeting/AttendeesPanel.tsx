@@ -15,7 +15,9 @@ import { apiClient } from '../../api/client';
 import { ApiError } from '../../lib/api-client';
 import { useAuthStore } from '../../stores/auth-store';
 import { Avatar } from '../ui/Avatar';
-import { Badge, type BadgeTone } from '../ui/Badge';
+import { Badge, badgeToneClass, type BadgeTone } from '../ui/Badge';
+import { attendanceTone } from '../../lib/meetingFormat';
+import { TOUCH_TALL } from '../../lib/touch';
 import { Button } from '../ui/Button';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
@@ -106,6 +108,20 @@ export function AttendeesPanel({
     onSuccess: refresh,
     onError: (err) => setOpError(meetingFailure(err, 'Couldn’t remove the attendee.')),
   });
+  // "Add email" for a guest with none: an address in place, checked here and by the server.
+  const [emailFor, setEmailFor] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const emailMut = useMutation({
+    mutationFn: ({ id, email }: { id: string; email: string }) => meetingsApi(apiClient).updateAttendee(meeting.id, id, { externalEmail: email }),
+    onSuccess: () => {
+      setEmailFor(null);
+      refresh();
+    },
+    onError: (err) => setEmailError(err instanceof ApiError && err.status === 409 ? 'That address is already on the list.' : meetingFailure(err, 'Couldn’t save the email address.')),
+  });
+  // "Required" says something only when someone is optional.
+  const someOptional = attendees.some((a) => a.role === 'OPTIONAL');
 
   // companies: with two or more on the site, the people the server says can be invited to this meeting.
   const candidates = useInviteCandidates({ projectId: meeting.projectId, companyId: meeting.companyId }, canEdit);
@@ -180,14 +196,50 @@ export function AttendeesPanel({
               const noEmail = !a.userId && !a.externalEmail;
               const notInvited = !noEmail && !!meeting.invitesSentAt && !a.invitedAt && meeting.status !== 'CANCELLED';
               const own = !!a.userId && a.userId === myId;
+              // One row: face, name, answer, Guest mark (and Required/Optional only when someone is
+              // optional), attendance once the meeting is under way, then the person's options.
               return (
-                <li key={a.id} className="py-2">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar size="sm" name={name} src={a.userId ? directory.find((d) => d.id === a.userId)?.avatarUrl : null} />
-                    <div className="min-w-0 flex-1">
-                      <span title={name} className="block truncate text-sm font-medium text-ink"><bdi>{name}</bdi></span>
-                      {a.externalEmail ? <span title={a.externalEmail} className="block truncate text-xs text-ink-3">{a.externalEmail}</span> : null}
-                    </div>
+                <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+                  <Avatar size="sm" name={name} src={a.userId ? directory.find((d) => d.id === a.userId)?.avatarUrl : null} />
+                  <span className="min-w-0 flex-[1_1_7rem]">
+                    <span title={name} className="block truncate text-sm font-medium text-ink"><bdi>{name}</bdi></span>
+                    {a.externalEmail ? <span title={a.externalEmail} className="block truncate text-xs text-ink-3" dir="ltr">{a.externalEmail}</span> : null}
+                  </span>
+                  <Badge tone={RESPONSE_TONE[response]}>{RESPONSE_LABELS[response]}</Badge>
+                  {!a.userId ? <Badge tone="neutral">Guest</Badge> : null}
+                  {someOptional ? <Badge tone={a.role === 'OPTIONAL' ? 'neutral' : 'info'}>{a.role === 'OPTIONAL' ? 'Optional' : 'Required'}</Badge> : null}
+                  {notInvited ? <span className="text-[11px] font-medium text-warning">Not invited yet</span> : null}
+                  {noEmail ? (
+                    canEdit ? (
+                      emailFor === a.id ? null : (
+                        <button
+                          type="button"
+                          aria-label={`Add email for ${name}`}
+                          onClick={() => { setEmailFor(a.id); setEmailDraft(''); setEmailError(null); }}
+                          className={`rounded-md px-1.5 text-[11px] font-semibold text-brand hover:underline ${TOUCH_TALL} min-h-7`}
+                        >
+                          Add email
+                        </button>
+                      )
+                    ) : (
+                      <span className="text-[11px] text-ink-3">No email address</span>
+                    )
+                  ) : null}
+                  {attendanceTime ? (
+                    canEdit || own ? (
+                      <SearchableSelect
+                        size="chip"
+                        ariaLabel={`Attendance for ${name}: ${ATTENDANCE_LABELS[a.attendance]}`}
+                        options={ATTENDANCE.map((s) => ({ value: s, label: ATTENDANCE_LABELS[s] }))}
+                        value={a.attendance}
+                        onChange={(v) => patchMut.mutate({ id: a.id, patch: { attendance: v as AttendanceStatus } })}
+                        chipClassName={a.attendance === 'INVITED' ? 'bg-ground text-ink-3' : badgeToneClass(attendanceTone(a.attendance))}
+                      />
+                    ) : (
+                      <span className="text-xs text-ink-3">Attendance: {ATTENDANCE_LABELS[a.attendance]}</span>
+                    )
+                  ) : null}
+                  <span className="ms-auto flex items-center">
                     {canEdit ? (
                       <ActionMenu
                         label={`Options for ${name}`}
@@ -202,30 +254,34 @@ export function AttendeesPanel({
                       />
                     ) : null}
                     {canEdit ? <ConfirmRemoveButton label={`Remove ${name}`} onConfirm={() => removeMut.mutate(a.id)} disabled={removeMut.isPending} /> : null}
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-[2.375rem]">
-                    <Badge tone={a.role === 'OPTIONAL' ? 'neutral' : 'info'}>{a.role === 'OPTIONAL' ? 'Optional' : 'Required'}</Badge>
-                    {!a.userId ? <Badge tone="neutral">Guest</Badge> : null}
-                    <Badge tone={RESPONSE_TONE[response]}>{RESPONSE_LABELS[response]}</Badge>
-                    {notInvited ? <span className="text-[11px] font-medium text-warning">Not invited yet</span> : null}
-                    {noEmail ? <span className="text-[11px] text-ink-3">No email address</span> : null}
-                  </div>
-                  {attendanceTime ? (
-                    canEdit || own ? (
-                      <label className="mt-1.5 flex items-center gap-2 pl-[2.375rem] text-xs text-ink-2">
-                        <span className="shrink-0">Attendance</span>
-                        <select
-                          aria-label={`Attendance for ${name}`}
-                          value={a.attendance}
-                          onChange={(e) => patchMut.mutate({ id: a.id, patch: { attendance: e.target.value as AttendanceStatus } })}
-                          className={`${fieldClass(false)} !min-h-8 flex-1 !py-0.5 text-xs`}
-                        >
-                          {ATTENDANCE.map((s) => <option key={s} value={s}>{ATTENDANCE_LABELS[s]}</option>)}
-                        </select>
-                      </label>
-                    ) : (
-                      <p className="mt-1 pl-[2.375rem] text-xs text-ink-3">Attendance: {ATTENDANCE_LABELS[a.attendance]}</p>
-                    )
+                  </span>
+                  {emailFor === a.id ? (
+                    <form
+                      noValidate
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const email = emailDraft.trim();
+                        if (!EMAIL_RE.test(email)) return setEmailError('Enter a valid email address, for example name@company.com.');
+                        setEmailError(null);
+                        emailMut.mutate({ id: a.id, email });
+                      }}
+                      className="flex w-full flex-wrap items-center gap-1.5 pl-[2.375rem]"
+                    >
+                      <input
+                        aria-label={`Email address for ${name}`}
+                        type="email"
+                        inputMode="email"
+                        dir="ltr"
+                        autoFocus
+                        value={emailDraft}
+                        onChange={(e) => { setEmailDraft(e.target.value); setEmailError(null); }}
+                        placeholder="name@company.com"
+                        className={`${fieldClass(!!emailError)} !min-h-9 min-w-0 flex-[1_1_10rem] !py-1 text-xs [@media(pointer:coarse)]:!min-h-11`}
+                      />
+                      <Button type="submit" size="sm" aria-label={`Save email for ${name}`} loading={emailMut.isPending} className={TOUCH_TALL}>Save</Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setEmailFor(null)} className={TOUCH_TALL}>Cancel</Button>
+                      {emailError ? <p role="alert" className="w-full text-xs font-medium text-danger">{emailError}</p> : null}
+                    </form>
                   ) : null}
                 </li>
               );

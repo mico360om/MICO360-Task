@@ -36,6 +36,8 @@ export interface UpdateAttendeeData {
   department?: string | null;
   response?: InvitationResponse;
   respondedAt?: Date | null;
+  /** A guest's email address, added later. */
+  externalEmail?: string | null;
 }
 
 export interface AttendeeRepository {

@@ -14,6 +14,19 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Minutes email: one email with real To and Cc lines — add colleagues or any email address to To or
+  Cc; someone invited from another company still gets their own copy.
+- Every send of the minutes is kept under "Sent" on the meeting's minutes: when, who sent it, draft or
+  final, To and Cc with each address's result, and "Send again".
+
+### Improvements
+- Schedule a meeting: a wider dialog with two columns on a desktop, and Starts/Ends picked as the site
+  writes them ("Wed 4 Nov 2026 · 13:00", 24-hour) from a calendar and a time list.
+- Meeting page: one-line action items with chips to change them, compact People rows (with "Add email"
+  for a guest), next steps for a finished meeting (Notes → Final MOM → Approved → Emailed), and empty
+  sections shrunk to one line.
+
 ## [1.21.0] - 2026-11-04
 
 ### New features
