@@ -71,7 +71,8 @@ beforeEach(async () => {
   ).id;
 });
 
-describe('Daily task emails: administrators’ sends and the sweep (integration)', () => {
+// 1.22: one daily email a day (the PENDING record); the old COMPLETED email is no longer sent.
+describe('Daily email: administrators’ sends and the sweep (integration)', () => {
   it('two servers’ "Send now" and checks, and one person’s Send, all at once — with a retry due and a send cut off part-way: each email goes once', async () => {
     const now = new Date('2026-10-21T02:00:00Z'); // 06:00 Muscat, 07:30 Kolkata
     // Ada’s pending email failed at 01:50 and is due to be tried again; Bo’s was cut off part-way (a restart) at 01:40.
@@ -84,21 +85,13 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     const one = makeService(now, { sent });
     const two = makeService(now, { sent });
     await Promise.all([one.sendNow(), one.service.runSweep(), two.sendNow(), two.service.runSweep(), one.service.sendFor(ada)]);
-    expect(sent.sort()).toEqual([
-      'dadm-ada@mico360.test daily-completed',
-      'dadm-ada@mico360.test daily-pending',
-      'dadm-bo@mico360.test daily-pending',
-    ]);
+    expect(sent.sort()).toEqual(['dadm-ada@mico360.test daily-email', 'dadm-bo@mico360.test daily-email']);
     const rows = await prisma.dailyTaskEmail.findMany({ where: { userId: { in: [ada, bo] } } });
-    expect(rows.map((r) => `${r.userId === ada ? 'ada' : 'bo'} ${r.kind} ${r.status} ${r.attempts}`).sort()).toEqual([
-      'ada COMPLETED SENT 1',
-      'ada PENDING SENT 2',
-      'bo PENDING SENT 2',
-    ]);
+    expect(rows.map((r) => `${r.userId === ada ? 'ada' : 'bo'} ${r.kind} ${r.status} ${r.attempts}`).sort()).toEqual(['ada PENDING SENT 2', 'bo PENDING SENT 2']);
     // Later that day nothing goes again.
     const later = makeService(new Date('2026-10-21T09:00:00Z'));
     await later.service.runSweep();
-    expect(await later.sendNow()).toMatchObject({ sent: 0, alreadyDone: 3, off: 1 });
+    expect(await later.sendNow()).toMatchObject({ sent: 0, alreadyDone: 2, off: 0 });
     expect(later.sent).toEqual([]);
   });
 
@@ -107,7 +100,7 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     await repo.finish(retry, { status: 'RETRY', nextAttemptAt: new Date('2026-10-21T02:55:00Z'), lastError: 'HTTP 503' });
     const { service, sent } = makeService(new Date('2026-10-21T03:00:00Z'));
     const [, manual] = await Promise.all([service.runSweep(), service.sendFor(ada, { kind: 'PENDING' })]);
-    expect(sent.filter((m) => m === 'dadm-ada@mico360.test daily-pending')).toHaveLength(1); // (the check also sends the others due)
+    expect(sent.filter((m) => m === 'dadm-ada@mico360.test daily-email')).toHaveLength(1); // (the check also sends the others due)
     expect(['sent', 'busy']).toContain(manual!.results[0]!.outcome);
     expect(await repo.find(ada, '2026-10-21', 'PENDING')).toMatchObject({ status: 'SENT', attempts: 2, nextAttemptAt: null });
   });
@@ -129,7 +122,7 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     const working = makeService(new Date('2026-10-21T03:20:00Z'));
     await working.service.runSweep();
     await working.service.runSweep();
-    expect(working.sent.sort()).toEqual(['dadm-ada@mico360.test daily-completed', 'dadm-ada@mico360.test daily-pending']); // Bo’s counts as sent
+    expect(working.sent.sort()).toEqual(['dadm-ada@mico360.test daily-email']); // Bo’s counts as sent
     expect(await repo.find(ada, '2026-10-21', 'PENDING')).toMatchObject({ status: 'SENT', attempts: 3 });
   });
 
@@ -139,19 +132,19 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     expect(start).toMatchObject({ started: true, run: { running: true, done: 0 } });
     expect(service.startSendNow().started).toBe(false); // one at a time
     const run = await start.finished;
-    expect(run).toMatchObject({ running: false, total: 2, done: 2, error: null, counts: { sent: 3, off: 1 } });
-    expect(sent).toHaveLength(3);
-    expect((await service.overview()).run).toMatchObject({ running: false, total: 2, done: 2, counts: { sent: 3 } });
+    expect(run).toMatchObject({ running: false, total: 2, done: 2, error: null, counts: { sent: 2, off: 0 } });
+    expect(sent).toHaveLength(2);
+    expect((await service.overview()).run).toMatchObject({ running: false, total: 2, done: 2, counts: { sent: 2 } });
   });
 
   it('"Send now" never goes ahead of a person’s time; one person sent early (when asked) counts as today’s', async () => {
     const early = makeService(new Date('2026-10-21T00:30:00Z')); // 04:30 Muscat, 06:00 Kolkata: before both (06:00, 07:00)
-    expect(await early.sendNow()).toMatchObject({ sent: 0, notYet: 3, off: 1 });
+    expect(await early.sendNow()).toMatchObject({ sent: 0, notYet: 2, off: 0 });
     expect(early.sent).toEqual([]);
-    expect((await early.service.sendFor(ada, { early: true }))!.results.map((r) => r.outcome)).toEqual(['sent', 'sent']);
+    expect((await early.service.sendFor(ada, { early: true }))!.results.map((r) => r.outcome)).toEqual(['sent']);
     const atTheirTime = makeService(new Date('2026-10-21T02:00:00Z'));
     await atTheirTime.service.runSweep();
-    expect(atTheirTime.sent).toEqual(['dadm-bo@mico360.test daily-pending']); // Bo’s at his time; Ada’s went early
+    expect(atTheirTime.sent).toEqual(['dadm-bo@mico360.test daily-email']); // Bo’s at his time; Ada’s went early
   });
 
   it('a failed email taken again by two sends at once goes once; a resend keeps the one record', async () => {
@@ -159,7 +152,7 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     await repo.finish(failed, { status: 'FAILED', lastError: 'HTTP 503' });
     const { service, sent } = makeService(new Date('2026-10-21T03:00:00Z'));
     await Promise.all([service.sendFor(ada, { kind: 'PENDING' }), service.sendFor(ada, { kind: 'PENDING' })]);
-    expect(sent).toEqual(['dadm-ada@mico360.test daily-pending']);
+    expect(sent).toEqual(['dadm-ada@mico360.test daily-email']);
     await service.sendFor(ada, { kind: 'PENDING', resend: true });
     expect(sent).toHaveLength(2);
     const rows = await prisma.dailyTaskEmail.findMany({ where: { userId: ada, kind: 'PENDING' } });
@@ -179,11 +172,11 @@ describe('Daily task emails: administrators’ sends and the sweep (integration)
     const [a, b] = o.people;
     expect(a).toMatchObject({ day: '2026-10-21', today: '2026-10-21', due: true, account: 'active', timeZone: 'Asia/Muscat', ownTimeZone: false, time: '06:00' });
     expect(a!.pending).toMatchObject({ state: 'SENT', taskCount: 1, sentAt: new Date('2026-10-21T02:00:00Z') });
-    expect(a!.completed).toMatchObject({ state: 'LATE', dueAt: new Date('2026-10-21T02:00:00Z') }); // 06:00 has come, not sent yet
+    expect(a!.completed).toMatchObject({ on: false, state: 'OFF' }); // the old email: no longer sent
     expect(b).toMatchObject({ day: '2026-10-21', timeZone: 'Asia/Kolkata', ownTimeZone: true, time: '07:00' });
     expect(b!.pending).toMatchObject({ state: 'RETRY', lastError: 'HTTP 503', nextAttemptAt: new Date('2026-10-21T02:20:00Z') });
     expect(b!.completed).toMatchObject({ on: false, state: 'OFF' });
-    expect(o.summary).toEqual({ people: 2, sent: 1, skipped: 0, failed: 0, retrying: 1, sending: 0, late: 1, upcoming: 0, toSend: 2 });
+    expect(o.summary).toEqual({ people: 2, sent: 1, skipped: 0, failed: 0, retrying: 1, sending: 0, late: 0, upcoming: 0, toSend: 1 });
 
     const yesterday = await service.overview('2026-10-20');
     expect(yesterday.people[0]!.pending).toMatchObject({ state: 'SENDING' });

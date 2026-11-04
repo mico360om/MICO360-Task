@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DailyEmailSettings } from './DailyEmailSettings';
 import { useAuthStore } from '../../stores/auth-store';
@@ -11,15 +11,17 @@ function json(body: unknown, status = 200): Response {
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 let calls: Call[] = [];
+const ALL_ON = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true };
+const PARTS = ['Today’s schedule', 'Overdue & urgent', 'Your tasks by project', 'In your projects', 'Recently completed'];
 let prefs: Record<string, unknown> = {};
 let emailEnabled = true;
-let testReply: () => Response = () => json({ data: { pending: 'sent', completed: 'empty' } });
+let testReply: () => Response = () => json({ data: { daily: 'sent', pending: 'sent', completed: 'sent' } });
 
 beforeEach(() => {
   calls = [];
-  prefs = { muted: ['TASK_COMMENT'], dailyEmails: { pending: true, completed: true, time: '06:00' } };
+  prefs = { muted: ['TASK_COMMENT'], dailyEmails: { ...ALL_ON } };
   emailEnabled = true;
-  testReply = () => json({ data: { pending: 'sent', completed: 'empty' } });
+  testReply = () => json({ data: { daily: 'sent', pending: 'sent', completed: 'sent' } });
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
@@ -35,6 +37,7 @@ beforeEach(() => {
         return json({ data: prefs });
       }
       if (u.endsWith('/notifications/preferences')) return json({ data: prefs });
+      if (u.endsWith('/users/me/preferences')) return json({ data: { timeZone: 'Asia/Dubai', weekStart: null } });
       return json({ data: [] });
     }),
   );
@@ -54,50 +57,82 @@ function renderIt() {
 }
 const puts = () => calls.filter((c) => c.method === 'PUT');
 
-describe('Settings: daily task emails', () => {
-  it('shows both emails on, at 06:00', async () => {
+describe('Settings: the daily email (1.22: one email, in parts)', () => {
+  it('shows the email on, every part on, and its time', async () => {
     renderIt();
-    expect(await screen.findByRole('switch', { name: 'Pending tasks email' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('switch', { name: 'Completed yesterday email' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByLabelText('Send them at')).toHaveValue('06:00');
+    expect(await screen.findByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
+    for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('button', { name: 'Send it at: 06:00' })).toHaveTextContent('06:00');
   });
 
-  it('turns one email off, saving only the daily email settings', async () => {
+  it('turns one part off, saving the daily email settings only', async () => {
     renderIt();
-    await userEvent.click(await screen.findByRole('switch', { name: 'Completed yesterday email' }));
+    await userEvent.click(await screen.findByRole('switch', { name: 'Recently completed' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: { pending: true, completed: false, time: '06:00' } });
-    expect(screen.getByRole('switch', { name: 'Completed yesterday email' })).toHaveAttribute('aria-checked', 'false');
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, completed: false } });
+    expect(screen.getByRole('switch', { name: 'Recently completed' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('changes the time when the field is left', async () => {
+  it('the whole email off — every part off, and said so — and on again', async () => {
     renderIt();
-    const time = await screen.findByLabelText('Send them at');
-    fireEvent.change(time, { target: { value: '07:30' } }); // (jsdom can't type into a time field)
-    expect(puts()).toHaveLength(0); // not while it is being changed
-    fireEvent.blur(time);
+    await userEvent.click(await screen.findByRole('switch', { name: 'Send me the daily email' }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(puts()[0]!.body).toEqual({ dailyEmails: { pending: true, completed: true, time: '07:30' } });
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false } });
+    expect(await screen.findByText('You get no daily email. Turn on any part to get it again.')).toBeInTheDocument();
+    for (const part of PARTS) expect(screen.getByRole('switch', { name: part })).toHaveAttribute('aria-checked', 'false');
+    await userEvent.click(screen.getByRole('switch', { name: 'Send me the daily email' }));
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(puts()[1]!.body).toEqual({ dailyEmails: ALL_ON });
   });
 
-  it('sends a test now and says which one had nothing in it', async () => {
+  it('changes the time from the site’s 24-hour list', async () => {
     renderIt();
-    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test now' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Sent the pending tasks email. Nothing was completed yesterday, so there was no completed tasks email to send.');
+    const time = await screen.findByRole('button', { name: 'Send it at: 06:00' });
+    await waitFor(() => expect(time).toBeEnabled());
+    await userEvent.click(time);
+    expect(screen.getByRole('option', { name: '13:45' })).toBeInTheDocument(); // 24-hour, never "1:45 PM"
+    await userEvent.click(screen.getByRole('option', { name: '07:30' }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(puts()[0]!.body).toEqual({ dailyEmails: { ...ALL_ON, time: '07:30' } });
+  });
+
+  it('names the time zone it goes in, with links to change it and the notification settings', async () => {
+    const { container } = renderIt();
+    expect(await screen.findByText(/In your time zone, Asia\/Dubai\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Change the time zone' })).toHaveAttribute('href', '#time-zone');
+    expect(screen.getByRole('link', { name: 'Notification settings' })).toHaveAttribute('href', '#notifications');
+    expect(container.querySelector('section#daily-email')).not.toBeNull(); // the email's own links open it here
+  });
+
+  it('"Send me a test" sends the real email now and says so', async () => {
+    renderIt();
+    // 44 px on a touch screen: the important form, or the site's global 32 px rule for buttons wins.
+    expect((await screen.findByRole('button', { name: 'Send me a test' })).className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Sent your daily email as it is now. Check your inbox.');
+    expect(calls.filter((c) => c.url.endsWith('/notifications/daily-emails/test') && c.method === 'POST')).toHaveLength(1);
+  });
+
+  it('says when there is nothing in it, so nothing was sent', async () => {
+    testReply = () => json({ data: { daily: 'empty', pending: 'empty', completed: 'empty' } });
+    renderIt();
+    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('There’s nothing in your daily email right now, so no test was sent.');
   });
 
   it('says plainly when the address is blocked, and never that it was sent', async () => {
-    testReply = () => json({ data: { pending: 'blocked', completed: 'blocked' } });
+    testReply = () => json({ data: { daily: 'blocked', pending: 'blocked', completed: 'blocked' } });
     renderIt();
-    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test now' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Not sent: your email address is blocked after a bounce or spam complaint. Ask an administrator to check it.');
     expect(screen.queryByText(/^Sent /)).not.toBeInTheDocument();
   });
 
-  it('shows the server’s reason when the test can’t be sent', async () => {
+  it('shows the server’s reason when the test can’t be sent (one a minute)', async () => {
     testReply = () => json({ error: { code: 'TOO_SOON', message: 'A test was just sent. Wait a minute before sending another.' } }, 429);
     renderIt();
-    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test now' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Send me a test' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Wait a minute before sending another.');
   });
 
@@ -105,7 +140,7 @@ describe('Settings: daily task emails', () => {
     emailEnabled = false;
     renderIt();
     expect(await screen.findByText(/Email isn’t set up on this server yet/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Send me a test now' })).not.toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Pending tasks email' })).toBeInTheDocument(); // settings can still be chosen
+    expect(screen.queryByRole('button', { name: 'Send me a test' })).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Send me the daily email' })).toBeInTheDocument(); // settings can still be chosen
   });
 });

@@ -63,4 +63,6 @@ export interface DailyEmailRepository {
   forDays(days: string[]): Promise<DailyEmailDayRow[]>;
   /** The delivery log, newest first. */
   list(filter: { day?: string; status?: DailyEmailStatus; limit?: number }): Promise<DailyEmailLogRow[]>;
+  /** 1.22: the person's last email of this kind that went, for a day before `beforeDay` (null: never) — where "Recently completed" starts. */
+  lastSent(userId: string, kind: DailyEmailKind, beforeDay: string): Promise<{ day: string; sentAt: Date } | null>;
 }

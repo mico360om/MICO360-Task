@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderEmail, escapeHtml } from './email-layout';
+import { renderEmail, escapeHtml, chipsHtml, safeHref } from './email-layout';
 
 describe('escapeHtml', () => {
   it('escapes HTML-significant characters', () => {
@@ -323,5 +323,38 @@ describe('renderEmail — labels and a project with its tasks', () => {
     expect(text).toContain('- Fix <the> pump (RIG-4) — 2 days overdue · High priority · In Progress');
     expect(text).toContain('  https://task.example/my-tasks?task=t1');
     expect(text).toContain('- Sneaky (RIG-5)');
+  });
+});
+
+describe('renderEmail — a template’s own markup and styles (1.22, the daily email)', () => {
+  const email = () =>
+    renderEmail({
+      preheader: 'p',
+      heading: 'h',
+      css: '.email-x{color:#123456}',
+      blocks: [
+        { kind: 'markup', html: '<table role="presentation"><tr><td class="email-x">Made by the template</td></tr></table>', text: 'Made by the template (text)' },
+        { kind: 'text', text: 'After it.' },
+      ],
+    });
+
+  it('puts the markup in as it is, and its text in the plain-text version', () => {
+    const { html, text } = email();
+    expect(html).toContain('<td class="email-x">Made by the template</td>');
+    expect(text).toContain('Made by the template (text)\n\nAfter it.');
+  });
+
+  it('adds the template’s styles after the shared ones; other emails are unchanged', () => {
+    const { html } = email();
+    expect(html).toMatch(/\.email-chip-outline\{[^}]*\}\s*\}\s*\.email-x\{color:#123456\}\s*<\/style>/);
+    expect(renderEmail({ preheader: 'p', heading: 'h', blocks: [] }).html).not.toContain('email-x');
+  });
+});
+
+describe('chipsHtml and safeHref (shared with the daily email)', () => {
+  it('chips as the layout draws them, links only http(s) or mailto', () => {
+    expect(chipsHtml([{ text: 'A & B', tone: 'danger' }])).toContain('>A &amp; B</span>');
+    expect(safeHref('javascript:alert(1)')).toBe('#');
+    expect(safeHref(' https://x.test/a?b=1&c=2 ')).toBe('https://x.test/a?b=1&amp;c=2');
   });
 });

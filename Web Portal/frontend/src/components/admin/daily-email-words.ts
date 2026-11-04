@@ -11,7 +11,15 @@ import { dayText } from '../../lib/day-words';
 
 /** The plain words for the daily emails on the admins' page (System Settings → Daily task emails). */
 
-export const KIND_LABEL: Record<DailyEmailKind, string> = { PENDING: 'Pending tasks', COMPLETED: 'Completed yesterday' };
+/**
+ * 1.22: one daily email (the PENDING record). COMPLETED was the "Completed yesterday" email: no longer
+ * sent, its records of earlier days still shown. KIND_LABEL heads an email's box; KIND_NAME is the
+ * email in a sentence ("Send Bo’s daily email", "Sent the daily email to Bo").
+ */
+export const KIND_LABEL: Record<DailyEmailKind, string> = { PENDING: 'Daily email', COMPLETED: 'Completed yesterday (old email)' };
+export const KIND_NAME: Record<DailyEmailKind, string> = { PENDING: 'daily', COMPLETED: '“Completed yesterday”' };
+/** The old email's record of a day: shown, never sent again (it is part of the daily email now). */
+export const RETIRED_WHY = 'Part of the daily email now, so it isn’t sent by itself.';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const wasWere = (n: number) => (n === 1 ? 'was' : 'were');
@@ -160,7 +168,7 @@ export function runDoneText(run: DailyEmailSendNowRun): string {
 export function sendResultText(r: DailyEmailSendResult, resend: boolean, timeZone: string): { ok: boolean; text: string } {
   const one = r.results[0];
   if (!one) return { ok: true, text: 'Nothing was sent.' };
-  const label = KIND_LABEL[one.kind] ?? one.kind;
+  const label = KIND_NAME[one.kind] ?? one.kind;
   switch (one.outcome) {
     case 'sent':
       return { ok: true, text: `Sent the ${label} email to ${r.name}${resend ? ' again' : ''}.` };

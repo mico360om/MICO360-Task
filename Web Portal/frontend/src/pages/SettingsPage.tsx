@@ -13,7 +13,7 @@ import { DatePreferences } from '../components/DatePreferences';
 import { LoadError } from '../components/ui/LoadError';
 import { photoUploadProblem } from '../lib/photo-upload';
 import { Toggle } from '../components/ui/Toggle';
-import { DailyEmailSettings } from '../components/settings/DailyEmailSettings';
+import { DAILY_EMAIL_ANCHOR, DailyEmailSettings } from '../components/settings/DailyEmailSettings';
 import { useScrollToHash } from '../lib/useScrollToHash';
 import { WeeklySummarySettings } from '../components/settings/WeeklySummarySettings';
 import { MyProjectsSettings } from '../components/settings/MyProjectsSettings';
@@ -103,8 +103,11 @@ export function SettingsPage() {
   }
 
   const prefsQ = useQuery({ queryKey: ['notification-prefs'], queryFn: () => notificationsApi(apiClient).getPreferences() });
-  // 1.22: the Notifications page's "Notification settings" link (/settings#notifications).
+  // 1.22: the Notifications page's "Notification settings" link (/settings#notifications), and the
+  // daily email's links to its settings and to the time zone (/settings#daily-email, #time-zone).
   useScrollToHash('notifications', !prefsQ.isLoading);
+  useScrollToHash(DAILY_EMAIL_ANCHOR, !prefsQ.isLoading);
+  useScrollToHash('time-zone', !prefsQ.isLoading);
   const prefs = prefsQ.data ?? { muted: [] };
   const muted = prefs.muted ?? [];
 
@@ -237,7 +240,7 @@ export function SettingsPage() {
           ) : null}
         </section>
 
-        {/* Daily task emails */}
+        {/* The daily email */}
         <DailyEmailSettings />
 
         <WeeklySummarySettings />
@@ -270,8 +273,8 @@ export function SettingsPage() {
           </div>
         </section>
 
-        {/* Calendar & dates */}
-        <section className="card p-5 lg:col-span-2">
+        {/* Calendar & dates (the time zone: the daily email links here) */}
+        <section id="time-zone" className="card scroll-mt-20 p-5 lg:col-span-2">
           <h2 className="eyebrow mb-4">Calendar &amp; dates</h2>
           <DatePreferences />
         </section>

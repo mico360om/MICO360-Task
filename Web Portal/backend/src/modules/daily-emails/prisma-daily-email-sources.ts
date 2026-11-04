@@ -1,9 +1,11 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizePreferences } from '../notifications/notification-preferences';
-import type { DailyTask } from './daily-email-content';
+import type { DailyMeeting, DailyTask } from './daily-email-content';
 import type { DailyRecipient } from './daily-email-service';
 import { liveProjectWhere } from '../companies/project-archive';
-import { sharedCompanyWhere } from '../companies/company-access';
+import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
+import { managedProjectsWhere } from '../projects/project-managers';
+import { buildTimeline } from '../activity/activity-feed';
 
 const personSelect = {
   id: true,
@@ -27,6 +29,15 @@ const toRecipient = (u: PersonRow): DailyRecipient => ({
   createdAt: u.createdAt,
 });
 
+const nameSelect = { firstName: true, lastName: true, username: true } as const;
+const nameOf = (u: { firstName: string | null; lastName: string | null; username: string }) => [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
+
+/**
+ * Not "the latest update" line: comments are read as comments, and blocker changes may name a task the
+ * person can't see (the "Blocked" mark says enough).
+ */
+const NOT_AN_UPDATE = ['COMMENTED', 'comment.added', 'BLOCKER_ADDED', 'BLOCKER_REMOVED'];
+
 const taskSelect = {
   id: true,
   key: true,
@@ -35,6 +46,13 @@ const taskSelect = {
   dueDate: true,
   completedAt: true,
   approvalRequestedAt: true,
+  // 1.22: the card's details.
+  description: true,
+  startDate: true,
+  checklist: { select: { done: true } },
+  comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
+  activities: { where: { action: { notIn: NOT_AN_UPDATE } }, orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, action: true, meta: true, createdAt: true, user: { select: nameSelect } } },
+  dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
   project: {
     select: {
       id: true,
@@ -53,9 +71,21 @@ const taskSelect = {
     },
   },
   column: { select: { name: true } },
-} as const;
+} as const satisfies Prisma.TaskSelect;
 
 type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskSelect }>;
+
+/** The newest comment or change, whichever is newer, as one line ("Sara Ali: “…”", "Omar moved this task (To Do → Done)"). */
+function latestOf(t: TaskRow): DailyTask['latest'] {
+  const c = t.comments[0];
+  const comment = c ? { text: `${nameOf(c.user)}: “${c.body.slice(0, 400).replace(/\s+/g, ' ').trim()}”`, at: c.createdAt } : null;
+  const a = t.activities[0];
+  const item = a ? buildTimeline([{ id: a.id, action: a.action, actorName: nameOf(a.user), createdAt: a.createdAt.toISOString(), meta: (a.meta as Record<string, unknown> | null) ?? null }])[0] : undefined;
+  const change = a && item ? { text: `${item.actorName} ${item.text}${item.path ? ` (${item.path.join(' → ')})` : ''}`, at: a.createdAt } : null;
+  if (comment && change) return comment.at >= change.at ? comment : change;
+  return comment ?? change;
+}
+
 const toTask = (t: TaskRow): DailyTask => ({
   id: t.id,
   key: t.key,
@@ -78,17 +108,30 @@ const toTask = (t: TaskRow): DailyTask => ({
   statusLabel: t.column.name,
   completedAt: t.completedAt,
   waitingSince: t.approvalRequestedAt,
+  description: t.description,
+  startDate: t.startDate,
+  checklist: t.checklist.length ? { done: t.checklist.filter((i) => i.done).length, total: t.checklist.length } : null,
+  latest: latestOf(t),
+  // Blocked: a task it depends on isn't done yet.
+  blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
 });
 
-/** Who gets the morning emails, and their tasks — always only tasks assigned to that person. */
+/** At most this many meetings in one person's day. */
+const MEETINGS_A_DAY = 60;
+
+/**
+ * Who gets the daily email, and what is in it: the person's own tasks, their day's meetings and, for
+ * people who run a project, its overdue and waiting tasks. Always within their companies, and never
+ * archived projects. ("Show my projects only" doesn't apply to emails: lane S's ruling.)
+ */
 export function createPrismaDailyEmailSources(prisma: PrismaClient) {
   const active = { status: 'ACTIVE', deletedAt: null } as const;
+  const isAdmin = async (userId: string) => (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0;
   /**
    * Companies: someone who isn't an administrator only hears of tasks in projects that share an active
    * company with them (losing a company takes its tasks out of the next email). Administrators: as before.
    */
-  const companyScope = async (userId: string): Promise<Prisma.ProjectWhereInput> =>
-    (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0 ? {} : sharedCompanyWhere(userId);
+  const companyScope = async (userId: string): Promise<Prisma.ProjectWhereInput> => ((await isAdmin(userId)) ? {} : sharedCompanyWhere(userId));
   return {
     people: {
       async list(): Promise<DailyRecipient[]> {
@@ -116,15 +159,80 @@ export function createPrismaDailyEmailSources(prisma: PrismaClient) {
         });
         return rows.map(toTask);
       },
-      /** Assigned to them and completed in [from, to), whoever completed them. */
+      /** Assigned to them and completed in [from, to), whoever completed them — never in an archived project. */
       async completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]> {
         const rows = await prisma.task.findMany({
-          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: await companyScope(userId) },
+          where: { deletedAt: null, assignees: { some: { userId } }, completedAt: { gte: from, lt: to }, project: liveProjectWhere({ deletedAt: null, AND: [await companyScope(userId)] }) },
           select: taskSelect,
           orderBy: { completedAt: 'asc' },
           take: 500,
         });
         return rows.map(toTask);
+      },
+
+      /**
+       * 1.22: their meetings starting in [from, to) — they organize it, or are invited and haven't
+       * declined; scheduled, under way or finished (not drafts, not cancelled); never in an archived
+       * project or a closed company. A meeting of another company's project they are invited to is
+       * theirs too (as a guest). Archived means no access: no active company of their own, none.
+       */
+      async meetingsBetween(userId: string, from: Date, to: Date): Promise<DailyMeeting[]> {
+        if (!(await isAdmin(userId)) && !(await hasActiveCompany(prisma, userId))) return [];
+        const rows = await prisma.meeting.findMany({
+          where: {
+            deletedAt: null,
+            status: { in: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED'] },
+            startAt: { gte: from, lt: to },
+            OR: [{ organizerId: userId }, { attendees: { some: { userId, response: { not: 'DECLINED' } } } }],
+            AND: [{ OR: [{ companyId: null }, { company: { status: 'ACTIVE' } }] }],
+          },
+          select: { id: true, title: true, startAt: true, endAt: true, location: true, onlineLink: true, status: true, projectId: true, organizerId: true, attendees: { where: { userId }, select: { response: true }, take: 1 } },
+          orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
+          take: MEETINGS_A_DAY,
+        });
+        const projectIds = [...new Set(rows.map((r) => r.projectId).filter((id): id is string => !!id))];
+        const live = projectIds.length ? await prisma.project.findMany({ where: liveProjectWhere({ id: { in: projectIds }, deletedAt: null }), select: { id: true, name: true } }) : [];
+        const names = new Map(live.map((p) => [p.id, p.name] as const));
+        return rows
+          .filter((r) => !r.projectId || names.has(r.projectId))
+          .map((r) => {
+            const organizer = r.organizerId === userId;
+            return {
+              id: r.id,
+              title: r.title,
+              startAt: r.startAt,
+              endAt: r.endAt,
+              location: r.location?.trim() || null,
+              online: Boolean(r.onlineLink?.trim()),
+              projectName: r.projectId ? names.get(r.projectId)! : null,
+              organizer,
+              response: organizer ? null : (r.attendees[0]?.response ?? null),
+              status: r.status,
+            };
+          });
+      },
+
+      /**
+       * 1.22: not-done tasks of the projects they run (owner, named manager or MANAGER member), in their
+       * companies and not archived, assigned to others (theirs are in their own parts), that wait for
+       * approval or are due by tomorrow (the email keeps the overdue ones in their time zone) — with
+       * who they are assigned to.
+       */
+      async managed(userId: string, now: Date): Promise<DailyTask[]> {
+        const rows = await prisma.task.findMany({
+          where: {
+            deletedAt: null,
+            completedAt: null,
+            column: { category: { not: 'DONE' } },
+            assignees: { none: { userId } },
+            project: liveProjectWhere({ deletedAt: null, status: { not: 'COMPLETED' }, AND: [managedProjectsWhere(userId), await companyScope(userId)] }),
+            OR: [{ approvalRequestedAt: { not: null } }, { dueDate: { lt: new Date(now.getTime() + 864e5) } }],
+          },
+          select: { ...taskSelect, assignees: { select: { user: { select: nameSelect } } } },
+          orderBy: [{ dueDate: 'asc' }, { key: 'asc' }],
+          take: 200,
+        });
+        return rows.map((r) => ({ ...toTask(r), assignees: r.assignees.map((a) => nameOf(a.user)) }));
       },
     },
   };

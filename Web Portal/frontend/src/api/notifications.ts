@@ -43,20 +43,32 @@ export interface NotificationPreferences {
   muted: string[];
   /** Minutes before a task's due date to send a "due soon" reminder (omitted = default). */
   reminderLeadMinutes?: number;
-  /** The two morning emails and when they go (HH:MM, the person's time zone); the server fills in the defaults. */
+  /** The daily email's parts and when it goes (HH:MM, the person's time zone); the server fills in the defaults. */
   dailyEmails?: DailyEmailPrefs;
   /** The weekly management summary (for the people who can see the Management page); the server says true unless turned off. */
   weeklySummary?: boolean;
 }
 
+/**
+ * The daily email (1.22: one email, in parts). `pending` (your tasks by project) and `completed`
+ * (recently completed) keep the names of the two emails before it, so older apps still work.
+ */
 export interface DailyEmailPrefs {
   pending: boolean;
   completed: boolean;
   time: string;
+  /** Today's schedule. */
+  schedule: boolean;
+  /** Overdue & urgent. */
+  urgent: boolean;
+  /** In your projects (people who run a project). */
+  managed: boolean;
 }
+export type DailyEmailPart = 'schedule' | 'urgent' | 'pending' | 'managed' | 'completed';
 
-/** What "Send me a test now" sent: an email with nothing in it isn't sent. */
+/** What "Send me a test" sent: an email with nothing in it isn't sent. `pending`/`completed` repeat `daily` for older apps. */
 export interface DailyEmailTestResult {
+  daily?: 'sent' | 'empty' | 'blocked';
   pending: 'sent' | 'empty' | 'blocked';
   completed: 'sent' | 'empty' | 'blocked';
 }

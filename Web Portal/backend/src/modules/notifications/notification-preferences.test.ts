@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dailyEmailPrefs, emptyPreferences, isMuted, normalizePreferences, weeklySummaryOn, DEFAULT_DAILY_EMAILS } from './notification-preferences';
+import { dailyEmailOn, dailyEmailPrefs, emptyPreferences, isMuted, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_PARTS, DEFAULT_DAILY_EMAILS } from './notification-preferences';
 
 describe('notification-preferences', () => {
   it('defaults to nothing muted', () => {
@@ -32,16 +32,37 @@ describe('notification-preferences', () => {
 });
 
 describe('daily task email settings', () => {
-  it('are both on at 06:00 for someone who never chose', () => {
-    expect(DEFAULT_DAILY_EMAILS).toEqual({ pending: true, completed: true, time: '06:00' });
+  it('are all on at 06:00 for someone who never chose', () => {
+    expect(DEFAULT_DAILY_EMAILS).toEqual({ pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true });
     expect(dailyEmailPrefs(emptyPreferences())).toEqual(DEFAULT_DAILY_EMAILS);
+    expect(dailyEmailOn(dailyEmailPrefs(emptyPreferences()))).toBe(true);
   });
 
   it('keep what was chosen, and fill in or fix the rest', () => {
-    const p = normalizePreferences({ muted: [], dailyEmails: { pending: false, time: '07:30' } });
-    expect(p.dailyEmails).toEqual({ pending: false, completed: true, time: '07:30' });
+    const p = normalizePreferences({ muted: [], dailyEmails: { pending: false, completed: true, time: '07:30', schedule: false, urgent: true, managed: false } });
+    expect(p.dailyEmails).toEqual({ pending: false, completed: true, time: '07:30', schedule: false, urgent: true, managed: false });
     expect(normalizePreferences({ dailyEmails: { completed: 'yes', time: '25:00' } }).dailyEmails).toEqual(DEFAULT_DAILY_EMAILS);
     expect(normalizePreferences({ dailyEmails: { time: '6:5' } }).dailyEmails?.time).toBe('06:00');
+  });
+
+  it('1.22: settings saved before the one email keep their meaning — both old emails off means no email', () => {
+    // "Pending tasks" was the task list: it now stands for both task parts.
+    expect(normalizePreferences({ dailyEmails: { pending: false, completed: true, time: '07:30' } }).dailyEmails).toEqual({
+      pending: false, completed: true, time: '07:30', schedule: true, urgent: false, managed: true,
+    });
+    expect(normalizePreferences({ dailyEmails: { pending: true, completed: false, time: '06:00' } }).dailyEmails).toEqual({
+      pending: true, completed: false, time: '06:00', schedule: true, urgent: true, managed: true,
+    });
+    const off = dailyEmailPrefs(normalizePreferences({ dailyEmails: { pending: false, completed: false, time: '06:00' } }));
+    expect(off).toEqual({ pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false });
+    expect(dailyEmailOn(off)).toBe(false);
+  });
+
+  it('the email is on while any one part is on', () => {
+    const none = { pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false };
+    expect(dailyEmailOn(none)).toBe(false);
+    for (const part of DAILY_EMAIL_PARTS) expect(dailyEmailOn({ ...none, [part]: true })).toBe(true);
+    expect([...DAILY_EMAIL_PARTS]).toEqual(['schedule', 'urgent', 'pending', 'managed', 'completed']);
   });
 
   it('are left out when they were never saved (older stored settings stay as they are)', () => {

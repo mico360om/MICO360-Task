@@ -16,7 +16,12 @@ export type Block =
   | { kind: 'project'; project: EmailProjectCard; items: EmailTaskItem[]; more?: { text: string; href: string } }
   | { kind: 'divider' }
   /** Companies: a section heading (a company's name above its projects). */
-  | { kind: 'heading'; text: string };
+  | { kind: 'heading'; text: string }
+  /**
+   * 1.22: a template's own markup (the daily email's cards), already escaped by it with escapeHtml and
+   * safeHref, and its plain-text version.
+   */
+  | { kind: 'markup'; html: string; text: string };
 
 /** A label's colour: a tone, plain grey ('neutral'), quieter grey ('muted') or an outline. */
 export type ChipTone = Tone | 'neutral' | 'muted' | 'outline';
@@ -71,10 +76,12 @@ export interface EmailModel {
   headerNote?: string;
   /** Why the email was sent, in the footer, when it isn't "you have an account" (a shared client). */
   reason?: string;
+  /** 1.22: a template's own styles (its narrow-screen and dark rules), after the shared ones. */
+  css?: string;
 }
 
 /** Up to two initials: "Falcon CRM" → "FC", "Falcon" → "FA". */
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   // The words' letters and digits ("Rig & Co" → "RC", "(Alpha) Beta" → "AB").
   const words = name
     .trim()
@@ -90,7 +97,7 @@ function initialsOf(name: string): string {
  * White or near-black initials, whichever has more contrast on the colour (WCAG), as the website's
  * project tiles do: white on amber (#B7791F) was only 3.6:1.
  */
-function initialsInk(hex: string): string {
+export function initialsInk(hex: string): string {
   const n = parseInt(hex.replace('#', ''), 16);
   const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
     const s = v / 255;
@@ -129,7 +136,7 @@ export function escapeHtml(value: string): string {
 }
 
 /** Escape a URL for an href attribute (only http/https/mailto allowed; otherwise neutralized). */
-function safeHref(url: string): string {
+export function safeHref(url: string): string {
   const trimmed = String(url).trim();
   if (/^(https?:|mailto:)/i.test(trimmed)) return escapeHtml(trimmed);
   return '#';
@@ -161,7 +168,7 @@ function chipHtml(chip: EmailChip): string {
   return `<span class="${look.cls}" style="display:inline-block;margin:8px 2px 0 0;padding:3px 10px;border-radius:999px;font-size:12px;line-height:18px;font-weight:700;white-space:nowrap;${look.style}">${escapeHtml(chip.text)}</span>`;
 }
 // A space between labels: Outlook, screen readers and copied text would otherwise run them together.
-const chipsHtml = (chips: EmailChip[]) => chips.map(chipHtml).join(' ');
+export const chipsHtml = (chips: EmailChip[]) => chips.map(chipHtml).join(' ');
 const chipsText = (chips: EmailChip[]) => chips.map((ch) => ch.text).join(' · ');
 
 /** A project's picture, or its initials on its colour, as a 42 px tile. */
@@ -250,6 +257,8 @@ function renderBlockHtml(block: Block, brand: Brand, locale: Locale): string {
       return `<hr class="email-divider" style="border:none;border-top:1px solid ${c.line};margin:8px 0 20px"/>`;
     case 'heading':
       return `<h2 class="email-text" style="margin:24px 0 10px;font-size:18px;line-height:1.3;font-weight:800;color:${c.ink}">${escapeHtml(block.text)}</h2>`;
+    case 'markup':
+      return block.html;
   }
 }
 
@@ -286,6 +295,8 @@ function renderBlockText(block: Block): string {
       return '----------------------------------------';
     case 'heading':
       return `== ${block.text} ==`;
+    case 'markup':
+      return block.text;
   }
 }
 
@@ -350,7 +361,8 @@ export function renderEmail(model: EmailModel): { html: string; text: string } {
     .email-link{color:#F0A79B!important;border-color:#F0A79B!important}
     .email-chip-neutral{background:#332C2A!important;color:#E7E1DE!important}
     .email-chip-outline{background:transparent!important;color:#E7E1DE!important;border-color:#5A4E4A!important}
-  }
+  }${model.css ? `
+  ${model.css}` : ''}
 </style>
 </head>
 <body class="email-body" style="margin:0;padding:0;background:${c.ground};font-family:Arial,Helvetica,sans-serif">

@@ -112,7 +112,7 @@ const withPeople = (people: unknown[], extra: Record<string, unknown> = {}) => {
   overview = { ...overview, people, ...extra };
 };
 
-describe('System Settings → Daily task emails: layout', () => {
+describe('System Settings → Daily email: layout', () => {
   it('sets the people two to a row on a wide screen (xl), one to a row below', async () => {
     renderIt();
     const list = await screen.findByRole('list', { name: 'Everyone and their daily emails' });
@@ -121,7 +121,7 @@ describe('System Settings → Daily task emails: layout', () => {
   });
 });
 
-describe('System Settings → Daily task emails: today’s summary', () => {
+describe('System Settings → Daily email: today’s summary', () => {
   it('the day’s numbers, when the server last checked and the next send — each person’s own today', async () => {
     renderIt();
     const summary = await screen.findByRole('region', { name: 'Today’s summary' });
@@ -141,7 +141,7 @@ describe('System Settings → Daily task emails: today’s summary', () => {
     overview = [{ key: 'companyName', value: 'x' }] as unknown as Record<string, unknown>;
     renderIt();
     expect(await screen.findByText(/Couldn’t load the daily emails/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Daily task emails' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Daily email' })).toBeInTheDocument();
   });
 
   it('opened from a link to #daily-emails (the extension’s “Daily email log”): shows the section and starts Tab there', async () => {
@@ -152,7 +152,7 @@ describe('System Settings → Daily task emails: today’s summary', () => {
       const { container } = renderIt();
       await screen.findByRole('list', { name: 'Everyone and their daily emails' });
       expect(container.querySelector('section#daily-emails')).not.toBeNull();
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily task emails' })).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Daily email' })).toHaveFocus());
       expect(scrolled).toHaveBeenCalledTimes(1);
     } finally {
       window.location.hash = '';
@@ -177,11 +177,11 @@ describe('System Settings → Daily task emails: today’s summary', () => {
     renderIt();
     const warning = await screen.findByText(/Email isn’t set up on this server/);
     expect(screen.getByRole('button', { name: 'Send today’s emails now' })).toBeDisabled();
-    const send = screen.getByRole('button', { name: 'Send Bo Brown’s Pending tasks email' });
+    const send = screen.getByRole('button', { name: 'Send Bo Brown’s daily email' });
     expect(send).toBeDisabled();
     expect(send).toHaveAccessibleDescription(warning.textContent!);
-    expect(screen.getByRole('button', { name: 'Resend Ada Lovelace’s Pending tasks email' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Preview Ada Lovelace’s Pending tasks email' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Resend Ada Lovelace’s daily email' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Preview Ada Lovelace’s daily email' })).toBeEnabled();
   });
 
   it('a refresh that fails keeps what was shown, with a small note — the list stays', async () => {
@@ -189,7 +189,7 @@ describe('System Settings → Daily task emails: today’s summary', () => {
     renderIt();
     await screen.findByRole('list', { name: 'Everyone and their daily emails' });
     overviewReply = () => json({ error: { code: 'ERROR', message: 'Bad gateway' } }, 502);
-    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' })); // a send, then the list is read again
+    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s daily email' })); // a send, then the list is read again
     expect(await screen.findByText(/Couldn’t refresh the list/)).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Everyone and their daily emails' })).toBeInTheDocument();
     expect(screen.queryByText(/Couldn’t load the daily emails/)).not.toBeInTheDocument();
@@ -199,7 +199,7 @@ describe('System Settings → Daily task emails: today’s summary', () => {
   });
 });
 
-describe('System Settings → Daily task emails: send today’s emails now', () => {
+describe('System Settings → Daily email: send today’s emails now', () => {
   it('asks first; the question closes at once and the emails go in the background, with how far it has got', async () => {
     const slow = held();
     sendNowReply = slow.reply;
@@ -278,7 +278,7 @@ describe('System Settings → Daily task emails: send today’s emails now', () 
   });
 });
 
-describe('System Settings → Daily task emails: everyone and their settings', () => {
+describe('System Settings → Daily email: everyone and their settings', () => {
   it('one row per person: each email on or off, the send time and time zone, and today’s state', async () => {
     renderIt();
     const list = await screen.findByRole('list', { name: 'Everyone and their daily emails' });
@@ -286,14 +286,14 @@ describe('System Settings → Daily task emails: everyone and their settings', (
     const ada = await personItem('Ada Lovelace');
     expect(ada).toHaveTextContent('ada@mico360.test');
     expect(ada).toHaveTextContent('Sends at 07:00, company time (Asia/Muscat)');
-    expect(ada).toHaveTextContent(/Pending tasks\s*On/);
+    expect(ada).toHaveTextContent(/Daily email\s*On/);
     expect(ada).toHaveTextContent('Sent at 07:01 · 4 tasks');
-    expect(ada).toHaveTextContent('Skipped — nothing to send');
+    expect(ada).toHaveTextContent('Skipped — nothing to send'); // the old “Completed yesterday” record of the day
+    expect(ada).toHaveTextContent('Completed yesterday (old email)');
     const bo = await personItem('Bo Brown');
     expect(bo).toHaveTextContent('Sends at 16:00, their own time zone (Asia/Kolkata)');
     expect(bo).toHaveTextContent('Still to come at 16:00');
-    expect(bo).toHaveTextContent(/Completed yesterday\s*Off/);
-    expect(bo).toHaveTextContent('Turned off');
+    expect(bo).not.toHaveTextContent('Completed yesterday'); // no record of the old email that day: not shown
     const fay = await personItem('Fay Fisher');
     expect(fay).toHaveTextContent('Failed after 4 attempts: HTTP 503');
     expect(fay).toHaveTextContent('Retrying at 10:00 (2 attempts so far): Timed out');
@@ -312,9 +312,9 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   it('Send: that person’s email now, and how it went', async () => {
     const user = userEvent.setup();
     renderIt();
-    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s daily email' }));
     const fay = await personItem('Fay Fisher');
-    await waitFor(() => expect(fay).toHaveTextContent('Sent the Pending tasks email to Bo Brown.'));
+    await waitFor(() => expect(fay).toHaveTextContent('Sent the daily email to Bo Brown.'));
     const post = calls.find((c) => c.url.endsWith('/admin/daily-emails/send'))!;
     expect(post.body).toEqual({ userId: 'u-fay', kind: 'PENDING', resend: false });
     expect(post.headers['idempotency-key']).toBeTruthy();
@@ -323,10 +323,10 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   it('before the person’s time: asks first, and sends early only when told to', async () => {
     const user = userEvent.setup();
     renderIt();
-    const send = await screen.findByRole('button', { name: 'Send Bo Brown’s Pending tasks email' });
+    const send = await screen.findByRole('button', { name: 'Send Bo Brown’s daily email' });
     await user.click(send);
     const ask = screen.getByRole('alertdialog', { name: 'It isn’t Bo Brown’s time yet. Send it now?' });
-    expect(ask).toHaveTextContent('Their emails go at 16:00, their time.');
+    expect(ask).toHaveTextContent('Their email goes at 16:00, their time.');
     await user.click(within(ask).getByRole('button', { name: 'Wait' }));
     expect(calls.some((c) => c.url.endsWith('/admin/daily-emails/send'))).toBe(false);
     expect(send).toHaveFocus();
@@ -339,7 +339,7 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   it('Resend asks first, saying when they got it; not sending puts focus back', async () => {
     const user = userEvent.setup();
     renderIt();
-    const resend = await screen.findByRole('button', { name: 'Resend Ada Lovelace’s Pending tasks email' });
+    const resend = await screen.findByRole('button', { name: 'Resend Ada Lovelace’s daily email' });
     await user.click(resend);
     await user.click(within(screen.getByRole('alertdialog', { name: 'They already got it at 07:01. Send again?' })).getByRole('button', { name: 'Don’t send' }));
     expect(calls.some((c) => c.url.endsWith('/admin/daily-emails/send'))).toBe(false);
@@ -350,27 +350,38 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   });
 
   it('a Send that can’t be used says why in words on the page (not only in a tooltip)', async () => {
+    withPeople([PEOPLE[0], { ...PEOPLE[1], pending: emailOf({ on: false, state: 'OFF' }) }]);
     renderIt();
-    const button = await screen.findByRole('button', { name: 'Send Bo Brown’s Completed yesterday email' });
+    const button = await screen.findByRole('button', { name: 'Send Bo Brown’s daily email' });
     expect(button).toBeDisabled();
     expect(button).not.toHaveAttribute('title');
     expect(button).toHaveAccessibleDescription('Bo Brown turned this email off.');
     expect(screen.getByText('Bo Brown turned this email off.')).not.toHaveClass('sr-only');
   });
 
+  it('1.22: an old “Completed yesterday” record is shown, but never sent or previewed again', async () => {
+    renderIt();
+    const ada = await personItem('Ada Lovelace');
+    const send = within(ada).getByRole('button', { name: 'Send Ada Lovelace’s “Completed yesterday” email' });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAccessibleDescription('Part of the daily email now, so it isn’t sent by itself.');
+    expect(within(ada).getByRole('button', { name: 'Preview Ada Lovelace’s “Completed yesterday” email' })).toBeDisabled();
+    expect(within(ada).getByRole('button', { name: 'Resend Ada Lovelace’s daily email' })).toBeEnabled();
+  });
+
   it('the server’s words when it refuses a send', async () => {
-    sendReply = () => json({ error: { code: 'EMAIL_TURNED_OFF', message: 'Fay Fisher turned off the “Pending tasks” email, so it can’t be sent.' } }, 409);
+    sendReply = () => json({ error: { code: 'EMAIL_TURNED_OFF', message: 'Fay Fisher turned off the daily email, so it can’t be sent.' } }, 409);
     const user = userEvent.setup();
     renderIt();
-    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Fay Fisher turned off the “Pending tasks” email, so it can’t be sent.');
+    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s daily email' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Fay Fisher turned off the daily email, so it can’t be sent.');
   });
 
   it('a send the server takes too long to answer may still be going: says so', async () => {
     sendReply = () => json({ error: { code: 'ERROR', message: 'Bad Gateway' } }, 502);
     const user = userEvent.setup();
     renderIt();
-    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s daily email' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The server took too long to answer. The email may still be sending — check the list in a minute.');
   });
 
@@ -378,7 +389,7 @@ describe('System Settings → Daily task emails: everyone and their settings', (
     sendReply = (b) => json({ data: { userId: b.userId, name: 'Fay Fisher', email: 'fay@mico360.test', day: '2026-10-21', time: '06:00', results: [{ kind: b.kind, outcome: 'blocked', error: 'Address blocked after a bounce or spam complaint.', sentAt: null }] } });
     const user = userEvent.setup();
     renderIt();
-    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    await user.click(await screen.findByRole('button', { name: 'Send Fay Fisher’s daily email' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Not sent: Fay Fisher’s address is blocked after a bounce or spam complaint.');
   });
 
@@ -393,18 +404,18 @@ describe('System Settings → Daily task emails: everyone and their settings', (
       withPeople([PEOPLE[0], PEOPLE[1], { ...PEOPLE[2], pending: emailOf({ state: 'SENT', sentAt: '2026-10-21T05:45:00.000Z', taskCount: 2, attempts: 5 }) }]);
       return json({ data: { userId: b.userId, name: 'Fay Fisher', email: 'fay@mico360.test', day: '2026-10-21', time: '06:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
     };
-    const send = screen.getByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' });
+    const send = screen.getByRole('button', { name: 'Send Fay Fisher’s daily email' });
     await user.click(send);
     const fay = await personItem('Fay Fisher');
     await waitFor(() => expect(fay).toHaveTextContent('Sent at 09:45 · 2 tasks'));
     expect(fay).toHaveTextContent('No longer matches the filter');
     expect(shownNames()).toEqual(['Fay Fisher']);
-    expect(within(fay).getByRole('button', { name: 'Resend Fay Fisher’s Pending tasks email' })).toHaveFocus();
+    expect(within(fay).getByRole('button', { name: 'Resend Fay Fisher’s daily email' })).toHaveFocus();
     const results = screen.getByRole('status', { name: 'Send results' });
-    expect(results).toHaveTextContent('Sent the Pending tasks email to Fay Fisher.');
+    expect(results).toHaveTextContent('Sent the daily email to Fay Fisher.');
     // Choosing the filter again: only what matches it.
     await user.selectOptions(screen.getByLabelText('Status'), 'RETRY');
-    expect(shownNames()).toEqual(['Fay Fisher']); // her completed email is retrying
+    expect(shownNames()).toEqual(['Fay Fisher']); // her old “Completed yesterday” email is retrying that day
     await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
     expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
   });
@@ -427,10 +438,10 @@ describe('System Settings → Daily task emails: everyone and their settings', (
     expect(zed).toHaveTextContent('No longer active');
     expect(zed).toHaveTextContent('Sent at 06:00 · 3 tasks');
     expect(zed).not.toHaveTextContent(/\bOff\b/);
-    const send = within(zed).getByRole('button', { name: 'Resend Zed Zane’s Pending tasks email' });
+    const send = within(zed).getByRole('button', { name: 'Resend Zed Zane’s daily email' });
     expect(send).toBeDisabled();
     expect(send).toHaveAccessibleDescription('No longer active, so nothing can be sent.');
-    expect(within(zed).getByRole('button', { name: 'Preview Zed Zane’s Pending tasks email' })).toBeDisabled();
+    expect(within(zed).getByRole('button', { name: 'Preview Zed Zane’s daily email' })).toBeDisabled();
   });
 
   it('a person’s own day shows when it isn’t the company’s; their emails can be sent for their own today', async () => {
@@ -444,8 +455,8 @@ describe('System Settings → Daily task emails: everyone and their settings', (
     withPeople([{ ...PEOPLE[0], day: '2026-10-20', pending: emailOf({ state: 'NONE' }), completed: emailOf({ state: 'NONE' }) }, eve], { day: '2026-10-20' });
     fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-10-20' } });
     await screen.findByRole('region', { name: 'Summary for Tue 20 Oct' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Send Eve Evans’s Pending tasks email' })).toBeEnabled());
-    const ada = screen.getByRole('button', { name: 'Send Ada Lovelace’s Pending tasks email' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send Eve Evans’s daily email' })).toBeEnabled());
+    const ada = screen.getByRole('button', { name: 'Send Ada Lovelace’s daily email' });
     expect(ada).toBeDisabled();
     expect(ada).toHaveAccessibleDescription('Emails can only be sent for each person’s own today.');
     expect(screen.getByText('Emails can only be sent for each person’s own today.')).toBeVisible();
@@ -454,9 +465,9 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   it('Preview: the subject and the text as it would be sent now — shown as text; focus goes back after', async () => {
     const user = userEvent.setup();
     renderIt();
-    const open = await screen.findByRole('button', { name: 'Preview Ada Lovelace’s Pending tasks email' });
+    const open = await screen.findByRole('button', { name: 'Preview Ada Lovelace’s daily email' });
     await user.click(open);
-    const dialog = await screen.findByRole('dialog', { name: 'Pending tasks email for Ada Lovelace' });
+    const dialog = await screen.findByRole('dialog', { name: 'Daily email for Ada Lovelace' });
     expect(dialog).toHaveTextContent('As it would be sent now');
     expect(await within(dialog).findByText('Your pending tasks: 4')).toBeInTheDocument();
     expect(dialog).toHaveTextContent('To: ada@mico360.test');
@@ -491,7 +502,7 @@ describe('System Settings → Daily task emails: everyone and their settings', (
   });
 });
 
-describe('System Settings → Daily task emails: pages', () => {
+describe('System Settings → Daily email: pages', () => {
   const two = (n: number) => String(n).padStart(2, '0');
   /** n people, "Person 01"…, in the server's order; `extra` changes one by their number. */
   const crowd = (n: number, extra: (i: number) => Record<string, unknown> = () => ({})) =>
@@ -591,7 +602,7 @@ describe('System Settings → Daily task emails: pages', () => {
     expect(shownNames()).toEqual(names(1, 30));
   });
 
-  it('a search, the status, the email, the page size or another day goes back to page 1', async () => {
+  it('a search, the status, the page size or another day goes back to page 1', async () => {
     withPeople(crowd(63));
     const user = userEvent.setup();
     renderIt();
@@ -606,9 +617,6 @@ describe('System Settings → Daily task emails: pages', () => {
     expect(shownNames()[0]).toBe('Person 01');
     await toPage2();
     await user.selectOptions(screen.getByLabelText('Status'), 'DUE');
-    expect(pager()).toHaveTextContent('Page 1 of 4');
-    await toPage2();
-    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
     expect(pager()).toHaveTextContent('Page 1 of 4');
     await toPage2();
     await user.selectOptions(screen.getByLabelText('People per page'), '50');
@@ -660,11 +668,11 @@ describe('System Settings → Daily task emails: pages', () => {
       ));
       return json({ data: { userId: b.userId, name: 'Person 21', email: 'p21@mico360.test', day: '2026-10-21', time: '07:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
     };
-    await user.click(screen.getByRole('button', { name: 'Send Person 21’s Pending tasks email' }));
+    await user.click(screen.getByRole('button', { name: 'Send Person 21’s daily email' }));
     const p21 = await personItem('Person 21');
     await waitFor(() => expect(p21).toHaveTextContent('Sent at 09:45 · 1 task'));
     expect(p21).toHaveTextContent('No longer matches the filter.');
-    expect(within(p21).getByRole('button', { name: 'Resend Person 21’s Pending tasks email' })).toHaveFocus();
+    expect(within(p21).getByRole('button', { name: 'Resend Person 21’s daily email' })).toHaveFocus();
     expect(shownNames().slice(0, 5)).toEqual(names(21, 25)); // nothing moved
     expect(shownNames().at(-1)).toBe('Person 10a'); // someone who has just started to match comes at the end
     expect(pager()).toHaveTextContent('Showing 21–26 of 26 people');
@@ -676,7 +684,7 @@ describe('System Settings → Daily task emails: pages', () => {
   });
 });
 
-describe('System Settings → Daily task emails: what the list says', () => {
+describe('System Settings → Daily email: what the list says', () => {
   const note = () => screen.getByRole('status', { name: 'What the list shows' });
   const loaded = () => screen.findByRole('list', { name: 'Everyone and their daily emails' });
   const sendFay = () => {
@@ -692,7 +700,7 @@ describe('System Settings → Daily task emails: what the list says', () => {
     await loaded();
     await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
     sendFay();
-    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s daily email' }));
     const fay = await personItem('Fay Fisher');
     await waitFor(() => expect(fay).toHaveTextContent('Sent at 09:45 · 2 tasks'));
     expect(fay).toHaveTextContent('No longer matches the filter.');
@@ -704,14 +712,16 @@ describe('System Settings → Daily task emails: what the list says', () => {
     expect(await screen.findByText('No one matches these filters.')).toBeInTheDocument();
   });
 
-  it('the same words are read out again after another change (another email; another day with as many people)', async () => {
+  it('the same words are read out again after another change (a longer search; another day with as many people)', async () => {
     const user = userEvent.setup();
     renderIt();
     await loaded();
-    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
-    await waitFor(() => expect(note()).toHaveTextContent('Showing all 3 people.'));
-    await user.selectOptions(screen.getByLabelText('Email'), 'COMPLETED');
+    await user.type(screen.getByLabelText('Find a person'), '@mico360');
+    await waitFor(() => expect(note()).toHaveTextContent('3 people match.'));
+    await user.type(screen.getByLabelText('Find a person'), '.test');
     expect(note().textContent).toBe(''); // emptied at once, so the same words are new again
+    await waitFor(() => expect(note()).toHaveTextContent('3 people match.'));
+    await user.clear(screen.getByLabelText('Find a person'));
     await waitFor(() => expect(note()).toHaveTextContent('Showing all 3 people.'));
     fireEvent.change(screen.getByLabelText('Day'), { target: { value: '2026-10-20' } });
     expect(note().textContent).toBe('');
@@ -739,68 +749,51 @@ describe('System Settings → Daily task emails: what the list says', () => {
   });
 });
 
-describe('System Settings → Daily task emails: one email at a time', () => {
+describe('System Settings → Daily email: one email (1.22)', () => {
   const kindsShown = (li: HTMLElement) => within(li).queryAllByRole('button', { name: /^Preview / }).map((b) => b.getAttribute('aria-label'));
 
-  it('Email: Pending tasks or Completed yesterday shows only that email on each card; Both shows the two', async () => {
-    const user = userEvent.setup();
+  it('each card shows the daily email — and the old “Completed yesterday” only on a day with its record; there is no Email filter', async () => {
     renderIt();
     await screen.findByRole('list', { name: 'Everyone and their daily emails' });
-    const email = screen.getByLabelText('Email');
-    expect(email).toHaveDisplayValue('Both');
-    expect(within(email).getAllByRole('option').map((o) => o.textContent)).toEqual(['Both', 'Pending tasks', 'Completed yesterday']);
-    expect(kindsShown(await personItem('Ada Lovelace'))).toEqual(['Preview Ada Lovelace’s Pending tasks email', 'Preview Ada Lovelace’s Completed yesterday email']);
-    await user.selectOptions(email, 'PENDING');
-    const ada = await personItem('Ada Lovelace');
-    expect(kindsShown(ada)).toEqual(['Preview Ada Lovelace’s Pending tasks email']);
-    expect(ada).not.toHaveTextContent('Skipped — nothing to send'); // her completed email’s row
-    expect(shownNames()).toEqual(['Ada Lovelace', 'Bo Brown', 'Fay Fisher']); // still everyone
-    await user.selectOptions(email, 'COMPLETED');
-    expect(kindsShown(await personItem('Bo Brown'))).toEqual(['Preview Bo Brown’s Completed yesterday email']);
-    expect(await personItem('Bo Brown')).toHaveTextContent('Turned off');
-    await user.selectOptions(email, '');
-    expect(kindsShown(await personItem('Fay Fisher'))).toHaveLength(2);
+    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+    expect(kindsShown(await personItem('Ada Lovelace'))).toEqual(['Preview Ada Lovelace’s daily email', 'Preview Ada Lovelace’s “Completed yesterday” email']);
+    expect(kindsShown(await personItem('Bo Brown'))).toEqual(['Preview Bo Brown’s daily email']);
   });
 
-  it('the status then applies to the chosen email only', async () => {
+  it('the status covers what the day recorded, the old email’s record too', async () => {
     const user = userEvent.setup();
     renderIt();
     await screen.findByRole('list', { name: 'Everyone and their daily emails' });
     await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
-    expect(shownNames()).toEqual(['Fay Fisher']); // her pending email failed
-    await user.selectOptions(screen.getByLabelText('Email'), 'COMPLETED');
-    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument(); // her completed one is retrying
+    expect(shownNames()).toEqual(['Fay Fisher']); // her daily email failed
     await user.selectOptions(screen.getByLabelText('Status'), 'RETRY');
-    expect(shownNames()).toEqual(['Fay Fisher']);
-    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
-    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
+    expect(shownNames()).toEqual(['Fay Fisher']); // her old “Completed yesterday” is retrying
     await user.selectOptions(screen.getByLabelText('Status'), 'SENT');
     expect(shownNames()).toEqual(['Ada Lovelace']);
     expect(screen.getByText('1 person matches')).toBeInTheDocument();
   });
 
-  it('a card acted on under the chosen email stays, marked, until a filter changes', async () => {
+  it('a card acted on stays, marked, until a filter changes', async () => {
     const user = userEvent.setup();
     renderIt();
     await screen.findByRole('list', { name: 'Everyone and their daily emails' });
-    await user.selectOptions(screen.getByLabelText('Email'), 'PENDING');
     await user.selectOptions(screen.getByLabelText('Status'), 'FAILED');
     sendReply = (b) => {
       withPeople([PEOPLE[0], PEOPLE[1], { ...PEOPLE[2], pending: emailOf({ state: 'SENT', sentAt: '2026-10-21T05:45:00.000Z', taskCount: 2, attempts: 5 }) }]);
       return json({ data: { userId: b.userId, name: 'Fay Fisher', email: 'fay@mico360.test', day: '2026-10-21', time: '06:00', results: [{ kind: b.kind, outcome: 'sent', error: null, sentAt: '2026-10-21T05:45:00.000Z' }] } });
     };
-    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s Pending tasks email' }));
+    await user.click(screen.getByRole('button', { name: 'Send Fay Fisher’s daily email' }));
     const fay = await personItem('Fay Fisher');
     await waitFor(() => expect(fay).toHaveTextContent('Sent at 09:45 · 2 tasks'));
     expect(fay).toHaveTextContent('No longer matches the filter.');
-    expect(within(fay).getByRole('button', { name: 'Resend Fay Fisher’s Pending tasks email' })).toHaveFocus();
-    // Another email chosen: only what matches (neither of hers has failed now).
-    await user.selectOptions(screen.getByLabelText('Email'), '');
-    expect(screen.getByText('No one matches these filters.')).toBeInTheDocument();
+    expect(within(fay).getByRole('button', { name: 'Resend Fay Fisher’s daily email' })).toHaveFocus();
+    // Another status: only what matches, in order.
+    await user.selectOptions(screen.getByLabelText('Status'), 'SENT');
+    expect(shownNames()).toEqual(['Ada Lovelace', 'Fay Fisher']);
   });
 });
 
-describe('System Settings → Daily task emails: finding a person', () => {
+describe('System Settings → Daily email: finding a person', () => {
   const someone = (userId: string, name: string, username: string, email: string) =>
     personOf({ userId, name, username, email, timeZone: 'Asia/Muscat', time: '07:00', pending: emailOf(), completed: emailOf() });
   const FOUR = [

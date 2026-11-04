@@ -1336,8 +1336,8 @@ async function main(): Promise<void> {
   const digestTimer = setInterval(() => { void runDigest(); void runEscalation(); }, 60 * 60 * 1000);
   digestTimer.unref?.();
 
-  // ── Daily task emails: "Pending tasks" and "Completed yesterday", every morning ──
-  // Each person's emails go at their time (06:00 unless they chose another, in their own time zone).
+  // ── The daily email (1.22: one email, in parts), every morning ──
+  // Each person's email goes at their time (06:00 unless they chose another, in their own time zone).
   // The sweep runs every minute on one lease-locked instance; one record per person, day and email
   // keeps each to a single send and is the delivery log. Nothing is attempted while email isn't set up.
   const dailyEmailRepository = createPrismaDailyEmailRepository(prisma);
@@ -1345,7 +1345,7 @@ async function main(): Promise<void> {
   const dailyEmailService = createDailyEmailService({
     repo: dailyEmailRepository,
     people: dailyEmailSources.people,
-    // The pending email also says how many tasks wait for the person's approval.
+    // Their tasks, their day's meetings and the projects they run; also how many tasks wait for their approval.
     tasks: { ...dailyEmailSources.tasks, awaitingApproval: (userId) => approvalSource.countFor(userId) },
     // companies: one email per person, under their primary company's brand and sender name (MC1 Task 16).
     send: (to, content, template, opts) => emailService.sendPrepared(template, to, content, opts),
