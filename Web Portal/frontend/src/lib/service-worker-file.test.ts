@@ -56,11 +56,15 @@ function worker(opts: { kill?: boolean; net?: Net } = {}) {
     return net(url);
   };
   const source = opts.kill ? SOURCE.replace('const KILL_SWITCH = false;', 'const KILL_SWITCH = true;') : SOURCE;
-  vm.runInContext(source, vm.createContext({ self, caches, fetch: fetchFn, URL, Response, Headers, console }));
+  // A stand-in URLPattern (the worker only builds them for its routes).
+  class URLPattern {
+    constructor(public init: { pathname: string }) {}
+  }
+  vm.runInContext(source, vm.createContext({ self, caches, fetch: fetchFn, URL, URLPattern, Response, Headers, console }));
 
-  async function lifecycle(type: 'install' | 'activate') {
+  async function lifecycle(type: 'install' | 'activate', extra: Record<string, unknown> = {}) {
     let done: unknown;
-    listeners[type]!({ waitUntil: (p: unknown) => void (done = p) });
+    listeners[type]!({ waitUntil: (p: unknown) => void (done = p), ...extra });
     await done;
   }
   /** A request through the worker: its answer, or null when the worker leaves it to the network. */
@@ -90,6 +94,32 @@ describe('the service worker (public/sw.js)', () => {
     expect([...w.stores.get('mico360-shell-v1')!.keys()]).toEqual(['/__mico360-shell__']);
     expect([...w.stores.get('mico360-assets-v1')!.keys()]).toEqual(['/assets/index-abc.js', '/assets/index-abc.css']);
     expect(w.self.skipWaiting).toHaveBeenCalled();
+  });
+
+  // 1.22 QA: a request sent as a page goes (a notification's Remove still waiting for its Undo, sent
+  // kept-alive on a reload) was lost when the worker had to see it first. What it never handles goes
+  // straight to the network now, without waking it (static routing, where the browser has it).
+  it('on install sends what it never handles straight to the network, where the browser can', async () => {
+    const addRoutes = vi.fn(async () => undefined);
+    const w = worker({ net: (url) => (url.endsWith('/') ? html() : js()) });
+    await w.lifecycle('install', { addRoutes });
+    expect(addRoutes).toHaveBeenCalledTimes(1);
+    const routes = (addRoutes.mock.calls[0] as unknown as [Array<{ condition: { urlPattern: { init: { pathname: string } } }; source: string }>])[0];
+    expect(routes.every((r) => r.source === 'network')).toBe(true);
+    expect(routes.map((r) => r.condition.urlPattern.init.pathname)).toEqual(['/api/*', '/socket.io/*', '/uploads/*', '/downloads/*', '/email-assets/*', '/client', '/client/*']);
+    // A browser without static routing: installed as before.
+    const older = worker({ net: (url) => (url.endsWith('/') ? html() : js()) });
+    await older.lifecycle('install');
+    expect(older.self.skipWaiting).toHaveBeenCalled();
+    // A browser that refuses the routes: installed all the same.
+    const refusing = worker({ net: (url) => (url.endsWith('/') ? html() : js()) });
+    await refusing.lifecycle('install', { addRoutes: vi.fn(async () => Promise.reject(new TypeError('no'))) });
+    expect(refusing.self.skipWaiting).toHaveBeenCalled();
+    // The kill switch adds none.
+    const killed = worker({ kill: true });
+    const none = vi.fn(async () => undefined);
+    await killed.lifecycle('install', { addRoutes: none });
+    expect(none).not.toHaveBeenCalled();
   });
 
   it('page loads: the network first (the newest app), the last good page only without signal', async () => {

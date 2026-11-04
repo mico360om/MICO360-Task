@@ -25,6 +25,19 @@ const SHELL_KEY = '/__mico360-shell__';
 const MAX_ASSETS = 300;
 const NEVER = [/^\/api\//, /^\/client(\/|$)/, /^\/uploads\//, /^\/downloads\//, /^\/socket\.io\//, /^\/email-assets\//];
 
+/**
+ * What it never handles goes straight to the network, without waking it (static routing, Chrome 123
+ * and later; other browsers ignore it). A request sent as a page goes — a notification's Remove still
+ * waiting for its Undo when the page reloads — is otherwise lost with the page while it waits for
+ * the worker. The same paths as NEVER.
+ */
+const NETWORK_PATHS = ['/api/*', '/socket.io/*', '/uploads/*', '/downloads/*', '/email-assets/*', '/client', '/client/*'];
+function networkRoutes() {
+  const Pattern = globalThis.URLPattern;
+  if (typeof Pattern !== 'function') return null;
+  return NETWORK_PATHS.map((pathname) => ({ condition: { urlPattern: new Pattern({ pathname }) }, source: 'network' }));
+}
+
 const isAsset = (path) => path.startsWith('/assets/');
 
 /** The page's own files (scripts, styles, its icon and fonts under /assets/), read from its HTML. */
@@ -116,8 +129,19 @@ async function appFile(request) {
 }
 
 self.addEventListener('install', (event) => {
+  // Routes can only be added while installing; a browser that refuses them installs all the same.
+  const routes = !KILL_SWITCH && typeof event.addRoutes === 'function' ? networkRoutes() : null;
+  let routed = Promise.resolve();
+  if (routes) {
+    try {
+      routed = Promise.resolve(event.addRoutes(routes)).catch(() => {});
+    } catch {
+      /* not supported here */
+    }
+  }
   event.waitUntil(
     (async () => {
+      await routed;
       if (!KILL_SWITCH) await cacheShell();
       await self.skipWaiting();
     })(),
