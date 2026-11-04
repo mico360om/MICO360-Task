@@ -175,6 +175,10 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       expect(projectIdsOf(await api.get(admin, '/activity'))).toEqual(sorted([w.projects.PA, w.projects.PAB]));
       expect(titlesOf(await api.get(admin, '/notifications'))).toEqual(sorted(['admin ZZALPHA notice', 'admin digest']));
       expect(await api.get(admin, '/notifications/unread-count')).toEqual({ count: 2 });
+      // 1.22 integration: lane N's Notifications page reads the same scope — its pages, Unread tab and chip counts.
+      expect(titlesOf(await api.get(admin, '/notifications?limit=50&unread=1'))).toEqual(sorted(['admin ZZALPHA notice', 'admin digest']));
+      expect(titlesOf(await api.get(admin, '/notifications?limit=50&kinds=comments'))).toEqual(['admin ZZALPHA notice']);
+      expect(await api.get(admin, '/notifications/counts')).toMatchObject({ unread: 2, kinds: { comments: 1 } });
       // MA (PA), and MN_B — no project, the administrator is one of its people. Not MB (PB) or MN_A.
       expect(idsOf(await api.get(admin, '/meetings'))).toEqual(sorted([w.meetings.MA, w.meetings.MN_B]));
       // Owner, 4 Nov: My Action Items ALWAYS shows the administrator's own items, whatever the project —
