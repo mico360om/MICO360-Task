@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { meetingsApi, type AgendaItem } from '../../api/meetings';
 import type { DirectoryUser } from '../../api/users';
@@ -26,6 +26,7 @@ export function AgendaSection({
   pollMs,
   draftFrom,
   ended = false,
+  switcher,
 }: {
   meetingId: string;
   startAt: string;
@@ -37,14 +38,12 @@ export function AgendaSection({
   draftFrom?: { title: string; description: string | null; projectId: string | null; peopleIds: string[] };
   /** The meeting is over: an empty agenda is spoken of in the past. */
   ended?: boolean;
+  /** 1.23.0: List | Table, at the top of the section (when the meeting has topics or action items). */
+  switcher?: ReactNode;
 }) {
   const qc = useQueryClient();
   const [drafted, setDrafted] = useState<AiAgendaItem[] | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
-  const [minutes, setMinutes] = useState('');
-  const [ownerId, setOwnerId] = useState('');
-  const [addError, setAddError] = useState<string | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   // Opened by hand from its one-line form (a finished meeting with no agenda): the topic box takes focus.
@@ -55,17 +54,6 @@ export function AgendaSection({
   const refresh = () => qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'agenda'] });
   const timing = agendaTiming(items, startAt, endAt);
 
-  const addMut = useMutation({
-    mutationFn: () => meetingsApi(apiClient).addAgendaItem(meetingId, { title: title.trim(), expectedMinutes: minutesValue(minutes), ownerId: ownerId || null }),
-    onSuccess: () => {
-      setTitle('');
-      setMinutes('');
-      setOwnerId('');
-      setAddError(null);
-      void refresh();
-    },
-    onError: (err) => setAddError(meetingFailure(err, 'Couldn’t add the agenda item.')),
-  });
   const toggleMut = useMutation({
     mutationFn: ({ item, completed }: { item: AgendaItem; completed: boolean }) => meetingsApi(apiClient).updateAgendaItem(meetingId, item.id, { completed }),
     onSuccess: refresh,
@@ -124,16 +112,6 @@ export function AgendaSection({
     reorderMut.mutate(ids);
   }
 
-  function submitAdd(e: FormEvent) {
-    e.preventDefault();
-    setAddError(null);
-    if (!title.trim()) {
-      setAddError('Enter an agenda item.');
-      return;
-    }
-    addMut.mutate();
-  }
-
   const total =
     items.length === 0 ? null : (
       <span className={`text-xs ${timing.over ? 'font-medium text-warning' : 'text-ink-3'}`}>
@@ -144,11 +122,25 @@ export function AgendaSection({
 
   // A finished meeting with no agenda: one line, until the organizer adds the topics covered.
   if (ended && !opened && agendaQ.isSuccess && items.length === 0) {
-    return <ShrunkSection id="agenda" title="Agenda" empty="No agenda" addLabel="Add a topic" onAdd={canEdit ? () => setOpened(true) : undefined} />;
+    return <ShrunkSection id="agenda" title="Agenda" empty="No agenda" addLabel="Add a topic" onAdd={canEdit ? () => setOpened(true) : undefined} extra={switcher} />;
   }
 
   return (
-    <Section id="agenda" title="Agenda" count={items.length || undefined} aside={total}>
+    <Section
+      id="agenda"
+      title="Agenda"
+      count={items.length || undefined}
+      aside={
+        switcher ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {total}
+            {switcher}
+          </div>
+        ) : (
+          total
+        )
+      }
+    >
       <SectionError message={opError} onDismiss={() => setOpError(null)} />
       {agendaQ.isLoading ? (
         // About three topics' height, so the page below doesn't jump as far when they arrive.
@@ -238,16 +230,48 @@ export function AgendaSection({
         </div>
       ) : null}
 
-      {canEdit ? (
-        <form onSubmit={submitAdd} className="mt-3 grid grid-cols-[minmax(0,1fr)_5.5rem_auto] gap-2 border-t border-line pt-3">
-          <input aria-label="New agenda item" autoFocus={opened} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a topic…" className={`${fieldClass(!!addError)} col-span-full`} />
-          <SearchableSelect ariaLabel="Presenter for the new item" placeholder="Presenter" options={peopleOptions(directory, 'No presenter')} value={ownerId} onChange={setOwnerId} />
-          <input aria-label="Minutes for the new item" type="number" inputMode="numeric" min={0} max={600} value={minutes} onChange={(e) => setMinutes(e.target.value)} placeholder="min" className={fieldClass(false)} />
-          <Button type="submit" size="sm" loading={addMut.isPending}>Add</Button>
-          {addError ? <p role="alert" className="col-span-full text-xs font-medium text-danger">{addError}</p> : null}
-        </form>
-      ) : null}
+      {canEdit ? <AgendaAddForm meetingId={meetingId} directory={directory} autoFocus={opened} /> : null}
     </Section>
+  );
+}
+
+/** Add a topic: its title, who presents it and for how long. Shared by the list and (1.23.0) the Table view. */
+export function AgendaAddForm({ meetingId, directory, autoFocus = false }: { meetingId: string; directory: DirectoryUser[]; autoFocus?: boolean }) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState('');
+  const [minutes, setMinutes] = useState('');
+  const [ownerId, setOwnerId] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+  const addMut = useMutation({
+    mutationFn: () => meetingsApi(apiClient).addAgendaItem(meetingId, { title: title.trim(), expectedMinutes: minutesValue(minutes), ownerId: ownerId || null }),
+    onSuccess: () => {
+      setTitle('');
+      setMinutes('');
+      setOwnerId('');
+      setAddError(null);
+      void qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'agenda'] });
+    },
+    onError: (err) => setAddError(meetingFailure(err, 'Couldn’t add the agenda item.')),
+  });
+
+  function submitAdd(e: FormEvent) {
+    e.preventDefault();
+    setAddError(null);
+    if (!title.trim()) {
+      setAddError('Enter an agenda item.');
+      return;
+    }
+    addMut.mutate();
+  }
+
+  return (
+    <form onSubmit={submitAdd} className="mt-3 grid grid-cols-[minmax(0,1fr)_5.5rem_auto] gap-2 border-t border-line pt-3">
+      <input aria-label="New agenda item" autoFocus={autoFocus} dir="auto" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a topic…" className={`${fieldClass(!!addError)} col-span-full`} />
+      <SearchableSelect ariaLabel="Presenter for the new item" placeholder="Presenter" options={peopleOptions(directory, 'No presenter')} value={ownerId} onChange={setOwnerId} />
+      <input aria-label="Minutes for the new item" type="number" inputMode="numeric" min={0} max={600} value={minutes} onChange={(e) => setMinutes(e.target.value)} placeholder="min" className={fieldClass(false)} />
+      <Button type="submit" size="sm" loading={addMut.isPending}>Add</Button>
+      {addError ? <p role="alert" className="col-span-full text-xs font-medium text-danger">{addError}</p> : null}
+    </form>
   );
 }
 

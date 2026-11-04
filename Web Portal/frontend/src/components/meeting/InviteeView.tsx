@@ -8,6 +8,14 @@ import { FinalView } from './FinalMinutesSection';
 import { MeetingHeader } from './MeetingHeader';
 import { Section, SectionError, userName } from './kit';
 import { exportMinutes, meetingFailure } from './meeting-actions';
+import { MeetingTable, useMeetingTableAvailable } from './MeetingTable';
+import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
+import { useViewChoice } from '../data-table/hooks';
+
+const AGENDA_VIEWS = [
+  { value: 'list' as const, label: 'List', icon: VIEW_ICONS.list },
+  { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
+];
 
 /** The words under the title: why this person sees only part of the meeting. */
 export const INVITEE_NOTE = 'You can see this meeting because you were invited.';
@@ -44,6 +52,11 @@ export function InviteeView({
   onRetryAttendees?: () => void;
 }) {
   const pdf = useMutation({ mutationFn: () => exportMinutes(meeting, 'final') });
+  // 1.23.0: List | Table, as on the full page — the table shows what the list does: the agenda and their own items, to read.
+  const [agendaView, setAgendaView] = useViewChoice('meeting.view', ['list', 'table'] as const, 'list');
+  const tableAvailable = useMeetingTableAvailable(meeting.id, myActionItems);
+  const switcher = tableAvailable ? <ViewSwitch label="Show the agenda as" value={agendaView} onChange={setAgendaView} options={AGENDA_VIEWS} /> : null;
+  const asTable = tableAvailable && agendaView === 'table' && !actionItemsLoading;
   const finished = meeting.status === 'COMPLETED';
   const approved = minutes && minutes.status === 'FINAL' && minutes.content ? minutes : null;
 
@@ -92,7 +105,11 @@ export function InviteeView({
       )}
     </Section>
   );
-  const agendaPart = <AgendaSection key="agenda" meetingId={meeting.id} startAt={meeting.startAt} endAt={meeting.endAt} directory={directory} canEdit={false} ended={finished} pollMs={false} />;
+  const agendaPart = asTable ? (
+    <MeetingTable key="table" meetingId={meeting.id} directory={directory} canEdit={false} readOnly items={myActionItems} pollMs={false} timeZone={timeZone} switcher={switcher} />
+  ) : (
+    <AgendaSection key="agenda" meetingId={meeting.id} startAt={meeting.startAt} endAt={meeting.endAt} directory={directory} canEdit={false} ended={finished} pollMs={false} switcher={switcher} />
+  );
 
   return (
     <div>
@@ -108,7 +125,7 @@ export function InviteeView({
         note={INVITEE_NOTE}
       />
       <div className="grid gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">{finished ? [minutesPart, actionsPart, agendaPart] : [agendaPart, actionsPart, minutesPart]}</div>
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">{finished ? [minutesPart, ...(asTable ? [] : [actionsPart]), agendaPart] : [agendaPart, ...(asTable ? [] : [actionsPart]), minutesPart]}</div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
             {meeting.description ? <p dir="auto" className="whitespace-pre-wrap text-start text-sm text-ink">{meeting.description}</p> : <p className="text-sm text-ink-3">No description.</p>}

@@ -176,10 +176,14 @@ export interface NewActionItemInput {
   assigneeId?: string | null;
   priority?: Priority;
   dueDate?: string | null;
+  /** 1.23.0: the agenda topic it belongs to (one of the meeting's), or none. */
+  agendaItemId?: string | null;
 }
 
 export interface ActionItemPatch {
   description?: string;
+  /** 1.23.0: move it under another of the meeting's agenda topics, or (null) none. */
+  agendaItemId?: string | null;
   assigneeId?: string | null;
   priority?: Priority;
   dueDate?: string | null;

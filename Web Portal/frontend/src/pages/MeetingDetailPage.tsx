@@ -28,11 +28,18 @@ import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useMeetingRealtime, type MeetingChangeKind } from '../lib/useMeetingRealtime';
 import { useCurrentProject } from '../components/CurrentProject';
 import { usePageName } from '../lib/page-meta';
+import { MeetingTable, useMeetingTableAvailable } from '../components/meeting/MeetingTable';
+import { VIEW_ICONS, ViewSwitch } from '../components/data-table/ViewSwitch';
+import { useViewChoice } from '../components/data-table/hooks';
 
 /** While a meeting is running, poll its live parts so standalone meetings (no socket room) stay current too. */
 const LIVE_POLL_MS = 10_000;
 
 type Dialog = 'edit' | 'invite' | 'minutes' | 'cancel' | 'delete' | null;
+const AGENDA_VIEWS = [
+  { value: 'list' as const, label: 'List', icon: VIEW_ICONS.list },
+  { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
+];
 
 export function MeetingDetailPage() {
   const { id = '' } = useParams();
@@ -81,6 +88,11 @@ export function MeetingDetailPage() {
   // companies: invited from outside its project's companies — the server sends only their own action items.
   const invitee = meeting?.view === 'invitee';
   const myItemsQ = useQuery({ queryKey: ['meeting', id, 'action-items'], queryFn: () => meetingsApi(apiClient).listActionItems(id), enabled: !!id && invitee, refetchInterval: pollMs });
+
+  // 1.23.0: the agenda and action items as a list (two sections) or one table — offered once the
+  // meeting has a topic or an action item, remembered for the person.
+  const [agendaView, setAgendaView] = useViewChoice('meeting.view', ['list', 'table'] as const, 'list');
+  const tableAvailable = useMeetingTableAvailable(id);
 
   // Live updates from other people in the meeting (notes, agenda, attendees, action items).
   useMeetingRealtime(id, meeting?.projectId ?? null, (kind: MeetingChangeKind) => {
@@ -202,9 +214,12 @@ export function MeetingDetailPage() {
   ].filter(Boolean) as { k: string; v: React.ReactNode }[];
 
   const finished = meeting.status === 'COMPLETED';
+  const switcher = tableAvailable ? <ViewSwitch label="Show the agenda as" value={agendaView} onChange={setAgendaView} options={AGENDA_VIEWS} /> : null;
+  const asTable = tableAvailable && agendaView === 'table';
   // Each part keyed, so ending the meeting moves them (their state kept) instead of remaking them.
   const agenda = (
     <AgendaSection
+      switcher={switcher}
       key="agenda"
       meetingId={id}
       startAt={meeting.startAt}
@@ -224,6 +239,11 @@ export function MeetingDetailPage() {
   );
   const notes = <NotesSection key="notes" meetingId={id} meetingProjectId={meeting.projectId} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
   const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
+  // 1.23.0: the agenda and action items as one table, in the agenda's place (the add forms under it).
+  // Hook for the series lane: MeetingTable's `extraGroups` takes "Open from earlier meetings".
+  const table = <MeetingTable key="table" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} switcher={switcher} />;
+  const agendaParts = asTable ? [table] : [agenda];
+  const actionParts = asTable ? [] : [actions];
   // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).
   const sentLog = canEdit ? (
     <MinutesSentLog
@@ -283,7 +303,7 @@ export function MeetingDetailPage() {
           {/* Planned or under way: the agenda and the live notes lead. Once finished, what came of it
               leads — the Final MOM and the action items, above the agenda and notes they came from. The
               page's own order (not CSS order), so the keyboard and a screen reader follow it too. */}
-          {finished ? [finalMom, actions, agenda, notes] : [agenda, notes, actions, finalMom]}
+          {finished ? [finalMom, ...actionParts, ...agendaParts, notes] : [...agendaParts, notes, ...actionParts, finalMom]}
         </div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">

@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { meetingsApi, ACTION_STATUS_LABELS, type ActionItem, type ActionItemPatch, type ActionItemStatus, type Priority } from '../../api/meetings';
+import { meetingsApi, ACTION_STATUS_LABELS, type ActionItem, type ActionItemPatch, type ActionItemStatus, type AgendaItem, type Priority } from '../../api/meetings';
+import { itemTopic } from '../../lib/meeting-table';
 import type { DirectoryUser } from '../../api/users';
 import { apiClient } from '../../api/client';
 import { useAuthStore } from '../../stores/auth-store';
@@ -59,11 +60,6 @@ export function ActionItemsSection({
   const today = todayKey(timeZone);
   // Opened by hand from its one-line form (a finished meeting with none): the item box takes focus.
   const [opened, setOpened] = useState(false);
-  const [description, setDescription] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [priority, setPriority] = useState<Priority>('NORMAL');
-  const [addError, setAddError] = useState<string | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
 
   const itemsQ = useQuery({ queryKey: ['meeting', meetingId, 'action-items'], queryFn: () => meetingsApi(apiClient).listActionItems(meetingId), enabled: !!meetingId, refetchInterval: pollMs });
@@ -74,20 +70,9 @@ export function ActionItemsSection({
     void qc.invalidateQueries({ queryKey: ['meetings'] });
   };
   const openCount = items.filter((i) => i.status !== 'COMPLETED' && i.status !== 'CANCELLED').length;
+  // 1.23.0: each item's agenda topic — its own, else (an older item made from a note) its note's.
+  const topicNames = useTopicNames(meetingId);
 
-  const addMut = useMutation({
-    // A due date is a calendar day: send the picked day itself (stored as that day, UTC midnight).
-    mutationFn: () => meetingsApi(apiClient).addActionItem(meetingId, { description: description.trim(), assigneeId: assigneeId || null, dueDate: dueDate ? `${dueDate}T00:00:00.000Z` : null, priority }),
-    onSuccess: () => {
-      setDescription('');
-      setAssigneeId('');
-      setDueDate('');
-      setPriority('NORMAL');
-      setAddError(null);
-      refresh();
-    },
-    onError: (err) => setAddError(meetingFailure(err, 'Couldn’t add the action item.')),
-  });
   const updateMut = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: ActionItemPatch }) => meetingsApi(apiClient).updateActionItem(id, patch),
     onSuccess: refresh,
@@ -98,16 +83,6 @@ export function ActionItemsSection({
     onSuccess: refresh,
     onError: (err) => setOpError(meetingFailure(err, 'Couldn’t delete the action item.')),
   });
-
-  function submitAdd(e: FormEvent) {
-    e.preventDefault();
-    setAddError(null);
-    if (!description.trim()) {
-      setAddError('Describe the action item.');
-      return;
-    }
-    addMut.mutate();
-  }
 
   // A finished meeting with no action items: one line, until someone adds one.
   if (ended && !opened && itemsQ.isSuccess && items.length === 0) {
@@ -137,6 +112,7 @@ export function ActionItemsSection({
               today={today}
               weekStart={weekStart}
               canRemove={canEdit || item.createdById === myId}
+              topic={topicNames.of(item)}
               onChange={(patch) => updateMut.mutate({ id: item.id, patch })}
               onRemove={() => removeMut.mutate(item.id)}
               removing={removeMut.isPending}
@@ -145,31 +121,119 @@ export function ActionItemsSection({
         </ul>
       )}
 
-      <form onSubmit={submitAdd} className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
-        <input aria-label="New action item" autoFocus={opened} dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What needs to be done?" className={fieldClass(!!addError)} />
-        <div className={PAIRS}>
-          <div className={PAIR_A}>
-            <SearchableSelect ariaLabel="Owner of the new item" className={OWNER} placeholder="Owner" options={peopleOptions(directory, 'Unassigned')} value={assigneeId} onChange={setAssigneeId} />
-            {/* The site's own day picker and pickers beside the owner's (1.22): not the browser's boxes. */}
-            <DayPickerButton
-              ariaLabel={`Due date of the new item: ${dueDate ? dayText(dueDate) : 'No due date'}`}
-              value={dueDate}
-              today={today}
-              weekStart={weekStart}
-              placeholder="No due date"
-              clearLabel="No due date"
-              onPick={(day) => setDueDate(day ?? '')}
-              className={`flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 ${DATE}`}
-            />
-          </div>
-          <div className={PAIR_B}>
-            <SearchableSelect ariaLabel="Priority of the new item" className={PRIORITY} options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} value={priority} onChange={(v) => setPriority(v as Priority)} />
-            <Button type="submit" size="sm" loading={addMut.isPending} className="flex-none">Add</Button>
-          </div>
-        </div>
-        {addError ? <p role="alert" className="text-xs font-medium text-danger">{addError}</p> : null}
-      </form>
+      <ActionItemAddForm meetingId={meetingId} directory={directory} timeZone={timeZone} autoFocus={opened} />
     </Section>
+  );
+}
+
+/**
+ * The meeting's agenda topics by id, as "1. Site progress", and the topic an item is under (its own,
+ * else — read at display time — its source note's). The agenda and notes are the page's own queries.
+ */
+export function useTopicNames(meetingId: string) {
+  const agendaQ = useQuery({ queryKey: ['meeting', meetingId, 'agenda'], queryFn: () => meetingsApi(apiClient).listAgenda(meetingId), enabled: !!meetingId });
+  const notesQ = useQuery({ queryKey: ['meeting', meetingId, 'notes'], queryFn: () => meetingsApi(apiClient).listNotes(meetingId), enabled: !!meetingId });
+  return useMemo(() => {
+    const topics: AgendaItem[] = (Array.isArray(agendaQ.data) ? [...agendaQ.data] : []).sort((a, b) => a.position - b.position);
+    const notes = new Map((Array.isArray(notesQ.data) ? notesQ.data : []).map((n) => [n.id, n]));
+    const names = new Map(topics.map((t, i) => [t.id, `${i + 1}. ${t.title}`]));
+    return {
+      topics,
+      notes,
+      names,
+      of: (item: ActionItem) => {
+        const id = itemTopic(item, notes).id;
+        return id ? (names.get(id) ?? null) : null;
+      },
+    };
+  }, [agendaQ.data, notesQ.data]);
+}
+
+/**
+ * Add an action item: what, owner, due date, priority — and (1.23.0) the agenda topic it belongs to,
+ * when the meeting has any (none at first). Shared by the list and the Table view.
+ */
+export function ActionItemAddForm({ meetingId, directory, timeZone, autoFocus = false }: { meetingId: string; directory: DirectoryUser[]; timeZone: string; autoFocus?: boolean }) {
+  const qc = useQueryClient();
+  const { weekStart } = useDateSettings();
+  const today = todayKey(timeZone);
+  const { topics, names } = useTopicNames(meetingId);
+  const [description, setDescription] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<Priority>('NORMAL');
+  const [topicId, setTopicId] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+  // A topic taken off the agenda since it was picked is no topic.
+  const topic = topicId && topics.some((t) => t.id === topicId) ? topicId : '';
+
+  const addMut = useMutation({
+    // A due date is a calendar day: send the picked day itself (stored as that day, UTC midnight).
+    mutationFn: () =>
+      meetingsApi(apiClient).addActionItem(meetingId, {
+        description: description.trim(),
+        assigneeId: assigneeId || null,
+        dueDate: dueDate ? `${dueDate}T00:00:00.000Z` : null,
+        priority,
+        ...(topic ? { agendaItemId: topic } : {}),
+      }),
+    onSuccess: () => {
+      setDescription('');
+      setAssigneeId('');
+      setDueDate('');
+      setPriority('NORMAL');
+      setAddError(null);
+      void qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'action-items'] });
+      void qc.invalidateQueries({ queryKey: ['my-action-items'] });
+      void qc.invalidateQueries({ queryKey: ['meetings'] });
+    },
+    onError: (err) => setAddError(meetingFailure(err, 'Couldn’t add the action item.')),
+  });
+
+  function submitAdd(e: FormEvent) {
+    e.preventDefault();
+    setAddError(null);
+    if (!description.trim()) {
+      setAddError('Describe the action item.');
+      return;
+    }
+    addMut.mutate();
+  }
+
+  return (
+    <form onSubmit={submitAdd} className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+      <input aria-label="New action item" autoFocus={autoFocus} dir="auto" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What needs to be done?" className={fieldClass(!!addError)} />
+      <div className={PAIRS}>
+        <div className={PAIR_A}>
+          <SearchableSelect ariaLabel="Owner of the new item" className={OWNER} placeholder="Owner" options={peopleOptions(directory, 'Unassigned')} value={assigneeId} onChange={setAssigneeId} />
+          {/* The site's own day picker and pickers beside the owner's (1.22): not the browser's boxes. */}
+          <DayPickerButton
+            ariaLabel={`Due date of the new item: ${dueDate ? dayText(dueDate) : 'No due date'}`}
+            value={dueDate}
+            today={today}
+            weekStart={weekStart}
+            placeholder="No due date"
+            clearLabel="No due date"
+            onPick={(day) => setDueDate(day ?? '')}
+            className={`flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 ${DATE}`}
+          />
+        </div>
+        <div className={PAIR_B}>
+          {topics.length ? (
+            <SearchableSelect
+              ariaLabel="Topic of the new item"
+              className={OWNER}
+              options={[{ value: '', label: 'No topic' }, ...topics.map((t) => ({ value: t.id, label: names.get(t.id) ?? t.title }))]}
+              value={topic}
+              onChange={setTopicId}
+            />
+          ) : null}
+          <SearchableSelect ariaLabel="Priority of the new item" className={PRIORITY} options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} value={priority} onChange={(v) => setPriority(v as Priority)} />
+          <Button type="submit" size="sm" loading={addMut.isPending} className="flex-none">Add</Button>
+        </div>
+      </div>
+      {addError ? <p role="alert" className="text-xs font-medium text-danger">{addError}</p> : null}
+    </form>
   );
 }
 
@@ -183,6 +247,7 @@ function ActionItemRow({
   onChange,
   onRemove,
   removing,
+  topic = null,
 }: {
   item: ActionItem;
   directory: DirectoryUser[];
@@ -190,6 +255,8 @@ function ActionItemRow({
   today: string;
   weekStart: WeekStart;
   canRemove: boolean;
+  /** 1.23.0: the agenda topic it is under ("1. Site progress"), or null. */
+  topic?: string | null;
   onChange: (patch: ActionItemPatch) => void;
   onRemove: () => void;
   removing: boolean;
@@ -245,6 +312,12 @@ function ActionItemRow({
           onChange={(v) => onChange({ status: v as ActionItemStatus })}
           chipClassName={badgeToneClass(actionStatusTone(item.status))}
         />
+        {topic ? (
+          <span className={`${CHIP} bg-ground text-ink-2`} title="Agenda topic">
+            <span className="sr-only">Topic: </span>
+            <bdi className="truncate">{topic}</bdi>
+          </span>
+        ) : null}
         {item.sourceNoteId ? <span className={`${CHIP} bg-ground text-ink-2`}>From a note</span> : null}
         {item.taskId ? (
           <Link to={`?task=${encodeURIComponent(item.taskId)}`} className={`group inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>

@@ -90,4 +90,18 @@ describe('InviteeView', () => {
     expect(within(section('Your action items')).queryByText('You have no action items from this meeting.')).toBeNull();
     expect(within(section('Your action items')).getByText('Loading…')).toBeInTheDocument();
   });
+
+  it('1.23.0: List | Table — the table shows the agenda and only their own items, nothing to change', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    renderView({ myActionItems: [{ ...bobItem, agendaItemId: 'g1' }] });
+    await user.click(await screen.findByRole('button', { name: 'Table view' }));
+    const table = await screen.findByRole('table', { name: 'Agenda and action items' });
+    expect(within(table).getByText('Figures')).toBeInTheDocument();
+    expect(within(table).getByText('Send the Beta figures')).toBeInTheDocument();
+    expect(within(table).queryAllByRole('button', { name: /^Change|^Status of|^Owner of|^Topic of|^Presenter|^Covered/ })).toHaveLength(0);
+    expect(screen.queryByRole('textbox', { name: 'New action item' })).toBeNull();
+    // Their notes are not theirs to read: the table never asks for them.
+    expect(calls.some((u) => u.endsWith('/meetings/ma/notes'))).toBe(false);
+  });
 });

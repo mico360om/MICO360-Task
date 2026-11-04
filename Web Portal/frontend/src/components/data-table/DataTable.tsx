@@ -81,6 +81,10 @@ export interface DataTableProps<Row> {
 const PIN_FIRST = 'max-md:sticky max-md:start-0 max-md:z-[2] max-md:bg-surface';
 const PIN_SECOND = 'max-md:sticky max-md:start-11 max-md:z-[2] max-md:bg-surface';
 const PIN_EDGE = 'max-md:shadow-[1px_0_0_rgb(var(--c-line))]';
+/** A group heading row's first cell, pinned like the title column (its background is the caller's). */
+export const PINNED_HEAD_CELL = `max-md:sticky max-md:start-0 max-md:z-[2] ${PIN_EDGE}`;
+/** A cell's usual padding and line (for a group heading row's own cells). */
+export const CELL = 'border-b border-line px-3 py-1.5 align-middle';
 
 export function DataTable<Row>({
   label,

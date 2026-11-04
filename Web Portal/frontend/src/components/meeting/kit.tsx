@@ -48,13 +48,14 @@ export function Section({
  * An empty section of a finished meeting, shrunk to one line (owner, 1.22): its title, then "No
  * agenda · Add a topic" — the add opens the section as before (none for someone who can't add).
  */
-export function ShrunkSection({ id, title, empty, addLabel, onAdd }: { id: string; title: string; empty: string; addLabel: string; onAdd?: () => void }) {
+export function ShrunkSection({ id, title, empty, addLabel, onAdd, extra }: { id: string; title: string; empty: string; addLabel: string; onAdd?: () => void; extra?: ReactNode }) {
   return (
     <Section
       id={id}
       title={title}
       compact
       aside={
+        <span className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-ink-3">
           <span>{empty}</span>
           {onAdd ? (
@@ -66,6 +67,9 @@ export function ShrunkSection({ id, title, empty, addLabel, onAdd }: { id: strin
             </>
           ) : null}
         </p>
+        {/* 1.23.0: List | Table, still at hand on a finished meeting with no agenda. */}
+        {extra}
+        </span>
       }
     >
       {null}
