@@ -234,6 +234,29 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       expect(JSON.stringify(await tools.run(asAi(admin), 'search_tasks', { query: 'ZZBETA' }))).not.toContain('ZZBETA task');
     });
 
+    // Owner, 4 Nov (as My Action Items, e9fe5a9c): MICO AI's action items ALWAYS include the
+    // administrator's own, whatever the project — MB's (PB, not theirs) too; nobody else's of PB.
+    it('MICO AI’s action items always include the administrator’s own, whatever the project', async () => {
+      const { admin } = w.as;
+      const other = await prisma.actionItem.create({ data: { meetingId: w.meetings.MB, projectId: w.projects.PB, description: 'ben ZZBETA action', assigneeId: w.people.ben, createdById: w.people.ben } });
+      try {
+        const items = async (viewer: AiViewer, args: Record<string, unknown> = {}) => {
+          const out = (await tools.run(viewer, 'list_action_items', { from: dayKey(-1), to: dayKey(5), ...args })) as unknown as { rows: { values: { item: string } }[] };
+          return sorted(out.rows.map((r) => r.values.item));
+        };
+        const pa = [`ZZALPHA action for ${w.people.ana}`, `ZZALPHA action for ${w.people.bob}`, 'admin ZZALPHA action'];
+        expect(await items(asAi(admin))).toEqual(sorted([...pa, 'admin ZZBETA action']));
+        // Asked for their own ("me"), and with a picked company: that company's only (as in 1.21).
+        expect(await items(asAi(admin), { assignee: 'me' })).toEqual(sorted(['admin ZZALPHA action', 'admin ZZBETA action']));
+        expect(await items(asAi(admin, w.companies.B))).toEqual(['admin ZZBETA action']);
+        expect(await items(asAi(admin, w.companies.A))).toEqual(sorted(pa));
+        // An employee is unchanged: cat (on PA's and PB's teams) sees both meetings' items, ben's too.
+        expect(await items(asAi(w.as.cat))).toContain('ben ZZBETA action');
+      } finally {
+        await prisma.actionItem.delete({ where: { id: other.id } });
+      }
+    });
+
     it('with a picked company both apply', async () => {
       const { admin } = w.as;
       const beta = { 'x-company-id': w.companies.B };

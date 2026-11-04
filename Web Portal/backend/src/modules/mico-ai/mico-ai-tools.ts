@@ -238,7 +238,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     const allowed = (projectId: string | null | undefined) => !!projectId && (projectIds === null || projectIds.includes(projectId));
     // An administrator sees every meeting and channel — 1.22: unless "Show my projects only" (the team rule).
     const everything = admin && !mineOnly;
-    return { viewer, pick: viewer.pick ?? null, companyIds, projectIds, projects: visible, people, allowed, everything, person: new Map(people.map((p) => [p.id, p])) };
+    return { viewer, pick: viewer.pick ?? null, admin, companyIds, projectIds, projects: visible, people, allowed, everything, person: new Map(people.map((p) => [p.id, p])) };
   }
   type Scope = Awaited<ReturnType<typeof scopeOf>>;
 
@@ -315,8 +315,14 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
    * under it (its projects' meetings, and no-project meetings of that company); a meeting someone was
    * only invited to shows under "All my companies".
    */
-  const meetingVisible = (s: Scope, m: AiMeetingRec) =>
-    (s.everything || ownMeeting(s, m) || s.allowed(m.projectId)) && (!s.pick || s.allowed(m.projectId) || !m.companyIds || m.companyIds.includes(s.pick));
+  const inPick = (s: Scope, m: AiMeetingRec) => !s.pick || s.allowed(m.projectId) || !m.companyIds || m.companyIds.includes(s.pick);
+  const meetingVisible = (s: Scope, m: AiMeetingRec) => (s.everything || ownMeeting(s, m) || s.allowed(m.projectId)) && inPick(s, m);
+  /**
+   * 1.22 (owner, 4 Nov — as My Action Items): an administrator's own action item is always theirs to
+   * list, whatever the project ("Show my projects only" narrows other people's work only); the
+   * picked company still applies.
+   */
+  const ownAdminItem = (s: Scope, i: { assigneeId: string | null; meeting: AiMeetingRec }) => s.admin && i.assigneeId === s.viewer.userId && inPick(s, i.meeting);
   /** companies: invited to a meeting whose project shares none of their companies — no notes, decisions or others' items (§8.8). */
   const invitedTo = (s: Scope, m: AiMeetingRec) =>
     !!s.companyIds && !!m.projectId && !!m.companyIds && !s.allowed(m.projectId) && ownMeeting(s, m) && !m.companyIds.some((c) => s.companyIds!.includes(c));
@@ -693,7 +699,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       // Each item's meeting is checked again with the meeting rule.
       const items = page.rows
         // companies: of a meeting they were only invited to, their own items only.
-        .filter((i) => meetingVisible(s, i.meeting) && (!invitedTo(s, i.meeting) || i.assigneeId === s.viewer.userId) && (!project || i.meeting.projectId === project.id) && i.meeting.startAt >= from && i.meeting.startAt <= to)
+        .filter((i) => (meetingVisible(s, i.meeting) || ownAdminItem(s, i)) && (!invitedTo(s, i.meeting) || i.assigneeId === s.viewer.userId) && (!project || i.meeting.projectId === project.id) && i.meeting.startAt >= from && i.meeting.startAt <= to)
         .filter((i) => (!person || i.assigneeId === person.id) && (status === 'any' || (status === 'open' ? OPEN_ACTION.has(i.status) : !OPEN_ACTION.has(i.status))));
       const rows = items.slice(0, MAX_RESULT_ROWS).map((i): ResultRow => {
         const m = i.meeting;
