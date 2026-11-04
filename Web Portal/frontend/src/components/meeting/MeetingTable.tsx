@@ -23,6 +23,7 @@ import { LoadError, Section, peopleOptions, userName } from './kit';
 import { AgendaAddForm } from './AgendaSection';
 import { ActionItemAddForm } from './ActionItemsSection';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
+import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archive';
 
 /** An action item's fields that can be changed in the table. */
 export type ItemField = 'description' | 'topic' | 'owner' | 'priority' | 'due' | 'status';
@@ -56,6 +57,11 @@ export interface MeetingTableProps {
   items?: ActionItem[];
   /** More groups after Other (see MeetingTableExtraGroup). */
   extraGroups?: MeetingTableExtraGroup[];
+  /**
+   * Its project is archived: the server takes no change to its agenda or action items, so the table is
+   * there to look at and says why (the project's notice). Null: none.
+   */
+  locked?: ProjectReadOnly | null;
 }
 
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
@@ -87,7 +93,7 @@ export function useMeetingTableAvailable(meetingId: string, items?: ActionItem[]
  * them in the List — shown at once, put back with the site's plain error if refused. The add forms
  * stay under the table.
  */
-export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, switcher, readOnly = false, items: givenItems, extraGroups = [] }: MeetingTableProps) {
+export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, switcher, readOnly = false, items: givenItems, extraGroups = [], locked = null }: MeetingTableProps) {
   const qc = useQueryClient();
   const myId = useAuthStore((s) => s.user?.id);
   const openTask = useOpenTask();
@@ -111,17 +117,33 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
   const topicName = new Map(topics.map((t, i) => [t.id, `${i + 1}. ${t.title}`]));
   const ownerName = (id: string | null) => userName(directory, id);
 
-  const filters = memory.filters;
+  const personOptions = useMemo(() => {
+    const ids = new Set([...rawItems, ...extraGroups.flatMap((g) => g.items)].map((i) => i.assigneeId).filter((x): x is string => Boolean(x) && x !== myId));
+    return [
+      { value: '', label: 'Anyone' },
+      { value: ME, label: 'Me' },
+      { value: NO_PERSON, label: 'Unassigned' },
+      ...[...ids].map((id) => ({ value: id, label: userName(directory, id) ?? 'Someone' })).sort((a, b) => a.label.localeCompare(b.label, 'en')),
+    ];
+  }, [rawItems, extraGroups, directory, myId]);
+  const statusOptions = [{ value: '', label: 'Any status' }, { value: OPEN_ONLY, label: 'Open only' }, ...ACTION_STATUSES.map((s) => ({ value: s, label: ACTION_STATUS_LABELS[s] }))];
+  // Remembered for the page, not each meeting: an owner with no items here is let go (never an empty
+  // table with a blank box).
+  const filters = { ...memory.filters, person: personOptions.some((o) => o.value === memory.filters.person) ? memory.filters.person : '' };
   const filtering = tableFiltersActive(filters);
   const shownItems = filterActionItems(items, filters, myId);
-  const extra = extraGroups.map((g) => ({ ...g, shown: filterActionItems(g.items, filters, myId) }));
+  // A carried group's items show a change at once too (they are saved like the meeting's own).
+  const extra = extraGroups.map((g) => ({ ...g, shown: filterActionItems(itemEdits.apply(g.items, (i) => i.id), filters, myId) }));
   const allExtra = extraGroups.reduce((n, g) => n + g.items.length, 0);
   const shownExtra = extra.reduce((n, g) => n + g.shown.length, 0);
 
   // ── Saving ──
   const rawItemById = new Map([...rawItems, ...extraGroups.flatMap((g) => g.items)].map((i) => [i.id, i]));
+  // What shows action items: this meeting's list (and, with carried groups, its series'), My Action
+  // Items and the meetings lists — as the List refreshes them.
   const afterItem = () => {
-    void qc.invalidateQueries({ queryKey: ['meeting', meetingId] });
+    void qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'action-items'] });
+    if (extraGroups.length) void qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'series'] });
     void qc.invalidateQueries({ queryKey: ['my-action-items'] });
     void qc.invalidateQueries({ queryKey: ['meetings'] });
   };
@@ -150,13 +172,14 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
   // What may be changed: a meeting's items as in the List (anyone who sees it in full); a carried
   // group's by its own rules; nothing on a read-only table.
   const extraOf = new Map(extra.flatMap((g) => g.items.map((i) => [i.id, g] as const)));
+  const noChanges = readOnly || locked !== null;
   const fieldsOf = (i: ActionItem): ReadonlySet<ItemField> => {
-    if (readOnly) return NO_FIELDS;
+    if (noChanges) return NO_FIELDS;
     const g = extraOf.get(i.id);
     if (g) return g.editable ? g.editable(i) : NO_FIELDS;
     return ALL_FIELDS;
   };
-  const agendaEditable = canEdit && !readOnly;
+  const agendaEditable = canEdit && !noChanges;
 
   // ── Columns ──
   const people = peopleOptions(directory, 'Unassigned');
@@ -195,16 +218,18 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
       id: 'topic',
       label: 'Topic',
       optional: true,
-      defaultShown: true,
       className: 'max-w-[12rem]',
       cell: (i) => {
         if (extraOf.has(i.id)) return <span className="text-ink-3">—</span>;
-        const { id, fromNote } = itemTopic(i, notes);
+        const { id } = itemTopic(i, notes);
         const current = id && topicName.has(id) ? id : '';
         const label = current ? topicName.get(current)! : 'No topic';
         if (!fieldsOf(i).has('topic') || topics.length === 0) return <span dir="auto" className={`text-xs ${current ? 'text-ink-2' : 'text-ink-3'}`}>{label}</span>;
-        // An older item under its note's topic can't be put under none (nothing would keep "none on purpose").
-        const choices = [...(fromNote && current ? [] : [{ value: '', label: 'No topic' }]), ...topics.map((t) => ({ value: t.id, label: topicName.get(t.id)! }))];
+        // An item made from a note under a topic keeps to a topic: with none it would be shown under its
+        // note's again (nothing keeps "none on purpose") — older items and, since 1.23.0, new ones alike.
+        const noteTopic = i.sourceNoteId ? notes.get(i.sourceNoteId)?.agendaItemId : null;
+        const noNone = Boolean(noteTopic && topicName.has(noteTopic));
+        const choices = [...(noNone ? [] : [{ value: '', label: 'No topic' }]), ...topics.map((t) => ({ value: t.id, label: topicName.get(t.id)! }))];
         return (
           <SearchableSelect
             size="chip"
@@ -363,7 +388,12 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
                 <span className="min-w-0 flex-1 text-sm font-semibold">
                   <TitleCell value={t.title} what={`the title of topic ${n}`} editable={agendaEditable} onSave={(next) => saveTopic(t, { title: next })} emptyMessage="An agenda item needs a title." />
                 </span>
-                {isFolded && count ? <span className="mt-0.5 flex-none rounded-full bg-surface px-1.5 text-[11px] font-semibold text-ink-2">{count}</span> : null}
+                {isFolded && count ? (
+                  <span className="mt-0.5 flex-none rounded-full bg-surface px-1.5 text-[11px] font-semibold text-ink-2">
+                    <span aria-hidden="true">{count}</span>
+                    <span className="sr-only">{count === 1 ? '1 action item' : `${count} action items`}</span>
+                  </span>
+                ) : null}
               </span>
             </th>
           );
@@ -388,7 +418,8 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
         case 'priority':
           return (
             <td key={id} className={`${CELL} text-ink-3`}>
-              <span aria-label="No priority">—</span>
+              <span aria-hidden="true">—</span>
+              <span className="sr-only">No priority</span>
             </td>
           );
         case 'due':
@@ -443,17 +474,6 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
     ...extra.filter((g) => g.shown.length > 0 || (!filtering && g.items.length > 0)).map((g) => ({ key: `extra:${g.key}`, head: plainHead(g.label, g.shown.length), rows: g.shown, headClassName: 'bg-ground' })),
   ];
 
-  const personOptions = useMemo(() => {
-    const ids = new Set([...rawItems, ...extraGroups.flatMap((g) => g.items)].map((i) => i.assigneeId).filter((x): x is string => Boolean(x) && x !== myId));
-    return [
-      { value: '', label: 'Anyone' },
-      { value: ME, label: 'Me' },
-      { value: NO_PERSON, label: 'Unassigned' },
-      ...[...ids].map((id) => ({ value: id, label: userName(directory, id) ?? 'Someone' })).sort((a, b) => a.label.localeCompare(b.label, 'en')),
-    ];
-  }, [rawItems, extraGroups, directory, myId]);
-  const statusOptions = [{ value: '', label: 'Any status' }, { value: OPEN_ONLY, label: 'Open only' }, ...ACTION_STATUSES.map((s) => ({ value: s, label: ACTION_STATUS_LABELS[s] }))];
-
   const loading = agendaQ.isLoading || (!givenItems && itemsQ.isLoading);
   const failed = agendaQ.isError || (!givenItems && itemsQ.isError);
   const total = rawItems.length + allExtra;
@@ -493,6 +513,15 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
           }
           notice={
             <>
+              {locked ? (
+                <p role="status" data-read-only={locked} className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-ink-3">
+                    <rect x="3" y="4" width="18" height="5" rx="1" />
+                    <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" />
+                  </svg>
+                  <span>{READ_ONLY_NOTICE[locked]}</span>
+                </p>
+              ) : null}
               {itemEdits.error ? <Problem onDismiss={itemEdits.clearError}>{itemEdits.error}</Problem> : null}
               {topicEdits.error ? <Problem onDismiss={topicEdits.clearError}>{topicEdits.error}</Problem> : null}
             </>
@@ -511,7 +540,7 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
           }
         />
       )}
-      {readOnly ? null : (
+      {noChanges ? null : (
         <>
           {agendaEditable ? <AgendaAddForm meetingId={meetingId} directory={directory} /> : null}
           <ActionItemAddForm meetingId={meetingId} directory={directory} timeZone={timeZone} />

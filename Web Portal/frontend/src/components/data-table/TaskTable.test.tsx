@@ -13,7 +13,7 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-const PROJECT = { id: 'p1', code: 'MICO', name: 'Platform', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null } as unknown as ApiProject;
+const PROJECT = { id: 'p1', code: 'MICO', name: 'Platform', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null, ownerId: 'u5' } as unknown as ApiProject;
 const OPS = { id: 'p2', code: 'OPS', name: 'Operations', status: 'ACTIVE', color: '#1E8B1E', imageUrl: null } as unknown as ApiProject;
 const COLUMNS: ApiColumn[] = [
   { id: 'c-todo', projectId: 'p1', name: 'To Do', category: 'TODO', position: 0, color: '#3A6EA5', enabled: true },
@@ -69,6 +69,17 @@ beforeEach(() => {
         return json({ data: [
           { id: 'u1', username: 'ada', email: 'a@x', firstName: 'Ada', lastName: 'Lovelace', role: 'MEMBER' },
           { id: 'u2', username: 'omar', email: 'o@x', firstName: 'Omar', lastName: 'Ahmed', role: 'MEMBER' },
+          // Not to be assigned: in none of the project’s companies any more, or deactivated.
+          { id: 'u3', username: 'gone', email: 'g@x', firstName: 'Gone', lastName: 'Away', role: 'MEMBER', hasAccess: false },
+          { id: 'u4', username: 'left', email: 'l@x', firstName: 'Left', lastName: 'Company', role: 'MEMBER' },
+        ] });
+      }
+      if (u.endsWith('/users/directory')) {
+        return json({ data: [
+          { id: 'u1', username: 'ada', firstName: 'Ada', lastName: 'Lovelace', avatarUrl: null },
+          { id: 'u2', username: 'omar', firstName: 'Omar', lastName: 'Ahmed', avatarUrl: null },
+          { id: 'u4', username: 'left', firstName: 'Left', lastName: 'Company', avatarUrl: null, active: false },
+          { id: 'u5', username: 'olga', firstName: 'Olga', lastName: 'Owner', avatarUrl: null },
         ] });
       }
       if (u.includes('/projects/p2/columns')) return json({ data: [{ id: 'o-todo', projectId: 'p2', name: 'Ops queue', category: 'TODO', position: 0, color: '#000', enabled: true }, { id: 'o-done', projectId: 'p2', name: 'Ops done', category: 'DONE', position: 1, color: '#000', enabled: true }] });
@@ -230,5 +241,80 @@ describe('TaskTable', () => {
     first.unmount();
     show();
     expect(screen.getByRole('columnheader', { name: /Priority/ })).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('offers as assignees only people the server takes: the team (not those without access or deactivated) and the owner', async () => {
+    const user = userEvent.setup();
+    show();
+    await user.click(within(row('MICO-1')).getByRole('button', { name: /People on MICO-1/ }));
+    await screen.findByRole('checkbox', { name: 'Omar Ahmed' });
+    expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+    for (const name of ['Olga Owner', 'Ada Lovelace', 'Omar Ahmed']) expect(screen.getByRole('checkbox', { name })).toBeInTheDocument();
+    for (const name of ['Gone Away', 'Left Company']) expect(screen.queryByRole('checkbox', { name })).toBeNull();
+  });
+
+  it('changes a due date as a calendar day, and takes it off with "No due date"', async () => {
+    const user = userEvent.setup();
+    show({ tasks: [task({ dueDate: '2026-03-10T00:00:00.000Z' })] });
+    const chip = within(row('MICO-1')).getByRole('button', { name: 'Due date of MICO-1: 10 Mar 2026, overdue' });
+    expect(chip).toHaveTextContent(/Overdue · 10 Mar/);
+    await user.click(chip);
+    await user.click(screen.getByRole('button', { name: 'Fri 13 Mar 2026' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ dueDate: '2026-03-13' }));
+    await user.click(within(row('MICO-1')).getByRole('button', { name: /^Due date of MICO-1: 13 Mar 2026/ }));
+    await user.click(screen.getByRole('button', { name: 'No due date' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PUT').at(-1)?.body).toEqual({ dueDate: null }));
+  });
+
+  it('a quick edit changes this task only — no "series" scope, as the task panel’s default', async () => {
+    const user = userEvent.setup();
+    show({ tasks: [task({ recurrenceRule: { frequency: 'WEEKLY', interval: 1 } as never })] });
+    await user.click(within(row('MICO-1')).getByRole('button', { name: 'Priority of MICO-1: Normal' }));
+    await user.click(screen.getByRole('option', { name: 'High' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ priority: 'HIGH' }));
+  });
+
+  it('puts the status back when the move is refused', async () => {
+    const user = userEvent.setup();
+    refuse = { status: 409, code: 'CONFLICT', message: 'That column is not on this project’s board.' };
+    show();
+    await user.click(within(row('MICO-1')).getByRole('button', { name: 'Status of MICO-1: To Do' }));
+    await user.click(screen.getByRole('option', { name: 'Doing' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save — That column is not on this project’s board.');
+    expect(within(row('MICO-1')).getByRole('button', { name: 'Status of MICO-1: To Do' })).toBeInTheDocument();
+  });
+
+  it('puts the people back when an assignment is refused', async () => {
+    const user = userEvent.setup();
+    show();
+    await user.click(within(row('MICO-1')).getByRole('button', { name: /People on MICO-1/ }));
+    const omar = await screen.findByRole('checkbox', { name: 'Omar Ahmed' });
+    refuse = { status: 400, code: 'VALIDATION', message: 'Only active members of this project can be assigned.' };
+    await user.click(omar);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t save — Only active members of this project can be assigned.');
+    expect(within(row('MICO-1')).getByRole('button', { name: 'People on MICO-1: Ada Lovelace' })).toBeInTheDocument();
+  });
+
+  it('a remembered status or person that is not on this table (another project’s column) is let go', () => {
+    localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: null, filters: { text: '', status: 'other-project-column', person: 'someone-elsewhere', priority: '', due: '' }, shown: [] }));
+    show();
+    expect(screen.getAllByRole('rowheader')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Filter by status' })).toHaveTextContent('Any status');
+    expect(screen.getByRole('button', { name: 'Filter by assignee' })).toHaveTextContent('Anyone');
+    expect(screen.getByText('3 tasks')).toBeInTheDocument();
+  });
+
+  it('a hidden column’s sort is let go (no order nobody can see)', () => {
+    localStorage.setItem('mico360.u.u1.table.test', JSON.stringify({ sort: { column: 'start', dir: 'asc' }, filters: {}, shown: [] }));
+    show({ tasks: [task({ id: 'a', key: 'MICO-1', title: 'Late start', startDate: '2026-12-01' }), task({ id: 'b', key: 'MICO-2', title: 'Early start', startDate: '2026-01-01' })] });
+    expect(screen.getAllByRole('columnheader').some((h) => h.getAttribute('aria-sort'))).toBe(false);
+    expect(screen.getAllByRole('rowheader').map((h) => h.textContent)).toEqual([expect.stringContaining('Late start'), expect.stringContaining('Early start')]);
+  });
+
+  it('can draw every row at once (My Tasks, whose Select all acts on what is shown)', () => {
+    const many = Array.from({ length: 105 }, (_, i) => task({ id: `m${i}`, key: `MICO-${i + 10}`, title: `Task ${i}` }));
+    show({ tasks: many, paged: false });
+    expect(screen.getAllByRole('rowheader')).toHaveLength(105);
+    expect(screen.queryByRole('button', { name: /more/ })).toBeNull();
   });
 });

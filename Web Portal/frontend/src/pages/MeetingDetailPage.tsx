@@ -31,6 +31,7 @@ import { usePageName } from '../lib/page-meta';
 import { MeetingTable, useMeetingTableAvailable } from '../components/meeting/MeetingTable';
 import { VIEW_ICONS, ViewSwitch } from '../components/data-table/ViewSwitch';
 import { useViewChoice } from '../components/data-table/hooks';
+import { isProjectArchived } from '../lib/project-archive';
 
 /** While a meeting is running, poll its live parts so standalone meetings (no socket room) stay current too. */
 const LIVE_POLL_MS = 10_000;
@@ -241,7 +242,10 @@ export function MeetingDetailPage() {
   const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
   // 1.23.0: the agenda and action items as one table, in the agenda's place (the add forms under it).
   // Hook for the series lane: MeetingTable's `extraGroups` takes "Open from earlier meetings".
-  const table = <MeetingTable key="table" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} switcher={switcher} />;
+  // An archived project's meeting takes no changes on the server: its table is there to look at.
+  const table = (
+    <MeetingTable key="table" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} switcher={switcher} locked={project && isProjectArchived(project) ? 'archived' : null} />
+  );
   const agendaParts = asTable ? [table] : [agenda];
   const actionParts = asTable ? [] : [actions];
   // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).

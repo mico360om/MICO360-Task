@@ -55,7 +55,7 @@ export function ShrunkSection({ id, title, empty, addLabel, onAdd, extra }: { id
       title={title}
       compact
       aside={
-        <span className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-ink-3">
           <span>{empty}</span>
           {onAdd ? (
@@ -69,7 +69,7 @@ export function ShrunkSection({ id, title, empty, addLabel, onAdd, extra }: { id
         </p>
         {/* 1.23.0: List | Table, still at hand on a finished meeting with no agenda. */}
         {extra}
-        </span>
+        </div>
       }
     >
       {null}

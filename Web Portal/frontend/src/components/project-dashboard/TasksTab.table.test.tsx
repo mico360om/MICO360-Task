@@ -87,4 +87,10 @@ describe('project Tasks tab: List | Table (1.23.0)', () => {
     await user.click(screen.getByRole('button', { name: 'Open MICO-2: Pump overhaul' }));
     expect(onOpen).toHaveBeenCalledWith('MICO-2');
   });
+
+  it('an archived project’s table says why it takes no changes (the board’s notice)', () => {
+    localStorage.setItem(userStorageKey('u1', 'project-tasks.view'), 'table');
+    show({ readOnly: 'archived' });
+    expect(screen.getByText('This project is archived — reopen it first.')).toBeInTheDocument();
+  });
 });

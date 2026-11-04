@@ -5,6 +5,8 @@ import { tasksApi, type ApiTask, type Priority } from '../../api/tasks';
 import { columnsApi, type ApiColumn } from '../../api/columns';
 import { assigneesApi } from '../../api/assignees';
 import { membersApi } from '../../api/members';
+import { usersApi } from '../../api/users';
+import { boardPeople } from '../../lib/board-people';
 import type { ApiProject } from '../../api/projects';
 import { DataTable, type DataColumn } from './DataTable';
 import { TableFilterBar } from './FilterBar';
@@ -66,6 +68,8 @@ export interface TaskTableProps {
   toolbar?: ReactNode;
   /** No tasks at all. */
   empty?: ReactNode;
+  /** A hundred rows at a time (the default); false: all of them (My Tasks). */
+  paged?: boolean;
 }
 
 const PRIORITIES: Priority[] = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
@@ -78,7 +82,6 @@ const PRIORITY_CHIP: Record<Priority, string> = {
   URGENT: 'bg-danger-soft text-danger',
 };
 const dot = (color: string) => <span className="h-2 w-2 rounded-full" style={{ background: color }} />;
-const fullName = (u: { firstName: string; lastName: string; username: string }) => `${u.firstName} ${u.lastName}`.trim() || u.username;
 
 /**
  * Tasks as a table (1.23.0): number, title (with its milestone, client, approval and inspection
@@ -106,6 +109,7 @@ export function TaskTable({
   onOpen,
   toolbar,
   empty,
+  paged = true,
 }: TaskTableProps) {
   const qc = useQueryClient();
   const myId = useAuthStore((s) => s.user?.id);
@@ -119,7 +123,7 @@ export function TaskTable({
   const setSort = onSortChange ?? memory.setSort;
   const shown = pageShown ?? memory.shown;
   const setShown = onShownChange ?? memory.setShown;
-  const filters = filterBar ? memory.filters : EMPTY_TABLE_FILTERS;
+  const remembered = filterBar ? memory.filters : EMPTY_TABLE_FILTERS;
   const [notice, setNotice] = useState<string | null>(null);
   const edits = useRowEdits<ApiTask>();
 
@@ -158,10 +162,41 @@ export function TaskTable({
     },
   };
 
+  // The filter bar's choices: the columns (one project) or the six stages; the people on the rows.
+  const statusOptions = useMemo(
+    () => [
+      { value: '', label: 'Any status' },
+      ...(columns
+        ? [...columns].sort((a, b) => a.position - b.position).filter((c) => c.enabled !== false).map((c) => ({ value: c.id, label: c.name, icon: dot(c.color) }))
+        : STATUS_ORDER.map((s) => ({ value: s, label: statusMeta(s).label, icon: dot(statusMeta(s).color) }))),
+    ],
+    [columns],
+  );
+  const personOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of tasks) for (const a of t.assignees ?? []) if (a.id !== myId) m.set(a.id, a.name);
+    return [
+      { value: '', label: 'Anyone' },
+      { value: ME, label: 'Me' },
+      { value: NO_PERSON, label: 'Unassigned' },
+      ...[...m].sort((a, b) => a[1].localeCompare(b[1], 'en')).map(([value, label]) => ({ value, label })),
+    ];
+  }, [tasks, myId]);
+  // Remembered for the page, not for each project or day: a status (another project's column) or a
+  // person not among this table's choices is let go here, never an empty table with a blank box.
+  const filters = {
+    ...remembered,
+    status: statusOptions.some((o) => o.value === remembered.status) ? remembered.status : '',
+    person: personOptions.some((o) => o.value === remembered.person) ? remembered.person : '',
+  };
+  // A sort on a column since hidden is let go too (unless the page keeps its own sort: My Tasks' menu says it).
+  const OPTIONAL = new Set(['start', 'progress', 'tags']);
+  const shownSort = presorted || !sort || !OPTIONAL.has(sort.column) || shown.includes(sort.column) ? sort : null;
+
   const rawById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const withEdits = edits.apply(tasks, (t) => t.id);
   const filtered = filterBar ? filterTaskRows(withEdits, filters, ctx) : withEdits;
-  const rows = presorted ? filtered : sortRows(filtered, sort, (t, c) => taskSortValue(t, c, ctx));
+  const rows = presorted ? filtered : sortRows(filtered, shownSort, (t, c) => taskSortValue(t, c, ctx));
   const ids = rows.map((t) => t.id);
 
   const save = (t: ApiTask, patch: Partial<ApiTask>, run: () => Promise<Partial<ApiTask> | void>) => {
@@ -282,7 +317,7 @@ export function TaskTable({
       label: 'Assignees',
       sortable: true,
       className: 'min-w-[9rem] max-w-[14rem]',
-      cell: (t) => <TaskPeopleCell task={t} editable={editable(t)} onToggle={(p, on) => togglePerson(t, p, on)} />,
+      cell: (t) => <TaskPeopleCell task={t} project={projectById.get(t.projectId)} editable={editable(t)} onToggle={(p, on) => togglePerson(t, p, on)} />,
     },
     {
       id: 'priority',
@@ -345,12 +380,11 @@ export function TaskTable({
         );
       },
     },
-    { id: 'start', label: 'Start date', optional: true, defaultShown: false, sortable: true, className: 'w-px whitespace-nowrap', cell: (t) => <span className="text-ink-2">{formatDueDay(t.startDate, timeZone) || '—'}</span> },
+    { id: 'start', label: 'Start date', optional: true, sortable: true, className: 'w-px whitespace-nowrap', cell: (t) => <span className="text-ink-2">{formatDueDay(t.startDate, timeZone) || '—'}</span> },
     {
       id: 'progress',
       label: 'Progress',
       optional: true,
-      defaultShown: false,
       sortable: true,
       firstDir: 'desc',
       className: 'w-28',
@@ -370,7 +404,6 @@ export function TaskTable({
       id: 'tags',
       label: 'Tags',
       optional: true,
-      defaultShown: false,
       className: 'min-w-[8rem]',
       cell: (t) =>
         t.tags?.length ? (
@@ -407,27 +440,6 @@ export function TaskTable({
     },
   ];
 
-  // The filter bar's choices: the columns (one project) or the six stages; the people on the rows.
-  const statusOptions = useMemo(
-    () => [
-      { value: '', label: 'Any status' },
-      ...(columns
-        ? [...columns].sort((a, b) => a.position - b.position).filter((c) => c.enabled !== false).map((c) => ({ value: c.id, label: c.name, icon: dot(c.color) }))
-        : STATUS_ORDER.map((s) => ({ value: s, label: statusMeta(s).label, icon: dot(statusMeta(s).color) }))),
-    ],
-    [columns],
-  );
-  const personOptions = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const t of tasks) for (const a of t.assignees ?? []) if (a.id !== myId) m.set(a.id, a.name);
-    return [
-      { value: '', label: 'Anyone' },
-      { value: ME, label: 'Me' },
-      { value: NO_PERSON, label: 'Unassigned' },
-      ...[...m].sort((a, b) => a[1].localeCompare(b[1], 'en')).map(([value, label]) => ({ value, label })),
-    ];
-  }, [tasks, myId]);
-
   const bar = filterBar ? (
     <TableFilterBar
       filters={filters}
@@ -457,9 +469,10 @@ export function TaskTable({
       rows={rows}
       rowKey={(t) => t.id}
       rowProps={(t) => ({ 'data-task-key': t.key })}
-      rowClassName={(t) => (selection?.selected.has(t.id) ? 'bg-brand/5' : '')}
-      sort={sort}
+      rowClassName={(t) => (selection?.selected.has(t.id) ? 'is-selected bg-brand/5' : '')}
+      sort={shownSort}
       onSort={setSort}
+      paged={paged}
       shown={shown}
       onShownChange={setShown}
       toolbar={bar}
@@ -520,8 +533,12 @@ function DueCell({ task, timeZone, today, weekStart, editable, onPick }: { task:
   );
 }
 
-/** A task's people: its faces, and its project's team to tick on and off (the team is read when first needed). */
-function TaskPeopleCell({ task, editable, onToggle }: { task: ApiTask; editable: boolean; onToggle: (p: CellPerson, on: boolean) => void }) {
+/**
+ * A task's people: its faces, and the people who may be put on it to tick on and off (read when first
+ * needed) — its project's owner, named manager and team, less anyone the server would refuse: a team
+ * member in none of the project's companies any more, or a deactivated person (lib/board-people).
+ */
+function TaskPeopleCell({ task, project, editable, onToggle }: { task: ApiTask; project: ApiProject | undefined; editable: boolean; onToggle: (p: CellPerson, on: boolean) => void }) {
   const [active, setActive] = useState(false);
   const membersQ = useQuery({
     queryKey: ['members', task.projectId],
@@ -529,7 +546,12 @@ function TaskPeopleCell({ task, editable, onToggle }: { task: ApiTask; editable:
     enabled: editable && active,
     staleTime: 60_000,
   });
-  const people = Array.isArray(membersQ.data) ? membersQ.data.map((m) => ({ id: m.id, name: fullName(m) })) : null;
+  const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory(), enabled: editable && active });
+  const members = Array.isArray(membersQ.data) ? membersQ.data : null;
+  const people =
+    members && project && directoryQ.isFetched
+      ? boardPeople(project, members, Array.isArray(directoryQ.data) ? directoryQ.data : []).map((p) => ({ id: p.id, name: p.name, avatarUrl: p.avatarUrl }))
+      : null;
   return (
     <PeopleCell
       what={task.key}

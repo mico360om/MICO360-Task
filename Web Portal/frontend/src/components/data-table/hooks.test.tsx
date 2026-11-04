@@ -99,4 +99,18 @@ describe('useRowEdits: a quick edit shows at once and rolls back if refused', ()
     const fresh: Row = { id: 'a', title: 'Changed by someone else', priority: 'LOW' };
     expect(result.current.apply([fresh], (r) => r.id)[0]!.title).toBe('Changed by someone else');
   });
+
+  it('an older save’s answer doesn’t overwrite a newer edit of the same field', async () => {
+    const { result } = renderHook(() => useRowEdits<Row>());
+    let first!: (v: Partial<Row>) => void;
+    act(() => {
+      void result.current.edit('a', row, { priority: 'HIGH' }, () => new Promise((r) => (first = r)));
+      void result.current.edit('a', row, { priority: 'URGENT' }, () => new Promise(() => {}));
+    });
+    await act(async () => {
+      first({ priority: 'HIGH' });
+      await Promise.resolve();
+    });
+    expect(result.current.apply([row], (r) => r.id)[0]!.priority).toBe('URGENT');
+  });
 });

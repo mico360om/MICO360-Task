@@ -474,6 +474,8 @@ export function MyTasksPage() {
               projects={projects}
               showProject
               presorted
+              // Every task, as Grid and List draw them: "Select all" then acts only on what is on screen.
+              paged={false}
               sort={myTasksSort(sort)}
               onSortChange={(next) => setSort(myTasksSortValue(next))}
               shown={tableMemory.shown}

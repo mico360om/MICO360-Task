@@ -14,7 +14,7 @@ interface Row {
 const COLUMNS: DataColumn<Row>[] = [
   { id: 'title', label: 'Title', cell: (r) => r.title, sortable: true, pin: true, rowHeader: true },
   { id: 'n', label: 'Number', cell: (r) => String(r.n), sortable: true },
-  { id: 'extra', label: 'Extra', cell: (r) => `x${r.n}`, optional: true, defaultShown: false },
+  { id: 'extra', label: 'Extra', cell: (r) => `x${r.n}`, optional: true },
   { id: 'open', label: 'Open', hideLabel: true, cell: (r) => <button type="button">Open {r.title}</button> },
 ];
 

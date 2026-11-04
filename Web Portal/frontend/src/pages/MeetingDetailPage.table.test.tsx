@@ -18,12 +18,14 @@ const MEETING = {
   recurrenceParentId: null, templateId: null, transcript: null, invitesSentAt: null, reminderSentAt: null, createdById: 'me', createdAt: '', updatedAt: '',
 };
 let meetingData: Record<string, unknown>;
+let projects: unknown[];
 let agenda: unknown[];
 let actionItems: unknown[];
 
 beforeEach(() => {
   localStorage.clear();
   meetingData = MEETING;
+  projects = [];
   agenda = [{ id: 'ag1', meetingId: 'm1', title: 'Budget', ownerId: null, expectedMinutes: 10, position: 0, completed: false, linkedPrevActionId: null, createdAt: '' }];
   actionItems = [{ id: 'ai1', meetingId: 'm1', agendaItemId: 'ag1', sourceNoteId: null, projectId: null, description: 'Book the room', assigneeId: null, priority: 'NORMAL', status: 'OPEN', dueDate: null, progress: 0, completedAt: null, taskId: null, taskKey: null, createdById: 'me', createdAt: '', updatedAt: '', overdue: false }];
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
@@ -34,6 +36,7 @@ beforeEach(() => {
     if (u.endsWith('/meetings/m1/agenda')) return json({ data: agenda });
     if (u.endsWith('/meetings/m1/action-items')) return json({ data: actionItems });
     if (u.endsWith('/users/directory')) return json({ data: [{ id: 'me', username: 'me', firstName: 'Me', lastName: 'Myself' }] });
+    if (u.endsWith('/projects')) return json({ data: projects });
     return json({ data: [] });
   }));
 });
@@ -90,5 +93,16 @@ describe('Meeting page: List | Table (1.23.0)', () => {
     await waitFor(() => expect(screen.getByText('Budget')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Change the title of topic/ })).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'New agenda item' })).toBeNull();
+  });
+
+  it('a meeting of an archived project: its table is there to look at, and says why', async () => {
+    meetingData = { ...MEETING, projectId: 'p1' };
+    projects = [{ id: 'p1', code: 'OLD', name: 'Old works', status: 'ARCHIVED', color: '#8B1E1E', imageUrl: null }];
+    localStorage.setItem(userStorageKey('me', 'meeting.view'), 'table');
+    renderPage();
+    expect(await screen.findByRole('table', { name: 'Agenda and action items' })).toBeInTheDocument();
+    expect(await screen.findByText('This project is archived — reopen it first.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Change the|^Status of|^Owner of/ })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'New action item' })).toBeNull();
   });
 });

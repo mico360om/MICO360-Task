@@ -44,8 +44,10 @@ export function TableFilterBar({
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
         </svg>
+        {/* data-page-search: the / shortcut jumps here (the page has no search box of its own). */}
         <input
           type="search"
+          data-page-search
           dir="auto"
           value={filters.text}
           onChange={(e) => set({ text: e.target.value })}

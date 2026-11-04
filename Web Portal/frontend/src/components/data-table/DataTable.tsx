@@ -24,9 +24,8 @@ export interface DataColumn<Row> {
   sortable?: boolean;
   /** The way a first click sorts (default ascending). */
   firstDir?: SortDir;
-  /** Shown or hidden from the Columns menu; `defaultShown: false` — hidden at first. */
+  /** Shown or hidden from the Columns menu (which are shown at first: the table's `useTableMemory` defaults). */
   optional?: boolean;
-  defaultShown?: boolean;
   /**
    * Pinned at the start while the table scrolls sideways (a phone; a box narrower than the table). The
    * first pinned column sits at the edge; a second one after it assumes the first is the 2.75rem
@@ -73,17 +72,26 @@ export interface DataTableProps<Row> {
   notice?: ReactNode;
   /** Instead of the table when there are no rows. */
   empty?: ReactNode;
+  /** A row's classes; `is-selected` (with its tint) tints its pinned cells too. */
   rowClassName?: (row: Row) => string;
   /** A row's own attributes (e.g. data-task-key). */
   rowProps?: (row: Row) => Record<string, string | undefined>;
+  /**
+   * A hundred rows at a time ("Show 100 more"; the default). False: every row at once — My Tasks,
+   * whose Grid and List draw them all and whose "Select all" must act only on what is shown.
+   */
+  paged?: boolean;
 }
 
 /**
  * A pinned cell: it stays at the start while the rest scrolls under it — on a phone, and wherever the
  * box is narrower than the table (a meeting's table beside its side column). The line after it: phones.
  */
-const PIN_FIRST = 'sticky start-0 z-[2] bg-surface';
-const PIN_SECOND = 'sticky start-11 z-[2] bg-surface';
+// Solid (cells slide under it), so the row's hover and selected tints are mixed in as solid colours.
+const PIN_TINTS =
+  'group-hover/row:bg-[color-mix(in_srgb,rgb(var(--c-ground))_50%,rgb(var(--c-surface)))] group-[.is-selected]/row:bg-[color-mix(in_srgb,rgb(var(--c-brand))_5%,rgb(var(--c-surface)))]';
+const PIN_FIRST = `sticky start-0 z-[2] bg-surface ${PIN_TINTS}`;
+const PIN_SECOND = `sticky start-11 z-[2] bg-surface ${PIN_TINTS}`;
 const PIN_EDGE = 'max-md:shadow-[1px_0_0_rgb(var(--c-line))]';
 /** A group heading row's first cell, pinned like the title column (its background is the caller's). */
 export const PINNED_HEAD_CELL = `sticky start-0 z-[2] ${PIN_EDGE}`;
@@ -106,8 +114,10 @@ export function DataTable<Row>({
   empty,
   rowClassName,
   rowProps,
+  paged = true,
 }: DataTableProps<Row>) {
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [pageLimit, setLimit] = useState(PAGE_SIZE);
+  const limit = paged ? pageLimit : Infinity;
   const visible = useMemo(() => columns.filter((c) => !c.optional || shown.includes(c.id)), [columns, shown]);
   const optional = columns.filter((c) => c.optional);
   // Where each pinned column sits (the first at the edge, the next after the select column).

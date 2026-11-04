@@ -80,7 +80,18 @@ export function useRowEdits<Row>() {
       lay(id, base, patch, token);
       try {
         const confirmed = await save();
-        if (confirmed && Object.keys(confirmed).length) lay(id, base, confirmed, token);
+        if (confirmed && Object.keys(confirmed).length) {
+          // What the server confirmed, for the fields no newer edit has changed since.
+          setOverrides((m) => {
+            const cur = m.get(id);
+            if (!cur || cur.base !== base) return m;
+            const mine = (Object.keys(confirmed) as (keyof Row)[]).filter((k) => cur.tokens.get(k) === token);
+            if (!mine.length) return m;
+            const next = new Map(m);
+            next.set(id, { ...cur, patch: { ...cur.patch, ...Object.fromEntries(mine.map((k) => [k, confirmed[k]])) } });
+            return next;
+          });
+        }
         return true;
       } catch (err) {
         setOverrides((m) => {

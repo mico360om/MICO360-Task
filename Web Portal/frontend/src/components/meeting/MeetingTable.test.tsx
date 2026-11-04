@@ -181,6 +181,8 @@ describe('MeetingTable', () => {
     await waitFor(() => expect(groups()).toHaveLength(3));
     await user.click(within(groups()[0]!).getByRole('button', { name: 'Fold Site progress' }));
     expect(heads(groups()[0]!)).toHaveLength(0);
+    // Folded, it says how many items it holds, in words.
+    expect(within(groups()[0]!).getByText('2 action items')).toBeInTheDocument();
     await user.click(within(groups()[0]!).getByRole('button', { name: 'Unfold Site progress' }));
     expect(heads(groups()[0]!)).toHaveLength(2);
   });
@@ -245,5 +247,60 @@ describe('MeetingTable', () => {
     await waitFor(() => expect(groups()).toHaveLength(3));
     expect(screen.getByRole('textbox', { name: 'New agenda item' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'New action item' })).toBeInTheDocument();
+  });
+
+  it('an item made from a note keeps to the note’s topic: no “No topic” (it would come straight back)', async () => {
+    const user = userEvent.setup();
+    // Since 1.23.0 an item made from a note stores the note's topic too.
+    items = [item('i5', 'Fence the pit', { agendaItemId: 'a2', sourceNoteId: 'n1' })];
+    show();
+    await waitFor(() => expect(groups()).toHaveLength(2));
+    await user.click(within(itemRow('Fence the pit')).getByRole('button', { name: 'Topic of Fence the pit: 2. Safety' }));
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['1. Site progress', '2. Safety']);
+  });
+
+  it('a meeting of an archived project: to look at, with the project’s notice', async () => {
+    show({ locked: 'archived' });
+    await waitFor(() => expect(groups()).toHaveLength(3));
+    expect(screen.getByText('This project is archived — reopen it first.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Change|^Status of|^Owner of|^Topic of|topic 1/ })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'New agenda item' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'New action item' })).toBeNull();
+  });
+
+  it('an extra group whose items may be changed shows a change at once and saves it', async () => {
+    const user = userEvent.setup();
+    const carried = item('c1', 'Survey the yard', { meetingId: 'm0' });
+    show({ extraGroups: [{ key: 'carried', label: 'Open from earlier meetings', items: [carried], editable: () => new Set(['status'] as const) }] });
+    await waitFor(() => expect(groups()).toHaveLength(4));
+    await user.click(within(itemRow('Survey the yard')).getByRole('button', { name: 'Status of Survey the yard: Open' }));
+    await user.click(screen.getByRole('option', { name: 'Pending' }));
+    expect(within(itemRow('Survey the yard')).getByRole('button', { name: 'Status of Survey the yard: Pending' })).toBeInTheDocument();
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: expect.stringContaining('/action-items/c1'), body: { status: 'PENDING' } }));
+    // Only what the group allows: its owner is words here.
+    expect(within(itemRow('Survey the yard')).queryByRole('button', { name: /^Owner of/ })).toBeNull();
+  });
+
+  it('changes an item’s due date as that day, and takes it off with “No due date”', async () => {
+    const user = userEvent.setup();
+    items = [item('i9', 'Order rebar', { dueDate: '2026-03-10T00:00:00.000Z' })];
+    show();
+    await waitFor(() => expect(groups()).toHaveLength(3));
+    const chip = within(itemRow('Order rebar')).getByRole('button', { name: 'Due date of Order rebar: 10 Mar 2026, overdue' });
+    expect(chip).toHaveTextContent(/Overdue · 10 Mar/);
+    await user.click(chip);
+    await user.click(screen.getByRole('button', { name: 'Fri 13 Mar 2026' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ dueDate: '2026-03-13T00:00:00.000Z' }));
+    await user.click(within(itemRow('Order rebar')).getByRole('button', { name: /^Due date of Order rebar: 13 Mar 2026/ }));
+    await user.click(screen.getByRole('button', { name: 'No due date' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ dueDate: null }));
+  });
+
+  it('a remembered owner who has no items in this meeting is let go', async () => {
+    localStorage.setItem('mico360.u.u1.table.meeting', JSON.stringify({ sort: null, filters: { text: '', status: '', person: 'someone-else', priority: '', due: '' }, shown: ['topic'] }));
+    show();
+    await waitFor(() => expect(groups()).toHaveLength(3));
+    expect(screen.getByRole('button', { name: 'Filter by owner' })).toHaveTextContent('Anyone');
+    expect(screen.getByText('4 action items')).toBeInTheDocument();
   });
 });

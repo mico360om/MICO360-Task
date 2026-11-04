@@ -195,6 +195,20 @@ describe('createTaskFromNote', () => {
       expect(second.addItem.mock.calls[0]![2]).toMatchObject({ agendaItemId: null });
     });
 
+    it('1.23.0: a note whose topic was refused (not this meeting’s) still gets its action item, with no topic', async () => {
+      const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      (f.note as Record<string, unknown>).agendaItemId = 'elsewhere';
+      const { ValidationError } = await import('../../lib/http-errors');
+      const addItem = vi.fn(async (_m: string | null, _b: string, input: Record<string, unknown>) => {
+        if (input.agendaItemId) throw new ValidationError('That topic is not on this meeting’s agenda.');
+        return { id: 'ai1', ...input } as never;
+      });
+      const svc = createNoteTaskService({ ...f, actionItems: { addItem } } as never);
+      const res = await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+      expect(res.actionItem).toMatchObject({ id: 'ai1', agendaItemId: null });
+      expect(res.actionItemError).toBeUndefined();
+    });
+
     it('only for action notes — a decision becomes a task without an action item', async () => {
       const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
       f.note.type = 'DECISION';

@@ -16,7 +16,7 @@ import { matchesExternalContact } from '../../lib/external-contacts';
 import { TaskKey } from '../TaskKey';
 import type { ApiProject } from '../../api/projects';
 import type { ApiColumn } from '../../api/columns';
-import type { ProjectReadOnly } from '../../lib/project-archive';
+import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archive';
 import { TaskTable } from '../data-table/TaskTable';
 import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
 import { useViewChoice } from '../data-table/hooks';
@@ -177,6 +177,16 @@ export function TasksTab({
           {project && columns ? <ViewSwitch label="Show tasks as" value={view} onChange={setView} options={VIEWS} /> : null}
         </div>
       </div>
+      {view === 'table' && project && columns && readOnly ? (
+        // An archived or completed project's table is there to look at, and says why (the board's notice).
+        <p role="status" data-read-only={readOnly} className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-2">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-ink-3">
+            <rect x="3" y="4" width="18" height="5" rx="1" />
+            <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" />
+          </svg>
+          <span>{READ_ONLY_NOTICE[readOnly]}</span>
+        </p>
+      ) : null}
       {view === 'table' && project && columns ? (
         // The tab's phase chips and words apply; the rows as the list has them, column by column.
         <TaskTable
