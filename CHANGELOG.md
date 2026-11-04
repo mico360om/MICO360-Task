@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Projects: the "Only my projects" tick is now the same saved setting as Settings → "Show my projects
+  only". Ticking or unticking it is kept for you on every device and every visit, and every page
+  follows it.
+
 ### Bug fixes
 - Meeting notes: the meeting's organizer and administrators can change a note someone else wrote.
   Saving it no longer fails with "You don't have permission to do that"; the note keeps its author

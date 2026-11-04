@@ -134,13 +134,8 @@ export interface CodeCheck {
 export function projectsApi(client: ApiClient) {
   return {
     list: () => client.get<{ data: ApiProject[] }>('/projects').then((r) => r.data),
-    /**
-     * Every project you may see, with its card figures, owner and team — one request for the list.
-     * `everyProject`: an administrator's "Only my projects" unticked for this visit, past their "Show
-     * my projects only" setting.
-     */
-    overview: (opts: { everyProject?: boolean } = {}) =>
-      client.get<{ data: ProjectOverview[] }>(`/projects/overview${opts.everyProject ? '?all=1' : ''}`).then((r) => r.data),
+    /** Every project you may see, with its card figures, owner and team — one request for the list. */
+    overview: () => client.get<{ data: ProjectOverview[] }>('/projects/overview').then((r) => r.data),
     get: (id: string) => client.get<{ data: ApiProject }>(`/projects/${id}`).then((r) => r.data),
     /** Is this code well formed and free? (Anyone may ask: anyone may create a project.) */
     checkCode: (code: string) => client.get<{ data: CodeCheck }>(`/projects/code-check?code=${encodeURIComponent(code)}`).then((r) => r.data),

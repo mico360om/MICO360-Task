@@ -59,6 +59,8 @@ let holdRefetch = false;
 let updateGate: Promise<void> | null = null;
 /** 1.22: the administrator's "Show my projects only" (Settings), and what the server lists then. */
 let myProjectsOnly = false;
+/** Set: saving the setting fails. */
+let failPreference = false;
 
 beforeEach(() => {
   calls = [];
@@ -68,6 +70,7 @@ beforeEach(() => {
   holdRefetch = false;
   updateGate = null;
   myProjectsOnly = false;
+  failPreference = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-23T10:00:00Z'));
   vi.stubGlobal(
@@ -78,6 +81,10 @@ beforeEach(() => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       calls.push({ method, url, body });
       if (url.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: '' } });
+      if (url.endsWith('/users/me/preferences') && method === 'PUT') {
+        if (failPreference) return json({ error: { code: 'INTERNAL', message: 'Something went wrong.' } }, 500);
+        if (typeof body?.myProjectsOnly === 'boolean') myProjectsOnly = body.myProjectsOnly;
+      }
       if (url.endsWith('/users/me/preferences')) return json({ data: { timeZone: null, weekStart: null, myProjectsOnly } });
       // With the setting on the server lists the administrator's own projects; ?all=1 every one.
       if (url.endsWith('/projects/overview?all=1')) return json({ data: overview });
@@ -332,13 +339,18 @@ describe('ProjectsPage', () => {
     expect(cardNames()).toEqual(['Falcon CRM', 'Rig Inspection Portal', 'Mobile App (Phase 2)', 'MICO360 Services', 'Website Refresh']);
   });
 
-  it('offers “Only my projects” to an administrator: the ones they own, manage or are on the team of', async () => {
+  // 1.22.1 (owner, 4 Nov): the tick IS "Show my projects only" — saved on the server, for every
+  // device, session and page (the ones they own, manage or are on the team of).
+  it('offers “Only my projects” to an administrator, and ticking it saves “Show my projects only”', async () => {
     signIn(['ADMIN']);
     renderPage();
     await loaded();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Only my projects' }));
-    expect(cardNames()).toEqual(['MICO360 Services', 'Mobile App (Phase 2)', 'Website Refresh']);
-    expect(where()).toBe('/projects?mine=1');
+    await waitFor(() => expect(cardNames()).toEqual(['MICO360 Services', 'Mobile App (Phase 2)', 'Website Refresh']));
+    expect(calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/users/me/preferences')).map((c) => c.body)).toEqual([{ myProjectsOnly: true }]);
+    expect(screen.getByRole('checkbox', { name: 'Only my projects' })).toBeChecked();
+    expect(screen.getByText('Showing only your projects')).toBeInTheDocument();
+    expect(where()).toBe('/projects');
   });
 
   it('shows an empty state with Clear filters when nothing matches, and clearing brings everything back', async () => {
@@ -625,21 +637,48 @@ describe('ProjectsPage with “Show my projects only” (1.22)', () => {
     expect(where()).toBe('/projects');
   });
 
-  it('unticking shows every project for this visit (the server is asked for all), and ticking goes back', async () => {
+  it('unticking saves the setting off: every project shows, and it is still off on the next visit', async () => {
     myProjectsOnly = true;
     signIn(['ADMIN']);
-    renderPage();
+    const first = renderPage();
     const box = await screen.findByRole('checkbox', { name: 'Only my projects' });
     await waitFor(() => expect(box).toBeChecked());
     await userEvent.click(box);
     await waitFor(() => expect(cardNames()).toHaveLength(5));
     expect(box).not.toBeChecked();
-    expect(calls.some((c) => c.url.endsWith('/projects/overview?all=1'))).toBe(true);
+    expect(calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/users/me/preferences')).map((c) => c.body)).toEqual([{ myProjectsOnly: false }]);
+    expect(myProjectsOnly).toBe(false); // kept on the server
     expect(screen.queryByText('Showing only your projects')).not.toBeInTheDocument();
-    expect(where()).toBe('/projects'); // nothing kept in the address: for this visit only
-    await userEvent.click(box);
+    first.unmount();
+    // The next visit (another device or session: nothing in memory) reads it back from the server.
+    renderPage();
+    await loaded();
+    expect(screen.getByRole('checkbox', { name: 'Only my projects' })).not.toBeChecked();
+    expect(cardNames()).toHaveLength(5);
+  });
+
+  it('ticked again on the next visit when it was saved on: the setting comes back from the server', async () => {
+    signIn(['ADMIN']);
+    const first = renderPage();
+    await loaded();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Only my projects' }));
+    await waitFor(() => expect(myProjectsOnly).toBe(true));
+    first.unmount();
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Only my projects' })).toBeChecked());
     await waitFor(() => expect(cardNames()).toEqual(['MICO360 Services', 'Mobile App (Phase 2)', 'Website Refresh']));
-    expect(screen.getByText('Showing only your projects')).toBeInTheDocument();
+  });
+
+  it('a save that fails leaves the tick as it was and says so', async () => {
+    failPreference = true;
+    signIn(['ADMIN']);
+    renderPage();
+    await loaded();
+    const box = screen.getByRole('checkbox', { name: 'Only my projects' });
+    await userEvent.click(box);
+    expect(await screen.findByText('Couldn’t save that change. Please try again.')).toBeInTheDocument();
+    expect(box).not.toBeChecked();
+    expect(cardNames()).toHaveLength(5);
   });
 
   it('an administrator on no project yet sees the line and an empty tab, not the first-project invitation', async () => {
@@ -652,7 +691,7 @@ describe('ProjectsPage with “Show my projects only” (1.22)', () => {
     expect(screen.queryByText('No projects yet')).not.toBeInTheDocument();
   });
 
-  it('with the setting off nothing changes: no line, and the switch is the page’s own filter', async () => {
+  it('with the setting off: no line, the tick is clear and every project shows', async () => {
     signIn(['ADMIN']);
     renderPage();
     await loaded();
