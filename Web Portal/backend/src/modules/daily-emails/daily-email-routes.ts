@@ -32,7 +32,8 @@ const SEND_NOW_GAP_MS = 60_000;
 /** One person's email, sent by an administrator: a short gap (for that email) so a double click never sends twice. */
 const PERSON_GAP_MS = 30_000;
 
-const KIND_LABEL: Record<DailyEmailKind, string> = { PENDING: 'Pending tasks', COMPLETED: 'Completed yesterday' };
+/** 1.22: one daily email (the PENDING record); COMPLETED was "Completed yesterday", now part of it. */
+const DAILY: DailyEmailKind[] = ['PENDING'];
 const NOT_CONFIGURED = {
   error: { code: 'EMAIL_NOT_CONFIGURED', message: 'Email isn’t set up on this server yet, so no email can be sent. An administrator needs to add the email (Mailjet) keys.' },
 };
@@ -74,7 +75,7 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
     }
   };
 
-  // "Send me a test now": the person's own two emails, whatever their settings (not counted as today's).
+  // "Send me a test": the person's own daily email now, as it would be built for them (not counted as today's).
   app.post('/notifications/daily-emails/test', { preHandler: deps.guard.authenticate }, async (req, reply) => {
     if (!deps.isConfigured()) return reply.status(503).send(NOT_CONFIGURED);
     const userId = req.user!.id;
@@ -125,10 +126,13 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
   // One person's emails for today, now (or one of them); `resend` also sends one that already went.
   app.post('/admin/daily-emails/send', adminOnly, async (req, reply) => {
     const body = sendBody.parse(req.body);
+    if (body.kind === 'COMPLETED') {
+      return reply.status(409).send({ error: { code: 'EMAIL_RETIRED', message: 'The “Completed yesterday” email is part of the daily email now, so it isn’t sent by itself.' } });
+    }
     if (!deps.isConfigured()) return reply.status(503).send(NOT_CONFIGURED);
     // The gap is for each email (person and email), and only once something actually went.
     const gapKey = (kind: DailyEmailKind) => `${body.userId}|${kind}`;
-    const kinds: DailyEmailKind[] = body.kind ? [body.kind] : ['PENDING', 'COMPLETED'];
+    const kinds: DailyEmailKind[] = body.kind ? [body.kind] : DAILY;
     if (!personSends.takeAll(kinds.map(gapKey))) {
       const message = body.kind ? 'This email was just sent. Wait half a minute before sending it again.' : 'This person’s emails were just sent. Wait half a minute before sending again.';
       return reply.status(429).send({ error: { code: 'TOO_SOON', message } });
@@ -149,9 +153,7 @@ export async function registerDailyEmailRoutes(app: FastifyInstance, deps: Daily
     }
     for (const r of sent.results) if (r.outcome !== 'sent') personSends.release(gapKey(r.kind));
     if (sent.results.every((r) => r.outcome === 'off')) {
-      const message = body.kind
-        ? `${sent.name} turned off the “${KIND_LABEL[body.kind]}” email, so it can’t be sent.`
-        : `${sent.name} turned off both daily emails, so there’s nothing to send.`;
+      const message = body.kind ? `${sent.name} turned off the daily email, so it can’t be sent.` : `${sent.name} turned off the daily email, so there’s nothing to send.`;
       return reply.status(409).send({ error: { code: 'EMAIL_TURNED_OFF', message } });
     }
     if (sent.results.every((r) => r.outcome === 'not-yet' || r.outcome === 'off')) {

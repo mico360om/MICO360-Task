@@ -3,21 +3,64 @@ export interface NotificationPreferences {
   muted: string[];
   /** Minutes before a task's due date to send a "due soon" reminder; omitted = use the default. */
   reminderLeadMinutes?: number;
-  /** The two morning emails (pending tasks, completed yesterday); omitted = the defaults. */
-  dailyEmails?: DailyEmailPrefs;
+  /** The daily email: which parts it has and when it goes; omitted = the defaults. */
+  dailyEmails?: StoredDailyEmailPrefs;
   /** The weekly management summary (for people who can see the Management page); omitted = on. */
   weeklySummary?: boolean;
 }
 
-/** Which morning emails someone gets, and when (HH:MM in their own time zone). */
+/**
+ * The daily email (1.22: one email, in parts) and when it goes (HH:MM in the person's own time zone).
+ * `pending` and `completed` were the two morning emails before 1.22 and keep their names, so older
+ * apps' switches still work: `pending` is the person's tasks grouped by project, `completed` the
+ * "Recently completed" part.
+ */
 export interface DailyEmailPrefs {
+  /** "Your tasks": the person's open tasks, grouped by project. */
   pending: boolean;
+  /** "Recently completed": their tasks completed since the last email. */
   completed: boolean;
   time: string;
+  /** "Today's schedule": their meetings and their tasks due at a time today. */
+  schedule: boolean;
+  /** "Overdue & urgent": their overdue and urgent tasks, at the top. */
+  urgent: boolean;
+  /** "In your projects": overdue and waiting-for-approval tasks of the projects they run. */
+  managed: boolean;
 }
 
-/** Everyone gets both, at 06:00, until they choose otherwise. */
-export const DEFAULT_DAILY_EMAILS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00' };
+/** As stored: settings saved before 1.22 have no `schedule`, `urgent` or `managed` (dailyEmailPrefs fills them in). */
+export type StoredDailyEmailPrefs = Pick<DailyEmailPrefs, 'pending' | 'completed' | 'time'> & Partial<Pick<DailyEmailPrefs, 'schedule' | 'urgent' | 'managed'>>;
+
+/** The parts, in the email's order. The email goes when at least one is on (and has something in it). */
+export const DAILY_EMAIL_PARTS = ['schedule', 'urgent', 'pending', 'managed', 'completed'] as const;
+export type DailyEmailPart = (typeof DAILY_EMAIL_PARTS)[number];
+
+/** Everyone gets every part, at 06:00, until they choose otherwise. */
+export const DEFAULT_DAILY_EMAILS: DailyEmailPrefs = { pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true };
+
+/** Is the daily email on: any one part on. */
+export function dailyEmailOn(d: DailyEmailPrefs): boolean {
+  return DAILY_EMAIL_PARTS.some((part) => d[part]);
+}
+
+/**
+ * Fills in the parts settings saved before 1.22 don't have, keeping their meaning: "Overdue & urgent"
+ * follows the old "Pending tasks" switch (it was the task list), and the new parts are on unless both
+ * old emails were off — both off means no email.
+ */
+function withNewParts(d: { pending: boolean; completed: boolean; time: string; schedule?: unknown; urgent?: unknown; managed?: unknown }): DailyEmailPrefs {
+  const wanted = d.pending || d.completed;
+  return {
+    pending: d.pending,
+    completed: d.completed,
+    time: d.time,
+    schedule: typeof d.schedule === 'boolean' ? d.schedule : wanted,
+    urgent: typeof d.urgent === 'boolean' ? d.urgent : d.pending,
+    managed: typeof d.managed === 'boolean' ? d.managed : wanted,
+  };
+}
+
 /** A time of day as HH:MM (00:00–23:59). */
 export const DAILY_EMAIL_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -41,12 +84,13 @@ export function normalizePreferences(input: unknown): NotificationPreferences {
     out.reminderLeadMinutes = lead;
   }
   if (raw.dailyEmails && typeof raw.dailyEmails === 'object') {
-    const d = raw.dailyEmails as { pending?: unknown; completed?: unknown; time?: unknown };
-    out.dailyEmails = {
+    const d = raw.dailyEmails as { pending?: unknown; completed?: unknown; time?: unknown; schedule?: unknown; urgent?: unknown; managed?: unknown };
+    out.dailyEmails = withNewParts({
+      ...d,
       pending: typeof d.pending === 'boolean' ? d.pending : DEFAULT_DAILY_EMAILS.pending,
       completed: typeof d.completed === 'boolean' ? d.completed : DEFAULT_DAILY_EMAILS.completed,
       time: typeof d.time === 'string' && DAILY_EMAIL_TIME.test(d.time) ? d.time : DEFAULT_DAILY_EMAILS.time,
-    };
+    });
   }
   if (typeof raw.weeklySummary === 'boolean') out.weeklySummary = raw.weeklySummary;
   return out;
@@ -59,7 +103,8 @@ export function weeklySummaryOn(prefs: NotificationPreferences | null | undefine
 
 /** The daily email settings in force: the saved ones, else the defaults. */
 export function dailyEmailPrefs(prefs: NotificationPreferences | null | undefined): DailyEmailPrefs {
-  return prefs?.dailyEmails ?? { ...DEFAULT_DAILY_EMAILS };
+  // Settings made before 1.22 (and not read through normalizePreferences) get their new parts here too.
+  return prefs?.dailyEmails ? withNewParts(prefs.dailyEmails) : { ...DEFAULT_DAILY_EMAILS };
 }
 
 /** True when a notification of this type should be suppressed for the user. */

@@ -49,21 +49,21 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-/** The pending morning email a person would get now (sent to the test mailbox, nothing recorded). */
-async function pendingOf(userId: string): Promise<{ content: EmailContent; opts?: { fromName?: string } }> {
+/** The daily email a person would get now ("Send me a test": sent to the test mailbox, nothing recorded). */
+async function dailyOf(userId: string): Promise<{ content: EmailContent; opts?: { fromName?: string } }> {
   sent.length = 0;
   await daily.sendTest(userId);
-  return sent.find((s) => /pending tasks/.test(s.content.subject))!;
+  return sent.find((s) => /^Today: /.test(s.content.subject))!;
 }
 
 describe('daily emails, one per person, grouped by company', () => {
   it('cat gets ONE daily email, Alpha’s section then Beta’s, with Beta’s name (her primary company)', async () => {
     await prisma.company.update({ where: { id: w.companies.B }, data: { senderName: 'Beta Team' } });
     try {
-      const mail = await pendingOf(w.people.cat);
+      const mail = await dailyOf(w.people.cat);
       const html = mail.content.html;
-      expect(html.indexOf(`>Alpha ${w.tag}</h2>`)).toBeGreaterThan(-1);
-      expect(html.indexOf(`>Alpha ${w.tag}</h2>`)).toBeLessThan(html.indexOf(`>Beta ${w.tag}</h2>`));
+      expect(html.indexOf(`>Alpha ${w.tag}</div>`)).toBeGreaterThan(-1);
+      expect(html.indexOf(`>Alpha ${w.tag}</div>`)).toBeLessThan(html.indexOf(`>Beta ${w.tag}</div>`));
       expect(html).toContain(`TA2${w.tag.toUpperCase()}-1`);
       expect(html).toContain(`TB2${w.tag.toUpperCase()}-1`);
       expect(html).toContain(`© ${new Date().getFullYear()} Beta ${w.tag}`);
@@ -77,10 +77,10 @@ describe('daily emails, one per person, grouped by company', () => {
     // Assigned in PB (Beta) and PC (Gamma, archived) too — neither is hers to see.
     await prisma.taskAssignee.createMany({ data: [{ taskId: w.tasks.TB1, userId: w.people.ana }, { taskId: w.tasks.TC1, userId: w.people.ana }] });
     try {
-      const mail = await pendingOf(w.people.ana);
+      const mail = await dailyOf(w.people.ana);
       expect(mail.content.html).toContain('ZZALPHA');
       expect(mail.content.html).not.toMatch(/ZZBETA|ZZGAMMA/);
-      expect(mail.content.html).not.toContain('</h2>'); // one company: today's email
+      expect(mail.content.html).not.toContain(`Alpha ${w.tag}</div>`); // one company: no company headings
     } finally {
       await prisma.taskAssignee.deleteMany({ where: { userId: w.people.ana, taskId: { in: [w.tasks.TB1, w.tasks.TC1] } } });
     }
@@ -88,7 +88,37 @@ describe('daily emails, one per person, grouped by company', () => {
 
   it('gus, whose only company is archived, gets nothing of it', async () => {
     sent.length = 0;
-    expect(await daily.sendTest(w.people.gus)).toEqual({ pending: 'empty', completed: 'empty' });
+    expect(await daily.sendTest(w.people.gus)).toEqual({ daily: 'empty', pending: 'empty', completed: 'empty' });
+  });
+
+  it('1.22: today’s meetings — the organizer’s and a guest’s from another company; never someone else’s', async () => {
+    const original = await prisma.meeting.findUniqueOrThrow({ where: { id: w.meetings.MA }, select: { startAt: true } });
+    await prisma.meeting.updateMany({ where: { id: { in: [w.meetings.MA, w.meetings.MB] } }, data: { startAt: new Date() } });
+    try {
+      const ana = await dailyOf(w.people.ana);
+      expect(ana.content.html).toContain(`/meetings/${w.meetings.MA}`);
+      expect(ana.content.html).not.toContain(`/meetings/${w.meetings.MB}`);
+      // Bob (Beta) is invited to Alpha's meeting: it is on his day, as a guest's.
+      const bob = await dailyOf(w.people.bob);
+      expect(bob.content.text).toContain('MA ZZALPHA meeting (meeting)');
+      expect(bob.content.html).not.toContain(`/meetings/${w.meetings.MB}`);
+    } finally {
+      await prisma.meeting.updateMany({ where: { id: { in: [w.meetings.MA, w.meetings.MB] } }, data: { startAt: original.startAt } });
+    }
+  });
+
+  it('1.22: In your projects — ben runs PB: cat’s overdue Beta task, with her name; nothing of a company he isn’t in', async () => {
+    const late = new Date('2026-01-05T00:00:00Z');
+    await prisma.task.updateMany({ where: { id: { in: [w.tasks.TB2, w.tasks.TA2, w.tasks.TC1] } }, data: { dueDate: late } });
+    try {
+      const ben = await dailyOf(w.people.ben);
+      const part = ben.content.text.slice(ben.content.text.indexOf('== In your projects =='));
+      expect(part).toContain(`TB2${w.tag.toUpperCase()}-1`);
+      expect(part).toMatch(/Assigned to Cat/);
+      expect(part).not.toMatch(/ZZALPHA|ZZGAMMA/);
+    } finally {
+      await prisma.task.updateMany({ where: { id: { in: [w.tasks.TB2, w.tasks.TA2, w.tasks.TC1] } }, data: { dueDate: null } });
+    }
   });
 });
 

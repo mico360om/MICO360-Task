@@ -139,4 +139,17 @@ describe('PrismaDailyEmailRepository (integration)', () => {
     expect(takes.filter(Boolean)).toHaveLength(1);
     expect(takes.find(Boolean)).toMatchObject({ status: 'SENDING', attempts: 2, sentAt: new Date('2026-10-21T02:00:05Z') });
   });
+  it('1.22: when the email last went, for a day before the one asked about (where "Recently completed" starts)', async () => {
+    const send = async (day: string, at: string | null, status: 'SENT' | 'FAILED' = 'SENT') => {
+      const row = (await repo.claim(userId, day, 'PENDING'))!;
+      await repo.finish(row, { status, sentAt: at ? new Date(at) : null });
+    };
+    expect(await repo.lastSent(userId, 'PENDING', '2026-10-22')).toBeNull();
+    await send('2026-10-19', '2026-10-19T02:00:00Z');
+    await send('2026-10-20', '2026-10-20T02:10:00Z');
+    await send('2026-10-21', null, 'FAILED');
+    await send('2026-10-22', '2026-10-22T02:00:00Z'); // the day asked about itself: not counted
+    expect(await repo.lastSent(userId, 'PENDING', '2026-10-22')).toEqual(new Date('2026-10-20T02:10:00Z'));
+    expect(await repo.lastSent(userId, 'COMPLETED', '2026-10-22')).toBeNull();
+  });
 });

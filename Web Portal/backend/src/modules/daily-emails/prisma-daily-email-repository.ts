@@ -123,5 +123,14 @@ export function createPrismaDailyEmailRepository(prisma: PrismaClient): DailyEma
         email: r.user.email,
       }));
     },
+
+    async lastSent(userId, kind, beforeDay) {
+      const row = await prisma.dailyTaskEmail.findFirst({
+        where: { userId, kind, status: 'SENT', sentAt: { not: null }, day: { lt: beforeDay } },
+        orderBy: { sentAt: 'desc' },
+        select: { sentAt: true },
+      });
+      return row?.sentAt ?? null;
+    },
   };
 }

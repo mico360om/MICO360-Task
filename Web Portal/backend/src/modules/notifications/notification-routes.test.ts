@@ -74,7 +74,29 @@ describe('Notification preferences: daily task emails', () => {
   it('reads the daily email settings, on at 06:00 by default', async () => {
     const a = await appWithStore();
     const res = await a.inject({ method: 'GET', url: '/api/v1/notifications/preferences', headers: { authorization: `Bearer ${await token()}` } });
-    expect(res.json().data.dailyEmails).toEqual({ pending: true, completed: true, time: '06:00' });
+    expect(res.json().data.dailyEmails).toEqual({ pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true });
+  });
+
+  it('1.22: saves each part of the one daily email', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    const saved = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { schedule: false, urgent: true, pending: false, managed: false, completed: true, time: '07:00' } } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().data.dailyEmails).toEqual({ pending: false, completed: true, time: '07:00', schedule: false, urgent: true, managed: false });
+    expect((await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { managed: 'no' } } })).statusCode).toBe(400);
+  });
+
+  it('1.22: an older app that knows only the two old switches keeps their meaning', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    const put = async (dailyEmails: Record<string, unknown>) =>
+      (await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails } })).json().data.dailyEmails;
+    // Its "Pending tasks" switch is the task list: both task parts follow it.
+    expect(await put({ pending: false, completed: true, time: '06:00' })).toMatchObject({ pending: false, urgent: false, completed: true, schedule: true, managed: true });
+    // Both old emails off: no email at all.
+    expect(await put({ pending: false, completed: false, time: '06:00' })).toEqual({ pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false });
+    // Turning "Pending tasks" back on brings both task parts back.
+    expect(await put({ pending: true, completed: false, time: '06:00' })).toMatchObject({ pending: true, urgent: true, completed: false });
   });
 
   it('saves them without losing other settings, and an app that doesn’t know them keeps them', async () => {
@@ -82,7 +104,7 @@ describe('Notification preferences: daily task emails', () => {
     const auth = { authorization: `Bearer ${await token()}` };
     await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { muted: ['TASK_COMMENT'], reminderLeadMinutes: 120 } });
     const saved = await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails: { completed: false, time: '07:15' } } });
-    expect(saved.json().data).toMatchObject({ muted: ['TASK_COMMENT'], reminderLeadMinutes: 120, dailyEmails: { pending: true, completed: false, time: '07:15' } });
+    expect(saved.json().data).toMatchObject({ muted: ['TASK_COMMENT'], reminderLeadMinutes: 120, dailyEmails: { pending: true, completed: false, time: '07:15', schedule: true, urgent: true, managed: true } });
     // The phone app (before this release) saves the muted types with the reminder time, and leaves the
     // reminder time out to go back to the default — that still works, and the daily emails stay.
     await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { muted: [] } });

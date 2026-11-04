@@ -34,7 +34,7 @@ const overviewOf = (day: string | null): DailyEmailOverview => ({
 const sentResult = (kind: 'PENDING' | 'COMPLETED', outcome: ManualSendResult['outcome'] = 'sent'): ManualSendResult => ({ kind, outcome, error: null, sentAt: outcome === 'off' ? null : new Date('2026-10-21T06:00:00Z') });
 
 async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}) {
-  const sendTest = vi.fn(async () => ({ pending: 'sent' as const, completed: 'empty' as const }));
+  const sendTest = vi.fn(async () => ({ daily: 'sent' as const, pending: 'sent' as const, completed: 'sent' as const }));
   const list = vi.fn(async () => [logRow]);
   const overview = vi.fn(async (day?: string) => overviewOf(day ?? null));
   // "Send today's emails now" in the background: each run goes on until the test ends it (`finish`).
@@ -59,8 +59,9 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
   });
   const sendFor = vi.fn(async (userId: string, o: { kind?: 'PENDING' | 'COMPLETED'; resend?: boolean; early?: boolean } = {}) => {
     if (userId === 'nobody') return null;
-    const off: string[] = userId === 'quiet' ? ['PENDING', 'COMPLETED'] : userId === 'half' || userId === 'other-half' ? ['COMPLETED'] : [];
-    const kinds = o.kind ? [o.kind] : (['PENDING', 'COMPLETED'] as const);
+    // 1.22: one daily email (the PENDING record); like the service, no kind means that one.
+    const off: string[] = userId === 'quiet' ? ['PENDING'] : [];
+    const kinds = o.kind ? [o.kind] : (['PENDING'] as const);
     // 'unsent': nothing went (already sent, nothing in it, being sent, couldn't be sent).
     // 'early-bird': their time today hasn't come — nothing goes unless asked to send early.
     const outcome = (k: string): ManualSendResult['outcome'] =>
@@ -91,12 +92,12 @@ async function makeApp(opts: { configured?: boolean; idempotent?: boolean } = {}
   return { app, sendTest, list, overview, startSendNow, runs, sendFor, preview, audited };
 }
 
-describe('Daily task emails: "Send me a test now"', () => {
-  it('sends the person’s own emails and says which went', async () => {
+describe('Daily email: "Send me a test"', () => {
+  it('sends the person’s own email and says how it went', async () => {
     const { app, sendTest } = await makeApp();
     const res = await app.inject({ method: 'POST', url: '/api/v1/notifications/daily-emails/test', headers: await auth('u1') });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ pending: 'sent', completed: 'empty' });
+    expect(res.json().data).toEqual({ daily: 'sent', pending: 'sent', completed: 'sent' });
     expect(sendTest).toHaveBeenCalledWith('u1');
   });
 
@@ -273,33 +274,39 @@ describe('Daily task emails: send one person’s emails', () => {
     expect(sendFor).not.toHaveBeenCalled();
   });
 
-  it('sends that person’s emails (or one of them), says how each went, and is audited', async () => {
+  it('sends that person’s daily email, says how it went, and is audited', async () => {
     const { app, sendFor, audited } = await makeApp();
     const res = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'u9' } });
     expect(res.statusCode).toBe(200);
     expect(sendFor).toHaveBeenLastCalledWith('u9', { resend: false });
-    expect(res.json().data).toMatchObject({ userId: 'u9', name: 'Ada Lovelace', results: [{ kind: 'PENDING', outcome: 'sent' }, { kind: 'COMPLETED', outcome: 'sent' }] });
+    expect(res.json().data).toMatchObject({ userId: 'u9', name: 'Ada Lovelace', results: [{ kind: 'PENDING', outcome: 'sent' }] });
     expect(audited.at(-1)).toEqual({
       action: 'daily_email.send', module: 'daily-emails', entityId: 'u9', userId: 'a1',
-      newValue: { kind: null, resend: false, day: '2026-10-21', results: [{ kind: 'PENDING', outcome: 'sent' }, { kind: 'COMPLETED', outcome: 'sent' }] },
+      newValue: { kind: null, resend: false, day: '2026-10-21', results: [{ kind: 'PENDING', outcome: 'sent' }] },
     });
-    const one = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'u8', kind: 'COMPLETED', resend: true } });
+    const one = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'u8', kind: 'PENDING', resend: true } });
     expect(one.statusCode).toBe(200);
-    expect(sendFor).toHaveBeenLastCalledWith('u8', { kind: 'COMPLETED', resend: true });
-    expect(audited.at(-1)).toMatchObject({ action: 'daily_email.resend', entityId: 'u8', newValue: { kind: 'COMPLETED', resend: true } });
+    expect(sendFor).toHaveBeenLastCalledWith('u8', { kind: 'PENDING', resend: true });
+    expect(audited.at(-1)).toMatchObject({ action: 'daily_email.resend', entityId: 'u8', newValue: { kind: 'PENDING', resend: true } });
   });
 
-  it('never sends an email the person turned off: says so plainly', async () => {
+  it('never sends the email to someone who turned it off: says so plainly', async () => {
     const { app } = await makeApp();
-    const one = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'half', kind: 'COMPLETED', resend: true } });
+    const one = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'quiet', kind: 'PENDING', resend: true } });
     expect(one.statusCode).toBe(409);
-    expect(one.json().error).toEqual({ code: 'EMAIL_TURNED_OFF', message: 'Ada Lovelace turned off the “Completed yesterday” email, so it can’t be sent.' });
-    const both = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'quiet' } });
-    expect(both.statusCode).toBe(409);
-    expect(both.json().error.message).toBe('Ada Lovelace turned off both daily emails, so there’s nothing to send.');
-    // Only one turned off: the other goes.
-    const half = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'other-half' } });
-    expect(half.statusCode).toBe(200);
+    expect(one.json().error).toEqual({ code: 'EMAIL_TURNED_OFF', message: 'Ada Lovelace turned off the daily email, so it can’t be sent.' });
+    const all = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'quiet' } });
+    expect(all.statusCode).toBe(409);
+    expect(all.json().error.message).toBe('Ada Lovelace turned off the daily email, so there’s nothing to send.');
+  });
+
+  it('1.22: the old “Completed yesterday” email can’t be sent by itself — it is part of the daily email', async () => {
+    const { app, sendFor, audited } = await makeApp();
+    const res = await app.inject({ method: 'POST', url, headers: await admin(), payload: { userId: 'u9', kind: 'COMPLETED', resend: true } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toEqual({ code: 'EMAIL_RETIRED', message: 'The “Completed yesterday” email is part of the daily email now, so it isn’t sent by itself.' });
+    expect(sendFor).not.toHaveBeenCalled();
+    expect(audited).toEqual([]);
   });
 
   it('a small gap between sends to the same person', async () => {
@@ -312,21 +319,19 @@ describe('Daily task emails: send one person’s emails', () => {
     expect(sendFor).toHaveBeenCalledTimes(2);
   });
 
-  it('the gap is for each email: their other email can be sent straight after', async () => {
+  it('the gap is the same whether the email is named or not', async () => {
     const { app, sendFor } = await makeApp();
     const headers = await admin();
     expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5', kind: 'PENDING' } })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5', kind: 'COMPLETED' } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5', kind: 'PENDING', resend: true } })).statusCode).toBe(429);
-    // Both at once waits for either one.
     expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'u5' } })).statusCode).toBe(429);
-    expect(sendFor).toHaveBeenCalledTimes(2);
+    expect(sendFor).toHaveBeenCalledTimes(1);
   });
 
   it('a send where nothing went (already sent, couldn’t be sent) doesn’t start the gap', async () => {
     const { app, sendFor } = await makeApp();
     const headers = await admin();
-    for (const kind of ['PENDING', 'COMPLETED', 'PENDING']) {
+    for (const kind of ['PENDING', 'PENDING', 'PENDING']) {
       expect((await app.inject({ method: 'POST', url, headers, payload: { userId: 'unsent', kind } })).statusCode).toBe(200);
     }
     expect(sendFor).toHaveBeenCalledTimes(3);

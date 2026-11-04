@@ -5,7 +5,7 @@ import { KIND_KEYS } from './notification-kinds';
 import type { ListScope } from './notification-repository';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { AuthGuard } from '../auth/auth-guard';
-import { dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type NotificationPreferences } from './notification-preferences';
+import { dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type DailyEmailPrefs, type NotificationPreferences } from './notification-preferences';
 
 const prefsSchema = z.object({
   muted: z.array(z.string()).optional(),
@@ -15,6 +15,10 @@ const prefsSchema = z.object({
       pending: z.boolean().optional(),
       completed: z.boolean().optional(),
       time: z.string().regex(DAILY_EMAIL_TIME, 'Choose a time as HH:MM.').optional(),
+      // 1.22: the one daily email's other parts.
+      schedule: z.boolean().optional(),
+      urgent: z.boolean().optional(),
+      managed: z.boolean().optional(),
     })
     .optional(),
   weeklySummary: z.boolean().optional(),
@@ -36,6 +40,18 @@ const pageSchema = z.object({
     .optional(),
 });
 const bulkSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(MAX_BULK_NOTIFICATIONS), action: z.enum(['read', 'unread', 'remove']) });
+
+/**
+ * 1.22: a daily email save from an app that knows only the two old switches (pending tasks, completed
+ * yesterday) keeps their meaning: "Overdue & urgent" follows "Pending tasks", and both off is no email.
+ */
+function dailyEmailsSaved(current: DailyEmailPrefs, sent: z.infer<typeof prefsSchema>['dailyEmails'] & object): DailyEmailPrefs {
+  const next = { ...current, ...sent };
+  const older = sent.schedule === undefined && sent.urgent === undefined && sent.managed === undefined;
+  if (!older || (sent.pending === undefined && sent.completed === undefined)) return next;
+  const off = !next.pending && !next.completed;
+  return { ...next, urgent: next.pending, ...(off ? { schedule: false, managed: false } : {}) };
+}
 
 /** Preferences as the apps read them: the daily email settings and the weekly summary switch always filled in. */
 const withDailyEmails = (p: NotificationPreferences): NotificationPreferences => ({ ...p, dailyEmails: dailyEmailPrefs(p), weeklySummary: weeklySummaryOn(p) });
@@ -87,7 +103,7 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
     const pair = body.muted !== undefined ? { muted: body.muted, reminderLeadMinutes: body.reminderLeadMinutes } : { muted: current.muted, reminderLeadMinutes: body.reminderLeadMinutes ?? current.reminderLeadMinutes };
     const merged = {
       ...pair,
-      ...(body.dailyEmails !== undefined ? { dailyEmails: { ...dailyEmailPrefs(current), ...body.dailyEmails } } : current.dailyEmails ? { dailyEmails: current.dailyEmails } : {}),
+      ...(body.dailyEmails !== undefined ? { dailyEmails: dailyEmailsSaved(dailyEmailPrefs(current), body.dailyEmails) } : current.dailyEmails ? { dailyEmails: current.dailyEmails } : {}),
       ...(body.weeklySummary !== undefined ? { weeklySummary: body.weeklySummary } : current.weeklySummary !== undefined ? { weeklySummary: current.weeklySummary } : {}),
     };
     return { data: withDailyEmails(await notificationService.setPreferences(req.user!.id, normalizePreferences(merged))) };

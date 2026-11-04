@@ -1,8 +1,8 @@
 import { shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { instantOf } from '../meetings/meeting-series';
 import type { EmailContent, TemplateOptions } from '../email/email-templates';
-import { dailyEmailPrefs, type NotificationPreferences } from '../notifications/notification-preferences';
-import { completedEmail, pendingEmail, type DailyTask } from './daily-email-content';
+import { dailyEmailOn, dailyEmailPrefs, DAILY_EMAIL_PARTS, type DailyEmailPart, type NotificationPreferences } from '../notifications/notification-preferences';
+import { dailyEmail, type DailyMeeting, type DailyTask } from './daily-email-content';
 import type { DailyEmailDayRow, DailyEmailFinish, DailyEmailKind, DailyEmailRecord, DailyEmailRepository, DailyEmailStatus } from './daily-email-repository';
 
 /** Someone who may get the morning emails (active accounts only). */
@@ -20,12 +20,21 @@ export interface DailyRecipient {
 export interface DailyEmailServiceDeps {
   repo: DailyEmailRepository;
   people: { list(): Promise<DailyRecipient[]>; find(id: string): Promise<DailyRecipient | null> };
-  /** Read fresh at send time; only ever the person's own tasks (assigned to them). */
+  /** Read fresh at send time, within the person's companies (live projects only). */
   tasks: {
+    /** Assigned to them and not done. */
     pending(userId: string): Promise<DailyTask[]>;
+    /** Assigned to them and completed in [from, to). */
     completedBetween(userId: string, from: Date, to: Date): Promise<DailyTask[]>;
-    /** How many tasks wait for this person's approval (task approvals): a line in the pending email. */
+    /** How many tasks wait for this person's approval (task approvals): a line near the top. */
     awaitingApproval?(userId: string): Promise<number>;
+    /** 1.22: their meetings starting in [from, to) — they organize it, or are invited and haven't declined. */
+    meetingsBetween?(userId: string, from: Date, to: Date): Promise<DailyMeeting[]>;
+    /**
+     * 1.22: not-done tasks of the projects they run that aren't theirs and may be overdue or wait for
+     * approval at `now` (the email keeps the overdue and waiting ones).
+     */
+    managed?(userId: string, now: Date): Promise<DailyTask[]>;
   };
   /**
    * Sends one email; throws when it can't be delivered. 'suppressed': the address is blocked after a
@@ -204,12 +213,28 @@ export const RETRY_DELAYS_MIN = [5, 15, 45];
 const MAX_ATTEMPTS = RETRY_DELAYS_MIN.length + 1;
 /** A send still "SENDING" after this long was cut off (a restart mid-send) and is tried again. */
 const STUCK_AFTER_MS = 15 * 60 * 1000;
-const KINDS: DailyEmailKind[] = ['PENDING', 'COMPLETED'];
-const TEMPLATE: Record<DailyEmailKind, string> = { PENDING: 'daily-pending', COMPLETED: 'daily-completed' };
+/**
+ * 1.22: one daily email, kept in the PENDING record (so a day that had the old pending-tasks email
+ * never gets a second one). COMPLETED ("Completed yesterday") is no longer sent; its records stay.
+ */
+const KINDS: DailyEmailKind[] = ['PENDING'];
+const TEMPLATE: Record<DailyEmailKind, string> = { PENDING: 'daily-email', COMPLETED: 'daily-completed' };
+/** "Recently completed" looks back at most this many days (the last email may be long ago). */
+const COMPLETED_LOOKBACK_DAYS = 7;
+const ALL_PARTS = Object.fromEntries(DAILY_EMAIL_PARTS.map((p) => [p, true])) as Record<DailyEmailPart, boolean>;
 /** Why an email to an address the provider reported (a hard bounce, a spam complaint) wasn't sent. */
 export const BLOCKED_ADDRESS = 'Address blocked after a bounce or spam complaint.';
-/** How one email of "Send me a test now" went. */
+/** How "Send me a test" went. */
 export type TestOutcome = 'sent' | 'empty' | 'blocked';
+/**
+ * "Send me a test": `daily` is the one email; `pending` and `completed` say the same for the apps
+ * from before 1.22 (they show the two old emails).
+ */
+export interface TestResult {
+  daily: TestOutcome;
+  pending: TestOutcome;
+  completed: TestOutcome;
+}
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function validZone(tz: string | null, fallback: string): string {
@@ -228,10 +253,11 @@ function localClock(now: Date, timeZone: string): { day: string } {
 }
 /** The instant someone's emails are due on a day: their time by the clocks there that day (clock changes included). */
 const dueOn = (day: string, timeZone: string, time: string) => instantOf(new Date(`${day}T${time}:00.000Z`), timeZone);
-const isOn = (prefs: ReturnType<typeof dailyEmailPrefs>, kind: DailyEmailKind) => (kind === 'PENDING' ? prefs.pending : prefs.completed);
+/** The daily email is on while any part of it is; the old "Completed yesterday" email is never sent now. */
+const isOn = (prefs: ReturnType<typeof dailyEmailPrefs>, kind: DailyEmailKind) => kind === 'PENDING' && dailyEmailOn(prefs);
 
 /**
- * The two morning task emails. Every minute the sweep sends whatever is due: each person's emails once
+ * The daily email (1.22: one email; before it, two). Every minute the sweep sends whatever is due: each person's email once
  * their time (06:00 unless they chose another, in their own time zone) has come that day — so a server
  * that was asleep catches up later the same day. One record per person, day and email makes sure each
  * goes out once; it is also the delivery log. A failed send is retried (5, 15, 45 minutes), then failed.
@@ -287,26 +313,56 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   /** Companies: tasks in 2+ companies (their projects' main companies) are grouped under each company's name. */
   const inSeveralCompanies = (tasks: DailyTask[]) => new Set(tasks.map((t) => t.project.company?.id).filter(Boolean)).size >= 2;
 
-  async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date): Promise<{ count: number; content: EmailContent | null; fromName?: string }> {
+  /**
+   * Where "Recently completed" starts: the last daily email that went before `day` — so nothing is
+   * missed or shown twice — else the start of yesterday; never more than a week back.
+   */
+  async function completedSince(person: DailyRecipient, day: string, timeZone: string): Promise<Date> {
+    const floor = zonedStartOfDay(shiftDayKey(day, -COMPLETED_LOOKBACK_DAYS), timeZone);
+    const last = await deps.repo.lastSent(person.id, 'PENDING', day).catch(() => null);
+    if (!last) return zonedStartOfDay(shiftDayKey(day, -1), timeZone);
+    return last > floor ? last : floor;
+  }
+
+  /**
+   * The person's daily email for `day` as of `at` (null: nothing in it). `test`: "Send me a test" —
+   * with every part turned off it shows them the whole email.
+   */
+  async function build(kind: DailyEmailKind, person: DailyRecipient, day: string, at: Date, o: { test?: boolean } = {}): Promise<{ count: number; content: EmailContent | null; fromName?: string }> {
+    if (kind !== 'PENDING') return { count: 0, content: null };
     const timeZone = zoneOf(person);
+    const prefs = dailyEmailPrefs(person.prefs);
+    const parts = o.test && !dailyEmailOn(prefs) ? ALL_PARTS : prefs;
     const brand = await brandOf(person);
-    const opts = brand ?? undefined;
     const sender = brand?.fromName ? { fromName: brand.fromName } : {};
-    if (kind === 'PENDING') {
-      const [tasks, awaitingApproval] = await Promise.all([deps.tasks.pending(person.id), deps.tasks.awaitingApproval?.(person.id) ?? Promise.resolve(0)]);
-      // Sent when they have pending tasks of their own, or tasks waiting for their approval.
-      const content =
-        tasks.length || awaitingApproval
-          ? pendingEmail({ name: person.name, tasks, timeZone, now: at, appUrl: deps.appUrl, assetUrl: deps.assetUrl, awaitingApproval, groupByCompany: inSeveralCompanies(tasks) }, opts)
-          : null;
-      return { count: tasks.length, content, ...sender };
-    }
-    const yesterday = shiftDayKey(day, -1);
-    const tasks = await deps.tasks.completedBetween(person.id, zonedStartOfDay(yesterday, timeZone), zonedStartOfDay(day, timeZone));
-    const content = tasks.length
-      ? completedEmail({ name: person.name, tasks, day: yesterday, timeZone, appUrl: deps.appUrl, assetUrl: deps.assetUrl, groupByCompany: inSeveralCompanies(tasks) }, opts)
-      : null;
-    return { count: tasks.length, content, ...sender };
+    const since = parts.completed ? await completedSince(person, day, timeZone) : at;
+    const [tasks, awaitingApproval, meetings, completed, managed] = await Promise.all([
+      deps.tasks.pending(person.id),
+      deps.tasks.awaitingApproval?.(person.id) ?? Promise.resolve(0),
+      parts.schedule && deps.tasks.meetingsBetween ? deps.tasks.meetingsBetween(person.id, zonedStartOfDay(day, timeZone), zonedStartOfDay(shiftDayKey(day, 1), timeZone)) : Promise.resolve([]),
+      parts.completed ? deps.tasks.completedBetween(person.id, since, at) : Promise.resolve([]),
+      parts.managed && deps.tasks.managed ? deps.tasks.managed(person.id, at) : Promise.resolve([]),
+    ]);
+    const content = dailyEmail(
+      {
+        name: person.name,
+        timeZone,
+        now: at,
+        appUrl: deps.appUrl,
+        assetUrl: deps.assetUrl,
+        time: prefs.time,
+        parts,
+        tasks,
+        meetings,
+        completed,
+        completedSince: since,
+        awaitingApproval,
+        managed,
+        groupByCompany: inSeveralCompanies([...tasks, ...managed, ...completed]),
+      },
+      brand ?? undefined,
+    );
+    return { count: tasks.filter((t) => !t.waitingSince).length, content, ...sender };
   }
 
   /** Sends a built email (with the company's sender name when it has one; as before without). */
@@ -451,23 +507,19 @@ export function createDailyEmailService(deps: DailyEmailServiceDeps) {
   }
 
   /**
-   * Both emails to the person now, whatever their settings — not counted as today's. Each is 'sent',
-   * 'empty' (nothing in it, so not sent) or 'blocked' (the address is blocked after a bounce or spam
-   * complaint, so nothing was sent).
+   * "Send me a test": the person's daily email now, as it would be built for them now (every part when
+   * they turned them all off) — not counted as today's. 'empty': nothing in it, so not sent;
+   * 'blocked': the address is blocked after a bounce or spam complaint, so nothing was sent.
    */
-  async function sendTest(userId: string): Promise<{ pending: TestOutcome; completed: TestOutcome }> {
+  async function sendTest(userId: string): Promise<TestResult> {
     const person = await deps.people.find(userId);
     if (!person?.email) throw new Error('Your account has no email address.');
     const at = now();
     const { day } = localClock(at, zoneOf(person));
-    const result: { pending: TestOutcome; completed: TestOutcome } = { pending: 'empty', completed: 'empty' };
-    for (const kind of KINDS) {
-      const { content, fromName } = await build(kind, person, day, at);
-      if (!content) continue;
-      const delivered = await sendBuilt(person.email, { content, fromName }, `${TEMPLATE[kind]}-test`);
-      result[kind === 'PENDING' ? 'pending' : 'completed'] = delivered === 'suppressed' ? 'blocked' : 'sent';
-    }
-    return result;
+    const { content, fromName } = await build('PENDING', person, day, at, { test: true });
+    let outcome: TestOutcome = 'empty';
+    if (content) outcome = (await sendBuilt(person.email, { content, fromName }, `${TEMPLATE.PENDING}-test`)) === 'suppressed' ? 'blocked' : 'sent';
+    return { daily: outcome, pending: outcome, completed: outcome };
   }
 
   const OUTCOME: Record<Attempted['status'], ManualSendOutcome> = { SENT: 'sent', SKIPPED: 'empty', RETRY: 'retry', FAILED: 'failed' };

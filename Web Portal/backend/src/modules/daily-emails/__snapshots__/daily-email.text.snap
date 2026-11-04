@@ -1,0 +1,76 @@
+MICO360 TASKS
+
+Good morning, Ada
+
+4 pending · 1 overdue · 1 due today · 1 upcoming · 1 completed recently
+
+Times are in your time zone, Asia/Muscat. 1 of your tasks is waiting for approval.
+
+> 2 tasks are waiting for your approval. Review them: https://task.example/my-tasks#to-approve
+
+== Today’s schedule ==
+
+09:00–10:00  Site walk (meeting)
+  Rig Inspection · Gate 2 · You organize
+  https://task.example/meetings/m-1
+14:00  Send the weekly report (RIG-2, due)
+  Rig Inspection (Acme Drilling)
+  https://task.example/my-tasks?task=rig-2
+
+== Overdue & urgent (1) ==
+
+- Replace the pump seal (RIG-1) — 3 days overdue · Urgent · In Progress · Blocked
+  Rig Inspection (Acme Drilling)
+  Start Wed 28 Oct 2026 · Checklist 3 of 5
+  The seal on pump 3 leaks under load.
+  Latest: Sara Ali: “The new seal arrives on Friday” · Tue 3 Nov 2026
+  https://task.example/my-tasks?task=rig-1
+
+== Your other tasks ==
+
+RIG INSPECTION — RIG · No. 2026-014 · Client: Acme Drilling · Manager: Sara Ali · Target Mon 30 Nov 2026
+Active · 2 tasks · 1 due today
+https://task.example/projects/p-rig
+- Send the weekly report (RIG-2) — Due today, 14:00 · High priority · To Do
+  https://task.example/my-tasks?task=rig-2
+- Task RIG-3 (RIG-3) — To Do · Waiting for approval
+  https://task.example/my-tasks?task=rig-3
+
+OPERATIONS — OPS
+On hold · 2 tasks
+https://task.example/projects/p-ops
+- Task OPS-1 (OPS-1) — Due Fri 6 Nov 2026 · To Do
+  https://task.example/my-tasks?task=ops-1
+- Task OPS-2 (OPS-2) — To Do
+  https://task.example/my-tasks?task=ops-2
+
+== In your projects ==
+
+Overdue and waiting-for-approval tasks of the projects you run.
+
+- Fix the gate (RIG-9) — 2 days overdue · To Do
+  Rig Inspection (Acme Drilling) · Assigned to Omar Ahmed
+  https://task.example/projects/p-rig?task=rig-9
+
+== Recently completed ==
+
+Since Tue 3 Nov 2026, 06:00.
+
+- Order the steel (OPS-5) — Completed Tue 3 Nov 2026, 15:00 · On time
+  Operations
+  https://task.example/my-tasks?task=ops-5
+
+Open the dashboard: https://task.example/dashboard
+
+You get this email at 06:00 every morning. Change what is in it or when it comes:
+  - Daily email settings: https://task.example/settings#daily-email
+  - Time zone: https://task.example/settings#time-zone
+  - Notification settings: https://task.example/settings#notifications
+
+----------------------------------------
+MICO360 Tasks — http://localhost:5173
+Contact support: info@mico360.example
+MICO360, Muscat, Sultanate of Oman
+You’re receiving this email because you have a MICO360 Tasks account.
+This is an automated message — please do not reply directly to this email.
+© 2026 MICO360. All rights reserved.
