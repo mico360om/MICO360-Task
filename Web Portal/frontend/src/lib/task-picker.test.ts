@@ -15,6 +15,14 @@ describe('filterTasks (the blocker picker)', () => {
     expect(filterTasks(tasks, 'SENSOR', new Set()).map((t) => t.id)).toEqual(['t4']);
     expect(filterTasks(tasks, 'venue', new Set()).map((t) => t.id)).toEqual(['t3']);
   });
+  it('finds a task number however it is typed, the exact number first (1.22.3)', () => {
+    for (const q of ['mico1', 'MICO 1', 'mico_1', '#MICO-1']) expect(filterTasks(tasks, q, new Set()).map((t) => t.id), q).toEqual(['t1']);
+    expect(filterTasks(tasks, 'rig 3', new Set()).map((t) => t.id)).toEqual(['t4']);
+    // A bare number: the task numbered …-12 first, then the keys and titles holding it.
+    const more = [...tasks, { id: 't5', key: 'MICO-120', title: 'Order 12 bolts' }, { id: 't6', key: 'RIG-12', title: 'Pump' }];
+    expect(filterTasks(more, '12', new Set()).map((t) => t.id)).toEqual(['t3', 't6', 't5']);
+    expect(filterTasks(more, 'mico12', new Set(['t3'])).map((t) => t.id)).toEqual([]); // excluded stays out
+  });
   it('leaves out the excluded tasks (this task, ones already linked, ones it blocks)', () => {
     expect(filterTasks(tasks, '', new Set(['t1', 't3'])).map((t) => t.id)).toEqual(['t2', 't4']);
   });

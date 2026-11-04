@@ -3,6 +3,7 @@ import type { ApiTask } from '../../api/tasks';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { Avatar } from '../ui/Avatar';
 import { taskPhase, type TaskPhase } from '../../lib/project-dashboard';
+import { matchesTaskNumber } from '../../lib/task-number';
 import { formatDueDay } from '../../lib/due-display';
 import { EmptyNote, FlagIcon } from './parts';
 import { ClientEyeIcon } from '../TaskCard';
@@ -114,7 +115,7 @@ export function TasksTab({
   const words = q.trim().toLocaleLowerCase('en');
   const keep = (t: ApiTask) =>
     (filter === 'all' || (filter === 'milestones' ? !!t.isMilestone : taskPhase(t, today, timeZone) === filter)) &&
-    (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || matchesExternalContact(t.externalSummary, words));
+    (!words || t.title.toLocaleLowerCase('en').includes(words) || t.key.toLocaleLowerCase('en').includes(words) || matchesExternalContact(t.externalSummary, words) || matchesTaskNumber(words, t.key, t.formerKeys));
   const shown = groups.map((g) => ({ ...g, tasks: g.tasks.filter(keep) })).filter((g) => g.tasks.length > 0);
 
   if (loading) return <div className="skeleton h-40 rounded-xl" role="status" aria-label="Loading tasks" />;
