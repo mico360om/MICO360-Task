@@ -215,6 +215,8 @@ export interface MeetingNote {
   bodyFormat?: 'PLAIN' | 'RICH';
   highlighted: boolean;
   taskId: string | null;
+  /** 1.22.3: the current number of the task it became (null without one, or while it isn't known). */
+  taskKey?: string | null;
   actionItemId: string | null;
   decisionId: string | null;
   createdAt: string;

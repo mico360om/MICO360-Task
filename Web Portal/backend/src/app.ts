@@ -889,6 +889,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canViewMeeting,
           noteTaskService: deps.noteTaskService,
           accessibleProjectIds,
+          resolveTaskKeys: deps.resolveTaskKeys,
         });
       }
       if (deps.meetingService && deps.attendeeService && deps.agendaService && deps.noteService && deps.resolveUserNames) {

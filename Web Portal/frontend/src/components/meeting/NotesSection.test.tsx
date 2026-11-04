@@ -61,6 +61,21 @@ function renderSection(ended = false) {
 }
 const composer = () => screen.getByRole('textbox', { name: 'New note' });
 
+describe('NotesSection — the task a note became (1.22.3)', () => {
+  it('names it by its number (the chip), from the notes list — also a task with no action item', async () => {
+    notes = [note({ id: 'a', body: 'Order the valves', taskId: 't9', taskKey: 'MICO-142' }), note({ id: 'b', body: 'Call the vendor', taskId: 't10' })];
+    renderSection();
+    const row = (await screen.findByText('Order the valves')).closest('li')!;
+    const open = within(row).getByRole('button', { name: /MICO-142/ });
+    expect(open.querySelector('[data-task-key="MICO-142"]')).not.toBeNull();
+    expect(open).toHaveAccessibleName(/open the task made from this note/);
+    expect(open.className).not.toMatch(/bg-success-soft/); // one look for the number, not the old green pill
+    // Its number isn't known (yet): the word, as before.
+    const other = (await screen.findByText('Call the vendor')).closest('li')!;
+    expect(within(other).getByRole('button', { name: /^Task/ }).querySelector('[data-task-key]')).toBeNull();
+  });
+});
+
 describe('NotesSection — formatted notes', () => {
   it('shows a formatted note with its formatting, and a plain note exactly as it was typed', async () => {
     renderSection();

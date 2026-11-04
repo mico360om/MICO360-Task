@@ -8,7 +8,7 @@ import { useAuthStore } from '../../stores/auth-store';
 import { Button } from '../ui/Button';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, peopleOptions, userName } from './kit';
+import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSection, TaskNumber, peopleOptions, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { actionStatusTone, isActionItemOverdue } from '../../lib/meetingFormat';
 import { dueDayKey, todayKey } from '../../lib/due-date';
@@ -247,8 +247,9 @@ function ActionItemRow({
         />
         {item.sourceNoteId ? <span className={`${CHIP} bg-ground text-ink-2`}>From a note</span> : null}
         {item.taskId ? (
-          <Link to={`?task=${encodeURIComponent(item.taskId)}`} className={`${CHIP} bg-success-soft text-success hover:brightness-95 ${TOUCH_TALL}`}>
-            {Icon.task} {item.taskKey ?? 'Task'}
+          <Link to={`?task=${encodeURIComponent(item.taskId)}`} className={`group inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>
+            <span className="text-success">{Icon.task}</span>
+            <TaskNumber value={item.taskKey} />
             <span className="sr-only"> — open the linked task</span>
           </Link>
         ) : null}

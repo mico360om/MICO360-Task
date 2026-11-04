@@ -44,6 +44,8 @@ export interface NoteRouteDeps {
   noteTaskService?: NoteTaskService;
   /** Project ids the caller may target when creating a task (null = admin/any). */
   accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
+  /** 1.22.3: the current numbers of tasks by id (a task that is gone is left out). */
+  resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
 }
 
 export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDeps): Promise<void> {
@@ -63,7 +65,11 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
   app.get('/meetings/:id/notes', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(404).send(notFound);
-    return { data: await noteService.listNotes(id) };
+    // 1.22.3: each note's task by its number (`taskKey`, additive; null without a task or when it is gone).
+    const notes = await noteService.listNotes(id);
+    const ids = [...new Set(notes.map((n) => n.taskId).filter((t): t is string => Boolean(t)))];
+    const keys = ids.length && deps.resolveTaskKeys ? await deps.resolveTaskKeys(ids) : {};
+    return { data: notes.map((n) => ({ ...n, taskKey: (n.taskId && keys[n.taskId]) || null })) };
   });
 
   app.post('/meetings/:id/notes', { preHandler: guard.authenticate }, async (req, reply) => {
