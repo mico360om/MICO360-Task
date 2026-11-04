@@ -222,4 +222,30 @@ describe('The To approve list and who is told, on MySQL (integration)', () => {
     expect(told).not.toContain(workerId);
     expect(told).not.toContain(managerId);
   });
+
+  // 1.22 review E5: Approve is refused in an archived project (§6), so the daily email's "N tasks
+  // waiting for your approval" leaves them out — archived by its own status, or by all its companies.
+  it('the daily email’s count leaves archived projects out — by status, or with every company archived', async () => {
+    await waitingTask('Live');
+    const b = (await projectService.createProject({ code: 'APRB', name: 'Approvals elsewhere', createdById: managerId, managerId })).id;
+    const done = await prisma.kanbanColumn.findFirstOrThrow({ where: { projectId: b, category: 'DONE' }, select: { id: true } });
+    await prisma.task.create({ data: { key: 'APRB-1', title: 'Waiting in B', projectId: b, columnId: done.id, createdById: workerId, needsApproval: true, approvalRequestedAt: new Date(), approvalRequestedById: workerId } });
+    const admin = await source.countFor(adminId);
+    expect(await source.countFor(managerId)).toBe(2);
+    await prisma.project.update({ where: { id: b }, data: { status: 'ARCHIVED' } });
+    expect(await source.countFor(managerId)).toBe(1);
+    expect(await source.countFor(adminId)).toBe(admin - 1);
+    // Back to Active, but its only company is archived: archived all the same.
+    await prisma.project.update({ where: { id: b }, data: { status: 'ACTIVE' } });
+    const gone = await prisma.company.create({ data: { name: `Approvals archived ${Date.now()}`, code: `AA${String(Date.now()).slice(-6)}`, status: 'ARCHIVED', archivedAt: new Date() } });
+    try {
+      await prisma.projectCompany.deleteMany({ where: { projectId: b } });
+      await prisma.projectCompany.create({ data: { projectId: b, companyId: gone.id } });
+      expect(await source.countFor(adminId)).toBe(admin - 1);
+      expect(await source.countFor(managerId)).toBe(1);
+    } finally {
+      await prisma.projectCompany.deleteMany({ where: { companyId: gone.id } });
+      await prisma.company.delete({ where: { id: gone.id } });
+    }
+  });
 });

@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { managedVisibleWhere } from '../projects/project-managers';
-import { sharesProjectCompanyWhere } from '../companies/company-access';
+import { LIVE_PROJECT_WHERE, sharesProjectCompanyWhere } from '../companies/company-access';
 import { createPrismaTaskRepository } from './prisma-task-repository';
 import type { TaskRecord } from './task-repository';
 import type { ApprovalPerson, ApprovalRow, ApprovalSource, ApprovalViewer, TaskApprovalDetails } from './task-approval-routes';
@@ -11,7 +11,7 @@ const isAdmin = (roles: string[]) => roles.includes('ADMIN');
 const active = { deletedAt: null, status: 'ACTIVE' } as const;
 
 export interface PrismaApprovalSource extends ApprovalSource {
-  /** How many tasks wait for this person's approval (the morning email's line). */
+  /** How many tasks wait for this person's approval (the morning email's line) — in live projects only. */
   countFor(userId: string): Promise<number>;
   /** A task's approval as its details show it to one person. */
   details(viewer: ApprovalViewer, task: TaskRecord): Promise<TaskApprovalDetails>;
@@ -84,7 +84,8 @@ export function createPrismaApprovalSource(prisma: PrismaClient, deps: { canMana
     async countFor(userId) {
       const scope = await approvable({ id: userId, roles: await roleNames(userId) });
       if (scope && scope.length === 0) return 0;
-      return prisma.task.count({ where: { deletedAt: null, approvalRequestedAt: { not: null }, project: { is: { deletedAt: null } }, ...(scope ? { projectId: { in: scope } } : {}) } });
+      // 1.22 review: not archived projects' (by status or by all their companies) — Approve is refused there.
+      return prisma.task.count({ where: { deletedAt: null, approvalRequestedAt: { not: null }, project: { is: { deletedAt: null, ...LIVE_PROJECT_WHERE } }, ...(scope ? { projectId: { in: scope } } : {}) } });
     },
 
     async details(viewer, task) {
