@@ -159,6 +159,48 @@ describe('the minutes email in the companies world: one email, real To and Cc; a
       await h.close();
     }
   });
+
+  // 1.22 review I4: an address typed by someone who doesn't know its owner (another company, not on
+  // the meeting) never tells them the owner's name or account id — not in the answer, not in the log.
+  // Who gets what is unchanged: ben (Beta) still gets nothing before the minutes are final, then his own copy.
+  it('a typed address of someone from another company is shown and kept as the address — no name, no id', async () => {
+    const { h, outbox } = await mailingApp();
+    const ben = await prisma.user.findUniqueOrThrow({ where: { id: w.people.ben } });
+    const leaks = (said: unknown) => {
+      const text = JSON.stringify(said);
+      return [ben.lastName, ben.id].filter((x) => text.includes(x));
+    };
+    const before = new Date();
+    try {
+      const draft = await h.post(w.as.ana, `/meetings/${w.meetings.MA}/minutes/send`, { to: [{ email: emailOf('ana') }, { email: emailOf('ben') }] });
+      expect(draft.status).toBe(200);
+      expect(draft.data.skipped).toEqual([{ name: emailOf('ben'), reason: 'can’t get these minutes yet' }]);
+      expect(leaks(draft.data)).toEqual([]);
+      expect((await h.post(w.as.ana, `/meetings/${w.meetings.MA}/final-minutes/approve`, { content: FINAL })).status).toBe(200);
+      const final = await h.post(w.as.ana, `/meetings/${w.meetings.MA}/minutes/send`, { to: [{ email: emailOf('ana') }], cc: [{ email: emailOf('ben') }] });
+      expect(final.status).toBe(200);
+      expect(outbox.map((m) => ({ to: m.to, cc: m.cc }))).toEqual([
+        { to: [emailOf('ana')], cc: [] },
+        { to: [emailOf('ana')], cc: [] },
+        { to: [emailOf('ben')], cc: [] },
+      ]);
+      const theirs = final.data.recipients.find((r: { email: string }) => r.email.toLowerCase() === emailOf('ben'));
+      expect(theirs).toMatchObject({ email: emailOf('ben'), name: emailOf('ben'), line: 'cc', copy: 'own', ok: true });
+      expect(theirs).not.toHaveProperty('userId');
+      expect(leaks(final.data)).toEqual([]);
+      // The "Sent" log — the stored rows and what the page reads.
+      const kept = await prisma.meetingMinutesSend.findMany({ where: { meetingId: w.meetings.MA, sentAt: { gte: before } } });
+      expect(kept).toHaveLength(2);
+      expect(leaks(kept)).toEqual([]);
+      expect(leaks((await h.get(w.as.ana, `/meetings/${w.meetings.MA}/minutes/sends`)).data)).toEqual([]);
+      // A colleague's typed address (amy, Alpha) still shows their name.
+      const colleague = await h.post(w.as.ana, `/meetings/${w.meetings.MA}/minutes/send`, { to: [{ email: emailOf('amy') }] });
+      expect(colleague.data.recipients).toEqual([expect.objectContaining({ name: 'Amy Alphaonly', userId: w.people.amy })]);
+    } finally {
+      await h.post(w.as.ana, `/meetings/${w.meetings.MA}/final-minutes/reopen`);
+      await h.close();
+    }
+  });
 });
 
 describe('meeting_minutes_sends', () => {

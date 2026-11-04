@@ -921,6 +921,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           recipientViewOf: mAccess?.recipientViewOf ? (u, r, m) => mAccess.recipientViewOf(u, r, m) : undefined,
           invitees: deps.meetingInvitees,
           inviteTargetOf: meetingTargetOf,
+          // 1.22 review: a typed address shows its owner's name only to a colleague of theirs.
+          isColleague: companies ? (viewer, otherId) => companies.isColleague(viewer, otherId) : undefined,
         });
       }
       if (deps.activityService) {

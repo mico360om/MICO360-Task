@@ -126,6 +126,11 @@ export interface MinutesRouteDeps {
   recipientViewOf?: (userId: string, roles: string[], meetingId: string) => Promise<'full' | 'invitee' | null>;
   /** A colleague picked by name must be one the invite picker offers (the meeting's own people always are). */
   invitees?: Pick<MeetingInvitees, 'assertInvitable'>;
+  /**
+   * 1.22 review: do they share a company (companies' isColleague; admins always)? A typed address that
+   * is the account of someone the sender doesn't share one with is shown and kept as the address only.
+   */
+  isColleague?: (viewer: { id: string; roles: string[] }, otherId: string) => Promise<boolean>;
   inviteTargetOf?: (meetingId: string) => Promise<InviteTarget | null>;
 }
 
@@ -385,6 +390,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       ...(body.to ? { to: body.to, cc: body.cc ?? [] } : body.recipients ? { only: body.recipients } : {}),
       ...(final ? { final: true } : {}),
       ...(attachmentFor ? { attachmentFor } : {}),
+      ...(deps.isColleague ? { mayName: (userId: string) => deps.isColleague!({ id: req.user!.id, roles: req.user!.roles ?? [] }, userId) } : {}),
     };
     const result = Object.keys(opts).length ? await deps.notify.sendMinutes(id, pdf, opts) : await deps.notify.sendMinutes(id, pdf);
     await keepSend(req, id, final, result);

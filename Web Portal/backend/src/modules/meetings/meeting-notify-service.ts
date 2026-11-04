@@ -142,6 +142,13 @@ export interface MinutesSendOptions {
    * them nothing, undefined the shared email. Addresses that aren't anyone's always get the shared email.
    */
   attachmentFor?: (userId: string) => Promise<Buffer | null | undefined>;
+  /**
+   * 1.22 review: may the sender see this account's name — a colleague (they share a company)? Asked
+   * of a typed address that is someone's account but not one of the meeting's people. No: it is shown
+   * and kept as the typed address, with no name or account id (their account still decides their
+   * copy). Absent: yes.
+   */
+  mayName?: (userId: string) => Promise<boolean>;
 }
 
 export interface MeetingNotifyService {
@@ -184,6 +191,8 @@ interface Addressed {
   email: string;
   kind: RecipientKind;
   userId?: string;
+  /** The account behind a typed address the sender may not name (1.22 review): its copy rule only, never shown or kept. */
+  accountId?: string;
 }
 
 /** Why a blocked address (an earlier hard bounce or spam report) was left out of an email. */
@@ -677,6 +686,8 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
         if (mine) return { name: mine.name, email: mine.email, kind: mine.kind, userId: userIdOf.get(key) };
         // A typed address that is someone's account is that person (the company rule asks about them).
         const user = deps.findUserByEmail ? await deps.findUserByEmail(typed).catch(() => null) : null;
+        // 1.22 review: someone the sender may not name (another company's) stays the typed address.
+        if (user && opts?.mayName && !(await opts.mayName(user.id).catch(() => false))) return { name: typed, email: typed, kind: 'guest', accountId: user.id };
         if (user) return { name: user.name, email: user.email, kind: 'member', userId: user.id };
         return { name: typed, email: typed, kind: 'guest' };
       };
@@ -700,7 +711,8 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       const own = new Map<string, Buffer>();
       const going: typeof chosen = [];
       for (const r of chosen) {
-        const theirs = r.userId && opts?.attachmentFor ? await opts.attachmentFor(r.userId) : undefined;
+        const account = r.userId ?? r.accountId;
+        const theirs = account && opts?.attachmentFor ? await opts.attachmentFor(account) : undefined;
         if (theirs === null) {
           skipped.push({ name: r.name, reason: 'can’t get these minutes yet' });
           continue;
