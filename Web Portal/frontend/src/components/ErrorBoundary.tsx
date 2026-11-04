@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportPageError } from '../lib/error-reporting';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -22,6 +23,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // Surface to the console for diagnostics; never swallow silently.
     console.error('Unhandled render error', error, info.componentStack);
+    // 1.22.4: and to the Error log (System Settings → Error log), with the site's own file and line.
+    reportPageError(error);
   }
 
   render(): ReactNode {

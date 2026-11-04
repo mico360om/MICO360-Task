@@ -43,6 +43,7 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/admin\/settings$/, 'System Settings'],
   [/^\/admin\/ai$/, 'AI Management'],
   [/^\/admin\/audit$/, 'Audit Logs'],
+  [/^\/admin\/error-log$/, 'Error Log'],
   [/^\/admin\/users$/, 'User Management'],
   [/^\/admin\/companies$/, 'Companies'],
   // A client's page: its address is a private link, so it is never listed.

@@ -132,6 +132,13 @@ const I = {
       <path d="M12 2v3M12 19v3M20 12h-3M7 12H4M17.7 6.3l-2 2M8.3 15.7l-2 2M17.7 17.7l-2-2M8.3 8.3l-2-2" />
     </>
   ),
+  // 1.22.4: a warning triangle — the Error log.
+  errorLog: (
+    <>
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+      <path d="M12 9v4M12 17h.01" />
+    </>
+  ),
   audit: (
     <>
       <path d="M12 3l7 3v5c0 5-3 8-7 9.5C8 19 5 16 5 11V6z" />
@@ -188,6 +195,7 @@ const ADMIN: NavItem[] = [
   { label: 'Companies', to: '/admin/companies', icon: I.companies },
   { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },
+  { label: 'Error Log', to: '/admin/error-log', icon: I.errorLog },
   { label: 'Audit Logs', to: '/admin/audit', icon: I.audit },
 ];
 

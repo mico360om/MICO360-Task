@@ -13,6 +13,8 @@ const socket = {
 };
 const ioMock = vi.fn((..._args: unknown[]) => socket);
 vi.mock('socket.io-client', () => ({ io: (...args: unknown[]) => ioMock(...args) }));
+const socketTrouble = vi.fn();
+vi.mock('./error-reporting', () => ({ noteSocketTrouble: () => socketTrouble(), noteRequest: () => {} }));
 
 const session = (accessToken: string) =>
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken, refreshToken: 'rt' });
@@ -135,5 +137,33 @@ describe('openAuthedSocket', () => {
     handlers['connect']!();
     handlers['connect']!();
     expect(onConnect.mock.calls.map((c) => c[1])).toEqual([false, true]);
+  });
+});
+
+// 1.22.4 (the Error log): a live connection that can't connect for over a minute is reported (the
+// reporter keeps it to once a page load); one that connects again starts counting from scratch.
+describe('a live connection that can’t connect', () => {
+  it('is told to the Error log after a minute of failing, not before; a connection resets it', () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    socketTrouble.mockClear();
+    openAuthedSocket();
+    handlers['connect_error']!(new Error('xhr poll error'));
+    now += 30_000;
+    handlers['connect_error']!(new Error('xhr poll error'));
+    expect(socketTrouble).not.toHaveBeenCalled();
+    now += 31_000;
+    handlers['connect_error']!(new Error('websocket error'));
+    expect(socketTrouble).toHaveBeenCalledTimes(1);
+    handlers['connect']!();
+    now += 5_000;
+    handlers['connect_error']!(new Error('xhr poll error'));
+    now += 30_000;
+    handlers['connect_error']!(new Error('xhr poll error'));
+    expect(socketTrouble).toHaveBeenCalledTimes(1);
+    // An unauthorized handshake is not a network problem.
+    now += 120_000;
+    handlers['connect_error']!(new Error('unauthorized'));
+    expect(socketTrouble).toHaveBeenCalledTimes(1);
   });
 });

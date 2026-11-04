@@ -465,3 +465,28 @@ describe('onRefused', () => {
     expect(seen).toEqual(['PROJECT_ARCHIVED']);
   });
 });
+
+// 1.22.4 (the Error log): each request's answer and time is told to onRequestDone — a request that
+// never reached the server as status 0 — and nothing the listener does changes the request.
+describe('onRequestDone', () => {
+  it('tells the method, path, status and time of each request; a failed fetch is status 0 and still throws', async () => {
+    const seen: { method: string; path: string; status: number; ms: number }[] = [];
+    let fail = false;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (fail) throw new TypeError('Failed to fetch');
+      return jsonResponse({ data: {} }, 201);
+    }));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: (i) => seen.push(i) });
+    await api.post('/tasks', { title: 'x' });
+    fail = true;
+    await expect(api.get('/tasks/t1')).rejects.toBeInstanceOf(TypeError);
+    expect(seen.map((s) => [s.method, s.path, s.status])).toEqual([['POST', '/tasks', 201], ['GET', '/tasks/t1', 0]]);
+    expect(seen.every((s) => typeof s.ms === 'number' && s.ms >= 0)).toBe(true);
+  });
+
+  it('a listener that throws changes nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: { ok: true } })));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null, onRequestDone: () => { throw new Error('reporter broke'); } });
+    await expect(api.get('/x')).resolves.toEqual({ data: { ok: true } });
+  });
+});

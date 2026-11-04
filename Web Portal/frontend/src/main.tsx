@@ -8,11 +8,17 @@ import { initTheme } from './lib/theme';
 import { createAppQueryClient } from './lib/query-client';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
 import { bindQueryCacheToCompanyPick } from './lib/company-scope';
-import { initAuthSync } from './stores/auth-store';
+import { initAuthSync, useAuthStore } from './stores/auth-store';
 import { bindCompanyPickToSession } from './stores/company-store';
 import { installKeyboardAwareness } from './lib/keyboard-aware';
 import { browserServiceWorkerWorld, setUpServiceWorker } from './lib/service-worker';
+import { installErrorReporting } from './lib/error-reporting';
+import { apiBaseUrl } from './api/client';
 import './index.css';
+
+// 1.22.4: first of all, what goes wrong in this browser is sent to System Settings → Error log
+// (errors, blocked files and scripts, slow pages). It never throws; the page works the same without it.
+installErrorReporting({ baseUrl: apiBaseUrl, getToken: () => useAuthStore.getState().accessToken });
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
 installKeyboardAwareness(); // keep the field being typed in (and its buttons) above a phone keyboard

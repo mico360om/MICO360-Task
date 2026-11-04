@@ -12,6 +12,7 @@ import { MeetingHoursSettings, workingHoursText } from '../components/admin/Meet
 import { MeetingReminderSettings } from '../components/admin/MeetingReminderSettings';
 import { isMeetingReminders, reminderSummary } from '../components/admin/meeting-reminder-words';
 import { BackupSettings } from '../components/admin/BackupSettings';
+import { ErrorLogSettings } from '../components/admin/ErrorLogSettings';
 
 const CARRY_STATUSES: { value: string; label: string }[] = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -56,6 +57,7 @@ const KNOWN_SETTINGS: { key: string; label: string; format: (v: unknown) => stri
     },
   },
   { key: 'meetings.reminders', label: 'Meeting reminders', format: (v) => (isMeetingReminders(v) ? reminderSummary(v) : null) },
+  { key: 'errorLog.collectBrowserErrors', label: 'Collect browser errors', format: (v) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : null) },
 ];
 /** The company week (the Management page's weeks and the weekly summary's day). */
 const WEEK_STARTS: { value: 0 | 1 | 6; label: string }[] = [
@@ -251,6 +253,9 @@ export function SystemSettingsPage() {
 
         {/* Nightly backups: the copies, Back up now, downloads and Google Drive. */}
         <BackupSettings />
+
+        {/* 1.22.4: the Error log — browsers' errors, blocked files, slow pages and the server's own errors. */}
+        <ErrorLogSettings />
       </div>
     </div>
   );

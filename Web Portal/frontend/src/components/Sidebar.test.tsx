@@ -66,7 +66,7 @@ describe('Sidebar: the Admin menu', () => {
 
   it('has Companies after User Management, with a link to the Companies page', () => {
     renderSidebar(true);
-    expect(adminLabels()).toEqual(['User Management', 'Companies', 'AI Management', 'System Settings', 'Audit Logs']);
+    expect(adminLabels()).toEqual(['User Management', 'Companies', 'AI Management', 'System Settings', 'Error Log', 'Audit Logs']);
     expect(screen.getByRole('link', { name: 'Companies' })).toHaveAttribute('href', '/admin/companies');
   });
 

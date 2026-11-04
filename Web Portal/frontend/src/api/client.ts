@@ -3,8 +3,11 @@ import { COMPANY_HEADER, companyHeaders } from '../lib/companies';
 import { readStoredSession, useAuthStore, type Session } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
 import { PROJECT_ARCHIVED_CODE, useArchivedNoticeStore } from '../stores/archived-notice-store';
+import { noteRequest } from '../lib/error-reporting';
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
+/** The API's address (/api/v1 on the site itself): the Error log reporter sends there too. */
+export const apiBaseUrl = baseUrl;
 
 /** Origin that serves uploaded files (the API origin, without the /api/v1 prefix). */
 export const assetOrigin = baseUrl.replace(/\/api\/v1\/?$/, '');
@@ -135,4 +138,6 @@ export const apiClient = createApiClient({
   onRefused: (err) => {
     if (err.code === PROJECT_ARCHIVED_CODE && err.message) useArchivedNoticeStore.getState().show(err.message);
   },
+  // 1.22.4: a request blocked on the way, or a slow one, goes to the Error log.
+  onRequestDone: noteRequest,
 });

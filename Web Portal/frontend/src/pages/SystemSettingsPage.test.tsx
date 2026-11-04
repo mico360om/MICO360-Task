@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { SystemSettingsPage, displayableSettings } from './SystemSettingsPage';
 
 function json(body: unknown): Response {
@@ -25,7 +26,9 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <SystemSettingsPage />
+      <MemoryRouter>
+        <SystemSettingsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -156,5 +159,23 @@ describe('SystemSettingsPage — weekly management summary', () => {
       { key: 'weeklySummary.enabled', label: 'Weekly management summary', value: 'Off' },
       { key: 'company.weekStart', label: 'Company week starts on', value: 'Monday' },
     ]);
+  });
+});
+
+describe('SystemSettingsPage — error log (1.22.4)', () => {
+  it('links to the Error log and switches “Collect browser errors” off for everyone', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Error log' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open the error log' })).toHaveAttribute('href', '/admin/error-log');
+    const toggle = screen.getByRole('switch', { name: 'Collect browser errors' });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await user.click(toggle);
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/system-settings/errorLog.collectBrowserErrors'))).toBe(true));
+  });
+
+  it('shows the switch in Current settings once changed', () => {
+    expect(displayableSettings([{ key: 'errorLog.collectBrowserErrors', value: false }]).rows).toEqual([{ key: 'errorLog.collectBrowserErrors', label: 'Collect browser errors', value: 'Off' }]);
   });
 });

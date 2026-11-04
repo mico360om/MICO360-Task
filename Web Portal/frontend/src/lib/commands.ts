@@ -34,6 +34,7 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'admin-ai', label: 'AI Management', to: '/admin/ai', keywords: ['ai', 'models', 'providers', 'admin'], admin: true },
   { id: 'admin-settings', label: 'System Settings', to: '/admin/settings', keywords: ['system', 'admin', 'config'], admin: true },
   { id: 'admin-audit', label: 'Audit Logs', to: '/admin/audit', keywords: ['audit', 'logs', 'admin'], admin: true },
+  { id: 'admin-error-log', label: 'Error Log', to: '/admin/error-log', keywords: ['errors', 'bugs', 'crash', 'slow', 'blocked', 'admin'], admin: true },
 ];
 
 /**

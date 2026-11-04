@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import { refreshSession } from '../api/client';
 import { useAuthStore } from '../stores/auth-store';
+import { noteSocketTrouble } from './error-reporting';
 
 /** Socket origin (the API origin, without the /api/v1 prefix). */
 export const SOCKET_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1').replace(/\/api\/v1\/?$/, '');
@@ -11,6 +12,8 @@ const MAX_AUTH_RETRIES = 3;
 const REVOKED_WITHIN_MS = 30_000;
 /** Server-initiated disconnects (token expiry / revocation) reconnected per minute before backing off. */
 const MAX_SERVER_RECONNECTS_PER_MIN = 3;
+/** 1.22.4: a live connection that can't connect for this long (while online) is told to the Error log. */
+export const SOCKET_TROUBLE_AFTER_MS = 60_000;
 
 /**
  * Companies: `companies:changed` — the server says the signed-in person's companies changed (added
@@ -86,18 +89,26 @@ export function openAuthedSocket(opts: AuthedSocketOptions = {}): AuthedSocket {
   let refreshing = false;
   let lastRefreshAt = 0;
   let serverDisconnects: number[] = [];
+  let failingSince: number | null = null;
 
   socket.on('companies:changed', companiesChanged);
 
   socket.on('connect', () => {
     authRetries = 0;
+    failingSince = null;
     const isReconnect = connectedBefore;
     connectedBefore = true;
     opts.onConnect?.(socket, isReconnect);
   });
 
   socket.on('connect_error', (err: Error) => {
-    if (!/unauthori[sz]ed/i.test(err?.message ?? '')) return; // network trouble: socket.io retries itself
+    if (!/unauthori[sz]ed/i.test(err?.message ?? '')) {
+      // Network trouble: socket.io retries itself. Still failing after a minute: blocked on the way?
+      const now = Date.now();
+      if (failingSince === null) failingSince = now;
+      else if (now - failingSince > SOCKET_TROUBLE_AFTER_MS) noteSocketTrouble();
+      return;
+    }
     if (closed || refreshing) return;
     if (lastRefreshAt && Date.now() - lastRefreshAt < REVOKED_WITHIN_MS) {
       closed = true;

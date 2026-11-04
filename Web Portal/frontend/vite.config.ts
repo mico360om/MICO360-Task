@@ -33,6 +33,10 @@ export default defineConfig({
     },
   },
   build: {
+    // 1.22.4 (the Error log): hidden source maps — written beside each script but never named in it,
+    // and never served (the server answers 404 for *.map). The server reads them to show the site's
+    // own file and line for a browser's error report.
+    sourcemap: 'hidden',
     // Split large third-party deps into their own cached chunks so a return visit on a slow
     // connection only re-downloads the app code that changed, not the whole framework.
     rollupOptions: {

@@ -33,6 +33,7 @@ describe('pageMetaFor', () => {
       '/admin/settings': 'System Settings',
       '/admin/ai': 'AI Management',
       '/admin/audit': 'Audit Logs',
+      '/admin/error-log': 'Error Log',
       '/admin/users': 'User Management',
       '/admin/companies': 'Companies',
       '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde': 'Shared project',

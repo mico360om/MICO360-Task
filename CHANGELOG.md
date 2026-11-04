@@ -14,6 +14,24 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- System Settings → Error log (administrators only; also in the Admin menu): when something goes
+  wrong in someone's browser, the site now tells the server — an error in the page, a request or
+  the live connection that was blocked on the way (a firewall, a proxy or an antivirus), one of the
+  site's own files or scripts that was blocked, and slow pages (a page taking over 8 seconds to
+  load, slow to show, slow to answer a click, jumping around, or a request taking over 10 seconds).
+  Errors on the server are there too: failed requests and background jobs (nightly backup, daily
+  emails, meeting reminders, AI model refresh, search index, recurring copies and the others). The
+  same error is one row with how many times and to how many people it happened, when it was first
+  and last seen, the page and the version; filters for Errors, Blocked, Slow and Server, Today /
+  7 days / 30 days and a search box; "New" marks what appeared since your last visit. Opening a row
+  shows where in the site's own code it happened (file and line), the latest occurrences (when, who,
+  page, browser, version, window size) and "Mark as fixed", which hides it until it happens again in
+  a newer version ("Marked fixed" lists those, with "Not fixed"). Kept 30 days. Never sent: what
+  anyone typed, form contents, passwords, sign-in or share links, cookies or stored data — a
+  private link shows only as its pattern, such as /client/:token. A "Collect browser errors" switch
+  on the same card turns the browser part off for everyone.
+
 ### Improvements
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.
   An administrator can turn it on or off for any administrator — their lists then show only the
@@ -55,6 +73,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - New task: after you create a task with the form, a short notice says "Task MICO-143 created" with
   Open, which opens it. A task created while offline says "Task MICO-143 saved" once it reaches the
   server.
+
+### Security
+- The site's security policy is exactly as strict as before; browsers now also report to the
+  server (the Error log) what it blocks. The website's source maps, made for the Error log, stay on
+  the server and are never served to browsers.
 
 ## [1.22.2] - 2026-11-04
 

@@ -45,6 +45,12 @@ export interface ApiClientOptions {
    * them across the page whatever the caller shows (an archived project's "reopen it first").
    */
   onRefused?: (err: ApiError) => void;
+  /**
+   * 1.22.4 (the Error log): each request's method, path, answer and time — status 0 when it never
+   * reached the server — so a request blocked on the way or a slow one can be reported. Told after
+   * the fact; nothing it does changes the request.
+   */
+  onRequestDone?: (info: { method: string; path: string; status: number; ms: number }) => void;
 }
 
 export interface RequestOptions {
@@ -99,7 +105,16 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
   return isCompanyGone(errorFrom(status, await text()));
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused }: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone }: ApiClientOptions): ApiClient {
+  const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+  /** Tell onRequestDone how a request went (never in its way). */
+  const told = (method: string, path: string, status: number, started: number) => {
+    try {
+      onRequestDone?.({ method, path: path.split('?')[0]!, status, ms: Math.max(0, clock() - started) });
+    } catch {
+      // Reporting must never change what the caller gets.
+    }
+  };
   /** The error to throw for a refused change, told to onRefused first (never in its way). */
   const refusal = (status: number, text: string): ApiError => {
     const err = errorFrom(status, text);
@@ -146,12 +161,22 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     // by Fastify ("Body cannot be empty when content-type is set to 'application/json'").
     if (!opts.form && opts.body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    const started = clock();
     return fetch(`${baseUrl}${path}`, {
       method,
       headers,
       body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
       ...(opts.keepalive ? { keepalive: true } : {}),
-    });
+    }).then(
+      (res) => {
+        told(method, path, res.status, started);
+        return res;
+      },
+      (err: unknown) => {
+        told(method, path, 0, started);
+        throw err;
+      },
+    );
   }
 
   /**
@@ -203,9 +228,16 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
       };
-      xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+      const started = clock();
+      xhr.onload = () => {
+        told('POST', path, xhr.status, started);
+        resolve({ status: xhr.status, text: xhr.responseText });
+      };
       // Same as a failed fetch, so callers report it as a connection problem.
-      xhr.onerror = () => reject(new TypeError('Network request failed'));
+      xhr.onerror = () => {
+        told('POST', path, 0, started);
+        reject(new TypeError('Network request failed'));
+      };
       xhr.send(form);
     });
   }
