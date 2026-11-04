@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { NotificationService } from './notification-service';
+import { MAX_BULK_NOTIFICATIONS, type NotificationService } from './notification-service';
+import { KIND_KEYS } from './notification-kinds';
 import type { ListScope } from './notification-repository';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { AuthGuard } from '../auth/auth-guard';
@@ -19,7 +20,22 @@ const prefsSchema = z.object({
   weeklySummary: z.boolean().optional(),
 });
 
-const readAllSchema = z.object({ upTo: z.string().datetime({ offset: true }).optional() });
+const kindsSchema = z.array(z.enum(KIND_KEYS)).max(KIND_KEYS.length * 2);
+const readAllSchema = z.object({ upTo: z.string().datetime({ offset: true }).optional(), kinds: kindsSchema.optional() });
+
+/** 1.22: a page of the list — `kinds=mentions,due` (the chips), `unread=1` (the Unread tab), `limit` (≤100, default 100), `cursor`. */
+const pageSchema = z.object({
+  cursor: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  unread: z.enum(['1', '0', 'true', 'false']).transform((v) => v === '1' || v === 'true').optional(),
+  kinds: z
+    .string()
+    .max(200)
+    .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean))
+    .pipe(kindsSchema)
+    .optional(),
+});
+const bulkSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(MAX_BULK_NOTIFICATIONS), action: z.enum(['read', 'unread', 'remove']) });
 
 /** Preferences as the apps read them: the daily email settings and the weekly summary switch always filled in. */
 const withDailyEmails = (p: NotificationPreferences): NotificationPreferences => ({ ...p, dailyEmails: dailyEmailPrefs(p), weeklySummary: weeklySummaryOn(p) });
@@ -45,8 +61,16 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
     return { projectIds: await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick), pick };
   }
 
+  // 1.22: pages of the list. Without a query (the bell, the phone app, the extension): the newest 100,
+  // as before; `nextCursor` (null at the end) and each row's `project` are new fields beside them.
   app.get('/notifications', { preHandler: guard.authenticate }, async (req) => {
-    return { data: await notificationService.listForUser(req.user!.id, await scopeOf(req)) };
+    const q = pageSchema.parse(req.query ?? {});
+    return notificationService.listPage(req.user!.id, await scopeOf(req), q);
+  });
+
+  // 1.22: unread ones per type chip, and in all, for the Notifications page.
+  app.get('/notifications/counts', { preHandler: guard.authenticate }, async (req) => {
+    return { data: await notificationService.counts(req.user!.id, await scopeOf(req)) };
   });
 
   // Per-user notification preferences (muted types, reminder lead time, daily task emails).
@@ -81,9 +105,29 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
   // `upTo` (optional, the newest notification the reader was shown): only what came in by then is
   // read, so one that arrives while the list is open stays unread. Without it, everything (as before).
   app.post('/notifications/read-all', { preHandler: guard.authenticate }, async (req) => {
-    const { upTo } = readAllSchema.parse(req.body ?? {});
-    // companies: only what the list (in this scope) shows is read.
-    await notificationService.markAllRead(req.user!.id, upTo ? new Date(upTo) : undefined, await scopeOf(req));
+    const { upTo, kinds } = readAllSchema.parse(req.body ?? {});
+    // companies: only what the list (in this scope) shows is read; 1.22: of the page's chips, when sent.
+    const args = [req.user!.id, upTo ? new Date(upTo) : undefined, await scopeOf(req)] as const;
+    await (kinds?.length ? notificationService.markAllRead(...args, kinds) : notificationService.markAllRead(...args));
     return { data: { ok: true } };
+  });
+
+  // 1.22: one of the caller's own, back to unread.
+  app.post('/notifications/:id/unread', { preHandler: guard.authenticate }, async (req) => {
+    const { id } = req.params as { id: string };
+    return { data: await notificationService.markUnread(id, req.user!.id) };
+  });
+
+  // 1.22: one of the caller's own, removed (gone for them).
+  app.delete('/notifications/:id', { preHandler: guard.authenticate }, async (req) => {
+    const { id } = req.params as { id: string };
+    await notificationService.remove(id, req.user!.id);
+    return { data: { ok: true } };
+  });
+
+  // 1.22: several of the caller's own at once (at most 200): read, unread or remove. Others' ids are skipped.
+  app.post('/notifications/bulk', { preHandler: guard.authenticate }, async (req) => {
+    const { ids, action } = bulkSchema.parse(req.body ?? {});
+    return { data: await notificationService.bulk(req.user!.id, ids, action) };
   });
 }

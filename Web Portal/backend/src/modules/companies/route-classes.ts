@@ -365,4 +365,9 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /people/candidates': 'people',
   // Lane P (MC1 Task 10): who may be invited to a meeting.
   'GET /meetings/invite-candidates': 'people',
+  // 1.22 Lane N: the Notifications page — unread per chip (in the list scope), and the caller's own rows.
+  'GET /notifications/counts': 'list',
+  'POST /notifications/:id/unread': 'own',
+  'DELETE /notifications/:id': 'own',
+  'POST /notifications/bulk': 'own',
 };
