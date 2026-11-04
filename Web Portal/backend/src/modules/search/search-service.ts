@@ -1,4 +1,5 @@
 import { matchesNormalized, normalizeForSearch } from './text-normalize';
+import { matchesTaskNumber } from '../../lib/task-number';
 
 export interface SearchableTask {
   id: string;
@@ -96,9 +97,13 @@ function snippetAround(text: string, q: string, radius = 70): string {
   return `${start > 0 ? '…' : ''}${clean.slice(start, end).trim()}${end < clean.length ? '…' : ''}`;
 }
 
-/** Does a task match an (already normalised) query — its title, key, an old key, or an external contact's name or company? Shared by the in-memory and database paths. */
+/**
+ * Does a task match an (already normalised) query — its title, key, an old key, or an external
+ * contact's name or company? Or its number (now or old) however it was typed: "mico 142", "MICO142"
+ * (1.22.3, lib/task-number). Shared by the in-memory and database paths.
+ */
 export function taskMatches(task: Pick<SearchableTask, 'title' | 'key' | 'formerKeys' | 'external'>, normalizedQuery: string): boolean {
-  return matchesNormalized(normalizedQuery, task.title, task.key, ...(task.formerKeys ?? []), ...(task.external ?? []));
+  return matchesNormalized(normalizedQuery, task.title, task.key, ...(task.formerKeys ?? []), ...(task.external ?? [])) || matchesTaskNumber(normalizedQuery, task.key, task.formerKeys);
 }
 
 /**

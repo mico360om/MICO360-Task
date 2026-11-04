@@ -2,19 +2,20 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine, type TaskSearchInput } from '../../src/modules/search/task-search-engine';
+import { createSearchService } from '../../src/modules/search/search-service';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
 const index = createTaskSearchIndex({ prisma });
 const engine = createTaskSearchEngine({ prisma, index, timeZone: 'Asia/Muscat' });
 
-const CODES = ['SRCA', 'SRCB', 'SRCARC', 'SRCDEL', 'SRCBIG'];
+const CODES = ['SRCA', 'SRCB', 'SRCARC', 'SRCDEL', 'SRCBIG', 'SRN', 'SRN2', 'SRNARC'];
 const EMAILS = ['srch-owner@mico360.test', 'srch-bilal@mico360.test', 'srch-sara@mico360.test'];
 
 let owner = '';
 let bilal = '';
 let sara = '';
-const p = { a: '', b: '', archived: '', deleted: '' };
+const p = { a: '', b: '', archived: '', deleted: '', n: '', n2: '', nArc: '' };
 const col = { aTodo: '', aDoing: '', aDone: '', bTodo: '', arcTodo: '', delTodo: '' };
 const t: Record<string, string> = {};
 
@@ -91,6 +92,32 @@ beforeAll(async () => {
   await task('inDeletedProject', p.deleted, col.delTodo, 'Scaffold in a deleted project');
   await task('deletedTask', p.a, col.aTodo, 'Scaffold deleted task', { deletedAt: new Date() });
   await task('wild', p.a, col.aTodo, 'Discount 50% off_now');
+
+  // 1.22.3 — task numbers however they are typed: SRN (a code ending in a letter), SRN2 (one ending in
+  // a digit, so a run-together "SRN214" may be either) and an archived SRNARC. The exact number is
+  // the least recently changed, so only the number rule can put it first.
+  p.n = await project('SRN');
+  p.n2 = await project('SRN2');
+  p.nArc = await project('SRNARC', { status: 'ARCHIVED' });
+  const nTodo = await column(p.n, 'To do', 'TODO', 0);
+  const n2Todo = await column(p.n2, 'To do', 'TODO', 0);
+  const nArcTodo = await column(p.nArc, 'To do', 'TODO', 0);
+  let at = 0;
+  const numbered = async (key: string, projectId: string, columnId: string, title: string) => {
+    at += 1;
+    t[key] = (await prisma.task.create({ data: { key, title, projectId, columnId, createdById: owner, updatedAt: new Date(Date.UTC(2026, 9, 2, 0, at)) } })).id;
+    return t[key]!;
+  };
+  await numbered('SRN-142', p.n, nTodo, 'Valve check');
+  await numbered('SRN-1420', p.n, nTodo, 'Pump overhaul');
+  await numbered('SRN-14', p.n, nTodo, 'Gate repair');
+  await numbered('SRN-3', p.n, nTodo, 'Order 142 bolts');
+  await numbered('SRN2-14', p.n2, n2Todo, 'Fence line');
+  await numbered('SRN2-142', p.n2, n2Todo, 'Second valve');
+  await numbered('SRNARC-142', p.nArc, nArcTodo, 'Archived valve');
+  // SRN-9 was SRN2-77 before it moved to SRN.
+  const movedOnce = await numbered('SRN-9', p.n, nTodo, 'Cable tray');
+  await prisma.taskKeyAlias.create({ data: { key: 'SRN2-77', taskId: movedOnce, projectId: p.n2 } });
   await index.rebuildAll();
 }, 60_000);
 
@@ -228,6 +255,79 @@ describe('Task search on MySQL (integration)', () => {
     expect((await run('renamed without')).hits.map((h) => h.id)).toEqual([id]);
     await prisma.task.update({ where: { id }, data: { title: 'Scaffold inspection on Rig 3' } });
     await index.taskChanged(id);
+  });
+
+  describe('a task number however it is typed (1.22.3)', () => {
+    const mine = () => ({ projectIds: [p.n, p.n2, p.nArc] });
+
+    it('MICO-142, mico-142, MICO142, mico 142, MICO_142 and #MICO-142 all find it first', async () => {
+      for (const q of ['SRN-142', 'srn-142', 'SRN142', 'srn142', 'srn 142', 'SRN_142', '#SRN-142', '# srn 142', '  srn-142  ', 'SRN – 142']) {
+        const found = await keys(q);
+        expect(found[0], q).toBe('SRN-142');
+        expect(found, q).not.toContain('SRNARC-142'); // an archived project's task only by its own number
+      }
+      // Run together, nothing else holds "srn142": only the number.
+      expect(await keys('SRN142')).toEqual(['SRN-142']);
+      // Exactly that number: never one that merely starts with it.
+      expect(await keys('srn14')).toEqual(['SRN-14']);
+    });
+
+    it('"mico 142" still finds the other tasks with both words, after the number', async () => {
+      const found = await keys('srn 142', { scope: mine() });
+      expect(found[0]).toBe('SRN-142');
+      expect(found.slice(1)).toEqual(expect.arrayContaining(['SRN-1420', 'SRN2-142', 'SRN-3']));
+    });
+
+    it('a run-together number tries every split (a code may end in digits)', async () => {
+      expect(await keys('SRN214')).toEqual(['SRN2-14']);
+      expect(await keys('srn2142')).toEqual(['SRN2-142']);
+      expect(await keys('srn2 14')).toEqual(['SRN2-14', 'SRN2-142']); // the number, then the words
+    });
+
+    it('an old number, typed any way, finds the task it moved to, saying it was its former key', async () => {
+      for (const q of ['SRN2-77', 'srn2-77', 'srn277', 'SRN2 77', 'srn2_77', '#SRN2-77']) {
+        const [hit] = (await run(q)).hits;
+        expect(hit?.key, q).toBe('SRN-9');
+        expect(hit?.formerKeys, q).toEqual(['SRN2-77']);
+        expect(hit?.matches.map((m) => [m.field, m.label, m.snippet]), q).toEqual([['key', 'Former key', 'SRN2-77']]);
+      }
+    });
+
+    it('a bare number lists the tasks numbered …-142 first (any project, archived too), then the other matches', async () => {
+      const found = await keys('142', { scope: mine() });
+      expect(found.slice(0, 3).sort()).toEqual(['SRN-142', 'SRN2-142', 'SRNARC-142']);
+      expect(found.slice(3).sort()).toEqual(['SRN-1420', 'SRN-3']);
+      expect(found).not.toContain('SRN-14');
+      // "#142" holds no other text: only the numbered ones.
+      expect((await keys('#142', { scope: mine() })).sort()).toEqual(['SRN-142', 'SRN2-142', 'SRNARC-142']);
+      const archived = (await run('142', { scope: mine() })).hits.find((h) => h.key === 'SRNARC-142');
+      expect(archived?.project.archived).toBe(true);
+      // A number with more words is a text search: archived stays out.
+      expect(await keys('142 valve', { scope: mine() })).toEqual(expect.not.arrayContaining(['SRNARC-142']));
+    });
+
+    it('an archived project’s task is found by its exact number in any form, never by more words', async () => {
+      for (const q of ['SRNARC-142', 'srnarc142', 'srnarc 142', 'SRNARC_142']) expect(await keys(q), q).toEqual(['SRNARC-142']);
+      expect(await keys('srnarc142 valve')).toEqual([]);
+    });
+
+    it('only where the person may look: a number never reaches another project', async () => {
+      expect(await keys('srn142', { scope: { projectIds: [p.n2] } })).toEqual([]);
+      expect(await keys('srn142', { scope: { projectIds: [] } })).toEqual([]);
+      expect(await keys('142', { scope: { projectIds: [p.n2] } })).toEqual(['SRN2-142']);
+      expect(await keys('srn277', { scope: { projectIds: [p.n2] } })).toEqual([]); // its old project: the task is in SRN now
+      // Filters still apply to a number.
+      expect(await keys('srn142', { projectId: p.n2 })).toEqual([]);
+      expect(await keys('srn142', { done: true })).toEqual([]);
+    });
+
+    it('the top bar (global search) lists the number first too', async () => {
+      const service = createSearchService({ data: { getSearchData: async () => ({ tasks: [], projects: [], users: [], meetings: [] }) }, tasks: engine });
+      expect((await service.search('srn 142', { allowedProjectIds: [p.n, p.n2] })).tasks[0]?.key).toBe('SRN-142');
+      expect((await service.search('SRN142', { allowedProjectIds: [p.n, p.n2] })).tasks.map((x) => x.key)).toEqual(['SRN-142']);
+      expect((await service.search('srn277', { allowedProjectIds: [p.n] })).tasks.map((x) => x.key)).toEqual(['SRN-9']);
+      expect((await service.search('srn142', { allowedProjectIds: [p.n2] })).tasks).toEqual([]);
+    });
   });
 
   it('answers within the time budget at a few thousand tasks', async () => {

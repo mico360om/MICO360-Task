@@ -20,6 +20,14 @@ describe('searchAll', () => {
     expect(taskMatches({ title: 'Inspect', key: 'OPS-17' }, 'rig-4')).toBe(false);
   });
 
+  it('matches a task number however it is typed, now or before it moved (1.22.3)', () => {
+    for (const q of ['mico1', 'MICO 1', 'mico_1', '#MICO-1']) expect(searchAll(q, data).tasks.map((t) => t.id), q).toEqual(['t1']);
+    const moved = { ...data, tasks: [{ id: 't5', key: 'OPS-17', title: 'Inspect', projectId: 'p1', formerKeys: ['RIG-4'] }] };
+    expect(searchAll('rig 4', moved).tasks.map((t) => t.id)).toEqual(['t5']);
+    expect(taskMatches({ title: 'Inspect', key: 'OPS-17', formerKeys: ['RIG-4'] }, 'rig4')).toBe(true);
+    expect(taskMatches({ title: 'Inspect', key: 'OPS-17' }, 'ops 1')).toBe(false); // exactly that number
+  });
+
   it('matches projects by code or name across all types', () => {
     const r = searchAll('MICO', data);
     expect(r.tasks).toHaveLength(1); // MICO-1
