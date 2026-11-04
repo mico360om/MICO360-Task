@@ -41,6 +41,8 @@ export interface SearchableSelectProps {
 
 /** A chip's list is at least this wide, however narrow the chip. */
 const CHIP_PANEL_MIN = 224;
+/** Any list is at least this wide (a narrow time box's "Type to filter…" stays whole). */
+const PANEL_MIN = 144;
 
 /**
  * Accessible, dependency-free combobox: a trigger button that opens a filterable option list.
@@ -83,8 +85,8 @@ export function SearchableSelect({
     const below = window.innerHeight - r.bottom;
     const PANEL_MAX = 300; // filter input + max list height
     const dropUp = below < PANEL_MAX && r.top > below;
-    const width = chip ? Math.max(r.width, CHIP_PANEL_MIN) : r.width;
-    const left = chip ? Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) : r.left;
+    const width = Math.max(r.width, chip ? CHIP_PANEL_MIN : PANEL_MIN);
+    const left = width > r.width ? Math.max(8, Math.min(r.left, window.innerWidth - width - 8)) : r.left;
     setRect(dropUp ? { left, width, bottom: window.innerHeight - r.top + 4 } : { left, width, top: r.bottom + 4 });
   };
 
@@ -124,12 +126,35 @@ export function SearchableSelect({
   }, [open]);
 
   useEffect(() => {
-    if (open) {
-      setQuery('');
-      setActive(0);
-      inputRef.current?.focus();
-    }
+    if (open) inputRef.current?.focus();
   }, [open]);
+
+  /** Open on the chosen option (a time list opens at 13:00, not 00:00), with nothing typed. */
+  const centerNext = useRef(false);
+  const toggle = () => {
+    if (!open) {
+      setQuery('');
+      setActive(Math.max(0, options.findIndex((o) => o.value === value)));
+      centerNext.current = true;
+    }
+    setOpen(!open);
+  };
+
+  // The highlighted option stays in sight: in the middle of the list when it opens, then (arrow keys)
+  // just inside its edge.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const list = document.getElementById(listId);
+    const option = document.getElementById(`${listId}-${active}`);
+    if (!list || !option) return;
+    const l = list.getBoundingClientRect();
+    const o = option.getBoundingClientRect();
+    if (centerNext.current) {
+      centerNext.current = false;
+      list.scrollTop += o.top - l.top - (l.height - o.height) / 2;
+    } else if (o.top < l.top) list.scrollTop -= l.top - o.top;
+    else if (o.bottom > l.bottom) list.scrollTop += o.bottom - l.bottom;
+  }, [open, active, listId]);
 
   /** Close the panel and put keyboard focus back on the trigger. */
   const closeToTrigger = () => {
@@ -175,7 +200,7 @@ export function SearchableSelect({
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onClick={() => !disabled && toggle()}
         className={
           chip
             ? `inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium outline-none transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 ${chipClassName} ${TOUCH_TALL}`

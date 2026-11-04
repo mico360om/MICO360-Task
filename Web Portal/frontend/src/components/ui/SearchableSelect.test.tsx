@@ -126,6 +126,52 @@ describe('SearchableSelect', () => {
   });
 });
 
+// 1.22 QA: the time list (00:00 … 23:45) opened at 00:00 with the chosen 13:00 out of sight, so people
+// scrolled through some fifty rows; the arrow keys could also move the highlight out of view.
+describe('SearchableSelect — opening on the chosen option', () => {
+  const times = Array.from({ length: 96 }, (_, i) => {
+    const t = `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`;
+    return { value: t, label: t };
+  });
+  it('opens with the chosen option highlighted (Enter keeps it), not the first', async () => {
+    const onChange = vi.fn();
+    render(<SearchableSelect options={times} value="13:00" onChange={onChange} ariaLabel="Starts: time" />);
+    await userEvent.click(screen.getByRole('button', { name: /starts: time/i }));
+    const filter = screen.getByRole('combobox', { name: /filter starts: time/i });
+    expect(filter).toHaveAttribute('aria-activedescendant', screen.getByRole('option', { name: '13:00' }).id);
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(onChange).toHaveBeenCalledWith('13:15');
+  });
+  it('scrolls the list so the chosen option is in sight, and keeps the highlight in sight', async () => {
+    const top = (el: Element) => (el.getAttribute('role') === 'listbox' ? 100 : el.getAttribute('role') === 'option' ? 100 + 36 * times.findIndex((t) => t.value === el.textContent) - ((el.closest('[role="listbox"]') as HTMLElement | null)?.scrollTop ?? 0) : 0);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const t = top(this);
+      const h = this.getAttribute('role') === 'listbox' ? 224 : 36;
+      return { top: t, bottom: t + h, height: h, left: 0, right: 100, width: 100, x: 0, y: t, toJSON: () => ({}) } as DOMRect;
+    });
+    // jsdom keeps no scroll position: remember what is set.
+    const scrolled = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTop', { configurable: true, get() { return scrolled.get(this) ?? 0; }, set(v: number) { scrolled.set(this, Math.max(0, v)); } });
+    try {
+      render(<SearchableSelect options={times} value="13:00" onChange={() => {}} ariaLabel="Starts: time" />);
+      await userEvent.click(screen.getByRole('button', { name: /starts: time/i }));
+      const list = screen.getByRole('listbox');
+      const shown = (name: string) => {
+        const r = screen.getByRole('option', { name }).getBoundingClientRect();
+        const l = list.getBoundingClientRect();
+        return r.top >= l.top && r.bottom <= l.bottom;
+      };
+      expect(list.scrollTop).toBeGreaterThan(0);
+      expect(shown('13:00')).toBe(true);
+      for (let i = 0; i < 8; i++) await userEvent.keyboard('{ArrowDown}');
+      expect(shown('15:00')).toBe(true);
+    } finally {
+      spy.mockRestore();
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollTop;
+    }
+  });
+});
+
 describe('SearchableSelect — pictures and errors', () => {
   it('shows an option’s picture in the list and on the trigger', async () => {
     const withIcons = opts.map((o) => ({ ...o, icon: <span data-testid={`icon-${o.value}`} /> }));
