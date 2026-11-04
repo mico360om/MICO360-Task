@@ -229,16 +229,22 @@ export function SourceChips({ sources }: { sources: MicoAiSource[] }) {
   );
 }
 
-/** "MICO AI is working": three dots and what it is doing now. */
+/**
+ * "MICO AI is working": three dots and what it is doing now. 1.22: the answer keeps being written
+ * when the page is closed, so it says the person may leave.
+ */
 export function Thinking({ step }: { step: string | null }) {
   return (
-    <div className="flex items-center gap-2 text-sm text-ink-2">
-      <span aria-hidden="true" className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <span key={i} className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none" style={{ animationDelay: `${i * 0.2}s` }} />
-        ))}
-      </span>
-      <span dir="auto">{step || 'Thinking…'}</span>
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-sm text-ink-2">
+        <span aria-hidden="true" className="flex gap-1">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand motion-reduce:animate-none" style={{ animationDelay: `${i * 0.2}s` }} />
+          ))}
+        </span>
+        <span dir="auto">{step || 'Thinking…'}</span>
+      </div>
+      <p className="text-xs text-ink-3">You can leave this page — the answer is kept in this chat, and you’ll be told when it’s ready.</p>
     </div>
   );
 }

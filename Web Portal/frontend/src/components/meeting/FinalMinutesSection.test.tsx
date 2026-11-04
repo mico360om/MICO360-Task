@@ -45,20 +45,30 @@ function renderSection(canEdit = true) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <FinalMinutesSection meetingId="m1" meetingTitle="Weekly review" canEdit={canEdit} timeZone="Asia/Muscat" />
+      <FinalMinutesSection meetingId="m1" meetingTitle="Weekly review" canEdit={canEdit} timeZone="Asia/Muscat" pollMs={20} />
     </QueryClientProvider>,
   );
 }
+// 1.22: "Draft with AI" in the background — what the server says of it (aiDraft).
+const running = { id: 'j1', status: 'running', attempt: 1, maxAttempts: 4, nextTryAt: null, error: null, requestedAt: '2026-11-04T06:00:00.000Z', requestedBy: { id: 'u1', name: 'Khurram' }, mine: true };
+const aiContent = { summary: 'Drafted by the AI.', discussion: [], decisions: ['Go-live moves to 1 November.'], risks: [], nextSteps: [] };
 const section = () => screen.getByRole('region', { name: /final mom/i });
 
 describe('Final minutes: writing them', () => {
-  it('starts from an AI draft, which is edited and saved as a draft', async () => {
-    answer['POST /meetings/m1/final-minutes/draft'] = () => json({ data: { content, source: 'ai' } });
+  it('starts from an AI draft (in the background, saved as the draft), which is edited and saved again', async () => {
+    answer['POST /meetings/m1/final-minutes/draft'] = () => {
+      // The page is told at once; the draft is saved when the AI is done.
+      setTimeout(() => (current = { ...draft, aiDraft: { id: 'j1', status: 'saved', finishedAt: '2026-11-04T06:01:00.000Z' } }), 30);
+      current = { ...none, aiDraft: running };
+      return json({ data: { source: 'ai', joined: false, aiDraft: running } }, 202);
+    };
     answer['PUT /meetings/m1/final-minutes'] = () => json({ data: { ...draft, content: { ...content, summary: 'Edited summary.' } } });
     renderSection();
     await userEvent.click(await screen.findByRole('button', { name: 'Draft with AI' }));
-    expect(calls.find((c) => c.path.endsWith('/draft'))!.body).toEqual({ source: 'ai' });
-    const summary = await screen.findByLabelText('Summary');
+    expect(calls.find((c) => c.path.endsWith('/draft'))!.body).toEqual({ source: 'ai', background: true });
+    expect(await within(section()).findByText(/you can leave this page — it will be saved as the draft and you’ll be told when it’s ready/i)).toBeInTheDocument();
+    const summary = await screen.findByLabelText('Summary', {}, { timeout: 2000 });
+    expect(within(section()).getByText(/Drafted by the AI and saved as the draft on 4 Nov 2026, 10:01/)).toBeInTheDocument();
     expect(summary).toHaveValue(content.summary);
     expect(screen.getByLabelText('Topic 1')).toHaveValue('Go-live plan');
     expect(screen.getByLabelText('What was discussed under topic 1')).toHaveValue('The client needs time to test.');
@@ -89,7 +99,77 @@ describe('Final minutes: writing them', () => {
     expect(await within(section()).findByRole('alert')).toHaveTextContent('AI is not configured yet');
     await userEvent.click(within(section()).getAllByRole('button', { name: 'Start from the notes' })[0]!);
     expect(await screen.findByLabelText('Summary')).toHaveValue(content.summary);
-    expect(calls.filter((c) => c.path.endsWith('/draft')).map((c) => c.body)).toEqual([{ source: 'ai' }, { source: 'notes' }]);
+    expect(calls.filter((c) => c.path.endsWith('/draft')).map((c) => c.body)).toEqual([{ source: 'ai', background: true }, { source: 'notes' }]);
+  });
+
+  it('says who asked when someone else is drafting with AI, and when a failed try is tried again', async () => {
+    current = { ...none, aiDraft: { ...running, mine: false, requestedBy: { id: 'u7', name: 'Sara Ahmed' } } };
+    renderSection();
+    expect(await within(section()).findByText('Sara Ahmed asked the AI for a draft.')).toBeInTheDocument();
+    expect(within(section()).getByRole('button', { name: 'Draft with AI' })).toBeDisabled();
+    current = { ...none, aiDraft: { ...running, status: 'waiting', attempt: 2, nextTryAt: '2026-11-04T06:02:00.000Z', error: 'The AI provider did not respond in time. Try again later.' } };
+    expect(await within(section()).findByText(/will try again at 10:02 \(try 2 of 4\)/, {}, { timeout: 2000 })).toBeInTheDocument();
+  });
+
+  it('an AI draft kept beside minutes someone changed meanwhile: Compare, then Use it', async () => {
+    current = { ...draft, aiDraft: { id: 'j1', status: 'ready', reason: 'changed', content: aiContent, finishedAt: '2026-11-04T06:01:00.000Z' } };
+    answer['POST /meetings/m1/final-minutes/ai-draft/j1/use'] = () => json({ data: { ...draft, content: aiContent, aiDraft: null } });
+    renderSection();
+    const offer = await screen.findByRole('region', { name: 'AI draft ready' });
+    expect(offer).toHaveTextContent('An AI draft is ready');
+    expect(offer).toHaveTextContent('The minutes were changed while the AI was drafting, so they were kept as they are.');
+    await userEvent.click(within(offer).getByRole('button', { name: 'Compare' }));
+    expect(within(offer).getByText('Written now')).toBeInTheDocument();
+    expect(within(offer).getByText('Progress was reviewed and go-live moved.')).toBeInTheDocument();
+    expect(within(offer).getByText('Drafted by the AI.')).toBeInTheDocument();
+    await userEvent.click(within(offer).getByRole('button', { name: 'Use it' }));
+    await waitFor(() => expect(screen.getByLabelText('Summary')).toHaveValue('Drafted by the AI.'));
+    expect(screen.queryByRole('region', { name: 'AI draft ready' })).toBeNull();
+  });
+
+  it('…or Discard: what was written stays', async () => {
+    current = { ...draft, aiDraft: { id: 'j1', status: 'ready', reason: 'changed', content: aiContent, finishedAt: '2026-11-04T06:01:00.000Z' } };
+    answer['POST /meetings/m1/final-minutes/ai-draft/j1/discard'] = () => json({ data: { ...draft, aiDraft: null } });
+    renderSection();
+    await userEvent.click(within(await screen.findByRole('region', { name: 'AI draft ready' })).getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'AI draft ready' })).toBeNull());
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/meetings/m1/final-minutes/ai-draft/j1/discard')).toBe(true);
+    expect(screen.getByLabelText('Summary')).toHaveValue(content.summary);
+  });
+
+  it('final minutes with an AI draft ready: Compare or Discard; using it waits for Reopen', async () => {
+    current = { ...final, aiDraft: { id: 'j1', status: 'ready', reason: 'final', content: aiContent, finishedAt: '2026-11-04T06:01:00.000Z' } };
+    renderSection();
+    const offer = await screen.findByRole('region', { name: 'AI draft ready' });
+    expect(offer).toHaveTextContent('Reopen them to use the AI draft.');
+    expect(within(offer).queryByRole('button', { name: 'Use it' })).toBeNull();
+    expect(within(offer).getByRole('button', { name: 'Compare' })).toBeInTheDocument();
+    expect(within(offer).getByRole('button', { name: 'Discard' })).toBeInTheDocument();
+  });
+
+  it('typing while the AI drafts: the draft that arrives is offered, the typing kept', async () => {
+    current = { ...draft, aiDraft: running };
+    renderSection();
+    const summary = await screen.findByLabelText('Summary');
+    await userEvent.type(summary, ' Mine.');
+    // Saved meanwhile (nobody else saved): the server kept it as the draft — this page still has its typing.
+    current = { ...draft, content: aiContent, savedAt: '2026-11-04T06:01:00.000Z', aiDraft: { id: 'j1', status: 'saved', finishedAt: '2026-11-04T06:01:00.000Z' } };
+    const offer = await screen.findByRole('region', { name: 'AI draft ready' }, { timeout: 2000 });
+    expect(offer).toHaveTextContent('Your changes aren’t saved yet');
+    expect(screen.getByLabelText('Summary')).toHaveValue(`${content.summary} Mine.`);
+    await userEvent.click(within(offer).getByRole('button', { name: 'Use it' }));
+    expect(screen.getByLabelText('Summary')).toHaveValue('Drafted by the AI.');
+  });
+
+  it('failed for good: says why, with Try again, Start from the notes and Dismiss', async () => {
+    current = { ...none, aiDraft: { id: 'j1', status: 'failed', error: 'The AI service is busy right now (HTTP 429). Try again in a moment.', finishedAt: '2026-11-04T06:09:00.000Z' } };
+    answer['POST /meetings/m1/final-minutes/ai-draft/j1/discard'] = () => json({ data: { ...none, aiDraft: null } });
+    renderSection();
+    const alert = await within(section()).findByRole('alert');
+    expect(alert).toHaveTextContent('Couldn’t draft with AI. The AI service is busy right now (HTTP 429). Try again in a moment.');
+    for (const name of ['Try again', 'Start from the notes', 'Dismiss']) expect(within(alert).getByRole('button', { name })).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => expect(within(section()).queryByRole('alert')).toBeNull());
   });
 
   it('asks before a new draft replaces what was written', async () => {
@@ -300,9 +380,9 @@ describe('Final minutes: the next steps of a finished meeting', () => {
     renderFinished();
     const bar = await steps();
     await waitFor(() => expect(stepTexts(bar)).toEqual([expect.stringMatching(/Notes.*done/), expect.stringMatching(/Final MOM.* <$/), expect.stringMatching(/^3?Approved/), expect.stringMatching(/Emailed/)]));
-    answer['POST /meetings/m1/final-minutes/draft'] = () => json({ data: { content, source: 'ai' } });
+    answer['POST /meetings/m1/final-minutes/draft'] = () => json({ data: { source: 'ai', joined: false, aiDraft: running } }, 202);
     await userEvent.click(within(bar).getByRole('button', { name: 'Draft with AI' }));
-    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/draft'))?.body).toEqual({ source: 'ai' }));
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/draft'))?.body).toEqual({ source: 'ai', background: true }));
   });
 
   it('a draft written: Approved is next — Approve marks it final', async () => {

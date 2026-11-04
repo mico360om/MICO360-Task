@@ -38,6 +38,8 @@ const CHANGED_BY_CARDS = new Set(['tasks', 'task', 'board', 'project-tasks', 'my
 const isGoneError = (err: unknown): boolean => err instanceof ApiError && err.status === 404;
 /** An answer a chat that is gone was writing: stopped, so no dots are left turning for it. */
 const stoppedIfPending = (m: MicoAiMessage): MicoAiMessage => (m.status === 'pending' ? { ...m, status: 'stopped', step: null } : m);
+/** 1.22: this page's own id for a question (randomUUID needs a secure page: else a random string). */
+const messageId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 
 /** Our sentence for a request that failed: the server's own words for a refusal, else a plain cause. */
 function errorText(err: unknown): string {
@@ -409,6 +411,11 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
     goTo(id);
   };
 
+  /**
+   * 1.22: a question that failed to send keeps its id: sent again (the same words, the same chat), the
+   * server joins the turn if the first send did reach it — nothing is asked twice.
+   */
+  const unsent = useRef<{ chatId: string; text: string; clientId: string } | null>(null);
   const send = useCallback(
     async (raw: string, opts: { newChat?: boolean; retryOf?: string } = {}) => {
       const text = raw.trim().slice(0, MAX_QUESTION);
@@ -427,7 +434,11 @@ export function MicoAiPage({ pollMs = 1000, searchDebounceMs = 250 }: { pollMs?:
           goTo(id);
         }
         // Retry names the answer it asks again, so the server replaces that answer's unconfirmed card.
-        const r = await api.ask(id, text, !created && opts.retryOf ? { retryOf: opts.retryOf } : {});
+        const again = unsent.current && unsent.current.chatId === id && unsent.current.text === text ? unsent.current.clientId : null;
+        const clientId = again ?? messageId();
+        unsent.current = { chatId: id, text, clientId };
+        const r = await api.ask(id, text, { ...(!created && opts.retryOf ? { retryOf: opts.retryOf } : {}), clientId });
+        unsent.current = null;
         await qc.cancelQueries({ queryKey: micoAiChatKey(id) });
         qc.setQueryData<{ chat: MicoAiChat; messages: MicoAiMessage[] }>(micoAiChatKey(id), (old) => ({
           chat: old?.chat ?? (chats.find((c) => c.id === id) as MicoAiChat),
