@@ -10,7 +10,8 @@ import { ProjectAvatar } from './ProjectAvatar';
 import { columnsApi } from '../api/columns';
 import { tasksApi } from '../api/tasks';
 import { assigneesApi } from '../api/assignees';
-import { matchNavCommands, parseCommand } from '../lib/commands';
+import { commandTaskKeys, matchNavCommands, parseCommand } from '../lib/commands';
+import { pickByTaskNumber } from '../lib/task-number';
 import { useManagementAccess } from '../lib/useManagementAccess';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { approvalNotice } from '../lib/approvals';
@@ -93,11 +94,11 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
   // "complete WEB-5" must never fall back to WEB-50 when WEB-5 is gone or not visible to you. A key a
-  // task had before it moved project counts too: "open RIG-4" opens what is OPS-17 now.
+  // task had before it moved project counts too: "open RIG-4" opens what is OPS-17 now. 1.22.3: a
+  // run-together number ("HR214") is each of its splits (HR-214, HR2-14, HR21-4), tried in order.
   const resolveTask = async (key: string) => {
     const r = await searchApi(apiClient).search(key);
-    const k = key.toLowerCase();
-    return r.tasks.find((t) => t.key.toLowerCase() === k) ?? r.tasks.find((t) => (t.formerKeys ?? []).some((f) => f.toLowerCase() === k)) ?? null;
+    return pickByTaskNumber(r.tasks, commandTaskKeys(key));
   };
   const openTask = (id: string) => {
     setSearchParams((prev) => {
@@ -177,9 +178,13 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const items = useMemo<PaletteItem[]>(() => {
     const out: PaletteItem[] = [];
     const parsed = raw ? parseCommand(raw, isAdmin, canLead) : null;
+    // 1.22.3: a number typed loosely without a verb ("mico 142", "MICO142") is offered once the search
+    // finds that task, now or by an old number (null: not found — "phase 2" stays a plain search).
+    const loose = parsed?.type === 'open' && parsed.onlyIfFound ? (searchEnabled ? pickByTaskNumber(q.data?.tasks ?? [], commandTaskKeys(parsed.taskKey)) : null) : undefined;
     if (parsed) {
       if (parsed.type === 'navigate') out.push({ id: 'cmd-nav', group: 'Command', primary: `Go to ${parsed.label}`, run: () => { navigate(parsed.to); reset(); } });
-      else if (parsed.type === 'open') out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, run: async () => { const t = await resolveTask(parsed.taskKey); if (t) openTask(t.id); else setStatus(`No task ${parsed.taskKey}.`); } });
+      else if (parsed.type === 'open' && loose) out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${loose.key}`, run: () => openTask(loose.id) });
+      else if (parsed.type === 'open' && loose === undefined) out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${parsed.taskKey}`, run: async () => { const t = await resolveTask(parsed.taskKey); if (t) openTask(t.id); else setStatus(`No task ${parsed.taskKey}.`); } });
       else if (parsed.type === 'complete') out.push({ id: 'cmd-complete', group: 'Command', primary: `Complete ${parsed.taskKey}`, run: () => completeCmd(parsed.taskKey) });
       else if (parsed.type === 'assign') out.push({ id: 'cmd-assign', group: 'Command', primary: `Assign ${parsed.taskKey} to ${parsed.assignee}`, run: () => assignCmd(parsed.taskKey, parsed.assignee) });
       else if (parsed.type === 'move') out.push({ id: 'cmd-move', group: 'Command', primary: `Move ${parsed.taskKey} to ${parsed.status}`, run: () => moveCmd(parsed.taskKey, parsed.status) });
@@ -207,7 +212,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       for (const m of (r.meetings ?? []).slice(0, 6)) out.push({ id: `meeting-${m.id}`, group: 'Meetings', primary: m.title, secondary: m.snippet, run: () => { navigate(`/meetings/${m.id}`); reset(); } });
     }
     // Last, so Enter still opens the first result: ask MICO AI what was typed (a new chat with it).
-    if (raw.length >= 2 && !parsed) {
+    if (raw.length >= 2 && (!parsed || loose === null)) {
       out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
     }
     return out;
