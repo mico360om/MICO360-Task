@@ -1,4 +1,4 @@
-import type { ApiClient } from '../lib/api-client';
+import type { ApiClient, RequestOptions } from '../lib/api-client';
 import type { InboxCounts, NotificationKind } from '../lib/notification-inbox';
 
 export interface ApiNotification {
@@ -95,10 +95,10 @@ export function notificationsApi(client: ApiClient) {
     /** Unread per type chip, and in all. */
     counts: () => client.get<{ data: InboxCounts }>('/notifications/counts').then((r) => r.data),
     markUnread: (id: string) => client.post<{ data: ApiNotification }>(`/notifications/${id}/unread`).then((r) => r.data),
-    remove: (id: string) => client.del<{ data: { ok: boolean } }>(`/notifications/${id}`),
+    remove: (id: string, opts?: RequestOptions) => client.del<{ data: { ok: boolean } }>(`/notifications/${id}`, opts),
     /** Several of your own at once (at most 200 to a request). */
-    bulk: (ids: readonly string[], action: NotificationBulkAction) =>
-      client.post<{ data: { count: number } }>('/notifications/bulk', { ids, action }).then((r) => r.data),
+    bulk: (ids: readonly string[], action: NotificationBulkAction, opts?: RequestOptions) =>
+      client.post<{ data: { count: number } }>('/notifications/bulk', { ids, action }, opts).then((r) => r.data),
     getPreferences: () => client.get<{ data: NotificationPreferences }>('/notifications/preferences').then((r) => r.data),
     /** Saves what is sent; daily email settings left out are kept as they are. */
     setPreferences: (prefs: Partial<NotificationPreferences>) =>

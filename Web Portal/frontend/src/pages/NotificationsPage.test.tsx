@@ -34,7 +34,7 @@ const ROWS: Row[] = [
 ];
 const COUNTS = { unread: 2, kinds: { mentions: 1, assigned: 0, due: 0, comments: 0, approvals: 0, meetings: 1 } };
 
-let calls: { method: string; url: string; body: unknown }[];
+let calls: { method: string; url: string; body: unknown; keepalive?: boolean }[];
 let pages: (url: URL) => { data: Row[]; nextCursor: string | null };
 let failRemove = false;
 /** Review fixes: an older page that fails, a read-all that fails, a remove answered 404. */
@@ -48,7 +48,7 @@ function server() {
     vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(String(input), 'http://x');
       const method = (init?.method ?? 'GET').toUpperCase();
-      calls.push({ method, url: `${url.pathname}${url.search}`, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      calls.push({ method, url: `${url.pathname}${url.search}`, body: init?.body ? JSON.parse(String(init.body)) : undefined, keepalive: init?.keepalive });
       const path = url.pathname.replace(/^\/api\/v1/, '');
       if (path === '/notifications/counts') return json({ data: COUNTS });
       if (path === '/notifications/unread-count') return json({ data: { count: COUNTS.unread } });
@@ -426,6 +426,16 @@ describe('review fixes', () => {
     } finally {
       delete (document as { visibilityState?: unknown }).visibilityState;
     }
+  });
+
+  // 1.22 QA: a reload (or typing an address) within the Undo time cancelled the remove sent as the
+  // page went — the notification was back afterwards. It is sent kept alive past the page now.
+  it('leaving the page sends a waiting remove at once, kept alive past the page (a reload doesn’t cancel it)', async () => {
+    renderPage(<NotificationsPage undoMs={60_000} />);
+    await screen.findByText('You were assigned a task');
+    await userEvent.click(screen.getByRole('button', { name: 'Remove: You were assigned a task' }));
+    window.dispatchEvent(new Event('pagehide'));
+    await waitFor(() => expect(sent('DELETE', '/api/v1/notifications/n2')).toEqual([expect.objectContaining({ keepalive: true })]));
   });
 
   it('on the Unread tab a notification marked read stays (quieter) until the list is read again; only the counts are asked again', async () => {

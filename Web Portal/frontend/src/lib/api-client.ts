@@ -50,6 +50,8 @@ export interface ApiClientOptions {
 export interface RequestOptions {
   /** Extra request headers, e.g. `Idempotency-Key` on a replay-safe POST. */
   headers?: Record<string, string>;
+  /** Sent as the page goes (reload, another address, the tab closing): the browser finishes it anyway. */
+  keepalive?: boolean;
 }
 
 export interface ApiClient {
@@ -57,7 +59,7 @@ export interface ApiClient {
   post<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
   put<T = unknown>(path: string, body?: unknown): Promise<T>;
   patch<T = unknown>(path: string, body?: unknown): Promise<T>;
-  del<T = unknown>(path: string): Promise<T>;
+  del<T = unknown>(path: string, opts?: RequestOptions): Promise<T>;
   /**
    * POST multipart form data (e.g. file uploads); the browser sets the boundary. With `onProgress`
    * it reports how much has been sent (0–1) as it goes.
@@ -135,7 +137,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return refreshing;
   }
 
-  type FetchOpts = { body?: unknown; form?: FormData; headers?: Record<string, string> };
+  type FetchOpts = { body?: unknown; form?: FormData; headers?: Record<string, string>; keepalive?: boolean };
 
   function doFetch(method: string, path: string, opts: FetchOpts, token: string | null, shared: Record<string, string>): Promise<Response> {
     const headers: Record<string, string> = { ...shared, ...(opts.headers ?? {}) };
@@ -148,6 +150,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       method,
       headers,
       body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
+      ...(opts.keepalive ? { keepalive: true } : {}),
     });
   }
 
@@ -184,7 +187,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   }
 
   async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions): Promise<T> {
-    const res = await authedFetch(method, path, { body, headers: reqOpts?.headers });
+    const res = await authedFetch(method, path, { body, headers: reqOpts?.headers, ...(reqOpts?.keepalive ? { keepalive: true } : {}) });
     const text = await res.text();
     if (!res.ok) throw method === 'GET' ? errorFrom(res.status, text) : refusal(res.status, text);
     return (text ? JSON.parse(text) : {}) as T;
@@ -257,7 +260,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     post: (path, body, opts) => request('POST', path, body, opts),
     put: (path, body) => request('PUT', path, body),
     patch: (path, body) => request('PATCH', path, body),
-    del: (path) => request('DELETE', path),
+    del: (path, opts) => request('DELETE', path, undefined, opts),
     upload,
     getText,
     getBlob,

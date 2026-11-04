@@ -118,14 +118,16 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
   const removal = useDeferredRemoval({
     delayMs: undoMs,
     // The ids that could not be removed come back; one already gone (removed in another tab) is done.
-    commit: async (ids) => {
+    // Sent as the page goes (a reload, another address): kept alive so the browser still sends it.
+    commit: async (ids, { leaving }) => {
       const failed: string[] = [];
+      const opts = leaving ? { keepalive: true } : undefined;
       if (ids.length === 1) {
-        await api.remove(ids[0]!).catch((err: unknown) => {
+        await api.remove(ids[0]!, opts).catch((err: unknown) => {
           if (!(err instanceof ApiError && err.status === 404)) failed.push(ids[0]!);
         });
       } else {
-        for (const part of chunks(ids)) await api.bulk(part, 'remove').catch(() => failed.push(...part));
+        for (const part of chunks(ids)) await api.bulk(part, 'remove', opts).catch(() => failed.push(...part));
       }
       refreshCounts();
       return failed;

@@ -9,8 +9,12 @@ export interface PendingRemoval {
 export interface DeferredRemovalOptions {
   /** How long Undo is offered before the removal is sent (ms). */
   delayMs: number;
-  /** Send the removal to the server; resolves to the ids it could not remove (none = all done). */
-  commit: (ids: string[]) => Promise<string[] | void>;
+  /**
+   * Send the removal to the server; resolves to the ids it could not remove (none = all done).
+   * `leaving`: the page is going (reload, another address, the tab hidden or closed) — send it so the
+   * browser finishes it anyway (fetch keepalive).
+   */
+  commit: (ids: string[], how: { leaving: boolean }) => Promise<string[] | void>;
   /** The server refused some: those rows come back, and the page says so. */
   onFailed: (ids: string[]) => void;
 }
@@ -41,7 +45,7 @@ export function useDeferredRemoval({ delayMs, commit, onFailed }: DeferredRemova
   };
   const unhide = (ids: readonly string[]) => setHidden((h) => new Set([...h].filter((id) => !ids.includes(id))));
 
-  const send = useCallback(() => {
+  const send = useCallback((leaving = false) => {
     const p = pendingRef.current;
     stopTimer();
     holds.current.clear();
@@ -53,12 +57,12 @@ export function useDeferredRemoval({ delayMs, commit, onFailed }: DeferredRemova
       unhide(failed);
       deps.current.onFailed(failed);
     };
-    deps.current.commit(p.ids).then((failed) => failedOnly(failed ?? []), () => failedOnly(p.ids));
+    deps.current.commit(p.ids, { leaving }).then((failed) => failedOnly(failed ?? []), () => failedOnly(p.ids));
   }, []);
 
   const startTimer = useCallback(() => {
     stopTimer();
-    if (pendingRef.current && holds.current.size === 0) timer.current = setTimeout(send, deps.current.delayMs);
+    if (pendingRef.current && holds.current.size === 0) timer.current = setTimeout(() => send(), deps.current.delayMs);
   }, [send]);
 
   const remove = useCallback(
@@ -100,15 +104,16 @@ export function useDeferredRemoval({ delayMs, commit, onFailed }: DeferredRemova
   useEffect(() => {
     mounted.current = true;
     const onHidden = () => {
-      if (document.visibilityState === 'hidden') send();
+      if (document.visibilityState === 'hidden') send(true);
     };
-    window.addEventListener('pagehide', send);
+    const onPageHide = () => send(true);
+    window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onHidden);
     return () => {
-      window.removeEventListener('pagehide', send);
+      window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onHidden);
       mounted.current = false;
-      send();
+      send(true);
     };
   }, [send]);
 
