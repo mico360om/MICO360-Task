@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { installErrorCapture, layoutShiftScore, requestReport, SLOW } from './error-capture';
+import { installErrorCapture, isLeaving, layoutShiftScore, requestReport, SLOW } from './error-capture';
 import type { ErrorReport } from './error-reporter';
 
 let reports: ErrorReport[];
@@ -103,6 +103,16 @@ describe('installErrorCapture: what the page reports by itself', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     window.dispatchEvent(new Event('pagehide'));
     expect(flushed).toEqual([{ hidden: true }, { hidden: true }]);
+  });
+
+  it('leaving the page: its failing requests are not reported — until a cancelled “Leave site?” brings the person back', () => {
+    window.dispatchEvent(new Event('beforeunload'));
+    expect(isLeaving()).toBe(true);
+    window.dispatchEvent(new Event('focus'));
+    expect(isLeaving()).toBe(false);
+    window.dispatchEvent(new Event('beforeunload'));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+    expect(isLeaving()).toBe(false);
   });
 
   it('a capture step that throws never reaches the page', () => {

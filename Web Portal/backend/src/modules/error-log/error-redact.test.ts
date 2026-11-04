@@ -90,3 +90,17 @@ describe('isExtensionSource', () => {
     expect(isExtensionSource(undefined)).toBe(false);
   });
 });
+
+// Review (1.22.4): the server runs these on what anyone may send (16 KB a batch) — fast on hostile text.
+describe('hostile text', () => {
+  it('16 KB built to make the patterns backtrack is reduced in a few milliseconds', () => {
+    const inputs = ['eyJ-'.repeat(4096), 'a'.repeat(16384), 'x@a.a.'.repeat(2730), 'http://'.repeat(2340), '/a?'.repeat(5461), `${'a'.repeat(8000)}@${'b.'.repeat(4000)}`, 'Bearer '.repeat(2340), 'data:a/b;'.repeat(1820)];
+    for (const text of inputs) {
+      const t = performance.now();
+      redactText(text);
+      normalizeMessage(text);
+      pagePattern(text);
+      expect(performance.now() - t, text.slice(0, 12)).toBeLessThan(30);
+    }
+  });
+});

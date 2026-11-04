@@ -1,8 +1,8 @@
 import { parseClientBatch, parseCspReports, type ClientReport } from './client-reports';
 import { redactText } from './error-redact';
-import { describeReport, kindsFor, sinceFor, type ErrorKind, type KindFilter, type RangeFilter } from './error-log-rules';
+import { describeReport, isNewerVersion, isVersion, kindsFor, sinceFor, type ErrorKind, type KindFilter, type RangeFilter } from './error-log-rules';
 import type { ErrorEventRow, ErrorGroupRow, ErrorLogRepository, NewEvent } from './error-log-repository';
-import { resolveStack, type MapStore, type TopFrame } from './stack';
+import { isFrameLine, MAX_FRAMES, resolveStack, type MapStore, type TopFrame } from './stack';
 import { describeUserAgent } from './user-agent';
 
 /** How long the Error log keeps what it was told. */
@@ -12,6 +12,27 @@ const SAME_VIOLATION_MS = 3 * 60 * 1000;
 /** Reports being written at once; more are dropped (a slow database must not pile up memory). */
 const MAX_IN_FLIGHT = 200;
 const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+
+/**
+ * The address a sender is counted by: an IPv4 address as it is (also written IPv4-mapped), an IPv6
+ * address by its /64 (one home or office line has a whole /64 to pick addresses from).
+ */
+export function addressKey(ip: string | null | undefined): string {
+  const a = String(ip ?? '').trim().toLowerCase();
+  if (!a) return 'unknown';
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(a);
+  if (mapped) return mapped[1]!;
+  if (!a.includes(':')) return a;
+  const [head = '', tail = ''] = a.split('::');
+  const left = head ? head.split(':') : [];
+  const right = a.includes('::') && tail ? tail.split(':') : [];
+  const groups = a.includes('::') ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right] : left;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+/** Cut a value to its column's size. */
+const clip = (v: string | null | undefined, n: number): string | null => (v ? v.slice(0, n) : null);
 
 export interface ErrorLogServiceDeps {
   repo: ErrorLogRepository;
@@ -19,15 +40,25 @@ export interface ErrorLogServiceDeps {
   now?: () => Date;
   /** The company time zone ("Today" starts at its midnight). */
   timeZone: string;
-  /** The running server's version (server errors carry it; "Mark as fixed" without a browser version). */
-  serverVersion: () => string;
+  /** The running server's version (server errors carry it, and a browser report that says none); null until known. */
+  serverVersion: () => string | null;
   /** System Settings → "Collect browser errors" (on unless an administrator turned it off). */
   collecting: () => Promise<boolean>;
   /** The Error log's own trouble, written as a plain warning line — never as an error (no loop). */
   warn: (message: string, meta?: Record<string, unknown>) => void;
   /** People's names for the details' latest occurrences. */
   userNames?: (ids: string[]) => Promise<Map<string, string>>;
-  limits?: { perAddressPerMinute?: number; serverPerMinute?: number };
+  limits?: {
+    /** Requests a minute from one address (a page sends a batch at most every 10 seconds). */
+    perAddressPerMinute?: number;
+    /** Reports a minute from one address, and from everyone together. */
+    reportsPerAddressPerMinute?: number;
+    reportsPerMinute?: number;
+    /** New rows an hour; after that only rows already there are added to (the log can't be buried). */
+    newRowsPerHour?: number;
+    /** Server errors a minute. */
+    serverPerMinute?: number;
+  };
 }
 
 export interface GroupListItem {
@@ -93,9 +124,34 @@ const errorText = (err: unknown): { message: string | null; stack: string | null
 export function createErrorLogService(deps: ErrorLogServiceDeps) {
   const now = deps.now ?? (() => new Date());
   const perAddress = deps.limits?.perAddressPerMinute ?? 60;
+  const reportsPerAddress = deps.limits?.reportsPerAddressPerMinute ?? 120;
+  const reportsPerMinute = deps.limits?.reportsPerMinute ?? 1000;
+  const newRowsPerHour = deps.limits?.newRowsPerHour ?? 300;
   const serverPerMinute = deps.limits?.serverPerMinute ?? 120;
   const allowAddress = minuteCounter(now);
+  const allowAddressReport = minuteCounter(now);
+  const allowReport = minuteCounter(now);
   const allowServer = minuteCounter(now);
+  let newRows = { start: 0, n: 0 };
+  /** Kept with a report: its own version, unless it says none or one newer than the server's (not believed). */
+  const versionOf = (v: string | null): string | null => {
+    const server = deps.serverVersion();
+    const known = server && isVersion(server) ? server : null;
+    if (!v) return known;
+    return known && isNewerVersion(v, known) ? known : v;
+  };
+  /**
+   * Write one occurrence: a new row only while under the hour's limit. The slot is taken before the
+   * write (writes run side by side) and given back when the row was already there.
+   */
+  async function store(o: Parameters<ErrorLogRepository['record']>[0]): Promise<void> {
+    const t = now().getTime();
+    if (t - newRows.start >= HOUR) newRows = { start: t, n: 0 };
+    const may = newRows.n < newRowsPerHour;
+    if (may) newRows.n += 1;
+    const done = await deps.repo.record(o, { create: may });
+    if (may && !done?.created) newRows.n = Math.max(0, newRows.n - 1);
+  }
   const pending = new Set<Promise<void>>();
   const violations = new Map<string, { at: number; channel: 'page' | 'browser' }>();
 
@@ -140,8 +196,16 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       top = resolved.top;
     }
     const d = describeReport({ ...r, top });
+    let count = r.count;
     if (r.kind === 'BLOCKED' && r.detail !== 'resource') {
-      if (sameViolation(`${d.key}|${who.ip}|${who.browser}`, r.detail === 'csp-report' ? 'browser' : 'page')) return;
+      // One violation, reported by the page and by the browser itself, counts once. The page's copy
+      // is the useful one (who, which version): when the browser's came first, the page's still
+      // adds its person and version to the row, without counting again.
+      const channel = r.detail === 'csp-report' ? 'browser' : 'page';
+      if (sameViolation(`${d.key}|${addressKey(who.ip)}|${who.browser}`, channel)) {
+        if (channel === 'browser') return;
+        count = 0;
+      }
     }
     const event: NewEvent = {
       at: now(),
@@ -149,28 +213,33 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       detail: r.detail,
       message: d.title.slice(0, 500),
       stack,
-      page: r.page,
+      page: clip(r.page, 300),
       job: null,
-      resource: r.resource,
+      resource: clip(r.resource, 300),
       value: r.value,
-      count: r.count,
-      version: r.version,
-      browser: who.browser,
-      system: who.system,
-      screen: r.screen,
+      count,
+      version: clip(versionOf(r.version), 32),
+      browser: clip(who.browser, 60),
+      system: clip(who.system, 40),
+      screen: clip(r.screen, 20),
       userId: who.userId,
       signedIn: !!who.userId,
     };
-    await deps.repo.record({ fingerprint: d.key, kind: r.kind, title: d.groupTitle.slice(0, 500), topFile: top?.file ?? null, topLine: top?.line ?? null, topFunction: top?.fn ?? null, event });
+    await store({ fingerprint: d.key, kind: r.kind, title: d.groupTitle.slice(0, 500), topFile: clip(top?.file, 300), topLine: top?.line ?? null, topFunction: clip(top?.fn, 120), event });
   }
 
   function accept(reports: () => ClientReport[], who: { ip: string; userAgent: string | undefined; userId: string | null }): boolean {
     try {
-      if (!allowAddress(who.ip || 'unknown', perAddress)) return false;
+      const key = addressKey(who.ip);
+      if (!allowAddress(key, perAddress)) return false;
       return background('a browser report', async () => {
         if (!(await deps.collecting())) return;
         const { browser, system } = describeUserAgent(who.userAgent);
-        for (const r of reports()) await keep(r, { userId: who.userId, browser, system, ip: who.ip });
+        for (const r of reports()) {
+          // Counted by the report, from this address and from everyone together.
+          if (!allowAddressReport(key, reportsPerAddress) || !allowReport('all', reportsPerMinute)) break;
+          await keep(r, { userId: who.userId, browser, system, ip: who.ip });
+        }
       });
     } catch {
       return false;
@@ -201,24 +270,30 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       const method = typeof read('method') === 'string' ? (read('method') as string) : null;
       const userId = typeof read('userId') === 'string' ? (read('userId') as string) : null;
       const e = errorText(read('err') ?? read('error'));
-      const title = redactText(route ? e.message || message : e.message ? `${message}: ${e.message}` : message, 500);
+      // Only the first line of the error's message, and only the frames of its stack: the rest of a
+      // message can quote what someone typed (a database error prints the values it was given).
+      const first = (e.message ?? '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 300) ?? '';
+      const frames = (e.stack ?? '').split('\n').filter(isFrameLine).slice(0, MAX_FRAMES).join('\n');
+      const request = !!route || message === 'request failed';
+      const title = redactText(request ? first || message : first ? `${message}: ${first}` : message, 500);
       const at = now();
-      const version = deps.serverVersion();
+      const version = clip(versionOf(null), 32);
       background('a server error', async () => {
-        const resolved = e.stack ? await resolveStack(e.stack, deps.maps) : { stack: '', top: null };
-        const page = route ? `${method ?? ''} ${route}`.trim() : null;
+        const resolved = frames ? await resolveStack(frames, deps.maps) : { stack: '', top: null };
+        // A request by its route pattern (never its address, which can carry a token).
+        const page = request ? clip(`${method ?? ''} ${route ?? '(no route)'}`.trim(), 300) : null;
         const d = describeReport({ kind: 'SERVER', message: title, job, route: page, top: resolved.top });
-        await deps.repo.record({
+        await store({
           fingerprint: d.key,
           kind: 'SERVER',
           title: d.groupTitle,
-          topFile: resolved.top?.file ?? null,
+          topFile: clip(resolved.top?.file, 300),
           topLine: resolved.top?.line ?? null,
-          topFunction: resolved.top?.fn ?? null,
+          topFunction: clip(resolved.top?.fn, 120),
           event: {
             at,
             kind: 'SERVER',
-            detail: route ? 'request' : job ? 'job' : 'background',
+            detail: request ? 'request' : job ? 'job' : 'background',
             message: d.title,
             stack: resolved.stack ? redactText(resolved.stack, 4096) : null,
             page,
@@ -315,11 +390,15 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
     };
   }
 
-  /** Mark as fixed: hidden until it happens again in a newer version than the newest it was seen in. */
+  /**
+   * Mark as fixed: hidden until it happens again in a newer version than the newest it was seen in
+   * (without a real version, until it happens again at all).
+   */
   async function markFixed(id: string, by: string) {
     const group = await deps.repo.get(id);
     if (!group) return null;
-    return deps.repo.setFixed(id, by, group.lastVersion ?? deps.serverVersion(), now());
+    const version = group.lastVersion && isVersion(group.lastVersion) ? group.lastVersion : versionOf(null);
+    return deps.repo.setFixed(id, by, version, now());
   }
 
   /** "Not fixed": back on the list. */

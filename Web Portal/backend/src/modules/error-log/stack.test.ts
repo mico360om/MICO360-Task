@@ -140,3 +140,51 @@ describe('resolveStack: the site’s own file and line', () => {
     expect(out.top).toMatchObject({ file: 'bad.js', mapped: false });
   });
 });
+
+// Review (1.22.4): the stack reader runs on what anyone may send — it must stay fast on hostile text
+// and never keep more than a small cache.
+describe('hostile stacks', () => {
+  it('a 4 KB line built to make a pattern backtrack is read in a few milliseconds', async () => {
+    const lines = [`at${' '.repeat(4000)}x`, `    at ${'('.repeat(2000)}x:1:2`, `${'@'.repeat(4000)}:1:1`, `    at f (${'a:'.repeat(2000)}1:2)`];
+    for (const line of lines) {
+      const t = performance.now();
+      parseStack(line);
+      await resolveStack(`E\n${line}`, createMapStore({ webRoot: null }));
+      expect(performance.now() - t, line.slice(0, 20)).toBeLessThan(50);
+    }
+  });
+
+  it('reads at most 50 frames, and skips lines longer than 500 characters', () => {
+    const many = Array.from({ length: 80 }, (_, i) => `    at f${i} (https://h/assets/a-Ab12Cd34.js:1:${i + 1})`).join('\n');
+    expect(parseStack(many)).toHaveLength(50);
+    expect(parseStack(`    at f (https://h/assets/${'a'.repeat(600)}.js:1:2)`)).toEqual([]);
+  });
+
+  it('frames with spaces in a path (a Windows server folder) are still read', () => {
+    expect(parseStack('    at Object.run (D:\\Program Files\\MICO360\\dist\\src\\x.js:12:3)')).toEqual([{ fn: 'Object.run', url: 'D:\\Program Files\\MICO360\\dist\\src\\x.js', line: 12, column: 3 }]);
+  });
+
+  it('the map cache keeps at most 200 files, made-up names included, and never looks for a map that isn’t in the folder', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mico-el-cap-'));
+    mkdirSync(join(root, 'assets'));
+    writeFileSync(join(root, 'assets', 'real-Ab12Cd34.js.map'), mapOf(['../../src/x.ts'], [], [{ col: 0, src: 0, line: 0, ocol: 0 }]));
+    const maps = createMapStore({ webRoot: root });
+    for (let i = 0; i < 1000; i++) expect(await maps.forUrl(`https://h/assets/made-up-${i}.js`)).toBeNull();
+    expect(maps.size()).toBeLessThanOrEqual(200);
+    expect(await maps.forUrl('https://h/assets/real-Ab12Cd34.js')).not.toBeNull();
+  });
+});
+
+describe('a deploy brings new maps', () => {
+  it('a map that wasn’t in the folder is found once the folder is listed again (30 seconds later)', async () => {
+    let t = 1_000_000;
+    const root = mkdtempSync(join(tmpdir(), 'mico-el-relist-'));
+    mkdirSync(join(root, 'assets'));
+    const maps = createMapStore({ webRoot: root, now: () => t });
+    expect(await maps.forUrl('https://h/assets/new-Ab12Cd34.js')).toBeNull();
+    writeFileSync(join(root, 'assets', 'new-Ab12Cd34.js.map'), mapOf(['../../src/x.ts'], [], [{ col: 0, src: 0, line: 0, ocol: 0 }]));
+    expect(await maps.forUrl('https://h/assets/new-Ab12Cd34.js')).toBeNull();
+    t += 31_000;
+    expect(await maps.forUrl('https://h/assets/new-Ab12Cd34.js')).not.toBeNull();
+  });
+});

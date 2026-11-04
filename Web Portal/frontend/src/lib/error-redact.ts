@@ -45,19 +45,27 @@ const mixed = (s: string) => /\d/.test(s) && /[a-z]/i.test(s);
  * email addresses `[email]`, data: addresses only say their type. At most `max` characters.
  */
 export function redactText(text: string, max = 4096): string {
-  let out = String(text ?? '').slice(0, max * 4);
-  out = out.replace(/\bdata:([a-z]+\/[a-z0-9.+-]+)[;,][^\s'")]*/gi, 'data:$1;…');
-  out = out.replace(/\bBearer\s+[^\s'",]+/gi, 'Bearer [token]');
-  out = out.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[token]');
+  // Only a little more than is kept is looked at; every repeat below is bounded and most patterns
+  // may only start where a run of their characters starts, so hostile text stays fast.
+  let out = String(text ?? '').slice(0, Math.ceil(max * 1.25) + 64);
+  if (out.includes('data:')) out = out.replace(/\bdata:([a-z]{1,40}\/[a-z0-9.+-]{1,80})[;,][^\s'")]{0,20000}/gi, 'data:$1;…');
+  if (/bearer/i.test(out)) out = out.replace(/\bBearer\s{1,10}[^\s'",]{1,4096}/gi, 'Bearer [token]');
+  if (out.includes('eyJ')) out = out.replace(/(^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{1,4096}\.[A-Za-z0-9_-]{1,4096}\.[A-Za-z0-9_-]{1,4096}/g, '$1[token]');
   // Addresses (full or site-relative): drop the query and the hash — but not a stack frame's :line:column.
-  out = out.replace(/(https?:\/\/[^\s'"()<>?#]+|(?:^|[\s'"(=])\/[^\s'"()<>?#]*)([?#][^\s'"()<>]*)/g, (_m, address: string, rest: string) => {
-    return address + (/(?::\d+){1,2}$/.exec(rest)?.[0] ?? '');
-  });
+  if (/[?#]/.test(out)) {
+    out = out.replace(/(https?:\/\/[^\s'"()<>?#]{1,2048}|(?:^|[\s'"(=])\/[^\s'"()<>?#]{0,2048})([?#][^\s'"()<>]{0,4096})/g, (_m, address: string, rest: string) => {
+      return address + (/(?::\d{1,9}){1,2}$/.exec(rest)?.[0] ?? '');
+    });
+  }
   // The site's own secret paths, wherever they appear.
-  out = out.replace(/\/client\/[^\s/'"()<>?#]+(?:\/[^\s'"()<>?#]*)?/gi, '/client/:token');
-  out = out.replace(/\/(reset|welcome|login)\/[^\s/'"()<>?#]+/gi, '/$1/:token');
+  if (/\/(client|reset|welcome|login)\//i.test(out)) {
+    out = out.replace(/\/client\/[^\s/'"()<>?#]{1,2048}(?:\/[^\s'"()<>?#]{0,2048})?/gi, '/client/:token');
+    out = out.replace(/\/(reset|welcome|login)\/[^\s/'"()<>?#]{1,2048}/gi, '/$1/:token');
+  }
   out = out.replace(LONG_RUN, (whole, before: string, run: string) => (mixed(run) ? `${before}[token]` : whole));
-  out = out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]');
+  if (out.includes('@')) {
+    out = out.replace(/(^|[^A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}/g, '$1[email]');
+  }
   return out.slice(0, max);
 }
 
@@ -67,6 +75,7 @@ export function redactText(text: string, max = 4096): string {
  */
 export function normalizeMessage(message: string): string {
   return String(message ?? '')
+    .slice(0, 2000)
     .replace(/[A-Za-z0-9_-]{12,}/g, (run) => (mixed(run) ? ':id' : run))
     .replace(/\d+/g, '0')
     .replace(/\s+/g, ' ')

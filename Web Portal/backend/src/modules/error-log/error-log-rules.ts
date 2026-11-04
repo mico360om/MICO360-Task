@@ -36,6 +36,11 @@ export function sinceFor(range: RangeFilter, now: Date, timeZone: string): Date 
 
 const VERSION = /^(\d+)\.(\d+)\.(\d+)/;
 
+/** A release version (1.22.4), not a word such as "unknown". */
+export function isVersion(v: string | null | undefined): boolean {
+  return VERSION.test(v ?? '');
+}
+
 /** Is `a` a later release than `b`? (Anything that isn't a version is never later.) */
 export function isNewerVersion(a: string | null | undefined, b: string | null | undefined): boolean {
   const x = VERSION.exec(a ?? '');

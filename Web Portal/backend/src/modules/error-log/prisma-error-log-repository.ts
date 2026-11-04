@@ -66,11 +66,12 @@ export function createPrismaErrorLogRepository(prisma: PrismaClient): ErrorLogRe
   }
 
   return {
-    async record(o) {
+    async record(o, opts) {
       const e = o.event;
       // Two reports of a new error at once: the second create meets the unique fingerprint and adds to the first.
       for (let attempt = 0; attempt < 3; attempt++) {
         const found = await prisma.errorGroup.findUnique({ where: { fingerprint: o.fingerprint } });
+        if (!found && opts?.create === false) return null;
         if (!found) {
           try {
             const created = await prisma.errorGroup.create({

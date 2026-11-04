@@ -237,17 +237,35 @@ async function main(): Promise<void> {
   // by its route, a background job by its name (logger.job). The hidden source maps of the web app
   // (WEB_ROOT/assets) and of this server's build (beside dist/src) give the original file:line.
   // Its own trouble is a warning line on the plain logger, so it never fails twice or loops.
-  let serverVersion = 'unknown'; // set once the build's release file is read (below)
+  // The running build's version, build time and changelog (written by the build: dist/src/release.json),
+  // read first: every server error the Error log records carries the version (also one at start-up).
+  // package.json sits beside src/ when running from source, and two levels up from dist/src/.
+  const packageFile = [resolvePath(__dirname, '..', 'package.json'), resolvePath(__dirname, '..', '..', 'package.json')].find((f) => existsSync(f))!;
+  const packageVersion = (JSON.parse(readFileSync(packageFile, 'utf8')) as { version: string }).version;
+  const release = loadReleaseFile(resolvePath(__dirname, 'release.json'), { version: packageVersion, startedAt: new Date() });
   let collectSetting: () => Promise<boolean> = async () => true; // the system setting, once settings exist (below)
-  let collecting = { at: 0, on: true };
+  // "Collect browser errors", read at most every 30 seconds, one read at a time; the answer to a page
+  // never waits for it (the last known value), only the very first read is waited for.
+  let collecting: { at: number; on: boolean } | null = null;
+  let collectingRead: Promise<boolean> | null = null;
+  const readCollecting = (): Promise<boolean> => {
+    collectingRead ??= collectSetting()
+      .catch(() => collecting?.on ?? true)
+      .then((on) => {
+        collecting = { at: Date.now(), on };
+        collectingRead = null;
+        return on;
+      });
+    return collectingRead;
+  };
   const errorLog = createErrorLogService({
     repo: createPrismaErrorLogRepository(prisma),
     maps: createMapStore({ webRoot: env.WEB_ROOT ? resolvePath(process.cwd(), env.WEB_ROOT) : null, serverRoot: resolvePath(__dirname, '..') }),
     timeZone: resolveTimeZone(env.COMPANY_TIMEZONE),
-    serverVersion: () => serverVersion,
-    // "Collect browser errors", read at most every 30 seconds (each report asks).
+    serverVersion: () => release.build.version,
     collecting: async () => {
-      if (Date.now() - collecting.at > 30_000) collecting = { at: Date.now(), on: await collectSetting().catch(() => collecting.on) };
+      if (!collecting) return readCollecting();
+      if (Date.now() - collecting.at > 30_000) void readCollecting();
       return collecting.on;
     },
     warn: (message, meta) => baseLogger.warn(message, meta),
@@ -1497,12 +1515,6 @@ async function main(): Promise<void> {
   // a suspended, deleted or demoted user loses access at once, not when their token expires.
   const userStateLookup = createPrismaUserStateLookup(prisma);
 
-  // The running build's version, build time and changelog (written by the build: dist/src/release.json).
-  // package.json sits beside src/ when running from source, and two levels up from dist/src/.
-  const packageFile = [resolvePath(__dirname, '..', 'package.json'), resolvePath(__dirname, '..', '..', 'package.json')].find((f) => existsSync(f))!;
-  const packageVersion = (JSON.parse(readFileSync(packageFile, 'utf8')) as { version: string }).version;
-  const release = loadReleaseFile(resolvePath(__dirname, 'release.json'), { version: packageVersion, startedAt: new Date() });
-  serverVersion = release.build.version; // server errors in the Error log carry it
   logger.info('Release', { version: release.build.version, builtAt: release.build.builtAt, commit: release.build.commit, source: release.source });
 
   // The hosted Android app lives in a folder deploys keep (made here, so it is there to upload into).

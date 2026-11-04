@@ -216,7 +216,10 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
   })();
 
   const onHidden = safe(() => {
-    if (win.document.visibilityState !== 'hidden') return;
+    if (win.document.visibilityState !== 'hidden') {
+      leaving = false; // back on the page (a "Leave site?" prompt was cancelled, or the tab came back)
+      return;
+    }
     perf.finish();
     void sink.flush({ hidden: true });
   });
@@ -231,6 +234,10 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
   const onShow = safe(() => {
     leaving = false;
   });
+  // A cancelled "Leave site?" prompt: the page stays, and is used again.
+  const onBack = safe(() => {
+    leaving = false;
+  });
 
   win.addEventListener('error', onError, true);
   win.addEventListener('unhandledrejection', onRejection);
@@ -239,6 +246,9 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
   win.addEventListener('pagehide', onLeave);
   win.addEventListener('beforeunload', onBeforeUnload);
   win.addEventListener('pageshow', onShow);
+  win.addEventListener('focus', onBack);
+  win.document.addEventListener('pointerdown', onBack, true);
+  win.document.addEventListener('keydown', onBack, true);
   return () => {
     win.removeEventListener('error', onError, true);
     win.removeEventListener('unhandledrejection', onRejection);
@@ -247,6 +257,9 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
     win.removeEventListener('pagehide', onLeave);
     win.removeEventListener('beforeunload', onBeforeUnload);
     win.removeEventListener('pageshow', onShow);
+    win.removeEventListener('focus', onBack);
+    win.document.removeEventListener('pointerdown', onBack, true);
+    win.document.removeEventListener('keydown', onBack, true);
     perf.stop();
     leaving = false;
   };

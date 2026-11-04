@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createErrorLogService, type ErrorLogService } from './error-log-service';
+import { addressKey, createErrorLogService, type ErrorLogService } from './error-log-service';
 import { createMemoryErrorLogRepository } from './error-log-repository';
 import { createMapStore } from './stack';
 
@@ -15,18 +15,24 @@ let clock: Date;
 let collecting: boolean;
 let warned: string[];
 let service: ErrorLogService;
-let serverVersion: string;
+let serverVersion: string | null;
 
-function make(opts: { webRoot?: string | null; perAddress?: number; serverPerMinute?: number } = {}) {
+function make(opts: { webRoot?: string | null; perAddress?: number; serverPerMinute?: number; reportsPerAddress?: number; reportsPerMinute?: number; newRowsPerHour?: number } = {}) {
   service = createErrorLogService({
     repo,
-    maps: createMapStore({ webRoot: opts.webRoot ?? null }),
+    maps: createMapStore({ webRoot: opts.webRoot ?? null, now: () => clock.getTime() }),
     now: () => clock,
     timeZone: 'Asia/Muscat',
     serverVersion: () => serverVersion,
     collecting: async () => collecting,
     warn: (msg) => warned.push(msg),
-    limits: { perAddressPerMinute: opts.perAddress ?? 60, serverPerMinute: opts.serverPerMinute ?? 120 },
+    limits: {
+      perAddressPerMinute: opts.perAddress ?? 60,
+      serverPerMinute: opts.serverPerMinute ?? 120,
+      reportsPerAddressPerMinute: opts.reportsPerAddress ?? 120,
+      reportsPerMinute: opts.reportsPerMinute ?? 1000,
+      newRowsPerHour: opts.newRowsPerHour ?? 300,
+    },
     userNames: async (ids) => new Map(ids.filter((id) => id !== 'gone').map((id) => [id, `Name of ${id}`])),
   });
 }
@@ -99,7 +105,10 @@ describe('browser reports', () => {
     await service.settled();
     expect(repo.groups[0]).toMatchObject({ topFile: 'src/pages/BoardPage.tsx', topLine: 42, topFunction: 'loadBoard' });
     expect(repo.eventRows[0]!.stack).toContain('at q (src/pages/BoardPage.tsx:42:1)');
-    // The same error from a later build (a new hash, the same map content) is the same row.
+    // The same error from a later build (a new hash, the same map content) is the same row — once the
+    // folder is listed again (at most every 30 seconds when a name isn't there yet).
+    clock = new Date(clock.getTime() + 31_000);
+    serverVersion = '1.22.5'; // the later build is deployed
     writeFileSync(join(root, 'assets', 'BoardPage-Zz88Yy77.js.map'), JSON.stringify({ version: 3, sources: ['../../src/pages/BoardPage.tsx'], names: ['loadBoard'], mappings: 'AA2CAA' }));
     service.acceptClientBatch({ body: batch(err({ version: '1.22.5', stack: 'TypeError: x\n    at q (https://task.mico360.com/assets/BoardPage-Zz88Yy77.js:1:120)\n    at r (https://task.mico360.com/assets/BoardPage-Zz88Yy77.js:1:5)' })), ip: '1.1.1.1', userAgent: CHROME, userId: 'u1' });
     await service.settled();
@@ -229,7 +238,8 @@ describe('the page: list, details, mark as fixed, visits, retention', () => {
     service.acceptClientBatch({ body: batch(err()), ip: '7', userAgent: CHROME, userId: 'u1' });
     await service.settled();
     expect(await open()).not.toContain(e.id);
-    // 1.22.5: back.
+    // 1.22.5 deployed: back.
+    serverVersion = '1.22.5';
     clock = new Date(clock.getTime() + 60_000);
     service.acceptClientBatch({ body: batch(err({ version: '1.22.5' })), ip: '7', userAgent: CHROME, userId: 'u1' });
     await service.settled();
@@ -262,5 +272,113 @@ describe('the page: list, details, mark as fixed, visits, retention', () => {
     const second = await service.list({ kind: 'all', range: '30d', q: null, status: 'open', before: first.next, limit: 2 });
     expect(second.groups).toHaveLength(2);
     expect(new Set([...first.groups, ...second.groups].map((g) => g.id)).size).toBe(4);
+  });
+});
+
+// Review (1.22.4): what anyone may send is counted by the report, a whole IPv6 /64 is one address,
+// and the log can't be buried in new rows.
+describe('limits on what anyone may send', () => {
+  it('reports, not requests, are counted per address; a server-wide cap too', async () => {
+    make({ reportsPerAddress: 25 });
+    const twenty = Array.from({ length: 20 }, (_, i) => err({ message: `E${'abcdefghijklmnopqrst'[i]}` }));
+    service.acceptClientBatch({ body: batch(...twenty), ip: '1.1.1.1', userAgent: CHROME, userId: null });
+    service.acceptClientBatch({ body: batch(...twenty), ip: '1.1.1.1', userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.eventRows).toHaveLength(25);
+    make({ reportsPerMinute: 30 });
+    repo.eventRows.length = 0;
+    repo.groups.length = 0;
+    for (const ip of ['2.2.2.1', '2.2.2.2']) service.acceptClientBatch({ body: batch(...twenty), ip, userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.eventRows).toHaveLength(30);
+  });
+
+  it('an IPv6 /64 is one address; IPv4 (also mapped) as it is', () => {
+    expect(addressKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).toBe(addressKey('2001:db8:1:2::1'));
+    expect(addressKey('2001:db8:1:2::1')).not.toBe(addressKey('2001:db8:1:3::1'));
+    expect(addressKey('::ffff:10.0.0.7')).toBe('10.0.0.7');
+    expect(addressKey('10.0.0.7')).toBe('10.0.0.7');
+    expect(addressKey('')).toBe('unknown');
+  });
+
+  it('after 300 new rows in an hour, only rows already there are added to', async () => {
+    make({ newRowsPerHour: 3 });
+    const fresh = (i: number) => err({ message: `New error ${'abcdefghij'[i]}` });
+    for (let i = 0; i < 6; i++) service.acceptClientBatch({ body: batch(fresh(i)), ip: `3.3.3.${i}`, userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.groups).toHaveLength(3);
+    service.acceptClientBatch({ body: batch(fresh(0)), ip: '3.3.3.9', userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.groups[0]!.count).toBe(2);
+    clock = new Date(clock.getTime() + 61 * 60_000);
+    service.acceptClientBatch({ body: batch(fresh(7)), ip: '3.3.3.10', userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.groups).toHaveLength(4);
+  });
+});
+
+describe('versions', () => {
+  it('a report without a version (the browser’s own) takes the server’s; one newer than the server’s is not believed', async () => {
+    service.acceptCspReports({ body: { 'csp-report': { 'document-uri': 'https://t/', 'blocked-uri': 'eval', 'effective-directive': 'script-src' } }, ip: '1', userAgent: CHROME });
+    service.acceptClientBatch({ body: batch(err({ version: '99.0.0' })), ip: '2', userAgent: CHROME, userId: null });
+    service.acceptClientBatch({ body: batch(err({ message: 'older tab', version: '1.22.3' })), ip: '3', userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.eventRows.map((e) => e.version)).toEqual(['1.22.4', '1.22.4', '1.22.3']);
+  });
+
+  it('a server that doesn’t know its version yet keeps none (never a word such as “unknown”); fixed without one comes back', async () => {
+    serverVersion = 'unknown';
+    service.recordServer('x failed', { err: new Error('boom'), job: 'j' });
+    await service.settled();
+    expect(repo.groups[0]!.lastVersion).toBeNull();
+    const fixed = await service.markFixed(repo.groups[0]!.id, 'admin1');
+    expect(fixed!.fixedInVersion).toBeNull();
+    serverVersion = '1.22.4';
+    clock = new Date(clock.getTime() + 60_000);
+    service.recordServer('x failed', { err: new Error('boom'), job: 'j' });
+    await service.settled();
+    expect(repo.groups[0]).toMatchObject({ lastVersion: '1.22.4', status: 'OPEN' });
+  });
+});
+
+describe('a security-policy block: the page’s copy is the useful one', () => {
+  it('the browser’s report first, the page’s later: the row still gets the person and version, counted once', async () => {
+    service.acceptCspReports({ body: { 'csp-report': { 'document-uri': 'https://task.mico360.com/board', 'blocked-uri': 'https://evil.example/x.js', 'effective-directive': 'script-src-elem' } }, ip: '5.5.5.5', userAgent: CHROME });
+    await service.settled();
+    service.acceptClientBatch({ body: batch({ kind: 'BLOCKED', detail: 'csp', directive: 'script-src-elem', resource: 'https://evil.example/x.js', page: '/board', version: '1.22.3' }), ip: '5.5.5.5', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    expect(repo.groups).toHaveLength(1);
+    expect(repo.groups[0]).toMatchObject({ count: 1, peopleCount: 1 });
+    expect(repo.eventRows.find((e) => e.detail === 'csp')).toMatchObject({ userId: 'u1', count: 0, version: '1.22.3' });
+  });
+});
+
+describe('server errors keep no typed text', () => {
+  it('only the first line of the message, and only the frames of the stack', async () => {
+    const e = new Error('\nInvalid `prisma.task.create()` invocation:\n\n{\n  data: {\n    title: "Pay Ahmed 500 OMR for the villa"\n  }\n}\n\nUnknown argument `titl`.');
+    e.stack = `Error: ${e.message}\n    at Object.create (/srv/app/dist/src/modules/tasks/task-repository.js:10:5)`;
+    service.recordServer('request failed', { method: 'POST', route: '/api/v1/tasks', err: e });
+    await service.settled();
+    expect(repo.groups[0]!.title).toBe('Invalid `prisma.task.create()` invocation:');
+    expect(JSON.stringify(repo.eventRows)).not.toContain('Ahmed');
+    expect(repo.eventRows[0]!.stack).toBe('    at Object.create (src/modules/tasks/task-repository.js:10:5)');
+  });
+
+  it('a request failure without a route (no route matched) is still a request, never its address', async () => {
+    service.recordServer('request failed', { method: 'GET', url: '/api/v1/nope?token=SECRET', err: new Error('boom') });
+    await service.settled();
+    expect(repo.eventRows[0]).toMatchObject({ detail: 'request', page: 'GET (no route)' });
+    expect(repo.groups[0]!.title).toBe('boom');
+    expect(JSON.stringify(repo.eventRows)).not.toContain('SECRET');
+  });
+});
+
+describe('long values fit their columns', () => {
+  it('page, resource, top file and function are cut to their column sizes', async () => {
+    service.acceptClientBatch({ body: batch({ kind: 'SLOW', detail: 'api', value: 12000, page: `/${'p'.repeat(900)}`, resource: `GET /api/v1/${'r'.repeat(900)}` }), ip: '1', userAgent: CHROME, userId: null });
+    await service.settled();
+    expect(repo.eventRows[0]!.page!.length).toBeLessThanOrEqual(300);
+    expect(repo.eventRows[0]!.resource!.length).toBeLessThanOrEqual(300);
+    expect(repo.groups[0]!.title.length).toBeLessThanOrEqual(500);
   });
 });

@@ -69,7 +69,7 @@ afterAll(async () => {
 
 describe('error_groups / error_events (integration)', () => {
   it('one row per fingerprint: counts and people add up, the newest 20 occurrences are kept', async () => {
-    const first = await repo.record(occurrence());
+    const first = (await repo.record(occurrence()))!;
     expect(first.created).toBe(true);
     for (let i = 0; i < 24; i++) {
       clock = new Date(clock.getTime() + 1000);
@@ -81,6 +81,14 @@ describe('error_groups / error_events (integration)', () => {
     expect(events).toHaveLength(20);
     expect(events[0]!.at).toEqual(clock);
     expect(await prisma.errorEvent.count({ where: { groupId: first.groupId } })).toBe(20);
+  });
+
+  it('create: false adds to a row that is there and makes none', async () => {
+    expect(await repo.record(occurrence(), { create: false })).toBeNull();
+    expect(await prisma.errorGroup.count()).toBe(0);
+    await repo.record(occurrence());
+    expect(await repo.record(occurrence(), { create: false })).toMatchObject({ created: false });
+    expect((await prisma.errorGroup.findFirstOrThrow()).count).toBe(2);
   });
 
   it('several reports of a new error at once still make one row', async () => {
@@ -118,13 +126,13 @@ describe('error_groups / error_events (integration)', () => {
   });
 
   it('mark as fixed, back from a newer version, and “Not fixed” — through the service', async () => {
-    const { groupId } = await repo.record(occurrence());
+    const { groupId } = (await repo.record(occurrence()))!;
     expect(await service.markFixed(groupId, 'admin1')).toMatchObject({ status: 'FIXED', fixedInVersion: '1.22.4', fixedById: 'admin1' });
     clock = new Date(clock.getTime() + 60_000);
-    expect((await repo.record(occurrence({ at: clock, version: '1.22.4' }))).reopened).toBe(false);
+    expect((await repo.record(occurrence({ at: clock, version: '1.22.4' })))!.reopened).toBe(false);
     expect((await repo.get(groupId))!.status).toBe('FIXED');
     clock = new Date(clock.getTime() + 60_000);
-    expect((await repo.record(occurrence({ at: clock, version: '1.22.5' }))).reopened).toBe(true);
+    expect((await repo.record(occurrence({ at: clock, version: '1.22.5' })))!.reopened).toBe(true);
     expect(await repo.get(groupId)).toMatchObject({ status: 'OPEN', reopenedAt: clock, lastVersion: '1.22.5' });
     await service.markFixed(groupId, 'admin1');
     expect(await service.reopen(groupId)).toMatchObject({ status: 'OPEN', fixedAt: null, fixedInVersion: null });
@@ -132,8 +140,8 @@ describe('error_groups / error_events (integration)', () => {
   });
 
   it('retention: occurrences older than 30 days go, and rows not seen in 30 days with them', async () => {
-    const old = await repo.record(occurrence({ at: new Date('2026-09-01T00:00:00Z') }, 'd'.repeat(64)));
-    const kept = await repo.record(occurrence({ at: new Date('2026-09-01T00:00:00Z') }));
+    const old = (await repo.record(occurrence({ at: new Date('2026-09-01T00:00:00Z') }, 'd'.repeat(64))))!;
+    const kept = (await repo.record(occurrence({ at: new Date('2026-09-01T00:00:00Z') })))!;
     await repo.record(occurrence({ at: new Date('2026-11-05T07:00:00Z') }));
     expect(await service.sweep()).toEqual({ groups: 1, events: 2 });
     expect(await repo.get(old.groupId)).toBeNull();

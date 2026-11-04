@@ -397,7 +397,9 @@ function buildHostinger() {
   copy(BACKEND, path.join(pkg, 'backend'), (f) => !skip.test(f.slice(BACKEND.replace(/\\/g, '/').length)));
   // The server is built on the host (deploy.sh); that build writes the version history from this.
   fs.copyFileSync(path.join(ROOT, 'CHANGELOG.md'), path.join(pkg, 'backend', 'CHANGELOG.md'));
-  copy(path.join(FRONTEND, 'dist'), path.join(pkg, 'public_html'));
+  // 1.22.4: without the web build's hidden source maps — this web root is served by the host's own web
+  // server (no Error log beside it to read them), and the maps are the site's source code.
+  copy(path.join(FRONTEND, 'dist'), path.join(pkg, 'public_html'), (f) => !f.endsWith('.map'));
   // The Android app, at the address the sign-in page's "Download for Android" button always uses
   // (/downloads/MICO360-Tasks.apk): uploading public_html/ publishes the new build in place, so the
   // link never changes. Build it first with build-apk.sh.

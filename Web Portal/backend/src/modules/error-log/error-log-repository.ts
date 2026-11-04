@@ -1,4 +1,4 @@
-import { comesBack, isNewerVersion, type ErrorKind } from './error-log-rules';
+import { comesBack, isNewerVersion, isVersion, type ErrorKind } from './error-log-rules';
 
 /** One row of the Error log: the same error, however many times it happened. */
 export interface ErrorGroupRow {
@@ -73,8 +73,11 @@ export interface GroupQuery {
 }
 
 export interface ErrorLogRepository {
-  /** Adds one occurrence to its group (made on first sight); a fixed group comes back from a newer version. */
-  record(o: NewOccurrence): Promise<{ groupId: string; created: boolean; reopened: boolean }>;
+  /**
+   * Adds one occurrence to its group (made on first sight, unless `create` is false — then null when
+   * there is no such group yet); a fixed group comes back from a newer version.
+   */
+  record(o: NewOccurrence, opts?: { create?: boolean }): Promise<{ groupId: string; created: boolean; reopened: boolean } | null>;
   list(q: GroupQuery): Promise<ErrorGroupRow[]>;
   /** How many open groups of each kind were seen since a time (the filter chips' numbers). */
   countsByKind(since: Date, status: 'OPEN' | 'FIXED'): Promise<Partial<Record<ErrorKind, number>>>;
@@ -107,7 +110,8 @@ export function nextGroupState(g: ErrorGroupRow, o: NewOccurrence): { patch: Par
     patch: {
       count: g.count + e.count,
       lastSeenAt: later ? e.at : g.lastSeenAt,
-      lastVersion: !g.lastVersion || isNewerVersion(e.version, g.lastVersion) ? (e.version ?? g.lastVersion) : g.lastVersion,
+      // The newest release seen; a word that isn't a version ("unknown") gives way to the first real one.
+      lastVersion: e.version && (!g.lastVersion || !isVersion(g.lastVersion) || isNewerVersion(e.version, g.lastVersion)) ? e.version : g.lastVersion,
       people,
       peopleCount: g.peopleCount + (newPerson ? 1 : 0),
       ...(later ? { title: o.title, topFile: o.topFile ?? g.topFile, topLine: o.topLine ?? g.topLine, topFunction: o.topFunction ?? g.topFunction } : {}),
@@ -126,10 +130,11 @@ export function createMemoryErrorLogRepository(): ErrorLogRepository & { groups:
   return {
     groups,
     eventRows,
-    async record(o) {
+    async record(o, opts) {
       let g = groups.find((x) => x.fingerprint === o.fingerprint);
       let created = false;
       let reopened = false;
+      if (!g && opts?.create === false) return null;
       if (!g) {
         created = true;
         g = {
