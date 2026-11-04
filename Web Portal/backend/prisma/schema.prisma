@@ -1103,6 +1103,8 @@ model MeetingNote {
   decisionId   String?
   createdAt    DateTime                   @default(now())
   editedAt     DateTime?
+  /// 1.22.1: who last changed what the note says (the author, the organizer or an administrator).
+  editedById   String?
   /// Soft delete: hidden from the meeting, minutes and search, restorable (MTG-07).
   deletedAt    DateTime?
   meeting      Meeting                    @relation(fields: [meetingId], references: [id], onDelete: Cascade)

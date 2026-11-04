@@ -50,7 +50,7 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
   const { noteService, guard } = deps;
   const forbidden = { error: { code: 'FORBIDDEN', message: 'You do not have access to this meeting.' } };
   const notFound = { error: { code: 'NOT_FOUND', message: 'Meeting not found.' } };
-  const notAuthor = { error: { code: 'FORBIDDEN', message: 'You can only change your own notes.' } };
+  const notAuthor = { error: { code: 'FORBIDDEN', message: 'Only the person who wrote this note, the meeting’s organizer or an administrator can change it.' } };
   const canView = (req: FastifyRequest, id: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], id) : Promise.resolve(true);
   const canModerate = (req: FastifyRequest, id: string): Promise<boolean> => noteService.canEditMeeting(req.user!.id, req.user!.roles ?? [], id);
@@ -78,12 +78,10 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     const patch = patchSchema.parse(req.body);
     const note = await noteService.getNote(id, noteId);
-    if (note.authorId !== req.user!.id) {
-      // Only the author edits a note's content; the organizer may still highlight it.
-      const highlightOnly = Object.keys(patch).every((k) => k === 'highlighted');
-      if (!highlightOnly || !(await canModerate(req, id))) return reply.status(403).send(notAuthor);
-    }
-    return { data: await noteService.updateNote(id, noteId, patch) };
+    // The author changes their note; so may whoever moderates the meeting (its organizer, an
+    // administrator — 1.22.1, owner 4 Nov), and the note then says who edited it.
+    if (note.authorId !== req.user!.id && !(await canModerate(req, id))) return reply.status(403).send(notAuthor);
+    return { data: await noteService.updateNote(id, noteId, patch, req.user!.id) };
   });
 
   app.delete('/meetings/:id/notes/:noteId', { preHandler: guard.authenticate }, async (req, reply) => {

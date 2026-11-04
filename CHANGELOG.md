@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Meeting notes: the meeting's organizer and administrators can change a note someone else wrote.
+  Saving it no longer fails with "You don't have permission to do that"; the note keeps its author
+  and shows "edited by …" with the name of whoever changed it.
+
 ## [1.22.0] - 2026-11-04
 
 ### New features

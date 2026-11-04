@@ -241,7 +241,7 @@ export function NotesSection({
                     <span className={`font-semibold uppercase tracking-wide ${TYPE_STYLE[note.type].text}`}>{NOTE_TYPE_LABELS[note.type]}</span>
                     {note.highlighted ? <span className="inline-flex items-center gap-0.5 font-medium text-warning">{Icon.star(true)} Key point</span> : null}
                     <span className="text-ink-2"><bdi>{userName(directory, note.authorId) ?? 'Someone'}</bdi></span>
-                    <span className="text-ink-3">· {formatClockTime(note.createdAt, timeZone)}{note.editedAt ? ' · edited' : ''}</span>
+                    <span className="text-ink-3">· {formatClockTime(note.createdAt, timeZone)}{note.editedAt ? editedMark(note, directory) : ''}</span>
                     {note.taskId ? (
                       <button type="button" onClick={() => openTask(note.taskId!)} className="inline-flex min-h-7 items-center gap-1 rounded-full bg-success-soft px-2 font-medium text-success hover:brightness-95">
                         {Icon.task} {taskKeyOf(note) ?? 'Task'} <span className="sr-only">— open the task made from this note</span>
@@ -304,6 +304,12 @@ export function NotesSection({
       ) : null}
     </Section>
   );
+}
+
+/** " · edited", or " · edited by Khurram Admin" when someone other than its author changed it (1.22.1). */
+function editedMark(note: MeetingNote, directory: DirectoryUser[]): string {
+  if (!note.editedById || note.editedById === note.authorId) return ' · edited';
+  return ` · edited by ${userName(directory, note.editedById) ?? 'someone else'}`;
 }
 
 function NoteEditor({ meetingId, note, onDone }: { meetingId: string; note: MeetingNote; onDone: (saved?: MeetingNote) => void }) {

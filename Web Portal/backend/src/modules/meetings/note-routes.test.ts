@@ -159,7 +159,9 @@ describe('Note routes', () => {
 });
 
 describe('Note routes — authorship (SEC-06)', () => {
-  it('lets only the author edit a note; the organizer may highlight or remove it; other attendees neither', async () => {
+  // 1.22.1 (owner, 4 Nov): the organizer and administrators may change the words of a note someone
+  // else wrote (they could already remove it); the note keeps its author and says who edited it.
+  it('lets the author, the organizer and administrators change a note; other attendees neither edit nor highlight it', async () => {
     const attendeesOf: Record<string, string[]> = {};
     const app = await makeApp(attendeesOf);
     const id = await ownedMeeting(app, 'u1');
@@ -167,17 +169,28 @@ describe('Note routes — authorship (SEC-06)', () => {
     const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
     const author = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
     const other = { authorization: `Bearer ${await tokenFor('u3', ['EMPLOYEE'])}` };
+    const admin = { authorization: `Bearer ${await tokenFor('u9', ['ADMIN'])}` };
     const noteId = (await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes`, headers: author, payload: { body: 'Budget approved' } })).json().data.id;
     const patch = (headers: Record<string, string>, payload: Record<string, unknown>) =>
       app.inject({ method: 'PATCH', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers, payload });
 
     expect((await patch(other, { body: 'Budget rejected' })).statusCode).toBe(403);
     expect((await patch(other, { highlighted: true })).statusCode).toBe(403);
-    expect((await patch(organizer, { body: 'Budget rejected' })).statusCode).toBe(403);
     const lit = await patch(organizer, { highlighted: true });
     expect(lit.statusCode).toBe(200);
     expect(lit.json().data).toMatchObject({ highlighted: true, body: 'Budget approved', editedAt: null });
-    expect((await patch(author, { body: 'Budget approved (with cuts)' })).json().data.editedAt).toBeTruthy();
+
+    const byOrganizer = await patch(organizer, { body: 'Budget approved with cuts', type: 'DECISION' });
+    expect(byOrganizer.statusCode).toBe(200);
+    expect(byOrganizer.json().data).toMatchObject({ body: 'Budget approved with cuts', type: 'DECISION', authorId: 'u2', editedById: 'u1' });
+    expect(byOrganizer.json().data.editedAt).toBeTruthy();
+
+    const byAdmin = await patch(admin, { body: 'Budget approved with 10% cuts' });
+    expect(byAdmin.statusCode).toBe(200);
+    expect(byAdmin.json().data).toMatchObject({ body: 'Budget approved with 10% cuts', authorId: 'u2', editedById: 'u9' });
+
+    const byAuthor = await patch(author, { body: 'Budget approved with 10% cuts, from May' });
+    expect(byAuthor.json().data).toMatchObject({ authorId: 'u2', editedById: 'u2' });
 
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: other })).statusCode).toBe(403);
     expect((await app.inject({ method: 'DELETE', url: `/api/v1/meetings/${id}/notes/${noteId}`, headers: organizer })).statusCode).toBe(204);

@@ -18,6 +18,7 @@ function toRecord(r: Row): NoteRecord {
     decisionId: r.decisionId,
     createdAt: r.createdAt,
     editedAt: r.editedAt,
+    editedById: r.editedById,
   };
 }
 
@@ -60,6 +61,7 @@ export function createPrismaNoteRepository(prisma: PrismaClient): NoteRepository
           ...(patch.taskId !== undefined ? { taskId: patch.taskId } : {}),
           ...(patch.actionItemId !== undefined ? { actionItemId: patch.actionItemId } : {}),
           ...(patch.editedAt !== undefined ? { editedAt: patch.editedAt } : {}),
+          ...(patch.editedById !== undefined ? { editedById: patch.editedById } : {}),
         },
       });
       return toRecord(row);

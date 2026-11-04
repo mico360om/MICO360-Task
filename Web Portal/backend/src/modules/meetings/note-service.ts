@@ -41,7 +41,8 @@ export interface NoteService {
   listNotes(meetingId: string): Promise<NoteRecord[]>;
   getNote(meetingId: string, noteId: string): Promise<NoteRecord>;
   addNote(meetingId: string, authorId: string, input: AddNoteInput): Promise<NoteRecord>;
-  updateNote(meetingId: string, noteId: string, patch: UpdateNoteInput): Promise<NoteRecord>;
+  /** `editorId`: who is changing it — kept as the note's `editedById` when its words change. */
+  updateNote(meetingId: string, noteId: string, patch: UpdateNoteInput, editorId?: string): Promise<NoteRecord>;
   removeNote(meetingId: string, noteId: string): Promise<void>;
   /** A deleted note of this meeting (to check who may restore it). */
   getDeletedNote(meetingId: string, noteId: string): Promise<NoteRecord>;
@@ -120,7 +121,7 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
       return rec;
     },
 
-    async updateNote(meetingId, noteId, patch) {
+    async updateNote(meetingId, noteId, patch, editorId) {
       if (patch.body !== undefined && !patch.body.trim()) throw new ValidationError('A note needs some content.');
       if (patch.type !== undefined && !TYPES.includes(patch.type)) throw new ValidationError('Invalid note type.');
       const current = await requireInMeeting(meetingId, noteId);
@@ -142,7 +143,7 @@ export function createNoteService(deps: NoteServiceDeps): NoteService {
         ...(patch.type !== undefined ? { type: patch.type } : {}),
         ...(patch.highlighted !== undefined ? { highlighted: patch.highlighted } : {}),
         ...(agendaItemId !== undefined ? { agendaItemId } : {}),
-        ...(contentChanged ? { editedAt: new Date() } : {}),
+        ...(contentChanged ? { editedAt: new Date(), ...(editorId ? { editedById: editorId } : {}) } : {}),
       });
       deps.onChanged?.(meetingId);
       return rec;

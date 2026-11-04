@@ -19,6 +19,8 @@ export interface NoteRecord {
   decisionId: string | null;
   createdAt: Date;
   editedAt: Date | null;
+  /** 1.22.1: who last changed what the note says (the author, the organizer or an administrator). */
+  editedById?: string | null;
 }
 
 export interface CreateNoteData {
@@ -40,6 +42,7 @@ export interface UpdateNoteData {
   taskId?: string | null;
   actionItemId?: string | null;
   editedAt?: Date | null;
+  editedById?: string | null;
 }
 
 export interface NoteRepository {

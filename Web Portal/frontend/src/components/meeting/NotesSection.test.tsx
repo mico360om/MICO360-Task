@@ -136,3 +136,45 @@ describe('NotesSection — a meeting that is over', () => {
     expect(await screen.findByText(/as the meeting unfolds/i)).toBeInTheDocument();
   });
 });
+
+// 1.22.1 (owner, 4 Nov): the organizer or an administrator may change a note someone else wrote; the
+// note keeps its author and says who edited it.
+describe('NotesSection — a note changed by someone else', () => {
+  const directory = [
+    { id: 'me', firstName: 'Khurram', lastName: 'Admin', username: 'khurram' },
+    { id: 'omar', firstName: 'Omar', lastName: 'Said', username: 'omar' },
+  ];
+  function renderWith(dir: typeof directory) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <NotesSection meetingId="m1" meetingProjectId={null} directory={dir as never} canEdit pollMs={false} timeZone="Asia/Muscat" ended={false} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('names its author and, when another person changed it, who edited it', async () => {
+    notes = [
+      note({ id: 'theirs', authorId: 'omar', body: 'Steel moved to Thursday', editedAt: '2026-10-17T07:00:00.000Z', editedById: 'me' }),
+      note({ id: 'own', authorId: 'omar', body: 'Cranes booked', editedAt: '2026-10-17T07:05:00.000Z', editedById: 'omar' }),
+    ];
+    renderWith(directory);
+    const theirs = (await screen.findByText('Steel moved to Thursday')).closest('li')!;
+    expect(within(theirs).getByText('Omar Said')).toBeInTheDocument();
+    expect(within(theirs).getByText(/edited by Khurram Admin/)).toBeInTheDocument();
+    const own = screen.getByText('Cranes booked').closest('li')!;
+    expect(within(own).getByText(/· edited$/)).toBeInTheDocument();
+    expect(within(own).queryByText(/edited by/)).toBeNull();
+  });
+
+  it('lets the organizer change a note someone else wrote and saves it', async () => {
+    notes = [note({ id: 'theirs', authorId: 'omar', body: 'Steel moved to Thursday' })];
+    renderWith(directory);
+    const item = (await screen.findByText('Steel moved to Thursday')).closest('li')!;
+    await userEvent.click(within(item).getByRole('button', { name: /^Edit/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Save/ }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/meetings/m1/notes/theirs'))).toBe(true));
+  });
+});

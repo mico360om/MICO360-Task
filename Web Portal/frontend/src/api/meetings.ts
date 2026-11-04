@@ -219,6 +219,8 @@ export interface MeetingNote {
   decisionId: string | null;
   createdAt: string;
   editedAt: string | null;
+  /** 1.22.1: who last changed what it says (the author, the meeting's organizer or an administrator). */
+  editedById?: string | null;
 }
 
 export interface NewNoteInput {
