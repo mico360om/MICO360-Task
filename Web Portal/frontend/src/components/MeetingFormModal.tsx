@@ -32,12 +32,18 @@ import { useMyCompanies } from '../hooks/useMyCompanies';
 import { COMPANY_GONE_CODE } from '../lib/companies';
 import { DateTimeField } from './ui/DateTimeField';
 import { useDateSettings } from '../lib/useDatePrefs';
+import { TeamsLinkField } from './meeting-form/TeamsLinkField';
+import { TeamsSaveProblem } from './meeting-form/TeamsSaveProblem';
+import { useMicrosoftTeams } from '../lib/useMicrosoftTeams';
+import type { TeamsNotice } from '../api/microsoft';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
   meeting?: Meeting;
   /** A new meeting's project (e.g. scheduled from the project's dashboard). */
   defaultProjectId?: string;
+  /** 1.23: a new meeting starts with "Create a Teams link" ticked (e.g. the next meeting of a series whose link Teams made). */
+  defaultTeamsLink?: boolean;
   onClose: () => void;
   onSaved?: (id: string) => void;
 }
@@ -63,7 +69,7 @@ const RepeatIcon = () => (
  * meetings or on a date); editing a meeting of a series asks whether the change is for this
  * meeting only or for all its upcoming meetings.
  */
-export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }: MeetingFormModalProps) {
+export function MeetingFormModal({ meeting, defaultProjectId, defaultTeamsLink = false, onClose, onSaved }: MeetingFormModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const timeZone = useCompanyTimeZone();
@@ -81,6 +87,20 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   const [end, setEnd] = useState(() => (meeting ? toLocalInputValue(meeting.endAt, timeZone) : ''));
   const [location, setLocation] = useState(meeting?.location ?? '');
   const [onlineLink, setOnlineLink] = useState(meeting?.onlineLink ?? '');
+  // 1.23 "Create a Teams link": ticked for a meeting whose link Teams made (or is to make).
+  const hadTeams = meeting?.onlineMeetingProvider === 'TEAMS';
+  const teamsPending = hadTeams && meeting?.teamsLinkPending === true;
+  const [teamsLink, setTeamsLink] = useState(editing ? hadTeams : defaultTeamsLink);
+  const { available: teamsAvailable } = useMicrosoftTeams();
+  // Saved, but Teams couldn't make the link: the notice and Make Teams link take the form's place.
+  const [teamsProblem, setTeamsProblem] = useState<{ id: string; notice: TeamsNotice } | null>(null);
+  const changeTeamsLink = (on: boolean) => {
+    setTeamsLink(on);
+    if (linkError) setLinkError(null);
+    // Taking a Teams link away leaves the field empty (a link of your own can be pasted); ticking
+    // again brings the meeting's own Teams link back.
+    if (hadTeams) setOnlineLink(on ? (meeting?.onlineLink ?? '') : '');
+  };
   const [projectId, setProjectId] = useState(meeting?.projectId ?? defaultProjectId ?? '');
   const [status, setStatus] = useState<MeetingStatus>(meeting?.status ?? 'SCHEDULED');
   const [description, setDescription] = useState(meeting?.description ?? '');
@@ -212,7 +232,8 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
     mutationFn: (as: SeriesScope) => {
       const startAt = fromLocalInputValue(start, timeZone);
       if (!startAt) throw new Error('bad-start');
-      const link = normalizeMeetingLink(onlineLink);
+      // 1.23: with "Create a Teams link" the Teams link fills Online link (the meeting's own, once made).
+      const link = teamsLink && teamsAvailable ? (hadTeams ? (meeting?.onlineLink ?? null) : null) : normalizeMeetingLink(onlineLink);
       const payload: NewMeetingInput = {
         title: title.trim(),
         startAt,
@@ -224,6 +245,8 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         status,
         description: description.trim() || null,
         ...(showCompany && companyId ? { companyId } : {}),
+        // Sent only where Teams links are set up, and only when it matters (made, kept, or taken away).
+        ...(teamsAvailable && (teamsLink || hadTeams) ? { teamsLink } : {}),
       };
       if (editing && seriesId && as === 'series') {
         // The series' upcoming meetings get only what was changed here, so a meeting changed on its
@@ -242,6 +265,8 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         if (status !== was.status) changes.status = status;
         if (!same(payload.description, was.description)) changes.description = payload.description;
         if (ruleChanged) changes.recurrenceRule = rule;
+        // 1.23: a Teams link made (or tried again) or taken away.
+        if (payload.teamsLink !== undefined && (payload.teamsLink !== hadTeams || (payload.teamsLink && teamsPending))) changes.teamsLink = payload.teamsLink;
         // Nothing changed: nothing to send (and nobody to email).
         if (Object.keys(changes).length === 0) return Promise.resolve(was);
         return meetingsApi(apiClient).update(was.id, changes, 'series');
@@ -260,6 +285,13 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
       void qc.invalidateQueries({ queryKey: ['meetings'] });
       void qc.invalidateQueries({ queryKey: ['meeting'] });
       if (editing) void qc.invalidateQueries({ queryKey: ['meeting', saved.id] });
+      // 1.23: saved, but its Teams link couldn't be made — say so, with Make Teams link (Done goes on).
+      const notice = (saved as Meeting).teamsNotice;
+      if (notice && (notice.code === 'TEAMS_FAILED' || notice.code === 'TEAMS_NOT_CONNECTED')) {
+        setAskScope(false);
+        setTeamsProblem({ id: saved.id, notice });
+        return;
+      }
       onSaved?.(saved.id);
       onClose();
     },
@@ -301,7 +333,8 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
       setError(endAt < startAt ? 'The end time can’t be before the start time.' : 'The end time must be after the start time.');
       return;
     }
-    const link = normalizeMeetingLink(onlineLink);
+    // (With "Create a Teams link" ticked, Teams fills the link: nothing typed to check.)
+    const link = teamsLink && teamsAvailable ? null : normalizeMeetingLink(onlineLink);
     if (link === undefined) {
       setLinkError('Enter a web link that starts with https:// (for example https://meet.google.com/abc-defg-hij).');
       linkRef.current?.focus();
@@ -457,16 +490,26 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
                     type="url"
                     inputMode="url"
                     dir="ltr"
-                    value={onlineLink}
+                    // 1.23: with "Create a Teams link" ticked, Teams fills this in (the meeting's own link once made).
+                    value={teamsLink && teamsAvailable ? (hadTeams ? (meeting?.onlineLink ?? '') : '') : onlineLink}
+                    disabled={teamsLink && teamsAvailable}
                     aria-invalid={linkError ? true : undefined}
                     aria-describedby={linkError ? 'mf-link-error' : undefined}
                     onChange={(e) => { setOnlineLink(e.target.value); if (linkError) setLinkError(null); }}
                     onBlur={() => { const n = normalizeMeetingLink(onlineLink); if (n && n !== onlineLink) setOnlineLink(n); }}
-                    placeholder="https://…"
-                    className={fieldClass(!!linkError)}
+                    placeholder={teamsLink && teamsAvailable ? 'The Teams link goes here' : 'https://…'}
+                    className={`${fieldClass(!!linkError)} disabled:cursor-not-allowed disabled:opacity-70`}
                   />
                 </div>
                 {linkError ? <p id="mf-link-error" role="alert" className="-mt-1 text-xs font-medium text-danger sm:col-span-2">{linkError}</p> : null}
+                <TeamsLinkField
+                  checked={teamsLink}
+                  onChange={changeTeamsLink}
+                  organizerIsMe={!editing || meeting?.organizerId === organizerId}
+                  hadTeams={hadTeams}
+                  pending={teamsPending}
+                  repeating={!!rule || !!seriesId}
+                />
               </div>
   );
   const statusField = (
@@ -524,7 +567,18 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         {/* A big form on the shared scale: 720px on a tablet, 960px (two columns) from 1024px, full screen on a phone. */}
         <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}>
-          {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
+          {/* 1.23: saved, but Teams couldn't make its link — the notice and Make Teams link (never the form again). */}
+          {teamsProblem ? (
+            <TeamsSaveProblem
+              meetingId={teamsProblem.id}
+              notice={teamsProblem.notice}
+              onDone={() => {
+                onSaved?.(teamsProblem.id);
+                onClose();
+              }}
+            />
+          ) : (
+          /* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
             <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
               <h2 className="mb-1 font-display text-xl font-bold text-ink">{editing ? 'Edit meeting' : 'Schedule a meeting'}</h2>
@@ -574,6 +628,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
               </Button>
             </div>
           </form>
+          )}
         </div>
       </div>
       {askScope ? (

@@ -17,6 +17,7 @@ import { DAILY_EMAIL_ANCHOR, DailyEmailSettings } from '../components/settings/D
 import { useScrollToHash } from '../lib/useScrollToHash';
 import { WeeklySummarySettings } from '../components/settings/WeeklySummarySettings';
 import { MyProjectsSettings } from '../components/settings/MyProjectsSettings';
+import { MicrosoftTeamsSettings } from '../components/settings/MicrosoftTeamsSettings';
 
 const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
@@ -247,6 +248,9 @@ export function SettingsPage() {
 
         {/* Projects: "Show my projects only" (administrators) */}
         <MyProjectsSettings />
+
+        {/* 1.23: Microsoft Teams — my own Microsoft account makes my meetings' Teams links (when the site has them) */}
+        <MicrosoftTeamsSettings />
 
         {/* Appearance */}
         <section className="card p-5 lg:col-span-2">

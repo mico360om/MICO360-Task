@@ -96,7 +96,7 @@ export function MeetingHeader({
             {joinHref ? (
               <li className="flex items-center gap-1.5">
                 <span className="text-ink-3">{Icon.video}</span>
-                <a href={joinHref} target="_blank" rel="noopener noreferrer" className="tap font-medium text-brand hover:underline">Join online</a>
+                <a href={joinHref} target="_blank" rel="noopener noreferrer" className="tap font-medium text-brand hover:underline">{meeting.onlineMeetingProvider === 'TEAMS' ? 'Join on Teams' : 'Join online'}</a>
               </li>
             ) : null}
             <Fact icon={Icon.user}>Organizer: {organizerName ? <bdi>{organizerName}</bdi> : '—'}</Fact>

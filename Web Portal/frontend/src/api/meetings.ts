@@ -1,6 +1,7 @@
 import type { ApiClient } from '../lib/api-client';
 import type { CompanyPersonOption } from './companies';
 import type { RecurrenceRule } from '../lib/recurrence';
+import type { TeamsNotice } from './microsoft';
 
 export type { RecurrenceRule };
 
@@ -78,6 +79,12 @@ export interface Meeting {
   organizerId: string;
   location: string | null;
   onlineLink: string | null;
+  /** 1.23: 'TEAMS' when the online link was (or is to be) made by Microsoft Teams; null for a pasted link. */
+  onlineMeetingProvider?: 'TEAMS' | null;
+  /** 1.23: a Teams link was asked for but couldn't be made yet (Make Teams link). */
+  teamsLinkPending?: boolean;
+  /** 1.23 (the answer to a save): why the Teams link wasn't made — the meeting is saved either way. */
+  teamsNotice?: TeamsNotice;
   startAt: string;
   endAt: string | null;
   timeZone: string | null;
@@ -291,6 +298,8 @@ export interface NewMeetingInput {
   recurrenceRule?: RecurrenceRule | null;
   /** companies: a meeting without a project — one of my companies (left out: the picked, else my primary one). */
   companyId?: string | null;
+  /** 1.23: "Create a Teams link" (true: made with the organizer's own account; false: taken away). */
+  teamsLink?: boolean;
   /** People invited from the new-meeting form, saved with the meeting (all or nothing). */
   attendees?: Array<{ userId?: string; externalName?: string; externalEmail?: string; role?: AttendeeRole }>;
   /** The new-meeting form's agenda, saved with the meeting. */
