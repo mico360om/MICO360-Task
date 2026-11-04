@@ -344,6 +344,11 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // Full task search (merged from feat/android-1-19): its permissions are built in
   // search/task-search-scope.ts, where the picked companies go (MC1 Task 13).
   'GET /search/tasks': 'list',
+  // 1.23 Search everything: every kind of item the person may open (search-scope), with the pick; the
+  // AI panel answers only from those items; its status says only whether AI is set up.
+  'GET /search/all': 'list',
+  'POST /search/ai': 'list',
+  'GET /search/ai/status': 'own',
 
   // Companies admin API and the person's own companies (MC1 Task 5).
   'GET /me/companies': 'own',

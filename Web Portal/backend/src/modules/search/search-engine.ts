@@ -53,6 +53,8 @@ export interface SearchAllInput {
   offset?: number;
   extra?: boolean;
   withCounts?: boolean;
+  /** Only these items (meaning-search candidates): visibility and filters still apply. */
+  only?: { kind: SearchKind; id: string }[];
 }
 
 export interface SearchAllResult {
@@ -79,9 +81,9 @@ interface Pass {
 }
 
 const like = (term: string) => Buffer.from(`%${escapeLike(term)}%`, 'utf8');
-const anyOf = (col: Prisma.Sql, group: Group) => Prisma.sql`(${Prisma.join(group.map((a) => Prisma.sql`${col} LIKE ${like(a)} ESCAPE '!'`), ' OR ')})`;
-const allOf = (col: Prisma.Sql, groups: Group[]) => Prisma.sql`(${Prisma.join(groups.map((g) => anyOf(col, g)), ' AND ')})`;
-const howMany = (col: Prisma.Sql, groups: Group[]) => Prisma.sql`(${Prisma.join(groups.map((g) => Prisma.sql`(${anyOf(col, g)})`), ' + ')})`;
+const anyOf = (col: Prisma.Sql, group: Group) => (group.length ? Prisma.sql`(${Prisma.join(group.map((a) => Prisma.sql`${col} LIKE ${like(a)} ESCAPE '!'`), ' OR ')})` : Prisma.sql`FALSE`);
+const allOf = (col: Prisma.Sql, groups: Group[]) => (groups.length ? Prisma.sql`(${Prisma.join(groups.map((g) => anyOf(col, g)), ' AND ')})` : Prisma.sql`TRUE`);
+const howMany = (col: Prisma.Sql, groups: Group[]) => (groups.length ? Prisma.sql`(${Prisma.join(groups.map((g) => Prisma.sql`(${anyOf(col, g)})`), ' + ')})` : Prisma.sql`0`);
 const ids = (list: readonly string[]) => (list.length ? Prisma.join(list) : Prisma.sql`NULL`);
 const inList = (col: Prisma.Sql, list: readonly string[] | null) => (list === null ? Prisma.sql`TRUE` : list.length ? Prisma.sql`${col} IN (${ids(list)})` : Prisma.sql`FALSE`);
 const recency = (at: Prisma.Sql) => Prisma.sql`GREATEST(0, 25 - LEAST(25, ABS(DATEDIFF(${at}, NOW())) / 7))`;
@@ -103,10 +105,13 @@ export function createSearchEngine({
   function taskPart(pass: Pass, input: SearchAllInput, scored: boolean): Prisma.Sql | null {
     const kinds = input.kinds;
     if (kinds && !kinds.includes('task')) return null;
+    const onlyTasks = input.only?.filter((o) => o.kind === 'task').map((o) => o.id);
+    if (onlyTasks && onlyTasks.length === 0) return null;
     const visible = visibleTasksSql({ projectIds: input.scope.projectIds }, { includeArchived: input.includeArchived, ...(pass.byNumber ? { archivedWhen: pass.byNumber } : {}) });
     const doc = Prisma.sql`si.doc`;
     const words = pass.min >= pass.groups.length ? allOf(doc, pass.groups) : Prisma.sql`${howMany(doc, pass.groups)} >= ${pass.min}`;
     const where: Prisma.Sql[] = [visible, pass.byNumber ? Prisma.sql`(${words} OR ${pass.byNumber})` : words];
+    if (onlyTasks) where.push(Prisma.sql`t.id IN (${Prisma.join(onlyTasks)})`);
     if (input.projectId) where.push(Prisma.sql`t.projectId = ${input.projectId}`);
     if (input.taskStatuses?.length) where.push(Prisma.sql`c.category IN (${Prisma.join(input.taskStatuses)})`);
     const done = Prisma.sql`(t.completedAt IS NOT NULL OR c.category = 'DONE')`;
@@ -150,6 +155,11 @@ export function createSearchEngine({
       OR (si.kind = 'minutes' AND m.deletedAt IS NULL AND ((si.status = 'APPROVED' AND ${seen}) OR (si.status <> 'APPROVED' AND ${full} AND ${editable}))))`;
     const words = pass.min >= pass.groups.length ? allOf(txt, pass.groups) : Prisma.sql`${howMany(txt, pass.groups)} >= ${pass.min}`;
     const where: Prisma.Sql[] = [Prisma.sql`si.kind IN (${Prisma.join(wanted)})`, visible, words];
+    if (input.only) {
+      const others = input.only.filter((o) => o.kind !== 'task');
+      if (others.length === 0) return null;
+      where.push(Prisma.sql`(si.kind, si.recordId) IN (${Prisma.join(others.map((o) => Prisma.sql`(${o.kind}, ${o.id})`))})`);
+    }
     if (input.projectId) where.push(Prisma.sql`p.id = ${input.projectId}`);
     const done = Prisma.sql`(CASE si.kind
       WHEN 'project' THEN p.status IN ('COMPLETED', 'ARCHIVED')
@@ -305,7 +315,18 @@ export function createSearchEngine({
     };
   }
 
-  return { search, describe, rows, counts };
+  /**
+   * The AI panel's candidates: items holding any of these words (more of them first), or — `only`, no
+   * words — just those items (meaning-search candidates); the person's scope and filters as always.
+   */
+  async function anyWords(input: SearchAllInput & { words: string[] }): Promise<SearchHit[]> {
+    const groups = [...new Set(input.words.map(normalizeForSearch).filter(Boolean))].map((w) => [w]);
+    if (groups.length === 0 && !input.only?.length) return [];
+    const found = await rows({ groups, min: groups.length ? 1 : 0, byNumber: null, phrase: null }, input, Math.max(1, Math.min(50, input.limit)), 0);
+    return describe(found, groups.flat(), (words) => groups.length === 0 || words.length > 0, input);
+  }
+
+  return { search, anyWords, describe, rows, counts };
 }
 
 export type SearchEngine = ReturnType<typeof createSearchEngine>;

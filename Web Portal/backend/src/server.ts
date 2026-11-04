@@ -164,6 +164,15 @@ import { createPrismaSearchDataSource } from './modules/search/prisma-search-dat
 import { createTaskSearchIndex } from './modules/search/task-search-index';
 import { createTaskSearchEngine } from './modules/search/task-search-engine';
 import { startTaskSearchSweeps } from './modules/search/task-search-sweeps';
+import { createSearchIndex } from './modules/search/search-index';
+import { createVocabulary } from './modules/search/search-fuzzy';
+import { createPrismaSearchWords } from './modules/search/prisma-search-words';
+import { createFileTextService } from './modules/search/file-text-service';
+import { createSearchScope } from './modules/search/search-scope';
+import { createSearchEngine } from './modules/search/search-engine';
+import { createSemanticSearch } from './modules/search/search-semantic';
+import { createAiSearch } from './modules/search/search-ai';
+import { startSearchSweeps } from './modules/search/search-sweeps';
 import { createPrismaMeetingRepository } from './modules/meetings/prisma-meeting-repository';
 import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
@@ -254,7 +263,22 @@ async function main(): Promise<void> {
   let onProjectAudienceChanged: OnProjectAudienceChanged = () => {};
   // 1.22 "Show my projects only": an administrator's own setting, read on every list (never cached).
   const myProjectsOnly = (userId: string) => readMyProjectsOnly(prisma, userId);
-  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup, companies: projectCompanies, myProjectsOnly });
+  // 1.23 Search everything: projects, meetings, notes, final minutes, task files and inspections in
+  // search_index (tasks keep task_search_index), refreshed after the changes below, healed by sweeps;
+  // the words of both for the spelling-mistake pass.
+  const searchWords = createPrismaSearchWords(prisma);
+  const searchVocabulary = createVocabulary({ load: searchWords.load, store: searchWords.store });
+  const searchIndex = createSearchIndex({ prisma, logger, words: searchVocabulary });
+  const projectServiceBase = createProjectService({ projects: projectRepository, people: peopleLookup, companies: projectCompanies, myProjectsOnly });
+  // A project made, edited, archived or deleted is searched as it is now (never holding the request up).
+  const projectService: typeof projectServiceBase = {
+    ...projectServiceBase,
+    createProject: async (...a) => { const r = await projectServiceBase.createProject(...a); void searchIndex.projectChanged(r.id); return r; },
+    editProject: async (id, ...a) => { const r = await projectServiceBase.editProject(id, ...a); void searchIndex.projectChanged(id); return r; },
+    updateProject: async (id, ...a) => { const r = await projectServiceBase.updateProject(id, ...a); void searchIndex.projectChanged(id); return r; },
+    archiveProject: async (id) => { const r = await projectServiceBase.archiveProject(id); void searchIndex.projectChanged(id); return r; },
+    deleteProject: async (id) => { await projectServiceBase.deleteProject(id); void searchIndex.projectChanged(id); },
+  };
 
   const columnService = createColumnService({
     columns: createPrismaColumnRepository(prisma),
@@ -301,7 +325,7 @@ async function main(): Promise<void> {
   // Task search: one normalised text per task (task_search_index), refreshed after every change the
   // services make (the hooks below call taskChanged), healed by the sweeps further down, and searched
   // by the top-bar search and the Search results page (GET /search/tasks).
-  const taskSearchIndex = createTaskSearchIndex({ prisma, logger });
+  const taskSearchIndex = createTaskSearchIndex({ prisma, logger, words: searchVocabulary });
   const taskSearchEngine = createTaskSearchEngine({ prisma, index: taskSearchIndex, timeZone: companyTz });
   // Task approvals: who may approve a project's tasks is who may manage it (admins, owner, named
   // manager, MANAGER members) — the person's current roles, read at the moment they act.
@@ -487,7 +511,13 @@ async function main(): Promise<void> {
     allowedMimeTypes: attachmentAllowedMime,
     maxTotalBytesPerTask: env.UPLOAD_MAX_TOTAL_BYTES_PER_TASK,
     shrinkImage: imageShrinker.shrink,
-    onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    // 1.23: a file added or removed — its task's files are searched as they are now, and the text in a
+    // new file is read in the background (never holding up the upload).
+    onChanged: (taskId) => {
+      void searchIndex.taskFilesChanged(taskId);
+      void fileTexts.taskFilesAdded(taskId);
+      return taskSearchIndex.taskChanged(taskId);
+    },
   });
 
   const dependencyService = createDependencyService({
@@ -616,7 +646,22 @@ async function main(): Promise<void> {
     emit: (audience, event, payload) => broadcastToAudience(audience, event, payload),
     onError: (err) => logger.error('meeting realtime event failed', { err }),
   });
-  const broadcastMeetingChange = (meetingId: string, event: string) => void meetingEvents.publish(meetingId, event);
+  // 1.23: every change to a meeting (its notes, agenda, decisions, action items, minutes) also re-reads
+  // it for search — once a burst of changes settles (a live meeting's notes come quickly).
+  const meetingSearchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const meetingSearchChanged = (meetingId: string) => {
+    clearTimeout(meetingSearchTimers.get(meetingId));
+    const timer = setTimeout(() => {
+      meetingSearchTimers.delete(meetingId);
+      void searchIndex.meetingChanged(meetingId);
+    }, 1500);
+    timer.unref?.();
+    meetingSearchTimers.set(meetingId, timer);
+  };
+  const broadcastMeetingChange = (meetingId: string, event: string) => {
+    void meetingEvents.publish(meetingId, event);
+    meetingSearchChanged(meetingId);
+  };
   // One broadcast per change (the routes no longer broadcast on their own).
   const meetingService = createMeetingService({
     meetings: meetingRepository,
@@ -1552,6 +1597,46 @@ async function main(): Promise<void> {
 
   // Client view: a client follows one project on a read-only page — a private link that opens only
   // with a code emailed to them; nothing in it is a staff account or session.
+  // 1.23 Search everything: the text inside task files (read in the background; scans and pictures by
+  // the OCR model while one is set up), the person's scope from the site's own rules, the engine over
+  // both indexes, meaning search (with an embedding model) and the AI panel (one AI request a question).
+  const fileTexts = createFileTextService({
+    prisma,
+    storage: { read: (key) => (attachmentStorage.read ? attachmentStorage.read(key) : Promise.reject(new Error('no storage reader'))) },
+    index: searchIndex,
+    ocr: { ready: () => aiFeatureService.ocrReady(), read: (images) => aiFeatureService.readPictures(images) },
+    logger,
+  });
+  const searchScope = createSearchScope({
+    prisma,
+    accessibleProjectIds: (userId, roles, pick) => projectAccess.accessibleProjectIds(userId, roles, pick),
+    manageableProjectIds: (userId, roles, projectIds) => projectAuthz.manageableProjectIds(userId, roles, projectIds),
+    myProjectsOnly: (viewer) => companyAccess.myProjectsOnly(viewer),
+  });
+  const searchEngine = createSearchEngine({
+    prisma,
+    timeZone: companyTz,
+    suggest: (word) => searchVocabulary.suggest(word),
+    onStale: (kind, id) => void (kind === 'task' ? taskSearchIndex.taskChanged(id) : searchIndex.refresh(kind, [id]).catch((err) => logger.error('search: re-indexing an item failed', { err, kind, id }))),
+  });
+  const searchSemantic = createSemanticSearch({ prisma, ai: aiFeatureService, logger });
+  const aiSearch = createAiSearch({
+    ai: aiFeatureService,
+    candidates: (query, viewer, scope) => searchEngine.anyWords({ q: '', scope, viewerId: viewer.id, ...query }),
+    projects: async (viewer) => (await projectService.listVisibleProjects(viewer)).map((p) => ({ id: p.id, code: p.code, name: p.name })),
+    semantic: searchSemantic,
+    timeZone: companyTz,
+    logger,
+  });
+  const searchEverything = {
+    engine: searchEngine,
+    scope: searchScope,
+    ai: {
+      status: async () => ({ ready: await aiFeatureService.chatReady().catch(() => false), semantic: await searchSemantic.ready() }),
+      ask: aiSearch.ask,
+    },
+    timeZone: companyTz,
+  };
   const readStoredProjectImage = async (url: string) =>
     url.startsWith('/uploads/') && attachmentStorage.read ? attachmentStorage.read(url.slice('/uploads/'.length)) : null;
 
@@ -1712,6 +1797,7 @@ async function main(): Promise<void> {
     },
     searchService,
     taskSearch: taskSearchEngine,
+    searchEverything,
     meetingService,
     meetingSeriesService,
     projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: companyTz },
@@ -1937,6 +2023,8 @@ async function main(): Promise<void> {
   // and every six hours every task whose words changed any other way (a removed comment, a renamed
   // tag) — and an index built with an older version is rebuilt (task-search-sweeps).
   startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
+  // 1.23: search_index's heals, files never read, files waiting for AI OCR and meaning vectors.
+  startSearchSweeps({ index: searchIndex, files: fileTexts, semantic: searchSemantic, lock: jobLock, logger });
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });
