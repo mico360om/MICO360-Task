@@ -5,8 +5,9 @@ import type { CompanyPeopleChange } from '../../api/companies';
 import { usersApi } from '../../api/users';
 import { useDialog } from '../../hooks/useDialog';
 import { Button } from '../ui/Button';
-import { FieldLabel, fieldClass } from '../ui/Field';
 import { ModalPortal } from '../ui/ModalPortal';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { CompanyTickList } from './CompanyTickList';
 import { peopleCount, problemText, refreshCompanies, useCompanyChoices } from './company-admin';
 
 export interface BulkCompanyDialogProps {
@@ -52,23 +53,20 @@ export function BulkCompanyDialog({ mode, userIds, onClose, onDone }: BulkCompan
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('small')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={mut.isPending ? undefined : onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${fieldId}-title`} className="card relative w-full max-w-sm animate-scale-in p-5">
-          <h2 id={`${fieldId}-title`} className="font-display text-lg font-semibold text-ink">{title}</h2>
-          {problem ? <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
-          <div className="mt-4 flex flex-col gap-1.5">
-            <FieldLabel htmlFor={fieldId}>Company</FieldLabel>
-            <select id={fieldId} value={companyId} onChange={(e) => setCompanyId(e.target.value)} className={fieldClass(false, '[@media(pointer:coarse)]:!min-h-11')}>
-              <option value="">Choose a company</option>
-              {offered.map((c) => (
-                <option key={c.id} value={c.id}>{c.status === 'ARCHIVED' ? `${c.name} (archived)` : c.name}</option>
-              ))}
-            </select>
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${fieldId}-title`} className={`card relative flex ${dialogPanel('small')} animate-scale-in flex-col overflow-hidden`}>
+          {/* The companies scroll (a site can have many); the title and the buttons stay in view. */}
+          <div className="flex-none px-5 pt-5">
+            <h2 id={`${fieldId}-title`} className="font-display text-lg font-semibold text-ink">{title}</h2>
+            {problem ? <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
           </div>
-          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={onClose} disabled={mut.isPending} shortcut="cancel">Cancel</Button>
-            <Button variant={mode === 'add' ? 'primary' : 'danger'} onClick={send} loading={mut.isPending}>{mode === 'add' ? 'Add' : 'Remove'}</Button>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-1 pt-4">
+            <CompanyTickList single legend="Company" companies={offered} value={companyId ? [companyId] : []} onChange={(ids) => setCompanyId(ids[0] ?? '')} />
+          </div>
+          <div className="flex flex-none flex-col-reverse gap-2 px-5 pb-5 pt-4 sm:flex-row sm:justify-end">
+            <Button variant="secondary" onClick={onClose} disabled={mut.isPending} shortcut="cancel" className="[@media(pointer:coarse)]:!min-h-11">Cancel</Button>
+            <Button variant={mode === 'add' ? 'primary' : 'danger'} onClick={send} loading={mut.isPending} className="[@media(pointer:coarse)]:!min-h-11">{mode === 'add' ? 'Add' : 'Remove'}</Button>
           </div>
         </div>
       </div>

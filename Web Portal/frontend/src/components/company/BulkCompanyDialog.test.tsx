@@ -23,11 +23,13 @@ function open(mode: 'add' | 'remove', userIds = ['u1', 'u2', 'u3']) {
     </QueryClientProvider>,
   );
 }
+// One company per line (1.22): round buttons with each company's whole name, as the user dialogs' list.
 const options = async () => {
-  const select = screen.getByRole('combobox', { name: 'Company' });
-  await waitFor(() => expect(within(select).getAllByRole('option').length).toBeGreaterThan(1));
-  return within(select).getAllByRole('option').map((o) => o.textContent);
+  const group = screen.getByRole('group', { name: 'Company' });
+  await waitFor(() => expect(within(group).getAllByRole('radio').length).toBeGreaterThan(0));
+  return within(group).getAllByRole('radio').map((o) => o.closest('label')!.textContent);
 };
+const choose = (name: string) => userEvent.click(screen.getByRole('radio', { name }));
 
 beforeEach(() => {
   onClose.mockReset();
@@ -44,9 +46,9 @@ describe('BulkCompanyDialog', () => {
     const server = companyServer({ companies: [beta, alpha, gamma] });
     open('add');
     expect(screen.getByRole('dialog', { name: 'Add 3 people to a company' })).toBeInTheDocument();
-    expect(await options()).toEqual(['Choose a company', 'Alpha Co', 'Beta Co']);
-    expect(screen.getByRole('combobox', { name: 'Company' }).className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Company' }), 'cb');
+    expect(await options()).toEqual(['Alpha Co', 'Beta Co']);
+    expect(screen.getByRole('radio', { name: 'Alpha Co' }).closest('label')!.className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+    await choose('Beta Co');
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(onDone).toHaveBeenCalledWith({ changed: 3, refused: [] }));
     expect(server.lastBody('POST', '/users/companies')).toEqual({ userIds: ['u1', 'u2', 'u3'], addCompanyIds: ['cb'] });
@@ -58,8 +60,8 @@ describe('BulkCompanyDialog', () => {
     const server = companyServer({ companies: [alpha, beta, gamma] });
     open('remove', ['u1']);
     expect(screen.getByRole('dialog', { name: 'Remove 1 person from a company' })).toBeInTheDocument();
-    expect(await options()).toEqual(['Choose a company', 'Alpha Co', 'Beta Co', 'Gamma Co (archived)']);
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Company' }), 'cg');
+    expect(await options()).toEqual(['Alpha Co', 'Beta Co', 'Gamma Co (archived)']);
+    await choose('Gamma Co (archived)');
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(server.lastBody('POST', '/users/companies')).toEqual({ userIds: ['u1'], removeCompanyIds: ['cg'] });
@@ -79,7 +81,7 @@ describe('BulkCompanyDialog', () => {
     server.refuseNext(400, 'VALIDATION', 'Company not found.');
     open('add');
     await options();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Company' }), 'ca');
+    await choose('Alpha Co');
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Company not found.');
     expect(onDone).not.toHaveBeenCalled();

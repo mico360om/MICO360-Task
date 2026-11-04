@@ -1,6 +1,7 @@
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { SHORTCUTS, shortcutKeys, shortcutLabel, type Platform, type ShortcutGroup } from '../../lib/shortcuts';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 const GROUPS: ShortcutGroup[] = ['Anywhere', 'Forms and dialogs', 'On a page'];
 /** The single keys, as the switch names them: "N, E, Delete, R, /, J, K and ?" (from the list, so a new one is never left out). */
@@ -24,7 +25,7 @@ export function ShortcutsDialog({
   const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-[60] grid place-items-center p-4">
+      <div className={dialogLayer('form', { onTop: true })}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -32,7 +33,7 @@ export function ShortcutsDialog({
           aria-modal="true"
           aria-labelledby="shortcuts-title"
           tabIndex={-1}
-          className="card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden outline-none"
+          className={`card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden outline-none`}
         >
           <div className="flex items-center gap-3 border-b border-line px-5 py-4">
             <h2 id="shortcuts-title" className="flex-1 font-display text-lg font-semibold text-ink">

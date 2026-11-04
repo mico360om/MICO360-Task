@@ -13,6 +13,7 @@ import { ChecklistField, checklistRows, checklistTexts } from '../task-form/Chec
 import { stayOnEnter } from '../../lib/enter-key';
 import { priorityOptions } from '../priority-option';
 import { TemplateGlyph } from './TemplateCard';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 const TITLE_MAX = 191;
 const DESCRIPTION_MAX = 20_000;
@@ -79,14 +80,14 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={ids.heading}
-          className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[calc(var(--visible-height)*0.9)] sm:max-w-xl sm:rounded-2xl"
+          className={`keyboard-flow-cramped card relative flex flex-col overflow-hidden shadow-lift animate-scale-in ${dialogPanel('form')}`}
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-5 py-4">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand">{TemplateGlyph.task}</span>

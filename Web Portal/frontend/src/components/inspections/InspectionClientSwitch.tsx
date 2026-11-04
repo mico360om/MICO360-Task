@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { Toggle } from '../ui/Toggle';
 import { ClientEyeIcon } from '../TaskCard';
 import { calendarDayText, problemText } from './inspection-ui';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 /** Before a finished report goes on the client page: exactly what the client will see (and its PDF). */
 function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { inspectionId: string; busy: boolean; error: string | null; onConfirm: () => void; onClose: () => void }) {
@@ -20,7 +21,7 @@ function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { insp
   const p = q.isFetching || q.isError ? undefined : q.data;
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -28,7 +29,7 @@ function PreviewDialog({ inspectionId, busy, error, onConfirm, onClose }: { insp
           aria-modal="true"
           aria-labelledby={ids.title}
           aria-describedby={ids.intro}
-          className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-xl animate-scale-in flex-col overflow-hidden"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}
         >
           <div className="border-b border-line px-5 pb-3 pt-4">
             <h2 id={ids.title} className="font-display text-lg font-semibold text-ink">

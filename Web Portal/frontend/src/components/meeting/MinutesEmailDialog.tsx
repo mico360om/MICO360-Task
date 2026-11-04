@@ -14,6 +14,7 @@ import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { meetingFailure, exportMinutes } from './meeting-actions';
 import { SendResults } from './InviteDialog';
 import { minutesSendsKey } from './MinutesSentLog';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -144,9 +145,9 @@ export function MinutesEmailDialog({ meeting, onClose, prefill }: { meeting: Mee
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={send.isPending ? undefined : onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="minutes-title" className="card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-2xl animate-scale-in flex-col overflow-hidden">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="minutes-title" className={`card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}>
           <div className="border-b border-line px-5 py-4">
             <h2 id="minutes-title" className="font-display text-lg font-semibold text-ink">Email the minutes</h2>
             <p className="mt-0.5 text-sm text-ink-2">

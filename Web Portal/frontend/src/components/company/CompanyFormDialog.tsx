@@ -9,6 +9,7 @@ import { DEFAULT_WORKING_HOURS, workingHoursText } from '../admin/MeetingHoursSe
 import { Button } from '../ui/Button';
 import { FieldLabel, fieldClass } from '../ui/Field';
 import { ModalPortal } from '../ui/ModalPortal';
+import { dialogLayer, dialogPanel, useTwoColumns } from '../ui/dialog-size';
 import { Toggle } from '../ui/Toggle';
 import { BuildingIcon, CompanyLogo } from './CompanyLogo';
 import { CompanyPeoplePanel } from './CompanyPeoplePanel';
@@ -178,21 +179,139 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
   const hasLogo = logo.kind === 'new' || Boolean(shownLogoUrl);
   const title = company ? company.name : 'New company';
 
+  // Big form (1.22): 960px and two columns from 1024px — the company on the left, its week and
+  // working hours on the right. One column below (in the order the fields always had).
+  const twoColumns = useTwoColumns();
+  const nameFields = (
+    <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor={id('name')} required>Name</FieldLabel>
+        <input id={id('name')} dir="auto" value={name} maxLength={120} aria-required="true" onChange={(e) => setName(e.target.value)} className={fieldClass(false)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor={id('code')} required>Short code</FieldLabel>
+        <input
+          id={id('code')}
+          value={code}
+          maxLength={10}
+          aria-required="true"
+          aria-describedby={id('code-hint')}
+          autoCapitalize="characters"
+          spellCheck={false}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          className={fieldClass(false, 'font-mono uppercase')}
+        />
+        <p id={id('code-hint')} className="text-xs text-ink-2">2–10 capital letters or digits</p>
+      </div>
+    </div>
+  );
+  const logoField = (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-ink" id={id('logo-label')}>Logo</span>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="grid h-12 w-12 flex-none place-items-center rounded-lg border border-line bg-ground text-ink-3">
+          {logo.kind === 'new' && logo.preview ? (
+            <img src={logo.preview} alt={`${name.trim() || 'New company'} logo`} width={48} height={48} className="h-12 w-12 rounded-lg object-contain" />
+          ) : shownLogoUrl && current ? (
+            <CompanyLogo company={{ name: current.name, logoUrl: shownLogoUrl }} size={48} alt={`${current.name} logo`} />
+          ) : (
+            <BuildingIcon size={24} />
+          )}
+        </span>
+        <input
+          ref={fileRef}
+          type="file"
+          accept={LOGO_TYPES.join(',')}
+          aria-label="Upload logo"
+          tabIndex={-1}
+          className="sr-only"
+          onChange={(e) => {
+            pickLogo(e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
+        <Button type="button" variant="secondary" size="sm" aria-describedby={id('logo-hint')} onClick={() => fileRef.current?.click()} className="[@media(pointer:coarse)]:!min-h-11">
+          Upload logo
+        </Button>
+        {hasLogo ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setLogo(logo.kind === 'new' && !current?.logoUrl ? { kind: 'keep' } : { kind: 'remove' })} className="[@media(pointer:coarse)]:!min-h-11">
+            Remove logo
+          </Button>
+        ) : null}
+      </div>
+      <p id={id('logo-hint')} className="text-xs text-ink-2">PNG, JPEG or WebP, up to 2 MB</p>
+    </div>
+  );
+  const weekField = (
+    <div className="flex flex-col gap-1.5">
+      <FieldLabel htmlFor={id('week')}>Week starts on</FieldLabel>
+      <select id={id('week')} value={weekStart} onChange={(e) => setWeekStart(e.target.value)} className={fieldClass(false, 'sm:max-w-xs [@media(pointer:coarse)]:!min-h-11')}>
+        <option value="">Same as the site ({weekStartName(typeof siteWeekStart === 'number' ? siteWeekStart : 0)})</option>
+        {WEEK_START_OPTIONS.map((o) => (
+          <option key={o.value} value={String(o.value)}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+  const hoursField = (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-1.5 text-sm font-medium text-ink">Working days and hours</legend>
+      <div className="flex items-center gap-3">
+        <Toggle on={sameHours} onChange={() => setSameHours((v) => !v)} label="Same as the site" describedBy={id('hours-site')} />
+        <span className="text-sm text-ink">Same as the site</span>
+        <span id={id('hours-site')} className="text-xs text-ink-2">{workingHoursText(siteHours)}</span>
+      </div>
+      {sameHours ? null : (
+        <>
+          <div role="group" aria-label="Working days" className="flex flex-wrap gap-1.5">
+            {DAYS.map((dayName, day) => (
+              <button
+                key={dayName}
+                type="button"
+                aria-pressed={draftHours.days.includes(day)}
+                onClick={() => toggleDay(day)}
+                className={`min-h-9 min-w-[3rem] rounded-lg border px-2.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:!min-h-11 ${draftHours.days.includes(day) ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:border-brand/40'}`}
+              >
+                {dayName}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+              From
+              <input type="time" step={60 * 30} value={draftHours.start} onChange={(e) => { const start = e.target.value; changeHours((h) => ({ ...h, start })); }} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:!min-h-11')} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+              To
+              <input type="time" step={60 * 30} value={draftHours.end} onChange={(e) => { const end = e.target.value; changeHours((h) => ({ ...h, end })); }} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:!min-h-11')} />
+            </label>
+          </div>
+        </>
+      )}
+    </fieldset>
+  );
+  const senderField = (
+    <div className="flex flex-col gap-1.5">
+      <FieldLabel htmlFor={id('sender')}>Email sender name</FieldLabel>
+      <input id={id('sender')} dir="auto" value={sender} maxLength={120} placeholder="Same as the site" onChange={(e) => setSender(e.target.value)} className={fieldClass(false)} />
+    </div>
+  );
+
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={title}
-          className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-xl animate-scale-in flex-col overflow-hidden"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}
         >
-          <div className="flex flex-none items-center gap-3 px-6 pb-3 pt-5">
+          <div className="flex flex-none items-center gap-3 px-4 pb-3 pt-5 sm:px-6">
             <CompanyLogo company={current ? { name: current.name, logoUrl: current.logoUrl } : null} size={32} />
             <div className="min-w-0">
-              <h2 className="truncate font-display text-xl font-bold text-ink">{company ? <bdi>{company.name}</bdi> : 'New company'}</h2>
+              <h2 className="font-display text-xl font-bold leading-snug text-ink [overflow-wrap:anywhere]">{company ? <bdi>{company.name}</bdi> : 'New company'}</h2>
               {company ? <p className="text-xs text-ink-2">{company.code}</p> : null}
             </div>
           </div>
@@ -228,134 +347,47 @@ export function CompanyFormDialog({ company, initialTab = 'details', onClose, on
               className="keyboard-flow-body flex min-h-0 flex-1 flex-col"
               {...(company ? { role: 'tabpanel', id: id('panel-details'), 'aria-labelledby': id('tab-details') } : {})}
             >
-              <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
+              <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6">
                 {problem ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
-                <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
-                  <div className="flex flex-col gap-1.5">
-                    <FieldLabel htmlFor={id('name')} required>Name</FieldLabel>
-                    <input id={id('name')} dir="auto" value={name} maxLength={120} aria-required="true" onChange={(e) => setName(e.target.value)} className={fieldClass(false)} />
+                {twoColumns ? (
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
+                    <div data-form-column="company" className="flex min-w-0 flex-col gap-4">
+                      {nameFields}
+                      {logoField}
+                      {senderField}
+                    </div>
+                    <div data-form-column="schedule" className="flex min-w-0 flex-col gap-4">
+                      {weekField}
+                      {hoursField}
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <FieldLabel htmlFor={id('code')} required>Short code</FieldLabel>
-                    <input
-                      id={id('code')}
-                      value={code}
-                      maxLength={10}
-                      aria-required="true"
-                      aria-describedby={id('code-hint')}
-                      autoCapitalize="characters"
-                      spellCheck={false}
-                      onChange={(e) => setCode(e.target.value.toUpperCase())}
-                      className={fieldClass(false, 'font-mono uppercase')}
-                    />
-                    <p id={id('code-hint')} className="text-xs text-ink-2">2–10 capital letters or digits</p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-sm font-medium text-ink" id={id('logo-label')}>Logo</span>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="grid h-12 w-12 flex-none place-items-center rounded-lg border border-line bg-ground text-ink-3">
-                      {logo.kind === 'new' && logo.preview ? (
-                        <img src={logo.preview} alt={`${name.trim() || 'New company'} logo`} width={48} height={48} className="h-12 w-12 rounded-lg object-contain" />
-                      ) : shownLogoUrl && current ? (
-                        <CompanyLogo company={{ name: current.name, logoUrl: shownLogoUrl }} size={48} alt={`${current.name} logo`} />
-                      ) : (
-                        <BuildingIcon size={24} />
-                      )}
-                    </span>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept={LOGO_TYPES.join(',')}
-                      aria-label="Upload logo"
-                      tabIndex={-1}
-                      className="sr-only"
-                      onChange={(e) => {
-                        pickLogo(e.target.files?.[0]);
-                        e.target.value = '';
-                      }}
-                    />
-                    <Button type="button" variant="secondary" size="sm" aria-describedby={id('logo-hint')} onClick={() => fileRef.current?.click()} className="[@media(pointer:coarse)]:!min-h-11">
-                      Upload logo
-                    </Button>
-                    {hasLogo ? (
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setLogo(logo.kind === 'new' && !current?.logoUrl ? { kind: 'keep' } : { kind: 'remove' })} className="[@media(pointer:coarse)]:!min-h-11">
-                        Remove logo
-                      </Button>
-                    ) : null}
-                  </div>
-                  <p id={id('logo-hint')} className="text-xs text-ink-2">PNG, JPEG or WebP, up to 2 MB</p>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor={id('week')}>Week starts on</FieldLabel>
-                  <select id={id('week')} value={weekStart} onChange={(e) => setWeekStart(e.target.value)} className={fieldClass(false, 'sm:max-w-xs [@media(pointer:coarse)]:!min-h-11')}>
-                    <option value="">Same as the site ({weekStartName(typeof siteWeekStart === 'number' ? siteWeekStart : 0)})</option>
-                    {WEEK_START_OPTIONS.map((o) => (
-                      <option key={o.value} value={String(o.value)}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <fieldset className="flex flex-col gap-2">
-                  <legend className="mb-1.5 text-sm font-medium text-ink">Working days and hours</legend>
-                  <div className="flex items-center gap-3">
-                    <Toggle on={sameHours} onChange={() => setSameHours((v) => !v)} label="Same as the site" describedBy={id('hours-site')} />
-                    <span className="text-sm text-ink">Same as the site</span>
-                    <span id={id('hours-site')} className="text-xs text-ink-2">{workingHoursText(siteHours)}</span>
-                  </div>
-                  {sameHours ? null : (
-                    <>
-                      <div role="group" aria-label="Working days" className="flex flex-wrap gap-1.5">
-                        {DAYS.map((dayName, day) => (
-                          <button
-                            key={dayName}
-                            type="button"
-                            aria-pressed={draftHours.days.includes(day)}
-                            onClick={() => toggleDay(day)}
-                            className={`min-h-9 min-w-[3rem] rounded-lg border px-2.5 text-sm font-semibold transition-colors [@media(pointer:coarse)]:!min-h-11 ${draftHours.days.includes(day) ? 'border-brand bg-brand text-white' : 'border-line text-ink-2 hover:border-brand/40'}`}
-                          >
-                            {dayName}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex flex-wrap items-end gap-4">
-                        <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
-                          From
-                          <input type="time" step={60 * 30} value={draftHours.start} onChange={(e) => { const start = e.target.value; changeHours((h) => ({ ...h, start })); }} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:!min-h-11')} />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
-                          To
-                          <input type="time" step={60 * 30} value={draftHours.end} onChange={(e) => { const end = e.target.value; changeHours((h) => ({ ...h, end })); }} className={fieldClass(false, 'py-1.5 [@media(pointer:coarse)]:!min-h-11')} />
-                        </label>
-                      </div>
-                    </>
-                  )}
-                </fieldset>
-
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor={id('sender')}>Email sender name</FieldLabel>
-                  <input id={id('sender')} dir="auto" value={sender} maxLength={120} placeholder="Same as the site" onChange={(e) => setSender(e.target.value)} className={fieldClass(false)} />
-                </div>
+                ) : (
+                  <>
+                    {nameFields}
+                    {logoField}
+                    {weekField}
+                    {hoursField}
+                    {senderField}
+                  </>
+                )}
               </div>
-              <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
-                <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground">
+              <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
+                <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground sm:flex-none">
                   Cancel
                 </button>
-                <Button type="submit" shortcut="save" loading={saveMut.isPending} className="!min-h-[44px] flex-[2]">
+                <Button type="submit" shortcut="save" loading={saveMut.isPending} className="!min-h-[44px] flex-[2] sm:min-w-[9.5rem] sm:flex-none">
                   Save
                 </Button>
               </div>
             </form>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div role="tabpanel" id={id(`panel-${tab}`)} aria-labelledby={id(`tab-${tab}`)} className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+              <div role="tabpanel" id={id(`panel-${tab}`)} aria-labelledby={id(`tab-${tab}`)} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
                 {company && tab === 'people' ? <CompanyPeoplePanel company={company} /> : null}
                 {company && tab === 'projects' ? <CompanyProjectsPanel company={company} /> : null}
               </div>
-              <div className="flex flex-none items-center border-t border-line px-6 py-3">
-                <button type="button" onClick={onClose} className="!min-h-[44px] w-full rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground">
+              <div className="flex flex-none items-center border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
+                <button type="button" onClick={onClose} className="!min-h-[44px] w-full rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground sm:w-auto sm:min-w-[9.5rem]">
                   Close
                 </button>
               </div>

@@ -15,6 +15,7 @@ import { SearchableSelect } from './ui/SearchableSelect';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
+import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { projectOption } from './project-option';
 import { RecurrenceEditor, REPEAT_FREQUENCIES, REPEAT_LABEL, withFrequency } from './RecurrenceEditor';
 import { SeriesScopeChoice } from './meeting/series-scope';
@@ -31,7 +32,6 @@ import { useMyCompanies } from '../hooks/useMyCompanies';
 import { COMPANY_GONE_CODE } from '../lib/companies';
 import { DateTimeField } from './ui/DateTimeField';
 import { useDateSettings } from '../lib/useDatePrefs';
-import { useMediaQuery } from '../lib/useMediaQuery';
 
 export interface MeetingFormModalProps {
   /** When provided, the modal edits this meeting; otherwise it creates a new one. */
@@ -70,7 +70,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
   // The calendar's week starts on the person's (or company's) week start; today in company time.
   const { weekStart } = useDateSettings();
   const today = todayKey(timeZone);
-  const twoColumns = useMediaQuery('(min-width: 1024px)');
+  const twoColumns = useTwoColumns();
   const editing = !!meeting;
   const seriesId = meeting ? seriesIdOf(meeting) : null;
   // The meeting as the form opened it: a series change sends only what was changed from this, even
@@ -520,10 +520,10 @@ export function MeetingFormModal({ meeting, defaultProjectId, onClose, onSaved }
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        {/* Wider on a tablet (720px) and a desktop (960px, two columns): the form fits without long scrolling. */}
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden md:max-w-[45rem] lg:max-w-[60rem]">
+        {/* A big form on the shared scale: 720px on a tablet, 960px (two columns) from 1024px, full screen on a phone. */}
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={editing ? 'Edit meeting' : 'New meeting'} className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}>
           {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col" noValidate>
             <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">

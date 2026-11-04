@@ -6,6 +6,7 @@ import { highlightNames } from '../../lib/name-highlight';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 /** Text with the names of the project's people and the meeting's attendees marked. */
 function Marked({ text, names }: { text: string; names: string[] }) {
@@ -72,7 +73,7 @@ export function MinutesClientDialog({
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -80,7 +81,7 @@ export function MinutesClientDialog({
           aria-modal="true"
           aria-labelledby={ids.title}
           aria-describedby={ids.intro}
-          className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-xl animate-scale-in flex-col overflow-hidden"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}
         >
           <div className="border-b border-line px-5 pb-3 pt-4">
             <h2 id={ids.title} className="font-display text-lg font-semibold text-ink">Show these minutes to the client?</h2>

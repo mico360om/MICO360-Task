@@ -9,6 +9,7 @@ import { useDialog } from '../hooks/useDialog';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 import { ModalPortal } from './ui/ModalPortal';
+import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
 import { useCompanyStore } from '../stores/company-store';
@@ -126,101 +127,121 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     createMut.mutate();
   }
 
+  // Big form (1.22): with companies to choose, 960px and two columns from 1024px — the person on the
+  // left, their companies on the right. A one-company site has no companies: a normal form, one column.
+  const size = companyChoices.show ? 'wide' : 'form';
+  const twoColumns = useTwoColumns() && companyChoices.show;
+  const personFields = (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
+          <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
+          <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
+        <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
+        <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
+      </div>
+      <div className="flex items-start gap-2.5 rounded-lg border border-line bg-ground/60 px-3 py-2.5">
+        <input
+          id="nu-welcome"
+          type="checkbox"
+          checked={sendWelcome}
+          disabled={!emailEnabled}
+          onChange={(e) => setWelcomeChoice(e.target.checked)}
+          aria-describedby="nu-welcome-hint"
+          className="mt-0.5 h-4 w-4 flex-none accent-brand disabled:opacity-50"
+        />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <label htmlFor="nu-welcome" className={`tap text-sm font-medium ${emailEnabled ? 'text-ink' : 'text-ink-2'}`}>Send a welcome email</label>
+          <p id="nu-welcome-hint" className="text-xs text-ink-2">
+            {emailEnabled
+              ? 'They get their username and a link to set their own password (it works for 7 days).'
+              : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.'}
+          </p>
+        </div>
+      </div>
+      {/* Side by side from sm up; on a phone the password (with its hints) and the role take a row each. */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="nu-password" required={!sendWelcome}>
+            Temp password{sendWelcome ? <span className="font-normal text-ink-2"> (optional)</span> : null}
+          </FieldLabel>
+          <input
+            id="nu-password"
+            ref={passwordRef}
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={fieldClass(false)}
+            autoComplete="new-password"
+            aria-required={!sendWelcome}
+            aria-describedby={sendWelcome ? 'nu-password-hint nu-password-optional' : 'nu-password-hint'}
+          />
+          <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+          {sendWelcome ? <p id="nu-password-optional" className="text-xs text-ink-2">Or leave it empty: they choose their own with the link.</p> : null}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="nu-role">Role</FieldLabel>
+          <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className={fieldClass(false)}>
+            <option value="EMPLOYEE">Employee</option>
+            <option value="ADMIN">Administrator</option>
+          </select>
+        </div>
+      </div>
+    </>
+  );
+  const companiesField = companyChoices.show ? (
+    <CompanyChecklist
+      companies={companyChoices.companies}
+      value={companyIds}
+      onChange={setTickedIds}
+      primaryId={primaryCompanyId}
+      onPrimaryChange={setChosenPrimary}
+      idPrefix="nu-companies"
+    />
+  ) : null;
+
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer(size)}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-md animate-scale-in flex-col overflow-hidden">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className={`keyboard-flow-cramped card relative flex ${dialogPanel(size)} animate-scale-in flex-col overflow-hidden`}>
           {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
-            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
+            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
               <h2 className="mb-1 font-display text-xl font-bold text-ink">New user</h2>
               {error ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                   {error}
                 </p>
               ) : null}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="nu-first" required>First name</FieldLabel>
-                  <input id="nu-first" ref={firstRef} dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+              {twoColumns ? (
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
+                  <div data-form-column="person" className="flex min-w-0 flex-col gap-3">{personFields}</div>
+                  <div data-form-column="companies" className="flex min-w-0 flex-col gap-3">{companiesField}</div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="nu-last" required>Last name</FieldLabel>
-                  <input id="nu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="nu-username" required>Username</FieldLabel>
-                <input id="nu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
-                <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
-              </div>
-              <div className="flex items-start gap-2.5 rounded-lg border border-line bg-ground/60 px-3 py-2.5">
-                <input
-                  id="nu-welcome"
-                  type="checkbox"
-                  checked={sendWelcome}
-                  disabled={!emailEnabled}
-                  onChange={(e) => setWelcomeChoice(e.target.checked)}
-                  aria-describedby="nu-welcome-hint"
-                  className="mt-0.5 h-4 w-4 flex-none accent-brand disabled:opacity-50"
-                />
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <label htmlFor="nu-welcome" className={`tap text-sm font-medium ${emailEnabled ? 'text-ink' : 'text-ink-2'}`}>Send a welcome email</label>
-                  <p id="nu-welcome-hint" className="text-xs text-ink-2">
-                    {emailEnabled
-                      ? 'They get their username and a link to set their own password (it works for 7 days).'
-                      : 'Email isn’t set up on this server, so a welcome email can’t be sent. Give them a temporary password instead.'}
-                  </p>
-                </div>
-              </div>
-              {/* Side by side from sm up; on a phone the password (with its hints) and the role take a row each. */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="nu-password" required={!sendWelcome}>
-                    Temp password{sendWelcome ? <span className="font-normal text-ink-2"> (optional)</span> : null}
-                  </FieldLabel>
-                  <input
-                    id="nu-password"
-                    ref={passwordRef}
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className={fieldClass(false)}
-                    autoComplete="new-password"
-                    aria-required={!sendWelcome}
-                    aria-describedby={sendWelcome ? 'nu-password-hint nu-password-optional' : 'nu-password-hint'}
-                  />
-                  <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
-                  {sendWelcome ? <p id="nu-password-optional" className="text-xs text-ink-2">Or leave it empty: they choose their own with the link.</p> : null}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="nu-role">Role</FieldLabel>
-                  <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20">
-                    <option value="EMPLOYEE">Employee</option>
-                    <option value="ADMIN">Administrator</option>
-                  </select>
-                </div>
-              </div>
-              {companyChoices.show ? (
-                <CompanyChecklist
-                  companies={companyChoices.companies}
-                  value={companyIds}
-                  onChange={setTickedIds}
-                  primaryId={primaryCompanyId}
-                  onPrimaryChange={setChosenPrimary}
-                  idPrefix="nu-companies"
-                />
-              ) : null}
+              ) : (
+                <>
+                  {personFields}
+                  {companiesField}
+                </>
+              )}
             </div>
-            <div className="flex flex-none items-center gap-2 border-t border-line px-6 py-3">
-              <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50">
+            <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
+              <button type="button" title="Cancel (Esc)" aria-keyshortcuts="Escape" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground disabled:opacity-50 sm:flex-none">
                 Cancel
               </button>
-              <Button type="submit" shortcut="submit" showShortcut loading={createMut.isPending} className="!min-h-[44px] flex-[2]">
+              <Button type="submit" shortcut="submit" showShortcut loading={createMut.isPending} className="!min-h-[44px] flex-[2] sm:min-w-[9.5rem] sm:flex-none">
                 {createMut.isPending ? 'Creating…' : 'Create user'}
               </Button>
             </div>

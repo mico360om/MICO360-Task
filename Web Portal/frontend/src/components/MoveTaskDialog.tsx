@@ -13,6 +13,7 @@ import { Button } from './ui/Button';
 import { FieldLabel } from './ui/Field';
 import { SearchableSelect } from './ui/SearchableSelect';
 import { projectOption } from './project-option';
+import { dialogLayer, dialogPanel } from './ui/dialog-size';
 
 /** A task to move, as the place it is moved from knows it. */
 export interface MoveTaskRef {
@@ -205,7 +206,7 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('small')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -213,7 +214,7 @@ export function MoveTaskDialog({ tasks, onClose, onMoved, onBulkMoved }: MoveTas
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={subtitleId}
-          className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('small')} animate-scale-in flex-col overflow-hidden`}
         >
           {outcome ? (
             <div className="flex min-h-0 flex-1 flex-col">

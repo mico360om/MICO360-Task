@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { TaskFormDialog } from './TaskFormDialog';
 import type { ApiTask } from '../../api/tasks';
 import { useAuthStore } from '../../stores/auth-store';
+import { windowWidth } from '../../test/window-width';
 
 // Files go up after the task is created; the test decides how each upload goes.
 const uploads: Array<{ taskId: string; name: string; type: string }> = [];
@@ -126,8 +127,9 @@ describe('New task form', () => {
     const dialog = screen.getByRole('dialog', { name: 'New task' });
     expect(within(dialog).getByRole('heading', { name: 'New task' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Close' })).toBeInTheDocument();
-    expect(dialog.className).toMatch(/sm:w-\[min\(800px,calc\(100vw-32px\)\)\]/);
-    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)\*0\.9\)\]/);
+    // A big form on the shared scale (1.22): 720px on a tablet, 960px from 1024px.
+    expect(dialog.className).toMatch(/sm:max-w-\[45rem\] lg:max-w-\[60rem\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)-2rem\)\]/);
     const body = screen.getByLabelText(/^task title/i).closest('.overflow-y-auto')!;
     expect(body).not.toBeNull();
     expect(body.contains(screen.getByRole('button', { name: 'Create task' }))).toBe(false);
@@ -1009,5 +1011,35 @@ describe('Task form — an inspection form (a check)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ inspectionFormId: null, inspectionPlace: null });
+  });
+});
+
+describe('New task form: two columns from 1024px (1.22)', () => {
+  it('what the task is on the left; when, who and how on the right', async () => {
+    windowWidth(1280);
+    renderDialog();
+    await ready();
+    const dialog = screen.getByRole('dialog', { name: 'New task' });
+    const left = dialog.querySelector<HTMLElement>('[data-form-column="task"]')!;
+    const right = dialog.querySelector<HTMLElement>('[data-form-column="details"]')!;
+    expect(left.parentElement!.className).toMatch(/grid-cols-/);
+    expect(left).toContainElement(screen.getByRole('button', { name: /^project$/i }));
+    expect(left).toContainElement(screen.getByLabelText(/^task title/i));
+    expect(left).toContainElement(screen.getByLabelText(/^description/i));
+    expect(right).toContainElement(screen.getByRole('button', { name: 'Priority' }));
+    expect(right).toContainElement(screen.getByLabelText(/^due date/i));
+    expect(right).toContainElement(screen.getByRole('button', { name: 'Repeat' }));
+    expect(right).toContainElement(screen.getByText('Needs approval'));
+    // The narrower column gives Repeat a line of its own.
+    expect(screen.getByRole('button', { name: 'Repeat' }).closest('.min-w-0')!.className).toMatch(/col-span-2/);
+  });
+
+  it('below 1024px: one column in the order it always had', async () => {
+    windowWidth(900);
+    renderDialog();
+    await ready();
+    const dialog = screen.getByRole('dialog', { name: 'New task' });
+    expect(dialog.querySelector('[data-form-column]')).toBeNull();
+    expect(screen.getByLabelText(/^description/i).compareDocumentPosition(screen.getByRole('button', { name: 'Priority' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
