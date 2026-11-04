@@ -188,6 +188,22 @@ describe('CalendarPage — how tasks look', () => {
     expect(c).toHaveAccessibleName(/^MICO-2 Late invoice, /);
   });
 
+  it('1.22.3 review: in the month grid the number chip shows only where a day is wide enough (2xl); its name and tooltip always carry it', async () => {
+    renderPage();
+    const c = await chip(/Late invoice/);
+    // At 1024–1440 px a day is 100–140 px wide: the chip left the title 0–5 letters and cut long codes
+    // (TN2FF00336-2). Below 2xl (1536 px) it isn't drawn; the title has the room.
+    expect(within(c).getByText('MICO-2')).toHaveClass('hidden', '2xl:inline-block');
+    expect(c).toHaveAccessibleName(/^MICO-2 Late invoice, /);
+    expect(c).toHaveAttribute('title', 'MICO-2 · Late invoice');
+  });
+
+  it('1.22.3 review: week chips keep the number in sight at every width', async () => {
+    renderPage('/calendar?view=week&date=2026-10-14');
+    const c = await chip(/Prepare report/);
+    expect(within(c).getByText('MICO-1')).not.toHaveClass('hidden');
+  });
+
   it('week and day chips show the number as the chip too, and the line under the title no longer repeats it', async () => {
     renderPage('/calendar?view=week&date=2026-10-14');
     const c = await chip(/Prepare report/);

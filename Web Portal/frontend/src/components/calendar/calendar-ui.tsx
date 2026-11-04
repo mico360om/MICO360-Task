@@ -192,6 +192,10 @@ export function itemName(item: CalItem): string {
  * TaskKey chip, 1.22.3) and up to two lines of its title (one in the month grid, where the title
  * truncates and never the number, and the whole title is its tooltip). Click for details; drag to
  * another day when allowed. A repeat not created yet shows no number: it has none yet.
+ *
+ * 1.22.3 review: in the month grid the chip is drawn only from 2xl (1536 px), where a day is wide
+ * enough; at 1024–1440 px a day is 100–140 px and the chip left the title a few letters, a long code
+ * (TN2FF00336-2) cut off. Narrower, the number is in the chip's name and tooltip only.
  */
 export function TaskChip({
   item,
@@ -236,7 +240,7 @@ export function TaskChip({
       <span className="min-w-0 flex-1">
         {lines === 1 ? (
           <span className="flex min-w-0 items-center gap-1">
-            {number ? <TaskKey value={number} dense /> : null}
+            {number ? <TaskKey value={number} dense className="hidden 2xl:inline-block" /> : null}
             <span dir="auto" className="block min-w-0 truncate font-medium">{item.task.title}</span>
           </span>
         ) : (
