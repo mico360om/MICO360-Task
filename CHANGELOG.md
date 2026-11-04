@@ -14,6 +14,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- User Management → Manage account: an administrator's account has a "Show my projects only" switch.
+  An administrator can turn it on or off for any administrator — their lists then show only the
+  projects they own, manage or are on the team of, from their next page. It is the same setting as
+  Settings → "Show my projects only", so on your own account both always agree. Only administrators
+  have it; someone taken off the Administrator role has it turned off. Each change is in the audit log.
+
 ## [1.22.2] - 2026-11-04
 
 ### Improvements

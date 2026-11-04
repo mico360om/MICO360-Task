@@ -343,3 +343,37 @@ describe('UserService — a new name reaches the task search', () => {
     expect(renamed).toEqual([u.id, u.id]);
   });
 });
+
+describe('UserService — “Show my projects only” (1.22.3, set from Manage account)', () => {
+  it('a new person starts with it off', async () => {
+    const { svc } = make();
+    expect((await svc.createUser(person({ roleNames: ['ADMIN'] }))).myProjectsOnly).toBe(false);
+  });
+
+  it('an administrator’s may be turned on and off; a non-administrator’s only off', async () => {
+    const { svc } = make();
+    const boss = await svc.createUser(person({ roleNames: ['ADMIN'] }));
+    const emp = await svc.createUser(person({ email: 'e@x', username: 'emp' }));
+    await expect(svc.updateUser(boss.id, { myProjectsOnly: true })).resolves.toMatchObject({ myProjectsOnly: true });
+    await expect(svc.updateUser(boss.id, { myProjectsOnly: false })).resolves.toMatchObject({ myProjectsOnly: false });
+    await expect(svc.updateUser(emp.id, { myProjectsOnly: true })).rejects.toMatchObject({ status: 403, message: 'Only administrators have this setting.' });
+    await expect(svc.getUser(emp.id)).resolves.toMatchObject({ myProjectsOnly: false });
+    await expect(svc.updateUser(emp.id, { myProjectsOnly: false })).resolves.toMatchObject({ myProjectsOnly: false });
+  });
+
+  it('a refused change saves nothing else either', async () => {
+    const { svc } = make();
+    const emp = await svc.createUser(person());
+    await expect(svc.updateUser(emp.id, { firstName: 'Adele', myProjectsOnly: true })).rejects.toMatchObject({ status: 403 });
+    await expect(svc.getUser(emp.id)).resolves.toMatchObject({ firstName: 'Ada' });
+  });
+
+  it('taken off the Administrator role, it is turned off with it (made an administrator again, it starts off)', async () => {
+    const { svc } = make();
+    await svc.createUser(person({ email: 'k@x', username: 'keeper', roleNames: ['ADMIN'] }));
+    const boss = await svc.createUser(person({ roleNames: ['ADMIN'] }));
+    await svc.updateUser(boss.id, { myProjectsOnly: true });
+    await expect(svc.updateUser(boss.id, { roleNames: ['EMPLOYEE'] })).resolves.toMatchObject({ roles: ['EMPLOYEE'], myProjectsOnly: false });
+    await expect(svc.updateUser(boss.id, { roleNames: ['ADMIN'] })).resolves.toMatchObject({ roles: ['ADMIN'], myProjectsOnly: false });
+  });
+});

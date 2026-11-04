@@ -6,6 +6,7 @@ import { EditUserModal } from './EditUserModal';
 import { useAuthStore } from '../stores/auth-store';
 import { apiCompany, apiUser, companyServer, type ListedUser } from '../test/company-server';
 import { windowWidth } from '../test/window-width';
+import { MyProjectsSettings } from './settings/MyProjectsSettings';
 
 const alpha = apiCompany({ id: 'ca', name: 'Alpha Co', code: 'ALPHA' });
 const beta = apiCompany({ id: 'cb', name: 'Beta Co', code: 'BETA' });
@@ -239,5 +240,104 @@ describe('EditUserModal: Search companies (1.22 review)', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(server.requests('PUT', '/users/u-sam')).toHaveLength(0);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('EditUserModal: “Show my projects only” (1.22.3)', () => {
+  const boss = apiUser({ id: 'u-boss', username: 'boss', firstName: 'Bina', lastName: 'Boss', roles: ['ADMIN'] });
+  const mineSwitch = () => within(screen.getByRole('dialog')).getByRole('switch', { name: 'Show my projects only' });
+
+  it('another administrator: the switch shows their saved state, says “they”, and a change is saved', async () => {
+    const server = companyServer({ companies: [alpha] });
+    open(boss);
+    const sw = mineSwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(sw).toHaveAccessibleDescription('Lists everywhere show only the projects they own, manage or are on the team of. They can still open any project by its link.');
+    await userEvent.click(sw);
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-boss')).toMatchObject({ firstName: 'Bina', myProjectsOnly: true });
+  });
+
+  it('saved on: shown on, and turned off is sent as off', async () => {
+    const server = companyServer({ companies: [alpha] });
+    open({ ...boss, myProjectsOnly: true });
+    expect(mineSwitch()).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(mineSwitch());
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-boss')).toMatchObject({ myProjectsOnly: false });
+  });
+
+  it('left as it was, it isn’t sent (a name change never touches it)', async () => {
+    const server = companyServer({ companies: [alpha] });
+    open({ ...boss, myProjectsOnly: true });
+    await userEvent.type(screen.getByLabelText(/first name/i), 'h');
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-boss')).not.toHaveProperty('myProjectsOnly');
+  });
+
+  it('an employee has no switch; ticking Administrator brings it, and both are saved together', async () => {
+    const server = companyServer({ companies: [alpha] });
+    open(sam);
+    expect(within(screen.getByRole('dialog')).queryByRole('switch', { name: 'Show my projects only' })).toBeNull();
+    await userEvent.click(screen.getByLabelText('Administrator'));
+    await userEvent.click(mineSwitch());
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-sam')).toMatchObject({ roleNames: expect.arrayContaining(['ADMIN']), myProjectsOnly: true });
+  });
+
+  it('Administrator unticked: the switch goes, and nothing about it is sent', async () => {
+    const server = companyServer({ companies: [alpha] });
+    open(boss);
+    await userEvent.click(mineSwitch());
+    await userEvent.click(screen.getByLabelText('Administrator'));
+    await userEvent.click(screen.getByLabelText('Employee'));
+    expect(within(screen.getByRole('dialog')).queryByRole('switch', { name: 'Show my projects only' })).toBeNull();
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/u-boss')).not.toHaveProperty('myProjectsOnly');
+  });
+
+  it('the server’s refusal is shown in its words', async () => {
+    const server = companyServer({ companies: [alpha] });
+    server.refuseNext(403, 'FORBIDDEN', 'Only administrators have this setting.', { method: 'PUT', path: /^\/users\/u-boss$/ });
+    open(boss);
+    await userEvent.click(mineSwitch());
+    await save();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only administrators have this setting.');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('your own account: the switch works (your roles stay locked), says “you”, and Settings shows the same value after saving', async () => {
+    const me = apiUser({ id: 'me', username: 'admin', firstName: 'Ada', lastName: 'Admin', roles: ['ADMIN'], myProjectsOnly: false });
+    const server = companyServer({ companies: [alpha] });
+    // Settings reads the setting before the save (off) and again after it (on).
+    server.answerNext('GET', /^\/users\/me\/preferences$/, { data: { timeZone: null, weekStart: null, myProjectsOnly: false } });
+    server.answerNext('GET', /^\/users\/me\/preferences$/, { data: { timeZone: null, weekStart: null, myProjectsOnly: true } });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MyProjectsSettings />
+        <EditUserModal user={me} onClose={onClose} />
+      </QueryClientProvider>,
+    );
+    // Settings' own "Projects" section (the dialog has one too).
+    const settings = screen.getAllByRole('region', { name: 'Projects' }).find((r) => !r.closest('[role="dialog"]'))!;
+    await waitFor(() => expect(server.gets('/users/me/preferences')).toHaveLength(1));
+    expect(within(settings).getByRole('switch', { name: 'Show my projects only' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByLabelText('Administrator')).toBeDisabled();
+    const sw = mineSwitch();
+    expect(sw).toBeEnabled();
+    expect(sw).toHaveAccessibleDescription('Lists everywhere show only the projects you own, manage or are on the team of. You can still open any project by its link.');
+    await userEvent.click(sw);
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.lastBody('PUT', '/users/me')).toMatchObject({ myProjectsOnly: true });
+    expect(server.lastBody('PUT', '/users/me')).not.toHaveProperty('roleNames');
+    await waitFor(() => expect(within(settings).getByRole('switch', { name: 'Show my projects only' })).toHaveAttribute('aria-checked', 'true'));
   });
 });

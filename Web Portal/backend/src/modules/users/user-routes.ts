@@ -63,6 +63,8 @@ const updateSchema = z.object({
   // companies: exactly these companies (absent: unchanged) and the primary company.
   companyIds: z.array(idString).max(50).optional(),
   primaryCompanyId: idString.nullable().optional(),
+  // 1.22.3: an administrator's "Show my projects only" (absent: unchanged; on: administrators only).
+  myProjectsOnly: z.boolean().optional(),
 });
 /** companies: several people's companies at once (User Management's bulk assign). */
 const MAX_BULK_PEOPLE = 200;

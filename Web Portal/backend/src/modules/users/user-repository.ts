@@ -22,6 +22,11 @@ export interface UserSummary {
   /** companies: the companies they belong to (A–Z) and their primary company (their emails' branding). */
   companies?: { id: string; name: string; code: string }[];
   primaryCompanyId?: string | null;
+  /**
+   * "Show my projects only" (1.22, an administrator's setting; off by default): their lists show only
+   * the projects they own, manage or are on the team of. Admin views (and their own answers) only.
+   */
+  myProjectsOnly?: boolean;
 }
 
 export interface NewUser {
@@ -64,6 +69,8 @@ export interface UpdateUserData {
   departmentId?: string | null;
   /** When present, replaces the user's role set with exactly these role names. */
   roleNames?: string[];
+  /** 1.22.3: "Show my projects only", set from User Management (administrators' only). */
+  myProjectsOnly?: boolean;
 }
 
 export interface UserRepository {
