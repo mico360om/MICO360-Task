@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.22.2] - 2026-11-04
+
 ### Improvements
 - Minutes of Meeting PDF: the notes no longer show who wrote each one and when; a key point is still
   marked "Key point".
