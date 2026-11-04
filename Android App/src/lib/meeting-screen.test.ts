@@ -256,7 +256,11 @@ describe.skipIf(!hasWeb('frontend/src/components/meeting/NotesSection.tsx', 'fro
     for (const t of [...Object.values(NOTES_EMPTY), ...Object.values(AGENDA_EMPTY_ENDED)]) expect(w, t).toContain(t.trim());
     expect(w).not.toContain('the Final MOM below');
     const page = readWeb('frontend/src/pages/MeetingDetailPage.tsx');
-    expect(page).toMatch(/finished \? \[finalMom, actions, agenda, notes\]/);
+    // 1.23.0: the list's action items and agenda (`actionParts`, `agendaParts`) — or, in the website's
+    // Table view, its one table in the agenda's place — still in this order.
+    expect(page).toMatch(/finished \? \[finalMom, \.\.\.actionParts, \.\.\.agendaParts, notes\]/);
+    expect(page).toMatch(/const agendaParts = asTable \? \[table\] : \[agenda\];/);
+    expect(page).toMatch(/const actionParts = asTable \? \[\] : \[actions\];/);
     // "Ended" for the notes and agenda words is the website's `finished`: the meeting is COMPLETED.
     expect(page).toMatch(/const finished = meeting\.status === 'COMPLETED';/);
     expect(page).toMatch(/<NotesSection[^>]*ended=\{finished\}/);
