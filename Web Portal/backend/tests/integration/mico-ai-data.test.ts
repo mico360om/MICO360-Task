@@ -103,6 +103,8 @@ beforeAll(async () => {
   const b1 = await task('MAIB-1', 'Secret pricing sheet', beta, { dueDate: day('2026-10-15') }, [b.id, a.id]);
   ids.a1 = a1.id;
   ids.b1 = b1.id;
+  // 1.22.3: MAIA-1 was MAIB-90 before it moved to Alpha (its old number still finds it).
+  await prisma.taskKeyAlias.create({ data: { key: 'MAIB-90', taskId: a1.id, projectId: beta.p.id } });
   await prisma.taskDependency.create({ data: { taskId: a1.id, dependsOnTaskId: b1.id } });
   await prisma.comment.create({ data: { taskId: a1.id, userId: b.id, body: 'Vendor certificate is missing.' } });
   await prisma.checklistItem.create({ data: { taskId: a1.id, text: 'Calibrate the gauge', done: true } });
@@ -174,6 +176,18 @@ describe('MICO AI over the database: what each person may see (integration)', ()
     expect(JSON.stringify(r)).not.toMatch(/MAIB|Secret pricing/);
     expect((await t.run(viewer('a'), 'task_details', { task: 'MAIB-1' })).error).toBe('No task you can see matches “MAIB-1”.');
     expect((await t.run(viewer('a'), 'task_details', { task: ids.b1! })).error).toMatch(/No task you can see/);
+  });
+
+  it('task details: the task’s number however it is typed, or a number it had before it moved (1.22.3)', async () => {
+    const t = toolsFor();
+    for (const task of ['MAIA-1', 'maia-1', 'MAIA1', 'maia 1', 'MAIA_1', '#MAIA-1', 'MAIB-90', 'maib90', 'maib 90']) {
+      const r = await t.run(viewer('a'), 'task_details', { task });
+      expect(r.error, task).toBeUndefined();
+      expect(r.title, task).toBe('MAIA-1 Pressure test report');
+    }
+    // Still only where the person may look, however the number is typed.
+    for (const task of ['MAIB1', 'maib 1', 'MAIB_1']) expect((await t.run(viewer('a'), 'task_details', { task })).error, task).toMatch(/No task you can see/);
+    expect((await t.run(viewer('b'), 'task_details', { task: 'maib1' })).title).toBe('MAIB-1 Secret pricing sheet');
   });
 
   it('projects and what changed: only the person’s projects', async () => {

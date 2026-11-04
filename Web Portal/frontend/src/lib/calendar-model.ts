@@ -7,6 +7,7 @@ import type { ApiTask, Priority } from '../api/tasks';
 import { dueDayKey } from './due-date';
 import { isTaskDone } from './due-display';
 import { isWaitingForApproval } from './approvals';
+import { matchesTaskNumber } from './task-number';
 
 export type CalStatus = 'overdue' | 'blocked' | 'in-progress' | 'todo' | 'done' | 'projected';
 /** Statuses a person can filter by (a projected copy counts as "to do"). */
@@ -122,7 +123,8 @@ export function applyFilters(items: CalItem[], f: CalendarFilters, ctx: { myId: 
     if (f.mine && !(t.assignees ?? []).some((a) => a.id === ctx.myId)) return false;
     if (f.statuses.length && !f.statuses.includes(i.status === 'projected' ? 'todo' : i.status)) return false;
     if (f.priorities.length && !f.priorities.includes(t.priority)) return false;
-    if (q && !t.title.toLocaleLowerCase('en').includes(q) && !t.key.toLocaleLowerCase('en').includes(q)) return false;
+    // 1.22.3: or its number however it is typed ("rig 7", "RIG7", "#RIG-7").
+    if (q && !t.title.toLocaleLowerCase('en').includes(q) && !t.key.toLocaleLowerCase('en').includes(q) && !matchesTaskNumber(q, t.key, t.formerKeys)) return false;
     return true;
   });
 }

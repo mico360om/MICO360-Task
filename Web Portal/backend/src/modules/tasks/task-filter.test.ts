@@ -48,6 +48,20 @@ describe('filterAndSortTasks', () => {
     expect(filterAndSortTasks(tasks, { q: 'invoice' }).map((t) => t.id)).toEqual(['a', 'b', 'c']);
   });
 
+  it('matches a task number however it is typed, now or before it moved (1.22.3)', () => {
+    const tasks = [
+      task({ id: 'a', key: 'MICO-142' }),
+      task({ id: 'b', key: 'MICO-1420' }),
+      task({ id: 'c', key: 'OPS-17', formerKeys: ['RIG-4'] }),
+      task({ id: 'd', key: 'HR2-14' }),
+    ];
+    const ids = (q: string) => filterAndSortTasks(tasks, { q }).map((t) => t.id);
+    for (const q of ['MICO-142', 'mico142', 'mico 142', 'MICO_142', '#MICO-142']) expect(ids(q), q).toEqual(q === 'MICO-142' ? ['a', 'b'] : ['a']);
+    expect(ids('rig 4')).toEqual(['c']);
+    expect(ids('HR214')).toEqual(['d']);
+    expect(ids('142')).toEqual(['a', 'b']); // a bare number: still any key holding it (a filter, not a ranking)
+  });
+
   it('filters by priority, status category and tag (combined)', () => {
     const tasks = [
       task({ id: 'a', priority: 'HIGH', columnCategory: 'IN_PROGRESS', tags: [{ id: 'tag1', name: 'x', color: '#000' }] }),

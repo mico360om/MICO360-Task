@@ -25,6 +25,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   columns), see who is on the board, manage its columns, with live updates and the N shortcut, just
   like the Kanban Board page. A link can open it directly (…?tab=board). On a phone the columns
   scroll sideways. The Kanban Board page and its "Open board" links work as before.
+- Search finds a task by its number however it is typed: MICO-142, mico-142, MICO142, mico 142,
+  MICO_142 or #MICO-142 all find MICO-142 first, and so does a number the task had before it moved
+  project. Just "142" lists the tasks numbered 142 in any project first. The same works in the top bar
+  ("open mico 142"), the Calendar's "Search tasks", a project's Tasks tab, the blocker picker and
+  MICO AI.
 
 ## [1.22.2] - 2026-11-04
 

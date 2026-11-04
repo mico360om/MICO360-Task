@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCommand, matchNavCommands, NAV_COMMANDS } from './commands';
+import { parseCommand, matchNavCommands, NAV_COMMANDS, commandTaskKeys } from './commands';
 
 describe('parseCommand', () => {
   it('parses "assign <KEY> to <name>"', () => {
@@ -28,6 +28,39 @@ describe('parseCommand', () => {
   it('returns null for free text that is not a command', () => {
     expect(parseCommand('quarterly planning notes')).toBeNull();
     expect(parseCommand('go to nowhere')).toBeNull();
+  });
+
+  describe('a task number however it is typed (1.22.3)', () => {
+    it('reads mico-142, mico 142, MICO142, MICO_142 and #MICO-142 in every command', () => {
+      for (const key of ['mico 142', 'MICO_142', '#MICO-142', '#mico 142', 'MICO - 142']) {
+        expect(parseCommand(`open ${key}`), key).toEqual({ type: 'open', taskKey: 'MICO-142' });
+        expect(parseCommand(`complete ${key}`), key).toEqual({ type: 'complete', taskKey: 'MICO-142' });
+        expect(parseCommand(`assign ${key} to Sara`), key).toEqual({ type: 'assign', taskKey: 'MICO-142', assignee: 'Sara' });
+        expect(parseCommand(`move ${key} to Review`), key).toEqual({ type: 'move', taskKey: 'MICO-142', status: 'Review' });
+      }
+      expect(parseCommand('#MICO-142')).toEqual({ type: 'open', taskKey: 'MICO-142' });
+    });
+
+    it('a run-together number keeps what was typed, and is looked up under every split', () => {
+      expect(parseCommand('open mico142')).toEqual({ type: 'open', taskKey: 'MICO142' });
+      expect(parseCommand('complete hr214')).toEqual({ type: 'complete', taskKey: 'HR214' });
+      expect(commandTaskKeys('HR214')).toEqual(['HR214', 'HR-214', 'HR2-14', 'HR21-4']);
+      expect(commandTaskKeys('MICO-142')).toEqual(['MICO-142']);
+      expect(commandTaskKeys('mico-7')).toEqual(['MICO-7']);
+    });
+
+    it('without a verb, a loosely typed number is offered only once the search finds it (so "phase 2" still searches)', () => {
+      expect(parseCommand('mico 142')).toEqual({ type: 'open', taskKey: 'MICO-142', onlyIfFound: true });
+      expect(parseCommand('MICO142')).toEqual({ type: 'open', taskKey: 'MICO142', onlyIfFound: true });
+      expect(parseCommand('mico_142')).toEqual({ type: 'open', taskKey: 'MICO-142', onlyIfFound: true });
+      expect(parseCommand('phase 2')).toEqual({ type: 'open', taskKey: 'PHASE-2', onlyIfFound: true });
+      // The hyphenated number is a command straight away, as before.
+      expect(parseCommand('mico-142')).toEqual({ type: 'open', taskKey: 'MICO-142' });
+    });
+
+    it('a bare number or other text is not a task command', () => {
+      for (const text of ['142', '#142', ' 142 ', 'assign a1 to Sara', 'open scaffold permit', 'check 142 valves']) expect(parseCommand(text), text).toBeNull();
+    });
   });
 });
 
