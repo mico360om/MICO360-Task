@@ -18,6 +18,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Projects: the "Only my projects" tick is now the same saved setting as Settings → "Show my projects
   only". Ticking or unticking it is kept for you on every device and every visit, and every page
   follows it.
+- Minutes of Meeting PDF: smaller, tidier and shorter — a monthly meeting now fits on two pages
+  instead of three. A one-line header, smaller text, the project's details beside the meeting's, a
+  short "Microsoft Teams — join link" instead of the long address, slim summary cards, and each
+  note's author and time on its last line. The client page's copy has the same look.
 
 ### Bug fixes
 - Meeting notes: the meeting's organizer and administrators can change a note someone else wrote.
