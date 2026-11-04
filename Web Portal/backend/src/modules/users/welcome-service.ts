@@ -3,6 +3,7 @@ import { HttpError } from '../../lib/http-errors';
 import type { DeliveryResult } from '../email/email-service';
 import type { TemplateOptions, WelcomeEmailParams } from '../email/email-templates';
 import type { UserRepository, UserSummary } from './user-repository';
+import { isClientRoles } from '../clients/client-kind';
 
 /** Where welcome links are kept: hashed, single use, with their own expiry (7 days). */
 export interface WelcomeTokenStore {
@@ -161,7 +162,9 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
         warn('could not cancel an unsent welcome link', user.id, err);
       }
     };
-    const apps = deps.downloads?.() ?? { androidAppUrl: null, extensionUrl: null };
+    // 1.23: a client account signs in to the Client portal on the website only — no staff apps.
+    const client = isClientRoles(user.roles);
+    const apps = client ? { androidAppUrl: null, extensionUrl: null } : (deps.downloads?.() ?? { androidAppUrl: null, extensionUrl: null });
     let result: DeliveryResult;
     try {
       const params: WelcomeEmailParams = {
@@ -171,6 +174,7 @@ export function createWelcomeService(deps: WelcomeServiceDeps) {
         expiresInDays: Math.round(ttlSeconds / 86_400),
         androidAppUrl: apps.androidAppUrl,
         extensionUrl: apps.extensionUrl,
+        ...(client ? { client: true } : {}),
       };
       // A brand that can't be read never stops the email: it goes with the site's brand.
       const brand = await deps.emailOptions?.(user.id).catch(() => undefined);

@@ -4,6 +4,7 @@ import { DEFAULT_COLUMNS, type CreateProjectData, type PeopleLookup, type Projec
 import { writeStartingTasks } from './prisma-starting-content';
 import { inCompanyWhere, pickedCompanyWhere, teamWhere, visibleProjectWhere } from '../companies/company-access';
 import { ARCHIVE_INCLUDE, archivedOf } from '../companies/project-archive';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 /** companies: a new project's company rows, as the rules chose them (`[0]`, its main company, is always one of them). */
 const companyLink = (companyIds: readonly string[] | undefined) =>
@@ -190,7 +191,8 @@ export function createPrismaPeopleLookup(prisma: PrismaClient): PeopleLookup {
     async activeIds(ids) {
       const wanted = [...new Set(ids)];
       if (wanted.length === 0) return [];
-      const rows = await prisma.user.findMany({ where: { id: { in: wanted }, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
+      // 1.23: a client account is never a project's owner, manager or team member.
+      const rows = await prisma.user.findMany({ where: { id: { in: wanted }, deletedAt: null, status: 'ACTIVE', ...STAFF_ONLY_WHERE }, select: { id: true } });
       const active = new Set(rows.map((r) => r.id));
       return wanted.filter((id) => active.has(id));
     },

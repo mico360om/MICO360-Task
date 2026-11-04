@@ -8,6 +8,7 @@ import { ClientShareExistsError, type ClientShareRecord, type ClientShareStore }
 import type { ClientViewSource } from './client-view-source';
 import { buildClientView, type ClientProjectSource, type ClientView } from './client-view-payload';
 import { buildClientMinutesPdf } from './client-minutes-pdf';
+import { buildClientTaskListPdf, type ClientTaskRow } from './client-task-list-pdf';
 import { createRepeatGuard } from '../../lib/repeat-requests';
 import type { ClientInspection, ClientInspectionSummary } from '../inspections/inspection-client-copy';
 import { buildInspectionPdf, inspectionPdfFileName, reportBrand } from '../inspections/inspection-report-pdf';
@@ -258,6 +259,36 @@ export function createClientAccessService(deps: ClientAccessDeps) {
     }
   }
 
+  /** The client copy of a meeting's shown approved minutes for this project (null: not shown). */
+  async function clientMinutesPdfOf(projectId: string, project: ClientProjectSource, meetingId: string): Promise<{ pdf: Buffer; fileName: string } | null> {
+    const m = await source.minutesOf(projectId, meetingId);
+    if (!m || m.status !== 'APPROVED' || !m.clientVisible) return null;
+    const brand = resolveBrand();
+    const company = await pdfBrand(projectId);
+    const image = project.imageUrl && deps.projectImage ? await deps.projectImage(project.imageUrl).catch(() => null) : null;
+    const pdf = buildClientMinutesPdf({
+      brand: withCompany(
+        {
+          productName: brand.productName,
+          companyName: brand.companyName,
+          websiteUrl: brand.websiteUrl,
+          supportEmail: brand.supportEmail,
+          companyAddress: brand.companyAddress,
+          colors: { brand: brand.colors.brand, ink: brand.colors.ink, muted: brand.colors.ink2, line: brand.colors.line },
+        },
+        company,
+      ),
+      ...(company.logo ? { logo: company.logo } : {}),
+      project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
+      meeting: { title: m.title, startAt: m.startAt.toISOString(), endAt: m.endAt ? m.endAt.toISOString() : null, timeZone: m.timeZone },
+      approvedAt: m.approvedAt ? m.approvedAt.toISOString() : null,
+      content: clientMinutesContent(m.content, { names: m.people ?? [], includeRisks: m.showRisks === true }),
+      companyTimeZone: deps.timeZone,
+      generatedAt: now().toISOString(),
+    });
+    return { pdf, fileName: `minutes-${slugify(m.title)}.pdf` };
+  }
+
   return {
     limits,
 
@@ -398,12 +429,30 @@ export function createClientAccessService(deps: ClientAccessDeps) {
     /** The client copy of a shown meeting's approved minutes (never the staff PDF). */
     async minutesPdf(link: unknown, readSession: SessionReader, meetingId: unknown): Promise<{ pdf: Buffer; fileName: string }> {
       const { share, project } = await openSession(link, readSession);
-      const m = typeof meetingId === 'string' && meetingId ? await source.minutesOf(share.projectId, meetingId) : null;
-      if (!m || m.status !== 'APPROVED' || !m.clientVisible) throw new NotFoundError('These minutes aren’t shared with you.');
+      const out = typeof meetingId === 'string' && meetingId ? await clientMinutesPdfOf(share.projectId, project, meetingId) : null;
+      if (!out) throw new NotFoundError('These minutes aren’t shared with you.');
+      return out;
+    },
+
+    /**
+     * 1.23 The Client portal's copy of the same PDF: a project's shown approved minutes, for a client
+     * account the portal already let through. Null when they aren't shown for this project.
+     */
+    async projectMinutesPdf(projectId: string, meetingId: string): Promise<{ pdf: Buffer; fileName: string } | null> {
+      const project = await source.project(projectId);
+      if (!project || project.gone) return null;
+      return clientMinutesPdfOf(projectId, project, meetingId);
+    },
+
+    /** 1.23 The Client portal's task list PDF of a project (rows already chosen by the portal: shared tasks only). */
+    async projectTaskListPdf(projectId: string, list: { percentDone: number; milestones: ClientTaskRow[]; tasks: ClientTaskRow[] }): Promise<{ pdf: Buffer; fileName: string }> {
+      const project = await source.project(projectId);
+      if (!project || project.gone) throw new NotFoundError('This project isn’t shared with you.');
       const brand = resolveBrand();
-      const company = await pdfBrand(share.projectId);
+      const company = await pdfBrand(projectId);
       const image = project.imageUrl && deps.projectImage ? await deps.projectImage(project.imageUrl).catch(() => null) : null;
-      const pdf = buildClientMinutesPdf({
+      const row = (t: ClientTaskRow): ClientTaskRow => ({ key: t.key, title: t.title, status: t.status, dueDate: t.dueDate, late: t.late, acceptedOn: t.acceptedOn });
+      const pdf = buildClientTaskListPdf({
         brand: withCompany(
           {
             productName: brand.productName,
@@ -417,13 +466,13 @@ export function createClientAccessService(deps: ClientAccessDeps) {
         ),
         ...(company.logo ? { logo: company.logo } : {}),
         project: { name: project.name, code: project.code, number: project.number, clientName: project.clientName, color: project.color, icon: project.icon, image },
-        meeting: { title: m.title, startAt: m.startAt.toISOString(), endAt: m.endAt ? m.endAt.toISOString() : null, timeZone: m.timeZone },
-        approvedAt: m.approvedAt ? m.approvedAt.toISOString() : null,
-        content: clientMinutesContent(m.content, { names: m.people ?? [], includeRisks: m.showRisks === true }),
-        companyTimeZone: deps.timeZone,
+        percentDone: list.percentDone,
+        milestones: list.milestones.map(row),
+        tasks: list.tasks.map(row),
+        timeZone: deps.timeZone,
         generatedAt: now().toISOString(),
       });
-      return { pdf, fileName: `minutes-${slugify(m.title)}.pdf` };
+      return { pdf, fileName: `tasks-${slugify(project.code || project.name)}.pdf` };
     },
 
     /** The share a link opens (null when it opens none): the PDF limit counts per share and device. */

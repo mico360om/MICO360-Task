@@ -224,3 +224,19 @@ describe('meeting reminders: push options and the live pop-up', () => {
     await expect(svc.notify({ userId: 'u1', type: 'X', title: 'a' })).resolves.not.toBeNull();
   });
 });
+
+// 1.23 Client accounts: no bell, no phone push, nothing on their open pages — ever.
+describe('NotificationService — client accounts', () => {
+  it('never stores, pushes or announces a notification for a client account', async () => {
+    const push = { sendToUser: vi.fn(async () => 1) };
+    const onDelivered = vi.fn();
+    const s = createNotificationService({ notifications: inMemory(), push, onDelivered, isClient: async (id) => id === 'client-1' });
+    expect(await s.notify({ userId: 'client-1', type: 'MEETING_INVITE', title: 'You are invited' })).toBeNull();
+    expect(await s.notifyOnce({ userId: 'client-1', type: 'CHAT_MESSAGE', title: 'x', entityType: 'conversation', entityId: 'c' })).toBeNull();
+    expect(await s.listForUser('client-1')).toEqual([]);
+    expect(push.sendToUser).not.toHaveBeenCalled();
+    expect(onDelivered).not.toHaveBeenCalled();
+    expect(await s.notify({ userId: 'staff-1', type: 'X', title: 'still delivered' })).not.toBeNull();
+    expect(push.sendToUser).toHaveBeenCalledTimes(1);
+  });
+});

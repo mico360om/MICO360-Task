@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { CLIENT_ROLE, CLIENT_WORDS, NotStaffError } from '../clients/client-kind';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import type { AuditService } from '../audit/audit-service';
 import type { UserStatus } from '../users/user-repository';
@@ -36,6 +37,8 @@ export interface MembershipPerson {
   username: string;
   status: UserStatus;
   isAdmin: boolean;
+  /** 1.23: a client account — never in a company. */
+  isClient?: boolean;
   primaryCompanyId: string | null;
   /** Their companies, oldest membership first. */
   memberships: string[];
@@ -115,12 +118,14 @@ export function createCompanyMembership(deps: CompanyMembershipDeps): CompanyMem
 
   /** May this person be left with no company? Only an active employee may not. */
   const mustKeepOne = (p: MembershipPerson, facts?: { roles?: string[]; status?: UserStatus }) =>
-    (facts?.status ?? p.status) === 'ACTIVE' && !(facts?.roles ? isAdminRoles(facts.roles) : p.isAdmin);
+    !p.isClient && (facts?.status ?? p.status) === 'ACTIVE' && !(facts?.roles ? isAdminRoles(facts.roles) : p.isAdmin);
 
   async function plan(userId: string, companyIds: string[] | undefined, primaryId: string | null | undefined, facts?: { roles?: string[]; status?: UserStatus }) {
     const p = (await store.people([userId]))[0];
     if (!p) throw new NotFoundError(MEMBERSHIP_WORDS.unknownPerson);
     const next = companyIds === undefined ? p.memberships : unique(companyIds);
+    // 1.23: a client account never belongs to a company.
+    if (p.isClient && next.length > 0) throw new NotStaffError(nameOf(p));
     if (companyIds !== undefined) await ensureExist(next);
     if (next.length === 0 && mustKeepOne(p, facts)) throw new ConflictError(lastCompanyMessage(nameOf(p)), 'LAST_COMPANY');
     let primary: string | null;
@@ -167,6 +172,10 @@ export function createCompanyMembership(deps: CompanyMembershipDeps): CompanyMem
       }
       const next = [...p.memberships, ...adding.filter((id) => !p.memberships.includes(id))].filter((id) => !removing.includes(id));
       if (sameSet(p.memberships, next)) continue;
+      if (p.isClient && next.length > 0) {
+        refused.push({ userId, name: nameOf(p), reason: CLIENT_WORDS.notStaff(nameOf(p)) });
+        continue;
+      }
       if (next.length === 0 && mustKeepOne(p)) {
         refused.push({ userId, name: nameOf(p), reason: lastCompanyMessage(nameOf(p)) });
         continue;
@@ -236,6 +245,7 @@ export function createPrismaMembershipStore(prisma: PrismaClient): MembershipSto
         username: u.username,
         status: u.status,
         isAdmin: u.roles.some((r) => r.role.name === 'ADMIN'),
+        isClient: u.roles.some((r) => r.role.name === CLIENT_ROLE),
         primaryCompanyId: u.primaryCompanyId,
         memberships: u.companies.map((c) => c.companyId),
       }));

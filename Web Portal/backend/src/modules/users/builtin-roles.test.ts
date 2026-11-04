@@ -14,7 +14,7 @@ describe('built-in roles', () => {
     .map((d) => readFileSync(join(dir, d.name, 'migration.sql'), 'utf8'))
     .join('\n');
 
-  it.each(['ADMIN', 'EMPLOYEE'])('the migrations create the %s role idempotently', (role) => {
+  it.each(['ADMIN', 'EMPLOYEE', 'CLIENT'])('the migrations create the %s role idempotently', (role) => {
     expect(sql).toMatch(new RegExp(`INSERT IGNORE INTO \`roles\`[\\s\\S]*'${role}'`));
   });
 });

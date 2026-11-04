@@ -11,10 +11,12 @@
  *   list    what the person can see ∩ the picked company
  *   people  colleague, known-people or project-company rules
  *   shared  global catalogues (templates, inspection forms, tags, the project-code check)
+ *   client  1.23 the Client portal: client accounts only, scoped by their own project grants
+ *           (modules/clients/portal-service.ts) — companies don't apply; staff are refused
  *
  * Keys are `${METHOD} ${path exactly as written in the source}`. Lanes append rows at the end.
  */
-export type RouteClass = 'public' | 'own' | 'admin' | 'object' | 'list' | 'people' | 'shared';
+export type RouteClass = 'public' | 'own' | 'admin' | 'object' | 'list' | 'people' | 'shared' | 'client';
 
 export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // ---- public ---------------------------------------------------------------------------------
@@ -373,4 +375,25 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // 1.22 Lane AI (§10): the AI's draft offered beside a meeting's minutes — Use it, Discard (editors of the meeting).
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'object',
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'object',
+  // 1.23 Client accounts: administrators manage them; "Clients with access" is the project's (object).
+  'GET /clients': 'admin',
+  'POST /clients': 'admin',
+  'GET /clients/project-options': 'admin',
+  'GET /clients/:id': 'admin',
+  'PUT /clients/:id': 'admin',
+  'GET /projects/:id/clients': 'object',
+  // 1.23 The Client portal (client accounts only; their grants decide).
+  'GET /portal/me': 'client',
+  'GET /portal/projects/:projectId': 'client',
+  'GET /portal/projects/:projectId/tasks/:taskId': 'client',
+  'POST /portal/projects/:projectId/tasks/:taskId/comments': 'client',
+  'POST /portal/projects/:projectId/tasks/:taskId/accept': 'client',
+  'POST /portal/projects/:projectId/tasks/:taskId/send-back': 'client',
+  'GET /portal/projects/:projectId/tasks.pdf': 'client',
+  'GET /portal/projects/:projectId/meetings': 'client',
+  'GET /portal/projects/:projectId/meetings/:meetingId': 'client',
+  'POST /portal/projects/:projectId/meetings/:meetingId/response': 'client',
+  'GET /portal/projects/:projectId/meetings/:meetingId/minutes.pdf': 'client',
+  'POST /portal/projects/:projectId/action-items/:itemId/done': 'client',
+  'GET /portal/meetings/:meetingId': 'client',
 };

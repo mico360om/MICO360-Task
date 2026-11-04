@@ -115,6 +115,10 @@ import { fullViewOrInviteeRefusal } from './modules/meetings/invitee-view';
 import { inviteTargetOf, type MeetingInvitees } from './modules/meetings/meeting-invitees';
 import type { MeetingCompanyRule } from './modules/meetings/meeting-company';
 import type { PdfBrands } from './modules/companies/company-branding';
+import { registerClientAccountRoutes } from './modules/clients/client-account-routes';
+import type { ClientAccounts } from './modules/clients/client-accounts';
+import { registerPortalRoutes } from './modules/clients/portal-routes';
+import type { PortalService } from './modules/clients/portal-service';
 import type { CompanyTime } from './modules/companies/company-time';
 
 export interface AppDeps extends AuthRouteDeps {
@@ -194,6 +198,12 @@ export interface AppDeps extends AuthRouteDeps {
   userService?: UserService;
   /** Welcome emails from User Management (a "Set your password" link); administrators only. */
   welcomeService?: WelcomeService;
+  /** 1.23 Client accounts (administrators) and "Clients with access" on a project. */
+  clientAccounts?: ClientAccounts;
+  /** 1.23 The Client portal's reads and actions (client accounts only). */
+  portal?: PortalService;
+  /** PDFs a client may download a minute from the portal (default 10). */
+  portalPdfsPerMinute?: number;
   notificationService?: NotificationService;
   /** Free times for Schedule meeting (busy meetings, working hours, names). */
   meetingFreeTimes?: import('./modules/meetings/meeting-routes').FreeTimesDeps;
@@ -847,7 +857,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
               const byId = new Map((await options(ids)).map((p) => [p.id, p]));
               return ids.flatMap((pid) => {
                 const p = byId.get(pid);
-                return p ? [{ id: pid, name: `${p.firstName} ${p.lastName}`.trim() || p.username, avatarUrl: p.avatarUrl }] : [];
+                return p ? [{ id: pid, name: `${p.firstName} ${p.lastName}`.trim() || p.username, avatarUrl: p.avatarUrl, ...(p.client ? { client: true } : {}) }] : [];
               });
             }
           : undefined;
@@ -974,6 +984,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (deps.backups) {
         await registerBackupRoutes(api, { ...deps.backups, guard, audit: deps.auditService });
       }
+      // 1.23 Client accounts and the Client portal.
+      if (deps.clientAccounts) {
+        await registerClientAccountRoutes(api, {
+          accounts: deps.clientAccounts,
+          guard,
+          welcome: deps.welcomeService,
+          canViewProject: canViewProject ?? (async (_u, roles) => roles.includes('ADMIN')),
+          audit: deps.auditService,
+        });
+      }
+      if (deps.portal) await registerPortalRoutes(api, { service: deps.portal, guard, pdfsPerMinute: deps.portalPdfsPerMinute });
       // companies: the Companies admin API and GET /me/companies.
       if (deps.companyService) {
         await registerCompanyRoutes(api, { service: deps.companyService, guard });

@@ -160,9 +160,17 @@ describe('client view in the database', () => {
     expect(await flags.tasks.projectOf(t.id)).toBe(a.id);
     expect(await flags.tasks.projectOf(gone.id)).toBeNull();
     expect(await flags.tasks.projectOf('nope')).toBeNull();
-    expect(await flags.tasks.setClientVisible(t.id, true)).toEqual({ before: false, task: { id: t.id } });
+    expect(await flags.tasks.setClientVisible(t.id, true)).toEqual({ before: false, beforeDescription: false, task: { id: t.id } });
     expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).clientVisible).toBe(true);
     expect((await flags.tasks.setClientVisible(t.id, true)).before).toBe(true);
+    // 1.23: its description's own tick — kept when not given, off whenever the task is hidden.
+    await flags.tasks.setClientVisible(t.id, true, true);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).clientShowDescription).toBe(true);
+    await flags.tasks.setClientVisible(t.id, true);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).clientShowDescription).toBe(true);
+    await flags.tasks.setClientVisible(t.id, false, true);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).toMatchObject({ clientVisible: false, clientShowDescription: false });
+    await flags.tasks.setClientVisible(t.id, true);
     await prisma.project.update({ where: { id: a.id }, data: { deletedAt: new Date() } });
     expect(await flags.tasks.projectOf(t.id)).toBeNull();
   });

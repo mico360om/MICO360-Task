@@ -148,7 +148,7 @@ export function createMemoryUserRepository() {
         const r = rows.get(id);
         if (!r || r.deleted) return [];
         const u = r.user;
-        return [{ id, firstName: u.firstName, lastName: u.lastName, username: u.username, status: u.status, isAdmin: u.roles.includes('ADMIN'), primaryCompanyId: u.primaryCompanyId ?? null, memberships: [...r.memberships] }];
+        return [{ id, firstName: u.firstName, lastName: u.lastName, username: u.username, status: u.status, isAdmin: u.roles.includes('ADMIN'), isClient: u.roles.includes('CLIENT'), primaryCompanyId: u.primaryCompanyId ?? null, memberships: [...r.memberships] }];
       });
     },
     async existingCompanyIds(ids) {

@@ -7,6 +7,12 @@ export interface CommentRecord {
   parentId: string | null;
   editedAt: Date | null;
   createdAt: Date;
+  /** 1.23: written by a client account in the Client portal (the team sees it marked "Client"). */
+  fromClient?: boolean;
+  /** 1.23: a team reply to a client's comment the client may see ("Visible to client"). */
+  clientVisible?: boolean;
+  /** 1.23: a client's comment names its writer here (client accounts aren't in the people directory). */
+  clientAuthor?: { name: string; organisation: string | null } | null;
 }
 
 /** Someone who can be @mentioned in a task's comments (shown in the suggestion list). */
@@ -19,7 +25,7 @@ export interface MentionablePerson {
 }
 
 export interface CommentRepository {
-  create(taskId: string, userId: string, body: string, parentId?: string | null): Promise<CommentRecord>;
+  create(taskId: string, userId: string, body: string, parentId?: string | null, extra?: { fromClient?: boolean; clientVisible?: boolean }): Promise<CommentRecord>;
   findById(id: string): Promise<CommentRecord | null>;
   list(taskId: string): Promise<CommentRecord[]>;
   update(id: string, body: string): Promise<CommentRecord>;

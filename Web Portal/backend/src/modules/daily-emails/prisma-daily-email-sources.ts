@@ -6,6 +6,7 @@ import { liveProjectWhere } from '../companies/project-archive';
 import { hasActiveCompany, sharedCompanyWhere } from '../companies/company-access';
 import { managedProjectsWhere } from '../projects/project-managers';
 import { buildTimeline } from '../activity/activity-feed';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 const personSelect = {
   id: true,
@@ -125,7 +126,8 @@ const MEETINGS_A_DAY = 60;
  * archived projects. ("Show my projects only" doesn't apply to emails: lane S's ruling.)
  */
 export function createPrismaDailyEmailSources(prisma: PrismaClient) {
-  const active = { status: 'ACTIVE', deletedAt: null } as const;
+  // 1.23: client accounts never get the morning emails.
+  const active = { status: 'ACTIVE', deletedAt: null, ...STAFF_ONLY_WHERE } as const;
   const isAdmin = async (userId: string) => (await prisma.userRole.count({ where: { userId, role: { name: 'ADMIN' } } })) > 0;
   /**
    * Companies: someone who isn't an administrator only hears of tasks in projects that share an active

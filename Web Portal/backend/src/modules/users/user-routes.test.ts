@@ -490,3 +490,60 @@ describe('People’s companies (User Management)', () => {
     expect((await a.inject({ method: 'POST', url: '/api/v1/users/companies', headers: employee, payload: { userIds: [ana], addCompanyIds: ['B'] } })).statusCode).toBe(403);
   });
 });
+
+// 1.23 Client accounts: made with the client form (POST /clients); never mixed with staff roles.
+describe('User Management and client accounts', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+  const makeClient = async () => (await mem.repo.create({ email: 'cliff@client.co', username: 'cliff', passwordHash: 'x', firstName: 'Cliff', lastName: 'Client', roleNames: ['CLIENT'] })).id;
+
+  it('POST /users refuses the Client role: client accounts are made with the client form', async () => {
+    for (const roleNames of [['CLIENT'], ['CLIENT', 'EMPLOYEE']]) {
+      const res = await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: { ...newUser, roleNames } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('USE_CLIENT_FORM');
+    }
+  });
+
+  it('PUT /users/:id can’t turn staff into a client or a client into staff (409 ROLE_CHANGE_NOT_OFFERED)', async () => {
+    const sara = (await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: newUser })).json().data;
+    const toClient = await app.inject({ method: 'PUT', url: `/api/v1/users/${sara.id}`, headers: await admin(), payload: { roleNames: ['CLIENT'] } });
+    expect(toClient.statusCode).toBe(409);
+    expect(toClient.json().error.code).toBe('ROLE_CHANGE_NOT_OFFERED');
+    const cliff = await makeClient();
+    for (const roleNames of [['ADMIN'], ['EMPLOYEE'], ['CLIENT', 'ADMIN']]) {
+      const res = await app.inject({ method: 'PUT', url: `/api/v1/users/${cliff}`, headers: await admin(), payload: { roleNames } });
+      expect(res.statusCode, roleNames.join()).toBeGreaterThanOrEqual(400);
+      expect((await mem.repo.findById(cliff))!.roles).toEqual(['CLIENT']);
+    }
+    // Their name and email can still be changed here.
+    const renamed = await app.inject({ method: 'PUT', url: `/api/v1/users/${cliff}`, headers: await admin(), payload: { firstName: 'Clifford', roleNames: ['CLIENT'] } });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().data.firstName).toBe('Clifford');
+  });
+
+  it('the list shows client accounts with their Client role (the page badges them)', async () => {
+    const cliff = await makeClient();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users', headers: await admin() });
+    expect(res.json().data.find((u: { id: string }) => u.id === cliff)).toMatchObject({ roles: ['CLIENT'] });
+  });
+
+  it('the people directory never lists a client account, not even for an administrator', async () => {
+    const cliff = await makeClient();
+    await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: newUser });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/users/directory', headers: await admin() });
+    expect(res.statusCode).toBe(200);
+    const ids = res.json().data.map((u: { id: string }) => u.id);
+    expect(ids).not.toContain(cliff);
+    expect(res.json().data.map((u: { username: string }) => u.username)).toContain('sara');
+  });
+
+  it('a client account’s session is refused on every User Management route', async () => {
+    const cliff = await makeClient();
+    const headers = { authorization: `Bearer ${await tokenFor(cliff, ['CLIENT'])}` };
+    for (const [method, url] of [['GET', '/api/v1/users'], ['GET', '/api/v1/users/directory'], ['GET', `/api/v1/users/${cliff}`], ['POST', '/api/v1/users/me/avatar']] as const) {
+      const res = await app.inject({ method, url, headers });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json().error.code, url).toBe('CLIENT_NOT_ALLOWED');
+    }
+  });
+});

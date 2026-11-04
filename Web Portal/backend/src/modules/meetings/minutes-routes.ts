@@ -20,6 +20,7 @@ import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesSendOptions, type 
 import type { MinutesSendAddress, MinutesSendRepository } from './minutes-send-repository';
 import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
 import type { FinalMinutesAi } from './final-minutes-ai';
+import { isClientRoles } from '../clients/client-kind';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -405,7 +406,10 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     const viewOfMeeting = deps.recipientViewOf ?? deps.viewOf;
     if (!viewOfMeeting) return undefined;
     return async (userId) => {
-      const view = await viewOfMeeting(userId, deps.rolesOf ? await deps.rolesOf(userId) : [], meetingId);
+      const roles = deps.rolesOf ? await deps.rolesOf(userId) : [];
+      // 1.23: a client account invited to the meeting gets the minutes as a guest does (the shared email).
+      if (isClientRoles(roles)) return 'shared';
+      const view = await viewOfMeeting(userId, roles, meetingId);
       if (view === 'full') return 'shared';
       if (view === 'invitee') return final ? 'own' : 'later';
       return 'none';

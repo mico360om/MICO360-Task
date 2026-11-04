@@ -58,9 +58,11 @@ export interface NotificationServiceDeps {
   logger?: Pick<Logger, 'error'>;
   /** Each stored notification, for the person's open pages (the website's live pop-up). Best-effort. */
   onDelivered?: (record: NotificationRecord) => void;
+  /** 1.23: is this person a client account? Client accounts never get a notification (no bell, no push). */
+  isClient?: (userId: string) => Promise<boolean>;
 }
 
-export function createNotificationService({ notifications, preferences, push, logger, onDelivered }: NotificationServiceDeps) {
+export function createNotificationService({ notifications, preferences, push, logger, onDelivered, isClient }: NotificationServiceDeps) {
   /** Create a notification unless the recipient has muted this type. Returns null when suppressed. */
   async function notify(input: CreateNotificationData, opts?: NotifyOptions): Promise<NotificationRecord | null> {
     return deliver(input, false, opts);
@@ -104,6 +106,8 @@ export function createNotificationService({ notifications, preferences, push, lo
   }
 
   async function deliverNow(input: CreateNotificationData, once: boolean, opts?: NotifyOptions): Promise<NotificationRecord | null> {
+    // 1.23: a client account hears through the essentials' emails only, never the bell.
+    if (isClient && (await isClient(input.userId))) return null;
     if (preferences) {
       const prefs = await preferences.get(input.userId);
       if (isMuted(prefs, input.type)) return null;

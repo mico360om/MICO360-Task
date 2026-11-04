@@ -145,3 +145,71 @@ describe('auth guard with live user state (token version, status, current roles)
     await app.close();
   });
 });
+
+// 1.23 Client accounts: one deny-by-default check in the guard (modules/clients/client-route-table.ts).
+describe('auth guard — client accounts', () => {
+  async function clientApp(state?: Record<string, UserState>) {
+    const tokenService = makeTokenService();
+    const guard = createAuthGuard(tokenService, state ? { userState: async (id) => state[id] ?? null } : {});
+    const app = Fastify();
+    app.setErrorHandler((err, _req, reply) => {
+      const status = err instanceof AuthError || (err as { status?: number }).status ? ((err as { status: number }).status ?? 500) : 500;
+      reply.status(status).send({ error: { code: (err as { code?: string }).code ?? 'INTERNAL' } });
+    });
+    app.get('/projects', { preHandler: guard.authenticate }, async () => ({ data: 'staff' }));
+    app.get('/portal/me', { preHandler: guard.authenticate }, async (req) => ({ data: req.user }));
+    app.post('/users/me/password', { preHandler: guard.authenticate }, async () => ({ data: 'both' }));
+    app.get('/users', { preHandler: guard.requireRoles('ADMIN') }, async () => ({ data: 'admin' }));
+    app.get('/made-up/:id', { preHandler: guard.authenticate }, async () => ({ data: 'unknown' }));
+    return { app, tokenService };
+  }
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+
+  it('refuses a client on a staff route (403 CLIENT_NOT_ALLOWED), with no data', async () => {
+    const { app, tokenService } = await clientApp();
+    const { accessToken } = await tokenService.issueTokens({ id: 'c1', roles: ['CLIENT'] });
+    for (const url of ['/projects', '/users', '/made-up/x']) {
+      const res = await app.inject({ method: 'GET', url, headers: bearer(accessToken) });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json().error.code, url).toBe('CLIENT_NOT_ALLOWED');
+      expect(res.body).not.toContain('staff');
+    }
+    await app.close();
+  });
+
+  it('lets a client call the portal and the reviewed routes', async () => {
+    const { app, tokenService } = await clientApp();
+    const { accessToken } = await tokenService.issueTokens({ id: 'c1', roles: ['CLIENT'] });
+    expect((await app.inject({ method: 'GET', url: '/portal/me', headers: bearer(accessToken) })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/users/me/password', headers: bearer(accessToken) })).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('refuses staff on a portal route (403 CLIENTS_ONLY)', async () => {
+    const { app, tokenService } = await clientApp();
+    for (const roles of [['ADMIN'], ['EMPLOYEE']]) {
+      const { accessToken } = await tokenService.issueTokens({ id: 'u1', roles });
+      const res = await app.inject({ method: 'GET', url: '/portal/me', headers: bearer(accessToken) });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('CLIENTS_ONLY');
+      expect((await app.inject({ method: 'GET', url: '/projects', headers: bearer(accessToken) })).statusCode).toBe(200);
+    }
+    await app.close();
+  });
+
+  it('decides by the CURRENT roles, not the token’s (a token minted as staff for a client account is refused)', async () => {
+    const { app, tokenService } = await clientApp({ c1: { tokenVersion: 0, active: true, roles: ['CLIENT'] } });
+    const { accessToken } = await tokenService.issueTokens({ id: 'c1', roles: ['ADMIN'] });
+    const res = await app.inject({ method: 'GET', url: '/projects', headers: bearer(accessToken) });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('CLIENT_NOT_ALLOWED');
+    await app.close();
+  });
+
+  it('a client role mixed with a staff role still counts as a client (never widens)', async () => {
+    const { app, tokenService } = await clientApp();
+    const { accessToken } = await tokenService.issueTokens({ id: 'c1', roles: ['CLIENT', 'ADMIN'] });
+    expect((await app.inject({ method: 'GET', url: '/users', headers: bearer(accessToken) })).statusCode).toBe(403);
+    await app.close();
+  });
+});

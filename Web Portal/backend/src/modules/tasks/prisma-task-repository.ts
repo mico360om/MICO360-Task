@@ -16,6 +16,7 @@ import { highestKeyNumberIn } from './task-keys';
 import { summarizeExternalContacts } from './external-contacts';
 import { toExternalContactRecord } from './prisma-external-contact-repository';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
+import { currentAcceptance } from '../clients/sign-off';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
@@ -55,6 +56,9 @@ function toRecord(t: EnrichedTask): TaskRecord {
     progress: t.progress,
     isMilestone: t.isMilestone ?? false,
     clientVisible: t.clientVisible ?? false,
+    // 1.23: its description shows in the Client portal too; a client's sign-off of this finish.
+    clientShowDescription: t.clientShowDescription ?? false,
+    clientAcceptedAt: currentAcceptance({ columnCategory: t.column?.category ?? null, completedAt: t.completedAt, approvalRequestedAt: t.approvalRequestedAt ?? null, clientAcceptedAt: t.clientAcceptedAt ?? null }),
     createdById: t.createdById,
     completedAt: t.completedAt,
     boardDate: t.boardDate ?? null,
@@ -142,6 +146,7 @@ const listScalars = {
   clientVisible: true, createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
   needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true, approvedById: true,
+  clientShowDescription: true, clientAcceptedAt: true, clientAcceptedById: true,
 } as const;
 
 export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository {

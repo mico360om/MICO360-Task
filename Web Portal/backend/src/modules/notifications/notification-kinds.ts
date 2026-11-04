@@ -13,7 +13,8 @@ export const NOTIFICATION_KINDS = {
   // An escalation is a task ≥3 days overdue (or Blocked), sent to whoever runs its project.
   due: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION'],
   comments: ['TASK_COMMENT'],
-  approvals: ['TASK_APPROVAL'],
+  // 1.23: a client accepting or sending back a task joins the approvals.
+  approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF'],
   meetings: ['MEETING_REMINDER'],
 } as const satisfies Record<string, readonly string[]>;
 

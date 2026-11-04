@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { CompanyAccess, Viewer } from './company-access';
+import { CLIENT_ROLE } from '../clients/client-kind';
 
 /**
  * Companies: a person as the people pickers show them (team candidates, meeting invitations) — a
@@ -11,6 +12,9 @@ export interface PersonOption {
   lastName: string;
   username: string;
   avatarUrl: string | null;
+  /** 1.23: a client account (offered only as a project meeting's invitee), with their organisation. */
+  client?: boolean;
+  organisation?: string | null;
 }
 
 /** The active people among these ids, by name. */
@@ -20,11 +24,12 @@ export function createPrismaPersonOptions(prisma: PrismaClient): PersonOptions {
   return async (userIds) => {
     const ids = [...new Set(userIds)];
     if (ids.length === 0) return [];
-    return prisma.user.findMany({
+    const rows = await prisma.user.findMany({
       where: { id: { in: ids }, deletedAt: null, status: 'ACTIVE' },
-      select: { id: true, firstName: true, lastName: true, username: true, avatarUrl: true },
+      select: { id: true, firstName: true, lastName: true, username: true, avatarUrl: true, organisation: true, roles: { select: { role: { select: { name: true } } } } },
       orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { username: 'asc' }],
     });
+    return rows.map(({ roles, organisation, ...p }) => (roles.some((r) => r.role.name === CLIENT_ROLE) ? { ...p, client: true, organisation: organisation ?? null } : p));
   };
 }
 

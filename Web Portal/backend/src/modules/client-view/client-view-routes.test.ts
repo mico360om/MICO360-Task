@@ -136,11 +136,13 @@ async function makeFixture(opts: { codeLimit?: number; verifyLimit?: number; pdf
   });
   const taskFlags: ClientTaskFlags = {
     projectOf: async (taskId) => tasks.get(taskId)?.projectId ?? null,
-    async setClientVisible(taskId, visible) {
-      const t = tasks.get(taskId)!;
+    async setClientVisible(taskId, visible, showDescription) {
+      const t = tasks.get(taskId)! as typeof tasks extends Map<string, infer T> ? T & { clientShowDescription?: boolean } : never;
       const before = t.clientVisible;
+      const beforeDescription = t.clientShowDescription ?? false;
       t.clientVisible = visible;
-      return { before, task: { id: taskId, projectId: t.projectId, title: t.title, clientVisible: visible } as unknown as TaskRecord };
+      t.clientShowDescription = visible ? (showDescription ?? beforeDescription) : false;
+      return { before, beforeDescription, task: { id: taskId, projectId: t.projectId, title: t.title, clientVisible: visible, clientShowDescription: t.clientShowDescription } as unknown as TaskRecord };
     },
   };
   const minutesFlags: ClientMinutesFlags = {
@@ -310,6 +312,19 @@ describe('marking items "Show to client"', () => {
     ]);
     expect(f.broadcasts.filter((b) => b.event === 'task:updated').map((b) => b.projectId)).toEqual(['p1', 'p1', 'p1']);
     expect(f.audited.map((a) => a.action)).toEqual(['client-view.task.shown', 'client-view.task.hidden']);
+  });
+
+  // 1.23: the Client portal shows a task's description only with a tick of its own.
+  it('a task’s description: its own tick, turned off whenever the task is hidden', async () => {
+    const headers = await bearer(OWNER);
+    const on = await f.app.inject({ method: 'PUT', url: '/api/v1/tasks/t1/client-visible', headers, payload: { visible: true, showDescription: true } });
+    expect(on.json().data).toMatchObject({ clientVisible: true, clientShowDescription: true });
+    const kept = await f.app.inject({ method: 'PUT', url: '/api/v1/tasks/t1/client-visible', headers, payload: { visible: true } });
+    expect(kept.json().data).toMatchObject({ clientShowDescription: true });
+    const off = await f.app.inject({ method: 'PUT', url: '/api/v1/tasks/t1/client-visible', headers, payload: { visible: false, showDescription: true } });
+    expect(off.json().data).toMatchObject({ clientVisible: false, clientShowDescription: false });
+    expect(f.audited.map((a) => a.action)).toEqual(['client-view.task.shown', 'client-view.task.description_shown', 'client-view.task.hidden']);
+    expect((await f.app.inject({ method: 'PUT', url: '/api/v1/tasks/t1/client-visible', headers, payload: { visible: true, showDescription: 'yes' } })).statusCode).toBe(400);
   });
 
   it('a task that doesn’t exist is 404, and the body must say on or off', async () => {

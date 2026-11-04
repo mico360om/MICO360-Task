@@ -9,6 +9,7 @@ import type {
   ChatMemberLookup,
 } from './chat-repository';
 import { sharesProjectCompanyWhere, visibleProjectWhere } from '../companies/company-access';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 type ConvRow = { id: string; kind: string; projectId: string | null; createdAt: Date };
 const toConv = (c: ConvRow): Conversation => ({ id: c.id, kind: c.kind as Conversation['kind'], projectId: c.projectId, createdAt: c.createdAt });
@@ -204,7 +205,8 @@ export function createPrismaChatMemberLookup(prisma: PrismaClient): ChatMemberLo
       return rows.map((r) => r.id);
     },
     async isActiveUser(userId) {
-      const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: 'ACTIVE' }, select: { id: true } });
+      // 1.23: never a client account (clients have no chat).
+      const u = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: 'ACTIVE', ...STAFF_ONLY_WHERE }, select: { id: true } });
       return u !== null;
     },
     async projectMemberIds(projectId) {
