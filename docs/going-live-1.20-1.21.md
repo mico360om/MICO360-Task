@@ -1,4 +1,6 @@
-# Going live with 1.20.0 and 1.21.0 — safety checklist
+# Going live with 1.20.0, 1.21.0 and 1.22.0 — safety checklist
+
+*4 Nov 2026: 1.20.0 and 1.21.0 are live. Step 3 below is 1.22.0.*
 
 The live site (task.mico360.com) runs **1.18.1**. Waiting to go live: 1.18.2, 1.19.0 and 1.20.0 (pushed
 together), then 1.21.0 (multi-company) on its own. Every push to GitHub `main` makes Hostinger build the
@@ -47,6 +49,28 @@ site, upgrade the database (`prisma migrate deploy`) and restart.
 - Check: `build-info.json` shows `1.21.0`. With one company nothing changes for anyone, except a
   "Companies" item in the Admin menu: open it and see "Prolens Projects LLC" with everyone and every
   project in it.
+
+## Step 3 — push 1.22.0
+
+1.21.0 has been live since 4 Nov 2026. 1.22.0 adds three database changes, and all of them only add:
+- a table for the minutes email's "Sent" list;
+- the "Show my projects only" setting, off for everyone;
+- a table for AI work that keeps running in the background.
+
+No new settings and no new packages. Checked on 4 Nov 2026:
+- The upgrade rehearsal 1.18.1 → 1.20.0 → 1.21.0 → 1.22.0 on both copies passed. Every table stayed
+  identical, everyone still saw everything, search still worked, and 1.18.1, 1.20.0 and 1.21.0 all ran
+  on the upgraded 1.22.0 database.
+- The website and the Android app (1.20.0 test build and the signed 1.1.0) were tested against the 1.22
+  server.
+
+To go live:
+1. Take the two backups (database and uploads), as in "Before pushing".
+2. Claude pushes v1.22.0.
+3. Check that `build-info.json` shows `1.22.0`, then:
+   - System Settings → Daily email shows the parts of the one daily email;
+   - Settings has "Show my projects only".
+4. The Android app stays 1.20.0. Nothing to install on phones.
 
 ## If something goes wrong
 
