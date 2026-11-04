@@ -1,4 +1,4 @@
-import { BULLET, PdfDocument, hexToRgb, type PdfRichBlock, type RGB } from '../../lib/pdf-document';
+import { BULLET, PdfDocument, hexToRgb, type HeaderBadge, type KeyValueRow, type PdfRichBlock, type RGB } from '../../lib/pdf-document';
 import { linkNeedsAddress, listMarkers, noteText, parseRichHtml } from '../../lib/rich-text';
 import type { StyledRun } from '../../lib/pdf-text';
 import { PROJECT_ICON_PATHS, projectInitials, type ProjectIcon } from '../projects/project-icons';
@@ -157,6 +157,113 @@ export function printableNote(body: string): PdfRichBlock[] {
 const MUTED: RGB = [0.42, 0.4, 0.38];
 const INK: RGB = [0.11, 0.1, 0.09];
 
+/**
+ * The minutes' own type sizes (points). The rest comes from the builder's compact density: 9 pt
+ * text and notes, 9.5 pt sub-headings, 10.5 pt section headings, 8 pt tables, 16 mm margins, a
+ * one-row header with the project's name at 12.5 pt and slim summary tiles.
+ */
+export const MINUTES_TYPE = {
+  /** The meeting's title, under the header. */
+  title: 14.5,
+  /** The facts under the title: when, who, where, how it stands, and the project's details. */
+  facts: 8.5,
+  /** Who wrote a note and when, at the end of its last line. */
+  byline: 7.5,
+  /** Small muted lines: the planned time, who prepared and approved the minutes. */
+  small: 8,
+} as const;
+
+/** Meeting services named in place of a long join link. */
+const ONLINE_SERVICES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(^|\.)teams\.(microsoft|live)\.com$/i, 'Microsoft Teams'],
+  [/(^|\.)zoom\.(us|com)$/i, 'Zoom'],
+  [/^meet\.google\.com$/i, 'Google Meet'],
+  [/(^|\.)webex\.com$/i, 'Webex'],
+];
+
+/**
+ * How the minutes show a meeting's online link: a short label ("Microsoft Teams — join link", or
+ * the host's name for another service) that is a link to the whole address, so a long Teams address
+ * doesn't run over many lines. Text that isn't a web address is shown as written, not as a link.
+ */
+export function onlineLinkLabel(link: string): { text: string; href: string | null } {
+  const raw = link.trim();
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(raw);
+  let url: URL | null = null;
+  try {
+    url = /\s/.test(raw) ? null : new URL(hasScheme ? raw : `https://${raw}`);
+  } catch {
+    url = null;
+  }
+  if (!url || !/^https?:$/.test(url.protocol) || !url.hostname.includes('.')) return { text: raw, href: null };
+  const host = url.hostname.replace(/^www\./i, '');
+  const service = ONLINE_SERVICES.find(([re]) => re.test(host))?.[1];
+  return { text: `${service ?? host} — join link`, href: hasScheme ? raw : url.href };
+}
+
+/**
+ * The minutes' header for a project meeting (the staff copy and the client's): the project's picture
+ * (or its icon, or its initials, on its colour), the eyebrow and its name, and the badge. Its code,
+ * number and client are among the facts under the title.
+ */
+export function minutesProjectHeader(doc: PdfDocument, project: Pick<MinutesProject, 'name' | 'image' | 'icon' | 'color'>, brandHex: string | undefined, badge: HeaderBadge): void {
+  doc.identityHeader({
+    image: project.image ?? null, // shown when the PDF can print it, else the icon or the initials
+    icon: project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
+    initials: projectInitials(project.name),
+    color: project.color ? hexToRgb(project.color, hexToRgb(brandHex ?? '#8B1E1E')) : undefined,
+    eyebrow: 'Minutes of Meeting',
+    title: project.name,
+    badge,
+  });
+}
+
+/** The meeting's title under the header (an Arabic title is set right-to-left, flush right). */
+export function minutesTitle(doc: PdfDocument, title: string): void {
+  doc.text(title, { bold: true, size: MINUTES_TYPE.title, color: INK, gap: 4, family: 'display' });
+}
+
+/** The project's details among the facts: its name, code, number and client (and, for staff, more). */
+export function projectFacts(project: Pick<MinutesProject, 'name' | 'code' | 'number' | 'clientName'>): KeyValueRow[] {
+  return [
+    ['Project', project.name],
+    ...(project.code ? [['Code', project.code] as const] : []),
+    ...(project.number ? [['Project no.', project.number] as const] : []),
+    ...(project.clientName ? [['Client', project.clientName] as const] : []),
+  ];
+}
+
+/**
+ * The Final MOM's content, as approved (or, in the organizer's copy, as drafted): the summary, the
+ * discussion by topic, the decisions, the risks and open issues, and the next steps.
+ */
+export function printFinalMinutes(doc: PdfDocument, c: FinalMinutesContent): void {
+  if (c.summary) {
+    doc.subheading('Summary');
+    doc.text(c.summary, { direction: textDirection(c.summary) });
+  }
+  if (c.discussion.length > 0) {
+    doc.subheading('Discussion', { keepWith: 30 });
+    c.discussion.forEach((d, i) => {
+      if (i > 0) doc.spacer(3);
+      doc.text(d.topic, { bold: true, color: INK, gap: 0.5, direction: textDirection(d.topic) });
+      for (const line of d.text.split('\n').filter((l) => l.trim())) doc.text(line.trim(), { gap: 0.5, direction: textDirection(line) });
+    });
+  }
+  if (c.decisions.length > 0) {
+    doc.subheading('Decisions', { keepWith: 30 });
+    c.decisions.forEach((d, i) => doc.numbered(`${i + 1}.`, d, { direction: textDirection(d) }));
+  }
+  if (c.risks.length > 0) {
+    doc.subheading('Risks & Open Issues', { keepWith: 30 });
+    for (const r of c.risks) doc.bullet(r, { direction: textDirection(r) });
+  }
+  if (c.nextSteps.length > 0) {
+    doc.subheading('Next Steps', { keepWith: 30 });
+    for (const n of c.nextSteps) doc.bullet(n, { direction: textDirection(n) });
+  }
+}
+
 /** The company's home zone (Oman) when nothing more specific is configured. */
 export const DEFAULT_COMPANY_TIMEZONE = 'Asia/Muscat';
 
@@ -232,6 +339,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const generated = `Generated ${isolate(fmtTimestamp(data.generatedAt, tz))}${data.generatedByName ? ` by ${isolate(data.generatedByName)}` : ''} · ${isolate(brand.productName)}`;
   const footerLeft = [footerBits.join('  ·  '), brand.companyAddress, generated].filter(Boolean).join('\n');
 
+  // Compact: minutes are read and filed, so they are set small and tight (see MINUTES_TYPE).
   const doc = new PdfDocument({
     title: `Minutes of Meeting: ${meeting.title}`,
     palette: {
@@ -241,50 +349,48 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       line: brand.colors?.line,
     },
     footerLeft,
+    density: 'compact',
     ...(data.logo ? { logo: data.logo } : {}),
   });
 
-  // Header: the project's picture (or its icon, or its initials, on its colour), name, code and
-  // number for a project meeting; the product masthead for a standalone one. The badge says Final
-  // once the Final MOM is approved, Draft until then.
+  // Header, one row: the project's picture (or its icon, or its initials, on its colour) and name for
+  // a project meeting; the product masthead for a standalone one. The badge says Final once the Final
+  // MOM is approved, Draft until then.
   const badge = approved ? { text: 'Final', tone: 'success' as const } : { text: 'Draft', tone: 'warning' as const };
+  if (project) minutesProjectHeader(doc, project, brand.colors?.brand, badge);
+  else doc.brandHeader({ eyebrow: 'Minutes of Meeting', title: brand.productName, subtitle: brand.tagline, badge });
+
+  minutesTitle(doc, meeting.title);
+
+  // The facts in two columns. A project meeting: the meeting on the left (when, who, where, how it
+  // stands), the project on the right (its code, number, client, owner, status and timeline). A
+  // standalone meeting: when on the left; who, where and how it stands on the right.
+  const online = meeting.onlineLink?.trim() ? onlineLinkLabel(meeting.onlineLink) : null;
+  const when: KeyValueRow[] = [
+    ['Date', fmtDate(meeting.startAt, tz)],
+    ['Time', fmtTimeRange(meeting.startAt, meeting.endAt, tz)],
+    ['Time zone', tz],
+  ];
+  const how: KeyValueRow[] = [
+    ['Organizer', meeting.organizerName ?? '—'],
+    ...(meeting.location ? [['Location', meeting.location] as const] : []),
+    ...(online ? [online.href ? (['Online', online.text, online.href] as const) : (['Online', online.text] as const)] : []),
+    ['Status', meeting.statusLabel],
+  ];
   if (project) {
-    const subtitle = [project.code, project.number ? `Project no. ${project.number}` : null, project.clientName]
-      .filter((b): b is string => Boolean(b))
-      .map(isolate)
-      .join('  ·  ');
-    doc.identityHeader({
-      image: project.image ?? null, // shown when the PDF can print it, else the icon or the initials
-      icon: project.icon && project.icon in PROJECT_ICON_PATHS ? PROJECT_ICON_PATHS[project.icon as ProjectIcon] : null,
-      initials: projectInitials(project.name),
-      color: project.color ? hexToRgb(project.color, hexToRgb(brand.colors?.brand ?? '#8B1E1E')) : undefined,
-      eyebrow: 'Minutes of Meeting',
-      title: project.name,
-      subtitle: subtitle || undefined,
-      badge,
-    });
+    doc.keyValueColumns(
+      [...when, ...how],
+      [
+        ...projectFacts(project),
+        ...(project.ownerName ? [['Owner', project.ownerName] as const] : []),
+        ...(project.statusLabel ? [['Project status', project.statusLabel] as const] : []),
+        ...(project.startDate || project.targetDate ? [['Timeline', `${fmtDay(project.startDate, tz)}  –  ${fmtDay(project.targetDate, tz)}`] as const] : []),
+      ],
+      { size: MINUTES_TYPE.facts },
+    );
   } else {
-    doc.brandHeader({ eyebrow: 'Minutes of Meeting', title: brand.productName, subtitle: brand.tagline, badge });
+    doc.keyValueColumns([...when, ['Project', 'Standalone meeting']], how, { size: MINUTES_TYPE.facts });
   }
-
-  // Meeting title (an Arabic title is set right-to-left, flush right)
-  doc.text(meeting.title, { bold: true, size: 20, color: INK, gap: 6, family: 'display' });
-
-  // Meeting details in two columns: when on the left; who, where and how it stands on the right.
-  doc.keyValueColumns(
-    [
-      ['Date', fmtDate(meeting.startAt, tz)],
-      ['Time', fmtTimeRange(meeting.startAt, meeting.endAt, tz)],
-      ['Time zone', tz],
-      ['Project', project ? project.name : 'Standalone meeting'],
-    ],
-    [
-      ['Organizer', meeting.organizerName ?? '—'],
-      ...(meeting.location ? [['Location', meeting.location] as const] : []),
-      ...(meeting.onlineLink ? [['Online', meeting.onlineLink] as const] : []),
-      ['Status', meeting.statusLabel],
-    ],
-  );
 
   const decisions = data.notes.filter((n) => n.type === 'DECISION');
   // Action notes already tracked as action items appear once, in the table.
@@ -306,8 +412,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const lateItems = items.filter(isLate).length;
   const dueText = (i: MinutesActionItem) => `${fmtDay(i.dueDate, 'UTC')}${isLate(i) ? ' · Overdue' : ''}`;
 
-  // At a glance
-  doc.spacer(8);
+  // At a glance: four slim tiles.
+  doc.spacer(6);
   doc.statTiles([
     { label: 'Attendees present', value: `${present}/${data.attendees.length}`, tone: 'brand' },
     { label: 'Agenda items covered', value: `${covered}/${data.agenda.length}`, tone: 'success' },
@@ -320,59 +426,63 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     },
   ]);
 
-  // Attribution line under a note, aligned with the note (right for an Arabic note).
-  const byline = (n: MinutesNote): string =>
-    `— ${isolate(n.authorName)} · ${isolate(fmtTimestamp(n.createdAt, tz))}${n.highlighted ? ' · Key point' : ''}`;
+  // Who wrote a note and when, small and muted at the end of its last line: the time alone on the
+  // meeting's own day; the day too when it was written on another one ("4 Nov, 17:45"), and the
+  // year when that isn't the meeting's.
+  const meetingStart = new Date(meeting.startAt);
+  const meetingDay = Number.isNaN(meetingStart.getTime()) ? null : wallClock(meetingStart, tz).slice(0, 10);
+  const writtenAt = (iso: string): string => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const clock = wallClock(d, tz);
+    if (clock.slice(0, 10) === meetingDay) return clock.slice(11);
+    if (clock.slice(0, 4) === meetingDay?.slice(0, 4)) return `${formatDay(clock.slice(0, 10), { year: false })}, ${clock.slice(11)}`;
+    return formatDateTime(d, tz);
+  };
+  const byline = (n: MinutesNote): string => {
+    const at = writtenAt(n.createdAt);
+    return [isolate(n.authorName), at ? isolate(at) : null, n.highlighted ? 'Key point' : null].filter(Boolean).join(' · ');
+  };
 
   /**
-   * A note as an item of a list, after a bullet or its number: a formatted note keeps its
-   * formatting. Returns the direction its byline follows.
+   * A note as an item of a list, after a bullet or its number (a formatted note keeps its
+   * formatting), with who wrote it and when at the end (on the left for an Arabic note).
    */
-  const noteItem = (n: MinutesNote, lead: string = BULLET): 'ltr' | 'rtl' => {
+  const noteItem = (n: MinutesNote, lead: string = BULLET): void => {
+    let direction: 'ltr' | 'rtl';
     if (n.format === 'RICH') {
       doc.richBlocks(printableNote(n.body), { lead });
-      return textDirection(noteText({ body: n.body, bodyFormat: n.format }));
+      direction = textDirection(noteText({ body: n.body, bodyFormat: n.format }));
+    } else {
+      direction = textDirection(n.body);
+      if (lead === BULLET) doc.bullet(n.body, { direction });
+      else doc.numbered(lead, n.body, { direction });
     }
-    const direction = textDirection(n.body);
-    if (lead === BULLET) doc.bullet(n.body, { direction });
-    else doc.numbered(lead, n.body, { direction });
-    return direction;
+    doc.aside(byline(n), { size: MINUTES_TYPE.byline, direction });
+    doc.spacer(2.5);
   };
 
   // Notes grouped by kind, with a sub-heading per kind when a section has more than one.
   const noteGroups = (groups: Array<[string, MinutesNote[]]>) => {
     const shown = groups.filter(([, notes]) => notes.length > 0);
-    for (const [label, notes] of shown) {
-      if (shown.length > 1) doc.text(label, { bold: true, size: 10.5, color: INK, gap: 2 });
-      for (const n of notes) {
-        const direction = noteItem(n);
-        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 2, direction });
+    shown.forEach(([label, notes], gi) => {
+      if (shown.length > 1) {
+        if (gi > 0) doc.spacer(2);
+        doc.text(label, { bold: true, color: INK, gap: 1.5 });
       }
-    }
-  };
-
-  const projectDetails = () => {
-    if (!project) return;
-    doc.heading('Project details');
-    if (project.code) doc.keyValue('Code', project.code);
-    if (project.number) doc.keyValue('Project no.', project.number);
-    if (project.clientName) doc.keyValue('Client', project.clientName);
-    if (project.ownerName) doc.keyValue('Owner', project.ownerName);
-    if (project.statusLabel) doc.keyValue('Project status', project.statusLabel);
-    if (project.startDate || project.targetDate) {
-      doc.keyValue('Timeline', `${fmtDay(project.startDate, tz)}  –  ${fmtDay(project.targetDate, tz)}`);
-    }
+      for (const n of notes) noteItem(n);
+    });
   };
 
   // Attendees — role (required/optional), the answer to the invitation and attendance on the day
-  // are three different things, so each has its own column.
+  // are three different things, so each has its own column. The count sits on the heading's line.
   const attendees = () => {
-    doc.heading('Attendees', { keepWith: 40 });
     if (data.attendees.length === 0) {
+      doc.heading('Attendees', { keepWith: 40 });
       doc.text('No attendees recorded.', { color: MUTED });
       return;
     }
-    doc.text(`${data.attendees.length} invited · ${present} present`, { color: MUTED, size: 9.5, gap: 4 });
+    doc.heading('Attendees', { keepWith: 40, aside: `${data.attendees.length} invited · ${present} present` });
     const withEmail = data.attendees.some((a) => a.email);
     doc.table(
       [{ header: 'Name' }, ...(withEmail ? [{ header: 'Email' }] : []), { header: 'Role' }, { header: 'Response' }, { header: 'Attendance' }],
@@ -405,47 +515,24 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     const planned = data.agenda.reduce((sum, a) => sum + (a.expectedMinutes ?? 0), 0);
     const length = meeting.endAt ? Math.round((new Date(meeting.endAt).getTime() - new Date(meeting.startAt).getTime()) / 60000) : 0;
     if (planned > 0) {
-      doc.text(`Planned time: ${planned} min${length > 0 ? ` of a ${length} min meeting` : ''}`, { color: MUTED, size: 9, gap: 2 });
+      doc.spacer(2);
+      doc.text(`Planned time: ${planned} min${length > 0 ? ` of a ${length} min meeting` : ''}`, { color: MUTED, size: MINUTES_TYPE.small, gap: 2 });
     }
   };
 
   if (final) {
     // ── The Final MOM first: what was agreed, as approved (or, in the organizer's copy, as drafted) ──
-    const c = final.content;
     doc.partBand('Final Minutes of Meeting', { keepWith: 70 });
     const when = final.approvedAt ? ` on ${isolate(fmtTimestamp(final.approvedAt, tz))}` : '';
     doc.statusStrip(
       approved ? `FINAL · Approved by ${isolate(final.approvedByName ?? '—')}${when}` : 'DRAFT · Not yet approved — these minutes may still change',
       approved ? 'success' : 'warning',
     );
-    if (c.summary) {
-      doc.subheading('Summary');
-      doc.text(c.summary, { direction: textDirection(c.summary) });
-    }
-    if (c.discussion.length > 0) {
-      doc.subheading('Discussion', { keepWith: 30 });
-      for (const d of c.discussion) {
-        doc.text(d.topic, { bold: true, size: 10.5, color: INK, gap: 1, direction: textDirection(d.topic) });
-        for (const line of d.text.split('\n').filter((l) => l.trim())) doc.text(line.trim(), { gap: 1, direction: textDirection(line) });
-        doc.spacer(4);
-      }
-    }
-    if (c.decisions.length > 0) {
-      doc.subheading('Decisions', { keepWith: 30 });
-      c.decisions.forEach((d, i) => doc.numbered(`${i + 1}.`, d, { direction: textDirection(d) }));
-    }
-    if (c.risks.length > 0) {
-      doc.subheading('Risks & Open Issues', { keepWith: 30 });
-      for (const r of c.risks) doc.bullet(r, { direction: textDirection(r) });
-    }
-    if (c.nextSteps.length > 0) {
-      doc.subheading('Next Steps', { keepWith: 30 });
-      for (const n of c.nextSteps) doc.bullet(n, { direction: textDirection(n) });
-    }
+    printFinalMinutes(doc, final.content);
     if (approved) {
       // Who wrote and who approved these minutes closes them.
-      doc.spacer(10);
-      doc.text(`Prepared by ${isolate(meeting.organizerName ?? '—')}  ·  Approved by ${isolate(final.approvedByName ?? '—')}${when}`, { color: MUTED, size: 9.5, gap: 2 });
+      doc.spacer(6);
+      doc.text(`Prepared by ${isolate(meeting.organizerName ?? '—')}  ·  Approved by ${isolate(final.approvedByName ?? '—')}${when}`, { color: MUTED, size: MINUTES_TYPE.small, gap: 2 });
     }
 
     // ── Then the record of the meeting: who came, the agenda, the action items and every note ──
@@ -469,12 +556,10 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
         ['Information', talk.filter((n) => n.type === 'INFORMATION')],
       ]);
     }
-    projectDetails();
     return doc.build();
   }
 
   // ── No Final MOM yet: the minutes from the notes, marked as a draft ──
-  projectDetails();
   const summaryText = meeting.description?.trim() ?? '';
   if (summaryText) {
     doc.heading('Summary');
@@ -485,21 +570,18 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
 
   if (decisions.length > 0) {
     doc.heading('Decisions', { keepWith: 30 });
-    decisions.forEach((n, i) => {
-      const direction = noteItem(n, `${i + 1}.`);
-      doc.text(byline(n), { color: MUTED, size: 8.5, indent: 16, gap: 2, direction });
-    });
+    decisions.forEach((n, i) => noteItem(n, `${i + 1}.`));
   }
 
   if (items.length > 0 || actionNotes.length > 0) {
     doc.heading('Action Items', { keepWith: 40 });
     if (items.length > 0) actionItemsTable(doc, items, dueText);
     if (actionNotes.length > 0) {
-      if (items.length > 0) doc.text('Also noted during the meeting', { bold: true, size: 9.5, color: INK, gap: 2 });
-      for (const n of actionNotes) {
-        const direction = noteItem(n);
-        doc.text(byline(n), { color: MUTED, size: 8.5, indent: 12, gap: 1, direction });
+      if (items.length > 0) {
+        doc.spacer(4);
+        doc.text('Also noted during the meeting', { bold: true, color: INK, gap: 1.5 });
       }
+      for (const n of actionNotes) noteItem(n);
     }
   }
 

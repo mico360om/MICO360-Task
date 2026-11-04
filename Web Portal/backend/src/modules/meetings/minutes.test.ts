@@ -181,20 +181,18 @@ describe('buildMinutesPdf', () => {
     expect(contents[0]).toContain('1 1 1 SCN');
   });
 
-  it('renders a Project details section for a project-linked meeting', () => {
+  it('lists a project meeting’s project details (code, client, owner, status, timeline) with the meeting’s facts at the top', () => {
     const linked: MinutesData = {
       ...data,
       project: { name: 'Falcon CRM', code: 'FAL', clientName: 'Acme Corp', statusLabel: 'Active', ownerName: 'Grace Hopper', startDate: '2026-01-01T00:00:00.000Z', targetDate: '2026-12-31T00:00:00.000Z' },
     };
-    const text = lines(linked);
-    expect(text).toContain('Project details');
-    expect(text).toContain('Acme Corp'); // client
-    expect(text).toContain('Grace Hopper'); // owner
-    expect(text).toContain('FAL'); // code
-    expect(text).toContain('1 Jan 2026  –  31 Dec 2026'); // timeline
+    const { pages } = inspectPdf(buildMinutesPdf(linked));
+    const top = pages[0]!.slice(0, pages[0]!.indexOf('Attendees present')); // above the summary tiles
+    expect(top).toEqual(expect.arrayContaining(['Code', 'FAL', 'Client', 'Acme Corp', 'Owner', 'Grace Hopper', 'Timeline', '1 Jan 2026  –  31 Dec 2026']));
     // Named as the project's, so it isn't read as the meeting's status.
-    expect(text).toContain('Project status');
-    expect(text.indexOf('Project status')).toBeGreaterThan(text.indexOf('Project details'));
+    expect(top).toEqual(expect.arrayContaining(['Project status', 'Active', 'Status', 'Scheduled']));
+    // Not a section of its own at the end any more.
+    expect(pages.flat()).not.toContain('Project details');
   });
 
   it('keeps parentheses and backslashes in note text intact', () => {
@@ -265,7 +263,7 @@ describe('minutes time zone (MTG-01)', () => {
     delete process.env.COMPANY_TIMEZONE;
     const noZone: MinutesData = { ...data, meeting: { ...data.meeting, timeZone: null } };
     const text = lines(noZone);
-    expect(text).toContain('— Ada Lovelace · 1 Oct 2026, 13:15'); // 09:15Z decision in Muscat
+    expect(text).toContain('Ada Lovelace · 13:15'); // 09:15Z decision in Muscat, on the meeting's day
     expect(text.some((t) => t.startsWith('Generated 1 Oct 2026, 15:00 by Ada Lovelace'))).toBe(true);
   });
 
@@ -308,7 +306,8 @@ describe('buildMinutesPdf: project header and layout', () => {
     const { pages, contents } = inspectPdf(pdf);
     expect(pages[0]).toContain('MINUTES OF MEETING');
     expect(pages[0]).toContain('Falcon CRM');
-    expect(pages[0]).toContain('FAL  ·  Project no. PDO-2026-014  ·  Acme Corp');
+    // Its code, number and client are among the facts under the title (not repeated in the header).
+    expect(pages[0]).toEqual(expect.arrayContaining(['Code', 'FAL', 'Project no.', 'PDO-2026-014', 'Client', 'Acme Corp']));
     expect(contents[0]).toMatch(/\/I\d+ Do/); // the picture
     expect(contents[0]).not.toContain('1 1 1 SCN'); // no MICO360 logo mark (its white check)
   });
@@ -365,7 +364,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(text).toEqual(expect.arrayContaining(['Site', 'Pour the slab on Monday, no rain. See the plan (https://example.com/plan).', 'Book trucks', 'Call the pump', 'Backup pump', '1.', '2.']));
     // In order, and attributed like any note.
     expect(text.indexOf('Site')).toBeLessThan(text.indexOf('Book trucks'));
-    expect(text.indexOf('Backup pump')).toBeLessThan(text.findIndex((l) => l.startsWith('— Ada Lovelace')));
+    expect(text.indexOf('Backup pump')).toBeLessThan(text.indexOf('Ada Lovelace · 09:05'));
     const dicts = [...objects.values()].join('\n');
     expect(dicts).toMatch(/IBMPlexSans-Italic/); // italics in the italic face
     expect(dicts).toMatch(/\/URI \(https:\/\/example\.com\/plan\)/); // the link can be clicked
@@ -406,7 +405,7 @@ describe('buildMinutesPdf: project header and layout', () => {
     expect(signed).toBeLessThan(at('Attendees'));
     // The notes stay as they were taken, with who wrote them.
     expect(text.some((l) => l.includes('Team aligned on focus areas.'))).toBe(true);
-    expect(text.some((l) => l.startsWith('— Ada Lovelace'))).toBe(true);
+    expect(text.some((l) => l.startsWith('Ada Lovelace · '))).toBe(true);
   });
 
   it('prints a Final MOM that is still a draft, marked as not yet approved', () => {
@@ -500,5 +499,165 @@ describe('buildMinutesPdf: dates as the other PDFs write them, and late action i
   it('says nothing about late items when none is late', () => {
     const text = lines({ ...late, generatedAt: '2026-10-01T11:00:00.000Z' });
     expect(text.some((l) => /overdue/i.test(l))).toBe(false);
+  });
+});
+
+describe('buildMinutesPdf: the compact layout (1.22.1)', () => {
+  const TEAMS =
+    'https://teams.microsoft.com/meet/23131866900591?p=qZNhVdSqajkkz7EM7R%20Meeting%20ID:%20231%20318%20669%20005%2091%20Passcode:%20rb9AH9kT';
+  const drawn = (d: MinutesData) => inspectPdf(buildMinutesPdf(d)).lines.flat();
+  const line = (d: MinutesData, text: string) => {
+    const found = drawn(d).find((l) => l.text === text);
+    expect(found, `"${text}" is drawn`).toBeDefined();
+    return found!;
+  };
+  const project = { name: 'Falcon CRM', code: 'FAL', clientName: 'Acme Corp', statusLabel: 'Active', ownerName: 'Grace Hopper' };
+
+  it('sets the minutes in compact type: a 14–15 pt title, a 12–13 pt project name, 9 pt notes, 8–8.5 pt tables and facts', () => {
+    const d: MinutesData = { ...data, project };
+    expect(line(d, 'Q4 Planning Sync').size).toBeGreaterThanOrEqual(14);
+    expect(line(d, 'Q4 Planning Sync').size).toBeLessThanOrEqual(15);
+    expect(line(d, 'Falcon CRM').size).toBeGreaterThanOrEqual(12); // the header's project name (drawn first)
+    expect(line(d, 'Falcon CRM').size).toBeLessThanOrEqual(13);
+    expect(line(d, 'Team aligned on focus areas.').size).toBe(9); // a note
+    expect(line(d, 'Boardroom A').size).toBeGreaterThanOrEqual(8.5); // a fact
+    expect(line(d, 'Boardroom A').size).toBeLessThanOrEqual(9);
+    expect(line(d, 'Guest Visitor').size).toBeGreaterThanOrEqual(8); // a table cell
+    expect(line(d, 'Guest Visitor').size).toBeLessThanOrEqual(8.5);
+    for (const heading of ['Attendees', 'Agenda', 'Decisions']) {
+      expect(line(d, heading).size, heading).toBeGreaterThanOrEqual(10.5);
+      expect(line(d, heading).size, heading).toBeLessThanOrEqual(11);
+    }
+    // Small, slim summary tiles: values well under the old 19 pt.
+    expect(line(d, '1/2').size).toBeLessThanOrEqual(12);
+  });
+
+  it('uses narrower margins than the other PDFs (about 16 mm)', () => {
+    const x = line(data, 'Q4 Planning Sync').x;
+    const mm = (x / 72) * 25.4;
+    expect(mm).toBeGreaterThanOrEqual(15);
+    expect(mm).toBeLessThanOrEqual(18);
+  });
+
+  it('shows a long online link as a short label that can still be clicked, never the address over many lines', () => {
+    const pdf = buildMinutesPdf({ ...data, meeting: { ...data.meeting, onlineLink: TEAMS } });
+    const { pages, objects } = inspectPdf(pdf);
+    const text = pages.flat();
+    expect(text).toContain('Microsoft Teams — join link');
+    expect(text.filter((l) => /teams\.microsoft|%20/.test(l))).toEqual([]);
+    // The whole address is kept behind the label.
+    const uris = [...objects.values()].join('\n');
+    expect(uris).toContain('/URI (https://teams.microsoft.com/meet/23131866900591?p=qZNhVdSqajkkz7EM7R%20Meeting');
+  });
+
+  it('names other online links by their host, and prints text that is not a link as written', () => {
+    expect(lines(data)).toContain('meet.example.com — join link');
+    expect(lines({ ...data, meeting: { ...data.meeting, onlineLink: 'https://us02web.zoom.us/j/8123456789?pwd=abc' } })).toContain('Zoom — join link');
+    expect(lines({ ...data, meeting: { ...data.meeting, onlineLink: 'https://meet.google.com/abc-defg-hij' } })).toContain('Google Meet — join link');
+    const text = lines({ ...data, meeting: { ...data.meeting, onlineLink: 'Dial in: +968 2400 0000' } });
+    expect(text).toContain('Dial in: +968 2400 0000');
+  });
+
+  it('puts a note’s author and time at the end of its last line, small and muted, the date only when it isn’t the meeting’s day', () => {
+    const d: MinutesData = {
+      ...data,
+      notes: [
+        { typeLabel: 'Discussion', type: 'DISCUSSION', body: 'Team aligned on focus areas.', authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false },
+        { typeLabel: 'Discussion', type: 'DISCUSSION', body: 'Written up the next morning.', authorName: 'Grace Hopper', createdAt: '2026-10-02T07:30:00.000Z', highlighted: true },
+        { typeLabel: 'Discussion', type: 'DISCUSSION', body: 'Added in the new year.', authorName: 'Ada Lovelace', createdAt: '2027-01-04T08:00:00.000Z', highlighted: false },
+      ],
+    };
+    const all = drawn(d);
+    const note = all.find((l) => l.text === 'Team aligned on focus areas.')!;
+    const by = all.find((l) => l.text === 'Ada Lovelace · 09:05')!;
+    expect(by, 'byline with the time alone').toBeDefined();
+    expect(by.y).toBeCloseTo(note.y, 1); // on the note's own line…
+    expect(by.x).toBeGreaterThan(note.x + 200); // …at its end
+    expect(by.size).toBeLessThan(note.size);
+    const texts = all.map((l) => l.text);
+    expect(texts).toContain('Grace Hopper · 2 Oct, 07:30 · Key point'); // another day: its day too
+    expect(texts).toContain('Ada Lovelace · 4 Jan 2027, 08:00'); // another year: the year too
+    expect(all.some((l) => l.text.startsWith('— '))).toBe(false); // no old-style "— Name · time" line
+  });
+
+  it('gives the author and time a short line of their own when the note’s last line is full, at its end edge', () => {
+    const base = 'The vendor confirmed the delivery window and the site team agreed the crane booking, the permits and the road closure for the pour.';
+    const words = base.split(' ');
+    // Grow the note a word at a time until its last line has no room left for the byline beside it.
+    let body = base;
+    let found: { last: ReturnType<typeof drawn>[number]; by: ReturnType<typeof drawn>[number] } | null = null;
+    for (let i = 0; i < 60 && !found; i++) {
+      const all = drawn({ ...data, notes: [{ typeLabel: 'Discussion', type: 'DISCUSSION', body, authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false }] });
+      const at = all.findIndex((l) => l.text === 'Ada Lovelace · 09:05');
+      const by = all[at]!;
+      const last = all[at - 1]!; // the note's last line, drawn just before its byline
+      if (by.y > last.y + 1) found = { last, by };
+      body += ` ${words[i % words.length]}`;
+    }
+    expect(found, 'a note whose byline moved to a line of its own').not.toBeNull();
+    expect(found!.last.size).toBe(9);
+    expect(found!.by.y - found!.last.y).toBeLessThan(12); // a short line, not a full one
+    expect(found!.by.x).toBeGreaterThan(400); // flush to the right edge
+  });
+
+  it('sets an Arabic note’s author and time at the left end of its line', () => {
+    const all = drawn({ ...data, notes: [{ typeLabel: 'Discussion', type: 'DISCUSSION', body: 'ناقش الفريق خطة التوظيف.', authorName: 'خالد البلوشي', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false }] });
+    const note = all.find((l) => l.text === 'ناقش الفريق خطة التوظيف.')!;
+    const by = all.find((l) => l.text.includes('خالد البلوشي') && l.text.includes('09:05'))!;
+    expect(by).toBeDefined();
+    expect(by.x).toBeLessThan(note.x);
+  });
+
+  it('marks a draft with one slim line, and opens each part with a heading, not a filled band', () => {
+    const final = { content: { summary: 'Agreed.', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT' as const, approvedByName: null, approvedAt: null };
+    const d: MinutesData = { ...data, final };
+    expect(line(d, 'DRAFT · Not yet approved — these minutes may still change').size).toBeLessThanOrEqual(8.5);
+    expect(line(d, 'Final Minutes of Meeting').size).toBeLessThanOrEqual(12);
+    expect(line(d, 'Meeting record').size).toBeLessThanOrEqual(12);
+  });
+
+  it('fits a monthly meeting like the owner’s sample (6 attendees, 3 action items, 9 notes) on two pages', () => {
+    const rich = (title: string, rest: string) => `<p><strong>${title}:</strong> ${rest}</p>`;
+    const note = (body: string, minute: number): MinutesData['notes'][number] => ({
+      type: 'DISCUSSION', typeLabel: 'Discussion', format: 'RICH', body, authorName: 'Sam Admin', createdAt: `2026-11-04T13:${String(minute).padStart(2, '0')}:00.000Z`, highlighted: false,
+    });
+    const sample: MinutesData = {
+      ...data,
+      project: { name: 'Site IT Support', code: 'SITEIT', clientName: 'Gulf Energy Co.', statusLabel: 'Active', ownerName: 'Sam Admin', color: '#1E5A8B' },
+      meeting: { ...data.meeting, title: '2nd Client & Contractor Monthly Meeting - 3rd Nov, 2026', statusLabel: 'Draft', organizerName: 'Sam Admin', location: 'Client HQ', onlineLink: TEAMS, startAt: '2026-11-03T10:00:00.000Z', endAt: '2026-11-03T11:00:00.000Z', timeZone: 'Asia/Muscat', description: null },
+      attendees: ['Mariam Al Hinai', 'Yusuf Al Rashdi', 'Fahad Al Harthy', 'Abdul Karim Al Lawati', 'Sam Admin', 'Rina Mathew'].map((name, i) => ({
+        name, roleLabel: 'Required', responseLabel: i === 5 ? 'No response' : 'Accepted', attendanceLabel: 'Not recorded', external: i < 4, email: null,
+      })),
+      agenda: [],
+      actionItems: [
+        { description: 'Revise the KPI framework to include simplified quarterly evaluations.', ownerName: 'Sam Admin', dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal' },
+        { description: 'Contractor to share the shortlisted candidate soon', ownerName: 'Sam Admin', dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal' },
+        { description: 'Follow up with the in-country value team', ownerName: 'Sam Admin', dueDate: null, statusLabel: 'Open', priorityLabel: 'Normal' },
+      ],
+      notes: [
+        note(rich('Driving Licence Requirements', 'The team reviewed the ministry requirements for expatriate staff and discussed the eligibility of expatriate employees for a driving licence.'), 45),
+        note(rich('Onboarding & Training', 'The client to share onboarding and orientation materials, if possible. The contractor to prepare the 2027 training plan covering technical skills, soft skills, and IT certifications (CCNA, CCNP & ITIL)'), 45),
+        note(rich('KPI & Performance Evaluation', 'The annual KPI framework will be retained with the addition of simplified quarterly evaluations for recognition. Team leads shall nominate top performers. The contractor will share the new quarterly KPI sheet.'), 46),
+        note(rich('Knowledge Transfer', 'Discussed the shift overlap for knowledge transfer and proper handover.'), 46),
+        note(rich('Site Visits', 'Contractor management site visits'), 46),
+        note(
+          '<p><strong>Standby Resources &amp; Recruitment</strong></p><p>• Discussed the driving training needs and site familiarisation.</p><p><strong>Four positions open:</strong></p>' +
+            '<ul><li><p>IT Support Specialist – MCT – Omani</p></li><li><p>IT Asset and Logistics Coordinator – MCT – Omani</p></li><li><p>Sr. Network &amp; Telecom Position – Field – Omani</p></li><li><p>Network and Telecom – MCT – Omani</p></li><li><p>Network and Telecom – Field – EXP</p></li></ul>' +
+            '<p>The contractor to share the shortlisted candidate soon</p>',
+          56,
+        ),
+        note(rich('Contract Compliance', '90-day notice period for new employees and probation clauses in employee contracts.'), 57),
+        note(rich('In-country value', 'Waiting for an update from the in-country value team'), 58),
+        note(rich('Retention & Benefits', 'A minimum 5% salary increment for 2026 was proposed, subject to internal approval by November, alongside ongoing discussions on family medical insurance. Potential employee relocation to Muscat if required.'), 59),
+      ],
+      final: { content: { summary: '', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT', approvedByName: null, approvedAt: null },
+      generatedAt: '2026-11-04T14:04:00.000Z',
+    };
+    const { pages } = inspectPdf(buildMinutesPdf(sample));
+    expect(pages.length).toBeLessThanOrEqual(2);
+    // Everything is still there.
+    const text = pages.flat();
+    expect(text).toEqual(expect.arrayContaining(['Final Minutes of Meeting', 'Meeting record', 'Attendees', 'Agenda', 'Action Items', 'Notes taken during the meeting', 'Network and Telecom – Field – EXP', 'Code', 'SITEIT', 'Owner', 'Project status']));
+    expect(text.filter((l) => l.startsWith('Sam Admin · 4 Nov, '))).toHaveLength(9);
   });
 });

@@ -609,3 +609,119 @@ describe('PdfDocument — review fixes', () => {
     expect(y('RIG-2') - y('RIG-1')).toBeCloseTo(9 * 1.4 + 6, 5);
   });
 });
+
+describe('PdfDocument — compact density (the minutes, 1.22.1)', () => {
+  const drop = (doc: PdfDocument, draw: () => void) => {
+    const before = doc.remaining;
+    draw();
+    return before - doc.remaining;
+  };
+  const drawnLines = (doc: PdfDocument) => inspectPdf(doc.build()).lines.flat();
+
+  it('leaves every other PDF as it was: 54 pt margins, 10.5 pt text, 12.5 pt headings, 8.5 pt tables', () => {
+    const doc = new PdfDocument();
+    doc.heading('Section').text('Body').table([{ header: 'Col' }], [['Cell']]);
+    const lines = drawnLines(doc);
+    const at = (t: string) => lines.find((l) => l.text === t)!;
+    expect(at('Body')).toMatchObject({ x: 54, size: 10.5 });
+    expect(at('Section').size).toBe(12.5);
+    expect(at('Cell').size).toBe(8.5);
+  });
+
+  it('sets a compact document in smaller type on narrower margins', () => {
+    const doc = new PdfDocument({ density: 'compact' });
+    doc.heading('Section').text('Body').bullet('Point').table([{ header: 'Col' }], [['Cell']]);
+    const lines = drawnLines(doc);
+    const at = (t: string) => lines.find((l) => l.text === t)!;
+    expect(at('Body').size).toBe(9);
+    expect(at('Point').size).toBe(9);
+    expect(at('Section').size).toBe(10.5);
+    expect(at('Cell').size).toBe(8);
+    expect(at('Body').x).toBeGreaterThanOrEqual(42.5); // 15 mm
+    expect(at('Body').x).toBeLessThanOrEqual(51); // 18 mm
+  });
+
+  it('draws slim compact stat tiles (at most about 12 mm tall) with the value and its label on one line', () => {
+    const doc = new PdfDocument({ density: 'compact' });
+    const h = drop(doc, () => doc.statTiles([{ label: 'Attendees present', value: '0/6' }, { label: 'Open action items', value: '3', note: '1 overdue', tone: 'danger' }]));
+    expect(h).toBeLessThanOrEqual(34 + 10); // the tile and the gap under it
+    const lines = drawnLines(doc);
+    const at = (t: string) => lines.find((l) => l.text === t)!;
+    expect(at('0/6').y).toBeCloseTo(at('Attendees present').y, 1);
+    expect(at('1 overdue')).toBeDefined();
+  });
+
+  it('draws a compact part heading and status line without filled bands', () => {
+    const doc = new PdfDocument({ density: 'compact' });
+    const band = drop(doc, () => doc.partBand('Meeting record'));
+    const strip = drop(doc, () => doc.statusStrip('DRAFT · Not yet approved', 'warning'));
+    expect(band).toBeLessThan(40);
+    expect(strip).toBeLessThanOrEqual(24); // a 6 mm line and the gap under it
+    const lines = drawnLines(doc);
+    expect(lines.find((l) => l.text === 'Meeting record')!.size).toBeLessThanOrEqual(12);
+    expect(lines.find((l) => l.text === 'DRAFT · Not yet approved')!.size).toBeLessThanOrEqual(8.5);
+  });
+
+  it('puts a small aside at the end of the last line drawn when it fits there, else on a short line of its own', () => {
+    const doc = new PdfDocument({ density: 'compact' });
+    doc.bullet('A short note.').aside('Ada · 09:05');
+    doc.text('ملاحظة قصيرة').aside('خالد · 09:07');
+    const lines = drawnLines(doc);
+    const at = (t: string) => lines.find((l) => l.text === t)!;
+    const short = at('A short note.');
+    expect(at('Ada · 09:05').y).toBeCloseTo(short.y, 1);
+    expect(at('Ada · 09:05').size).toBeLessThan(9);
+    expect(at('Ada · 09:05').x).toBeGreaterThan(400); // at the right end of the line
+    // An Arabic line ends on the left: its aside sits there.
+    expect(at('خالد · 09:07').x).toBeLessThan(at('ملاحظة قصيرة').x);
+    // A last line with no room beside it: the aside takes a short line of its own, at the right.
+    let own: { last: number; aside: number; x: number } | null = null;
+    for (let n = 1; n < 120 && !own; n++) {
+      const d = new PdfDocument({ density: 'compact' });
+      d.bullet('word '.repeat(n).trim()).aside('Ada · 09:06');
+      const ls = drawnLines(d);
+      const a = ls.find((l) => l.text === 'Ada · 09:06')!;
+      const last = ls.filter((l) => l.text.startsWith('word')).at(-1)!;
+      if (a.y > last.y + 1) own = { last: last.y, aside: a.y, x: a.x };
+    }
+    expect(own, 'an aside on a line of its own').not.toBeNull();
+    expect(own!.aside - own!.last).toBeLessThan(12);
+    expect(own!.x).toBeGreaterThan(400);
+  });
+
+  it('never leaves an aside alone at the top of a page: it stays under its block, clear of the footer', () => {
+    // One full line, so the aside always needs a line of its own.
+    let words = 1;
+    while (new PdfDocument({ density: 'compact' }).textHeight('word '.repeat(words + 1).trim()) < 20) words++;
+    const full = 'word '.repeat(words).trim();
+    for (let fillers = 40; fillers < 70; fillers++) {
+      const doc = new PdfDocument({ density: 'compact', footerLeft: 'Footer' });
+      for (let i = 0; i < fillers; i++) doc.text(`Filler line ${i}`);
+      doc.text(full).aside('Ada Lovelace · 4 Nov, 17:45');
+      const { lines } = inspectPdf(doc.build());
+      const page = (t: string) => lines.findIndex((p) => p.some((l) => l.text === t));
+      const last = lines.flatMap((p, pi) => p.filter((l) => l.text === full).map((l) => ({ ...l, pi }))).at(-1)!;
+      expect(page('Ada Lovelace · 4 Nov, 17:45'), `${fillers} fillers`).toBe(last.pi);
+      const aside = lines[last.pi]!.find((l) => l.text === 'Ada Lovelace · 4 Nov, 17:45')!;
+      const footer = lines[last.pi]!.find((l) => l.text === 'Footer')!;
+      expect(aside.y, `${fillers} fillers`).toBeLessThan(footer.y - 12); // above the footer and its rule
+    }
+  });
+
+  it('makes a key/value row a clickable link when given an address, showing only its label', () => {
+    const doc = new PdfDocument({ density: 'compact' });
+    doc.keyValueColumns([['Online', 'Microsoft Teams — join link', 'https://teams.microsoft.com/l/meetup-join/abc']], [['Status', 'Draft']]);
+    const { pages, objects } = inspectPdf(doc.build());
+    expect(pages[0]).toContain('Microsoft Teams — join link');
+    expect([...objects.values()].join('\n')).toContain('/URI (https://teams.microsoft.com/l/meetup-join/abc)');
+  });
+
+  it('puts a heading’s aside (a count) on the heading’s own line', () => {
+    const doc = new PdfDocument({ density: 'compact' });
+    doc.heading('Attendees', { aside: '6 invited · 0 present' });
+    const lines = drawnLines(doc);
+    const at = (t: string) => lines.find((l) => l.text === t)!;
+    expect(at('6 invited · 0 present').y).toBeCloseTo(at('Attendees').y, 1);
+    expect(at('6 invited · 0 present').x).toBeGreaterThan(at('Attendees').x + 200);
+  });
+});
