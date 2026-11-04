@@ -30,10 +30,14 @@ export const JOB_HEARTBEAT_MS = 20_000;
 export const JOB_SWEEP_MS = 15_000;
 /** At most this many tries at once on one server. */
 export const JOB_CONCURRENCY = 4;
-/** A requester's page that showed the job this recently is open: the page says it is done, not the bell. */
-export const WATCH_FRESH_MS = 15_000;
+/**
+ * A requester's page that showed the job this recently is open: the page says it is done, not the
+ * bell. Just over the pages' own reading (MICO AI every second, the Final MOM every 3 s), so a page
+ * closed a few seconds before the end is told by the bell. A hidden tab stops reading: it is told too.
+ */
+export const WATCH_FRESH_MS = 6_000;
 /** A page showing a job says so at most this often. */
-const WATCH_EVERY_MS = 5_000;
+const WATCH_EVERY_MS = 2_000;
 const INTERRUPTED: AiJobError = { message: 'This was interrupted. Try again.', code: 'AI_JOB_INTERRUPTED', status: 500 };
 
 /** Is this failure worth another try later? Time-outs, a busy service (429, ours or theirs) and the provider's 5xx. */
