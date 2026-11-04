@@ -108,6 +108,8 @@ export interface ApiTask {
   canDeleteSeries?: boolean;
   /** Assignees (present on list responses; used for card avatars). */
   assignees?: { id: string; name: string }[];
+  /** Its tags (list and single-task responses; the Table view's optional Tags column). */
+  tags?: { id: string; name: string; color: string }[];
   /** Aggregate counts for card badges (present on list responses). */
   counts?: { comments: number; attachments: number; checklistDone: number; checklistTotal: number };
   /** Its external contacts in short — the first one's name and company, how many, every name and company (null: none; older servers leave it out). */
