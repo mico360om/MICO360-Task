@@ -22,6 +22,8 @@ export interface ApiUser {
   companies?: UserCompany[];
   /** Their primary company: their emails' logo and name. */
   primaryCompanyId?: string | null;
+  /** 1.22.3: an administrator's "Show my projects only" (off by default; an older server sends none). Admin list only. */
+  myProjectsOnly?: boolean;
 }
 
 /** One of a person's companies, as the user list names it. */
@@ -95,6 +97,8 @@ export interface UserPatch {
   companyIds?: string[];
   /** One of their companies (null: kept while still theirs, else the oldest one they keep). */
   primaryCompanyId?: string | null;
+  /** 1.22.3: an administrator's "Show my projects only" (on is refused for anyone else). */
+  myProjectsOnly?: boolean;
 }
 
 /** User Management's list: everyone, the people in one company, or those in none. */

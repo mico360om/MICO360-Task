@@ -34,6 +34,7 @@ function toSummary(u: UserWithRoles): UserSummary {
     lockedUntil: isLocked(u.lockedUntil) ? u.lockedUntil : null,
     companies: u.companies.map((m) => m.company).sort((a, b) => a.name.localeCompare(b.name)),
     primaryCompanyId: u.primaryCompanyId,
+    myProjectsOnly: u.myProjectsOnly,
   };
 }
 

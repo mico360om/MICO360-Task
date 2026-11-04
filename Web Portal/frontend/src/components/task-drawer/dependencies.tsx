@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { statusMeta } from '../../lib/taskStatus';
-import { filterTasks } from '../../lib/task-picker';
+import { pickTasks } from '../../lib/task-picker-numbers';
 import { ComboPicker } from './combo-picker';
 import { failureMessage } from './save-state';
 import { TaskKey } from '../TaskKey';
@@ -81,7 +81,8 @@ export function DependenciesSection({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const exclude = new Set([taskId, ...dependencies.blockedBy.map((d) => d.id), ...dependencies.blocks.map((d) => d.id)]);
-  const matches = filterTasks(availableTasks, query, exclude);
+  // 1.22.3: the task whose number was typed — any way ("mico142", "#MICO-142") — first.
+  const matches = pickTasks(availableTasks, query, exclude);
   const open = dependencies.blockedBy.filter((d) => !d.done).length;
 
   async function add(id: string) {

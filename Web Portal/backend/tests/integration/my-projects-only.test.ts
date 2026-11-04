@@ -14,6 +14,10 @@ import { createMessageService } from '../../src/modules/chat/message-service';
 import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/final-minutes-repository';
 import { buildCompanyWorld, dropCompanyWorld, sorted, type CompanyWorld } from './company-world';
 import { buildCompanyApp, type CompanyApp } from './company-app';
+import { createUserService } from '../../src/modules/users/user-service';
+import { createPrismaUserRepository } from '../../src/modules/users/prisma-user-repository';
+import { createPrismaPreferences } from '../../src/modules/users/user-preferences';
+import type { AuditService } from '../../src/modules/audit/audit-service';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // 1.22 "Show my projects only": with the setting on, every LIST treats the administrator like a team
@@ -24,6 +28,8 @@ const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DAT
 let w: CompanyWorld;
 let api: CompanyApp;
 let tools: ReturnType<typeof createMicoAiTools>;
+/** What User Management's changes recorded in the audit log (1.22.3). */
+const audited: { action: string; entityId: string | null; newValue: unknown }[] = [];
 
 const DAY = 86_400_000;
 const dayKey = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
@@ -106,6 +112,18 @@ beforeAll(async () => {
       repo: createPrismaTaskMoveRepository(prisma),
       pickerProjectIds: (actor) => base.projectAccess!.accessibleProjectIds(actor.id, actor.roles ?? [], null),
     }),
+    // 1.22.3: User Management (PUT /users/:id) over the real users table.
+    userService: createUserService({ users: createPrismaUserRepository(prisma) }),
+    userPreferences: createPrismaPreferences(prisma),
+    auditService: {
+      async record(d: { action: string; entityId?: string | null; newValue?: unknown }) {
+        audited.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue });
+        return {} as never;
+      },
+      async list() {
+        return [];
+      },
+    } as unknown as AuditService,
   }));
   // MICO AI's tools over the same rules (server.ts wiring).
   const chat = createMessageService({
@@ -351,5 +369,48 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
         await setting(true);
       }
     });
+  });
+});
+
+describe('“Show my projects only” set by another administrator in User Management → Manage account (1.22.3)', () => {
+  // Another administrator (their token is enough: the route checks the caller's role).
+  const boss = { id: 'zz-boss-admin', roles: ['ADMIN'] };
+  const stored = async (id: string) => (await prisma.user.findUnique({ where: { id }, select: { myProjectsOnly: true } }))?.myProjectsOnly;
+  afterAll(() => setting(false));
+
+  it('turned on for the administrator: stored, audited, and their very next list follows it', async () => {
+    const { admin } = w.as;
+    expect(projectIdsOf(await api.get(admin, '/projects'))).toEqual(expect.arrayContaining(Object.values(w.projects)));
+    const res = await api.put(boss, `/users/${w.people.admin}`, { myProjectsOnly: true });
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { data: { myProjectsOnly: boolean } }).data.myProjectsOnly).toBe(true);
+    expect(await stored(w.people.admin)).toBe(true);
+    expect(audited).toContainEqual({ action: 'user.update', entityId: w.people.admin, newValue: { myProjectsOnly: true } });
+    // The user list shows the saved state.
+    const listed = (await api.get(boss, '/users')) as { id: string; myProjectsOnly: boolean }[];
+    expect(listed.find((u) => u.id === w.people.admin)?.myProjectsOnly).toBe(true);
+    // No sign-in again needed: the next request uses it (it is read on each one).
+    expect(projectIdsOf(await api.get(admin, '/projects'))).toEqual(sorted([w.projects.PA, w.projects.PAB]));
+    // Their own Settings read the same value.
+    expect(((await api.get(admin, '/users/me/preferences')) as { myProjectsOnly: boolean }).myProjectsOnly).toBe(true);
+  });
+
+  it('turned off again: every project is back on their next request', async () => {
+    const { admin } = w.as;
+    expect((await api.put(boss, `/users/${w.people.admin}`, { myProjectsOnly: false })).statusCode).toBe(200);
+    expect(await stored(w.people.admin)).toBe(false);
+    expect(projectIdsOf(await api.get(admin, '/projects'))).toEqual(expect.arrayContaining(Object.values(w.projects)));
+  });
+
+  it('refused for someone who isn’t an administrator; nothing is saved', async () => {
+    const res = await api.put(boss, `/users/${w.people.ana}`, { firstName: 'Changed', myProjectsOnly: true });
+    expect(res.statusCode).toBe(403);
+    expect((res.json() as { error: { message: string } }).error.message).toBe('Only administrators have this setting.');
+    expect(await prisma.user.findUnique({ where: { id: w.people.ana }, select: { firstName: true, myProjectsOnly: true } })).toEqual({ firstName: 'Ana', myProjectsOnly: false });
+  });
+
+  it('only an administrator may change it for someone (an employee is refused)', async () => {
+    expect((await api.put(w.as.ana, `/users/${w.people.admin}`, { myProjectsOnly: true })).statusCode).toBe(403);
+    expect(await stored(w.people.admin)).toBe(false);
   });
 });

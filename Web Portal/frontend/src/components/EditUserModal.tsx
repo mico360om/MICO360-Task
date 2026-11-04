@@ -12,6 +12,11 @@ import { ModalPortal } from './ui/ModalPortal';
 import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
+import { Toggle } from './ui/Toggle';
+import { MY_PROJECTS_WORDS } from './settings/MyProjectsSettings';
+import { DATE_PREFS_KEY } from '../lib/useDatePrefs';
+import { resetCompanyScopedQueries } from '../lib/company-scope';
+import type { DatePreferences } from '../api/preferences';
 
 export interface EditUserModalProps {
   user: ApiUser;
@@ -70,6 +75,13 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     companyChoices.show &&
     (companyIds.length !== savedCompanyIds.length || companyIds.some((id) => !savedCompanyIds.includes(id)) || primaryCompanyId !== savedPrimary);
 
+  // 1.22.3 "Show my projects only": an administrator's setting (Settings has the same switch for
+  // your own). Shown while Administrator is ticked; sent only when changed, and only then.
+  const savedMine = user.myProjectsOnly === true;
+  const [mine, setMine] = useState(savedMine);
+  const adminInForm = roles.has('ADMIN');
+  const mineChanged = adminInForm && mine !== savedMine;
+
   const [newPassword, setNewPassword] = useState('');
   const [pwNotice, setPwNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const newPwRef = useRef<HTMLInputElement>(null);
@@ -87,6 +99,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
         // Your own roles are never sent, so they can't change from this dialog.
         ...(isSelf ? {} : { roleNames: [...roles] }),
         ...(companiesChanged ? { companyIds, primaryCompanyId } : {}),
+        ...(mineChanged ? { myProjectsOnly: mine } : {}),
       });
       if (!isSelf && status !== user.status) {
         try {
@@ -98,6 +111,13 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     },
     onSuccess: () => {
       invalidate();
+      // Your own: Settings and the Projects page's tick read it again, and every list too (it changes
+      // what they hold) — as turning it on or off in Settings does.
+      if (isSelf && mineChanged) {
+        qc.setQueryData<DatePreferences>(DATE_PREFS_KEY, (prev) => (prev ? { ...prev, myProjectsOnly: mine } : prev));
+        void qc.invalidateQueries({ queryKey: DATE_PREFS_KEY });
+        resetCompanyScopedQueries(qc);
+      }
       onClose();
     },
     onError: (err) => {
@@ -229,6 +249,19 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
       </div>
     </fieldset>
   );
+  // Outside Access: on your own account the roles are locked, this isn't (Settings has it too).
+  const projectsField = adminInForm ? (
+    <section aria-labelledby="eu-projects-title" className="flex flex-col gap-2">
+      <p id="eu-projects-title" className={SECTION}>{MY_PROJECTS_WORDS.heading}</p>
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-line p-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">{MY_PROJECTS_WORDS.label}</div>
+          <div id="eu-my-projects-hint" className="text-xs text-ink-2">{isSelf ? MY_PROJECTS_WORDS.hint : MY_PROJECTS_WORDS.hintTheirs}</div>
+        </div>
+        <Toggle on={mine} onChange={() => setMine((v) => !v)} label={MY_PROJECTS_WORDS.label} describedBy="eu-my-projects-hint" />
+      </div>
+    </section>
+  ) : null;
   // Reset password is its own form (1.22 review): its box and Reset button belong to the reset form
   // (the `form` attribute — that form sits after the profile's, so both layouts keep their places).
   // Enter in the box or Reset resets the password and never saves the profile.
@@ -304,6 +337,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
                   <div data-form-column="access" className="flex min-w-0 flex-col gap-4">
                     {companiesField}
                     {accessFields}
+                    {projectsField}
                   </div>
                 </div>
               ) : (
@@ -311,6 +345,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
                   {profileFields}
                   {companiesField}
                   {accessFields}
+                  {projectsField}
                   {passwordFields}
                 </>
               )}

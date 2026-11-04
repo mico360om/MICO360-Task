@@ -168,6 +168,61 @@ describe('GlobalSearch', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=t4'));
   });
 
+  describe('a task number however it is typed (1.22.3)', () => {
+    /** The search answers with these tasks, whatever was typed. */
+    const found = (tasks: { id: string; key: string; title: string; formerKeys?: string[] }[]) =>
+      vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(json(String(url).includes('/search') ? { data: { tasks: tasks.map((t) => ({ projectId: 'p1', ...t })), projects: [], users: [] } } : { data: [] }))));
+    const box = () => screen.getByRole('searchbox', { name: /search/i });
+
+    it('"open mico 142", "open MICO_142" and "open #mico-142" open MICO-142 — never MICO-1420', async () => {
+      for (const typed of ['open mico 142', 'open MICO_142', 'open #mico-142']) {
+        found([{ id: 't1420', key: 'MICO-1420', title: 'Longer number' }, { id: 't142', key: 'MICO-142', title: 'Valve check' }]);
+        const { unmount } = setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+        await userEvent.type(box(), typed);
+        expect(await screen.findByText('Open MICO-142')).toBeInTheDocument();
+        await userEvent.keyboard('{Enter}');
+        await waitFor(() => expect(screen.getByTestId('where').textContent, typed).toBe('/?task=t142'));
+        unmount();
+      }
+    });
+
+    it('a run-together number tries every split: "open hr214" opens HR2-14', async () => {
+      found([{ id: 'hr', key: 'HR2-14', title: 'Fence line' }]);
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(box(), 'open hr214{Enter}');
+      await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=hr'));
+    });
+
+    it('typed without a verb ("mico142"), it is offered as "Open MICO-142" once the search finds it', async () => {
+      found([{ id: 't142', key: 'MICO-142', title: 'Valve check' }]);
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(box(), 'mico142');
+      expect(await screen.findByText('Open MICO-142')).toBeInTheDocument();
+      await userEvent.keyboard('{Enter}');
+      await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=t142'));
+    });
+
+    it('an old number typed any way opens the task it moved to ("rig 4" → OPS-17)', async () => {
+      found([{ id: 't4', key: 'OPS-17', title: 'Inspect the rig', formerKeys: ['RIG-4'] }]);
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(box(), 'rig 4');
+      expect(await screen.findByText('Open OPS-17')).toBeInTheDocument();
+      await userEvent.keyboard('{Enter}');
+      await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=t4'));
+    });
+
+    it('"phase 2" with no task numbered PHASE-2 stays a plain search: no Open command, MICO AI still offered', async () => {
+      found([{ id: 'tp', key: 'MICO-9', title: 'Phase 2 handover' }]);
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(box(), 'phase 2');
+      expect(await screen.findByText('Phase 2 handover')).toBeInTheDocument();
+      expect(screen.queryByText(/^Open /)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Ask MICO AI.*phase 2/ })).toBeInTheDocument();
+      await userEvent.keyboard('{Enter}');
+      await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=tp'));
+    });
+  });
+
   it('a found task that moved shows the key it had too, so it can be told apart', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] }], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);

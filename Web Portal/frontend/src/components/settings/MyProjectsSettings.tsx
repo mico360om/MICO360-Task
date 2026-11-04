@@ -7,6 +7,8 @@ export const MY_PROJECTS_WORDS = {
   heading: 'Projects',
   label: 'Show my projects only',
   hint: 'Lists everywhere show only the projects you own, manage or are on the team of. You can still open any project by its link.',
+  /** The same, about another administrator (User Management → Manage account, 1.22.3). */
+  hintTheirs: 'Lists everywhere show only the projects they own, manage or are on the team of. They can still open any project by its link.',
   failed: 'Couldn’t save that change. Please try again.',
 } as const;
 

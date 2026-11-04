@@ -1,3 +1,5 @@
+import { taskNumberKeys } from './task-number';
+
 /** A navigable destination the command palette can jump to. */
 export interface NavCommand {
   id: string;
@@ -34,14 +36,43 @@ export const NAV_COMMANDS: NavCommand[] = [
   { id: 'admin-audit', label: 'Audit Logs', to: '/admin/audit', keywords: ['audit', 'logs', 'admin'], admin: true },
 ];
 
-const TASK_KEY = '[A-Za-z][A-Za-z0-9]*-\\d+';
+/**
+ * A task number as people type it (1.22.3, lib/task-number) — MICO-142, mico 142, MICO142, MICO_142,
+ * #MICO-142 — in a command whose spaces are collapsed; `commandKey` then reads it (or turns it down).
+ */
+const TASK_KEY = /#? ?[A-Za-z][A-Za-z0-9]*(?: ?[-_‐-―−] ?| )?\d+/.source;
+/** A number as it was always written ("MICO-7", any code): a command straight away. */
+const HYPHENATED = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 
 export type ParsedCommand =
   | { type: 'assign'; taskKey: string; assignee: string }
   | { type: 'complete'; taskKey: string }
   | { type: 'move'; taskKey: string; status: string }
-  | { type: 'open'; taskKey: string }
+  /**
+   * `onlyIfFound`: a number typed loosely without a verb ("mico 142", "MICO142") — offered only once
+   * the search finds a task with that number, so a plain search such as "phase 2" still opens its
+   * first result.
+   */
+  | { type: 'open'; taskKey: string; onlyIfFound?: true }
   | { type: 'navigate'; to: string; label: string };
+
+/**
+ * The task number a command names, as the palette shows it: "MICO-142" for one number however it
+ * was typed; what was typed for a run-together one that may be several ("HR214": HR-214, HR2-14 or
+ * HR21-4 — commandTaskKeys); null when it isn't a task number.
+ */
+function commandKey(typed: string): { key: string; hyphenated: boolean } | null {
+  const text = typed.trim().replace(/^# ?/, '');
+  if (HYPHENATED.test(text)) return { key: text.toUpperCase(), hyphenated: true };
+  const keys = taskNumberKeys(text);
+  if (keys.length === 0) return null;
+  return { key: keys.length === 1 ? keys[0]! : text.toUpperCase(), hyphenated: false };
+}
+
+/** The numbers a command's task may have: what it says, then every split of a run-together one ("HR214" → HR-214, HR2-14, HR21-4). */
+export function commandTaskKeys(taskKey: string): string[] {
+  return [...new Set([taskKey.toUpperCase(), ...taskNumberKeys(taskKey)])];
+}
 
 /** Find a single nav destination whose label/keywords match the query, best-effort. */
 export function findNav(query: string, isAdmin: boolean, leads = isAdmin): NavCommand | undefined {
@@ -81,19 +112,25 @@ export function parseCommand(input: string, isAdmin = true, leads = isAdmin): Pa
   if (!text) return null;
 
   let m = new RegExp(`^assign\\s+(${TASK_KEY})\\s+to\\s+(.+)$`, 'i').exec(text);
-  if (m) return { type: 'assign', taskKey: m[1]!.toUpperCase(), assignee: m[2]!.trim() };
+  let key = m ? commandKey(m[1]!) : null;
+  if (m && key) return { type: 'assign', taskKey: key.key, assignee: m[2]!.trim() };
 
   m = new RegExp(`^move\\s+(${TASK_KEY})\\s+to\\s+(.+)$`, 'i').exec(text);
-  if (m) return { type: 'move', taskKey: m[1]!.toUpperCase(), status: m[2]!.trim() };
+  key = m ? commandKey(m[1]!) : null;
+  if (m && key) return { type: 'move', taskKey: key.key, status: m[2]!.trim() };
 
   m = new RegExp(`^(?:complete|done|finish|close)\\s+(${TASK_KEY})$`, 'i').exec(text);
-  if (m) return { type: 'complete', taskKey: m[1]!.toUpperCase() };
+  key = m ? commandKey(m[1]!) : null;
+  if (key) return { type: 'complete', taskKey: key.key };
 
   m = new RegExp(`^open\\s+(${TASK_KEY})$`, 'i').exec(text);
-  if (m) return { type: 'open', taskKey: m[1]!.toUpperCase() };
+  key = m ? commandKey(m[1]!) : null;
+  if (key) return { type: 'open', taskKey: key.key };
 
+  // Just a number: the hyphenated one is a command straight away; a loosely typed one once found.
   m = new RegExp(`^(${TASK_KEY})$`).exec(text);
-  if (m) return { type: 'open', taskKey: m[1]!.toUpperCase() };
+  key = m ? commandKey(m[1]!) : null;
+  if (key) return key.hyphenated ? { type: 'open', taskKey: key.key } : { type: 'open', taskKey: key.key, onlyIfFound: true };
 
   m = /^(?:go ?to|open|navigate to)\s+(.+)$/i.exec(text);
   if (m) {

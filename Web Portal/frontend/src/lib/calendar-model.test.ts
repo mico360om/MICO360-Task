@@ -90,6 +90,11 @@ describe('applyFilters', () => {
     expect(ids({ statuses: ['overdue'] })).toEqual(['5']);
     expect(ids({ priorities: ['HIGH'] })).toEqual(['1', 'proj:1:2026-10-19']);
   });
+  it('“Search tasks” finds a task number however it is typed (1.22.3)', () => {
+    for (const q of ['rig7', 'RIG 7', 'rig_7', '#RIG-7', ' Rig – 7 ']) expect(ids({ q }), q).toEqual(['2']);
+    expect(ids({ q: 'mico1' })).toEqual(ids({ q: 'MICO-1' })); // the same tasks as the number written with its hyphen
+    expect(ids({ q: 'rig 70' })).toEqual([]); // exactly that number
+  });
   it('counts the filters in use', () => {
     expect(activeFilterCount(DEFAULT_FILTERS)).toBe(0);
     expect(activeFilterCount({ ...DEFAULT_FILTERS, projectId: 'p1', mine: true, showCompleted: false })).toBe(3);

@@ -192,7 +192,7 @@ export interface MicoAiDataPort {
   ownProjectIds?(viewer: Viewer): Promise<string[] | null>;
   projects(ids: string[] | null): Promise<AiProjectRec[]>;
   tasks(filter: { projectIds: string[] | null; projectId?: string; assigneeId?: string }): Promise<AiTaskRec[]>;
-  /** One task by key or id within the scope, or null. */
+  /** One task by id, or by its number however it is typed ("mico 142", "MICO142") now or before it moved, within the scope; or null. */
   findTask(projectIds: string[] | null, keyOrId: string): Promise<AiTaskRec | null>;
   /** The project of each of these (not deleted) tasks: to check results kept from earlier questions. */
   taskProjectIds(taskIds: string[]): Promise<Map<string, string>>;
