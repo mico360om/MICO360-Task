@@ -18,6 +18,13 @@ describe('notificationTarget', () => {
     expect(notificationTarget({ entityType: 'conversation', entityId: null })).toEqual({ kind: 'path', to: '/chat' });
   });
 
+  // 1.22 (§10): MICO AI's answer (or its failure) opens the chat; the AI's minutes draft opens the meeting.
+  it('opens the MICO AI chat an answer was written in, and the meeting whose minutes the AI drafted', () => {
+    expect(notificationTarget({ entityType: 'mico-ai-chat', entityId: 'c 1' })).toEqual({ kind: 'path', to: '/mico-ai?chat=c%201' });
+    expect(notificationTarget({ entityType: 'mico-ai-chat', entityId: null })).toEqual({ kind: 'path', to: '/mico-ai' });
+    expect(notificationTarget({ entityType: 'meeting', entityId: 'm1' })).toEqual({ kind: 'path', to: '/meetings/m1' });
+  });
+
   it('ignores notifications with nothing to open', () => {
     expect(notificationTarget({ entityType: 'digest', entityId: null })).toBeNull();
     expect(notificationTarget({ entityType: null, entityId: null })).toBeNull();

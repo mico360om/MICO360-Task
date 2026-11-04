@@ -281,8 +281,13 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     },
 
     async actionItems(viewer, { projectIds, projectId, from, to, assigneeId, status, limit }) {
+      const meeting = { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}) };
+      const scope = await meetingScope(viewer, projectIds);
+      // 1.22 (owner, 4 Nov — as My Action Items): an administrator with "Show my projects only" always
+      // has their own items, whatever the project; the tool keeps the picked company's rule.
+      const ownToo = isAdmin(viewer) && (await myProjectsOnly(viewer));
       const where = {
-        meeting: { is: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(await meetingScope(viewer, projectIds)) } },
+        ...(ownToo ? { meeting: { is: meeting }, OR: [{ meeting: { is: scope } }, { assigneeId: viewer.userId }] } : { meeting: { is: { ...meeting, ...scope } } }),
         ...(assigneeId ? { assigneeId } : {}),
         ...(status === 'open' ? { status: OPEN_ACTIONS } : status === 'done' ? { status: CLOSED_ACTIONS } : {}),
       };

@@ -54,6 +54,7 @@ beforeAll(async () => {
     // The parts that switch on a group of routes (client sharing of tasks and minutes, the final minutes, a note's task).
     clientView: { tasks: untouched('clientView.tasks'), minutes: untouched('clientView.minutes') },
     finalMinutesRepository: untouched('finalMinutesRepository'),
+    finalMinutesAi: untouched('finalMinutesAi'), // 1.22 Lane AI: the AI's offered draft (Use it)
     noteTaskService: untouched('noteTaskService'),
     authService,
     tokenService,

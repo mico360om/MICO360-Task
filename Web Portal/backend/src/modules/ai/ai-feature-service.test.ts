@@ -597,6 +597,16 @@ describe('AiFeatureService: MICO AI’s model calls', () => {
     await expect(svc.chat({ system: 'S', prompt: 'P' }, { userId: 'u1' })).rejects.toThrow(/today’s AI request limit/);
   });
 
+  // 1.22 (§10): "Draft with AI" runs in the background, so a limit is said up front — counting nothing
+  // (the try in the background counts, as before).
+  it('checkLimits says the person’s limit at once and counts nothing', async () => {
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl: ok('{"summary":"x"}'), limits: { perMinute: 1, perDay: 1 } });
+    for (let i = 0; i < 3; i++) expect(() => svc.checkLimits('u1')).not.toThrow();
+    await svc.draftMinutes('Meeting: x', { userId: 'u1' });
+    expect(() => svc.checkLimits('u1')).toThrow(/too quickly|today’s AI request limit/);
+    expect(() => svc.checkLimits('u2')).not.toThrow();
+  });
+
   it('shares the model’s concurrency slots with the other AI features', async () => {
     let inFlight = 0;
     let peak = 0;

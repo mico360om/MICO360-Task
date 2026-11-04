@@ -254,6 +254,8 @@ export interface AppDeps extends AuthRouteDeps {
   minutesSendRepository?: import('./modules/meetings/minutes-send-repository').MinutesSendRepository;
   /** Drafts final minutes with the AI from a meeting's facts. */
   draftMinutesWithAi?: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
+  /** 1.22 (§10): "Draft with AI" running in the background (answered at once, kept when ready). */
+  finalMinutesAi?: import('./modules/meetings/final-minutes-ai').FinalMinutesAi;
   /** A meeting's final minutes were saved, approved or reopened (its live event). */
   onFinalMinutesChanged?: (meetingId: string) => void;
   activityService?: ActivityService;
@@ -901,6 +903,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           printableProjectImage: deps.printableProjectImage,
           finalMinutes: deps.finalMinutesRepository,
           draftMinutesWithAi: deps.draftMinutesWithAi,
+          finalMinutesAi: deps.finalMinutesAi,
           onFinalMinutesChanged: deps.onFinalMinutesChanged,
           resolveTaskKeys: deps.resolveTaskKeys,
           notify: deps.meetingNotifyService,

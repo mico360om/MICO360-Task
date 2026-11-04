@@ -210,9 +210,18 @@ export function micoAiApi(client: ApiClient) {
       client.get<{ data: { messages: MicoAiMessage[]; hasMore: boolean } }>(`${chat(id)}/messages?before=${encodeURIComponent(before)}`).then((r) => r.data),
     rename: (id: string, title: string) => client.patch<{ data: MicoAiChat }>(chat(id), { title }).then((r) => r.data),
     remove: (id: string) => client.del(chat(id)),
-    /** Ask a question; `retryOf`: the answer being asked again (its unconfirmed card is replaced). */
-    ask: (id: string, text: string, opts: { retryOf?: string } = {}) =>
-      client.post<{ data: { question: MicoAiMessage; answer: MicoAiMessage } }>(`${chat(id)}/messages`, opts.retryOf ? { text, retryOf: opts.retryOf } : { text }).then((r) => r.data),
+    /**
+     * Ask a question; `retryOf`: the answer being asked again (its unconfirmed card is replaced).
+     * `clientId` (1.22): this page's id for the message — sent again, it joins the turn already asked.
+     */
+    ask: (id: string, text: string, opts: { retryOf?: string; clientId?: string } = {}) =>
+      client
+        .post<{ data: { question: MicoAiMessage; answer: MicoAiMessage } }>(`${chat(id)}/messages`, {
+          text,
+          ...(opts.retryOf ? { retryOf: opts.retryOf } : {}),
+          ...(opts.clientId ? { clientId: opts.clientId } : {}),
+        })
+        .then((r) => r.data),
     message: (chatId: string, messageId: string) => client.get<{ data: MicoAiMessage }>(message(chatId, messageId)).then((r) => r.data),
     stop: (chatId: string, messageId: string) => client.post<{ data: MicoAiMessage }>(`${message(chatId, messageId)}/stop`).then((r) => r.data),
     /** Table n (1 = the first) of an answer, as Excel or PDF. */

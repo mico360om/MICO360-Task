@@ -71,6 +71,23 @@ describe('MICO AI routes', () => {
     await off.app.close();
   });
 
+  // 1.22 (§10): the page's own id for a message; sent again, it joins the turn already asked.
+  it('a message sent again with the same clientId joins its turn (202 both times, one turn)', async () => {
+    const { app, omar, micoAiService } = await makeApp();
+    const chatId = (await app.inject({ method: 'POST', url: '/api/v1/mico-ai/chats', headers: omar, payload: {} })).json().data.id;
+    const send = () => app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'Which tasks are overdue?', clientId: 'b7c1e0e2-9f1d-4a51-a0e4-2f6c4c1d9a10' } });
+    const first = await send();
+    const again = await send();
+    expect([first.statusCode, again.statusCode]).toEqual([202, 202]);
+    expect(again.json().data.answer.id).toBe(first.json().data.answer.id);
+    await micoAiService.whenDone(first.json().data.answer.id);
+    const chat = (await app.inject({ method: 'GET', url: `/api/v1/mico-ai/chats/${chatId}`, headers: omar })).json().data;
+    expect(chat.messages).toHaveLength(2);
+    const bad = await app.inject({ method: 'POST', url: `/api/v1/mico-ai/chats/${chatId}/messages`, headers: omar, payload: { text: 'x', clientId: 'x'.repeat(65) } });
+    expect(bad.statusCode).toBe(400);
+    await app.close();
+  });
+
   it('a whole conversation: new chat, ask (202, pending), follow it, read the chat, download Excel and PDF', async () => {
     const { app, omar, micoAiService, audit } = await makeApp();
     const created = await app.inject({ method: 'POST', url: '/api/v1/mico-ai/chats', headers: omar, payload: {} });

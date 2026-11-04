@@ -25,7 +25,8 @@ const listQuery = z.object({ q: z.string().max(200).optional() });
 const createBody = z.object({ title: z.string().max(200).optional() }).default({});
 const renameBody = z.object({ title: z.string().max(200) });
 // `retryOf`: the answer this question asks again (Retry), whose unconfirmed card it replaces.
-const askBody = z.object({ text: z.string().max(4000), retryOf: id.optional() });
+// `clientId` (1.22): the page's own id for the message — sent again, it joins the turn already asked.
+const askBody = z.object({ text: z.string().max(4000), retryOf: id.optional(), clientId: id.optional() });
 const olderQuery = z.object({ before: id, limit: z.coerce.number().int().min(1).max(50).optional() });
 // The person's ticks and edits on a card (the server checks each edit again; nothing else is taken from here).
 const confirmBody = z
@@ -88,9 +89,9 @@ export async function registerMicoAiRoutes(app: FastifyInstance, deps: MicoAiRou
 
   app.post('/mico-ai/chats/:chatId/messages', auth, async (req, reply) => {
     const { chatId } = chatParams.parse(req.params);
-    const { text, retryOf } = askBody.parse(req.body);
+    const { text, retryOf, clientId } = askBody.parse(req.body);
     // companies: the pick goes with the question into its background answer.
-    return reply.status(202).send({ data: await svc.ask({ ...viewer(req), pick: await (deps.pickOf ?? NO_PICK)(req) }, chatId, text, { ip: req.ip ?? null, retryOf }) });
+    return reply.status(202).send({ data: await svc.ask({ ...viewer(req), pick: await (deps.pickOf ?? NO_PICK)(req) }, chatId, text, { ip: req.ip ?? null, retryOf, clientId }) });
   });
 
   app.get('/mico-ai/chats/:chatId/messages/:messageId', auth, async (req) => {

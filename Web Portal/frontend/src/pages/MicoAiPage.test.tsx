@@ -213,6 +213,32 @@ describe('MICO AI page', () => {
     expect(screen.queryByText('Enter to send · Shift+Enter for a new line')).not.toBeInTheDocument(); // no hint for a box that is off
   });
 
+  // 1.22 (§10): the answer keeps being written with the page closed; a question sent again keeps its id.
+  it('while it answers it says the page may be left; a question that failed to send is sent again as the same message', async () => {
+    chats = [{ id: 'c9', title: 'Rig', lastMessageAt: now, messages: [] }];
+    renderPage('/mico-ai?chat=c9');
+    await waitFor(() => expect(box()).not.toBeDisabled());
+    const real = globalThis.fetch;
+    let failed = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      if (!failed && init?.method === 'POST' && /\/mico-ai\/chats\/[^/]+\/messages$/.test(String(input))) {
+        failed = true;
+        calls.push({ method: 'POST', url: String(input).replace(/^.*\/api\/v1/, ''), body: JSON.parse(String(init.body)) });
+        throw new TypeError('Failed to fetch');
+      }
+      return real(input, init);
+    }));
+    await userEvent.type(box(), 'Which tasks are overdue?{Enter}');
+    await waitFor(() => expect(posted('/messages')).toHaveLength(1));
+    await waitFor(() => expect(box()).toHaveValue('Which tasks are overdue?')); // it goes back in the box
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(posted('/messages')).toHaveLength(2));
+    const [first, second] = posted('/messages').map((c) => c.body as { clientId: string });
+    expect(second!.clientId).toBe(first!.clientId);
+    expect(await screen.findByText('You can leave this page — the answer is kept in this chat, and you’ll be told when it’s ready.')).toBeInTheDocument();
+    vi.stubGlobal('fetch', real);
+  });
+
   it('Enter sends, Shift+Enter adds a new line; it shows its progress with Stop, then the answer with its table, sources and downloads', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'How can I help, Khurram?' });
@@ -221,7 +247,7 @@ describe('MICO AI page', () => {
     expect(posted('/messages')).toHaveLength(0);
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(posted('/messages')).toHaveLength(1));
-    expect(posted('/messages')[0]!.body).toEqual({ text: 'Which tasks are overdue\nin Rig Inspection?' });
+    expect(posted('/messages')[0]!.body).toEqual({ text: 'Which tasks are overdue\nin Rig Inspection?', clientId: expect.any(String) });
     expect(await screen.findByText('Checking tasks in Rig Inspection…')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     expect(box()).toHaveValue('');
@@ -259,7 +285,7 @@ describe('MICO AI page', () => {
   it('a suggested question starts a chat with it', async () => {
     renderPage();
     await userEvent.click(await screen.findByRole('button', { name: 'Which of my tasks are overdue?' }));
-    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Which of my tasks are overdue?' }));
+    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Which of my tasks are overdue?', clientId: expect.any(String) }));
     expect(posted('/mico-ai/chats')).toHaveLength(1);
   });
 
@@ -286,7 +312,7 @@ describe('MICO AI page', () => {
     const note = await screen.findByRole('note');
     expect(note).toHaveTextContent('MICO360 Tasks doesn’t keep budgets, so I can’t answer that.');
     await userEvent.click(screen.getByRole('button', { name: 'Rig Inspection · this week' }));
-    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Rig Inspection · this week' }));
+    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Rig Inspection · this week', clientId: expect.any(String) }));
   });
 
   it('Copy and Retry on an answer; a failed answer says why in plain words', async () => {
@@ -306,7 +332,7 @@ describe('MICO AI page', () => {
     const retries = screen.getAllByRole('button', { name: 'Retry' });
     await userEvent.click(retries[retries.length - 1]!);
     // Retry names the answer it asks again (the server replaces that answer's unconfirmed card).
-    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'And blocked?', retryOf: 'a2' }));
+    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'And blocked?', retryOf: 'a2', clientId: expect.any(String) }));
   });
 
   it('the chat list: groups, search, open, rename and delete (after asking)', async () => {
@@ -356,7 +382,7 @@ describe('MICO AI page', () => {
 
   it('a question from Ctrl+K (“Ask MICO AI”) starts a new chat with it', async () => {
     renderPage({ pathname: '/mico-ai', state: { ask: 'Who has the most overdue tasks?' } });
-    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Who has the most overdue tasks?' }));
+    await waitFor(() => expect(posted('/messages')[0]?.body).toEqual({ text: 'Who has the most overdue tasks?', clientId: expect.any(String) }));
   });
 
   it('a question from Ctrl+K asked while a chat is open still starts a new chat', async () => {
@@ -387,7 +413,7 @@ describe('MICO AI page: review fixes', () => {
     await screen.findByText('One.');
     await userEvent.click(screen.getByRole('button', { name: 'palette' }));
     await waitFor(() => expect(posted('/messages')).toHaveLength(2));
-    expect(posted('/messages')[1]!.body).toEqual({ text: 'A second question' });
+    expect(posted('/messages')[1]!.body).toEqual({ text: 'A second question', clientId: expect.any(String) });
   });
 
   it('when the chat is deleted elsewhere, it stops following the answer and says so', async () => {
@@ -421,7 +447,7 @@ describe('MICO AI page: review fixes', () => {
     await userEvent.type(box(), 'Anything new?{Enter}');
     await waitFor(() => expect(posted('/mico-ai/chats')).toHaveLength(1));
     await waitFor(() => expect(posted('/mico-ai/chats/c1/messages')).toHaveLength(1));
-    expect(posted('/mico-ai/chats/c1/messages')[0]!.body).toEqual({ text: 'Anything new?' });
+    expect(posted('/mico-ai/chats/c1/messages')[0]!.body).toEqual({ text: 'Anything new?', clientId: expect.any(String) });
     expect(screen.getByTestId('where')).toHaveTextContent('/mico-ai?chat=c1');
   });
 

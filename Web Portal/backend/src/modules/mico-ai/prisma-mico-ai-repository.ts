@@ -57,6 +57,19 @@ export function createPrismaMicoAiRepository(prisma: PrismaClient): MicoAiReposi
     if (patch.undoneAt !== undefined) data.undoneAt = patch.undoneAt;
     return data;
   };
+  /** 1.22: no background job is still writing it (one that is resumes after a restart: never "interrupted"). */
+  const noJob = { aiJobs: { none: { activeKey: { not: null } } } } satisfies Prisma.MicoAiMessageWhereInput;
+  /** A page's message id's turn: its question, and the answer after it. */
+  async function turnOf(db: Pick<PrismaClient, 'micoAiMessage'>, chatId: string, clientId: string): Promise<{ question: MessageRecord; answer: MessageRecord } | null> {
+    const q = await db.micoAiMessage.findFirst({ where: { chatId, clientId, role: 'user' }, select: lean });
+    if (!q) return null;
+    const a = await db.micoAiMessage.findFirst({
+      where: { chatId, role: 'assistant', OR: [{ createdAt: { gt: q.createdAt } }, { createdAt: q.createdAt, id: { gt: q.id } }] },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: lean,
+    });
+    return a ? { question: toMessage(q), answer: toMessage(a) } : null;
+  }
   const order = [{ lastMessageAt: 'desc' as const }, { createdAt: 'desc' as const }];
   const oldestFirst = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
   const newestFirst = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
@@ -137,16 +150,22 @@ export function createPrismaMicoAiRepository(prisma: PrismaClient): MicoAiReposi
     async startTurn(chatId, turn) {
       return prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM mico_ai_chats WHERE id = ${chatId} FOR UPDATE`;
-        await tx.micoAiMessage.updateMany({ where: { chatId, status: 'PENDING', updatedAt: { lt: turn.staleBefore } }, data: { status: 'ERROR', content: json(turn.interrupted), step: null } });
+        // 1.22: the page sent the same message again: the turn it was asked as.
+        const asked = turn.clientId ? await turnOf(tx, chatId, turn.clientId) : null;
+        if (asked) return { ...asked, joined: true };
+        await tx.micoAiMessage.updateMany({ where: { chatId, status: 'PENDING', updatedAt: { lt: turn.staleBefore }, ...noJob }, data: { status: 'ERROR', content: json(turn.interrupted), step: null } });
         const pending = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT COUNT(*) AS n FROM mico_ai_messages WHERE chatId = ${chatId} AND status = 'PENDING' FOR UPDATE`;
         if (Number(pending[0]?.n ?? 0) > 0) return 'busy' as const;
-        const asked = tick();
+        const askedAt = tick();
         const answering = tick();
-        const question = await tx.micoAiMessage.create({ data: { chatId, role: 'user', text: turn.question, content: Prisma.DbNull, status: 'DONE', createdAt: asked }, select: lean });
+        const question = await tx.micoAiMessage.create({ data: { chatId, role: 'user', text: turn.question, content: Prisma.DbNull, status: 'DONE', createdAt: askedAt, clientId: turn.clientId ?? null }, select: lean });
         const answer = await tx.micoAiMessage.create({ data: { chatId, role: 'assistant', text: '', content: Prisma.DbNull, status: 'PENDING', step: turn.step, createdAt: answering }, select: lean });
         await tx.micoAiChat.update({ where: { id: chatId }, data: { lastMessageAt: answering } });
         return { question: toMessage(question), answer: toMessage(answer) };
       });
+    },
+    async findTurn(chatId, clientId) {
+      return turnOf(prisma, chatId, clientId);
     },
     async addMessage(chatId, m) {
       const at = tick();
@@ -168,7 +187,7 @@ export function createPrismaMicoAiRepository(prisma: PrismaClient): MicoAiReposi
     },
     async interruptStale(before, content, chatId) {
       const { count } = await prisma.micoAiMessage.updateMany({
-        where: { status: 'PENDING', updatedAt: { lt: before }, ...(chatId ? { chatId } : {}) },
+        where: { status: 'PENDING', updatedAt: { lt: before }, ...(chatId ? { chatId } : {}), ...noJob },
         data: { status: 'ERROR', content: json(content), step: null },
       });
       return count;

@@ -10,6 +10,8 @@ interface KindLook {
   paths: ReactNode;
 }
 
+const SPARKLE = <><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z" /><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z" /></>;
+
 const LOOKS: Record<string, KindLook> = {
   MENTION: { id: 'mention', name: 'Mention', tone: 'text-brand bg-brand/10', paths: <><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></> },
   CHAT_MENTION: { id: 'mention', name: 'Mention in chat', tone: 'text-brand bg-brand/10', paths: <><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></> },
@@ -24,6 +26,11 @@ const LOOKS: Record<string, KindLook> = {
   CHAT_MESSAGE: { id: 'message', name: 'Message', tone: 'text-info bg-info-soft', paths: <><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z" /><path d="M18 9h1a2 2 0 0 1 2 2v10l-3-3h-6a2 2 0 0 1-2-2v-1" /></> },
   PROJECT_ADDED: { id: 'project', name: 'Added to a project', tone: 'text-success bg-success-soft', paths: <><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" /><path d="M12 10v6M9 13h6" /></> },
   TASK_DIGEST: { id: 'digest', name: 'Daily digest', tone: 'text-ink-2 bg-ground', paths: <><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3 6h.01M3 12h.01M3 18h.01" /></> },
+  // 1.22 (§10): AI work finished in the background — the minutes' AI draft, a MICO AI answer.
+  AI_DRAFT_READY: { id: 'ai', name: 'AI draft ready', tone: 'text-brand bg-brand/10', paths: SPARKLE },
+  AI_DRAFT_FAILED: { id: 'ai-failed', name: 'AI draft failed', tone: 'text-danger bg-danger-soft', paths: SPARKLE },
+  MICO_AI_ANSWER: { id: 'ai', name: 'MICO AI answer', tone: 'text-brand bg-brand/10', paths: SPARKLE },
+  MICO_AI_FAILED: { id: 'ai-failed', name: 'MICO AI couldn’t answer', tone: 'text-danger bg-danger-soft', paths: SPARKLE },
 };
 const OTHER: KindLook = { id: 'other', name: 'Notification', tone: 'text-ink-2 bg-ground', paths: <><path d="M18 8.5a6 6 0 1 0-12 0c0 6.5-2.5 7.5-2.5 7.5h17S18 15 18 8.5" /><path d="M10.3 20a2 2 0 0 0 3.4 0" /></> };
 

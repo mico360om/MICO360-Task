@@ -12,6 +12,8 @@ export function notificationTarget(n: Pick<ApiNotification, 'entityType' | 'enti
   // A chat notification opens the conversation it is about (ChatRoute reads ?conversation=).
   if (type === 'conversation') return { kind: 'path', to: n.entityId ? `/chat?conversation=${encodeURIComponent(n.entityId)}` : '/chat' };
   if (type === 'meeting' && n.entityId) return { kind: 'path', to: `/meetings/${n.entityId}` };
+  // 1.22: a MICO AI answer written in the background (or one that failed): its chat.
+  if (type === 'mico-ai-chat') return { kind: 'path', to: n.entityId ? `/mico-ai?chat=${encodeURIComponent(n.entityId)}` : '/mico-ai' };
   // "… added you to the project …": its page.
   if (type === 'project' && n.entityId) return { kind: 'path', to: `/projects/${encodeURIComponent(n.entityId)}` };
   return null;

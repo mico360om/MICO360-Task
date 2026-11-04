@@ -189,6 +189,16 @@ export class AiCallStoppedError extends Error {
   }
 }
 
+/**
+ * The provider did not answer in time. Said as before (a 400 in plain words); its own class so that
+ * work running in the background (1.22) knows to try again later.
+ */
+export class AiTimeoutError extends ValidationError {
+  constructor() {
+    super('The AI provider did not respond in time. Try again later.');
+  }
+}
+
 /** One provider HTTP call: host check, timeout, no redirects; network problems become readable errors. */
 export async function providerFetch(url: string, init: RequestInit, opts: ProviderRequestOptions): Promise<Response> {
   validateProviderUrl(url, opts.allowPrivateHosts);
@@ -200,7 +210,7 @@ export async function providerFetch(url: string, init: RequestInit, opts: Provid
     if (err instanceof ValidationError) throw err;
     if (opts.signal?.aborted) throw new AiCallStoppedError();
     const name = (err as { name?: string } | null)?.name;
-    if (name === 'TimeoutError' || name === 'AbortError') throw new ValidationError('The AI provider did not respond in time. Try again later.');
+    if (name === 'TimeoutError' || name === 'AbortError') throw new AiTimeoutError();
     throw new ValidationError('Could not reach the AI provider. Check the API URL and network.');
   }
 }
@@ -209,7 +219,10 @@ export async function providerFetch(url: string, init: RequestInit, opts: Provid
 export async function readProviderJson(res: Response): Promise<unknown> {
   try {
     return await res.json();
-  } catch {
+  } catch (err) {
+    // The time allowed ran out while the answer was still coming (1.22: tried again in the background).
+    const name = (err as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new AiTimeoutError();
     throw new ValidationError('The AI provider returned an unreadable response.');
   }
 }

@@ -41,7 +41,32 @@ export interface FinalMinutes {
   approvedAt: string | null;
   /** The signed-in person may write, approve and reopen them. */
   canEdit: boolean;
+  /** 1.22: the AI's work on them, running in the background (editors only; null: nothing to show). */
+  aiDraft?: AiDraftState | null;
 }
+
+/**
+ * 1.22: "Draft with AI" running in the background (mirrors the server's AiDraftView):
+ * - running / waiting: drafting, or waiting to try again at nextTryAt (try `attempt` of `maxAttempts`);
+ * - ready: the AI's draft, kept beside minutes someone saved meanwhile ('changed') or marked final ('final');
+ * - saved: it was saved as the draft, and nobody has saved since;
+ * - failed: it failed for good.
+ */
+export type AiDraftState =
+  | {
+      id: string;
+      status: 'running' | 'waiting';
+      attempt: number;
+      maxAttempts: number;
+      nextTryAt: string | null;
+      error: string | null;
+      requestedAt: string;
+      requestedBy: { id: string; name: string | null };
+      mine: boolean;
+    }
+  | { id: string; status: 'ready'; reason: 'changed' | 'final'; content: FinalMinutesContent; finishedAt: string }
+  | { id: string; status: 'saved'; finishedAt: string }
+  | { id: string; status: 'failed'; error: string; finishedAt: string };
 
 export interface Meeting {
   id: string;
@@ -569,6 +594,17 @@ export function meetingsApi(client: ApiClient) {
     /** A first draft to edit (not kept until saved). */
     draftFinalMinutes: (meetingId: string, source: 'ai' | 'notes') =>
       client.post<{ data: { content: FinalMinutesContent; source: 'ai' | 'notes' } }>(`/meetings/${meetingId}/final-minutes/draft`, { source }).then((r) => r.data),
+    /** 1.22: ask the AI for a draft in the background — answered at once; it is saved (or offered) when ready. */
+    draftFinalMinutesWithAi: (meetingId: string) =>
+      client
+        .post<{ data: { source: 'ai'; joined: boolean; aiDraft: AiDraftState | null } }>(`/meetings/${meetingId}/final-minutes/draft`, { source: 'ai', background: true })
+        .then((r) => r.data),
+    /** Use the AI's offered draft: it becomes the draft. */
+    useAiDraft: (meetingId: string, jobId: string) =>
+      client.post<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes/ai-draft/${encodeURIComponent(jobId)}/use`, {}).then((r) => r.data),
+    /** Put the AI's offered draft (or a failure's notice) away. */
+    discardAiDraft: (meetingId: string, jobId: string) =>
+      client.post<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes/ai-draft/${encodeURIComponent(jobId)}/discard`, {}).then((r) => r.data),
     saveFinalMinutes: (meetingId: string, content: FinalMinutesContent) =>
       client.put<{ data: FinalMinutes }>(`/meetings/${meetingId}/final-minutes`, { content }).then((r) => r.data),
     /** Mark them final: with the content on screen, or what was saved. */

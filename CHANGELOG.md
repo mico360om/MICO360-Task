@@ -33,7 +33,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Settings → "Show my projects only" (administrators): when on, every list on the site shows you only
   the projects you own, manage or are on the team of — Projects, the boards, the dashboard, My Tasks,
   the calendar, timeline, workload, meetings, reports, Management, activity, the bell, search, Chat,
-  MICO AI and the project pickers. My Action Items still shows all of your own action items, whatever
+  MICO AI and the project pickers. My Action Items and MICO AI still show all of your own action items, whatever
   the project. It is saved for every device and session; you can still open any project by its link,
   and untick "Only my projects" on the Projects page to see every project for that visit.
 - Notifications page: All and Unread tabs ("Unread (12)") and type chips — Mentions, Assigned to me, Due & overdue, Comments, Approvals, Meetings — remembered in this browser, with an empty message for each.
@@ -51,6 +51,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   links to its page, with a button to the dashboard.
 - Settings → Daily email: turn each part on or off, choose the time, and "Send me a test" to get your
   real email now. Your earlier choices carry over: with both old emails off, no email comes.
+- Final MOM: "Draft with AI" keeps going when you leave the page. The AI's draft is saved as the draft
+  when it is ready; if someone changed the minutes meanwhile, their text is kept and the AI draft is
+  offered beside it — Use it, Compare or Discard. You are told by the bell and a phone push when it
+  is ready, or if it couldn't be drafted.
+- MICO AI: an answer keeps being written when you leave the page and is waiting in the chat when you
+  come back; you are told by the bell and a phone push when it is ready, or if it failed.
+- AI work tries again by itself when the AI service is busy or doesn't answer (after 30 seconds, 2
+  minutes and 5 minutes), carries on after a server restart, and is never done twice — a second click,
+  or a question sent again, joins the one already running. Stop in MICO AI stops it.
 
 ### Improvements
 - Schedule a meeting: a wider dialog with two columns on a desktop, and Starts/Ends picked as the site

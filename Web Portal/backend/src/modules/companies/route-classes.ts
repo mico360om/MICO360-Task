@@ -370,4 +370,7 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /notifications/:id/unread': 'own',
   'DELETE /notifications/:id': 'own',
   'POST /notifications/bulk': 'own',
+  // 1.22 Lane AI (§10): the AI's draft offered beside a meeting's minutes — Use it, Discard (editors of the meeting).
+  'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'object',
+  'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'object',
 };
