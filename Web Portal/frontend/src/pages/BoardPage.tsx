@@ -41,6 +41,7 @@ import { moveAvailability, movedText } from '../lib/task-move';
 import { useMyProjectsOnly } from '../lib/useMyProjectsOnly';
 import { useProjectsWith } from '../lib/useProjectsWith';
 import { MyProjectsLine } from '../components/projects/MyProjectsLine';
+import { isArchivedRefusal } from '../stores/archived-notice-store';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
@@ -240,7 +241,8 @@ export function BoardPage() {
       if (e instanceof ApiError) {
         // Server rejected the move (e.g. a version conflict) — roll back + surface.
         if (ctx?.prev && ctx.key) qc.setQueryData(ctx.key, ctx.prev); // the key captured at mutate time — not the board the user may have navigated to since
-        setMoveError(true);
+        // An archived project's refusal is said across the page ("reopen it first"); trying again can't help.
+        if (!isArchivedRefusal(e)) setMoveError(true);
       } else {
         // Offline (network failure) — keep the optimistic move and queue it to replay on reconnect.
         enqueueOffline('task.move', { id: vars.id, toColumnId: vars.toColumnId });
@@ -263,9 +265,9 @@ export function BoardPage() {
       if (prev) qc.setQueryData<BoardData>(key, { ...prev, columns: reorderColumnInBoard(prev.columns, columnId, orderedKeys) });
       return { prev, key };
     },
-    onError: (_e, _vars, ctx) => {
+    onError: (e, _vars, ctx) => {
       if (ctx?.prev && ctx.key) qc.setQueryData(ctx.key, ctx.prev); // the key captured at mutate time — not the board the user may have navigated to since
-      setMoveError(true);
+      if (!isArchivedRefusal(e)) setMoveError(true);
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['board', projectId] }),
   });
@@ -305,7 +307,7 @@ export function BoardPage() {
     onError: (e, vars, ctx) => {
       if (e instanceof ApiError) {
         if (ctx?.prev && ctx.key) qc.setQueryData(ctx.key, ctx.prev);
-        setMoveError(true);
+        if (!isArchivedRefusal(e)) setMoveError(true);
       } else {
         enqueueOffline('task.move', { id: vars.id, toColumnId: vars.toColumnId });
         setNotice('You’re offline — the move was saved and will sync when you reconnect.');
