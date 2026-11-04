@@ -158,7 +158,7 @@ export function CompaniesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                <th className="p-3">Company</th>
+                <th className="min-w-[12rem] p-3">Company</th>
                 <th className="p-3">Code</th>
                 <th className="p-3">People</th>
                 <th className="p-3">Projects</th>

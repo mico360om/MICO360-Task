@@ -47,7 +47,7 @@ describe('dialogs on short screens', () => {
     expect(scroller!.contains(dialog.querySelector('button[type="submit"]'))).toBe(false);
   });
 
-  it('new project: fills a phone screen, scrolls its fields and keeps its buttons outside the scrolling part', async () => {
+  it('new project: a big form on the scale — fills a phone screen, 960px from 1024px; scrolls its fields and keeps its buttons outside the scrolling part', async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <MemoryRouter>{PROJECT_FORM[1]}</MemoryRouter>
@@ -55,14 +55,15 @@ describe('dialogs on short screens', () => {
     );
     const dialog = await screen.findByRole('dialog', { name: PROJECT_FORM[0] });
     expect(dialog.className).toMatch(/(^|\s)h-full(\s|$)/); // a full-height sheet on a phone
-    expect(dialog.className).toMatch(/sm:max-h-\[min\(calc\(var\(--visible-height\)\*0\.92\)/); // a centred card on wider screens, never taller than the window
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)-2rem\)\]/); // a centred card on wider screens, never taller than the window
+    expect(dialog.className).toMatch(/sm:max-w-\[45rem\] lg:max-w-\[60rem\]/);
     expect(dialog.closest('.fixed')!.className).toContain('above-keyboard');
     const scroller = screen.getByLabelText(/^name/i).closest('.overflow-y-auto');
     expect(scroller).not.toBeNull();
     expect(scroller!.contains(screen.getByRole('button', { name: 'Create project' }))).toBe(false);
   });
 
-  it('new task: fills a phone screen; elsewhere at most 800px wide and 90% of the height, its buttons outside the scrolling part', async () => {
+  it('new task: a big form on the scale — fills a phone screen; 720px on a tablet, 960px from 1024px, never taller than the window; its buttons outside the scrolling part', async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <MemoryRouter>{TASK_FORM[1]}</MemoryRouter>
@@ -70,8 +71,8 @@ describe('dialogs on short screens', () => {
     );
     const dialog = await screen.findByRole('dialog', { name: TASK_FORM[0] });
     expect(dialog.className).toMatch(/(^|\s)h-full(\s|$)/);
-    expect(dialog.className).toMatch(/sm:w-\[min\(800px,calc\(100vw-32px\)\)\]/);
-    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)\*0\.9\)\]/);
+    expect(dialog.className).toMatch(/sm:max-w-\[45rem\] lg:max-w-\[60rem\]/);
+    expect(dialog.className).toMatch(/sm:max-h-\[calc\(var\(--visible-height\)-2rem\)\]/);
     expect(dialog.closest('.fixed')!.className).toContain('above-keyboard');
     const scroller = screen.getByLabelText(/^task title/i).closest('.overflow-y-auto');
     expect(scroller).not.toBeNull();

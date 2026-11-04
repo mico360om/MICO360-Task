@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { ProjectFormDialog } from './ProjectFormDialog';
 import { useAuthStore } from '../../stores/auth-store';
 import type { ApiProject } from '../../api/projects';
+import { windowWidth } from '../../test/window-width';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -521,5 +522,30 @@ describe('Owner and team for a new project', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Owner' }));
     await userEvent.click(await screen.findByRole('option', { name: /Omar Ahmed/ }));
     expect(within(dialog).getByText(/you’ll stay on the team as a manager/i)).toBeInTheDocument();
+  });
+});
+
+describe('ProjectFormDialog: a big form (1.22)', () => {
+  it('960px from 1024px: the project on the left (name, client, description); how it runs on the right (status, owner, team, task rules)', () => {
+    windowWidth(1280);
+    renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    const left = dialog.querySelector<HTMLElement>('[data-form-column="project"]')!;
+    const right = dialog.querySelector<HTMLElement>('[data-form-column="running"]')!;
+    expect(left.parentElement!.className).toMatch(/grid-cols-/);
+    expect(left).toContainElement(screen.getByLabelText(/^name/i));
+    expect(left).toContainElement(screen.getByLabelText(/client/i));
+    expect(left).toContainElement(screen.getByLabelText(/description/i));
+    expect(right).toContainElement(screen.getByRole('button', { name: 'Status' }));
+    expect(right).toContainElement(screen.getByRole('button', { name: 'Owner' }));
+    expect(right).toContainElement(screen.getByRole('switch', { name: 'Carry unfinished tasks forward' }));
+  });
+
+  it('below 1024px: one column in the order it always had', () => {
+    windowWidth(800);
+    renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    expect(dialog.querySelector('[data-form-column]')).toBeNull();
+    expect(screen.getByLabelText(/description/i).compareDocumentPosition(screen.getByRole('button', { name: 'Status' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

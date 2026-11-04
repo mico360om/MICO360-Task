@@ -14,6 +14,7 @@ import { dayText, InspectIcon, OutcomePill, problemText } from './inspection-ui'
 import { DueChecksSection, SchedulesSection, scheduleKeys } from './ScheduledInspections';
 import { EmptyState } from '../ui/EmptyState';
 import { TOUCH_TALL } from '../../lib/touch';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 export interface InspectionTaskOption {
   id: string;
@@ -130,9 +131,9 @@ export function StartDialog({ projectId, tasks, fixedTask, onClose }: { projectI
   const forms = formsQ.data?.forms ?? [];
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={startM.isPending ? undefined : onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={ids.title} className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={ids.title} className={`keyboard-flow-cramped card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}>
           <div className="border-b border-line px-5 pb-3 pt-4">
             <div className="flex items-start justify-between gap-2">
               <h2 id={ids.title} className="font-display text-lg font-semibold text-ink">

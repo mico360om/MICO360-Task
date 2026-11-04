@@ -126,7 +126,7 @@ export function AppFooter({ frameClass = 'mx-auto w-[95%]' }: { frameClass?: str
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="min-h-[36px] rounded-lg bg-brand-gradient px-3 text-sm font-semibold text-white"
+              className="min-h-[36px] [@media(pointer:coarse)]:!min-h-11 rounded-lg bg-brand-gradient px-3 text-sm font-semibold text-white"
             >
               Reload
             </button>

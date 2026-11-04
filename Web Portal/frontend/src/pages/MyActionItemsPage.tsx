@@ -17,7 +17,7 @@ import { TOUCH_TALL } from '../lib/touch';
  * picker beside them from 40em; and on a laptop, columns — item, meeting, due, status — so a short
  * list fills its width with things to read instead of a gap between the words and the picker.
  */
-const ROW = 'grid grid-cols-1 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_11rem] sm:items-center sm:gap-x-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)_8rem_11rem] lg:gap-x-6';
+const ROW = 'grid grid-cols-1 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_11rem] sm:items-center sm:gap-x-4 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,18rem)_8rem_11rem] lg:gap-x-6';
 
 const ACTION_STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 type Scope = 'open' | 'all';

@@ -139,7 +139,7 @@ export function CompanyPicker({ place = 'bar' }: { place?: 'bar' | 'menu' } = {}
           role="menu"
           aria-label="Company"
           onKeyDown={onMenuKey}
-          className={`absolute start-0 z-40 max-h-[min(24rem,calc(100vh-5rem))] overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-lift animate-scale-in ${inMenu ? 'bottom-full mb-2 w-full' : 'mt-2 w-64 max-w-[calc(100vw-1.5rem)]'}`}
+          className={`absolute start-0 z-40 max-h-[min(24rem,calc(100vh-5rem))] overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-lift animate-scale-in ${inMenu ? 'bottom-full mb-2 w-full' : 'mt-2 w-80 max-w-[calc(100vw-1.5rem)]'}`}
         >
           {options.map((o, i) => (
             <button
@@ -155,7 +155,8 @@ export function CompanyPicker({ place = 'bar' }: { place?: 'bar' | 'menu' } = {}
               className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-start text-sm text-ink transition-colors hover:bg-ground focus:bg-ground focus:outline-none [@media(pointer:coarse)]:!min-h-11"
             >
               {o.id === null ? <AllCompaniesIcon /> : <CompanyLogo company={o} size={20} />}
-              {o.id === null ? <span className="min-w-0 flex-1 truncate">{o.name}</span> : <bdi className="min-w-0 flex-1 truncate">{o.name}</bdi>}
+              {/* The whole name, wrapping (1.22): long company names were cut off. */}
+              {o.id === null ? <span className="min-w-0 flex-1 leading-snug">{o.name}</span> : <bdi className="min-w-0 flex-1 leading-snug [overflow-wrap:anywhere]">{o.name}</bdi>}
               <svg className={`flex-none text-brand ${i === checked ? '' : 'invisible'}`} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M5 12.5l4.5 4.5L19 7.5" />
               </svg>

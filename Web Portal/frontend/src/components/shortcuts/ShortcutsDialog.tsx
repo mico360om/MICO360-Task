@@ -1,6 +1,8 @@
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { SHORTCUTS, shortcutKeys, shortcutLabel, type Platform, type ShortcutGroup } from '../../lib/shortcuts';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
+import { Toggle } from '../ui/Toggle';
 
 const GROUPS: ShortcutGroup[] = ['Anywhere', 'Forms and dialogs', 'On a page'];
 /** The single keys, as the switch names them: "N, E, Delete, R, /, J, K and ?" (from the list, so a new one is never left out). */
@@ -24,7 +26,7 @@ export function ShortcutsDialog({
   const dialogRef = useDialog<HTMLDivElement>(onClose, { initialFocus: 'container' });
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-[60] grid place-items-center p-4">
+      <div className={dialogLayer('form', { onTop: true })}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -32,7 +34,7 @@ export function ShortcutsDialog({
           aria-modal="true"
           aria-labelledby="shortcuts-title"
           tabIndex={-1}
-          className="card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden outline-none"
+          className={`card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden outline-none`}
         >
           <div className="flex items-center gap-3 border-b border-line px-5 py-4">
             <h2 id="shortcuts-title" className="flex-1 font-display text-lg font-semibold text-ink">
@@ -84,17 +86,10 @@ export function ShortcutsDialog({
           </div>
 
           <div className="flex items-start gap-3 border-t border-line bg-ground/60 px-5 py-3">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={singleKeys}
-              aria-describedby="shortcuts-single-help"
-              onClick={() => onSingleKeys(!singleKeys)}
-              className={`relative mt-0.5 h-6 w-11 flex-none rounded-full transition-colors ${singleKeys ? 'bg-brand' : 'bg-line'}`}
-            >
-              <span className="sr-only">Single-key shortcuts</span>
-              <span aria-hidden="true" className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${singleKeys ? 'start-[1.375rem]' : 'start-0.5'}`} />
-            </button>
+            {/* The shared switch: 44px tall to a finger, the same drawn track. */}
+            <span className="mt-0.5 flex flex-none [@media(pointer:coarse)]:-my-2.5">
+              <Toggle on={singleKeys} onChange={() => onSingleKeys(!singleKeys)} label="Single-key shortcuts" describedBy="shortcuts-single-help" />
+            </span>
             <div className="min-w-0 text-xs text-ink-2">
               <p className="font-semibold text-ink">Single-key shortcuts</p>
               <p id="shortcuts-single-help">

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from './ModalPortal';
 import { Button } from './Button';
+import { dialogLayer, dialogPanel } from './dialog-size';
 
 export interface ConfirmDialogProps {
   /** The question, e.g. "Cancel this meeting?" — also the dialog's accessible name. */
@@ -26,7 +27,7 @@ export function ConfirmDialog({ title, children, confirmLabel, keepLabel = 'Keep
   const dialogRef = useDialog(busy ? () => {} : onClose);
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('confirm')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -34,7 +35,7 @@ export function ConfirmDialog({ title, children, confirmLabel, keepLabel = 'Keep
           aria-modal="true"
           aria-labelledby="confirm-title"
           aria-describedby={children ? 'confirm-body' : undefined}
-          className="card relative w-full max-w-sm animate-scale-in p-5"
+          className={`card relative ${dialogPanel('confirm')} animate-scale-in overflow-y-auto p-5`}
         >
           <h2 id="confirm-title" className="font-display text-lg font-semibold text-ink">{title}</h2>
           {children ? <div id="confirm-body" className="mt-2 text-sm text-ink-2">{children}</div> : null}

@@ -7,6 +7,7 @@ import { CompanyFormDialog, type CompanyTab } from './CompanyFormDialog';
 import { useAuthStore } from '../../stores/auth-store';
 import { MY_COMPANIES_KEY, type ApiCompany, type CompanyPerson } from '../../api/companies';
 import { apiCompany, apiUser, companyServer } from '../../test/company-server';
+import { windowWidth } from '../../test/window-width';
 
 const alphaApi = apiCompany({ id: 'ca', name: 'Alpha Co', code: 'ALPHA', logoUrl: '/uploads/alpha.png' });
 const betaApi = apiCompany({ id: 'cb', name: 'Beta Co', code: 'BETA', weekStart: 1, counts: { people: 2, projects: 2 } });
@@ -358,5 +359,32 @@ describe('the Projects panel', () => {
     companyServer({ companies: [betaApi], projects: { cb: [] } });
     open(apiCompany({ ...betaApi, counts: { people: 0, projects: 0 } }), 'projects');
     expect(await within(dialog()).findByText((_, el) => el?.tagName === 'P' && el.textContent === 'No projects in Beta Co yet.')).toBeInTheDocument();
+  });
+});
+
+describe('CompanyFormDialog: a big form (1.22)', () => {
+  it('960px from 1024px: name, code, logo and sender on the left; week and working hours on the right; the whole name in the title', async () => {
+    windowWidth(1280);
+    const long = apiCompany({ id: 'cl', name: 'Oman Offshore Inspection and Integrity Management Company', code: 'OOI' });
+    companyServer({ companies: [long, betaApi] });
+    open(long);
+    const d = dialog();
+    expect(d.className).toMatch(/lg:max-w-\[60rem\]/);
+    const left = d.querySelector<HTMLElement>('[data-form-column="company"]')!;
+    const right = d.querySelector<HTMLElement>('[data-form-column="schedule"]')!;
+    expect(left.parentElement!.className).toMatch(/grid-cols-/);
+    expect(left).toContainElement(field(/^Name/));
+    expect(left).toContainElement(within(d).getByRole('button', { name: 'Upload logo' }));
+    expect(left).toContainElement(field('Email sender name'));
+    expect(right).toContainElement(field('Week starts on'));
+    expect(right).toContainElement(within(d).getByRole('switch', { name: 'Same as the site' }));
+    expect(within(d).getByRole('heading', { level: 2 }).className).not.toMatch(/\btruncate\b/);
+  });
+
+  it('below 1024px: one column', () => {
+    windowWidth(900);
+    companyServer({ companies: [betaApi] });
+    open(betaApi);
+    expect(dialog().querySelector('[data-form-column]')).toBeNull();
   });
 });

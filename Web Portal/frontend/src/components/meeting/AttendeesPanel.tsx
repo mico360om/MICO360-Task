@@ -288,7 +288,7 @@ export function AttendeesPanel({
             })}
           </ul>
           {attendees.length > FIRST ? (
-            <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 min-h-9 text-sm font-medium text-brand hover:underline">
+            <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 min-h-9 [@media(pointer:coarse)]:!min-h-11 text-sm font-medium text-brand hover:underline">
               {showAll ? 'Show fewer' : `Show all ${attendees.length}`}
             </button>
           ) : null}
@@ -314,10 +314,7 @@ export function AttendeesPanel({
             </>
           )}
           <div className="flex items-center gap-2">
-            <select aria-label="Role" value={role} onChange={(e) => setRole(e.target.value as AttendeeRole)} className={`${fieldClass(false)} flex-1`}>
-              <option value="REQUIRED">Required</option>
-              <option value="OPTIONAL">Optional</option>
-            </select>
+            <SearchableSelect ariaLabel="Role" className="min-w-0 flex-1" options={[{ value: 'REQUIRED', label: 'Required' }, { value: 'OPTIONAL', label: 'Optional' }]} value={role} onChange={(v) => setRole(v as AttendeeRole)} />
             <Button type="submit" size="sm" loading={addMut.isPending}>Add attendee</Button>
           </div>
           {addError ? <p role="alert" className="text-xs font-medium text-danger">{addError}</p> : null}

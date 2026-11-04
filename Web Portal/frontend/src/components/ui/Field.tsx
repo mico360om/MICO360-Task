@@ -28,10 +28,14 @@ export function FieldLabel({ required, children, className = '', ...rest }: Fiel
   );
 }
 
-/** Consistent input/select/textarea class; adds a red ring/border in the error state. */
+/**
+ * Consistent input/select/textarea class; adds a red ring/border in the error state. On a touch
+ * screen every field is 44px tall (`!` beats index.css's 32px floor for inputs, which outranks a
+ * plain utility).
+ */
 export function fieldClass(hasError?: boolean, extra = ''): string {
   const base =
-    'rounded-lg border bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors';
+    'rounded-lg border bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors [@media(pointer:coarse)]:!min-h-11';
   const state = hasError
     ? 'border-danger ring-2 ring-danger/30 focus:border-danger'
     : 'border-line focus:border-brand focus:ring-2 focus:ring-brand/20';

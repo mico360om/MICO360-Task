@@ -139,8 +139,8 @@ describe('UsersPage with two companies', () => {
     expect(screen.queryByRole('button', { name: /Send welcome emails/ })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Add to a company…' }));
     const dialog = screen.getByRole('dialog', { name: 'Add 2 people to a company' });
-    await waitFor(() => expect(within(dialog).getAllByRole('option').length).toBe(3));
-    await userEvent.selectOptions(within(dialog).getByRole('combobox', { name: 'Company' }), 'cb');
+    await waitFor(() => expect(within(dialog).getAllByRole('radio').length).toBe(2)); // one per line (1.22)
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Beta Co' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(server.lastBody('POST', '/users/companies')).toEqual({ userIds: ['u1', 'u3'], addCompanyIds: ['cb'] });
@@ -157,8 +157,8 @@ describe('UsersPage with two companies', () => {
     for (const u of ['ana', 'sam', 'nia']) await tick(u);
     await userEvent.click(screen.getByRole('button', { name: 'Remove from a company…' }));
     const dialog = screen.getByRole('dialog', { name: 'Remove 3 people from a company' });
-    await waitFor(() => expect(within(dialog).getAllByRole('option').length).toBe(3));
-    await userEvent.selectOptions(within(dialog).getByRole('combobox', { name: 'Company' }), 'ca');
+    await waitFor(() => expect(within(dialog).getAllByRole('radio').length).toBe(2)); // one per line (1.22)
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'Alpha Co' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
     expect(await screen.findByText('2 changed. 1 not changed: Ana Alpha must keep at least one company. Add another company first.')).toBeInTheDocument();
   });
@@ -177,8 +177,8 @@ describe('UsersPage with two companies', () => {
     await screen.findByText('ana');
     for (const u of ['ana', 'sam']) await tick(u);
     await userEvent.click(screen.getByRole('button', { name: 'Remove from a company…' }));
-    await waitFor(() => expect(within(screen.getByRole('dialog')).getAllByRole('option').length).toBe(3));
-    await userEvent.selectOptions(within(screen.getByRole('dialog')).getByRole('combobox', { name: 'Company' }), 'ca');
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getAllByRole('radio').length).toBe(2)); // one per line (1.22)
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('radio', { name: 'Alpha Co' }));
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove' }));
     const note = await screen.findByRole('alert');
     expect(note).toHaveTextContent('0 changed. 2 not changed: Ana Alpha must keep at least one company. Add another company first.');

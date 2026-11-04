@@ -316,7 +316,7 @@ function SignIn({
           {note}
           <Button type="submit" loading={busy} disabled={code.trim().length < 6}>Open the project</Button>
           <div className="flex flex-wrap justify-between gap-2 text-sm">
-            <button type="button" onClick={onDifferentEmail} className="min-h-[2.75rem] font-semibold text-brand underline-offset-2 hover:underline">
+            <button type="button" onClick={onDifferentEmail} className="!min-h-[2.75rem] font-semibold text-brand underline-offset-2 hover:underline">
               Use a different email
             </button>
             <button
@@ -576,7 +576,7 @@ function Minutes({ minutes: m, open, api }: { minutes: ClientViewMinutes; open: 
           aria-expanded={expanded}
           aria-controls={panelId}
           onClick={() => setExpanded((v) => !v)}
-          className="flex min-h-[2.75rem] w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="flex min-h-[2.75rem] [@media(pointer:coarse)]:!min-h-11 w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           <span className="min-w-0">
             <span dir="auto" className="block break-words font-semibold text-ink">{m.title}</span>
@@ -670,7 +670,7 @@ function InspectionReport({ report: x, open, api }: { report: ClientInspectionSu
           aria-expanded={expanded}
           aria-controls={panelId}
           onClick={() => setExpanded((v) => !v)}
-          className="flex min-h-[2.75rem] w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="flex min-h-[2.75rem] [@media(pointer:coarse)]:!min-h-11 w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-start outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           <span className="min-w-0">
             <span dir="auto" className="block break-words font-semibold text-ink">{x.title}</span>

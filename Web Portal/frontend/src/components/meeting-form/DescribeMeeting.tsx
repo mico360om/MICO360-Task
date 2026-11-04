@@ -237,7 +237,7 @@ export function DescribeMeeting({
             </ul>
             {notFound.length ? <p className="mt-2 px-1.5 text-xs text-ink-2">Not found: {notFound.join(', ')} — add them by hand under People, or as a guest.</p> : null}
             <div className="mt-2.5 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => { setFound(null); setNotFound([]); }} className="min-h-[36px] rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">Dismiss</button>
+              <button type="button" onClick={() => { setFound(null); setNotFound([]); }} className="min-h-[36px] [@media(pointer:coarse)]:!min-h-11 rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">Dismiss</button>
               <Button type="button" size="sm" onClick={apply} disabled={!found.some(isOn)} className="min-h-[36px]">Use selected details</Button>
             </div>
           </div>

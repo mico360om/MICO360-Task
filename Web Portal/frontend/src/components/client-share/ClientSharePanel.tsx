@@ -9,6 +9,7 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { FieldLabel, fieldClass } from '../ui/Field';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = (iso: string) => {
@@ -103,7 +104,7 @@ export function ClientSharePanel({
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busyAny() || removing ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -111,7 +112,7 @@ export function ClientSharePanel({
           aria-modal="true"
           aria-labelledby={ids.title}
           aria-describedby={ids.intro}
-          className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-2rem)] w-full max-w-lg animate-scale-in flex-col overflow-hidden"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}
         >
           <div className="flex items-start justify-between gap-3 border-b border-line px-5 pb-3 pt-4">
             <div className="min-w-0">

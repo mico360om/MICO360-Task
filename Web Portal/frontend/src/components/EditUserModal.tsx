@@ -9,6 +9,7 @@ import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
+import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
 
@@ -147,147 +148,165 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     resetPwMut.mutate();
   }
 
+  // Big form (1.22): 960px and two columns from 1024px — the profile and the password on the left,
+  // companies and access on the right; Close and Save in a footer that stays in view.
+  const twoColumns = useTwoColumns();
+  const SECTION = 'mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-2';
+  const profileFields = (
+    <fieldset className="flex flex-col gap-3">
+      <legend className={SECTION}>Profile</legend>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="eu-first" required>First name</FieldLabel>
+          <input id="eu-first" dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="eu-last" required>Last name</FieldLabel>
+          <input id="eu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="eu-username" required>Username</FieldLabel>
+        <input id="eu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="eu-email" required>Email</FieldLabel>
+        <input id="eu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
+      </div>
+    </fieldset>
+  );
+  const companiesField = companyChoices.show ? (
+    <CompanyChecklist
+      companies={companyChoices.companies}
+      value={companyIds}
+      onChange={setCompanyIds}
+      primaryId={primaryCompanyId}
+      onPrimaryChange={setPrimaryCompanyId}
+      idPrefix="eu-companies"
+      variant="section"
+    />
+  ) : null;
+  const accessFields = (
+    <fieldset className="flex flex-col gap-3" disabled={isSelf} aria-describedby={isSelf ? 'eu-self-note' : undefined}>
+      <legend className={SECTION}>Access</legend>
+      {isSelf ? (
+        <p id="eu-self-note" className="rounded-lg bg-ground px-3 py-2 text-xs text-ink-2">
+          You can’t change your own roles or account status. Ask another administrator if they need to change.
+        </p>
+      ) : null}
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="eu-status">Account status</FieldLabel>
+        <select id="eu-status" value={status} onChange={(e) => setStatus(e.target.value as UserStatus)} className={fieldClass(false, 'disabled:opacity-60')}>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+          <option value="SUSPENDED">Suspended</option>
+        </select>
+      </div>
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-ink">Roles &amp; permissions</span>
+        {ROLE_OPTIONS.map((r) => (
+          <label key={r.value} className={`flex items-start gap-2.5 rounded-lg border border-line p-2.5 transition-colors [@media(pointer:coarse)]:!min-h-11 ${isSelf ? 'opacity-60' : 'cursor-pointer hover:bg-ground'}`}>
+            <input type="checkbox" aria-label={r.label} checked={roles.has(r.value)} onChange={() => toggleRole(r.value)} className="mt-0.5 h-4 w-4 flex-none accent-brand" />
+            <span>
+              <span className="block text-sm font-medium text-ink">{r.label}</span>
+              <span className="block text-xs text-ink-2">{r.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+  // Reset password sits inside the profile's form (the two columns are one form), but is its own
+  // action: Enter in its field resets the password and never saves the profile.
+  const passwordFields = (
+    <section aria-labelledby="eu-reset-title" className="flex flex-col gap-1.5 border-t border-line pt-4">
+      <p id="eu-reset-title" className={SECTION}>Reset password</p>
+      <p className="text-xs text-ink-2">Set a new password for this user. They can change it after signing in. Resetting also unlocks a locked account.</p>
+      {pwNotice ? (
+        <p role={pwNotice.error ? 'alert' : 'status'} className={`rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
+          {pwNotice.text}
+        </p>
+      ) : null}
+      <div className="flex items-end gap-2">
+        <div className="flex flex-1 flex-col gap-1.5">
+          <FieldLabel htmlFor="eu-newpw">New password</FieldLabel>
+          <input
+            id="eu-newpw"
+            type="password"
+            value={newPassword}
+            onChange={(e) => { setNewPassword(e.target.value); setPwNotice(null); }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (newPassword && !resetPwMut.isPending) resetPassword();
+            }}
+            autoComplete="new-password"
+            aria-describedby="eu-newpw-hint"
+            className={fieldClass(false)}
+          />
+        </div>
+        <Button type="button" variant="secondary" disabled={!newPassword || resetPwMut.isPending} loading={resetPwMut.isPending} onClick={resetPassword} className="[@media(pointer:coarse)]:!min-h-11">
+          Reset
+        </Button>
+      </div>
+      <p id="eu-newpw-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
+    </section>
+  );
+
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={`Edit ${user.username}`}
-          className="card relative max-h-[calc(var(--visible-height)-2rem)] w-full max-w-lg animate-scale-in overflow-y-auto p-6"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}
         >
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
+          <div className="flex flex-none items-start justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-6">
+            <div className="min-w-0">
               <p className="text-[11px] font-bold uppercase tracking-wider text-ink-2">Manage account</p>
-              <h2 dir="auto" className="font-display text-xl font-bold text-ink">{user.firstName} {user.lastName}</h2>
+              <h2 dir="auto" className="font-display text-xl font-bold text-ink [overflow-wrap:anywhere]">{user.firstName} {user.lastName}</h2>
               <p className="text-sm text-ink-2">@{user.username}</p>
             </div>
-            <button onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            <button type="button" onClick={onClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:!h-11 [@media(pointer:coarse)]:!w-11">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
 
-          {error ? <p role="alert" className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
-
-          <form onSubmit={submit} className="flex flex-col gap-4">
-            <fieldset className="flex flex-col gap-3">
-              <legend className="mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-2">Profile</legend>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="eu-first" required>First name</FieldLabel>
-                  <input id="eu-first" dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
+          <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
+            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+              {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
+              {twoColumns ? (
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
+                  <div data-form-column="profile" className="flex min-w-0 flex-col gap-4">
+                    {profileFields}
+                    {passwordFields}
+                  </div>
+                  <div data-form-column="access" className="flex min-w-0 flex-col gap-4">
+                    {companiesField}
+                    {accessFields}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <FieldLabel htmlFor="eu-last" required>Last name</FieldLabel>
-                  <input id="eu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="eu-username" required>Username</FieldLabel>
-                <input id="eu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="eu-email" required>Email</FieldLabel>
-                <input id="eu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
-              </div>
-            </fieldset>
-
-            {companyChoices.show ? (
-              <CompanyChecklist
-                companies={companyChoices.companies}
-                value={companyIds}
-                onChange={setCompanyIds}
-                primaryId={primaryCompanyId}
-                onPrimaryChange={setPrimaryCompanyId}
-                idPrefix="eu-companies"
-                variant="section"
-              />
-            ) : null}
-
-            <fieldset className="flex flex-col gap-3" disabled={isSelf} aria-describedby={isSelf ? 'eu-self-note' : undefined}>
-              <legend className="mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-2">Access</legend>
-              {isSelf ? (
-                <p id="eu-self-note" className="rounded-lg bg-ground px-3 py-2 text-xs text-ink-2">
-                  You can’t change your own roles or account status. Ask another administrator if they need to change.
-                </p>
-              ) : null}
-              <div className="flex flex-col gap-1.5">
-                <FieldLabel htmlFor="eu-status">Account status</FieldLabel>
-                <select
-                  id="eu-status"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as UserStatus)}
-                  className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60"
-                >
-                  <option value="ACTIVE">Active</option>
-                  <option value="INACTIVE">Inactive</option>
-                  <option value="SUSPENDED">Suspended</option>
-                </select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium text-ink">Roles &amp; permissions</span>
-                {ROLE_OPTIONS.map((r) => (
-                  <label key={r.value} className={`flex items-start gap-2.5 rounded-lg border border-line p-2.5 transition-colors ${isSelf ? 'opacity-60' : 'cursor-pointer hover:bg-ground'}`}>
-                    <input
-                      type="checkbox"
-                      aria-label={r.label}
-                      checked={roles.has(r.value)}
-                      onChange={() => toggleRole(r.value)}
-                      className="mt-0.5 h-4 w-4 accent-brand"
-                    />
-                    <span>
-                      <span className="block text-sm font-medium text-ink">{r.label}</span>
-                      <span className="block text-xs text-ink-2">{r.hint}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-
-            <Button type="submit" shortcut="save" showShortcut loading={saveMut.isPending}>
-              {saveMut.isPending ? 'Saving…' : 'Save changes'}
-            </Button>
-          </form>
-
-          <div className="mt-5 border-t border-line pt-4">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-ink-2">Reset password</p>
-            <p className="mb-2 mt-1 text-xs text-ink-2">Set a new password for this user. They can change it after signing in. Resetting also unlocks a locked account.</p>
-            {pwNotice ? (
-              <p role={pwNotice.error ? 'alert' : 'status'} className={`mb-2 rounded-lg px-3 py-2 text-sm ${pwNotice.error ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}>
-                {pwNotice.text}
-              </p>
-            ) : null}
-            <div className="flex items-end gap-2">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <FieldLabel htmlFor="eu-newpw">New password</FieldLabel>
-                <input
-                  id="eu-newpw"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => { setNewPassword(e.target.value); setPwNotice(null); }}
-                  autoComplete="new-password"
-                  aria-describedby="eu-newpw-hint"
-                  className={fieldClass(false)}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={!newPassword || resetPwMut.isPending}
-                loading={resetPwMut.isPending}
-                onClick={resetPassword}
-              >
-                Reset
+              ) : (
+                <>
+                  {profileFields}
+                  {companiesField}
+                  {accessFields}
+                  {passwordFields}
+                </>
+              )}
+            </div>
+            <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
+              <button type="button" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground sm:flex-none">
+                Close
+              </button>
+              <Button type="submit" shortcut="save" showShortcut loading={saveMut.isPending} className="!min-h-[44px] flex-[2] sm:min-w-[9.5rem] sm:flex-none">
+                {saveMut.isPending ? 'Saving…' : 'Save changes'}
               </Button>
             </div>
-            <p id="eu-newpw-hint" className="mt-1 text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
-          </div>
-
-          <button type="button" onClick={onClose} className="mt-4 w-full rounded-lg py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-ground">
-            Close
-          </button>
+          </form>
         </div>
       </div>
     </ModalPortal>

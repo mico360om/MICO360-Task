@@ -258,7 +258,7 @@ function ActivityRow({ a, onOpenTask, clockIn }: { a: ApiActivity; onOpenTask: (
             <bdi className="font-semibold">{a.actor?.name ?? 'Someone'}</bdi>{' '}
             <span className={ACTION_TONE[a.action] ?? 'text-ink-2'}>{ACTION_VERB[a.action] ?? a.action.toLowerCase().replace(/_/g, ' ')}</span>{' '}
             {a.task ? (
-              <button onClick={() => onOpenTask(a.task!.id)} className="font-mono text-xs font-semibold text-brand hover:underline">{a.task.key}</button>
+              <button onClick={() => onOpenTask(a.task!.id)} className="inline-flex items-center font-mono text-xs font-semibold text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">{a.task.key}</button>
             ) : PROJECT_LINES.has(a.action) && a.project ? (
               <bdi className="font-medium text-ink">{a.project.name}</bdi>
             ) : (

@@ -149,7 +149,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   };
 
   const chip = (active: boolean) =>
-    `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
+    `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
   const select = fieldClass(false, 'w-full py-1.5');
 
   return (
@@ -256,7 +256,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
               const late = !t.done && t.dueDate ? isOverdue(t.dueDate, timeZone) : false;
               return (
                 <li key={t.id}>
-                  <button type="button" onClick={() => openTask(t.id)} className="flex w-full flex-col gap-1 rounded-lg border border-line bg-surface p-3 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:min-h-11">
+                  <button type="button" onClick={() => openTask(t.id)} className="flex w-full flex-col gap-1 rounded-lg border border-line bg-surface p-3 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:!min-h-11">
                     <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
                       <span className="font-mono text-xs text-ink-2">{keyHint(t)}</span>
                       <span dir="auto" className={`min-w-0 text-sm font-semibold [overflow-wrap:anywhere] ${t.done ? 'text-ink-2' : 'text-ink'}`}>

@@ -125,7 +125,7 @@ export function AgendaField({
       ) : null}
       <div className="flex gap-2">
         <input aria-label="New agenda item" dir="auto" value={title} onChange={(e) => { setTitle(e.target.value); setProblem(null); }} onKeyDown={onEnter} placeholder="Add a topic…" className={`${fieldClass(!!problem)} min-w-0 flex-1`} />
-        <button type="button" onClick={add} className="min-h-[44px] flex-none rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
+        <button type="button" onClick={add} className="!min-h-[44px] flex-none rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
           Add item
         </button>
       </div>
@@ -137,7 +137,7 @@ export function AgendaField({
               type="button"
               onClick={() => void draft()}
               disabled={drafting || !!draftHint}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
+              className="inline-flex min-h-9 [@media(pointer:coarse)]:!min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.9L18.5 8.5 13.6 10 12 15l-1.6-5L5.5 8.5 10.4 6.9 12 2z" /></svg>
               {drafting ? 'Drafting…' : 'Draft agenda'}

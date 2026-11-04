@@ -42,7 +42,7 @@ export function ProjectFilter({ projects, hidden, onChange }: { projects: Filter
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
-        className={`flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors hover:border-brand/30 hover:bg-ground ${shownCount < projects.length ? 'border-brand/40 text-brand' : 'border-line text-ink'}`}
+        className={`flex min-h-9 [@media(pointer:coarse)]:!min-h-11 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors hover:border-brand/30 hover:bg-ground ${shownCount < projects.length ? 'border-brand/40 text-brand' : 'border-line text-ink'}`}
       >
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v6l-4 2v-8z" /></svg>
         {label}

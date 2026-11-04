@@ -38,7 +38,7 @@ export function ApprovalsCard({ onOpenTask }: { onOpenTask: (taskId: string) => 
                 <button
                   type="button"
                   onClick={() => onOpenTask(t.id)}
-                  className="flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-2 py-2 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:min-h-11"
+                  className="flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-2 py-2 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
                 >
                   <span className="flex min-w-0 items-center gap-2 text-sm">
                     <span className="flex-none rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>

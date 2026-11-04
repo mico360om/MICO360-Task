@@ -11,6 +11,7 @@ import { roleCounts } from './role-counts';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { count, TemplateGlyph } from './TemplateCard';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 const NAME_MAX = 191;
 const ROLE_MAX = 80;
@@ -31,14 +32,14 @@ function Shell({ title, onClose, busy, children, footer }: { title: string; onCl
   const dialogRef = useDialog(busy ? () => {} : onClose);
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
+      <div className={dialogLayer('small')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={headingId}
-          className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[calc(var(--visible-height)*0.9)] sm:max-w-lg sm:rounded-2xl"
+          className={`keyboard-flow-cramped card relative flex flex-col overflow-hidden shadow-lift animate-scale-in ${dialogPanel('small')}`}
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-5 py-4">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand">{TemplateGlyph.save}</span>

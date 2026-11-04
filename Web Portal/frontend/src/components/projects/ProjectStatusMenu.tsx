@@ -101,7 +101,7 @@ export function ProjectStatusMenu({
                 aria-checked={current}
                 tabIndex={-1}
                 onClick={() => pick(s)}
-                className={`flex min-h-10 w-full items-center gap-2 px-3 py-2 text-start text-sm hover:bg-ground focus-visible:bg-ground focus-visible:outline-none sm:min-h-0 sm:py-1.5 ${current ? 'font-semibold text-ink' : 'text-ink'}`}
+                className={`flex min-h-10 [@media(pointer:coarse)]:!min-h-11 w-full items-center gap-2 px-3 py-2 text-start text-sm hover:bg-ground focus-visible:bg-ground focus-visible:outline-none sm:min-h-0 sm:py-1.5 ${current ? 'font-semibold text-ink' : 'text-ink'}`}
               >
                 <span className={`h-2 w-2 flex-none rounded-full ${DOT[s]}`} aria-hidden="true" />
                 {projectStatusLabel(s)}

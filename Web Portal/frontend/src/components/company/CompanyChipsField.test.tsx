@@ -55,6 +55,14 @@ describe('CompanyChipsField', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('a long company name reads in full in the "Add company" menu: it wraps, never cut off (1.22)', async () => {
+    const long: CompanyChoice = { id: 'L', name: 'Oman Offshore Inspection and Integrity Management Company', logoUrl: null };
+    render(<Field start={['A']} usable={[alpha, long]} all={[alpha, long]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add company' }));
+    const item = screen.getByRole('menuitem', { name: long.name });
+    expect(item.innerHTML).not.toMatch(/\btruncate\b/);
+  });
+
   it('the menu works from the keyboard: arrows move, Enter adds, Escape closes back on the button', async () => {
     render(<Field start={['B']} usable={[alpha, beta, gamma]} />);
     const add = screen.getByRole('button', { name: 'Add company' });

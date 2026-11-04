@@ -62,6 +62,12 @@ describe('ActivityPage', () => {
     expect(screen.getByText(/→ Nadia Ahmed/)).toBeInTheDocument();
   });
 
+  it('a task’s key opens it, and is 44px tall on a touch screen (the ! form beats the base 32px button rule)', async () => {
+    renderPage();
+    const key = await screen.findByRole('button', { name: 'MICO-7' });
+    expect(key.className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+  });
+
   it('heads an older day with its weekday, day and month, day before month', async () => {
     const older = { ...activity[0]!, id: 'old', createdAt: '2026-10-16T09:00:00.000Z' };
     vi.stubGlobal('fetch', vi.fn(async () => json({ data: [...activity, older] })));

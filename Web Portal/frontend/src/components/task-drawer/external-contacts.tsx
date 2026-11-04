@@ -467,10 +467,10 @@ export function ContactCard({
         {asking ? (
           <div ref={askRef} role="group" aria-label={W.confirmRemove} className="mt-1.5 inline-flex flex-wrap items-center gap-1.5 rounded-md bg-danger-soft px-2 py-1">
             <span className="text-xs font-medium text-danger">{W.confirmRemove}</span>
-            <button type="button" onClick={() => void remove()} disabled={removing} className="min-h-8 rounded bg-danger px-2 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-60 [@media(pointer:coarse)]:min-h-11">
+            <button type="button" onClick={() => void remove()} disabled={removing} className="min-h-8 rounded bg-danger px-2 text-xs font-semibold text-white hover:brightness-95 disabled:opacity-60 [@media(pointer:coarse)]:!min-h-11">
               {W.remove}
             </button>
-            <button ref={keepRef} type="button" onClick={() => setAsking(false)} disabled={removing} className="min-h-8 rounded px-2 text-xs font-medium text-ink-2 hover:bg-surface [@media(pointer:coarse)]:min-h-11">
+            <button ref={keepRef} type="button" onClick={() => setAsking(false)} disabled={removing} className="min-h-8 rounded px-2 text-xs font-medium text-ink-2 hover:bg-surface [@media(pointer:coarse)]:!min-h-11">
               {W.keep}
             </button>
           </div>

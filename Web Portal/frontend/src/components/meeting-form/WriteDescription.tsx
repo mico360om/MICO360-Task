@@ -29,7 +29,7 @@ export function WriteDescription({ current, onWrite, onUse, disabled }: { curren
         type="button"
         onClick={() => void write()}
         disabled={disabled || writing}
-        className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
+        className="inline-flex min-h-9 [@media(pointer:coarse)]:!min-h-11 items-center gap-1.5 self-start rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.9L18.5 8.5 13.6 10 12 15l-1.6-5L5.5 8.5 10.4 6.9 12 2z" /></svg>
         {writing ? 'Writing…' : 'Write description'}
@@ -41,7 +41,7 @@ export function WriteDescription({ current, onWrite, onUse, disabled }: { curren
             <p dir="auto" className="whitespace-pre-line text-sm text-ink">{offer}</p>
             {current.trim() ? <p className="mt-1 text-xs text-ink-2">Replaces your description.</p> : null}
             <div className="mt-2 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => setOffer(null)} className="min-h-[36px] rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">
+              <button type="button" onClick={() => setOffer(null)} className="min-h-[36px] [@media(pointer:coarse)]:!min-h-11 rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">
                 {current.trim() ? 'Keep mine' : 'Dismiss'}
               </button>
               <button
@@ -50,7 +50,7 @@ export function WriteDescription({ current, onWrite, onUse, disabled }: { curren
                   onUse(offer);
                   setOffer(null);
                 }}
-                className="min-h-[36px] rounded-lg bg-brand-gradient px-3 text-sm font-semibold text-white"
+                className="min-h-[36px] [@media(pointer:coarse)]:!min-h-11 rounded-lg bg-brand-gradient px-3 text-sm font-semibold text-white"
               >
                 Use this description
               </button>

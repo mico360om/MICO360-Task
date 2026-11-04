@@ -18,6 +18,7 @@ import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
 import { projectOption } from './project-option';
 import { Icon } from './meeting/kit';
+import { dialogLayer, dialogPanel } from './ui/dialog-size';
 
 export interface CreateTaskFromNoteModalProps {
   meetingId: string;
@@ -137,9 +138,9 @@ export function CreateTaskFromNoteModal({ meetingId, note, defaultProjectId, onC
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-4">
+      <div className={dialogLayer('form')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Create task from note" className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height)-2rem)] w-full max-w-md animate-scale-in flex-col overflow-hidden">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Create task from note" className={`keyboard-flow-cramped card relative flex ${dialogPanel('form')} animate-scale-in flex-col overflow-hidden`}>
           {created ? (
             <div className="min-h-0 flex-1 overflow-y-auto p-6">
               {intro}

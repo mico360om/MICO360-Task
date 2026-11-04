@@ -6,6 +6,7 @@ import { MeetingFormModal } from './MeetingFormModal';
 import { setWhen, whenOf } from '../test/date-time';
 import type { Meeting } from '../api/meetings';
 import { useAuthStore } from '../stores/auth-store';
+import { windowWidth } from '../test/window-width';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -469,20 +470,13 @@ describe('MeetingFormModal on a phone', () => {
 });
 
 describe('MeetingFormModal: the wider dialog and the site’s date and time (1.22)', () => {
-  /** The window is at least this wide (matchMedia answers min-width queries). */
-  function windowWidth(px: number) {
-    vi.stubGlobal('matchMedia', (query: string) => {
-      const min = /min-width:\s*(\d+)px/.exec(query);
-      return { matches: min ? px >= Number(min[1]) : false, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false };
-    });
-  }
 
   it('is up to 960px wide on a desktop (720px on a tablet), two columns from 1024px: the details, then Describe, Free times, People and Agenda', () => {
     windowWidth(1280);
     renderModal();
     const dialog = screen.getByRole('dialog', { name: 'New meeting' });
     expect(dialog.className).toMatch(/lg:max-w-\[60rem\]/);
-    expect(dialog.className).toMatch(/md:max-w-\[45rem\]/);
+    expect(dialog.className).toMatch(/sm:max-w-\[45rem\]/); // the shared scale (1.22)
     const details = dialog.querySelector<HTMLElement>('[data-form-column="details"]')!;
     const helpers = dialog.querySelector<HTMLElement>('[data-form-column="helpers"]')!;
     expect(details.parentElement!.className).toMatch(/grid-cols-/);

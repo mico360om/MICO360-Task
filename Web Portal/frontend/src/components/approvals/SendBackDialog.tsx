@@ -3,6 +3,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { DECISION_WORDS, REASON_MAX as MAX } from '../../lib/approvals';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 /** The longest reason the server keeps (it becomes a comment). */
 export const REASON_MAX = MAX;
@@ -39,9 +40,9 @@ export function SendBackDialog({ taskKey, taskTitle, busy = false, error, onSend
   };
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-[60] grid place-items-center p-4">
+      <div className={dialogLayer('small', { onTop: true })}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={busy ? undefined : onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-note`} className="card relative w-full max-w-md animate-scale-in p-5">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-note`} className={`card relative ${dialogPanel('small')} animate-scale-in overflow-y-auto p-5`}>
         <form
           onSubmit={(e) => {
             e.preventDefault();

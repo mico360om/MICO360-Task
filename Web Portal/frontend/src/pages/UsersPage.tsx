@@ -113,7 +113,7 @@ const TICK_TARGET = 'grid cursor-pointer place-items-center [@media(pointer:coar
 /** Below 768px (the md width, in em as the layout's widths are): one card per person instead of the table. */
 const PHONE_QUERY = '(max-width: 47.9375em)';
 /** On a card, each control is finger-sized on a touch screen (in the table they sit in a tight row). */
-const CARD_TOUCH = '[@media(pointer:coarse)]:min-h-11';
+const CARD_TOUCH = '[@media(pointer:coarse)]:!min-h-11';
 /**
  * Below xl (1280px) the table is wider than the page: the tick box and the name stay put while the
  * rest scrolls. With the Companies column (two or more companies) it is wider still, so up to 2xl (1536px).

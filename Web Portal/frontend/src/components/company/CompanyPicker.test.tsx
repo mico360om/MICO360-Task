@@ -57,6 +57,13 @@ describe('CompanyPicker', () => {
     expect(items[2]).toHaveFocus();
   });
 
+  it('a long company name reads in full in the menu: it wraps, never cut off (1.22)', async () => {
+    renderPicker([alpha, beta]);
+    await userEvent.click(screen.getByRole('button', { name: /^Company/ }));
+    for (const item of screen.getAllByRole('menuitemradio')) expect(item.innerHTML).not.toMatch(/\btruncate\b/);
+    expect(screen.getByRole('menu', { name: 'Company' }).className).toMatch(/\bw-80\b/);
+  });
+
   it('arrow keys go round, Home and End jump, Enter picks', async () => {
     renderPicker([beta, alpha]);
     await userEvent.click(screen.getByRole('button', { name: 'Company: All my companies' }));

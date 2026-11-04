@@ -92,7 +92,7 @@ export function PeopleField({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <input aria-label="Guest email" type="email" inputMode="email" dir="ltr" value={email} onChange={(e) => { setEmail(e.target.value); setProblem(null); }} onKeyDown={onEnter} placeholder="Guest email" className={fieldClass(!!problem)} />
         <input aria-label="Guest name (optional)" dir="auto" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onEnter} placeholder="Guest name (optional)" className={fieldClass(false)} />
-        <button type="button" onClick={addGuest} className="min-h-[44px] rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
+        <button type="button" onClick={addGuest} className="!min-h-[44px] rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
           Add guest
         </button>
       </div>

@@ -10,6 +10,8 @@ import { useAuthStore } from '../../stores/auth-store';
 import { codeProblem, suggestCode } from '../../lib/project-icons';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
+import { dialogLayer, dialogPanel, useTwoColumns } from '../ui/dialog-size';
+import { TOUCH_TALL } from '../../lib/touch';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
@@ -439,288 +441,327 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
     }
   }
 
+  // Big form (1.22): 960px and two columns from 1024px — the project itself on the left (template,
+  // picture, name, client, companies, description); how it runs on the right (status, owner, team,
+  // task rules). One column below, in the order it always had.
+  const twoColumns = useTwoColumns();
+  const templateField = !editing ? (
+    <TemplateStart
+      choice={template}
+      onChange={setTemplate}
+      today={today}
+      directory={shown}
+      ownerId={draft.ownerId}
+      plan={planQ.data}
+      planError={planQ.isError}
+      onRetry={() => void planQ.refetch()}
+    />
+  ) : null;
+  // Identity: the picture beside the name and code.
+  const identityField = (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <div className="flex items-center gap-3 sm:flex-col sm:items-center">
+        <span role="img" aria-label="Project picture preview" className="inline-flex">
+          <ProjectAvatar project={look} size="2xl" />
+        </span>
+        <button
+          type="button"
+          onClick={() => setAppearanceOpen((o) => !o)}
+          aria-expanded={appearanceOpen}
+          className={`rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand ${TOUCH_TALL}`}
+        >
+          Change icon or image
+        </button>
+      </div>
+      {/* Two columns: the narrower column puts the code under the name, so the name reads in full. */}
+      <div className={twoColumns ? 'grid min-w-0 flex-1 gap-4' : 'grid min-w-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_9.5rem]'}>
+        <div>
+          <Label htmlFor={ids.name} required>Name</Label>
+          <input
+            id={ids.name}
+            ref={nameRef}
+            value={draft.name}
+            onChange={(e) => onName(e.target.value)}
+            dir="auto"
+            maxLength={NAME_MAX}
+            aria-required="true"
+            aria-invalid={errors.name ? true : undefined}
+            aria-describedby={errors.name ? `${ids.name}-err` : undefined}
+            placeholder="e.g. Rig Inspection Portal"
+            className={input(!!errors.name)}
+          />
+          {errors.name ? <p id={`${ids.name}-err`} className="mt-1 text-xs font-medium text-danger">{errors.name}</p> : null}
+        </div>
+        <div>
+          <Label htmlFor={ids.code} required>Code</Label>
+          <input
+            id={ids.code}
+            ref={codeRef}
+            value={draft.code}
+            onChange={(e) => onCode(e.target.value)}
+            readOnly={editing}
+            maxLength={10}
+            autoCapitalize="characters"
+            spellCheck={false}
+            aria-required="true"
+            aria-invalid={codeError ? true : undefined}
+            aria-describedby={ids.codeNote}
+            placeholder="RIP"
+            className={`${input(!!codeError)} font-mono uppercase tracking-wide ${editing ? 'cursor-not-allowed bg-ground text-ink-2' : ''}`}
+          />
+          <div id={ids.codeNote} aria-live="polite" className="mt-1 min-h-[1rem] text-xs">
+            {editing ? (
+              <span className="text-ink-2">Task keys use this code, so it can’t be changed.</span>
+            ) : codeError ? (
+              <span className="font-medium text-danger">
+                {codeError}
+                {check?.suggestion ? (
+                  <>
+                    {' '}
+                    <button type="button" onClick={() => onCode(check.suggestion!)} className="font-semibold text-brand underline-offset-2 hover:underline">
+                      Use {check.suggestion}
+                    </button>
+                  </>
+                ) : null}
+              </span>
+            ) : check?.available ? (
+              <span className="text-success">{draft.code} is free.</span>
+            ) : draft.code ? (
+              <span className="text-ink-2">Task keys look like {draft.code}-12.</span>
+            ) : (
+              <span className="text-ink-2">Suggested from the name — you can change it.</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  const appearanceField = appearanceOpen ? (
+    <IdentityEditor
+      color={draft.color}
+      icon={draft.icon}
+      hasImage={look.imageUrl !== null}
+      onColor={(color) => set({ color })}
+      onIcon={(icon) => set({ icon })}
+      onImage={(choice) => setImage(choice.kind === 'remove' && image.kind === 'new' && !saved?.imageUrl ? { kind: 'keep' } : choice)}
+    />
+  ) : null;
+  const clientFields = (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <Label htmlFor={ids.client} optional>Client</Label>
+        <input
+          id={ids.client}
+          list={ids.clients}
+          value={draft.clientName}
+          onChange={(e) => set({ clientName: e.target.value })}
+          dir="auto"
+          maxLength={NAME_MAX}
+          placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'}
+          className={input(false)}
+        />
+        <datalist id={ids.clients}>{clients.map((c) => <option key={c} value={c} />)}</datalist>
+      </div>
+      <div>
+        <Label htmlFor={ids.number} optional>Project number</Label>
+        <input
+          id={ids.number}
+          value={draft.number}
+          onChange={(e) => set({ number: e.target.value })}
+          maxLength={PROJECT_NUMBER_MAX}
+          spellCheck={false}
+          aria-describedby={ids.numberNote}
+          placeholder="e.g. PDO-2026-014"
+          className={`${input(false)} font-mono`}
+        />
+        <p id={ids.numberNote} className="mt-1 text-xs text-ink-2">The client’s job or contract number, if there is one.</p>
+      </div>
+    </div>
+  );
+  const companiesField = showCompanies ? (
+    <div ref={companiesRef}>
+      <CompanyChipsField
+        value={companyIds}
+        onChange={chooseCompanies}
+        usable={myCompanies.companies}
+        all={[...myCompanies.companies, ...savedCompanies]}
+        lockedTitle={lockedTitle}
+        unlocked={isAdmin}
+        error={companyError}
+        disabled={saving}
+      />
+    </div>
+  ) : null;
+  const descriptionField = (
+    <div>
+      <Label htmlFor={ids.desc} optional>Description</Label>
+      <textarea
+        id={ids.desc}
+        value={draft.description}
+        onChange={(e) => set({ description: e.target.value })}
+        dir="auto"
+        rows={4}
+        maxLength={DESCRIPTION_MAX}
+        placeholder="What the project is for, its scope and goals"
+        className={`${input(false)} min-h-[6.5rem] resize-y leading-relaxed`}
+      />
+    </div>
+  );
+  const statusFields = (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <span className="mb-1.5 block text-sm font-semibold text-ink">Status</span>
+        <SearchableSelect ariaLabel="Status" options={statusOptions} value={draft.status} onChange={(v) => set({ status: v as ProjectStatus })} />
+      </div>
+      <div>
+        <span className="mb-1.5 block text-sm font-semibold text-ink">Priority</span>
+        <SearchableSelect ariaLabel="Priority" options={priorities} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
+      </div>
+    </div>
+  );
+  const ownerField = (
+    <div>
+      <span className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
+        Owner {isAdmin || editing ? <span className="text-xs font-normal text-ink-2">(optional)</span> : null}
+      </span>
+      <SearchableSelect
+        ariaLabel="Owner"
+        placeholder={isAdmin || editing ? 'No owner' : 'Choose the owner'}
+        options={ownerOptions}
+        value={draft.ownerId}
+        onChange={(v) => set({ ownerId: v })}
+        describedBy={handingOver ? `${ids.owner} ${ids.handover}` : ids.owner}
+      />
+      <p id={ids.owner} className="mt-1.5 text-xs text-ink-2">
+        New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.
+      </p>
+      {handingOver ? (
+        <p id={ids.handover} className="mt-1 text-xs font-medium text-ink">
+          {previousOwner === me ? 'You’ll stay on the team as a manager, so you can still run it.' : `${previousOwnerName} stays on the team as a manager.`}
+        </p>
+      ) : null}
+    </div>
+  );
+  const teamField = !editing ? (
+    <div>
+      <span id={ids.team} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
+        Team <span className="text-xs font-normal text-ink-2">(optional)</span>
+      </span>
+      <div role="group" aria-labelledby={ids.team} aria-describedby={ids.teamNote}>
+        <AssigneeSelect
+          people={teamPeople}
+          value={teamIds}
+          onChange={setTeamIds}
+          listLabel="Team"
+          addLabel="Add people to the team"
+          noPeopleText="There’s no one else to add yet"
+          allChosenText="Everyone is on the team."
+          noteId={ids.teamNote}
+          note={
+            isAdmin
+              ? 'The owner joins the team too. You can add or remove people later on the Team tab.'
+              : 'You’ll be on the team as a manager, so you can keep running it. The owner joins the team too.'
+          }
+        />
+      </div>
+    </div>
+  ) : null;
+  // How the project's tasks behave: carry-forward and a default due date.
+  const tasksField = (
+    <fieldset className="rounded-2xl border border-line px-4 pb-1 pt-1">
+      <legend className="px-1 text-sm font-semibold text-ink">Tasks</legend>
+      <div className="flex items-start justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">Carry unfinished tasks forward</div>
+          <p id={ids.carryHelp} className="text-xs text-ink-2">Each night, unfinished tasks on past days move to today’s board.</p>
+          {carryOffForCompany ? (
+            <p id={ids.carryOff} className="mt-1 text-xs font-medium text-warning">Carry-forward is turned off for the whole company in System Settings.</p>
+          ) : null}
+        </div>
+        <Toggle
+          on={draft.carryForward}
+          onChange={() => set({ carryForward: !draft.carryForward })}
+          label="Carry unfinished tasks forward"
+          describedBy={carryOffForCompany ? `${ids.carryHelp} ${ids.carryOff}` : ids.carryHelp}
+        />
+      </div>
+      <div className="flex items-start justify-between gap-4 border-t border-line py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">New tasks are due today</div>
+          <p id={ids.dueHelp} className="text-xs text-ink-2">A task added without a due date gets today’s date. Dates people choose are kept.</p>
+        </div>
+        <Toggle on={draft.defaultDueToday} onChange={() => set({ defaultDueToday: !draft.defaultDueToday })} label="New tasks are due today" describedBy={ids.dueHelp} />
+      </div>
+      <div className="flex items-start justify-between gap-4 border-t border-line py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">New tasks in this project need approval</div>
+          <p id={ids.approvalHelp} className="text-xs text-ink-2">Ticks “Needs approval” on new tasks: a project manager must approve each one before it counts as done. It can be changed on any task.</p>
+        </div>
+        <Toggle
+          on={draft.newTasksNeedApproval}
+          onChange={() => set({ newTasksNeedApproval: !draft.newTasksNeedApproval })}
+          label="New tasks in this project need approval"
+          describedBy={ids.approvalHelp}
+        />
+      </div>
+    </fieldset>
+  );
+
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={editing ? 'Edit project' : 'New project'}
-          className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[min(calc(var(--visible-height)*0.92),54rem)] sm:max-w-2xl sm:rounded-2xl"
+          className={`keyboard-flow-cramped card relative flex flex-col overflow-hidden shadow-lift animate-scale-in ${dialogPanel('wide')}`}
         >
-          <div className="flex flex-none items-center gap-3 border-b border-line px-5 py-4">
+          <div className="flex flex-none items-center gap-3 border-b border-line px-4 py-3.5 sm:px-6">
             <h2 id={ids.title} className="flex-1 font-display text-xl font-bold text-ink">{editing ? 'Edit project' : 'New project'}</h2>
-            <button type="button" onClick={requestClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+            <button type="button" onClick={requestClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 place-items-center rounded-lg text-ink-2 hover:bg-ground hover:text-ink [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
 
           <form onSubmit={(e) => void submit(e)} noValidate className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
-            <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+            <div className="keyboard-flow-body min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
               {banner ? <p ref={bannerRef} role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{banner}</p> : null}
-
-              {!editing ? (
-                <TemplateStart
-                  choice={template}
-                  onChange={setTemplate}
-                  today={today}
-                  directory={shown}
-                  ownerId={draft.ownerId}
-                  plan={planQ.data}
-                  planError={planQ.isError}
-                  onRetry={() => void planQ.refetch()}
-                />
-              ) : null}
-
-              {/* Identity: the picture beside the name and code. */}
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <div className="flex items-center gap-3 sm:flex-col sm:items-center">
-                  <span role="img" aria-label="Project picture preview" className="inline-flex">
-                    <ProjectAvatar project={look} size="2xl" />
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setAppearanceOpen((o) => !o)}
-                    aria-expanded={appearanceOpen}
-                    className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:border-brand hover:text-brand"
-                  >
-                    Change icon or image
-                  </button>
-                </div>
-                <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_9.5rem]">
-                  <div>
-                    <Label htmlFor={ids.name} required>Name</Label>
-                    <input
-                      id={ids.name}
-                      ref={nameRef}
-                      value={draft.name}
-                      onChange={(e) => onName(e.target.value)}
-                      dir="auto"
-                      maxLength={NAME_MAX}
-                      aria-required="true"
-                      aria-invalid={errors.name ? true : undefined}
-                      aria-describedby={errors.name ? `${ids.name}-err` : undefined}
-                      placeholder="e.g. Rig Inspection Portal"
-                      className={input(!!errors.name)}
-                    />
-                    {errors.name ? <p id={`${ids.name}-err`} className="mt-1 text-xs font-medium text-danger">{errors.name}</p> : null}
+              {twoColumns ? (
+                <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-start gap-6">
+                  <div data-form-column="project" className="min-w-0 space-y-5">
+                    {templateField}
+                    {identityField}
+                    {appearanceField}
+                    {clientFields}
+                    {companiesField}
+                    {descriptionField}
                   </div>
-                  <div>
-                    <Label htmlFor={ids.code} required>Code</Label>
-                    <input
-                      id={ids.code}
-                      ref={codeRef}
-                      value={draft.code}
-                      onChange={(e) => onCode(e.target.value)}
-                      readOnly={editing}
-                      maxLength={10}
-                      autoCapitalize="characters"
-                      spellCheck={false}
-                      aria-required="true"
-                      aria-invalid={codeError ? true : undefined}
-                      aria-describedby={ids.codeNote}
-                      placeholder="RIP"
-                      className={`${input(!!codeError)} font-mono uppercase tracking-wide ${editing ? 'cursor-not-allowed bg-ground text-ink-2' : ''}`}
-                    />
-                    <div id={ids.codeNote} aria-live="polite" className="mt-1 min-h-[1rem] text-xs">
-                      {editing ? (
-                        <span className="text-ink-2">Task keys use this code, so it can’t be changed.</span>
-                      ) : codeError ? (
-                        <span className="font-medium text-danger">
-                          {codeError}
-                          {check?.suggestion ? (
-                            <>
-                              {' '}
-                              <button type="button" onClick={() => onCode(check.suggestion!)} className="font-semibold text-brand underline-offset-2 hover:underline">
-                                Use {check.suggestion}
-                              </button>
-                            </>
-                          ) : null}
-                        </span>
-                      ) : check?.available ? (
-                        <span className="text-success">{draft.code} is free.</span>
-                      ) : draft.code ? (
-                        <span className="text-ink-2">Task keys look like {draft.code}-12.</span>
-                      ) : (
-                        <span className="text-ink-2">Suggested from the name — you can change it.</span>
-                      )}
-                    </div>
+                  <div data-form-column="running" className="min-w-0 space-y-5">
+                    {statusFields}
+                    {ownerField}
+                    {teamField}
+                    {tasksField}
                   </div>
                 </div>
-              </div>
-
-              {appearanceOpen ? (
-                <IdentityEditor
-                  color={draft.color}
-                  icon={draft.icon}
-                  hasImage={look.imageUrl !== null}
-                  onColor={(color) => set({ color })}
-                  onIcon={(icon) => set({ icon })}
-                  onImage={(choice) => setImage(choice.kind === 'remove' && image.kind === 'new' && !saved?.imageUrl ? { kind: 'keep' } : choice)}
-                />
-              ) : null}
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor={ids.client} optional>Client</Label>
-                  <input
-                    id={ids.client}
-                    list={ids.clients}
-                    value={draft.clientName}
-                    onChange={(e) => set({ clientName: e.target.value })}
-                    dir="auto"
-                    maxLength={NAME_MAX}
-                    placeholder={clients.length ? 'Type or pick a client' : 'e.g. Petroleum Development Oman'}
-                    className={input(false)}
-                  />
-                  <datalist id={ids.clients}>{clients.map((c) => <option key={c} value={c} />)}</datalist>
-                </div>
-                <div>
-                  <Label htmlFor={ids.number} optional>Project number</Label>
-                  <input
-                    id={ids.number}
-                    value={draft.number}
-                    onChange={(e) => set({ number: e.target.value })}
-                    maxLength={PROJECT_NUMBER_MAX}
-                    spellCheck={false}
-                    aria-describedby={ids.numberNote}
-                    placeholder="e.g. PDO-2026-014"
-                    className={`${input(false)} font-mono`}
-                  />
-                  <p id={ids.numberNote} className="mt-1 text-xs text-ink-2">The client’s job or contract number, if there is one.</p>
-                </div>
-              </div>
-
-              {showCompanies ? (
-                <div ref={companiesRef}>
-                  <CompanyChipsField
-                    value={companyIds}
-                    onChange={chooseCompanies}
-                    usable={myCompanies.companies}
-                    all={[...myCompanies.companies, ...savedCompanies]}
-                    lockedTitle={lockedTitle}
-                    unlocked={isAdmin}
-                    error={companyError}
-                    disabled={saving}
-                  />
-                </div>
-              ) : null}
-
-              <div>
-                <Label htmlFor={ids.desc} optional>Description</Label>
-                <textarea
-                  id={ids.desc}
-                  value={draft.description}
-                  onChange={(e) => set({ description: e.target.value })}
-                  dir="auto"
-                  rows={4}
-                  maxLength={DESCRIPTION_MAX}
-                  placeholder="What the project is for, its scope and goals"
-                  className={`${input(false)} min-h-[6.5rem] resize-y leading-relaxed`}
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <span className="mb-1.5 block text-sm font-semibold text-ink">Status</span>
-                  <SearchableSelect ariaLabel="Status" options={statusOptions} value={draft.status} onChange={(v) => set({ status: v as ProjectStatus })} />
-                </div>
-                <div>
-                  <span className="mb-1.5 block text-sm font-semibold text-ink">Priority</span>
-                  <SearchableSelect ariaLabel="Priority" options={priorities} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
-                </div>
-              </div>
-
-              <div>
-                <span className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
-                  Owner {isAdmin || editing ? <span className="text-xs font-normal text-ink-2">(optional)</span> : null}
-                </span>
-                <SearchableSelect
-                  ariaLabel="Owner"
-                  placeholder={isAdmin || editing ? 'No owner' : 'Choose the owner'}
-                  options={ownerOptions}
-                  value={draft.ownerId}
-                  onChange={(v) => set({ ownerId: v })}
-                  describedBy={handingOver ? `${ids.owner} ${ids.handover}` : ids.owner}
-                />
-                <p id={ids.owner} className="mt-1.5 text-xs text-ink-2">
-                  New tasks in this project are assigned to the owner unless you pick someone else — and anyone can reassign a task later.
-                </p>
-                {handingOver ? (
-                  <p id={ids.handover} className="mt-1 text-xs font-medium text-ink">
-                    {previousOwner === me ? 'You’ll stay on the team as a manager, so you can still run it.' : `${previousOwnerName} stays on the team as a manager.`}
-                  </p>
-                ) : null}
-              </div>
-
-              {!editing ? (
-                <div>
-                  <span id={ids.team} className="mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-ink">
-                    Team <span className="text-xs font-normal text-ink-2">(optional)</span>
-                  </span>
-                  <div role="group" aria-labelledby={ids.team} aria-describedby={ids.teamNote}>
-                    <AssigneeSelect
-                      people={teamPeople}
-                      value={teamIds}
-                      onChange={setTeamIds}
-                      listLabel="Team"
-                      addLabel="Add people to the team"
-                      noPeopleText="There’s no one else to add yet"
-                      allChosenText="Everyone is on the team."
-                      noteId={ids.teamNote}
-                      note={
-                        isAdmin
-                          ? 'The owner joins the team too. You can add or remove people later on the Team tab.'
-                          : 'You’ll be on the team as a manager, so you can keep running it. The owner joins the team too.'
-                      }
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {/* How the project's tasks behave: carry-forward and a default due date. */}
-              <fieldset className="rounded-2xl border border-line px-4 pb-1 pt-1">
-                <legend className="px-1 text-sm font-semibold text-ink">Tasks</legend>
-                <div className="flex items-start justify-between gap-4 py-2.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink">Carry unfinished tasks forward</div>
-                    <p id={ids.carryHelp} className="text-xs text-ink-2">Each night, unfinished tasks on past days move to today’s board.</p>
-                    {carryOffForCompany ? (
-                      <p id={ids.carryOff} className="mt-1 text-xs font-medium text-warning">Carry-forward is turned off for the whole company in System Settings.</p>
-                    ) : null}
-                  </div>
-                  <Toggle
-                    on={draft.carryForward}
-                    onChange={() => set({ carryForward: !draft.carryForward })}
-                    label="Carry unfinished tasks forward"
-                    describedBy={carryOffForCompany ? `${ids.carryHelp} ${ids.carryOff}` : ids.carryHelp}
-                  />
-                </div>
-                <div className="flex items-start justify-between gap-4 border-t border-line py-2.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink">New tasks are due today</div>
-                    <p id={ids.dueHelp} className="text-xs text-ink-2">A task added without a due date gets today’s date. Dates people choose are kept.</p>
-                  </div>
-                  <Toggle on={draft.defaultDueToday} onChange={() => set({ defaultDueToday: !draft.defaultDueToday })} label="New tasks are due today" describedBy={ids.dueHelp} />
-                </div>
-                <div className="flex items-start justify-between gap-4 border-t border-line py-2.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink">New tasks in this project need approval</div>
-                    <p id={ids.approvalHelp} className="text-xs text-ink-2">Ticks “Needs approval” on new tasks: a project manager must approve each one before it counts as done. It can be changed on any task.</p>
-                  </div>
-                  <Toggle
-                    on={draft.newTasksNeedApproval}
-                    onChange={() => set({ newTasksNeedApproval: !draft.newTasksNeedApproval })}
-                    label="New tasks in this project need approval"
-                    describedBy={ids.approvalHelp}
-                  />
-                </div>
-              </fieldset>
+              ) : (
+                <>
+                  {templateField}
+                  {identityField}
+                  {appearanceField}
+                  {clientFields}
+                  {companiesField}
+                  {descriptionField}
+                  {statusFields}
+                  {ownerField}
+                  {teamField}
+                  {tasksField}
+                </>
+              )}
             </div>
 
-            <div className="flex flex-none flex-col gap-2 border-t border-line bg-surface px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+            <div className="flex flex-none flex-col gap-2 border-t border-line bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
               {progress !== null ? (
                 <div role="progressbar" aria-label="Uploading the picture" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)} className="h-1 overflow-hidden rounded-full bg-line">
                   <div className="h-full bg-brand transition-[width]" style={{ width: `${Math.max(5, Math.round(progress * 100))}%` }} />

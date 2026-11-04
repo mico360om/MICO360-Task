@@ -89,6 +89,8 @@ describe('MyActionItemsPage', () => {
     renderIt(<MyActionItemsPage />);
     const row = (await screen.findByText('Order new switches')).closest('li')!;
     expect(row.className).toMatch(/lg:grid-cols-/);
+    // The item's words keep at least 12rem: at 1024px the meeting column took it all and they broke a word a line.
+    expect(row.className).toMatch(/lg:grid-cols-\[minmax\(12rem,1fr\)/);
     // The status picker says it; no badge repeating "Open" beside the words.
     expect(within(row).getAllByText(/^open$/i).filter((el) => el.tagName !== 'OPTION')).toHaveLength(0);
     expect(within(row).getByRole('combobox', { name: /status for order new switches/i })).toHaveValue('OPEN');

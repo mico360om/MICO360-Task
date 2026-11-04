@@ -31,6 +31,7 @@ import {
   type DraftSection,
   type Problems,
 } from './form-editor';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 /**
  * What deleting a form does to its scheduled checks, in words (null when nothing uses it):
@@ -308,14 +309,14 @@ function FormEditorDialog({ form, onClose, onSaved }: { form: InspectionForm | n
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 grid place-items-center p-2 sm:p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          className="keyboard-flow-cramped card relative flex max-h-[calc(var(--visible-height,100vh)-1rem)] w-full max-w-3xl animate-scale-in flex-col overflow-hidden sm:max-h-[calc(var(--visible-height,100vh)-2rem)]"
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}
         >
           <div className="flex items-start justify-between gap-3 border-b border-line px-4 pb-3 pt-4 sm:px-5">
             <h2 id={titleId} className="font-display text-lg font-semibold text-ink">

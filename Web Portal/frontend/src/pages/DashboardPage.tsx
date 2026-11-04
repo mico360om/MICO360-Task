@@ -389,7 +389,7 @@ function ActivityRow({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: s
         <p className="leading-snug text-ink">
           <bdi className="font-semibold">{who}</bdi> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}
           {a.task ? (
-            <button onClick={() => onOpenTask(a.task!.id)} className="font-mono text-xs text-brand hover:underline">{a.task.key}</button>
+            <button onClick={() => onOpenTask(a.task!.id)} className="inline-flex items-center font-mono text-xs text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">{a.task.key}</button>
           ) : a.project ? (
             <bdi className="text-ink-2">{a.project.name}</bdi>
           ) : null}

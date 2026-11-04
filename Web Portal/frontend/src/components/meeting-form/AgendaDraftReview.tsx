@@ -45,7 +45,7 @@ export function AgendaDraftReview({
         })}
       </ul>
       <div className="mt-2.5 flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={onDismiss} className="min-h-[36px] rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">Dismiss</button>
+        <button type="button" onClick={onDismiss} className="min-h-[36px] [@media(pointer:coarse)]:!min-h-11 rounded-lg px-3 text-sm font-semibold text-ink-2 hover:bg-ground">Dismiss</button>
         <Button type="button" size="sm" loading={busy} disabled={!ticked.some(Boolean)} onClick={() => onAdd(items.filter((_, i) => ticked[i]))} className="min-h-[36px]">
           Add selected
         </Button>

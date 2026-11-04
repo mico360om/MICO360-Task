@@ -171,7 +171,7 @@ export function MeetingsPage() {
                 type="button"
                 aria-pressed={scope === s}
                 onClick={() => update({ scope: s })}
-                className={`min-h-[2.25rem] rounded-lg px-3 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+                className={`min-h-[2.25rem] [@media(pointer:coarse)]:!min-h-11 rounded-lg px-3 text-sm font-medium transition-colors ${scope === s ? 'bg-brand-gradient text-white shadow-sm' : 'text-ink-2 hover:text-ink'}`}
               >
                 {/* Shorter words on a phone, so the row fits. */}
                 <span className="max-sm:hidden">{s === 'all' ? 'All meetings' : 'Organized by me'}</span>

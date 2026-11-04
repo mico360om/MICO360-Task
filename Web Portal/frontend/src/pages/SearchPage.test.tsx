@@ -159,6 +159,13 @@ describe('Search results page', () => {
     expect(screen.getByTestId('where').textContent).toBe('?q=scaff&project=p1&status=IN_PROGRESS&assignee=me&done=true&archived=true');
   });
 
+  it('its All / Open / Done chips are 44px tall on a touch screen (the ! form beats the base 32px button rule)', async () => {
+    serve();
+    open();
+    await row('Check the scaffold 1');
+    for (const name of ['All', 'Open', 'Done']) expect(screen.getByRole('button', { name }).className).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+  });
+
   it('offers archived projects only with “Include archived projects” on', async () => {
     serve();
     open();

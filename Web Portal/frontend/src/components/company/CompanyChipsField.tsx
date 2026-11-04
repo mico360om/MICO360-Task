@@ -188,7 +188,7 @@ export function CompanyChipsField({
                 role="menu"
                 aria-label="Add company"
                 onKeyDown={onMenuKey}
-                className="absolute start-0 top-full z-20 mt-1 max-h-64 min-w-[12rem] max-w-[min(18rem,80vw)] overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lift"
+                className="absolute start-0 top-full z-20 mt-1 max-h-64 w-max min-w-[12rem] max-w-[min(24rem,85vw)] overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lift"
               >
                 {addable.map((c, i) => (
                   <button
@@ -203,7 +203,7 @@ export function CompanyChipsField({
                     className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-start text-sm text-ink hover:bg-ground focus:bg-ground focus:outline-none ${TOUCH_TALL}`}
                   >
                     <CompanyLogo company={c} size={20} />
-                    <bdi className="min-w-0 truncate">{c.name}</bdi>
+                    <bdi className="min-w-0 leading-snug [overflow-wrap:anywhere]">{c.name}</bdi>
                   </button>
                 ))}
               </div>

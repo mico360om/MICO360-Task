@@ -23,6 +23,7 @@ import { PriorityBadge } from '../ui/PriorityBadge';
 import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from '../task-form/ChecklistField';
 import { PRIORITIES, priorityLabel } from '../priority-option';
 import { count, TemplateGlyph } from './TemplateCard';
+import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 
 /** What the server keeps (see the backend's TEMPLATE_LIMITS). */
 export const LIMITS = { columns: 20, roles: 30, tasks: 500, roleName: 80, title: 191, description: 20_000, minOffset: -365, maxOffset: 3650, checklistTotal: 5000 };
@@ -283,14 +284,14 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
 
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={ids.title}
-          className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[calc(var(--visible-height)*0.92)] sm:w-[min(880px,calc(100vw-32px))] sm:rounded-2xl"
+          className={`keyboard-flow-cramped card relative flex flex-col overflow-hidden shadow-lift animate-scale-in ${dialogPanel('wide')}`}
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-4 py-3.5 sm:px-6">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand">{TemplateGlyph.project}</span>

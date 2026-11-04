@@ -6,6 +6,7 @@ import { CreateUserModal } from './CreateUserModal';
 import { useAuthStore } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
 import { apiCompany, companyServer } from '../test/company-server';
+import { windowWidth } from '../test/window-width';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -295,5 +296,55 @@ describe('CreateUserModal: companies', () => {
     await userEvent.type(screen.getByLabelText(/temp password/i), 'Secret123');
     await create();
     expect(await screen.findByRole('alert')).toHaveTextContent('Company not found.');
+  });
+});
+
+describe('CreateUserModal: a big form (1.22)', () => {
+  const alpha = apiCompany({ id: 'ca', name: 'Alpha Co', code: 'ALPHA' });
+  const beta = apiCompany({ id: 'cb', name: 'Beta Co', code: 'BETA' });
+  beforeEach(() => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'a@b.c', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    useCompanyStore.setState({ pick: null, userId: 'me' });
+  });
+  afterEach(() => {
+    useAuthStore.getState().logout();
+    useCompanyStore.setState({ pick: null, userId: null });
+  });
+
+  it('with companies: 960px from 1024px, the person on the left and their companies on the right', async () => {
+    windowWidth(1280);
+    companyServer({ companies: [alpha, beta] });
+    renderModal();
+    const companies = await screen.findByRole('group', { name: 'Companies' });
+    const dialog = screen.getByRole('dialog', { name: 'New user' });
+    expect(dialog.className).toMatch(/lg:max-w-\[60rem\]/);
+    const person = dialog.querySelector<HTMLElement>('[data-form-column="person"]')!;
+    const access = dialog.querySelector<HTMLElement>('[data-form-column="companies"]')!;
+    expect(person.parentElement!.className).toMatch(/grid-cols-/);
+    for (const field of [/first name/i, /last name/i, /username/i, /^email/i, /temp password/i]) expect(person).toContainElement(screen.getByLabelText(field));
+    expect(person).toContainElement(screen.getByLabelText('Role'));
+    expect(access).toContainElement(companies);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Beta Co' }));
+    expect(access).toContainElement(screen.getByRole('combobox', { name: 'Primary company' }));
+  });
+
+  it('below 1024px: one column, the companies under the role', async () => {
+    windowWidth(900);
+    companyServer({ companies: [alpha, beta] });
+    renderModal();
+    const companies = await screen.findByRole('group', { name: 'Companies' });
+    expect(screen.getByRole('dialog', { name: 'New user' }).querySelector('[data-form-column]')).toBeNull();
+    expect(screen.getByLabelText('Role').compareDocumentPosition(companies) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('one company: a normal form (720px), one column', async () => {
+    windowWidth(1280);
+    const server = companyServer({ companies: [alpha] });
+    renderModal();
+    await waitFor(() => expect(server.gets('/me/companies')).toHaveLength(1));
+    const dialog = screen.getByRole('dialog', { name: 'New user' });
+    expect(dialog.className).toMatch(/sm:max-w-\[45rem\]/);
+    expect(dialog.className).not.toMatch(/lg:max-w-\[60rem\]/);
+    expect(dialog.querySelector('[data-form-column]')).toBeNull();
   });
 });

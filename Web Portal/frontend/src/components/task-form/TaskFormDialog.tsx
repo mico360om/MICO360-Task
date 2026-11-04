@@ -20,6 +20,7 @@ import { newIdempotencyKey } from '../../lib/offline-queue';
 import { invalidateTaskQueries } from '../../lib/task-cache';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
+import { dialogLayer, dialogPanel, useTwoColumns } from '../ui/dialog-size';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
@@ -609,9 +610,266 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const repeatOptions = [{ value: 'NONE', label: 'Does not repeat' }, ...REPEAT_FREQUENCIES.map((f) => ({ value: f, label: REPEAT_LABEL[f] }))];
   const heading = editing ? 'Edit task' : 'New task';
 
+  // Big form (1.22): 960px and two columns from 1024px — what the task is on the left (template,
+  // Describe, project and column, title, description, checklist, files); when, who and how on the
+  // right (dates and repeat, assignees, outside contacts, inspection form, milestone, approval).
+  // One column below, in the order it always had.
+  const twoColumns = useTwoColumns();
+  const templateField = !editing && !noProjects && taskTemplates.length ? (
+    <div>
+      <Label>Start from a template</Label>
+      <SearchableSelect
+        size="lg"
+        ariaLabel="Task template"
+        placeholder="Choose a task template"
+        options={taskTemplates.map((t) => ({ value: t.id, label: t.name, hint: t.checklist.length ? `${t.checklist.length} checklist item${t.checklist.length === 1 ? '' : 's'}` : undefined }))}
+        value={usedTemplate?.id ?? ''}
+        onChange={applyTemplate}
+      />
+      {usedTemplate ? <p role="status" className="mt-1 text-xs text-ink-2">Filled in from “{usedTemplate.name}” — change anything before saving.</p> : null}
+    </div>
+  ) : null;
+  const describeField = !editing && !noProjects ? (
+    <DescribeTask
+      onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
+      current={{ title: draft.title, description: draft.description, dueDate: draft.dueDate, priority: draft.priority, rule: draft.rule, projectId: draft.projectId }}
+      initial={{ title: saved.title, description: saved.description, dueDate: saved.dueDate, priority: saved.priority, rule: saved.rule, projectId: saved.projectId }}
+      projects={projectFixed ? undefined : openProjects}
+      projectChosen={placeChosen}
+      repeatText={scheduleText}
+      onApply={({ projectId, ...patch }) => {
+        if (projectId) chooseProject(projectId); // its columns and people follow, as when picked by hand
+        set(patch);
+        if (patch.title) setTitleError(null);
+      }}
+    />
+  ) : null;
+  const placeFields = (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="min-w-0">
+        <Label>Project</Label>
+        {projectFixed ? (
+          <div className="flex min-h-[44px] items-center gap-2.5 rounded-xl border border-line bg-ground px-3.5 text-sm text-ink">
+            {project ? <ProjectAvatar project={project} size="sm" /> : null}
+            <span dir="auto" className="min-w-0 truncate">{project?.name ?? 'Loading…'}</span>
+          </div>
+        ) : (
+          <SearchableSelect size="lg" ariaLabel="Project" placeholder={projectsQ.isLoading ? 'Loading…' : 'Choose a project'} options={openProjects.map(projectOption)} value={draft.projectId} onChange={chooseProject} />
+        )}
+      </div>
+      <div className="min-w-0">
+        <Label>Column</Label>
+        <SearchableSelect
+          size="lg"
+          ariaLabel="Column"
+          value={draft.columnId}
+          onChange={(v) => { setPlaceChosen(true); set({ columnId: v }); }}
+          disabled={columns.length === 0}
+          placeholder={!draft.projectId ? (projectsQ.isLoading ? 'Loading…' : 'Choose a project first') : columnsQ.isLoading ? 'Loading…' : 'This project has no columns'}
+          options={columnOptions}
+        />
+      </div>
+    </div>
+  );
+  const noticeLine = notice ? <p role="status" className="-mt-2 text-xs text-ink-2">{notice}</p> : null;
+  const titleField = (
+    <div>
+      <Label htmlFor={ids.title} required>Task title</Label>
+      <input
+        id={ids.title}
+        ref={titleRef}
+        dir="auto"
+        value={draft.title}
+        maxLength={TITLE_MAX}
+        aria-required="true"
+        aria-invalid={titleError ? true : undefined}
+        aria-describedby={titleError ? ids.titleErr : undefined}
+        onChange={(e) => { set({ title: e.target.value }); if (titleError) setTitleError(null); }}
+        placeholder="What needs to be done?"
+        className={`${fieldClass(!!titleError)} h-11`}
+      />
+      {titleError ? <p id={ids.titleErr} className="mt-1 text-xs font-medium text-danger">{titleError}</p> : null}
+    </div>
+  );
+  const descriptionField = (
+    <div>
+      <Label htmlFor={ids.desc} optional>Description</Label>
+      <textarea
+        id={ids.desc}
+        dir="auto"
+        rows={5}
+        value={draft.description}
+        maxLength={DESCRIPTION_MAX}
+        onChange={(e) => set({ description: e.target.value })}
+        placeholder="Details, links, acceptance notes…"
+        className={`${fieldClass()} min-h-[8rem] resize-y py-2.5 leading-relaxed`}
+      />
+    </div>
+  );
+  const checklistField = !editing ? (
+    <div>
+      <Label optional>Checklist</Label>
+      <ChecklistField
+        rows={draft.checklist}
+        onChange={(checklist) => set({ checklist })}
+        pending={draft.checklistPending}
+        onPendingChange={(checklistPending) => set({ checklistPending })}
+        disabled={saving || !!created}
+      />
+    </div>
+  ) : null;
+  const formFields = (
+    <div className={twoColumns ? 'grid gap-4' : 'grid gap-4 sm:grid-cols-2'}>
+      <div className="min-w-0">
+        <Label optional>Inspection form</Label>
+        <SearchableSelect
+          size="lg"
+          ariaLabel="Inspection form"
+          describedBy={ids.formNote}
+          placeholder={formsQ.isLoading ? 'Loading…' : 'No form'}
+          options={formOptions}
+          value={draft.formId}
+          onChange={(v) => set({ formId: v })}
+        />
+        <p id={ids.formNote} className="mt-1 text-xs text-ink-2">
+          {chosenForm ? 'The task opens this checklist; finishing it completes the task.' : 'A check carried out with a checklist (optional).'}
+        </p>
+      </div>
+      {draft.formId ? (
+        <div className="min-w-0">
+          <Label htmlFor={ids.place}>Place (optional)</Label>
+          <input id={ids.place} dir="auto" value={draft.place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => set({ place: e.target.value })} placeholder="e.g. Rig 3" className={`${fieldClass()} h-11`} />
+        </div>
+      ) : null}
+    </div>
+  );
+  const whenFields = (
+    <div className={twoColumns ? 'grid grid-cols-2 gap-4' : 'grid gap-4 sm:grid-cols-3'}>
+      <div className="min-w-0">
+        <Label>Priority</Label>
+        <SearchableSelect size="lg" ariaLabel="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
+      </div>
+      <div className="min-w-0">
+        <Label htmlFor={ids.due} optional>Due date</Label>
+        <input
+          id={ids.due}
+          type="date"
+          value={draft.dueDate}
+          onChange={(e) => set({ dueDate: e.target.value })}
+          aria-describedby={autoDue ? ids.dueNote : undefined}
+          className={`${fieldClass()} h-11`}
+        />
+        {autoDue ? <p id={ids.dueNote} className="mt-1 text-xs text-ink-2">{defaultDueNote(autoDue, today)}</p> : null}
+      </div>
+      <div className={twoColumns ? 'col-span-2 min-w-0' : 'min-w-0'}>
+        <Label>Repeat</Label>
+        {canRepeat ? (
+          <SearchableSelect
+            size="lg"
+            ariaLabel="Repeat"
+            options={repeatOptions}
+            value={draft.rule?.freq ?? 'NONE'}
+            onChange={(v) => set({ rule: withFrequency(draft.rule, v) })}
+          />
+        ) : (
+          <p className="flex min-h-[44px] items-center rounded-xl bg-ground px-3.5 text-xs text-ink-2">
+            An earlier copy of a repeating series — change the repeat on its newest copy.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+  const repeatSchedule = draft.rule && canRepeat ? (
+    <fieldset role="group" aria-label="Repeat schedule" className="rounded-2xl border border-line bg-ground/50 p-3.5 sm:p-4">
+      <p className="mb-3 flex items-start gap-2 text-sm font-semibold text-ink">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-brand">
+          <path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" />
+        </svg>
+        <span>{scheduleText(draft.rule, dueWhen)}</span>
+      </p>
+      <div ref={untilRef}>
+        <RecurrenceEditor hideFrequency kind={draft.formId ? 'check' : 'task'} value={draft.rule} onChange={(rule) => set({ rule })} dueDate={dueWhen || null} />
+      </div>
+      {untilProblem ? <p id={ids.untilErr} role="alert" className="mt-2 text-xs font-medium text-danger">{untilProblem}</p> : null}
+      {!dueWhen ? <p className="mt-2 text-xs text-ink-2">Set a due date to see the next dates.</p> : null}
+    </fieldset>
+  ) : null;
+  const assigneesField = (
+    <div>
+      <Label optional>Assignees</Label>
+      <AssigneeSelect
+        people={people}
+        value={draft.assigneeIds}
+        onChange={(assigneeIds) => set({ assigneeIds })}
+        note={assigneeNote}
+        disabled={!draft.projectId}
+      />
+    </div>
+  );
+  // Apart from the assignees: people outside the company. An existing task's come with its details (an older server sends none, and has nowhere to keep them).
+  const contactsField = !editing || task?.externalContacts ? (
+    <ExternalContactsField
+      contacts={draft.contacts}
+      onChange={(contacts) => set({ contacts })}
+      suggest={draft.projectId ? suggestContacts : undefined}
+      onEditingChange={setContactOpen}
+      disabled={saving || !!created}
+    />
+  ) : null;
+  const attachmentsField = !editing ? (
+    <div>
+      <Label optional>Attachments</Label>
+      <FilesField files={files} onAdd={addFiles} onRemove={(key) => setFiles((f) => f.filter((p) => p.key !== key))} busy={saving || !!created} />
+    </div>
+  ) : null;
+  const milestoneField = (
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors hover:border-brand/40">
+      <input type="checkbox" checked={draft.milestone} onChange={(e) => set({ milestone: e.target.checked })} className="mt-0.5 h-4 w-4 accent-brand" />
+      <span>
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-brand"><MilestoneIcon /></span>Milestone</span>
+        <span className="block text-xs text-ink-2">A key date or deliverable of the project — listed on its dashboard.</span>
+      </span>
+    </label>
+  );
+  const approvalField = (
+    <label className={`flex items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors ${approvalLocked ? 'bg-ground/60' : 'cursor-pointer hover:border-brand/40'}`}>
+      <input
+        type="checkbox"
+        checked={draft.approval}
+        disabled={approvalLocked}
+        aria-describedby={approvalLocked ? `${ids.approvalHint} ${ids.approvalLocked}` : ids.approvalHint}
+        onChange={(e) => {
+          approvalChosen.current = true;
+          set({ approval: e.target.checked });
+        }}
+        className="mt-0.5 h-4 w-4 accent-brand"
+      />
+      <span>
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-warning"><WaitingIcon size={14} /></span>Needs approval</span>
+        <span id={ids.approvalHint} className="block text-xs text-ink-2">{APPROVAL_HINT}</span>
+        {approvalLocked ? <span id={ids.approvalLocked} className="block text-xs text-ink-2">{APPROVAL_LOCKED}</span> : null}
+        {editing && task?.approvalRequestedAt && !approvalLocked ? <span className="block text-xs text-ink-3">It is waiting for approval: turning this off marks it done.</span> : null}
+      </span>
+    </label>
+  );
+  const scopeField = editing && inSeries ? (
+    <fieldset className="rounded-xl border border-line px-3.5 py-3">
+      <legend className="px-1 text-sm font-semibold text-ink">Apply changes to</legend>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {(['one', 'series'] as const).map((s) => (
+          <label key={s} className="inline-flex min-h-[32px] cursor-pointer items-center gap-2 text-sm text-ink">
+            <input type="radio" name="task-form-scope" checked={scope === s} onChange={() => setScope(s)} className="h-4 w-4 accent-brand" />
+            {s === 'one' ? 'This task' : 'Entire series'}
+          </label>
+        ))}
+      </div>
+      <p className="mt-1 text-xs text-ink-2">The title, description and priority go to every copy when you choose the series; dates change on this copy only.</p>
+    </fieldset>
+  ) : null;
+
   return (
     <ModalPortal>
-      <div className="above-keyboard fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-4">
+      <div className={dialogLayer('wide')}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={requestClose} aria-hidden="true" />
         <div
           ref={dialogRef}
@@ -627,7 +885,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
             e.preventDefault();
             addFiles(got);
           }}
-          className="keyboard-flow-cramped relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-lift animate-scale-in sm:h-auto sm:max-h-[calc(var(--visible-height)*0.9)] sm:w-[min(800px,calc(100vw-32px))] sm:rounded-2xl"
+          className={`keyboard-flow-cramped card relative flex flex-col overflow-hidden shadow-lift animate-scale-in ${dialogPanel('wide')}`}
         >
           <div className="flex flex-none items-center gap-3 border-b border-line px-4 py-3.5 sm:px-6">
             <h2 className="font-display text-xl font-bold text-ink">{heading}</h2>
@@ -644,257 +902,49 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
                 <NoProjectYet />
               ) : (
               <>
-
-              {!editing && !noProjects && taskTemplates.length ? (
-                <div>
-                  <Label>Start from a template</Label>
-                  <SearchableSelect
-                    size="lg"
-                    ariaLabel="Task template"
-                    placeholder="Choose a task template"
-                    options={taskTemplates.map((t) => ({ value: t.id, label: t.name, hint: t.checklist.length ? `${t.checklist.length} checklist item${t.checklist.length === 1 ? '' : 's'}` : undefined }))}
-                    value={usedTemplate?.id ?? ''}
-                    onChange={applyTemplate}
-                  />
-                  {usedTemplate ? <p role="status" className="mt-1 text-xs text-ink-2">Filled in from “{usedTemplate.name}” — change anything before saving.</p> : null}
-                </div>
-              ) : null}
-
-              {!editing && !noProjects ? (
-                <DescribeTask
-                  onParse={(text) => aiApi(apiClient).parseTask(text, todayKey(timeZone))}
-                  current={{ title: draft.title, description: draft.description, dueDate: draft.dueDate, priority: draft.priority, rule: draft.rule, projectId: draft.projectId }}
-                  initial={{ title: saved.title, description: saved.description, dueDate: saved.dueDate, priority: saved.priority, rule: saved.rule, projectId: saved.projectId }}
-                  projects={projectFixed ? undefined : openProjects}
-                  projectChosen={placeChosen}
-                  repeatText={scheduleText}
-                  onApply={({ projectId, ...patch }) => {
-                    if (projectId) chooseProject(projectId); // its columns and people follow, as when picked by hand
-                    set(patch);
-                    if (patch.title) setTitleError(null);
-                  }}
-                />
-              ) : null}
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <Label>Project</Label>
-                  {projectFixed ? (
-                    <div className="flex min-h-[44px] items-center gap-2.5 rounded-xl border border-line bg-ground px-3.5 text-sm text-ink">
-                      {project ? <ProjectAvatar project={project} size="sm" /> : null}
-                      <span dir="auto" className="min-w-0 truncate">{project?.name ?? 'Loading…'}</span>
-                    </div>
-                  ) : (
-                    <SearchableSelect size="lg" ariaLabel="Project" placeholder={projectsQ.isLoading ? 'Loading…' : 'Choose a project'} options={openProjects.map(projectOption)} value={draft.projectId} onChange={chooseProject} />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <Label>Column</Label>
-                  <SearchableSelect
-                    size="lg"
-                    ariaLabel="Column"
-                    value={draft.columnId}
-                    onChange={(v) => { setPlaceChosen(true); set({ columnId: v }); }}
-                    disabled={columns.length === 0}
-                    placeholder={!draft.projectId ? (projectsQ.isLoading ? 'Loading…' : 'Choose a project first') : columnsQ.isLoading ? 'Loading…' : 'This project has no columns'}
-                    options={columnOptions}
-                  />
-                </div>
-              </div>
-              {notice ? <p role="status" className="-mt-2 text-xs text-ink-2">{notice}</p> : null}
-
-              <div>
-                <Label htmlFor={ids.title} required>Task title</Label>
-                <input
-                  id={ids.title}
-                  ref={titleRef}
-                  dir="auto"
-                  value={draft.title}
-                  maxLength={TITLE_MAX}
-                  aria-required="true"
-                  aria-invalid={titleError ? true : undefined}
-                  aria-describedby={titleError ? ids.titleErr : undefined}
-                  onChange={(e) => { set({ title: e.target.value }); if (titleError) setTitleError(null); }}
-                  placeholder="What needs to be done?"
-                  className={`${fieldClass(!!titleError)} h-11`}
-                />
-                {titleError ? <p id={ids.titleErr} className="mt-1 text-xs font-medium text-danger">{titleError}</p> : null}
-              </div>
-
-              <div>
-                <Label htmlFor={ids.desc} optional>Description</Label>
-                <textarea
-                  id={ids.desc}
-                  dir="auto"
-                  rows={5}
-                  value={draft.description}
-                  maxLength={DESCRIPTION_MAX}
-                  onChange={(e) => set({ description: e.target.value })}
-                  placeholder="Details, links, acceptance notes…"
-                  className={`${fieldClass()} min-h-[8rem] resize-y py-2.5 leading-relaxed`}
-                />
-              </div>
-
-              {!editing ? (
-                <div>
-                  <Label optional>Checklist</Label>
-                  <ChecklistField
-                    rows={draft.checklist}
-                    onChange={(checklist) => set({ checklist })}
-                    pending={draft.checklistPending}
-                    onPendingChange={(checklistPending) => set({ checklistPending })}
-                    disabled={saving || !!created}
-                  />
-                </div>
-              ) : null}
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <Label optional>Inspection form</Label>
-                  <SearchableSelect
-                    size="lg"
-                    ariaLabel="Inspection form"
-                    describedBy={ids.formNote}
-                    placeholder={formsQ.isLoading ? 'Loading…' : 'No form'}
-                    options={formOptions}
-                    value={draft.formId}
-                    onChange={(v) => set({ formId: v })}
-                  />
-                  <p id={ids.formNote} className="mt-1 text-xs text-ink-2">
-                    {chosenForm ? 'The task opens this checklist; finishing it completes the task.' : 'A check carried out with a checklist (optional).'}
-                  </p>
-                </div>
-                {draft.formId ? (
-                  <div className="min-w-0">
-                    <Label htmlFor={ids.place}>Place (optional)</Label>
-                    <input id={ids.place} dir="auto" value={draft.place} maxLength={INSPECTION_LIMITS.placeMax} onChange={(e) => set({ place: e.target.value })} placeholder="e.g. Rig 3" className={`${fieldClass()} h-11`} />
+              {twoColumns ? (
+                <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] items-start gap-6">
+                  <div data-form-column="task" className="min-w-0 space-y-5">
+                    {templateField}
+                    {describeField}
+                    {placeFields}
+                    {noticeLine}
+                    {titleField}
+                    {descriptionField}
+                    {checklistField}
+                    {attachmentsField}
                   </div>
-                ) : null}
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="min-w-0">
-                  <Label>Priority</Label>
-                  <SearchableSelect size="lg" ariaLabel="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
-                </div>
-                <div className="min-w-0">
-                  <Label htmlFor={ids.due} optional>Due date</Label>
-                  <input
-                    id={ids.due}
-                    type="date"
-                    value={draft.dueDate}
-                    onChange={(e) => set({ dueDate: e.target.value })}
-                    aria-describedby={autoDue ? ids.dueNote : undefined}
-                    className={`${fieldClass()} h-11`}
-                  />
-                  {autoDue ? <p id={ids.dueNote} className="mt-1 text-xs text-ink-2">{defaultDueNote(autoDue, today)}</p> : null}
-                </div>
-                <div className="min-w-0">
-                  <Label>Repeat</Label>
-                  {canRepeat ? (
-                    <SearchableSelect
-                      size="lg"
-                      ariaLabel="Repeat"
-                      options={repeatOptions}
-                      value={draft.rule?.freq ?? 'NONE'}
-                      onChange={(v) => set({ rule: withFrequency(draft.rule, v) })}
-                    />
-                  ) : (
-                    <p className="flex min-h-[44px] items-center rounded-xl bg-ground px-3.5 text-xs text-ink-2">
-                      An earlier copy of a repeating series — change the repeat on its newest copy.
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {draft.rule && canRepeat ? (
-                <fieldset role="group" aria-label="Repeat schedule" className="rounded-2xl border border-line bg-ground/50 p-3.5 sm:p-4">
-                  <p className="mb-3 flex items-start gap-2 text-sm font-semibold text-ink">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-none text-brand">
-                      <path d="M17 2l4 4-4 4" /><path d="M3 11V9a3 3 0 0 1 3-3h15" /><path d="M7 22l-4-4 4-4" /><path d="M21 13v2a3 3 0 0 1-3 3H3" />
-                    </svg>
-                    <span>{scheduleText(draft.rule, dueWhen)}</span>
-                  </p>
-                  <div ref={untilRef}>
-                    <RecurrenceEditor hideFrequency kind={draft.formId ? 'check' : 'task'} value={draft.rule} onChange={(rule) => set({ rule })} dueDate={dueWhen || null} />
+                  <div data-form-column="details" className="min-w-0 space-y-5">
+                    {whenFields}
+                    {repeatSchedule}
+                    {assigneesField}
+                    {contactsField}
+                    {formFields}
+                    {milestoneField}
+                    {approvalField}
+                    {scopeField}
                   </div>
-                  {untilProblem ? <p id={ids.untilErr} role="alert" className="mt-2 text-xs font-medium text-danger">{untilProblem}</p> : null}
-                  {!dueWhen ? <p className="mt-2 text-xs text-ink-2">Set a due date to see the next dates.</p> : null}
-                </fieldset>
-              ) : null}
-
-              <div>
-                <Label optional>Assignees</Label>
-                <AssigneeSelect
-                  people={people}
-                  value={draft.assigneeIds}
-                  onChange={(assigneeIds) => set({ assigneeIds })}
-                  note={assigneeNote}
-                  disabled={!draft.projectId}
-                />
-              </div>
-
-              {/* Apart from the assignees: people outside the company. An existing task's come with its
-                  details (an older server sends none, and has nowhere to keep them). */}
-              {!editing || task?.externalContacts ? (
-                <ExternalContactsField
-                  contacts={draft.contacts}
-                  onChange={(contacts) => set({ contacts })}
-                  suggest={draft.projectId ? suggestContacts : undefined}
-                  onEditingChange={setContactOpen}
-                  disabled={saving || !!created}
-                />
-              ) : null}
-
-              {!editing ? (
-                <div>
-                  <Label optional>Attachments</Label>
-                  <FilesField files={files} onAdd={addFiles} onRemove={(key) => setFiles((f) => f.filter((p) => p.key !== key))} busy={saving || !!created} />
                 </div>
-              ) : null}
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors hover:border-brand/40">
-                <input type="checkbox" checked={draft.milestone} onChange={(e) => set({ milestone: e.target.checked })} className="mt-0.5 h-4 w-4 accent-brand" />
-                <span>
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-brand"><MilestoneIcon /></span>Milestone</span>
-                  <span className="block text-xs text-ink-2">A key date or deliverable of the project — listed on its dashboard.</span>
-                </span>
-              </label>
-
-              <label className={`flex items-start gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors ${approvalLocked ? 'bg-ground/60' : 'cursor-pointer hover:border-brand/40'}`}>
-                <input
-                  type="checkbox"
-                  checked={draft.approval}
-                  disabled={approvalLocked}
-                  aria-describedby={approvalLocked ? `${ids.approvalHint} ${ids.approvalLocked}` : ids.approvalHint}
-                  onChange={(e) => {
-                    approvalChosen.current = true;
-                    set({ approval: e.target.checked });
-                  }}
-                  className="mt-0.5 h-4 w-4 accent-brand"
-                />
-                <span>
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink"><span className="text-warning"><WaitingIcon size={14} /></span>Needs approval</span>
-                  <span id={ids.approvalHint} className="block text-xs text-ink-2">{APPROVAL_HINT}</span>
-                  {approvalLocked ? <span id={ids.approvalLocked} className="block text-xs text-ink-2">{APPROVAL_LOCKED}</span> : null}
-                  {editing && task?.approvalRequestedAt && !approvalLocked ? <span className="block text-xs text-ink-3">It is waiting for approval: turning this off marks it done.</span> : null}
-                </span>
-              </label>
-
-              {editing && inSeries ? (
-                <fieldset className="rounded-xl border border-line px-3.5 py-3">
-                  <legend className="px-1 text-sm font-semibold text-ink">Apply changes to</legend>
-                  <div className="flex flex-wrap gap-x-5 gap-y-2">
-                    {(['one', 'series'] as const).map((s) => (
-                      <label key={s} className="inline-flex min-h-[32px] cursor-pointer items-center gap-2 text-sm text-ink">
-                        <input type="radio" name="task-form-scope" checked={scope === s} onChange={() => setScope(s)} className="h-4 w-4 accent-brand" />
-                        {s === 'one' ? 'This task' : 'Entire series'}
-                      </label>
-                    ))}
-                  </div>
-                  <p className="mt-1 text-xs text-ink-2">The title, description and priority go to every copy when you choose the series; dates change on this copy only.</p>
-                </fieldset>
-              ) : null}
+              ) : (
+                <>
+                  {templateField}
+                  {describeField}
+                  {placeFields}
+                  {noticeLine}
+                  {titleField}
+                  {descriptionField}
+                  {checklistField}
+                  {formFields}
+                  {whenFields}
+                  {repeatSchedule}
+                  {assigneesField}
+                  {contactsField}
+                  {attachmentsField}
+                  {milestoneField}
+                  {approvalField}
+                  {scopeField}
+                </>
+              )}
               </>
               )}
             </div>

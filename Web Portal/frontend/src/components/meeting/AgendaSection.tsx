@@ -220,7 +220,7 @@ export function AgendaSection({
             type="button"
             onClick={() => draftMut.mutate()}
             disabled={draftMut.isPending}
-            className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
+            className="inline-flex min-h-9 [@media(pointer:coarse)]:!min-h-11 items-center gap-1.5 self-start rounded-lg px-2 text-sm font-semibold text-brand hover:bg-brand/10 disabled:opacity-50"
           >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 4.9L18.5 8.5 13.6 10 12 15l-1.6-5L5.5 8.5 10.4 6.9 12 2z" /></svg>
             {draftMut.isPending ? 'Drafting…' : 'Draft agenda'}
