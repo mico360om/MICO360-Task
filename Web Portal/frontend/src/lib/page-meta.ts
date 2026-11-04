@@ -45,6 +45,14 @@ const PAGES: [pattern: RegExp, title: string, indexable?: boolean][] = [
   [/^\/admin\/audit$/, 'Audit Logs'],
   [/^\/admin\/users$/, 'User Management'],
   [/^\/admin\/companies$/, 'Companies'],
+  [/^\/admin\/clients$/, 'Clients'],
+  // 1.23 The Client portal (client accounts; private, never listed).
+  [/^\/portal$/, 'Your projects'],
+  [/^\/portal\/projects\/[^/]+\/tasks\/[^/]+$/, 'Shared task'],
+  [/^\/portal\/projects\/[^/]+\/meetings\/[^/]+$/, 'Shared meeting'],
+  [/^\/portal\/projects\/[^/]+\/meetings$/, 'Meetings & minutes'],
+  [/^\/portal\/projects\/[^/]+(\/progress)?$/, 'Progress & tasks'],
+  [/^\/portal\/meetings\/[^/]+$/, 'Shared meeting'],
   // A client's page: its address is a private link, so it is never listed.
   [/^\/client\/[^/]+$/, 'Shared project'],
   // The clients' privacy notice: open to anyone, but only clients need it (not listed).

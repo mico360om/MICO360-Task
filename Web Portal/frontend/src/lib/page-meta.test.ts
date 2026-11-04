@@ -35,8 +35,15 @@ describe('pageMetaFor', () => {
       '/admin/audit': 'Audit Logs',
       '/admin/users': 'User Management',
       '/admin/companies': 'Companies',
+      '/admin/clients': 'Clients',
       '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde': 'Shared project',
       '/privacy/client': 'Privacy notice for clients',
+      // 1.23 The Client portal.
+      '/portal': 'Your projects',
+      '/portal/projects/p1/progress': 'Progress & tasks',
+      '/portal/projects/p1/tasks/t1': 'Shared task',
+      '/portal/projects/p1/meetings': 'Meetings & minutes',
+      '/portal/projects/p1/meetings/m1': 'Shared meeting',
     };
     for (const [path, title] of Object.entries(titles)) expect(pageMetaFor(path).title, path).toBe(title);
     // Every title is different, so browser tabs and history can be told apart.
@@ -45,7 +52,7 @@ describe('pageMetaFor', () => {
 
   it('only the sign-in, privacy and terms pages may be listed by search engines', () => {
     for (const path of ['/login', '/login/', '/privacy', '/terms']) expect(pageMetaFor(path).indexable, path).toBe(true);
-    for (const path of ['/dashboard', '/projects/abc', '/admin/users', '/reset', '/forgot', '/somewhere-new', '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde']) {
+    for (const path of ['/dashboard', '/projects/abc', '/admin/users', '/reset', '/forgot', '/somewhere-new', '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde', '/portal', '/portal/projects/p1']) {
       expect(pageMetaFor(path).indexable, path).toBe(false);
     }
   });

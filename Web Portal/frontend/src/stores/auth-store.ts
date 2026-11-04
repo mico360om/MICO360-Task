@@ -45,6 +45,8 @@ interface AuthState {
    */
   logout: (reason?: LogoutReason | object) => void;
   isAdmin: () => boolean;
+  /** 1.23: a client account (roles ['CLIENT']) — it only ever sees the Client portal (/portal). */
+  isClient: () => boolean;
 }
 
 const KEYS = { access: 'mico360.accessToken', refresh: 'mico360.refreshToken', user: 'mico360.user' } as const;
@@ -203,6 +205,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   isAdmin: () => (get().user?.roles ?? []).includes('ADMIN'),
+  isClient: () => (get().user?.roles ?? []).includes('CLIENT'),
 }));
 
 /** Take over a session another tab created or rotated, without writing it back or re-broadcasting. */

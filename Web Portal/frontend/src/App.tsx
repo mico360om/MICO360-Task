@@ -2,6 +2,8 @@ import { lazy, Suspense, type ComponentType } from 'react';
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { ProtectedRoute, returnPathFrom } from './features/auth/ProtectedRoute';
 import { AdminRoute } from './features/auth/AdminRoute';
+import { ClientRoute, HomeRedirect, StaffRoute } from './features/auth/RoleRoutes';
+import { landingPathFor } from './features/auth/client-routes';
 import { AppShell } from './components/AppShell';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -26,6 +28,7 @@ const NotificationsPage = lazyPage(() => import('./pages/NotificationsPage'), 'N
 const ReportsPage = lazyPage(() => import('./pages/ReportsPage'), 'ReportsPage');
 const UsersPage = lazyPage(() => import('./pages/UsersPage'), 'UsersPage');
 const CompaniesPage = lazyPage(() => import('./pages/CompaniesPage'), 'CompaniesPage');
+const ClientsPage = lazyPage(() => import('./pages/ClientsPage'), 'ClientsPage');
 const SettingsPage = lazyPage(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MyTasksPage = lazyPage(() => import('./pages/MyTasksPage'), 'MyTasksPage');
 const AuditPage = lazyPage(() => import('./pages/AuditPage'), 'AuditPage');
@@ -52,6 +55,18 @@ const AboutPage = lazyPage(() => import('./pages/AboutPage'), 'AboutPage');
 // Temporary: the forms manager moves to the Templates page's "Inspection forms" tab (not in the menu).
 // One inspection: carried out on a phone (it keeps working without signal) or at a desk.
 const InspectionPage = lazyPage(() => import('./pages/InspectionPage'), 'InspectionPage');
+// 1.23 The Client portal: client accounts only, in its own small shell (none of the staff app mounts).
+// One file for all its pages (pages/portal/index.ts), fetched once.
+const loadPortal = () => import('./pages/portal');
+const PortalShell = lazyPage(loadPortal, 'PortalShell');
+const PortalHomePage = lazyPage(loadPortal, 'PortalHomePage');
+const PortalProjectLayout = lazyPage(loadPortal, 'PortalProjectLayout');
+const PortalProjectIndex = lazyPage(loadPortal, 'PortalProjectIndex');
+const PortalProgressTab = lazyPage(loadPortal, 'PortalProgressTab');
+const PortalTaskPage = lazyPage(loadPortal, 'PortalTaskPage');
+const PortalMeetingsTab = lazyPage(loadPortal, 'PortalMeetingsTab');
+const PortalMeetingPage = lazyPage(loadPortal, 'PortalMeetingPage');
+const PortalMeetingLink = lazyPage(loadPortal, 'PortalMeetingLink');
 
 /** Lightweight fallback while a route chunk loads — no layout shift, respects reduced motion. */
 function RouteFallback() {
@@ -62,11 +77,16 @@ function RouteFallback() {
   );
 }
 
-/** /login: once signed in, continue to the page that was originally asked for (deep links survive sign-in). */
+/**
+ * /login: once signed in, continue to the page that was originally asked for (deep links survive
+ * sign-in) — on the right side for the account: a client lands on the portal (or the portal page
+ * asked for; an invitation's /meetings/<id> link opens that meeting there), staff never on it.
+ */
 function LoginRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
   const location = useLocation();
-  return isAuthenticated ? <Navigate to={returnPathFrom(location.state)} replace /> : <LoginPage />;
+  return isAuthenticated ? <Navigate to={landingPathFor(user, returnPathFrom(location.state))} replace /> : <LoginPage />;
 }
 
 /**
@@ -101,6 +121,25 @@ export function App() {
         {/* A shared client follows one project: outside the staff sign-in and the app shell. */}
         <Route path="/client/:token" element={<ClientViewPage />} />
         <Route element={<ProtectedRoute />}>
+          {/* 1.23 The Client portal: a client account sees only these pages, in their own shell. */}
+          <Route element={<ClientRoute />}>
+            <Route element={<PortalShell />}>
+              <Route path="/portal" element={<PortalHomePage />} />
+              {/* An invitation email's meeting (/meetings/<id>, sent here by StaffRoute). */}
+              <Route path="/portal/meetings/:meetingId" element={<PortalMeetingLink />} />
+              <Route path="/portal/projects/:projectId" element={<PortalProjectLayout />}>
+                <Route index element={<PortalProjectIndex />} />
+                <Route path="progress" element={<PortalProgressTab />} />
+                <Route path="tasks/:taskId" element={<PortalTaskPage />} />
+                <Route path="meetings" element={<PortalMeetingsTab />} />
+                <Route path="meetings/:meetingId" element={<PortalMeetingPage />} />
+                <Route path="*" element={<PortalProjectIndex />} />
+              </Route>
+              <Route path="/portal/*" element={<Navigate to="/portal" replace />} />
+            </Route>
+          </Route>
+          {/* The staff app: a client account is sent to the portal before any of it mounts. */}
+          <Route element={<StaffRoute />}>
           <Route element={<AppShell />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/board" element={<BoardPage />} />
@@ -133,10 +172,13 @@ export function App() {
               <Route path="/admin/audit" element={<AuditPage />} />
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/companies" element={<CompaniesPage />} />
+              <Route path="/admin/clients" element={<ClientsPage />} />
             </Route>
           </Route>
+          </Route>
         </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        {/* An unknown address: the dashboard (staff, or sign-in first) — a client's portal home. */}
+        <Route path="*" element={<HomeRedirect />} />
       </Routes>
     </Suspense>
   );
