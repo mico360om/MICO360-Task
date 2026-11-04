@@ -28,8 +28,9 @@ export interface DataColumn<Row> {
   optional?: boolean;
   defaultShown?: boolean;
   /**
-   * Pinned at the start while a phone scrolls the table sideways. The first pinned column sits at the
-   * edge; a second one after it assumes the first is the 2.75rem select column (`w-11`).
+   * Pinned at the start while the table scrolls sideways (a phone; a box narrower than the table). The
+   * first pinned column sits at the edge; a second one after it assumes the first is the 2.75rem
+   * select column (`w-11`).
    */
   pin?: boolean;
   /** Not drawn on a phone (its facts are in a pinned cell there). */
@@ -77,12 +78,15 @@ export interface DataTableProps<Row> {
   rowProps?: (row: Row) => Record<string, string | undefined>;
 }
 
-/** A pinned cell on a phone: it stays at the start while the rest scrolls under it. */
-const PIN_FIRST = 'max-md:sticky max-md:start-0 max-md:z-[2] max-md:bg-surface';
-const PIN_SECOND = 'max-md:sticky max-md:start-11 max-md:z-[2] max-md:bg-surface';
+/**
+ * A pinned cell: it stays at the start while the rest scrolls under it — on a phone, and wherever the
+ * box is narrower than the table (a meeting's table beside its side column). The line after it: phones.
+ */
+const PIN_FIRST = 'sticky start-0 z-[2] bg-surface';
+const PIN_SECOND = 'sticky start-11 z-[2] bg-surface';
 const PIN_EDGE = 'max-md:shadow-[1px_0_0_rgb(var(--c-line))]';
 /** A group heading row's first cell, pinned like the title column (its background is the caller's). */
-export const PINNED_HEAD_CELL = `max-md:sticky max-md:start-0 max-md:z-[2] ${PIN_EDGE}`;
+export const PINNED_HEAD_CELL = `sticky start-0 z-[2] ${PIN_EDGE}`;
 /** A cell's usual padding and line (for a group heading row's own cells). */
 export const CELL = 'border-b border-line px-3 py-1.5 align-middle';
 
@@ -153,7 +157,9 @@ export function DataTable<Row>({
         empty ?? null
       ) : (
         <>
-          <div role="region" aria-label={label} tabIndex={0} className="card overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-brand/40 md:max-h-[calc(100dvh-7.5rem)] md:overflow-y-auto">
+          {/* `relative`: words for screen readers (absolutely placed) are held inside the box; else,
+              far along a scrolled row, they reached past it and widened the page on a phone. */}
+          <div role="region" aria-label={label} tabIndex={0} className="card relative overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-brand/40 md:max-h-[calc(100dvh-7.5rem)] md:overflow-y-auto">
             <table className="w-full border-separate border-spacing-0 text-sm">
               <caption className="sr-only">{label}</caption>
               <thead>
@@ -165,7 +171,8 @@ export function DataTable<Row>({
                         key={c.id}
                         scope="col"
                         aria-sort={sorted ? (sorted === 'asc' ? 'ascending' : 'descending') : undefined}
-                        className={`border-b border-line bg-surface px-3 py-2 text-start text-xs font-semibold uppercase tracking-wide text-ink-2 md:sticky md:top-0 md:z-[3] ${cellClass(c)} max-md:z-[3]`}
+                        // Above the rows (z 3); a pinned one above the header cells that slide under it (z 4).
+                        className={`border-b border-line bg-surface px-3 py-2 text-start text-xs font-semibold uppercase tracking-wide text-ink-2 md:sticky md:top-0 ${cellClass(c)} ${c.pin ? '!z-[4]' : '!z-[3]'}`}
                       >
                         {c.header ? (
                           c.header

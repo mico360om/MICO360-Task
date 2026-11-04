@@ -56,6 +56,11 @@ describe('DataTable', () => {
     expect(titles()).toEqual(['Beta', 'Alpha', 'Gamma']);
   });
 
+  it('its scroll box is a positioned box, so nothing inside (screen-reader words) widens the page on a phone', () => {
+    render(<Harness rows={ROWS} />);
+    expect(screen.getByRole('region', { name: 'Tasks' })).toHaveClass('relative', 'overflow-x-auto');
+  });
+
   it('sorts by a header: ascending, descending, then the page’s order again', async () => {
     const user = userEvent.setup();
     render(<Harness rows={ROWS} />);

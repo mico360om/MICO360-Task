@@ -352,7 +352,8 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
                   aria-expanded={!isFolded}
                   aria-label={`${isFolded ? 'Unfold' : 'Fold'} ${t.title}`}
                   title={isFolded ? 'Show its action items' : 'Hide its action items'}
-                  className={`grid h-6 w-6 flex-none place-items-center rounded text-ink-2 hover:bg-surface hover:text-ink ${TOUCH_SQUARE}`}
+                  // On a touch screen its 44px target reaches into the cell's padding, leaving the title its room.
+                  className={`grid h-6 w-6 flex-none place-items-center rounded text-ink-2 hover:bg-surface hover:text-ink ${TOUCH_SQUARE} [@media(pointer:coarse)]:-my-2.5 [@media(pointer:coarse)]:-ms-3`}
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`transition-transform ${isFolded ? '-rotate-90 rtl:rotate-90' : ''}`}>
                     <path d="m6 9 6 6 6-6" />

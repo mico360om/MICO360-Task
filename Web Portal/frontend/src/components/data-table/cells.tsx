@@ -75,7 +75,7 @@ export function TitleCell({
     return () => clearTimeout(t);
   }, [problem, editing]);
 
-  const words = <span dir="auto" className={`[overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>{value}</span>;
+  const words = <span dir="auto" className={`break-words ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>{value}</span>;
 
   if (!editable) {
     return (
