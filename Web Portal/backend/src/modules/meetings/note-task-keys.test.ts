@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { registerNoteRoutes } from './note-routes';
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest } from 'fastify';
 import type { NoteService } from './note-service';
 import type { NoteRecord } from './note-repository';
 import type { AuthGuard } from '../auth/auth-guard';
@@ -16,7 +16,7 @@ const note = (id: string, taskId: string | null): NoteRecord => ({
 const notes = [note('n1', 't1'), note('n2', null), note('n3', 'gone')];
 const noteService = { listNotes: async () => notes, canEditMeeting: async () => true } as unknown as NoteService;
 const guard: AuthGuard = {
-  authenticate: async (req) => { (req as unknown as { user: { id: string; roles: string[] } }).user = { id: 'u1', roles: ['EMPLOYEE'] }; },
+  authenticate: async (req: FastifyRequest) => { (req as unknown as { user: { id: string; roles: string[] } }).user = { id: 'u1', roles: ['EMPLOYEE'] }; },
 } as unknown as AuthGuard;
 
 async function app(extra: Partial<Parameters<typeof registerNoteRoutes>[1]> = {}) {

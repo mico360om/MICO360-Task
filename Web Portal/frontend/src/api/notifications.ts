@@ -14,6 +14,8 @@ export interface ApiNotification {
   /** 1.22: the project it is about, with its look (none for a notice about no project). */
   projectId?: string | null;
   project?: { id: string; name: string; color: string | null; icon: string | null; imageUrl: string | null } | null;
+  /** 1.22.3: the current number of the task it is about (shown as the chip; null for any other notice). */
+  taskKey?: string | null;
 }
 
 /** One cache for the bell and the Notifications page, so read state always agrees. */

@@ -12,7 +12,7 @@ import { useAuthStore } from '../stores/auth-store';
 // browser), day groups with each kind's icon and the project, Mark read / unread, Remove with Undo,
 // several at once, pages of 50 ("Show older", "That's everything"), and the bell still right.
 
-type Row = { id: string; type: string; title: string; body?: string | null; readAt: string | null; createdAt: string; projectId?: string | null; project?: unknown; entityType?: string | null; entityId?: string | null };
+type Row = { id: string; type: string; title: string; body?: string | null; readAt: string | null; createdAt: string; projectId?: string | null; project?: unknown; entityType?: string | null; entityId?: string | null; taskKey?: string | null };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 const today = (hh: number, mm: number) => {
@@ -188,6 +188,15 @@ describe('the list', () => {
     expect(row.querySelector('[data-kind-icon="mention"]')).not.toBeNull();
     expect(within(row).getByText(/^\d{2}:\d{2}$/)).toBeInTheDocument();
     expect(within(row).getByText('RIG-4 · Pressure test')).toHaveAttribute('dir', 'auto');
+  });
+
+  it('a task notice shows the task’s current number as the chip, and the number only once (1.22.3)', async () => {
+    pages = () => ({ data: [{ ...ROWS[0]!, taskKey: 'OPS-17' }, ...ROWS.slice(1)], nextCursor: null });
+    renderPage();
+    const row = (await screen.findByText('You were mentioned in a comment')).closest('li')!;
+    expect(within(row).getByText('OPS-17')).toHaveAttribute('data-task-key', 'OPS-17');
+    expect(within(row).getByText('Pressure test')).toHaveAttribute('dir', 'auto');
+    expect(row).not.toHaveTextContent('RIG-4');
   });
 
   it('says a read one more quietly than an unread one', async () => {

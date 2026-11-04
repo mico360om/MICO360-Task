@@ -4,6 +4,7 @@ import { apiClient } from '../api/client';
 import { notificationsApi, NOTIFICATIONS_KEY, UNREAD_COUNT_KEY } from '../api/notifications';
 import { notificationTarget, useOpenNotification } from '../lib/notification-links';
 import { relativeTime } from '../lib/relative-time';
+import { TaskKey, bodyWithoutKey } from './TaskKey';
 
 /**
  * Header notifications bell: unread badge + dropdown list + mark-all-read (T6.3). Clicking a
@@ -99,7 +100,15 @@ export function NotificationsBell() {
                       {n.readAt ? null : <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle" aria-hidden="true" />}
                       {n.title}
                     </p>
-                    {n.body ? <p dir="auto" className="line-clamp-2 text-xs text-ink-2">{n.body}</p> : null}
+                    {/* 1.22.3: the task's number now, as the chip; the words then skip the number they start with. */}
+                    {n.taskKey ? (
+                      <p className="flex min-w-0 items-baseline gap-1.5">
+                        <TaskKey value={n.taskKey} />
+                        {bodyWithoutKey(n.body, n.taskKey) ? <span dir="auto" className="line-clamp-2 min-w-0 text-xs text-ink-2">{bodyWithoutKey(n.body, n.taskKey)}</span> : null}
+                      </p>
+                    ) : n.body ? (
+                      <p dir="auto" className="line-clamp-2 text-xs text-ink-2">{n.body}</p>
+                    ) : null}
                     {relativeTime(n.createdAt) ? <time dateTime={n.createdAt} className="text-[11px] text-ink-2">{relativeTime(n.createdAt)}</time> : null}
                   </button>
                 </li>

@@ -14,6 +14,20 @@ describe('planReminders', () => {
     expect(out[1]!.userId).toBe('u2');
   });
 
+  it('names the task by its number and title, like every other task notice (1.22.3): "MICO-142 · Ship"', () => {
+    const out = planReminders(
+      [
+        { id: 't1', key: 'MICO-142', title: 'Ship', dueDate: yesterday, assigneeIds: ['u1'] },
+        { id: 't2', key: 'MICO-143', title: 'Soon', dueDate: inOneHour, assigneeIds: ['u1'] },
+      ],
+      { now },
+    );
+    expect(out.map((n) => [n.type, n.title, n.body])).toEqual([
+      ['TASK_OVERDUE', 'A task is overdue', 'MICO-142 · Ship'],
+      ['TASK_DUE_SOON', 'A task is due soon', 'MICO-143 · Soon'],
+    ]);
+  });
+
   it('emits a due-soon reminder for a task within the window', () => {
     const out = planReminders([{ id: 't1', title: 'Soon', dueDate: inOneHour, assigneeIds: ['u1'] }], { now });
     expect(out[0]).toMatchObject({ type: 'TASK_DUE_SOON', entityId: 't1' });

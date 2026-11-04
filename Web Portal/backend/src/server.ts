@@ -837,7 +837,7 @@ async function main(): Promise<void> {
     // Tasks of deleted projects are gone for everyone — no more reminders for them.
     const tasks = await prisma.task.findMany({
       where: { deletedAt: null, dueDate: { not: null }, project: { is: { deletedAt: null } } },
-      select: { id: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
+      select: { id: true, key: true, title: true, dueDate: true, completedAt: true, approvalRequestedAt: true, column: { select: { category: true } }, watchers: { select: { userId: true } }, ...taskAudienceSelect },
     });
     // Each user's reminder lead time comes from their notification preferences (default window otherwise).
     const { users, activeIds, adminIds, companiesOf } = await sweepAudience();
@@ -849,6 +849,7 @@ async function main(): Promise<void> {
     const planned = planReminders(
       tasks.map((t) => ({
         id: t.id,
+        key: t.key, // 1.22.3: "MICO-142 · Title"
         title: t.title,
         dueDate: t.dueDate,
         completedAt: t.completedAt,

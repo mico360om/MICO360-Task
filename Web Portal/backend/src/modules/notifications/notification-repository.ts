@@ -21,6 +21,13 @@ export interface NotificationProject {
   imageUrl: string | null;
 }
 
+/** 1.22.3: a task a notice is about — its current number, and the project it is in now. */
+export interface NotificationTaskKey {
+  id: string;
+  key: string;
+  projectId: string;
+}
+
 /** One page of a person's list (1.22): newest first, by time and then id. */
 export interface NotificationListOptions {
   /** Only rows older than this one (the previous page's last row). */
@@ -86,4 +93,6 @@ export interface NotificationRepository {
   bulk(userId: string, ids: readonly string[], action: NotificationBulkAction): Promise<number>;
   /** The projects a page of notifications is about (one that is gone or in the trash is left out). */
   projectLooks(ids: readonly string[]): Promise<NotificationProject[]>;
+  /** 1.22.3: the current numbers of the tasks a page is about (one that is gone or in the trash is left out). */
+  taskKeys(ids: readonly string[]): Promise<NotificationTaskKey[]>;
 }
