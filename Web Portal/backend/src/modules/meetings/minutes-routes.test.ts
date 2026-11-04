@@ -16,6 +16,12 @@ import type { AgendaRepository, AgendaItemRecord, CreateAgendaData, UpdateAgenda
 import type { NoteRepository, NoteRecord, CreateNoteData, UpdateNoteData } from './note-repository';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
+import { createMemoryAiJobStore } from '../ai-jobs/ai-job-store';
+import { createAiJobRunner } from '../ai-jobs/ai-job-runner';
+import { createFinalMinutesAi } from './final-minutes-ai';
+import { AiRateLimitedError } from '../ai/ai-limits';
+import { AiTimeoutError } from '../ai/ai-network';
+import { ProviderRefusedError } from '../ai/ai-completion';
 
 function meetingRepo(attendeesOf: Record<string, string[]> = {}): MeetingRepository {
   const rows = new Map<string, MeetingRecord>();
@@ -637,6 +643,234 @@ describe('Final minutes (Final MOM)', () => {
     const text = inspectPdf(args[1]).pages.flat();
     expect(text).toContain('FINAL');
     expect(text).toContain('Final Minutes of Meeting');
+  });
+});
+
+// 1.22 (§10): "Draft with AI" keeps running after the page is closed — a job, saved as the draft
+// when nothing was written meanwhile, else offered beside the minutes; the requester is told.
+describe('Final minutes: Draft with AI in the background (1.22)', () => {
+  const aiContent = { summary: 'Drafted by the AI.', discussion: [], decisions: ['Go-live moves to 1 November.'], risks: [], nextSteps: [] };
+  const theirs = { summary: 'Written by the organizer.', discussion: [], decisions: [], risks: [], nextSteps: [] };
+
+  async function setup(opts: { replies?: unknown[]; ready?: boolean; overLimit?: boolean; legacyWaitMs?: number } = {}) {
+    const attendeesOf: Record<string, string[]> = {};
+    const store = createMemoryAiJobStore();
+    const runner = createAiJobRunner({ store, owner: 'test', retryDelaysMs: [10, 10, 10] });
+    const finalMinutes = createMemoryFinalMinutesRepository();
+    const told: Array<{ userId: string; type: string; title: string; body: string; entityType: string; entityId: string }> = [];
+    const changed = vi.fn();
+    let release: () => void = () => {};
+    let held: Promise<void> | null = null;
+    const calls: string[] = [];
+    const replies = [...(opts.replies ?? [aiContent])];
+    const ai = createFinalMinutesAi({
+      jobs: runner,
+      store,
+      finalMinutes,
+      ready: async () => opts.ready ?? true,
+      checkLimits: () => {
+        if (opts.overLimit) throw new AiRateLimitedError('You’ve reached today’s AI request limit. It resets tomorrow.');
+      },
+      draftMinutesWithAi: async (facts) => {
+        calls.push(facts);
+        if (held) await held;
+        const r = replies.length > 1 ? replies.shift() : replies[0];
+        if (r instanceof Error) throw r;
+        return r;
+      },
+      notify: async (n) => void told.push(n),
+      onChanged: changed,
+      userNames: async (ids) => new Map(ids.map((i) => [i, `User ${i}`])),
+      legacyWaitMs: opts.legacyWaitMs,
+      pollMs: 5,
+    });
+    runner.register('final-minutes', ai.handler);
+    const app = await makeApp(attendeesOf, undefined, undefined, { finalMinutesRepository: finalMinutes, finalMinutesAi: ai, onFinalMinutesChanged: changed });
+    const organizer = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
+    const attendee = { authorization: `Bearer ${await tokenFor('u2', ['EMPLOYEE'])}` };
+    // Another editor (an administrator), writing the minutes while the AI drafts.
+    const admin = { authorization: `Bearer ${await tokenFor('u9', ['ADMIN'])}` };
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: organizer, payload: { title: 'Weekly review', startAt: '2026-10-14T06:00:00Z' } })).json().data.id as string;
+    attendeesOf[id] = ['u2'];
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/notes`, headers: organizer, payload: { type: 'DECISION', body: 'Go-live moves to 1 November.' } });
+    const call = (method: 'GET' | 'POST' | 'PUT', path: string, who = organizer, payload?: unknown) =>
+      app.inject({ method, url: `/api/v1/meetings/${id}${path}`, headers: who, ...(payload ? { payload: payload as Record<string, unknown> } : {}) });
+    const hold = () => {
+      held = new Promise<void>((r) => (release = r));
+    };
+    const draft = (who = organizer) => call('POST', '/final-minutes/draft', who, { source: 'ai', background: true });
+    const minutes = async (who = organizer) => (await call('GET', '/final-minutes', who)).json().data;
+    return { app, id, call, draft, minutes, runner, store, told, changed, calls, hold, release: () => release(), organizer, attendee, admin };
+  }
+
+  it('answers at once; the AI’s text is then saved as the draft and the requester is told (bell + push)', async () => {
+    const s = await setup();
+    s.hold();
+    const res = await s.draft();
+    expect(res.statusCode).toBe(202);
+    expect(res.json().data).toMatchObject({ source: 'ai', joined: false, aiDraft: { status: 'running', attempt: 1, maxAttempts: 4, requestedBy: { id: 'u1', name: 'User u1' } } });
+    expect((await s.minutes()).aiDraft).toMatchObject({ status: 'running', mine: true });
+    expect(s.calls[0]).toContain('Meeting: Weekly review');
+    // The page is closed: the job finishes on its own.
+    s.release();
+    await s.runner.idle();
+    const after = await s.minutes();
+    expect(after).toMatchObject({ status: 'DRAFT', content: aiContent, aiDraft: { status: 'saved' } });
+    expect(s.told).toEqual([]); // the page above was reading it a moment ago
+  });
+
+  it('a requester who left is told by the bell and a push: “The AI draft of the minutes for … is ready”', async () => {
+    const s = await setup();
+    await s.draft();
+    await s.runner.idle();
+    expect(s.told).toEqual([
+      { userId: 'u1', type: 'AI_DRAFT_READY', title: 'The AI draft of the minutes for “Weekly review” is ready', body: 'It was saved as the draft. Check it, then mark it final.', entityType: 'meeting', entityId: s.id },
+    ]);
+    expect(s.changed).toHaveBeenCalledWith(s.id); // open pages read the minutes again
+  });
+
+  it('a second click joins the running job: one AI call, one draft', async () => {
+    const s = await setup();
+    s.hold();
+    const [a, b] = await Promise.all([s.draft(), s.draft()]);
+    const c = await s.draft();
+    const ids = [a, b, c].map((r) => r.json().data.aiDraft.id);
+    expect(new Set(ids).size).toBe(1);
+    expect([a, b, c].map((r) => r.json().data.joined).sort()).toEqual([false, true, true]);
+    s.release();
+    await s.runner.idle();
+    expect(s.calls).toHaveLength(1);
+    expect(s.told.filter((t) => t.type === 'AI_DRAFT_READY')).toHaveLength(1);
+  });
+
+  it('someone saved the minutes meanwhile: their text stays and the AI draft is offered — Use it', async () => {
+    const s = await setup();
+    s.hold();
+    await s.draft();
+    await s.call('PUT', '/final-minutes', s.admin, { content: theirs });
+    s.release();
+    await s.runner.idle();
+    const offered = await s.minutes();
+    expect(offered).toMatchObject({ status: 'DRAFT', content: theirs, aiDraft: { status: 'ready', reason: 'changed', content: aiContent } });
+    expect(s.told[0]).toMatchObject({ type: 'AI_DRAFT_READY', body: 'The minutes were changed while the AI was drafting, so they were kept. Open them to use the AI draft, compare or discard it.' });
+    const used = await s.call('POST', `/final-minutes/ai-draft/${offered.aiDraft.id}/use`);
+    expect(used.statusCode).toBe(200);
+    expect(used.json().data).toMatchObject({ status: 'DRAFT', content: aiContent, aiDraft: null });
+    // Once only.
+    const again = await s.call('POST', `/final-minutes/ai-draft/${offered.aiDraft.id}/use`);
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.code).toBe('AI_DRAFT_GONE');
+  });
+
+  it('…or Discard: the offer goes, their text stays', async () => {
+    const s = await setup();
+    s.hold();
+    await s.draft();
+    await s.call('PUT', '/final-minutes', undefined, { content: theirs });
+    s.release();
+    await s.runner.idle();
+    const { aiDraft } = await s.minutes();
+    const res = await s.call('POST', `/final-minutes/ai-draft/${aiDraft.id}/discard`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toMatchObject({ content: theirs, aiDraft: null });
+    expect((await s.call('POST', `/final-minutes/ai-draft/${aiDraft.id}/use`)).statusCode).toBe(409);
+  });
+
+  it('marked final meanwhile: kept, the offer says so, and Use it waits for Reopen', async () => {
+    const s = await setup();
+    s.hold();
+    await s.draft();
+    await s.call('POST', '/final-minutes/approve', undefined, { content: theirs });
+    s.release();
+    await s.runner.idle();
+    const { aiDraft, status } = await s.minutes();
+    expect(status).toBe('FINAL');
+    expect(aiDraft).toMatchObject({ status: 'ready', reason: 'final' });
+    const refused = await s.call('POST', `/final-minutes/ai-draft/${aiDraft.id}/use`);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe('FINAL_MINUTES_LOCKED');
+    await s.call('POST', '/final-minutes/reopen');
+    expect((await s.call('POST', `/final-minutes/ai-draft/${aiDraft.id}/use`)).json().data).toMatchObject({ status: 'DRAFT', content: aiContent });
+  });
+
+  it('a time-out is tried again, then the draft is saved', async () => {
+    const s = await setup({ replies: [new AiTimeoutError(), new ProviderRefusedError(503, null), aiContent] });
+    await s.draft();
+    await vi.waitFor(async () => expect((await s.minutes()).aiDraft?.status).toBe('waiting'), { timeout: 2000, interval: 1 }).catch(() => {});
+    await vi.waitFor(async () => expect((await s.minutes()).content).toEqual(aiContent), { timeout: 3000 });
+    await s.runner.idle();
+    expect(s.calls).toHaveLength(3);
+  });
+
+  it('failing every try ends with the final-fail notice — on the page and by the bell — and a try again', async () => {
+    const s = await setup({ replies: [new AiTimeoutError()] });
+    await s.draft();
+    // The page was closed: nobody reads the minutes until it has failed.
+    await vi.waitFor(async () => expect((await s.store.latest('final-minutes', s.id))?.status).toBe('FAILED'), { timeout: 3000 });
+    await s.runner.idle();
+    expect(s.calls).toHaveLength(4);
+    expect((await s.minutes()).aiDraft).toMatchObject({ status: 'failed', error: 'The AI provider did not respond in time. Try again later.' });
+    expect(s.told.filter((t) => t.type === 'AI_DRAFT_FAILED')).toEqual([
+      expect.objectContaining({ title: 'Couldn’t draft the minutes for “Weekly review” with AI — try again', body: 'The AI provider did not respond in time. Try again later.', entityType: 'meeting' }),
+    ]);
+    // Trying again starts a new job; the old failure is dismissed by Discard too.
+    const { aiDraft } = await s.minutes();
+    expect((await s.call('POST', `/final-minutes/ai-draft/${aiDraft.id}/discard`)).json().data.aiDraft).toBeNull();
+  });
+
+  it('AI off, or over the person’s limit: said at once, as before — no job', async () => {
+    const off = await setup({ ready: false });
+    const res = await off.draft();
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toBe('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
+    expect(await off.store.latest('final-minutes', off.id)).toBeNull();
+    const limited = await setup({ overLimit: true });
+    const r2 = await limited.draft();
+    expect(r2.statusCode).toBe(429);
+    expect(r2.json().error.message).toBe('You’ve reached today’s AI request limit. It resets tomorrow.');
+  });
+
+  it('attendees still can’t draft, see no AI state; final minutes can’t be redrafted; the notes stay instant', async () => {
+    const s = await setup();
+    expect((await s.draft(s.attendee)).statusCode).toBe(403);
+    await s.draft();
+    await s.runner.idle();
+    expect(await s.minutes(s.attendee)).not.toHaveProperty('aiDraft');
+    await s.call('POST', '/final-minutes/approve');
+    const refused = await s.draft();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe('FINAL_MINUTES_LOCKED');
+    await s.call('POST', '/final-minutes/reopen');
+    const notes = await s.call('POST', '/final-minutes/draft', undefined, { source: 'notes' });
+    expect(notes.statusCode).toBe(200);
+    expect(notes.json().data.source).toBe('notes');
+    expect(s.calls).toHaveLength(1);
+    expect((await s.call('POST', `/final-minutes/ai-draft/nope/use`, s.attendee)).statusCode).toBe(403);
+  });
+
+  it('older apps (no background flag) still get the text in the answer — it is saved as the draft too, without a bell', async () => {
+    const s = await setup();
+    const res = await s.call('POST', '/final-minutes/draft', undefined, { source: 'ai' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual({ content: aiContent, source: 'ai' });
+    await s.runner.idle();
+    expect((await s.minutes()).content).toEqual(aiContent);
+    expect(s.told).toEqual([]);
+  });
+
+  it('older apps: a failure is said as before; a draft still running after the wait says it will be saved', async () => {
+    const failing = await setup({ replies: [new ValidationError('The AI’s draft couldn’t be read. Try again, or start from the notes.')] });
+    const res = await failing.call('POST', '/final-minutes/draft', undefined, { source: 'ai' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toBe('The AI’s draft couldn’t be read. Try again, or start from the notes.');
+    const slow = await setup({ legacyWaitMs: 30 });
+    slow.hold();
+    const late = await slow.call('POST', '/final-minutes/draft', undefined, { source: 'ai' });
+    expect(late.statusCode).toBe(409);
+    expect(late.json().error).toEqual({ code: 'AI_DRAFT_RUNNING', message: 'The AI is still drafting. It will be saved as the draft, and you’ll be told when it’s ready.' });
+    slow.release();
+    await slow.runner.idle();
+    expect((await slow.minutes()).content).toEqual(aiContent);
   });
 });
 

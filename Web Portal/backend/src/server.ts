@@ -211,6 +211,9 @@ import { hashPassword } from './lib/password';
 import { createEmailService } from './modules/email/email-service';
 import { createMeetingNotifyService } from './modules/meetings/meeting-notify-service';
 import { createMeetingReminderService } from './modules/meetings/meeting-reminder-service';
+import { createPrismaAiJobStore } from './modules/ai-jobs/prisma-ai-job-store';
+import { createAiJobRunner } from './modules/ai-jobs/ai-job-runner';
+import { createFinalMinutesAi } from './modules/meetings/final-minutes-ai';
 import { createPrismaMeetingReminderSource, createPrismaMeetingReminderStore } from './modules/meetings/prisma-meeting-reminders';
 import { configureBrand } from './modules/email/brand';
 import { chooseTransport } from './modules/email/outbox-transport';
@@ -1104,6 +1107,33 @@ async function main(): Promise<void> {
   // Answers a restart cut off (pending past the time limit) are marked interrupted, so no chat stays blocked.
   void micoAiService.interruptStale().catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
 
+  // 1.22 (§10): AI work that keeps running in the background after the page is closed — the Final
+  // MOM's "Draft with AI". Jobs in ai_jobs: this server starts the ones it is asked for at once, and
+  // every server sweeps every 15 s for due ones (a retry's wait over, or a stopped server's job), each
+  // taken under a renewed lease so several servers never run one twice and a restart resumes it.
+  const aiJobStore = createPrismaAiJobStore(prisma);
+  const aiJobs = createAiJobRunner({ store: aiJobStore, logger });
+  const aiJobArchive = createPrismaArchiveLookup(prisma);
+  const finalMinutesAi = createFinalMinutesAi({
+    jobs: aiJobs,
+    store: aiJobStore,
+    finalMinutes: createPrismaFinalMinutesRepository(prisma),
+    draftMinutesWithAi: (facts, requester, opts) => aiFeatureService.draftMinutes(facts, requester, opts),
+    ready: () => aiFeatureService.chatReady(),
+    checkLimits: (userId) => aiFeatureService.checkLimits(userId),
+    // The bell, the phone push and the live pop-up for the person who asked.
+    notify: (n) => notificationService.notify(n),
+    // An archived project's minutes are not changed in the background: the draft is offered instead.
+    isArchived: async (meetingId) => {
+      const subject = await aiJobArchive.subjectOf('meeting', meetingId);
+      return !!subject?.projectId && (await aiJobArchive.isArchived(subject.projectId));
+    },
+    onChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:updated'),
+    userNames: resolveUserNames,
+  });
+  aiJobs.register('final-minutes', finalMinutesAi.handler);
+  aiJobs.startSweeps();
+
   // Per-date boards: each night carry still-open tasks onto today's board. Config lives in
   // system settings (admin-editable) — carryForward.enabled + carryForward.statuses — with defaults.
   const carryForwardService = createCarryForwardService({
@@ -1723,6 +1753,8 @@ async function main(): Promise<void> {
     // The minutes email's "Sent" log (meeting_minutes_sends) and the Cc suggestions.
     minutesSendRepository: createPrismaMinutesSendRepository(prisma),
     draftMinutesWithAi: (facts: string, requester: { userId: string; roles?: string[] }) => aiFeatureService.draftMinutes(facts, requester),
+    // 1.22 (§10): …in the background — answered at once, kept as the draft (or offered) when ready.
+    finalMinutesAi,
     // Final minutes saved, approved or reopened: `meeting:updated`, which every client (the apps
     // since 2a included) already answers by loading the meeting, its final minutes and the lists.
     onFinalMinutesChanged: (meetingId: string) => broadcastMeetingChange(meetingId, 'meeting:updated'),

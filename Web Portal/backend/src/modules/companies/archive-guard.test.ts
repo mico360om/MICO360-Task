@@ -190,6 +190,18 @@ describe('1.22 lanes M, B and N: their write routes are said for', () => {
     }
   });
 
+  it('lane AI: using the AI’s offered draft is refused in an archived project; putting it away is not', async () => {
+    const use = 'POST /meetings/:id/final-minutes/ai-draft/:jobId/use';
+    expect(ARCHIVE_REFUSED[use]).toBe('meeting');
+    expect((await ask(use, 'arch')).statusCode).toBe(409);
+    expect((await ask(use, 'live')).statusCode).toBe(200);
+    const discard = 'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard';
+    expect(ARCHIVE_ALLOWED[discard]).toMatch(/don’t change/);
+    expect((await ask(discard, 'arch')).statusCode).toBe(200);
+    // Asking for the AI's draft was already refused there (POST …/final-minutes/draft).
+    expect(ARCHIVE_REFUSED['POST /meetings/:id/final-minutes/draft']).toBe('meeting');
+  });
+
   it('lane B: the Activity calendar adds reads only (no write route under /activity)', () => {
     expect(ROUTE_CLASSES['GET /activity']).toBe('list');
     expect(Object.keys(ROUTE_CLASSES).filter((k) => /^(POST|PUT|PATCH|DELETE) \/activity/.test(k))).toEqual([]);

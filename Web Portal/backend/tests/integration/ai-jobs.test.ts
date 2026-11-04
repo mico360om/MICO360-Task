@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { createPrismaAiJobStore } from '../../src/modules/ai-jobs/prisma-ai-job-store';
 import { createAiJobRunner, type AiJobHandler } from '../../src/modules/ai-jobs/ai-job-runner';
 import { createPrismaMicoAiRepository } from '../../src/modules/mico-ai/prisma-mico-ai-repository';
+import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/final-minutes-repository';
+import { createFinalMinutesAi } from '../../src/modules/meetings/final-minutes-ai';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied. 1.22 (§10): AI jobs in the
 // ai_jobs table — one active job per thing, a take that two servers can't both win, a lease that a
@@ -17,6 +19,7 @@ const error = { message: 'The AI service is busy right now (HTTP 429). Try again
 
 async function cleanup() {
   await prisma.aiJob.deleteMany({ where: { requestedById: USER } });
+  await prisma.meetingMinutes.deleteMany({ where: { meeting: { organizerId: USER } } });
 }
 
 beforeAll(async () => {
@@ -140,5 +143,52 @@ describe('AI jobs in the database (integration)', () => {
     expect(calls).toHaveLength(1);
     expect(kept).toEqual([j.id]);
     expect(await store.get(j.id)).toMatchObject({ status: 'DONE', outcome: 'SAVED', attempts: 1 });
+  });
+
+  it('the Final MOM over the database: saved as the draft when nothing changed, offered when someone saved meanwhile', async () => {
+    const finalMinutes = createPrismaFinalMinutesRepository(prisma);
+    const runner = createAiJobRunner({ store, owner: 'srv-1' });
+    let release: () => void = () => {};
+    let held: Promise<void> | null = null;
+    const told: string[] = [];
+    const ai = createFinalMinutesAi({
+      jobs: runner,
+      store,
+      finalMinutes,
+      draftMinutesWithAi: async () => {
+        if (held) await held;
+        return { summary: 'Drafted by the AI.', decisions: ['Ship it'] };
+      },
+      notify: async (n) => void told.push(n.body),
+    });
+    runner.register('final-minutes', ai.handler);
+    const viewer = { userId: USER, roles: ['EMPLOYEE'] };
+    // A first draft: nothing written before or since.
+    await ai.start(viewer, meetingId, { title: 'AI jobs weekly', facts: async () => 'Meeting: AI jobs weekly' }, null);
+    await runner.idle();
+    const first = (await finalMinutes.get(meetingId))!;
+    expect(first.content.summary).toBe('Drafted by the AI.');
+    expect(await ai.view(meetingId, first, USER)).toMatchObject({ status: 'saved' });
+    // Redraft from that save: replaced, since nobody saved after it (the timestamps match to the millisecond).
+    await ai.start(viewer, meetingId, { title: 'AI jobs weekly', facts: async () => 'x' }, first);
+    await runner.idle();
+    const second = (await finalMinutes.get(meetingId))!;
+    expect(second.savedAt.getTime()).toBeGreaterThanOrEqual(first.savedAt.getTime());
+    expect(await ai.view(meetingId, second, USER)).toMatchObject({ status: 'saved' });
+    // Someone saves while the AI drafts: theirs is kept and the AI's offered.
+    held = new Promise<void>((r) => (release = r));
+    await ai.start(viewer, meetingId, { title: 'AI jobs weekly', facts: async () => 'x' }, second);
+    await new Promise((r) => setTimeout(r, 5));
+    await finalMinutes.save(meetingId, { content: { summary: 'Mine.', discussion: [], decisions: [], risks: [], nextSteps: [] }, status: 'DRAFT', approvedById: null, approvedAt: null });
+    release();
+    await runner.idle();
+    const kept = (await finalMinutes.get(meetingId))!;
+    expect(kept.content.summary).toBe('Mine.');
+    const offer = await ai.view(meetingId, kept, USER);
+    expect(offer).toMatchObject({ status: 'ready', reason: 'changed', content: { summary: 'Drafted by the AI.' } });
+    expect(told.at(-1)).toMatch(/changed while the AI was drafting/);
+    await ai.use(meetingId, offer!.id);
+    expect((await finalMinutes.get(meetingId))!.content.summary).toBe('Drafted by the AI.');
+    await expect(ai.use(meetingId, offer!.id)).rejects.toMatchObject({ status: 409 });
   });
 });

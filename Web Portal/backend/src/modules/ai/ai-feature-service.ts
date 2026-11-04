@@ -137,6 +137,11 @@ export function createAiFeatureService({
     usage.startQuestion(userId);
   }
 
+  /** 1.22: throws the person's limit (429) when one more request would be over it — counts nothing (work asked for in the background). */
+  function checkLimits(userId: string): void {
+    usage.check(userId);
+  }
+
   /** Break a task into 3–7 short checklist steps. */
   async function breakdownTask(input: { title: string; description?: string }, requester?: AiRequester): Promise<string[]> {
     const text = await run(
@@ -397,7 +402,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, startMicoAiQuestion };
+  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, startMicoAiQuestion, checkLimits };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;

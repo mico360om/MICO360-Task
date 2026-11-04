@@ -53,6 +53,7 @@ export function createPrismaAiJobStore(prisma: PrismaClient): AiJobStore {
               status: 'QUEUED',
               nextTryAt: now,
               input: input.input as Prisma.InputJsonValue,
+              watchedAt: input.watched ? now : null,
             },
           });
           return { job: toRecord(row), joined: false };

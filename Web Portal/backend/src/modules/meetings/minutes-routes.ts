@@ -19,6 +19,7 @@ import type { AuditService } from '../audit/audit-service';
 import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesSendOptions, type RecipientResult } from './meeting-notify-service';
 import type { MinutesSendAddress, MinutesSendRepository } from './minutes-send-repository';
 import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
+import type { FinalMinutesAi } from './final-minutes-ai';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -88,6 +89,11 @@ export interface MinutesRouteDeps {
   finalMinutes?: FinalMinutesRepository;
   /** Asks the AI for a draft of the final minutes from the meeting's facts (the person's AI limits apply). */
   draftMinutesWithAi?: (facts: string, requester: { userId: string; roles?: string[] }) => Promise<unknown>;
+  /**
+   * 1.22 (§10): "Draft with AI" as background work — answered at once, saved as the draft (or offered
+   * beside the minutes) when it's ready, the requester told. Without it, the request waits for the AI.
+   */
+  finalMinutesAi?: FinalMinutesAi;
   /**
    * The final minutes were saved, approved or reopened: the meeting's live event, so the people on it
    * (and the lists showing how far its minutes are) see the change without reloading.
@@ -493,8 +499,12 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
     const forbidden = { error: { code: 'FORBIDDEN', message: 'Only the organizer, the project manager or an admin can write the final minutes.' } };
     const hasContent = (c: FinalMinutesContent) => Boolean(c.summary || c.discussion.length || c.decisions.length || c.risks.length || c.nextSteps.length);
 
-    /** What a person sees: editors see a draft too; everyone else sees the minutes only once they are final. */
-    const view = async (rec: FinalMinutesRecord | null, editor: boolean) => {
+    const ai = deps.finalMinutesAi;
+    /**
+     * What a person sees: editors see a draft too; everyone else sees the minutes only once they are
+     * final. 1.22: an editor also sees the AI's work on them (`aiDraft`), when it runs in the background.
+     */
+    const view = async (rec: FinalMinutesRecord | null, editor: boolean, req?: FastifyRequest, meetingId?: string) => {
       const shown = rec && (editor || rec.status === 'APPROVED') ? rec : null;
       const approver = shown?.approvedById ?? null;
       const approverName = approver ? ((await deps.resolveUserNames([approver])).get(approver) ?? null) : null;
@@ -505,6 +515,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         approvedBy: approver ? { id: approver, name: approverName } : null,
         approvedAt: shown?.approvedAt ? shown.approvedAt.toISOString() : null,
         canEdit: editor,
+        ...(ai && editor && req && meetingId ? { aiDraft: await ai.view(meetingId, rec, req.user!.id) } : {}),
       };
     };
 
@@ -518,23 +529,53 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         if (rec?.status !== 'APPROVED') return reply.status(404).send(notFound);
         return { data: await view(rec, false) };
       }
-      return { data: await view(await store.get(id), await canEdit(req, id)) };
+      return { data: await view(await store.get(id), await canEdit(req, id), req, id) };
     });
 
-    // A first draft for the organizer to edit: written by the AI from the meeting's facts, or from the notes.
-    // It isn't kept until it is saved.
-    const draftBody = z.object({ source: z.enum(['ai', 'notes']) });
+    // A first draft for the organizer to edit: from the notes (at once; not kept until it is saved), or
+    // written by the AI from the meeting's facts. 1.22: the AI's runs in the background — `background`
+    // pages get 202 and follow it (aiDraft); older apps wait for the text, as before, and it is kept too.
+    const draftBody = z.object({ source: z.enum(['ai', 'notes']), background: z.boolean().optional() });
     app.post('/meetings/:id/final-minutes/draft', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
       const { id } = req.params as { id: string };
       if (!(await canView(req, id))) return reply.status(404).send(notFound);
       if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
-      const { source } = draftBody.parse(req.body ?? {});
+      const { source, background } = draftBody.parse(req.body ?? {});
+      if (source === 'ai' && ai) {
+        const current = await store.get(id);
+        const viewer = { userId: req.user!.id, roles: req.user!.roles ?? [] };
+        const facts = async () => minutesFacts((await gather(req, id)).data);
+        const { job, joined } = await ai.start(viewer, id, { title: (await meetingService.getMeeting(id)).title, facts, waiting: !background }, current);
+        if (!joined) deps.onFinalMinutesChanged?.(id);
+        if (background) return reply.status(202).send({ data: { source, joined, aiDraft: await ai.view(id, current, viewer.userId, { watch: false }) } });
+        return { data: { content: await ai.waitForContent(job.id, id), source } };
+      }
       const { data } = await gather(req, id);
       if (source === 'notes') return { data: { content: draftFromNotes(data), source } };
       if (!deps.draftMinutesWithAi) throw new ValidationError('AI is not configured yet — an admin needs to add a provider and enable a chat model in AI Management.');
       const raw = await deps.draftMinutesWithAi(minutesFacts(data), { userId: req.user!.id, roles: req.user!.roles ?? [] });
       return { data: { content: normalizeFinalMinutes(raw), source } };
     });
+
+    if (ai) {
+      // 1.22: the AI's draft offered beside minutes someone saved meanwhile — Use it (it becomes the
+      // draft; not over final minutes) or Discard it (a failure's notice too). Editors only.
+      const offerParams = z.object({ id: z.string().min(1), jobId: z.string().min(1).max(64) });
+      app.post('/meetings/:id/final-minutes/ai-draft/:jobId/use', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id, jobId } = offerParams.parse(req.params);
+        if (!(await canView(req, id))) return reply.status(404).send(notFound);
+        if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
+        const saved = await ai.use(id, jobId);
+        return { data: await view(saved, true, req, id) };
+      });
+      app.post('/meetings/:id/final-minutes/ai-draft/:jobId/discard', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id, jobId } = offerParams.parse(req.params);
+        if (!(await canView(req, id))) return reply.status(404).send(notFound);
+        if (!(await canEdit(req, id))) return reply.status(403).send(forbidden);
+        await ai.discard(id, jobId);
+        return { data: await view(await store.get(id), true, req, id) };
+      });
+    }
 
     const contentBody = z.object({ content: z.unknown() });
     app.put('/meetings/:id/final-minutes', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -547,7 +588,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       }
       const saved = await store.save(id, { content, status: 'DRAFT', approvedById: null, approvedAt: null });
       deps.onFinalMinutesChanged?.(id);
-      return { data: await view(saved, true) };
+      return { data: await view(saved, true, req, id) };
     });
 
     // Mark the minutes final: the content sent along (what is on screen), else what was saved.
@@ -561,7 +602,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       if (!content || !hasContent(content)) throw new ValidationError('Write the final minutes before marking them final.');
       const saved = await store.save(id, { content, status: 'APPROVED', approvedById: req.user!.id, approvedAt: new Date() });
       deps.onFinalMinutesChanged?.(id);
-      return { data: await view(saved, true) };
+      return { data: await view(saved, true, req, id) };
     });
 
     app.post('/meetings/:id/final-minutes/reopen', { preHandler: guard.authenticate }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -572,7 +613,7 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
       if (!current) throw new NotFoundError('There are no final minutes to reopen.');
       const saved = await store.save(id, { content: current.content, status: 'DRAFT', approvedById: null, approvedAt: null });
       deps.onFinalMinutesChanged?.(id);
-      return { data: await view(saved, true) };
+      return { data: await view(saved, true, req, id) };
     });
   }
 }

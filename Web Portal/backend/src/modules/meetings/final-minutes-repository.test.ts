@@ -12,6 +12,28 @@ describe('final minutes storage (memory)', () => {
     expect(await repo.get('m1')).toEqual(saved);
   });
 
+  // 1.22 (§10): the AI's draft, finished in the background, is saved only when nobody wrote anything
+  // since it was asked for (and the minutes aren't final) — never over someone's own words.
+  it('saves only when nothing was written since (none then, or the same save), never over final minutes', async () => {
+    let t = new Date('2026-11-04T08:00:00Z');
+    const repo = createMemoryFinalMinutesRepository(() => t);
+    const draft = { content, status: 'DRAFT' as const, approvedById: null, approvedAt: null };
+    t = new Date('2026-11-04T08:01:00Z');
+    expect(await repo.saveIfUnchanged('m1', null, draft)).toMatchObject({ content, status: 'DRAFT', savedAt: t });
+    // Something was written meanwhile: a first draft that finds minutes already there is not saved.
+    expect(await repo.saveIfUnchanged('m1', null, { ...draft, content: { ...content, summary: 'AI' } })).toBeNull();
+    // The same save as when it was asked for: replaced (Redraft with AI); any other: kept.
+    const asked = (await repo.get('m1'))!.savedAt;
+    t = new Date('2026-11-04T08:02:00Z');
+    expect(await repo.saveIfUnchanged('m1', asked, { ...draft, content: { ...content, summary: 'AI again' } })).toMatchObject({ savedAt: t });
+    expect(await repo.saveIfUnchanged('m1', asked, { ...draft, content: { ...content, summary: 'stale' } })).toBeNull();
+    expect((await repo.get('m1'))!.content.summary).toBe('AI again');
+    // Final minutes are never replaced, even unchanged since.
+    const final = await repo.save('m2', { content, status: 'APPROVED', approvedById: 'u1', approvedAt: t });
+    expect(await repo.saveIfUnchanged('m2', final.savedAt, draft)).toBeNull();
+    expect((await repo.get('m2'))!.status).toBe('APPROVED');
+  });
+
   it('a draft can be taken back out (MICO AI’s Undo of a first draft): the meeting has none again', async () => {
     const repo = createMemoryFinalMinutesRepository();
     await repo.save('m1', { content, status: 'DRAFT', approvedById: null, approvedAt: null });
@@ -39,9 +61,37 @@ describe('final minutes storage (database)', () => {
           const had = rows.delete(where.meetingId);
           return { count: had ? 1 : 0 };
         },
+        async create({ data }: { data: Record<string, unknown> }) {
+          if (rows.has(data.meetingId as string)) throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+          const row = { id: 'x', ...data };
+          rows.set(data.meetingId as string, row);
+          return row;
+        },
+        async updateMany({ where, data }: { where: { meetingId: string; generatedAt: Date; status: { not: string } }; data: Record<string, unknown> }) {
+          const row = rows.get(where.meetingId);
+          if (!row || (row.generatedAt as Date).getTime() !== where.generatedAt.getTime() || row.status === where.status.not) return { count: 0 };
+          rows.set(where.meetingId, { ...row, ...data });
+          return { count: 1 };
+        },
       },
     };
   }
+
+  it('the AI’s background draft: saved only over the very save it was asked from, never over final minutes', async () => {
+    const prisma = fakePrisma();
+    let t = new Date('2026-11-04T08:00:00Z');
+    const repo = createPrismaFinalMinutesRepository(prisma as never, () => t);
+    const draft = { content, status: 'DRAFT' as const, approvedById: null, approvedAt: null };
+    expect(await repo.saveIfUnchanged('m1', null, draft)).toMatchObject({ status: 'DRAFT', savedAt: t });
+    expect(await repo.saveIfUnchanged('m1', null, draft)).toBeNull();
+    const asked = t;
+    t = new Date('2026-11-04T08:05:00Z');
+    expect(await repo.saveIfUnchanged('m1', asked, { ...draft, content: { ...content, summary: 'AI' } })).toMatchObject({ savedAt: t, content: { summary: 'AI' } });
+    expect(prisma.rows.get('m1')).toMatchObject({ clientVisible: false, generatedAt: t });
+    expect(await repo.saveIfUnchanged('m1', asked, draft)).toBeNull();
+    await repo.save('m2', { content, status: 'APPROVED', approvedById: 'u1', approvedAt: t });
+    expect(await repo.saveIfUnchanged('m2', t, draft)).toBeNull();
+  });
 
   it('keeps the content as JSON in the minutes row, with the status and who approved it', async () => {
     const prisma = fakePrisma();

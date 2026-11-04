@@ -104,6 +104,8 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'POST /meetings/:id/final-minutes/approve': 'meeting',
   'POST /meetings/:id/final-minutes/reopen': 'meeting',
   'PUT /meetings/:id/client-visibility': 'meeting',
+  // 1.22 Lane AI (§10): using the AI's offered draft writes the minutes.
+  'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'meeting',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */
@@ -170,6 +172,8 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /notifications/:id/unread': 'the person’s own notification, not a change to its project',
   'DELETE /notifications/:id': 'the person’s own notification, not a change to its project',
   'POST /notifications/bulk': 'the person’s own notifications, not a change to any project',
+  // 1.22 Lane AI (§10): putting the AI's offer (or a failure's notice) away changes nothing in the minutes.
+  'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'putting away the AI’s offered draft: the minutes don’t change',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

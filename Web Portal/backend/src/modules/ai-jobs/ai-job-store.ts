@@ -55,6 +55,8 @@ export interface NewAiJob {
   input: Record<string, unknown>;
   meetingId?: string | null;
   messageId?: string | null;
+  /** The requester is watching it from the start (a request that waits for it): no bell when it ends. */
+  watched?: boolean;
 }
 
 export type AiJobEnd = { status: 'DONE'; result: unknown } | { status: 'FAILED'; error: AiJobError };
@@ -127,7 +129,7 @@ export function createMemoryAiJobStore(): AiJobStore & { rows: Map<string, AiJob
         outcome: null,
         outcomeAt: null,
         error: null,
-        watchedAt: null,
+        watchedAt: input.watched ? now : null,
         createdAt: now,
         startedAt: null,
         finishedAt: null,
