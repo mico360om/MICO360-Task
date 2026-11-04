@@ -217,3 +217,40 @@ describe('a provider refusal is not our own HTTP status', () => {
     expect((err as { providerStatus: number }).providerStatus).toBe(401);
   });
 });
+
+describe('complete with pictures (1.23 OCR)', () => {
+  const picture = { data: Buffer.from([0xff, 0xd8, 0xff, 0x01]), mimeType: 'image/jpeg' };
+  const take = (reply: unknown) => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init!.body)) });
+      return new Response(JSON.stringify(reply), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  };
+
+  it('OpenAI-compatible: the prompt and each picture as content parts (data URLs)', async () => {
+    const { calls, fetchImpl } = take({ choices: [{ message: { content: 'PERMIT TO WORK' } }] });
+    const model: ChatModel = { provider: { kind: 'custom', apiBaseUrl: 'https://ai.example.com/v1', apiKey: 'k', preset: 'mico360' }, modelKey: 'glm-ocr' };
+    expect(await complete(model, { prompt: 'Read it', images: [picture] }, fetchImpl)).toBe('PERMIT TO WORK');
+    const messages = calls[0]!.body.messages as Array<{ role: string; content: unknown }>;
+    expect(messages.at(-1)!.content).toEqual([
+      { type: 'text', text: 'Read it' },
+      { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${picture.data.toString('base64')}` } },
+    ]);
+  });
+
+  it('Anthropic: base64 image blocks before the text', async () => {
+    const { calls, fetchImpl } = take({ content: [{ type: 'text', text: 'ok' }] });
+    await complete({ provider: { kind: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', apiKey: 'a' }, modelKey: 'claude-x' }, { prompt: 'Read it', images: [picture] }, fetchImpl);
+    const content = (calls[0]!.body.messages as Array<{ content: unknown[] }>)[0]!.content;
+    expect(content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: picture.data.toString('base64') } });
+    expect(content[1]).toEqual({ type: 'text', text: 'Read it' });
+  });
+
+  it('Ollama: the pictures beside the message', async () => {
+    const { calls, fetchImpl } = take({ message: { content: 'ok' } });
+    await complete({ provider: { kind: 'ollama', apiBaseUrl: 'http://localhost:11434', apiKey: '' }, modelKey: 'llava' }, { prompt: 'Read it', images: [picture] }, fetchImpl, { allowPrivateHosts: true });
+    expect((calls[0]!.body.messages as unknown[]).at(-1)).toEqual({ role: 'user', content: 'Read it', images: [picture.data.toString('base64')] });
+  });
+});

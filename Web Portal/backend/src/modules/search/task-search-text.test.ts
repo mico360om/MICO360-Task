@@ -41,6 +41,11 @@ describe('buildSearchDocument — one normalised text per task', () => {
     ]);
   });
 
+  it('1.23: keeps the description on its own too (the lead), so a match there ranks above a comment', () => {
+    expect(buildSearchDocument(source()).lead).toBe('before the shift');
+    expect(buildSearchDocument(source({ description: null })).lead).toBe('');
+  });
+
   it('leaves out what is empty', () => {
     const { doc, head } = buildSearchDocument(source({ description: null, comments: [{ body: '   ' }], contacts: [{ name: 'Sara', company: null, designation: null, email: null, phone: null, remarks: null }], formerKeys: [] }));
     expect(head).toBe('\nops-17\ncheck the scaffold');

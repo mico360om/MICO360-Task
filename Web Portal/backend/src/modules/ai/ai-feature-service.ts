@@ -3,6 +3,7 @@ import { todayKey } from '../../lib/due-date';
 import type { AiConfigRepository } from './ai-config-repository';
 import { effectiveModel, type AiConfig, type AiModel } from './ai-config';
 import { complete, COMPLETION_TIMEOUT_MS, type ChatModel } from './ai-completion';
+import { embedTexts } from './ai-embeddings';
 import { createSafeFetch } from './ai-network';
 import { createAiUsageLimiter, createConcurrencyGate, type AiUsageLimits } from './ai-limits';
 import { isValidRule, type RecurrenceRule } from '../tasks/recurrence';
@@ -140,6 +141,69 @@ export function createAiFeatureService({
   /** 1.22: throws the person's limit (429) when one more request would be over it — counts nothing (work asked for in the background). */
   function checkLimits(userId: string): void {
     usage.check(userId);
+  }
+
+  /**
+   * 1.23: an AI search question counts as one request against the person's limits (minute and day);
+   * its model calls (chat without a requester) count nothing more. Throws (429) when over a limit.
+   */
+  function startSearchQuestion(userId: string): void {
+    usage.take(userId);
+  }
+
+  /** The usable model for a capability with its provider connection, or null. */
+  function resolveFor(config: AiConfig, capability: 'ocr' | 'embedding'): { model: AiModel; chat: ChatModel } | null {
+    const model = effectiveModel(config, capability);
+    const provider = model ? config.providers.find((p) => p.id === model.providerId) : undefined;
+    return model && provider ? { model, chat: { provider, modelKey: model.modelKey, parameters: model.parameters } } : null;
+  }
+
+  /** 1.23: is an OCR model set up and usable (scanned files and pictures are read by it)? */
+  async function ocrReady(): Promise<boolean> {
+    return resolveFor(await repo.load(), 'ocr') !== null;
+  }
+
+  /**
+   * 1.23: the text in pictures (a scanned PDF's pages, a photo), read by the OCR model — work the
+   * system does for search, so no person's limit is counted; the model's concurrency limit applies.
+   */
+  async function readPictures(images: { data: Buffer; mimeType: string }[], opts: { signal?: AbortSignal } = {}): Promise<string> {
+    const found = resolveFor(await repo.load(), 'ocr');
+    if (!found) throw new ValidationError('No OCR model is set up in AI Management.');
+    const release = await gate.acquire(found.model.id, found.model.concurrencyLimit);
+    try {
+      return await complete(
+        found.chat,
+        {
+          system: 'You transcribe documents. Reply with only the text you can read in the pictures, in reading order, keeping its language. No commentary. If there is no text, reply with nothing.',
+          prompt: 'Transcribe all the text in these pictures.',
+          maxTokens: 4000,
+          images,
+        },
+        doFetch,
+        { timeoutMs: Math.max(timeoutMs, 120_000), allowPrivateHosts, signal: opts.signal },
+      );
+    } finally {
+      release();
+    }
+  }
+
+  /** 1.23: the embedding model meaning search uses, or null (no meaning search). */
+  async function embeddingModel(): Promise<{ id: string; modelKey: string } | null> {
+    const found = resolveFor(await repo.load(), 'embedding');
+    return found ? { id: found.model.id, modelKey: found.model.modelKey } : null;
+  }
+
+  /** 1.23: vectors for texts with the embedding model (and which model made them). */
+  async function embed(texts: string[], opts: { signal?: AbortSignal } = {}): Promise<{ model: string; vectors: number[][] }> {
+    const found = resolveFor(await repo.load(), 'embedding');
+    if (!found) throw new ValidationError('No embedding model is set up in AI Management.');
+    const release = await gate.acquire(found.model.id, found.model.concurrencyLimit);
+    try {
+      return { model: found.model.id, vectors: await embedTexts(found.chat, texts, doFetch, { allowPrivateHosts, signal: opts.signal }) };
+    } finally {
+      release();
+    }
   }
 
   /** Break a task into 3–7 short checklist steps. */
@@ -402,7 +466,7 @@ export function createAiFeatureService({
     return obj;
   }
 
-  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, startMicoAiQuestion, checkLimits };
+  return { breakdownTask, parseTask, parseMeeting, draftAgenda, writeMeetingDescription, summarizeProject, suggestPriority, draftMinutes, chatReady, chat, startMicoAiQuestion, checkLimits, startSearchQuestion, ocrReady, readPictures, embeddingModel, embed };
 }
 
 export type AiFeatureService = ReturnType<typeof createAiFeatureService>;

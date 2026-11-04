@@ -637,3 +637,40 @@ describe('AiFeatureService: MICO AI’s model calls', () => {
     await expect(svc.chat({ system: 'S', prompt: 'P' })).rejects.toThrow(/not configured/i);
   });
 });
+
+describe('AiFeatureService: 1.23 search — OCR, embeddings and AI search questions', () => {
+  const withModels = (models: AiConfig['models'], defaults: AiConfig['defaults'] = {}): AiConfig => ({ ...config, models: [...config.models, ...models], defaults: { ...config.defaults, ...defaults } });
+  const ocrModel = { id: 'm2', providerId: 'pr1', modelKey: 'gpt-4o-mini', displayName: 'GPT-4o mini', capabilities: ['chat', 'ocr', 'vision'] as AiConfig['models'][number]['capabilities'], parameters: {}, concurrencyLimit: 2, enabled: true, available: true, createdAt: '', updatedAt: '' };
+  const embedModel = { id: 'm3', providerId: 'pr1', modelKey: 'text-embedding-3-small', displayName: 'Embeddings', capabilities: ['embedding'] as AiConfig['models'][number]['capabilities'], parameters: {}, concurrencyLimit: 2, enabled: true, available: true, createdAt: '', updatedAt: '' };
+
+  it('OCR is ready only with a usable OCR model; it reads pictures with that model', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = (async (_u: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init!.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'HOT WORK PERMIT No. 42' } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl }).ocrReady()).toBe(false);
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(withModels([ocrModel], { ocr: 'm2' })), fetchImpl });
+    expect(await svc.ocrReady()).toBe(true);
+    expect(await svc.readPictures([{ data: Buffer.from([1, 2]), mimeType: 'image/png' }])).toBe('HOT WORK PERMIT No. 42');
+    expect(bodies[0]!.model).toBe('gpt-4o-mini');
+    expect(JSON.stringify(bodies[0]!.messages)).toContain('data:image/png;base64,');
+  });
+
+  it('embeddings: none without an embedding model; with one, vectors and its id', async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ data: [{ index: 0, embedding: [0.1, 0.2] }] }), { status: 200 })) as unknown as typeof fetch;
+    expect(await createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl }).embeddingModel()).toBeNull();
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(withModels([embedModel], { embedding: 'm3' })), fetchImpl });
+    expect(await svc.embeddingModel()).toEqual({ id: 'm3', modelKey: 'text-embedding-3-small' });
+    expect(await svc.embed(['pump'])).toEqual({ model: 'm3', vectors: [[0.1, 0.2]] });
+  });
+
+  it('an AI search question counts once against the person’s limits, its calls then none', async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: '{}' } }] }), { status: 200 })) as unknown as typeof fetch;
+    const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl, limits: { perMinute: 1, perDay: 100 } });
+    svc.startSearchQuestion('u1');
+    await svc.chat({ system: 's', prompt: 'p', json: true });
+    await svc.chat({ system: 's', prompt: 'p', json: true });
+    expect(() => svc.startSearchQuestion('u1')).toThrow(/too quickly/);
+  });
+});

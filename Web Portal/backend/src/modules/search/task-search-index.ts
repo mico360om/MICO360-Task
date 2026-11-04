@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { SEARCH_INDEX_VERSION, buildSearchDocument } from './task-search-text';
 import type { TaskSearchLive } from './task-search-matches';
+import { vocabularyWords } from './search-docs';
 
 /**
  * Keeps the task search index (task_search_index) up to date: one normalised text per task, written
@@ -89,7 +90,18 @@ const chunks = <T>(list: T[], size: number): T[][] => {
   return out;
 };
 
-export function createTaskSearchIndex({ prisma, logger, now = () => new Date() }: { prisma: PrismaClient; logger?: SearchIndexLogger; now?: () => Date }) {
+export function createTaskSearchIndex({
+  prisma,
+  logger,
+  words,
+  now = () => new Date(),
+}: {
+  prisma: PrismaClient;
+  logger?: SearchIndexLogger;
+  /** 1.23: the vocabulary of the spelling-mistake pass gets each indexed task's words. */
+  words?: { add(list: readonly string[]): Promise<void> };
+  now?: () => Date;
+}) {
   async function readStamps(ids: string[]): Promise<Map<string, string>> {
     if (ids.length === 0) return new Map();
     const rows = await prisma.$queryRaw<{ id: string; stamp: string }[]>`SELECT t.id AS id, ${stampSql} AS stamp FROM tasks t WHERE t.id IN (${Prisma.join(ids)}) AND t.deletedAt IS NULL`;
@@ -100,10 +112,11 @@ export function createTaskSearchIndex({ prisma, logger, now = () => new Date() }
     if (rows.length === 0) return;
     // The newer read wins: a sweep that read a task before a quicker refresh wrote it never puts the
     // older text back. (Columns are assigned left to right: indexedAt, which the others compare, last.)
-    await prisma.$executeRaw`INSERT INTO task_search_index (taskId, head, doc, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
+    await prisma.$executeRaw`INSERT INTO task_search_index (taskId, head, doc, lead, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
       ON DUPLICATE KEY UPDATE
         head = IF(VALUES(indexedAt) >= indexedAt, VALUES(head), head),
         doc = IF(VALUES(indexedAt) >= indexedAt, VALUES(doc), doc),
+        lead = IF(VALUES(indexedAt) >= indexedAt, VALUES(lead), lead),
         stamp = IF(VALUES(indexedAt) >= indexedAt, VALUES(stamp), stamp),
         version = IF(VALUES(indexedAt) >= indexedAt, VALUES(version), version),
         indexedAt = GREATEST(indexedAt, VALUES(indexedAt))`;
@@ -123,20 +136,24 @@ export function createTaskSearchIndex({ prisma, logger, now = () => new Date() }
       if (gone.length) await prisma.taskSearchIndex.deleteMany({ where: { taskId: { in: gone } } });
       let rows: Prisma.Sql[] = [];
       let bytes = 0;
+      const found: string[] = [];
       for (const [id, task] of live) {
-        const { head, doc } = buildSearchDocument(task);
+        const { head, doc, lead } = buildSearchDocument(task);
         const h = Buffer.from(head, 'utf8');
         const d = Buffer.from(doc, 'utf8');
-        if (rows.length && bytes + h.length + d.length > MAX_WRITE_BYTES) {
+        const l = Buffer.from(lead, 'utf8');
+        if (rows.length && bytes + h.length + d.length + l.length > MAX_WRITE_BYTES) {
           await write(rows);
           rows = [];
           bytes = 0;
         }
-        rows.push(Prisma.sql`(${id}, ${h}, ${d}, ${stamps.get(id) ?? ''}, ${SEARCH_INDEX_VERSION}, ${at})`);
-        bytes += h.length + d.length;
+        rows.push(Prisma.sql`(${id}, ${h}, ${d}, ${l}, ${stamps.get(id) ?? ''}, ${SEARCH_INDEX_VERSION}, ${at})`);
+        bytes += h.length + d.length + l.length;
         written += 1;
+        if (words) found.push(...vocabularyWords(doc));
       }
       await write(rows);
+      if (words && found.length) await words.add(found).catch((err: unknown) => logger?.error('task search: keeping new words failed', { err }));
     }
     return written;
   }

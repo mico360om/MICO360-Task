@@ -99,6 +99,20 @@ export interface MeetingListFilter {
   };
 }
 
+export type MeetingListScope = NonNullable<MeetingListFilter['scope']>;
+
+/**
+ * The scope of the plain meetings list (GET /meetings) — and of search's meetings (1.23), so the two
+ * never differ: `projectIds` are the person's projects for a list (with the pick; null = an
+ * administrator's every project); with a pick, that company's meetings (every one of them for an
+ * administrator, unless "Show my projects only" is on); `mineOnly`: an administrator with that setting on.
+ */
+export function meetingListScope(a: { userId: string; projectIds: string[] | null; pick: string | null; admin: boolean; mineOnly: boolean }): MeetingListScope {
+  return a.pick
+    ? { userId: a.userId, projectIds: a.projectIds, pick: { companyId: a.pick, everyone: a.admin && !a.mineOnly } }
+    : { userId: a.userId, projectIds: a.projectIds, ...(a.mineOnly ? { admin: true } : {}) };
+}
+
 /** Minimal facts the access layer needs to decide who can see a meeting. */
 export interface MeetingAccessCore {
   organizerId: string;

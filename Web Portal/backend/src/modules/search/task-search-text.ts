@@ -7,8 +7,11 @@ import { foldText, normalizeForSearch } from './text-normalize';
  * highlighter finds too.
  */
 
-/** Bump when what goes into the document (or how it is normalised) changes: every task is re-indexed. */
-export const SEARCH_INDEX_VERSION = 1;
+/**
+ * Bump when what goes into the document (or how it is normalised) changes: every task is re-indexed.
+ * 2 (1.23): the description is also kept on its own (`lead`).
+ */
+export const SEARCH_INDEX_VERSION = 2;
 
 /** A very long task (thousands of comments) is indexed up to this many characters. */
 export const MAX_DOC_CHARS = 2_000_000;
@@ -44,6 +47,8 @@ export interface SearchDocument {
   head: string;
   /** The head, then every other field, one item per line (so a phrase never runs from one into the next). */
   doc: string;
+  /** 1.23: the description alone (a match there ranks above one in a comment). */
+  lead: string;
 }
 
 const personName = (p: { firstName: string; lastName: string }) => `${p.firstName ?? ''} ${p.lastName ?? ''}`;
@@ -63,7 +68,7 @@ export function buildSearchDocument(src: TaskSearchSource): SearchDocument {
   ];
   const body = items.map(normalizeForSearch).filter(Boolean).join('\n');
   const doc = body ? `${head}\n${body}` : head;
-  return { head, doc: doc.length > MAX_DOC_CHARS ? doc.slice(0, MAX_DOC_CHARS) : doc };
+  return { head, doc: doc.length > MAX_DOC_CHARS ? doc.slice(0, MAX_DOC_CHARS) : doc, lead: normalizeForSearch(src.description) };
 }
 
 /** A field's text as the results show it: on one line, spaces collapsed. */

@@ -91,6 +91,35 @@ async function hideMinutesMovedAway(tx: Prisma.TransactionClient, meetingId: str
   return { meetingId, fromProjectId: shown.clientVisibleProjectId, toProjectId: projectId };
 }
 
+/**
+ * Which meetings a list shows (MeetingListFilter.scope) as a where clause — the meetings list's rule, and
+ * the one search (1.23) asks for its meetings: with a pick, the picked company's meetings only (its
+ * projects' ids only filter the person's own meetings; nothing of a project they can't see is returned);
+ * otherwise the person's own meetings (with an active company of their own) and their projects' meetings.
+ * `{}` (no condition) when the scope has none (an administrator listing everything).
+ */
+export async function meetingScopeWhere(prisma: Pick<PrismaClient, 'projectCompany' | 'companyMember'>, scope: NonNullable<MeetingListFilter['scope']>): Promise<Prisma.MeetingWhereInput> {
+  if (scope.pick) {
+    const { companyId, everyone } = scope.pick;
+    const ofCompany = (await prisma.projectCompany.findMany({ where: { companyId }, select: { projectId: true } })).map((r) => r.projectId);
+    const own: Prisma.MeetingWhereInput = everyone ? {} : { OR: [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }] };
+    return {
+      OR: [
+        { projectId: { in: scope.projectIds ?? [] } },
+        { projectId: { in: ofCompany }, ...own },
+        { projectId: null, companyId, ...own },
+      ],
+    };
+  }
+  if (scope.projectIds === null) return {};
+  // companies: being one of a meeting's people counts only with an active company of their own.
+  const or: Prisma.MeetingWhereInput[] = scope.admin || (await hasActiveCompany(prisma, scope.userId))
+    ? [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }]
+    : [{ id: '' }];
+  if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });
+  return { OR: or };
+}
+
 export function createPrismaMeetingRepository(
   prisma: PrismaClient,
   hooks: { onClientMinutesHidden?: (hidden: ClientMinutesHidden) => void } = {},
@@ -137,26 +166,8 @@ export function createPrismaMeetingRepository(
       if (filter.organizerId) where.organizerId = filter.organizerId;
       if (filter.from || filter.to) where.startAt = { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lt: filter.to } : {}) };
       // Object-level scope: non-admins see meetings they organize/attend or in their accessible projects.
-      const scope = filter.scope;
-      if (scope?.pick) {
-        // companies: the picked company's meetings only (see MeetingListFilter.scope). Its projects'
-        // ids only filter the person's own meetings; nothing of a project they can't see is returned.
-        const { companyId, everyone } = scope.pick;
-        const ofCompany = (await prisma.projectCompany.findMany({ where: { companyId }, select: { projectId: true } })).map((r) => r.projectId);
-        const own: Prisma.MeetingWhereInput = everyone ? {} : { OR: [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }] };
-        where.OR = [
-          { projectId: { in: scope.projectIds ?? [] } },
-          { projectId: { in: ofCompany }, ...own },
-          { projectId: null, companyId, ...own },
-        ];
-      } else if (scope && scope.projectIds !== null) {
-        // companies: being one of a meeting's people counts only with an active company of their own.
-        const or: Prisma.MeetingWhereInput[] = scope.admin || (await hasActiveCompany(prisma, scope.userId))
-          ? [{ organizerId: scope.userId }, { attendees: { some: { userId: scope.userId } } }]
-          : [{ id: '' }];
-        if (scope.projectIds.length > 0) or.push({ projectId: { in: scope.projectIds } });
-        where.OR = or;
-      }
+      const scoped = filter.scope ? await meetingScopeWhere(prisma, filter.scope) : {};
+      if (scoped.OR) where.OR = scoped.OR;
       // A calendar range lists every meeting in it, soonest first.
       if (filter.from || filter.to) {
         return (await prisma.meeting.findMany({ where, orderBy: { startAt: 'asc' }, take: 2000 })).map(toRecord);

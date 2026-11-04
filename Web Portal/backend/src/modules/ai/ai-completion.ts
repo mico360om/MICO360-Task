@@ -67,6 +67,8 @@ export interface CompletionInput {
    * asked in the prompt only, as before.
    */
   json?: boolean;
+  /** 1.23 OCR: pictures for the model to read with the prompt (a model that reads images). */
+  images?: { data: Buffer; mimeType: string }[];
 }
 
 export interface CompletionOptions {
@@ -100,6 +102,8 @@ export async function complete(
   const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
   let url: string;
   let body: unknown;
+  const images = input.images ?? [];
+  const b64 = (img: { data: Buffer }) => img.data.toString('base64');
 
   switch (model.provider.kind) {
     case 'anthropic':
@@ -111,7 +115,14 @@ export async function complete(
         max_tokens: maxTokens,
         temperature,
         ...(input.system ? { system: input.system } : {}),
-        messages: [{ role: 'user', content: input.prompt }],
+        messages: [
+          {
+            role: 'user',
+            content: images.length
+              ? [...images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: b64(img) } })), { type: 'text', text: input.prompt }]
+              : input.prompt,
+          },
+        ],
       };
       break;
     case 'ollama':
@@ -120,7 +131,7 @@ export async function complete(
         model: model.modelKey,
         stream: false,
         options: { temperature },
-        messages: [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: input.prompt }],
+        messages: [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: input.prompt, ...(images.length ? { images: images.map(b64) } : {}) }],
       };
       break;
     case 'openai':
@@ -128,7 +139,10 @@ export async function complete(
     default: {
       url = `${base}/chat/completions`;
       if (model.provider.apiKey) headers['Authorization'] = `Bearer ${model.provider.apiKey}`;
-      const messages = [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: input.prompt }];
+      const userContent = images.length
+        ? [{ type: 'text', text: input.prompt }, ...images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${b64(img)}` } }))]
+        : input.prompt;
+      const messages = [...(input.system ? [{ role: 'system', content: input.system }] : []), { role: 'user', content: userContent }];
       if (model.provider.kind !== 'openai') {
         // Other OpenAI-compatible services still take max_tokens.
         body = { model: model.modelKey, max_tokens: maxTokens, temperature, messages };

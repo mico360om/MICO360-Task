@@ -24,6 +24,16 @@ const MAX_SHEETS = 10;
 const MAX_ROWS = 200;
 const MAX_COLS = 30;
 
+/** How much of a file is read (the preview's own caps by default; 1.23 search reads more of it). */
+export interface OfficeLimits {
+  paragraphs: number;
+  slides: number;
+  sheets: number;
+  rows: number;
+  cols: number;
+}
+const PREVIEW_LIMITS: OfficeLimits = { paragraphs: MAX_PARAGRAPHS, slides: MAX_SLIDES, sheets: MAX_SHEETS, rows: MAX_ROWS, cols: MAX_COLS };
+
 /** The wanted parts of a zip package, name → UTF-8 text. */
 function readParts(buf: Buffer, wanted: (name: string) => boolean): Map<string, string> {
   const damaged = () => new PreviewError('The file looks damaged and can’t be previewed.');
@@ -95,13 +105,13 @@ function runsText(xml: string, prefix: 'w' | 'a'): string {
   return text;
 }
 
-function documentPreview(xml: string): OfficePreview {
+function documentPreview(xml: string, limits: OfficeLimits): OfficePreview {
   const paragraphs: string[] = [];
   let truncated = false;
   for (const m of xml.matchAll(/<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/g)) {
     const text = runsText(m[1]!, 'w');
     if (!text.trim()) continue;
-    if (paragraphs.length >= MAX_PARAGRAPHS) {
+    if (paragraphs.length >= limits.paragraphs) {
       truncated = true;
       break;
     }
@@ -110,15 +120,15 @@ function documentPreview(xml: string): OfficePreview {
   return { kind: 'document', paragraphs, truncated };
 }
 
-function slidesPreview(parts: Map<string, string>): OfficePreview {
+function slidesPreview(parts: Map<string, string>, limits: OfficeLimits): OfficePreview {
   const numbered = [...parts.keys()]
     .map((name) => ({ name, number: Number(/slide(\d+)\.xml$/.exec(name)?.[1]) }))
     .sort((a, b) => a.number - b.number);
-  const slides = numbered.slice(0, MAX_SLIDES).map(({ name, number }) => ({
+  const slides = numbered.slice(0, limits.slides).map(({ name, number }) => ({
     number,
     lines: [...parts.get(name)!.matchAll(/<a:p(?:\s[^>]*)?>([\s\S]*?)<\/a:p>/g)].map((m) => runsText(m[1]!, 'a')).filter((l) => l.trim()),
   }));
-  return { kind: 'slides', slides, truncated: numbered.length > MAX_SLIDES };
+  return { kind: 'slides', slides, truncated: numbered.length > limits.slides };
 }
 
 function columnIndex(ref: string): number {
@@ -128,7 +138,7 @@ function columnIndex(ref: string): number {
   return n - 1;
 }
 
-function sheetPreview(parts: Map<string, string>): OfficePreview {
+function sheetPreview(parts: Map<string, string>, limits: OfficeLimits): OfficePreview {
   const shared = [...(parts.get('xl/sharedStrings.xml') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) =>
     [...m[1]!.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((t) => decode(t[1]!)).join(''),
   );
@@ -139,7 +149,7 @@ function sheetPreview(parts: Map<string, string>): OfficePreview {
   }
   const declared = [...(parts.get('xl/workbook.xml') ?? '').matchAll(/<sheet\b[^>]*>/g)].map((m) => attrs(m[0]));
   const sheets: Array<{ name: string; rows: string[][]; truncated: boolean }> = [];
-  for (const [i, s] of declared.slice(0, MAX_SHEETS).entries()) {
+  for (const [i, s] of declared.slice(0, limits.sheets).entries()) {
     const target = rels.get(s['r:id'] ?? '') ?? `worksheets/sheet${i + 1}.xml`;
     const xml = parts.get(`xl/${target}`);
     if (xml === undefined) continue;
@@ -147,7 +157,7 @@ function sheetPreview(parts: Map<string, string>): OfficePreview {
     let truncated = false;
     let width = 0;
     for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>|<row\b[^>]*\/>/g)) {
-      if (rows.length >= MAX_ROWS) {
+      if (rows.length >= limits.rows) {
         truncated = true;
         break;
       }
@@ -155,7 +165,7 @@ function sheetPreview(parts: Map<string, string>): OfficePreview {
       for (const c of (row[1] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const a = attrs(c[1]!);
         const col = a.r ? columnIndex(a.r) : cells.length;
-        if (col >= MAX_COLS) {
+        if (col >= limits.cols) {
           truncated = true;
           continue;
         }
@@ -177,17 +187,18 @@ function sheetPreview(parts: Map<string, string>): OfficePreview {
   return { kind: 'sheet', sheets };
 }
 
-/** A plain-text preview of a .docx / .xlsx / .pptx file; null for anything else. */
-export function officePreview(buf: Buffer, filename: string): OfficePreview | null {
+/** A plain-text preview of a .docx / .xlsx / .pptx file; null for anything else. `limits`: read more (or less) of it. */
+export function officePreview(buf: Buffer, filename: string, limits: Partial<OfficeLimits> = {}): OfficePreview | null {
+  const caps: OfficeLimits = { ...PREVIEW_LIMITS, ...limits };
   const ext = (filename.split('.').pop() ?? '').toLowerCase();
   if (ext === 'docx') {
     const xml = readParts(buf, (n) => n === 'word/document.xml').get('word/document.xml');
     if (xml === undefined) throw new PreviewError('The file looks damaged and can’t be previewed.');
-    return documentPreview(xml);
+    return documentPreview(xml, caps);
   }
-  if (ext === 'pptx') return slidesPreview(readParts(buf, (n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)));
+  if (ext === 'pptx') return slidesPreview(readParts(buf, (n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)), caps);
   if (ext === 'xlsx') {
-    return sheetPreview(readParts(buf, (n) => n === 'xl/workbook.xml' || n === 'xl/_rels/workbook.xml.rels' || n === 'xl/sharedStrings.xml' || /^xl\/worksheets\/[^/]+\.xml$/.test(n)));
+    return sheetPreview(readParts(buf, (n) => n === 'xl/workbook.xml' || n === 'xl/_rels/workbook.xml.rels' || n === 'xl/sharedStrings.xml' || /^xl\/worksheets\/[^/]+\.xml$/.test(n)), caps);
   }
   return null;
 }

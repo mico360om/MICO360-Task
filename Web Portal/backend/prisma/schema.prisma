@@ -437,6 +437,8 @@ model TaskSearchIndex {
   head      Bytes    @db.Blob
   /// The head, then every other field, one item per line.
   doc       Bytes    @db.MediumBlob
+  /// 1.23: the normalised description on its own (a match there ranks above one in a comment).
+  lead      Bytes?   @db.MediumBlob
   /// What the sources looked like when indexed (task-search-index stampSql).
   stamp     String   @db.VarChar(512)
   /// SEARCH_INDEX_VERSION it was built with: an older one is rebuilt.
@@ -445,6 +447,91 @@ model TaskSearchIndex {
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@map("task_search_index")
+}
+
+/// 1.23 Search everything: one normalised text per searchable item other than a task (tasks keep
+/// task_search_index) — projects, meetings, meeting notes, final minutes, task files (name + the text
+/// read from them) and inspections. Binary columns, folded as text-normalize folds a query. Derived:
+/// refreshed after changes, healed by sweeps (`stamp`), rebuilt by `npm run search:rebuild`.
+model SearchIndex {
+  /// project, meeting, note, minutes, file or inspection.
+  kind      String    @db.VarChar(16)
+  recordId  String    @db.VarChar(191)
+  /// A project's own id; an inspection's project.
+  projectId String?   @db.VarChar(191)
+  /// A meeting's own id; a note's or the minutes' meeting.
+  meetingId String?   @db.VarChar(191)
+  /// A file's task.
+  taskId    String?   @db.VarChar(191)
+  /// Whose it is: a note's author, a file's uploader, an inspection's inspector.
+  personId  String?   @db.VarChar(191)
+  /// The minutes' DRAFT or APPROVED; an inspection's IN_PROGRESS or FINISHED.
+  status    String?   @db.VarChar(16)
+  /// Its date: a note written, a file added, an inspection started, the minutes approved (else drafted), a project created.
+  at        DateTime? @db.DateTime(3)
+  /// A line break, then its title (and a project's code and number).
+  head      Bytes     @db.Blob
+  /// Its main text: a description, a note, the minutes' summary, the text of a file.
+  lead      Bytes?    @db.MediumBlob
+  /// The head, then everything else it is found by, one item per line.
+  doc       Bytes     @db.MediumBlob
+  /// A meeting: what someone invited from another company may search (title, description, agenda, place).
+  limited   Bytes?    @db.MediumBlob
+  stamp     String    @db.VarChar(512)
+  version   Int
+  indexedAt DateTime  @db.DateTime(3)
+
+  @@id([kind, recordId])
+  @@index([meetingId])
+  @@index([taskId])
+  @@index([projectId])
+  @@map("search_index")
+}
+
+/// 1.23: the text read from a task file (PDF, Word, Excel, PowerPoint, CSV, text, or by AI OCR), as shown
+/// (capped), and how reading it went: READ, EMPTY (nothing to read), OCR_WAIT (a scan or a picture waiting
+/// for AI OCR), FAILED, SKIPPED (a kind of file that has no text).
+model SearchFileText {
+  fileId    String     @id
+  status    String     @db.VarChar(12)
+  /// pdf, office, text or ocr.
+  method    String?    @db.VarChar(8)
+  text      String?    @db.MediumText
+  attempts  Int        @default(0)
+  nextTryAt DateTime?
+  error     String?    @db.VarChar(300)
+  readAt    DateTime   @db.DateTime(3)
+  file      Attachment @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextTryAt])
+  @@map("search_file_texts")
+}
+
+/// 1.23: the words in the search index (normalised), for the spelling-mistake pass. Only grows; a word no
+/// longer anywhere simply finds nothing.
+model SearchWord {
+  word String @id @db.VarChar(64)
+
+  @@map("search_words")
+}
+
+/// 1.23 meaning ("semantic") search, only when an embedding model is set up: one vector per item.
+model SearchEmbedding {
+  /// task, or a search_index kind.
+  kind       String   @db.VarChar(16)
+  recordId   String   @db.VarChar(191)
+  /// The model (its id in AI Management) that made it: another model's vectors are made again.
+  model      String   @db.VarChar(191)
+  dims       Int
+  /// Float32 values, little-endian.
+  vector     Bytes    @db.MediumBlob
+  /// A hash of the text it was made from (changed text: made again).
+  textHash   String   @db.VarChar(16)
+  embeddedAt DateTime @db.DateTime(3)
+
+  @@id([kind, recordId])
+  @@index([model])
+  @@map("search_embeddings")
 }
 
 /// A task's old key, kept when it moved to another project (RIG-4 became OPS-17): looking up RIG-4
@@ -591,6 +678,8 @@ model Attachment {
   createdAt    DateTime @default(now())
   task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   uploadedBy User @relation(fields: [uploadedById], references: [id])
+  /// 1.23: the text read from it for search (derived).
+  searchText SearchFileText?
 
   @@index([taskId])
   @@map("task_attachments")
