@@ -259,11 +259,10 @@ describe('minutes time zone (MTG-01)', () => {
     expect(at({ ...data, meeting: { ...data.meeting, timeZone: 'Not/AZone' }, companyTimeZone: 'Asia/Muscat' })).toBe('13:00 – 14:30 (GMT+4)');
   });
 
-  it('shows note and footer timestamps in the same zone', () => {
+  it('shows the footer’s time in the meeting’s zone', () => {
     delete process.env.COMPANY_TIMEZONE;
     const noZone: MinutesData = { ...data, meeting: { ...data.meeting, timeZone: null } };
     const text = lines(noZone);
-    expect(text).toContain('Ada Lovelace · 13:15'); // 09:15Z decision in Muscat, on the meeting's day
     expect(text.some((t) => t.startsWith('Generated 1 Oct 2026, 15:00 by Ada Lovelace'))).toBe(true);
   });
 
@@ -362,9 +361,9 @@ describe('buildMinutesPdf: project header and layout', () => {
     const { pages, contents, objects } = inspectPdf(buildMinutesPdf({ ...data, notes: [note] }));
     const text = pages.flat();
     expect(text).toEqual(expect.arrayContaining(['Site', 'Pour the slab on Monday, no rain. See the plan (https://example.com/plan).', 'Book trucks', 'Call the pump', 'Backup pump', '1.', '2.']));
-    // In order, and attributed like any note.
+    // In order, with no author or time under it (owner, 4 Nov).
     expect(text.indexOf('Site')).toBeLessThan(text.indexOf('Book trucks'));
-    expect(text.indexOf('Backup pump')).toBeLessThan(text.indexOf('Ada Lovelace · 09:05'));
+    expect(text.some((l) => /^Ada Lovelace · \d/.test(l))).toBe(false);
     const dicts = [...objects.values()].join('\n');
     expect(dicts).toMatch(/IBMPlexSans-Italic/); // italics in the italic face
     expect(dicts).toMatch(/\/URI \(https:\/\/example\.com\/plan\)/); // the link can be clicked
@@ -403,9 +402,9 @@ describe('buildMinutesPdf: project header and layout', () => {
     const signed = text.findIndex((l) => /^Prepared by Ada Lovelace .*Approved by Grace Hopper on 2 Oct 2026, 08:00/.test(l));
     expect(signed).toBeGreaterThan(at('Draft the Q4 OKRs — Grace, by Friday'));
     expect(signed).toBeLessThan(at('Attendees'));
-    // The notes stay as they were taken, with who wrote them.
+    // The notes stay as they were taken (without who wrote them or when — owner, 4 Nov).
     expect(text.some((l) => l.includes('Team aligned on focus areas.'))).toBe(true);
-    expect(text.some((l) => l.startsWith('Ada Lovelace · '))).toBe(true);
+    expect(text.some((l) => l.startsWith('Ada Lovelace · '))).toBe(false);
   });
 
   it('prints a Final MOM that is still a draft, marked as not yet approved', () => {
@@ -558,7 +557,8 @@ describe('buildMinutesPdf: the compact layout (1.22.1)', () => {
     expect(text).toContain('Dial in: +968 2400 0000');
   });
 
-  it('puts a note’s author and time at the end of its last line, small and muted, the date only when it isn’t the meeting’s day', () => {
+  // Owner (4 Nov, 1.22.2): the minutes never print who wrote a note or when — "it should not be there".
+  it('prints no author or time under any note; a key point still says so at the end of its line', () => {
     const d: MinutesData = {
       ...data,
       notes: [
@@ -568,44 +568,26 @@ describe('buildMinutesPdf: the compact layout (1.22.1)', () => {
       ],
     };
     const all = drawn(d);
-    const note = all.find((l) => l.text === 'Team aligned on focus areas.')!;
-    const by = all.find((l) => l.text === 'Ada Lovelace · 09:05')!;
-    expect(by, 'byline with the time alone').toBeDefined();
-    expect(by.y).toBeCloseTo(note.y, 1); // on the note's own line…
-    expect(by.x).toBeGreaterThan(note.x + 200); // …at its end
-    expect(by.size).toBeLessThan(note.size);
     const texts = all.map((l) => l.text);
-    expect(texts).toContain('Grace Hopper · 2 Oct, 07:30 · Key point'); // another day: its day too
-    expect(texts).toContain('Ada Lovelace · 4 Jan 2027, 08:00'); // another year: the year too
-    expect(all.some((l) => l.text.startsWith('— '))).toBe(false); // no old-style "— Name · time" line
+    expect(texts.some((t) => /^(Ada Lovelace|Grace Hopper) · /.test(t))).toBe(false); // no "Name · time" line
+    expect(texts.some((t) => /· 09:05|2 Oct, 07:30|4 Jan 2027, 08:00/.test(t))).toBe(false); // nor the times
+    expect(texts.some((t) => t.startsWith('— '))).toBe(false);
+    const note = all.find((l) => l.text === 'Written up the next morning.')!;
+    const key = all.find((l) => l.text === 'Key point')!;
+    expect(key, 'the key point mark').toBeDefined();
+    expect(key.y).toBeCloseTo(note.y, 1); // on the note's own line…
+    expect(key.x).toBeGreaterThan(note.x + 200); // …at its end
+    expect(key.size).toBeLessThan(note.size);
+    expect(texts.filter((t) => t === 'Key point')).toHaveLength(1); // only the highlighted one
   });
 
-  it('gives the author and time a short line of their own when the note’s last line is full, at its end edge', () => {
-    const base = 'The vendor confirmed the delivery window and the site team agreed the crane booking, the permits and the road closure for the pour.';
-    const words = base.split(' ');
-    // Grow the note a word at a time until its last line has no room left for the byline beside it.
-    let body = base;
-    let found: { last: ReturnType<typeof drawn>[number]; by: ReturnType<typeof drawn>[number] } | null = null;
-    for (let i = 0; i < 60 && !found; i++) {
-      const all = drawn({ ...data, notes: [{ typeLabel: 'Discussion', type: 'DISCUSSION', body, authorName: 'Ada Lovelace', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false }] });
-      const at = all.findIndex((l) => l.text === 'Ada Lovelace · 09:05');
-      const by = all[at]!;
-      const last = all[at - 1]!; // the note's last line, drawn just before its byline
-      if (by.y > last.y + 1) found = { last, by };
-      body += ` ${words[i % words.length]}`;
-    }
-    expect(found, 'a note whose byline moved to a line of its own').not.toBeNull();
-    expect(found!.last.size).toBe(9);
-    expect(found!.by.y - found!.last.y).toBeLessThan(12); // a short line, not a full one
-    expect(found!.by.x).toBeGreaterThan(400); // flush to the right edge
-  });
-
-  it('sets an Arabic note’s author and time at the left end of its line', () => {
-    const all = drawn({ ...data, notes: [{ typeLabel: 'Discussion', type: 'DISCUSSION', body: 'ناقش الفريق خطة التوظيف.', authorName: 'خالد البلوشي', createdAt: '2026-10-01T09:05:00.000Z', highlighted: false }] });
+  it('sets an Arabic key point’s mark at the left end of its line, with no author', () => {
+    const all = drawn({ ...data, notes: [{ typeLabel: 'Discussion', type: 'DISCUSSION', body: 'ناقش الفريق خطة التوظيف.', authorName: 'خالد البلوشي', createdAt: '2026-10-01T09:05:00.000Z', highlighted: true }] });
     const note = all.find((l) => l.text === 'ناقش الفريق خطة التوظيف.')!;
-    const by = all.find((l) => l.text.includes('خالد البلوشي') && l.text.includes('09:05'))!;
-    expect(by).toBeDefined();
-    expect(by.x).toBeLessThan(note.x);
+    const key = all.find((l) => l.text === 'Key point')!;
+    expect(key).toBeDefined();
+    expect(key.x).toBeLessThan(note.x);
+    expect(all.some((l) => l.text.includes('خالد البلوشي'))).toBe(false);
   });
 
   it('marks a draft with one slim line, and opens each part with a heading, not a filled band', () => {
@@ -658,6 +640,6 @@ describe('buildMinutesPdf: the compact layout (1.22.1)', () => {
     // Everything is still there.
     const text = pages.flat();
     expect(text).toEqual(expect.arrayContaining(['Final Minutes of Meeting', 'Meeting record', 'Attendees', 'Agenda', 'Action Items', 'Notes taken during the meeting', 'Network and Telecom – Field – EXP', 'Code', 'SITEIT', 'Owner', 'Project status']));
-    expect(text.filter((l) => l.startsWith('Sam Admin · 4 Nov, '))).toHaveLength(9);
+    expect(text.some((l) => l.startsWith('Sam Admin ·'))).toBe(false); // no author or time under the notes
   });
 });

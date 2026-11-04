@@ -426,27 +426,10 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     },
   ]);
 
-  // Who wrote a note and when, small and muted at the end of its last line: the time alone on the
-  // meeting's own day; the day too when it was written on another one ("4 Nov, 17:45"), and the
-  // year when that isn't the meeting's.
-  const meetingStart = new Date(meeting.startAt);
-  const meetingDay = Number.isNaN(meetingStart.getTime()) ? null : wallClock(meetingStart, tz).slice(0, 10);
-  const writtenAt = (iso: string): string => {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    const clock = wallClock(d, tz);
-    if (clock.slice(0, 10) === meetingDay) return clock.slice(11);
-    if (clock.slice(0, 4) === meetingDay?.slice(0, 4)) return `${formatDay(clock.slice(0, 10), { year: false })}, ${clock.slice(11)}`;
-    return formatDateTime(d, tz);
-  };
-  const byline = (n: MinutesNote): string => {
-    const at = writtenAt(n.createdAt);
-    return [isolate(n.authorName), at ? isolate(at) : null, n.highlighted ? 'Key point' : null].filter(Boolean).join(' · ');
-  };
-
   /**
    * A note as an item of a list, after a bullet or its number (a formatted note keeps its
-   * formatting), with who wrote it and when at the end (on the left for an Arabic note).
+   * formatting). Owner (4 Nov, 1.22.2): no author or time under it; a key point says so, small and
+   * muted at the end of its last line (on the left for an Arabic note).
    */
   const noteItem = (n: MinutesNote, lead: string = BULLET): void => {
     let direction: 'ltr' | 'rtl';
@@ -458,7 +441,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       if (lead === BULLET) doc.bullet(n.body, { direction });
       else doc.numbered(lead, n.body, { direction });
     }
-    doc.aside(byline(n), { size: MINUTES_TYPE.byline, direction });
+    if (n.highlighted) doc.aside('Key point', { size: MINUTES_TYPE.byline, direction });
     doc.spacer(2.5);
   };
 
