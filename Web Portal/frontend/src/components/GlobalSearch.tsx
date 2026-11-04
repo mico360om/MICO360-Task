@@ -20,12 +20,15 @@ import { ariaKeyshortcuts, shortcutLabel } from '../lib/shortcuts';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { resultsQuery, type TaskSearchHit } from '../lib/search-highlight';
 import { Highlighted } from './ui/Highlighted';
+import { FoundTaskKey } from './TaskKey';
 
 interface PaletteItem {
   id: string;
   group: string;
   primary: React.ReactNode;
   hint?: string;
+  /** A found task's number (the TaskKey chip, 1.22.3) and the numbers it had before a move. */
+  taskKey?: { value: string; former?: string[] };
   /** Optional picture before the text (a project's). */
   icon?: React.ReactNode;
   /** Optional muted second line (a meeting's snippet, where a task matched). */
@@ -157,8 +160,6 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       return `Moved ${task.key} → ${col.name} ✓`;
     });
 
-  /** A found task's key — with the key it had, for a task that moved project ("OPS-17 (was RIG-4)"). */
-  const keyHint = (t: { key: string; formerKeys?: string[] }) => (t.formerKeys && t.formerKeys.length > 0 ? `${t.key} (was ${t.formerKeys.join(', ')})` : t.key);
   /** Where else a found task matched (its first place): "Comment by Bilal · 28 Oct 2026: …the scaffold permit…". */
   const whereMatched = (t: TaskSearchHit) => {
     const m = t.matches?.[0];
@@ -191,7 +192,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
 
     const r = colleaguesOnly(q.data, Array.isArray(directoryQ.data) ? directoryQ.data : []);
     if (searchEnabled && r) {
-      for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, hint: keyHint(t), secondary: whereMatched(t), run: () => openTask(t.id) });
+      for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, taskKey: { value: t.key, ...(t.formerKeys ? { former: t.formerKeys } : {}) }, secondary: whereMatched(t), run: () => openTask(t.id) });
       // Every match, with filters, on the Search results page.
       if (r.tasks.length > 0) out.push({ id: 'task-see-all', group: 'Tasks', primary: 'See all results', run: () => { navigate(`/search?${resultsQuery({ q: debounced })}`); reset(); } });
       const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
@@ -313,6 +314,8 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                         className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors [@media(pointer:coarse)]:!min-h-11 ${i === active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-ground'}`}
                       >
                         {it.icon}
+                        {/* A task's number is the chip, with the one it had before a move ("OPS-17 (was RIG-4)"). */}
+                        {it.taskKey ? <FoundTaskKey value={it.taskKey.value} former={it.taskKey.former} /> : null}
                         {it.hint ? <span className="font-mono text-xs text-ink-2">{it.hint}</span> : null}
                         <span className="min-w-0 flex-1">
                           <span dir="auto" className="block truncate text-start">{it.primary}</span>

@@ -4,6 +4,7 @@ import type { AnswerView, FollowUpView } from '../../api/inspections';
 import { effectiveResult, INSPECTION_LIMITS, limitsText, parseReading, readingText, type FormItem, type ItemResult } from '../../lib/inspection-rules';
 import { ResultChip } from './inspection-ui';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
+import { TaskKey } from '../TaskKey';
 
 export interface ItemAnswer {
   result: ItemResult | null;
@@ -302,7 +303,7 @@ export function InspectionItem({ item, number, answer, readOnly, onAnswer, follo
             <div className="mt-2 text-xs">
               {followUp?.task ? (
                 <Link to={`?task=${encodeURIComponent(followUp.task.id)}`} className={`tap inline-flex items-center gap-1 font-semibold text-brand hover:underline ${TOUCH_TALL}`}>
-                  Follow-up task: <span className="font-mono">{followUp.task.key}</span>
+                  Follow-up task: <TaskKey value={followUp.task.key} />
                   {followUp.task.deleted ? <span className="font-normal text-ink-3"> (deleted)</span> : followUp.task.done ? <span className="font-normal text-ink-2"> (done)</span> : null}
                 </Link>
               ) : followUp?.moved ? (

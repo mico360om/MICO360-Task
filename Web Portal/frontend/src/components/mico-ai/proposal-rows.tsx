@@ -18,6 +18,7 @@ import { priorityLabel, priorityOptions, PriorityBars } from '../priority-option
 import { projectOption } from '../project-option';
 import { useSourceTarget } from './AnswerParts';
 import { isProjectArchived } from '../../lib/project-archive';
+import { TaskKey } from '../TaskKey';
 
 /**
  * One change on MICO AI's card: what it will do (a new task's details; a task change as
@@ -156,7 +157,7 @@ function UpdateSummary({ item, when }: { item: UpdateTaskChange; when: When }) {
     <div className="space-y-2">
       <p className="min-w-0 [overflow-wrap:anywhere]">
         <Link to={target(item.task.url)} className="font-medium text-ink underline-offset-2 hover:underline">
-          <span className="me-1.5 rounded-md bg-ground px-1.5 py-0.5 font-mono text-xs text-ink-2">{item.task.key}</span>
+          <TaskKey value={item.task.key} className="me-1.5" />
           <span dir="auto">{item.task.title}</span>
         </Link>
         <span className="ms-1.5 text-xs text-ink-3">{item.task.project}</span>

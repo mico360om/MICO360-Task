@@ -13,6 +13,7 @@ import { BarChart } from '../components/BarChart';
 import { Reveal } from '../components/ui/Reveal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Avatar } from '../components/ui/Avatar';
+import { TaskKey, TaskKeyButton } from '../components/TaskKey';
 import { PriorityBadge } from '../components/ui/PriorityBadge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { namedProjectOption } from '../components/project-option';
@@ -348,7 +349,7 @@ function TaskRow({ task, onOpen, showDue, timeZone, stacked }: { task: ApiTask; 
         onClick={onOpen}
         className={`flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-2 py-2 text-left text-sm transition-colors hover:bg-ground sm:flex-nowrap ${stacked ? 'lg:flex-wrap 2xl:flex-nowrap' : ''}`}
       >
-        <span className="rounded-md bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{task.key}</span>
+        <TaskKey value={task.key} />
         <span dir="auto" title={task.title} className={`order-first min-w-0 flex-1 basis-full truncate text-start text-ink sm:order-none sm:basis-0 ${stacked ? 'lg:order-first lg:basis-full 2xl:order-none 2xl:basis-0' : ''}`}>{task.title}</span>
         {waitingLate ? (
           <span className="ms-auto flex flex-none"><ApprovalChip /></span>
@@ -389,7 +390,7 @@ function ActivityRow({ a, onOpenTask }: { a: ApiActivity; onOpenTask: (taskId: s
         <p className="leading-snug text-ink">
           <bdi className="font-semibold">{who}</bdi> <span className={actionTone(a.action)}>{actionLabel(a.action)}</span>{' '}
           {a.task ? (
-            <button onClick={() => onOpenTask(a.task!.id)} className="inline-flex items-center font-mono text-xs text-brand hover:underline [@media(pointer:coarse)]:!min-h-11">{a.task.key}</button>
+            <TaskKeyButton value={a.task.key} onClick={() => onOpenTask(a.task!.id)} className="align-middle" />
           ) : a.project ? (
             <bdi className="text-ink-2">{a.project.name}</bdi>
           ) : null}

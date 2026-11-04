@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Reveal } from '../ui/Reveal';
 import { relativeTime } from '../../lib/relative-time';
 import { useApprovals } from './ToApproveSection';
+import { TaskKey } from '../TaskKey';
 
 /** How many waiting tasks the card lists (the rest are on My Tasks). */
 const SHOWN = 5;
@@ -41,7 +42,7 @@ export function ApprovalsCard({ onOpenTask }: { onOpenTask: (taskId: string) => 
                   className="flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-2 py-2 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
                 >
                   <span className="flex min-w-0 items-center gap-2 text-sm">
-                    <span className="flex-none rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
+                    <TaskKey value={t.key} />
                     <bdi title={t.title} className="truncate text-ink">
                       {t.title}
                     </bdi>

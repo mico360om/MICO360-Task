@@ -26,6 +26,7 @@ import { ExportMenu, MoreActionsMenu, WatchButton } from './task-drawer/menus';
 import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/ShortcutProvider';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import type { StepDirection, TaskStepper } from '../lib/task-steps';
+import { TaskKey } from './TaskKey';
 
 /** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
 const carriedDay = (key: string) => dayText(key) || key;
@@ -352,7 +353,7 @@ export function TaskDrawer({
                 <span dir="auto" className="truncate">{project.name}</span>
               </span>
             ) : null}
-            <span className="font-mono text-xs font-semibold text-ink-2">{task.key}</span>
+            <TaskKey value={task.key} size="lg" />
             {task.formerKeys && task.formerKeys.length > 0 ? (
               // Its old numbers still find it (search, "open RIG-4").
               <span className="text-xs text-ink-3" title="Its old number still finds it in search">

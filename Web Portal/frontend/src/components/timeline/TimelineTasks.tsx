@@ -6,6 +6,7 @@ import { planningApi, timelineTasksKey, type TimelineTask, type TimelineTasksDat
 import { phoneTaskLine, shortDay, taskLabel, taskShape } from '../../lib/timeline';
 import { Glyph, ICONS, Initials, ROW } from './parts';
 import { WaitingIcon } from '../approvals/ApprovalChip';
+import { TaskKey } from '../TaskKey';
 
 /**
  * One project's task lane for the shown weeks, read when its row is opened, and again as tasks or
@@ -132,7 +133,7 @@ export function ChartTaskRows({
                   aria-label={taskLabel(t, today)}
                   className={`flex min-w-0 flex-1 items-center gap-1.5 text-start text-[12.5px] after:absolute after:inset-0 after:z-10 after:content-[''] group-hover:underline ${t.done ? 'text-ink-3' : t.overdue ? 'font-semibold text-danger' : 'text-ink'}`}
                 >
-                  <span className="flex-none font-mono text-[11px] text-ink-2">{t.key}</span>
+                  <TaskKey value={t.key} dense />
                   {t.done ? <Glyph size={13} className="text-success" data-icon="done">{ICONS.check}</Glyph> : null}
                   {t.overdue ? <Glyph size={13} data-icon="overdue">{ICONS.warning}</Glyph> : null}
                   {t.isMilestone ? <Glyph size={12} data-icon="milestone">{ICONS.diamond}</Glyph> : null}
@@ -186,7 +187,7 @@ export function PhoneTaskList({ projectId, name, range, today, onOpenTask }: { p
               <button type="button" onClick={() => onOpenTask(t.id)} className="flex w-full items-center gap-2 px-3.5 py-2 text-start hover:bg-ground/60">
                 <span className="min-w-0 flex-1">
                   <span className={`block truncate text-[13px] ${t.done ? 'text-ink-3' : 'text-ink'}`}>
-                    <span className="font-mono text-[11px] text-ink-2">{t.key}</span>
+                    <TaskKey value={t.key} />
                     <span className="ms-1.5">{t.title}</span>
                   </span>
                   <span className={`block text-xs ${t.overdue ? 'font-semibold text-danger' : 'text-ink-2'}`}>{phoneTaskLine(t, today)}</span>

@@ -172,7 +172,9 @@ describe('GlobalSearch', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't4', key: 'OPS-17', title: 'Inspect the rig', projectId: 'p2', formerKeys: ['RIG-4'] }], projects: [], users: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);
     await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'rig-4');
-    expect(await screen.findByText('OPS-17 (was RIG-4)')).toBeInTheDocument();
+    // 1.22.3: the number is the chip, its old one beside it in words.
+    expect(await screen.findByText('OPS-17')).toHaveAttribute('data-task-key', 'OPS-17');
+    expect(screen.getByText('(was RIG-4)')).toBeInTheDocument();
   });
 
   it('a task found by one of its external contacts says which one', async () => {

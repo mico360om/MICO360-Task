@@ -3,6 +3,7 @@ import { statusMeta } from '../../lib/taskStatus';
 import { filterTasks } from '../../lib/task-picker';
 import { ComboPicker } from './combo-picker';
 import { failureMessage } from './save-state';
+import { TaskKey } from '../TaskKey';
 
 export interface DrawerTaskRef {
   id: string;
@@ -36,7 +37,7 @@ function TaskLine({ t, onRemove }: { t: DrawerTaskRef; onRemove?: () => void }) 
       ) : (
         <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full bg-warning" />
       )}
-      <span className="flex-none font-mono text-xs text-ink-2">{t.key}</span>
+      <TaskKey value={t.key} />
       <span dir="auto" className={`min-w-0 flex-1 truncate ${t.done ? 'text-ink-3 line-through' : 'text-ink'}`} title={t.title}>
         {t.title}
       </span>
@@ -140,7 +141,7 @@ export function DependenciesSection({
             options={matches.map((t) => ({
               id: t.id,
               label: t.title,
-              lead: <span className="flex-none font-mono text-xs text-ink-2">{t.key}</span>,
+              lead: <TaskKey value={t.key} />,
               trail: <Status t={t} />,
             }))}
             emptyText="No task matches (a task can’t block itself or one it already blocks)."

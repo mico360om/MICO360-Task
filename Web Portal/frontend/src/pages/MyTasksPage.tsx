@@ -37,6 +37,7 @@ import { InspectionChip } from '../components/inspections/inspection-ui';
 import { ApprovalChip } from '../components/approvals/ApprovalChip';
 import { ToApproveSection } from '../components/approvals/ToApproveSection';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
+import { TaskKey } from '../components/TaskKey';
 import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
 import { TOUCH_TALL } from '../lib/touch';
@@ -588,7 +589,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         <PriorityBadge priority={t.priority} />
       </div>
       <div className="flex items-center gap-2">
-        <span className="rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
+        <TaskKey value={t.key} />
         <StatusPill category={e.cat} />
         {t.approvalRequestedAt ? <ApprovalChip /> : null}
         {t.inspectionFormId ? <InspectionChip /> : null}
@@ -631,7 +632,8 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
       {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
       {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
       <span role="img" aria-label={m.label} title={m.label} className="hidden h-2.5 w-2.5 flex-none rounded-full sm:block 2xl:hidden" style={{ background: m.color }} />
-      <span title={t.key} className="hidden w-[5.5rem] flex-none truncate whitespace-nowrap font-mono text-xs text-ink-3 sm:block">{t.key}</span>
+      {/* At least the usual width, so the titles line up; a longer number widens its row's column, never cut. */}
+      <span className="hidden min-w-[5.5rem] flex-none sm:block"><TaskKey value={t.key} /></span>
       {/* The title takes the room left; a check's Inspection chip sits at its end, so the columns
           after it line up from row to row. */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
@@ -657,7 +659,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
         <ExternalContactsLine summary={t.externalSummary} className="basis-full" />
         {/* Phones have no room for the columns: the same facts go on a second line. */}
         <div data-phone-meta className="mt-1 flex basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:hidden">
-          <span className="font-mono text-[11px] text-ink-3">{t.key}</span>
+          <TaskKey value={t.key} />
           <StatusPill category={e.cat} />
           {t.approvalRequestedAt ? <ApprovalChip /> : null}
           {t.inspectionFormId ? <InspectionChip /> : null}

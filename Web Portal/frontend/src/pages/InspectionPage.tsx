@@ -27,6 +27,7 @@ import { SignFinishDialog } from '../components/inspections/SignFinishDialog';
 import { InspectionClientSwitch } from '../components/inspections/InspectionClientSwitch';
 import { dateTimeText, dayText, followUpNotice, InspectIcon, OutcomePill, problemText } from '../components/inspections/inspection-ui';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
+import { TaskKey } from '../components/TaskKey';
 
 const api = () => inspectionsApi(apiClient);
 type Confirm = 'reopen' | 'take-over' | 'delete' | 'discard' | null;
@@ -320,7 +321,7 @@ export function InspectionPage() {
               <>
                 <span aria-hidden="true">·</span>
                 <Link to={`?task=${encodeURIComponent(d.task.id)}`} className={`tap gap-1 text-brand hover:underline ${TOUCH_TALL}`}>
-                  For <span className="font-mono">{d.task.key}</span>
+                  For <TaskKey value={d.task.key} />
                 </Link>
               </>
             ) : null}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { MicoAiSource, MicoAiTable } from '../../api/mico-ai';
 import { answerBlocks, cellDisplay, type Run } from '../../lib/mico-ai';
+import { TaskKey } from '../TaskKey';
 
 /**
  * MICO AI's mark: a sparkle drawn on the brand tile (decorative: the text around it names it). Drawn,
@@ -149,7 +150,7 @@ export function AnswerTable({ table, onExcel }: { table: MicoAiTable; onExcel?: 
                           {kind === 'text' || !kind ? (
                             <span className={`block ${textClass[j]}`}>{text}</span>
                           ) : kind === 'key' && text ? (
-                            <span className="whitespace-nowrap rounded-md bg-ground px-1.5 py-0.5 font-mono text-xs text-ink-2">{text}</span>
+                            <TaskKey value={text} />
                           ) : kind === 'days' && text ? (
                             <span className="font-semibold text-danger">{text}</span>
                           ) : (

@@ -8,6 +8,7 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { LoadError } from '../ui/LoadError';
 import { shortDay } from '../../lib/management';
 import { plural } from './parts';
+import { TaskKey } from '../TaskKey';
 
 const TONE: Record<NonNullable<ItemRow['tone']>, string> = {
   danger: 'text-danger',
@@ -50,7 +51,7 @@ function RowBody({ row, timeZone }: { row: ItemRow; timeZone: string }) {
   return (
     <>
       <span className="flex min-w-0 items-baseline gap-2">
-        {row.key ? <span className="flex-none font-mono text-xs text-ink-3">{row.key}</span> : null}
+        <TaskKey value={row.key} />
         <span className="min-w-0 truncate text-sm font-medium text-ink" title={row.title}>
           <bdi>{row.title}</bdi>
         </span>
@@ -115,7 +116,7 @@ export function ItemsSheet({
               {row.tasks.map((t) => (
                 <li key={t.id}>
                   <button type="button" onClick={() => onOpenTask(t.id)} className="flex w-full min-w-0 items-baseline gap-2 rounded-md px-2 py-1 text-start text-sm hover:bg-ground [@media(pointer:coarse)]:!min-h-11">
-                    <span className="flex-none font-mono text-xs text-ink-3">{t.key}</span>
+                    <TaskKey value={t.key} />
                     <span className="min-w-0 truncate text-ink" title={t.title}>
                       <bdi>{t.title}</bdi>
                     </span>
