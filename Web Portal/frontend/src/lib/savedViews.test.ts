@@ -35,6 +35,17 @@ describe('savedViews', () => {
     expect(reloaded[0]!.filters.priority).toBe('HIGH');
   });
 
+  it('1.23.0: keeps the table’s shown columns with a view, and doesn’t count them when matching the active one', () => {
+    saveView('Tabled', filters({ priority: 'HIGH', sort: 'title:desc', columns: 'start,tags' }));
+    const back = loadCustomViews()[0]!;
+    expect(back.filters.columns).toBe('start,tags');
+    expect(back.filters.sort).toBe('title:desc');
+    expect(filtersEqual(back.filters, filters({ priority: 'HIGH', sort: 'title:desc' }))).toBe(true);
+    // A view saved before 1.23.0 has none: applying it leaves the columns as they are.
+    saveView('Old', filters({ priority: 'LOW' }));
+    expect(loadCustomViews().find((v) => v.name === 'Old')!.filters.columns).toBeUndefined();
+  });
+
   it('replaces a view saved under an existing name rather than duplicating', () => {
     saveView('Mine', filters({ priority: 'HIGH' }));
     const after = saveView('Mine', filters({ priority: 'LOW' }));

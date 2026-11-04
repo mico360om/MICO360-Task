@@ -8,7 +8,13 @@ export interface TaskFilters {
   priority: string;
   assignee: string;
   due: string;
+  /** 'due', 'title', … — 1.23.0: also a Table view header's ('title:desc', 'status'), lib/task-table. */
   sort: string;
+  /**
+   * 1.23.0: the Table view's optional columns shown ("start,tags"), kept with a view saved since; a
+   * display choice, so not compared when finding the active view. Absent (older views): unchanged.
+   */
+  columns?: string;
 }
 
 export interface SavedView {

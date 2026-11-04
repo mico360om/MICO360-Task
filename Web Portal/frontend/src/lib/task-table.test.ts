@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ApiTask } from '../api/tasks';
 import { EMPTY_TABLE_FILTERS, ME, NO_PERSON } from './data-table';
-import { filterTaskRows, myTasksSort, myTasksSortValue, taskRowEditable, taskSortValue, type TaskTableContext } from './task-table';
+import { filterTaskRows, myTasksSort, myTasksSortLabel, myTasksSortValue, taskRowEditable, taskSortValue, type TaskTableContext } from './task-table';
 
 const base: ApiTask = {
   id: 't1',
@@ -114,5 +114,22 @@ describe('taskRowEditable', () => {
     expect(taskRowEditable(undefined, null)).toBe(false);
     // The whole table read-only (an archived project's Board tab).
     expect(taskRowEditable(open, 'archived')).toBe(false);
+  });
+});
+
+describe('myTasksSortLabel: a header sort shown in the Sort menu', () => {
+  it('words for each column and way round', () => {
+    expect(myTasksSortLabel('title')).toBe('Title (A–Z)');
+    expect(myTasksSortLabel('title:desc')).toBe('Title (Z–A)');
+    expect(myTasksSortLabel('due:desc')).toBe('Due date (latest first)');
+    expect(myTasksSortLabel('priority:desc')).toBe('Priority (lowest first)');
+    expect(myTasksSortLabel('progress:asc')).toBe('Progress (least first)');
+    expect(myTasksSortLabel('status')).toBe('Status');
+    expect(myTasksSortLabel('status:desc')).toBe('Status (reversed)');
+    expect(myTasksSortLabel('key')).toBe('Number');
+    expect(myTasksSortLabel('key:desc')).toBe('Number (highest first)');
+    expect(myTasksSortLabel('project')).toBe('Project (A–Z)');
+    expect(myTasksSortLabel('assignee:desc')).toBe('Assignee (Z–A)');
+    expect(myTasksSortLabel('start')).toBe('Start date');
   });
 });

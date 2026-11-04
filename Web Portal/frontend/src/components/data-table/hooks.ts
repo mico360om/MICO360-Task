@@ -7,15 +7,16 @@ import { readUserValue, writeUserValue } from '../../lib/user-storage';
  * A table's sort, filters and shown columns, remembered for the signed-in person on this page on this
  * device (lib/data-table's memory; cleared at sign-out like the other per-person choices).
  */
-export function useTableMemory(page: string, defaults: { shown: string[] }) {
+export function useTableMemory(page: string, defaults: { shown: string[] }, { remember = true }: { remember?: boolean } = {}) {
   const userId = useAuthStore((s) => s.user?.id);
   const [memory, setMemory] = useState<TableMemory>(() => {
-    const m = readTableMemory(useAuthStore.getState().user?.id, page);
+    const m = remember ? readTableMemory(useAuthStore.getState().user?.id, page) : readTableMemory(null, page);
     return { ...m, shown: m.shown ?? defaults.shown };
   });
   useEffect(() => {
-    writeTableMemory(userId, page, memory);
-  }, [userId, page, memory]);
+    // Not remembering: the page keeps the table's state itself (My Tasks); this one must not overwrite it.
+    if (remember) writeTableMemory(userId, page, memory);
+  }, [userId, page, memory, remember]);
   const setSort = useCallback((sort: SortState | null) => setMemory((m) => ({ ...m, sort })), []);
   const setFilters = useCallback((filters: TableFilters) => setMemory((m) => ({ ...m, filters })), []);
   const setShown = useCallback((shown: string[]) => setMemory((m) => ({ ...m, shown })), []);

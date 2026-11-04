@@ -14,6 +14,12 @@ import { ApprovalChip } from '../approvals/ApprovalChip';
 import { ExternalContactsLine } from '../ExternalContactsLine';
 import { matchesExternalContact } from '../../lib/external-contacts';
 import { TaskKey } from '../TaskKey';
+import type { ApiProject } from '../../api/projects';
+import type { ApiColumn } from '../../api/columns';
+import type { ProjectReadOnly } from '../../lib/project-archive';
+import { TaskTable } from '../data-table/TaskTable';
+import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
+import { useViewChoice } from '../data-table/hooks';
 
 export type TaskFilter = 'all' | TaskPhase | 'milestones';
 
@@ -79,10 +85,16 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
   );
 }
 
+const VIEWS = [
+  { value: 'list' as const, label: 'List', icon: VIEW_ICONS.list },
+  { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
+];
+
 /**
  * Every task of the project by status column, narrowed to ongoing, pending, overdue, completed
  * or milestone tasks, or by words (its title, key or an external contact's name or company) — with
- * priority, people, external contacts, progress and due date on each.
+ * priority, people, external contacts, progress and due date on each. 1.23.0: shown as that list or
+ * as a table (List | Table, remembered for the person), the table changed in place.
  */
 export function TasksTab({
   groups,
@@ -93,6 +105,9 @@ export function TasksTab({
   onFilter,
   onOpen,
   onNew,
+  project,
+  columns,
+  readOnly = null,
 }: {
   groups: TaskGroup[];
   today: string;
@@ -103,8 +118,15 @@ export function TasksTab({
   onOpen: (taskId: string) => void;
   /** Add a task to this project (absent when it takes no new work). */
   onNew?: () => void;
+  /** The project and its columns, for the Table view (without them there is only the list). */
+  project?: ApiProject;
+  columns?: ApiColumn[];
+  /** Archived or completed: the table is to look at. */
+  readOnly?: ProjectReadOnly | null;
 }) {
   const [q, setQ] = useState('');
+  const [chosenView, setView] = useViewChoice('project-tasks.view', ['list', 'table'] as const, 'list');
+  const view = project && columns ? chosenView : 'list';
   const all = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
   const counts = useMemo(() => {
     const c: Record<TaskFilter, number> = { all: all.length, ongoing: 0, pending: 0, overdue: 0, completed: 0, milestones: 0 };
@@ -147,12 +169,27 @@ export function TasksTab({
             </button>
           ))}
         </div>
-        <label className="relative sm:w-60">
-          <span className="sr-only">Find a task</span>
-          <input type="search" data-page-search value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…" className="h-9 [@media(pointer:coarse)]:h-11 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="relative min-w-0 flex-1 sm:w-60 sm:flex-none">
+            <span className="sr-only">Find a task</span>
+            <input type="search" data-page-search value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…" className="h-9 [@media(pointer:coarse)]:h-11 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+          </label>
+          {project && columns ? <ViewSwitch label="Show tasks as" value={view} onChange={setView} options={VIEWS} /> : null}
+        </div>
       </div>
-      {shown.length === 0 ? (
+      {view === 'table' && project && columns ? (
+        // The tab's phase chips and words apply; the rows as the list has them, column by column.
+        <TaskTable
+          page="project-tasks"
+          label={`Tasks of ${project.name}`}
+          tasks={shown.flatMap((g) => g.tasks)}
+          projects={[project]}
+          columns={columns}
+          readOnly={readOnly}
+          onOpen={(id) => onOpen(id)}
+          empty={<EmptyNote>No tasks match.</EmptyNote>}
+        />
+      ) : shown.length === 0 ? (
         <EmptyNote>No tasks match.</EmptyNote>
       ) : (
         shown.map((g) => (

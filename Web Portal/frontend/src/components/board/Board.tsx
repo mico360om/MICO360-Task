@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
-import { columnsApi } from '../../api/columns';
+import { columnsApi, type ApiColumn } from '../../api/columns';
 import { tasksApi, type ApiTask } from '../../api/tasks';
 import type { ApiProject } from '../../api/projects';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../../lib/board-date';
@@ -38,14 +38,22 @@ import { useMyProjectsOnly } from '../../lib/useMyProjectsOnly';
 import { MyProjectsLine } from '../projects/MyProjectsLine';
 import { isArchivedRefusal } from '../../stores/archived-notice-store';
 import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archive';
+import { TaskTable } from '../data-table/TaskTable';
+import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
+import { useViewChoice } from '../data-table/hooks';
 
-type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
+/** The board's columns and cards — and (1.23.0, for its Table view) the project's columns and tasks as the server sent them. */
+type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string>; apiColumns?: ApiColumn[]; tasks?: ApiTask[] };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
 
 const errorText = (e: unknown, fallback: string) => (e instanceof ApiError && e.message ? e.message : fallback);
 // Admin-triggered carry-forward runs at most once per app session (the server sweep handles the rest).
 let carriedThisSession = false;
 const NO_PROJECTS: ReadonlySet<string> = new Set();
+const VIEWS = [
+  { value: 'board' as const, label: 'Board', icon: VIEW_ICONS.board },
+  { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
+];
 
 export interface BoardProps {
   /** The project whose board this is, or ALL_PROJECTS (every project's, under six statuses); undefined: none (yet). */
@@ -72,6 +80,11 @@ export interface BoardProps {
    * to look at: no New task, column "+", Manage columns, card menu or dragging, and it says why.
    */
   readOnly?: ProjectReadOnly | null;
+  /**
+   * 1.23.0: where Board | Table is remembered for the person — the Board page's own (the default), or a
+   * project page's Board tab's ('project-board'); its table remembers its sort, filters and columns there too.
+   */
+  viewPlace?: 'board' | 'project-board';
 }
 
 /**
@@ -80,7 +93,7 @@ export interface BoardProps {
  * task panel (Previous / Next follow the columns), the people strip, column management, live
  * updates and the N shortcut — or, on the Board page, All projects under six shared statuses.
  */
-export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null }: BoardProps) {
+export function Board({ projectId, projects, list, linking = false, hiddenProjects = NO_PROJECTS, header, onRemoved, readOnly = null, viewPlace = 'board' }: BoardProps) {
   const qc = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin());
   // A card's task opens in the app shell's task panel, through ?task= in the address (reload, Back, a shared link).
@@ -92,6 +105,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   const [newTaskColumn, setNewTaskColumn] = useState('');
   const [newTaskStatus, setNewTaskStatus] = useState<TaskCategory | undefined>(undefined);
   const [moveError, setMoveError] = useState(false);
+  // 1.23.0: the board, or its day's tasks as a table (changed in place).
+  const [view, setView] = useViewChoice(`${viewPlace}.view`, ['board', 'table'] as const, 'board');
   const [columnError, setColumnError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // A card's "Move to another project…": the task being moved, then what happened.
@@ -181,7 +196,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
         columnsApi(apiClient).list(projectId as string),
         tasksApi(apiClient).list(projectId, boardDate),
       ]);
-      return { columns: composeBoard(columns, tasks), idByKey: Object.fromEntries(tasks.map((t) => [t.key, t.id])) };
+      return { columns: composeBoard(columns, tasks), idByKey: Object.fromEntries(tasks.map((t) => [t.key, t.id])), apiColumns: columns, tasks };
     },
   });
 
@@ -359,6 +374,12 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     [isAll, allQ.data, boardQ.data],
   );
 
+  // The Table view's rows: the board's cards in its order, as the server sent them.
+  const tableTasks = useMemo(() => {
+    const raw = new Map((isAll ? allQ.data ?? [] : boardQ.data?.tasks ?? []).map((t) => [t.key, t]));
+    return boardColumns.flatMap((c) => c.tasks.map((card) => raw.get(card.key)).filter((t): t is ApiTask => Boolean(t)));
+  }, [isAll, allQ.data, boardQ.data, boardColumns]);
+
   /**
    * New task, in the column it was started from (a column's "+" or empty box), else the first. On
    * All projects, in that kind of column of whichever project is chosen in the form.
@@ -442,7 +463,8 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A laptop, or a tablet with room: the board is the rest of the window's height and each column
   // scrolls by itself, its header always in view. A phone scrolls the page. So does the page while
   // columns are being managed: that list sits above the board and can be long.
-  const fit = useMediaQuery(BOARD_FIT_QUERY) && !manageColumns;
+  // (The table scrolls in its own box: the page scrolls as on a phone.)
+  const fit = useMediaQuery(BOARD_FIT_QUERY) && !manageColumns && view === 'board';
   const pageRef = useRef<HTMLDivElement>(null);
   const pageTop = useFrameOffset(pageRef, fit);
 
@@ -515,6 +537,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
               Jump to today
             </button>
           ) : null}
+          <ViewSwitch label="Show the board as" value={view} onChange={setView} options={VIEWS} />
           {companies.length > 0 || company ? (
             <div className="w-48" title={company || EXTERNAL_CONTACT_WORDS.anyCompany}>
               <SearchableSelect
@@ -604,6 +627,21 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
             </button>
           </p>
         ) : null}
+        {view === 'table' ? (
+          // The day's cards as rows, column by column (the board's order), the company filter applied.
+          <TaskTable
+            page={viewPlace}
+            label={isAll ? `All projects on ${formatKeyLabel(boardDate)}` : `${project?.name ?? 'Board'} on ${formatKeyLabel(boardDate)}`}
+            tasks={tableTasks}
+            projects={isAll ? shownProjects : projects}
+            columns={isAll ? undefined : boardQ.data?.apiColumns}
+            showProject={isAll}
+            readOnly={locked ? readOnly : null}
+            filterBar
+            onOpen={(id, ids) => openTask(id, ids)}
+            empty={<span />}
+          />
+        ) : (
         <div className={fit ? 'min-h-0 flex-1' : undefined}>
         <KanbanBoard
           fit={fit}
@@ -623,6 +661,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
           }}
         />
         </div>
+        )}
         </div>
       )}
 

@@ -27,6 +27,17 @@ describe('useTableMemory', () => {
   });
 });
 
+describe('useTableMemory without remembering', () => {
+  it('neither reads nor writes (a page that keeps the table’s state itself)', () => {
+    localStorage.setItem('mico360.u.u1.table.mytasks', JSON.stringify({ sort: { column: 'title', dir: 'asc' }, filters: {}, shown: ['tags'] }));
+    const { result } = renderHook(() => useTableMemory('mytasks', { shown: [] }, { remember: false }));
+    expect(result.current.sort).toBeNull();
+    expect(result.current.shown).toEqual([]);
+    act(() => result.current.setShown(['start']));
+    expect(JSON.parse(localStorage.getItem('mico360.u.u1.table.mytasks')!).shown).toEqual(['tags']);
+  });
+});
+
 interface Row {
   id: string;
   title: string;

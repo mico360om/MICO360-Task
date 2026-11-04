@@ -452,7 +452,20 @@ export function ProjectDetailPage() {
         {tab === 'board' ? <BoardTab key={id} project={project} readOnly={readOnly} /> : null}
 
         {tab === 'tasks' ? (
-          <TasksTab groups={groups} today={today} timeZone={timeZone} loading={tasksQ.isLoading || columnsQ.isLoading} filter={taskFilter} onFilter={setTaskFilter} onOpen={setOpenTaskId} onNew={canSchedule ? () => setNewTask(true) : undefined} />
+          <TasksTab
+            groups={groups}
+            today={today}
+            timeZone={timeZone}
+            loading={tasksQ.isLoading || columnsQ.isLoading}
+            filter={taskFilter}
+            onFilter={setTaskFilter}
+            onOpen={setOpenTaskId}
+            onNew={canSchedule ? () => setNewTask(true) : undefined}
+            // 1.23.0: List | Table — the table changed in place, read-only on an archived or completed project.
+            project={project}
+            columns={columns}
+            readOnly={readOnly}
+          />
         ) : null}
 
         {tab === 'meetings' ? (

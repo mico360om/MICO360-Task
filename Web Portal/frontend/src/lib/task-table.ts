@@ -94,6 +94,26 @@ export function myTasksSortValue(sort: SortState | null): string {
   return sort.dir === myTasksFirstDir(sort.column) ? sort.column : `${sort.column}:${sort.dir}`;
 }
 
+/** Each column's words in the Sort menu: its name, then its first way and the other way round. */
+const SORT_WORDS: Record<string, [string, string, string]> = {
+  due: ['Due date', '', ' (latest first)'],
+  priority: ['Priority', '', ' (lowest first)'],
+  progress: ['Progress', '', ' (least first)'],
+  title: ['Title', ' (A–Z)', ' (Z–A)'],
+  key: ['Number', '', ' (highest first)'],
+  status: ['Status', '', ' (reversed)'],
+  project: ['Project', ' (A–Z)', ' (Z–A)'],
+  assignee: ['Assignee', ' (A–Z)', ' (Z–A)'],
+  start: ['Start date', '', ' (latest first)'],
+};
+
+/** A My Tasks sort value in the Sort menu's words ("Title (Z–A)", "Due date (latest first)"). */
+export function myTasksSortLabel(value: string): string {
+  const s = myTasksSort(value);
+  const [name, first, other] = SORT_WORDS[s.column] ?? ['Due date', '', ' (latest first)'];
+  return name + (s.dir === myTasksFirstDir(s.column) ? first : other);
+}
+
 /**
  * May this row be changed in the table? Today's rule (owner, 5 Nov): anyone on a project may change
  * any of its tasks — so yes, unless the whole table is read-only, its project is archived or

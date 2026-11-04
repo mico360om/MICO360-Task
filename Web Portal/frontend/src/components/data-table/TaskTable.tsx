@@ -113,7 +113,8 @@ export function TaskTable({
   const { weekStart } = useDateSettings();
   const today = todayKey(timeZone);
   const week = weekDays(today, weekStart);
-  const memory = useTableMemory(page, { shown: [] });
+  // A page that keeps the sort and columns itself (My Tasks) has the table remember nothing of its own.
+  const memory = useTableMemory(page, { shown: [] }, { remember: !(pageSort !== undefined && pageShown !== undefined) });
   const sort = pageSort !== undefined ? pageSort : memory.sort;
   const setSort = onSortChange ?? memory.setSort;
   const shown = pageShown ?? memory.shown;
