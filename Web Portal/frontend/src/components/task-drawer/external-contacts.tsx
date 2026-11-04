@@ -235,6 +235,8 @@ export function ContactEditor({
 }) {
   const base = useId();
   const [draft, setDraft] = useState<ExternalContactFields>(() => fieldsOf(initial));
+  // 1.22 review: typed and not saved yet — the task panel asks before Previous / Next drops it.
+  const changed = ORDER.some((f) => (draft[f] ?? '') !== (initial[f] ?? ''));
   const [problems, setProblems] = useState<Problems>({});
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -311,7 +313,7 @@ export function ContactEditor({
   );
 
   return (
-    <div ref={rootRef} role="group" aria-labelledby={`${base}-title`} className="rounded-xl border border-line bg-ground/40 p-3">
+    <div ref={rootRef} role="group" aria-labelledby={`${base}-title`} data-unsaved={changed || undefined} className="rounded-xl border border-line bg-ground/40 p-3">
       <h4 id={`${base}-title`} className="mb-2 text-sm font-semibold text-ink">
         {title}
       </h4>

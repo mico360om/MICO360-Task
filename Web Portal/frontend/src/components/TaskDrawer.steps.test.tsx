@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { ShortcutProvider } from './shortcuts/ShortcutProvider';
 import { TaskDrawer, type TaskStepper } from './TaskDrawer';
 import type { ApiTask } from '../api/tasks';
+import { ExternalContactsSection } from './task-drawer/external-contacts';
 
 // 1.22: Previous / Next in the task panel's header — through the list the task was opened from.
 const task: ApiTask = {
@@ -96,6 +97,41 @@ describe('the task panel’s Previous / Next', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Add a comment' }), 'On my way');
     screen.getByRole('button', { name: 'Close' }).focus();
     press('KeyJ', 'j');
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  // 1.22 review W1: a half-typed external contact was dropped by Next / J without asking.
+  it('a half-typed external contact counts as unsaved too (Next and J ask); an opened but empty one does not', async () => {
+    const onNext = vi.fn();
+    const contacts = <ExternalContactsSection contacts={[{ id: 'x1', name: 'Ahmed Saleh', company: 'Oxy', designation: null, email: null, phone: null, remarks: null }]} onAdd={vi.fn()} onSave={vi.fn()} />;
+    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { externalContacts: contacts });
+    await userEvent.click(screen.getByRole('button', { name: 'Add a contact' }));
+    const form = screen.getByRole('group', { name: 'Add an external contact' });
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
+    expect(onNext).toHaveBeenCalledTimes(1); // nothing typed yet
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Company' }), 'Petroleum Dev');
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
+    const ask = screen.getByRole('alertdialog', { name: 'Discard your changes?' });
+    await userEvent.click(within(ask).getByRole('button', { name: 'Keep editing' }));
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(within(form).getByRole('textbox', { name: 'Company' })).toHaveValue('Petroleum Dev');
+    screen.getByRole('button', { name: 'Close' }).focus();
+    press('KeyJ', 'j');
+    expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('a contact being changed counts as unsaved once it differs from what is saved', async () => {
+    const onNext = vi.fn();
+    const contacts = <ExternalContactsSection contacts={[{ id: 'x1', name: 'Ahmed Saleh', company: 'Oxy', designation: null, email: null, phone: null, remarks: null }]} onAdd={vi.fn()} onSave={vi.fn()} />;
+    drawer({ position: 2, total: 3, onPrevious: vi.fn(), onNext }, { externalContacts: contacts });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Ahmed Saleh' }));
+    const form = screen.getByRole('group', { name: 'Edit the external contact' });
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
+    expect(onNext).toHaveBeenCalledTimes(1); // opened, not changed
+    await userEvent.type(within(form).getByRole('textbox', { name: 'Phone' }), '+968 9912');
+    await userEvent.click(screen.getByRole('button', { name: 'Next task' }));
     expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
     expect(onNext).toHaveBeenCalledTimes(1);
   });
