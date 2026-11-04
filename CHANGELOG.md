@@ -92,6 +92,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - System Settings → Daily email: one email per person; days before the change still show the
   "Completed yesterday" email they had.
 
+### Bug fixes
+- On a phone, the company picker's list ran off the right edge of the screen and cut company names
+  there; it now stays on the screen (on a tablet too).
+
 ## [1.21.0] - 2026-11-04
 
 ### New features

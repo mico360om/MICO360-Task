@@ -64,6 +64,26 @@ describe('CompanyPicker', () => {
     expect(screen.getByRole('menu', { name: 'Company' }).className).toMatch(/\bw-80\b/);
   });
 
+  // 1.22 QA: on a phone (375) and a 768px tablet the menu, 320px wide from the button's left edge,
+  // ran off the right of the screen and cut the names there.
+  it('the menu stays on the screen: moved in from the edge it would run past', async () => {
+    const width = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const menu = this.getAttribute('role') === 'menu';
+      return (menu ? { left: 170, right: 490, width: 320, top: 60, bottom: 300, height: 240 } : { left: 170, right: 214, width: 44, top: 8, bottom: 52, height: 44 }) as DOMRect;
+    });
+    try {
+      renderPicker([alpha, beta]);
+      await userEvent.click(screen.getByRole('button', { name: /^Company/ }));
+      // 490 - 375 + 8: moved 123px towards the start, so its right edge is 8px inside the screen.
+      expect(screen.getByRole('menu', { name: 'Company' }).style.translate).toBe('-123px 0');
+    } finally {
+      rect.mockRestore();
+      if (width) Object.defineProperty(window, 'innerWidth', width);
+    }
+  });
+
   it('arrow keys go round, Home and End jump, Enter picks', async () => {
     renderPicker([beta, alpha]);
     await userEvent.click(screen.getByRole('button', { name: 'Company: All my companies' }));

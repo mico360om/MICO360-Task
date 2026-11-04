@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useMyCompanies } from '../../hooks/useMyCompanies';
 import { ALL_COMPANIES_LABEL, pickLabel } from '../../lib/companies';
 import { useMediaQuery } from '../../lib/useMediaQuery';
@@ -48,6 +48,22 @@ export function CompanyPicker({ place = 'bar' }: { place?: 'bar' | 'menu' } = {}
   const button = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const menuId = useId();
+  const menu = useRef<HTMLDivElement>(null);
+  // How far the open menu is moved so it stays on the screen (it opens from the button's start edge).
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open) {
+      setShift(0);
+      return;
+    }
+    const r = menu.current?.getBoundingClientRect();
+    if (!r) return;
+    const screen = document.documentElement.clientWidth || window.innerWidth;
+    let by = 0;
+    if (r.right > screen - 8) by = screen - 8 - r.right;
+    if (r.left + by < 8) by = 8 - r.left;
+    setShift(Math.round(by));
+  }, [open]);
 
   const current = companies.find((c) => c.id === pick) ?? null;
   const options: Option[] = [{ id: null, name: ALL_COMPANIES_LABEL, logoUrl: null }, ...[...companies].sort((x, y) => x.name.localeCompare(y.name, 'en'))];
@@ -136,9 +152,11 @@ export function CompanyPicker({ place = 'bar' }: { place?: 'bar' | 'menu' } = {}
       {open ? (
         <div
           id={menuId}
+          ref={menu}
           role="menu"
           aria-label="Company"
           onKeyDown={onMenuKey}
+          style={shift ? { translate: `${shift}px 0` } : undefined}
           className={`absolute start-0 z-40 max-h-[min(24rem,calc(100vh-5rem))] overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-lift animate-scale-in ${inMenu ? 'bottom-full mb-2 w-full' : 'mt-2 w-80 max-w-[calc(100vw-1.5rem)]'}`}
         >
           {options.map((o, i) => (
