@@ -82,6 +82,7 @@ Edit with the tray icon → **Edit server settings**, save, then **Restart the s
 | `BACKUP_ENCRYPTION_KEY` | Recommended: the backup key that locks every backup copy (without one, System Settings warns that the copies aren't locked). Make it once in Command Prompt with `"<program>\node\node.exe" -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`, save it in a password manager — not in Google Drive — then add the line `BACKUP_ENCRYPTION_KEY=<the key>` here, exactly, with no spaces around it, and restart the server. Without the key no locked copy can be restored. Steps: [BACKUPS.md](BACKUPS.md) "Locking the copies". |
 | `BACKUP_WARN_GB` | Optional: System Settings warns (and emails once) when the backup copies take more than this many GB in all. Blank = 5. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Optional: send the backups to Google Drive too. Steps in [BACKUPS.md](BACKUPS.md). |
+| `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, `MS_TOKEN_KEY` | Optional: automatic Teams links (each organizer's own Microsoft account). Steps in [microsoft-teams-setup.md](microsoft-teams-setup.md); the redirect URI is this server's address + `/api/v1/integrations/microsoft/callback`. |
 
 `DATABASE_URL`, the `JWT_*` secrets and `SECRETS_ENCRYPTION_KEY` were generated for this server.
 Changing a JWT secret signs everyone out. Never change `SECRETS_ENCRYPTION_KEY`, because stored AI
