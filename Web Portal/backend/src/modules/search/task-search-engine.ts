@@ -132,65 +132,83 @@ export function createTaskSearchEngine({
     };
   }
 
-  /**
-   * The tasks as they are now, in this order, with where they matched (stale ones left out and
-   * re-indexed). `byNumber`: the task's key (now or former) the query named as a number, if any — a
-   * task found by its number is a result whatever the words, shown as matching that key.
-   */
-  async function describe(ids: string[], terms: string[], byNumber: (task: { key: string; formerKeys: string[] }) => string | null): Promise<TaskSearchHit[]> {
-    if (ids.length === 0) return [];
-    const [live, meta] = await Promise.all([
-      loadTaskSearchLive(prisma, ids),
-      prisma.task.findMany({
-        where: { id: { in: ids } },
-        select: {
-          id: true,
-          projectId: true,
-          dueDate: true,
-          completedAt: true,
-          column: { select: { id: true, name: true, category: true } },
-          project: { select: { id: true, code: true, name: true, status: true, companies: ARCHIVE_SELECT.companies } },
-          assignees: { orderBy: { assignedAt: 'asc' }, select: { user: { select: { id: true, firstName: true, lastName: true, username: true } } } },
-        },
-      }),
-    ]);
-    const metaById = new Map(meta.map((m) => [m.id, m]));
-    const hits: TaskSearchHit[] = [];
-    for (const id of ids) {
-      const task = live.get(id);
-      const m = metaById.get(id);
-      if (!task || !m) continue;
-      let found = describeMatches(task, terms, { timeZone, max: matchesPerTask });
-      if (!found.complete) {
-        const key = byNumber(task);
-        if (!key) {
-          void index?.taskChanged(id);
-          continue;
-        }
-        found = describeMatches(task, [normalizeForSearch(key)], { timeZone, max: matchesPerTask });
-      }
-      hits.push({
-        id,
-        key: task.key,
-        formerKeys: task.formerKeys,
-        title: task.title,
-        titleRanges: found.titleRanges,
-        projectId: m.projectId,
-        // companies: archived by its own status or by all its companies.
-        project: { id: m.project.id, code: m.project.code, name: m.project.name, archived: archivedOf(m.project) },
-        status: { columnId: m.column.id, name: m.column.name, category: m.column.category },
-        done: m.column.category === 'DONE' || m.completedAt !== null,
-        dueDate: m.dueDate ? m.dueDate.toISOString() : null,
-        assignees: m.assignees.slice(0, 3).map((a) => ({ id: a.user.id, name: personLabel(a.user) })),
-        assigneeCount: m.assignees.length,
-        matches: found.matches,
-        external: task.contacts.flatMap((c) => [c.name, c.company]).filter((v): v is string => Boolean(v)),
-      });
-    }
-    return hits;
-  }
+  /** The tasks as they are now (see describeTaskHits); a stale one is re-indexed. */
+  const describe = (ids: string[], terms: string[], byNumber: (task: { key: string; formerKeys: string[] }) => string | null) =>
+    describeTaskHits(prisma, ids, terms, { timeZone, max: matchesPerTask, byNumber, onStale: (id) => void index?.taskChanged(id) });
 
   return { search };
+}
+
+/**
+ * The tasks as they are now, in this order, with where they matched (stale ones left out — `onStale`
+ * re-indexes them). `byNumber`: the task's key (now or former) the query named as a number, if any — a
+ * task found by its number is a result whatever the words, shown as matching that key. `accept`
+ * (1.23 search everything): which found words make a result — by default every one of them.
+ */
+export async function describeTaskHits(
+  prisma: PrismaClient,
+  ids: string[],
+  terms: string[],
+  opts: {
+    timeZone: string;
+    max: number;
+    byNumber?: (task: { key: string; formerKeys: string[] }) => string | null;
+    accept?: (found: string[]) => boolean;
+    onStale?: (taskId: string) => void;
+  },
+): Promise<TaskSearchHit[]> {
+  if (ids.length === 0) return [];
+  const { timeZone, max } = opts;
+  const [live, meta] = await Promise.all([
+    loadTaskSearchLive(prisma, ids),
+    prisma.task.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        projectId: true,
+        dueDate: true,
+        completedAt: true,
+        column: { select: { id: true, name: true, category: true } },
+        project: { select: { id: true, code: true, name: true, status: true, companies: ARCHIVE_SELECT.companies } },
+        assignees: { orderBy: { assignedAt: 'asc' }, select: { user: { select: { id: true, firstName: true, lastName: true, username: true } } } },
+      },
+    }),
+  ]);
+  const metaById = new Map(meta.map((m) => [m.id, m]));
+  const hits: TaskSearchHit[] = [];
+  for (const id of ids) {
+    const task = live.get(id);
+    const m = metaById.get(id);
+    if (!task || !m) continue;
+    let found = describeMatches(task, terms, { timeZone, max });
+    const accepted = opts.accept ? opts.accept(found.found) : found.complete;
+    if (!accepted) {
+      const key = opts.byNumber?.(task);
+      if (!key) {
+        opts.onStale?.(id);
+        continue;
+      }
+      found = describeMatches(task, [normalizeForSearch(key)], { timeZone, max });
+    }
+    hits.push({
+      id,
+      key: task.key,
+      formerKeys: task.formerKeys,
+      title: task.title,
+      titleRanges: found.titleRanges,
+      projectId: m.projectId,
+      // companies: archived by its own status or by all its companies.
+      project: { id: m.project.id, code: m.project.code, name: m.project.name, archived: archivedOf(m.project) },
+      status: { columnId: m.column.id, name: m.column.name, category: m.column.category },
+      done: m.column.category === 'DONE' || m.completedAt !== null,
+      dueDate: m.dueDate ? m.dueDate.toISOString() : null,
+      assignees: m.assignees.slice(0, 3).map((a) => ({ id: a.user.id, name: personLabel(a.user) })),
+      assigneeCount: m.assignees.length,
+      matches: found.matches,
+      external: task.contacts.flatMap((c) => [c.name, c.company]).filter((v): v is string => Boolean(v)),
+    });
+  }
+  return hits;
 }
 
 export type TaskSearchEngine = ReturnType<typeof createTaskSearchEngine>;
@@ -203,7 +221,7 @@ const noSpaces = (whole: string) => !!whole && !/\s/.test(whole);
  * as written when it has no spaces (any key, as before 1.22.3), each number it may be however it was
  * typed (lib/task-number), or — a bare number — a key ending in "-<number>". Null when it can't be one.
  */
-function numberSql(whole: string, query: string): Prisma.Sql | null {
+export function numberSql(whole: string, query: string): Prisma.Sql | null {
   const read = readTaskNumber(query);
   const keys = new Set<string>(noSpaces(whole) ? [whole] : []);
   for (const k of read?.keys ?? []) keys.add(normalizeForSearch(k));
@@ -213,7 +231,7 @@ function numberSql(whole: string, query: string): Prisma.Sql | null {
 }
 
 /** Which of a task's keys (now, else one it had) the query names as its number, as numberSql reads it — or null. */
-function numberOf(task: { key: string; formerKeys: string[] }, whole: string, query: string): string | null {
+export function numberOf(task: { key: string; formerKeys: string[] }, whole: string, query: string): string | null {
   const asWritten = noSpaces(whole) ? [task.key, ...task.formerKeys].find((k) => normalizeForSearch(k) === whole) : undefined;
   return asWritten ?? matchedTaskNumber(query, task.key, task.formerKeys);
 }

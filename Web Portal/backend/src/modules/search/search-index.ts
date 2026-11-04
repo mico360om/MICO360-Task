@@ -235,7 +235,7 @@ export function createSearchIndex({
   async function write(rows: Prisma.Sql[]): Promise<void> {
     if (rows.length === 0) return;
     // The newer read wins (as in the task index): indexedAt, which the others compare, goes last.
-    await prisma.$executeRaw`INSERT INTO search_index (kind, recordId, projectId, meetingId, taskId, personId, status, at, head, lead, doc, limited, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
+    await prisma.$executeRaw`INSERT INTO search_index (kind, recordId, projectId, meetingId, taskId, personId, status, at, head, \`lead\`, doc, limited, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
       ON DUPLICATE KEY UPDATE
         projectId = IF(VALUES(indexedAt) >= indexedAt, VALUES(projectId), projectId),
         meetingId = IF(VALUES(indexedAt) >= indexedAt, VALUES(meetingId), meetingId),
@@ -244,7 +244,7 @@ export function createSearchIndex({
         status = IF(VALUES(indexedAt) >= indexedAt, VALUES(status), status),
         at = IF(VALUES(indexedAt) >= indexedAt, VALUES(at), at),
         head = IF(VALUES(indexedAt) >= indexedAt, VALUES(head), head),
-        lead = IF(VALUES(indexedAt) >= indexedAt, VALUES(lead), lead),
+        \`lead\` = IF(VALUES(indexedAt) >= indexedAt, VALUES(\`lead\`), \`lead\`),
         doc = IF(VALUES(indexedAt) >= indexedAt, VALUES(doc), doc),
         limited = IF(VALUES(indexedAt) >= indexedAt, VALUES(limited), limited),
         stamp = IF(VALUES(indexedAt) >= indexedAt, VALUES(stamp), stamp),

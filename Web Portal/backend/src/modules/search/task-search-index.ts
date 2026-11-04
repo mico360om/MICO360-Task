@@ -112,11 +112,11 @@ export function createTaskSearchIndex({
     if (rows.length === 0) return;
     // The newer read wins: a sweep that read a task before a quicker refresh wrote it never puts the
     // older text back. (Columns are assigned left to right: indexedAt, which the others compare, last.)
-    await prisma.$executeRaw`INSERT INTO task_search_index (taskId, head, doc, lead, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
+    await prisma.$executeRaw`INSERT INTO task_search_index (taskId, head, doc, \`lead\`, stamp, version, indexedAt) VALUES ${Prisma.join(rows)}
       ON DUPLICATE KEY UPDATE
         head = IF(VALUES(indexedAt) >= indexedAt, VALUES(head), head),
         doc = IF(VALUES(indexedAt) >= indexedAt, VALUES(doc), doc),
-        lead = IF(VALUES(indexedAt) >= indexedAt, VALUES(lead), lead),
+        \`lead\` = IF(VALUES(indexedAt) >= indexedAt, VALUES(\`lead\`), \`lead\`),
         stamp = IF(VALUES(indexedAt) >= indexedAt, VALUES(stamp), stamp),
         version = IF(VALUES(indexedAt) >= indexedAt, VALUES(version), version),
         indexedAt = GREATEST(indexedAt, VALUES(indexedAt))`;

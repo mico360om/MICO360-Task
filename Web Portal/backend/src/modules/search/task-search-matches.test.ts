@@ -76,6 +76,10 @@ describe('describeMatches — where a task matched, for the results', () => {
     expect(describeMatches(task(), ['scaffold', 'crane'], { timeZone: tz }).complete).toBe(false);
   });
 
+  it('1.23: says which of the words it found (a spelling correction or some of the words)', () => {
+    expect(describeMatches(task(), ['scaffold', 'crane', 'ops-17'], { timeZone: tz }).found).toEqual(['scaffold', 'ops-17']);
+  });
+
   it('a key the task has now counts as found, without a line of its own', () => {
     const r = describeMatches(task(), ['ops-17'], { timeZone: tz });
     expect(r.complete).toBe(true);
