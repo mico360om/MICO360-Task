@@ -8,6 +8,9 @@ function make(
   taskAssignees: Record<string, string[]> = {},
   /** companies: each project's companies (a pick narrows lists to one). */
   companiesOf: Record<string, string[]> = {},
+  /** 1.22: the administrators who turned on "Show my projects only". */
+  myProjectsOnly: string[] = [],
+  reads: string[] = [],
 ) {
   const inPick = (id: string, pick?: string | null) => !pick || (companiesOf[id] ?? []).includes(pick);
   return createProjectAccess({
@@ -25,6 +28,15 @@ function make(
           .filter((id) => inPick(id, pick))
           .map((id) => ({ id }));
       },
+      async listTeamOf(userId, pick) {
+        return Object.entries(memberOf)
+          .filter(([id, users]) => users.includes(userId) && inPick(id, pick))
+          .map(([id]) => ({ id }));
+      },
+    },
+    myProjectsOnly: async (userId) => {
+      reads.push(userId);
+      return myProjectsOnly.includes(userId);
     },
     managers: {
       async projectIdOfTask(taskId) {
@@ -89,5 +101,27 @@ describe('ProjectAccess', () => {
     expect(await picked.accessibleProjectIds('emp1', ['EMPLOYEE'], null)).toEqual(['p1', 'p2']);
     expect(await picked.accessibleProjectIds('x', ['ADMIN'], 'A')).toEqual(['p1', 'p3']);
     expect(await picked.accessibleProjectIds('x', ['ADMIN'], null)).toBeNull();
+  });
+
+  // 1.22 "Show my projects only": a list (the pick is named, even null) treats such an administrator
+  // like a team member; an object check (no pick) stays admin-wide.
+  it('an administrator with “Show my projects only” lists their own projects; object checks stay admin-wide', async () => {
+    const reads: string[] = [];
+    const a = make({ p1: ['boss', 'emp1'], p2: ['emp2'], p3: ['boss'] }, { t2: 'p2' }, { c2: 'p2' }, {}, { p1: ['A'], p2: ['A'], p3: ['B'] }, ['boss'], reads);
+    expect(await a.accessibleProjectIds('boss', ['ADMIN'], null)).toEqual(['p1', 'p3']);
+    expect(await a.accessibleProjectIds('boss', ['ADMIN'], 'A')).toEqual(['p1']); // with a pick both apply
+    expect(await a.accessibleProjectIds('boss', ['ADMIN'], 'B')).toEqual(['p3']);
+    // Object checks: one project, task or column by its link, and "may I use this project".
+    expect(await a.accessibleProjectIds('boss', ['ADMIN'])).toBeNull();
+    expect(await a.canViewProject('boss', ['ADMIN'], 'p2')).toBe(true);
+    expect(await a.canViewTask('boss', ['ADMIN'], 't2')).toBe(true);
+    expect(await a.canViewColumn('boss', ['ADMIN'], 'c2')).toBe(true);
+    // Another administrator (setting off) still lists everything.
+    expect(await a.accessibleProjectIds('other', ['ADMIN'], null)).toBeNull();
+    expect(await a.accessibleProjectIds('other', ['ADMIN'], 'A')).toEqual(['p1', 'p2']);
+    // Employees always list by the team rule: their setting is never even read.
+    reads.length = 0;
+    expect(await a.accessibleProjectIds('emp1', ['EMPLOYEE'], null)).toEqual(['p1']);
+    expect(reads).toEqual([]);
   });
 });

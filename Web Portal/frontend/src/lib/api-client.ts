@@ -40,6 +40,11 @@ export interface ApiClientOptions {
    * request carried. The app clears the pick and says so.
    */
   onCompanyGone?: (sent: Record<string, string>) => void;
+  /**
+   * 1.22: a change the server refused, just before it is thrown to the caller — the app says some of
+   * them across the page whatever the caller shows (an archived project's "reopen it first").
+   */
+  onRefused?: (err: ApiError) => void;
 }
 
 export interface RequestOptions {
@@ -92,7 +97,17 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
   return isCompanyGone(errorFrom(status, await text()));
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone }: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused }: ApiClientOptions): ApiClient {
+  /** The error to throw for a refused change, told to onRefused first (never in its way). */
+  const refusal = (status: number, text: string): ApiError => {
+    const err = errorFrom(status, text);
+    try {
+      onRefused?.(err);
+    } catch {
+      // Saying it across the page must never change what the caller gets.
+    }
+    return err;
+  };
   /**
    * The headers every request carries now, and the same without the picked company — for the one
    * retry after the server refuses the pick (null: no company picked, or nobody to tell).
@@ -171,7 +186,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions): Promise<T> {
     const res = await authedFetch(method, path, { body, headers: reqOpts?.headers });
     const text = await res.text();
-    if (!res.ok) throw errorFrom(res.status, text);
+    if (!res.ok) throw method === 'GET' ? errorFrom(res.status, text) : refusal(res.status, text);
     return (text ? JSON.parse(text) : {}) as T;
   }
 
@@ -197,7 +212,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     if (!onProgress || typeof XMLHttpRequest === 'undefined') {
       const res = await authedFetch('POST', path, { form });
       const text = await res.text();
-      if (!res.ok) throw errorFrom(res.status, text);
+      if (!res.ok) throw refusal(res.status, text);
       return (text ? JSON.parse(text) : {}) as T;
     }
     // The same refresh-once-on-401 and refused-pick rules as every other request.
@@ -217,7 +232,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       res = await send(withoutPick);
       if (!(await refusesCompany(res.status, async () => res.text))) onCompanyGone?.(sent);
     }
-    if (res.status < 200 || res.status >= 300) throw errorFrom(res.status, res.text);
+    if (res.status < 200 || res.status >= 300) throw refusal(res.status, res.text);
     return (res.text ? JSON.parse(res.text) : {}) as T;
   }
 

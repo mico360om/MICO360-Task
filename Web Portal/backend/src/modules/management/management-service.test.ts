@@ -503,3 +503,32 @@ describe('the weekly summary’s figures (each person’s own scope)', () => {
     expect(await svc.digest(NADIA)).toBeNull();
   });
 });
+
+describe('1.22 “Show my projects only”', () => {
+  it('an administrator with it on sees their own projects on the page and in its PDF; the weekly email is unchanged', async () => {
+    const source = fakeManagementSource(DATA);
+    const svc = createManagementService({
+      source,
+      workload: fakeWorkloadFor(DATA),
+      settings: { companyWeekStart: async () => 0, workingHours: async () => ({ days: [0, 1, 2, 3, 4] }), dailyLimit: async () => 2 },
+      timeZone: TZ,
+      now: () => NOW,
+      myProjectsOnly: async (v) => v.id === 'sara' || v.id === 'admin',
+    });
+    const asSaraAdmin = { id: 'sara', roles: ['ADMIN'] };
+    const shown = (await svc.overview(asSaraAdmin, filters())).projects.map((p) => p.id).sort();
+    const everyone = (await service().svc.overview(ADMIN, filters())).projects.map((p) => p.id).sort();
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.length).toBeLessThan(everyone.length);
+    expect(source.calls).toContain('projects:all:team of sara');
+    // The weekly summary is an email: every project, as before.
+    source.calls.length = 0;
+    await svc.digest(ADMIN);
+    expect(source.calls).toContain('projects:all');
+    expect(source.calls.some((c) => c.includes('team of'))).toBe(false);
+    // An employee runs projects as before (the setting is never theirs).
+    source.calls.length = 0;
+    await svc.overview(SARA, filters());
+    expect(source.calls).toContain('projects:sara');
+  });
+});

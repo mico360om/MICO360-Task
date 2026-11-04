@@ -30,6 +30,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   in its header, and J and K on the keyboard. A project's page steps to the previous or next
   project in the Projects page's order. Back goes back, and something typed but not saved is asked
   about first.
+- Settings → "Show my projects only" (administrators): when on, every list on the site shows you only
+  the projects you own, manage or are on the team of — Projects, the boards, the dashboard, My Tasks,
+  the calendar, timeline, workload, meetings, My Action Items, reports, Management, activity, the bell,
+  search, Chat, MICO AI and the project pickers. It is saved for every device and session; you can
+  still open any project by its link, and untick "Only my projects" on the Projects page to see every
+  project for that visit.
 
 ### Improvements
 - Schedule a meeting: a wider dialog with two columns on a desktop, and Starts/Ends picked as the site
@@ -37,6 +43,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Meeting page: one-line action items with chips to change them, compact People rows (with "Add email"
   for a guest), next steps for a finished meeting (Notes → Final MOM → Approved → Emailed), and empty
   sections shrunk to one line.
+- An archived project is now read-only on the server too, not only on the website: new tasks, task
+  changes, moves and status changes, comments, files, checklists, its board's columns, its meetings
+  and moving a task into or out of it are refused with "This project is archived — reopen it first."
+  Reading, exporting, reopening it, changing its team or companies, and deleting stay as they were.
+  The nightly carry-forward and repeating meetings skip archived projects, as repeating tasks already did.
 
 ## [1.21.0] - 2026-11-04
 

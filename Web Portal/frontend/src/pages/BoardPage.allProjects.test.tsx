@@ -56,10 +56,13 @@ const COLUMNS: Record<string, unknown[]> = {
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 let calls: Call[] = [];
 let tasks: ReturnType<typeof task>[] = [];
+/** 1.22: the administrator's "Show my projects only" (Settings). */
+let myProjectsOnly = false;
 
 beforeEach(() => {
   calls = [];
   rooms = null;
+  myProjectsOnly = false;
   tasks = [
     task('t1', 'MICO-1', 'p1', 'p1-todo', 'TODO', '2026-10-25'),
     task('t2', 'OPS-1', 'p2', 'p2-todo', 'TODO', '2026-10-22'),
@@ -88,6 +91,9 @@ beforeEach(() => {
       if (cols) return json({ data: COLUMNS[cols[1]!] ?? [] });
       if (u.includes('/members')) return json({ data: [] });
       if (u.includes('/tasks/carry-forward')) return json({ data: { carried: 0 } });
+      if (u.endsWith('/users/me/preferences')) return json({ data: { timeZone: null, weekStart: null, myProjectsOnly } });
+      // A project off the administrator's list ("Show my projects only"), opened by its link.
+      if (u.endsWith('/projects/p9')) return json({ data: project('p9', 'FAR', 'Far Away Works') });
       if (u.includes('/tasks?') || u.endsWith('/tasks')) {
         return json({ data: tasks });
       }
@@ -174,5 +180,35 @@ describe('Kanban Board: All projects', () => {
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
     expect(within(dialog).getByRole('button', { name: 'Project' })).toBeInTheDocument();
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Column' })).toHaveTextContent('Doing'));
+  });
+});
+
+describe('Kanban Board with “Show my projects only” (1.22)', () => {
+  it('the All projects board says it shows only your projects, with a way to change it', async () => {
+    myProjectsOnly = true;
+    renderPage();
+    expect(await screen.findByText('Showing only your projects')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Change “Show my projects only” in Settings' })).toHaveAttribute('href', '/settings');
+  });
+
+  it('one project’s board says nothing of it; nor does All projects with the setting off', async () => {
+    myProjectsOnly = true;
+    const { unmount } = renderPage('/board?project=p1');
+    await screen.findByRole('region', { name: 'To Do' });
+    expect(screen.queryByText('Showing only your projects')).not.toBeInTheDocument();
+    unmount();
+    myProjectsOnly = false;
+    renderPage();
+    await screen.findByRole('region', { name: 'Review' });
+    expect(screen.queryByText('Showing only your projects')).not.toBeInTheDocument();
+  });
+
+  it('a board opened by its link shows that project even when it is not on the list', async () => {
+    myProjectsOnly = true;
+    renderPage('/board?project=p9');
+    await waitFor(() => expect(calls.some((c) => c.url.includes('/projects/p9/columns'))).toBe(true));
+    expect(screen.getByRole('button', { name: 'Select project' })).toHaveTextContent('Far Away Works');
+    // No other project's board flashed up while it loaded.
+    expect(calls.some((c) => c.url.includes('/projects/p1/columns'))).toBe(false);
   });
 });

@@ -34,6 +34,8 @@ export interface PlanningRouteDeps {
   pickOf?: PickOf;
   /** companies: a company's people (its active members) — an administrator's Workload with a pick shows them. */
   companyPeople?: (companyId: string) => Promise<string[]>;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? Absent: never. */
+  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
 }
 
 const weekStartParam = z.enum(['0', '1', '6']).optional().transform((v): WeekStart => (v === undefined ? 0 : (Number(v) as WeekStart)));
@@ -133,12 +135,14 @@ export async function registerPlanningRoutes(app: FastifyInstance, deps: Plannin
       const asked = typeof q.projectId === 'string' && q.projectId.trim() ? q.projectId.trim().slice(0, 191) : null;
       // companies: with a picked company, only its projects (an administrator: its projects and people).
       const pick = await pickOf(req);
+      // 1.22: an administrator with "Show my projects only": their projects and those projects' teams.
+      const mineOnly = admin && !!deps.myProjectsOnly && (await deps.myProjectsOnly(viewer));
       const [managedAll, visible, hours, limit, pickPeople] = await Promise.all([
         admin ? Promise.resolve([]) : store.managedProjectIds(viewer.id),
-        admin && !pick ? Promise.resolve(null) : deps.projectService.listVisibleProjects(viewer, pick).then((ps) => ps.map((p) => p.id)),
+        admin && !pick && !mineOnly ? Promise.resolve(null) : deps.projectService.listVisibleProjects(viewer, pick).then((ps) => ps.map((p) => p.id)),
         deps.settings && !deps.workingHoursFor ? deps.settings.workingHours() : Promise.resolve(DEFAULT_WORKING_HOURS),
         deps.settings ? deps.settings.dailyLimit() : Promise.resolve(DEFAULT_DAILY_LIMIT),
-        admin && pick ? (deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([])) : Promise.resolve(null),
+        mineOnly ? Promise.resolve([]) : admin && pick ? (deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([])) : Promise.resolve(null),
       ]);
       const inPick = pick && visible ? new Set(visible) : null;
       const managed = inPick ? managedAll.filter((id) => inPick.has(id)) : managedAll;

@@ -87,8 +87,9 @@ export async function registerTaskApprovalRoutes(app: FastifyInstance, deps: App
     const [canApprove, tasks, picked] = await Promise.all([
       deps.source.canApproveAny(v),
       deps.source.list(v),
-      // companies: with a pick, only that company's projects (none = all the person's companies).
-      pick && deps.accessibleProjectIds ? deps.accessibleProjectIds(v.id, v.roles, pick) : Promise.resolve(null),
+      // companies: with a pick, only that company's projects (none = all the person's companies);
+      // 1.22: an administrator's list also follows "Show my projects only" (a list call: the pick named).
+      (pick || v.roles.includes('ADMIN')) && deps.accessibleProjectIds ? deps.accessibleProjectIds(v.id, v.roles, pick) : Promise.resolve(null),
     ]);
     const inPick = picked ? new Set(picked) : null;
     return { data: { canApprove, tasks: inPick ? tasks.filter((t) => inPick.has(t.projectId)) : tasks } };

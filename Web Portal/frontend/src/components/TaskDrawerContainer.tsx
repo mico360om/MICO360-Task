@@ -24,7 +24,7 @@ import { TaskDrawer, type DrawerTaskRef, type TaskStepper } from './TaskDrawer';
 import { TaskFormDialog } from './task-form/TaskFormDialog';
 import { MoveTaskDialog, useMoveTargets } from './MoveTaskDialog';
 import { SaveTaskTemplateDialog } from './templates/SaveAsTemplate';
-import { projectsApi } from '../api/projects';
+import { useProjectsWith } from '../lib/useProjectsWith';
 import { clientSharesApi } from '../api/client-shares';
 import { TaskInspections } from './inspections/TaskInspections';
 import { moveAvailability, movedText } from '../lib/task-move';
@@ -128,8 +128,8 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
   });
   const members = Array.isArray(membersQ.data) ? membersQ.data : [];
   // Its project, for the header (the list is cached for every page), and who may move it elsewhere.
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
-  const project = (Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === projectId);
+  // (1.22: also a project off an administrator's "Show my projects only" list, opened by its link.)
+  const project = useProjectsWith(projectId).projects.find((p) => p.id === projectId);
   // Whoever runs the project (its owner, named manager or a manager on its team — the server says)
   // and admins may delete its tasks; an older server that doesn't say: MANAGER members.
   const runsProject = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));

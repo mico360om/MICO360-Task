@@ -70,8 +70,10 @@ export async function registerInspectionRoutes(app: FastifyInstance, deps: Inspe
     app.get('/inspection-forms/:id/usage', auth, async (req) => {
       await service.assertMayDeleteForm(actor(req), params(req).id);
       // companies: counted over the projects the person sees, in the picked company (admins without a pick: all).
+      // 1.22: a shared form's figure before deleting it — "Show my projects only" doesn't narrow it
+      // (asked without a pick it is not a list: an administrator gets every project).
       const pick = await (deps.pickOf ?? NO_PICK)(req);
-      const projectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(actor(req).id, actor(req).roles, pick) : null;
+      const projectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(actor(req).id, actor(req).roles, pick ?? undefined) : null;
       return { data: await schedules.formUsage(params(req).id, projectIds) };
     });
     app.get('/projects/:id/inspection-schedules', auth, async (req) => ({ data: await schedules.schedules(actor(req), params(req).id) }));

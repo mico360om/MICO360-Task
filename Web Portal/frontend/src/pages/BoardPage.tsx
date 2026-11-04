@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { projectsApi } from '../api/projects';
 import { columnsApi } from '../api/columns';
 import { tasksApi, type ApiTask } from '../api/tasks';
 import { shiftKey, formatKeyLabel, relativeKeyHint } from '../lib/board-date';
@@ -39,6 +38,9 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import type { CardMenuItem } from '../components/board/CardMenu';
 import { moveAvailability, movedText } from '../lib/task-move';
+import { useMyProjectsOnly } from '../lib/useMyProjectsOnly';
+import { useProjectsWith } from '../lib/useProjectsWith';
+import { MyProjectsLine } from '../components/projects/MyProjectsLine';
 
 type BoardData = { columns: KanbanColumnData[]; idByKey: Record<string, string> };
 type MoveVars = { id: string; toColumnId: string; taskKey: string; toIndex: number; orderedIds: string[] };
@@ -98,11 +100,14 @@ export function BoardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlProjectId = searchParams.get('project') ?? '';
   const [selectedProjectId, setSelectedProjectId] = useState(() => readUserValue(useAuthStore.getState().user?.id, PROJECT_PREF) ?? '');
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
-  const projects = projectsQ.data ?? [];
+  // 1.22: a board opened by its link shows its project even when an administrator's "Show my projects
+  // only" leaves it off their list (opening by link stays admin-wide).
+  const myOnly = useMyProjectsOnly();
+  const { projects, listQ: projectsQ, fetchingExtra: linking } = useProjectsWith(urlProjectId === ALL_PROJECTS ? null : urlProjectId);
   // One project at a time, or All projects (offered when there is more than one).
   const has = (id: string) => !!id && (id === ALL_PROJECTS ? projects.length > 1 : projects.some((p) => p.id === id));
-  const projectId = has(urlProjectId) ? urlProjectId : has(selectedProjectId) ? selectedProjectId : projects[0]?.id;
+  // (No other board flashes up while a linked project loads.)
+  const projectId = linking ? undefined : has(urlProjectId) ? urlProjectId : has(selectedProjectId) ? selectedProjectId : projects[0]?.id;
   const isAll = projectId === ALL_PROJECTS;
   const project = isAll ? undefined : projects.find((p) => p.id === projectId);
   const shownProjects = useMemo(() => boardProjects(projects), [projects]);
@@ -452,7 +457,7 @@ export function BoardPage() {
     if (orderedIds.length) reorderMut.mutate({ columnId, orderedIds, orderedKeys });
   }
 
-  const loading = projectsQ.isLoading || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
+  const loading = projectsQ.isLoading || linking || (Boolean(projectId) && (isAll ? allQ.isLoading : boardQ.isLoading));
   const error = projectsQ.isError || (isAll ? allQ.isError : boardQ.isError);
   // A day with nothing on it says so once, above the columns (each column only says "No tasks").
   const emptyDay = !loading && !error && Boolean(projectId) && fullColumns.length > 0 && fullColumns.every((c) => c.tasks.length === 0);
@@ -563,6 +568,7 @@ export function BoardPage() {
               />
             </div>
           ) : null}
+          {isAll && myOnly ? <MyProjectsLine /> : null}
           {isAll ? <p className="ms-auto hidden text-sm text-ink-2 lg:block">All projects — drag a card to change its status in its own project.</p> : null}
           {/* 1.22: who can open this project's board (not on All projects). */}
           {!isAll && project ? <div className="ms-auto"><BoardPeople project={project} /></div> : null}

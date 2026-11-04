@@ -15,6 +15,7 @@ import { paletteColorFor } from './tag-repository';
 import { highestKeyNumberIn } from './task-keys';
 import { summarizeExternalContacts } from './external-contacts';
 import { toExternalContactRecord } from './prisma-external-contact-repository';
+import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
@@ -336,7 +337,8 @@ export function createPrismaCarryForwardRepo(prisma: PrismaClient): CarryForward
           deletedAt: null,
           // Live projects that carry forward: one switched off keeps its tasks on their days. The
           // setting is read at each sweep, so a project switched back on carries on the next night.
-          project: { is: { deletedAt: null, carryForward: true } },
+          // 1.22: an archived project (its own status, or all its companies) is read-only — skipped.
+          project: { is: { deletedAt: null, carryForward: true, ...LIVE_PROJECT_WHERE } },
           completedAt: null,
           boardDate: { lt: beforeAnchor },
           column: { category: { not: 'DONE' } },

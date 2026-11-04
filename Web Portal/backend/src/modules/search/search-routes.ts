@@ -50,6 +50,8 @@ export interface SearchRouteDeps {
   peopleFor?: (viewer: { id: string; roles: string[] }, pick: string | null) => Promise<ReadonlySet<string> | null>;
   /** companies: this person's active companies (a meeting they were only invited to shows no notes). */
   companiesOf?: (userId: string) => Promise<string[]>;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? Absent: never. */
+  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
 }
 
 export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRouteDeps): Promise<void> {
@@ -64,12 +66,14 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
     const pick = await pickOf(req);
     const admin = viewer.roles.includes('ADMIN');
-    const [{ projectIds: allowedProjectIds }, people, companyIds] = await Promise.all([
+    const [{ projectIds: allowedProjectIds }, people, companyIds, mineOnly] = await Promise.all([
       scopes.forViewer(viewer, pick),
       deps.peopleFor ? deps.peopleFor(viewer, pick) : Promise.resolve(null),
       deps.companiesOf && !admin ? deps.companiesOf(viewer.id) : Promise.resolve(null),
+      // 1.22: with "Show my projects only" an administrator's meetings follow the team rule too.
+      admin && deps.myProjectsOnly ? deps.myProjectsOnly(viewer) : Promise.resolve(false),
     ]);
-    return { data: await searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin, people, companyIds }) };
+    return { data: await searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin: admin && !mineOnly, people, companyIds }) };
   });
 
   const taskSearch = deps.taskSearch;

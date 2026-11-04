@@ -434,3 +434,34 @@ describe('the picked company', () => {
     expect(gone).toHaveBeenCalledTimes(1);
   });
 });
+
+// 1.22: a change the server refused is told to onRefused (an archived project's refusal is said across
+// the page), then thrown to the caller as before; a read never is.
+describe('onRefused', () => {
+  const ARCHIVED = { error: { code: 'PROJECT_ARCHIVED', message: 'This project is archived — reopen it first.' } };
+
+  it('is told about a refused change, which the caller still gets', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(ARCHIVED, 409)));
+    const refused: ApiError[] = [];
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', onRefused: (e) => refused.push(e) });
+    const err = await api.put('/tasks/t1', { title: 'x' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).code).toBe('PROJECT_ARCHIVED');
+    expect(refused.map((e) => [e.status, e.code, e.message])).toEqual([[409, 'PROJECT_ARCHIVED', 'This project is archived — reopen it first.']]);
+    await api.post('/tasks/t1/comments', { body: 'x' }).catch(() => undefined);
+    await api.patch('/tasks/t1/move', { columnId: 'c' }).catch(() => undefined);
+    const form = new FormData();
+    await api.upload('/tasks/t1/attachments', form).catch(() => undefined);
+    expect(refused).toHaveLength(4);
+  });
+
+  it('is not told about a read, and a listener that fails changes nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(ARCHIVED, 409)));
+    const seen: string[] = [];
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', onRefused: (e) => { seen.push(e.code); throw new Error('boom'); } });
+    await expect(api.get('/tasks/t1')).rejects.toMatchObject({ code: 'PROJECT_ARCHIVED' });
+    expect(seen).toEqual([]);
+    await expect(api.del('/tasks/t1')).rejects.toMatchObject({ code: 'PROJECT_ARCHIVED' });
+    expect(seen).toEqual(['PROJECT_ARCHIVED']);
+  });
+});

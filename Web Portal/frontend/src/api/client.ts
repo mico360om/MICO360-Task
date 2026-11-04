@@ -2,6 +2,7 @@ import { createApiClient, type RefreshOutcome } from '../lib/api-client';
 import { COMPANY_HEADER, companyHeaders } from '../lib/companies';
 import { readStoredSession, useAuthStore, type Session } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
+import { PROJECT_ARCHIVED_CODE, useArchivedNoticeStore } from '../stores/archived-notice-store';
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -130,4 +131,8 @@ export const apiClient = createApiClient({
   onUnauthorized: () => useAuthStore.getState().logout('expired'),
   getHeaders: () => companyHeaders(useCompanyStore.getState().pick),
   onCompanyGone: (sent) => useCompanyStore.getState().companyGone(sent[COMPANY_HEADER] ?? null),
+  // 1.22: a change to an archived project, refused by the server — said across the page in its words.
+  onRefused: (err) => {
+    if (err.code === PROJECT_ARCHIVED_CODE && err.message) useArchivedNoticeStore.getState().show(err.message);
+  },
 });

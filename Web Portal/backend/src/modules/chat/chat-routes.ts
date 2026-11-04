@@ -52,11 +52,16 @@ export interface ChatRouteDeps {
 
 export async function registerChatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Promise<void> {
   const { messageService: chat, guard } = deps;
-  /** companies: with a picked company, its projects' ids (the channels a list keeps); null = every channel the person has. */
+  /**
+   * companies: with a picked company, its projects' ids (the channels a list keeps); null = every
+   * channel the person has. 1.22: an administrator's list (the pick named, even null) also follows
+   * "Show my projects only" — the channels of the projects they own, manage or are on the team of.
+   */
   async function pickedProjectIds(req: FastifyRequest): Promise<string[] | null> {
     const pick = await (deps.pickOf ?? NO_PICK)(req);
-    if (!pick || !deps.accessibleProjectIds) return null;
-    return (await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick)) ?? null;
+    const roles = req.user!.roles ?? [];
+    if ((!pick && !roles.includes('ADMIN')) || !deps.accessibleProjectIds) return null;
+    return (await deps.accessibleProjectIds(req.user!.id, roles, pick)) ?? null;
   }
 
   /** Deliver a chat event to a project channel's room, or to each participant of a DM. */

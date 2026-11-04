@@ -15,6 +15,7 @@ import { photoUploadProblem } from '../lib/photo-upload';
 import { Toggle } from '../components/ui/Toggle';
 import { DailyEmailSettings } from '../components/settings/DailyEmailSettings';
 import { WeeklySummarySettings } from '../components/settings/WeeklySummarySettings';
+import { MyProjectsSettings } from '../components/settings/MyProjectsSettings';
 
 const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
@@ -237,6 +238,9 @@ export function SettingsPage() {
         <DailyEmailSettings />
 
         <WeeklySummarySettings />
+
+        {/* Projects: "Show my projects only" (administrators) */}
+        <MyProjectsSettings />
 
         {/* Appearance */}
         <section className="card p-5 lg:col-span-2">

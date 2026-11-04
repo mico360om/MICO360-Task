@@ -28,6 +28,8 @@ export interface ReportRouteDeps {
   pickOf?: PickOf;
   /** companies: the project ids an administrator's pick covers (that company's projects). */
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? Then the workload shows who has tasks there. */
+  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
   /** companies: a company's people (its active members) — the workload rows with a pick. */
   companyPeople?: (companyId: string) => Promise<string[]>;
   /**
@@ -137,14 +139,21 @@ export async function registerReportRoutes(app: FastifyInstance, deps: ReportRou
 
   /**
    * companies: what a picked company limits every report to — its projects' tasks, and on the
-   * workload its people plus whoever has a task there. Without a pick: everything, as before.
+   * workload its people plus whoever has a task there. Without a pick: everything, as before —
+   * 1.22: unless the administrator turned on "Show my projects only": their projects' tasks, and the
+   * people with tasks there (a list call: the pick named, null).
    */
   async function pickScopeOf(req: FastifyRequest): Promise<Pick<ReportFilter, 'projectIds' | 'peopleIds'>> {
     const pick = await (deps.pickOf ?? NO_PICK)(req);
-    if (!pick) return {};
+    if (!pick) {
+      const mine = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], null) : null;
+      return mine ? { projectIds: mine, peopleIds: [] } : {};
+    }
+    const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };
+    const mineOnly = deps.myProjectsOnly ? await deps.myProjectsOnly(viewer) : false;
     const [projectIds, peopleIds] = await Promise.all([
-      deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : Promise.resolve([]),
-      deps.companyPeople ? deps.companyPeople(pick) : Promise.resolve([]),
+      deps.accessibleProjectIds ? deps.accessibleProjectIds(viewer.id, viewer.roles, pick) : Promise.resolve([]),
+      deps.companyPeople && !mineOnly ? deps.companyPeople(pick) : Promise.resolve([]),
     ]);
     return { projectIds: projectIds ?? [], peopleIds };
   }

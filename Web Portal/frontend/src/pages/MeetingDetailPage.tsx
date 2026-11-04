@@ -3,7 +3,7 @@ import { useShortcut } from '../components/shortcuts/ShortcutProvider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { meetingsApi, type Meeting, type MeetingPerson, type MeetingStatus } from '../api/meetings';
-import { projectsApi } from '../api/projects';
+import { useProjectsWith } from '../lib/useProjectsWith';
 import { usersApi, type DirectoryUser } from '../api/users';
 import { apiClient } from '../api/client';
 import { MeetingFormModal } from '../components/MeetingFormModal';
@@ -71,7 +71,8 @@ export function MeetingDetailPage() {
     refetchInterval: pollMs,
   });
   const peopleQ = useQuery<MeetingPerson[]>({ queryKey: peopleKey, queryFn: async () => [], enabled: false });
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
+  // (1.22: also a project off an administrator's "Show my projects only" list, opened by its link.)
+  const { projects: projectList } = useProjectsWith(meetingQ.data?.projectId);
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const people = peopleQ.data;
   const knownPeople = useMemo(() => withMeetingPeople(Array.isArray(dirQ.data) ? dirQ.data : [], Array.isArray(people) ? people : []), [dirQ.data, people]);
@@ -169,7 +170,7 @@ export function MeetingDetailPage() {
   // Only organizers/managers may manage the meeting; older servers don't send the flag (→ allowed).
   const canEdit = meeting.canEdit !== false;
   const directory = knownPeople;
-  const project = meeting.projectId ? (Array.isArray(projectsQ.data) ? projectsQ.data : []).find((p) => p.id === meeting.projectId) ?? null : null;
+  const project = meeting.projectId ? projectList.find((p) => p.id === meeting.projectId) ?? null : null;
   const ended = meeting.status === 'CANCELLED' || meeting.status === 'COMPLETED';
   const primary = primaryAction(meeting, canEdit);
 

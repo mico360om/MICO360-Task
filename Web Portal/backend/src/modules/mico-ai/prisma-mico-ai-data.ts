@@ -77,11 +77,11 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
 
   /**
    * The meeting rule as a query: organizer, creator or attendee, or someone who can see its project
-   * (admins: all). companies: being one of its people counts only with an active company of their own
-   * (archived means no access) — `own` says whether it does.
+   * (admins: all — 1.22: unless "Show my projects only", `everything` false). companies: being one of its
+   * people counts only with an active company of their own (archived means no access) — `own` says whether it does.
    */
-  const visibleMeetings = (viewer: Viewer, projectIds: string[] | null, own: boolean) =>
-    isAdmin(viewer)
+  const visibleMeetings = (viewer: Viewer, projectIds: string[] | null, own: boolean, everything = isAdmin(viewer)) =>
+    everything
       ? {}
       : {
           OR: [
@@ -91,6 +91,10 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
           ],
         };
   const ownCounts = async (viewer: Viewer) => isAdmin(viewer) || (await hasActiveCompany(prisma, viewer.userId));
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? */
+  const myProjectsOnly = (viewer: Viewer) => companies.myProjectsOnly({ id: viewer.userId, roles: viewer.roles });
+  const meetingScope = async (viewer: Viewer, projectIds: string[] | null) =>
+    visibleMeetings(viewer, projectIds, await ownCounts(viewer), isAdmin(viewer) && !(await myProjectsOnly(viewer)));
   const meetingInclude = { attendees: { select: { userId: true } } } as const;
   type MeetingRow = Awaited<ReturnType<typeof prisma.meeting.findMany<{ include: typeof meetingInclude }>>>[number];
   async function toMeetings(rows: MeetingRow[]): Promise<AiMeetingRec[]> {
@@ -136,6 +140,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
   return {
     // companies: in the company the question was asked under (v.pick).
     accessibleProjectIds: (v) => projectAccess.accessibleProjectIds(v.userId, v.roles, v.pick ?? null),
+    myProjectsOnly,
 
     async projects(ids) {
       const rows = await prisma.project.findMany({
@@ -214,7 +219,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     },
 
     async meetings(viewer, { projectIds, projectId, from, to, limit, text, around }) {
-      const where = { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(text ? { title: { contains: text } } : {}), ...visibleMeetings(viewer, projectIds, await ownCounts(viewer)) };
+      const where = { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(text ? { title: { contains: text } } : {}), ...(await meetingScope(viewer, projectIds)) };
       // Nearest first: the coming ones soonest first, then the past ones latest first.
       const [upcoming, past, total] = await Promise.all([
         prisma.meeting.findMany({ where: { AND: [where, { startAt: { gte: around } }] }, orderBy: { startAt: 'asc' }, take: limit, include: meetingInclude }),
@@ -277,7 +282,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
 
     async actionItems(viewer, { projectIds, projectId, from, to, assigneeId, status, limit }) {
       const where = {
-        meeting: { is: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...visibleMeetings(viewer, projectIds, await ownCounts(viewer)) } },
+        meeting: { is: { deletedAt: null, startAt: { gte: from, lte: to }, ...(projectId ? { projectId } : {}), ...(await meetingScope(viewer, projectIds)) } },
         ...(assigneeId ? { assigneeId } : {}),
         ...(status === 'open' ? { status: OPEN_ACTIONS } : status === 'done' ? { status: CLOSED_ACTIONS } : {}),
       };

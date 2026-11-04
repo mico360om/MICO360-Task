@@ -31,7 +31,7 @@ describe('MICO AI schedule_meeting and companies', () => {
       },
     };
     const port = createMicoAiActionsPort({
-      prisma: { meeting: { findFirst: async () => null } } as never,
+      prisma: { meeting: { findFirst: async () => null }, project: { findFirst: async () => null } } as never, // (1.22: is the project archived? not here)
       timeZone: 'Asia/Muscat',
       taskService: {} as never,
       assigneeService: {} as never,

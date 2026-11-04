@@ -395,6 +395,20 @@ describe('New task form', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Project' })).toHaveTextContent('Ops Board'));
   });
 
+  // 1.22 "Show my projects only": the page's project may be off an administrator's own list (a board
+  // opened by its link) — the task still starts there, not silently in another project.
+  it('starts in the page’s project when an administrator’s own list leaves it out', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    localStorage.setItem('mico360.newTask.project', 'p2');
+    override = (u) => (/\/projects\/p7$/.test(u) ? json({ data: { ...PROJECTS[0], id: 'p7', code: 'FAR', name: 'Far Away Works' } }) : undefined);
+    try {
+      renderDialog({ defaultProjectId: 'p7' });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Project' })).toHaveTextContent('Far Away Works'));
+    } finally {
+      useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+    }
+  });
+
   it('says so when there are no projects to add a task to, and leads to making one instead of an unusable form', async () => {
     override = (u) => (u.endsWith('/projects') ? json({ data: [] }) : undefined);
     renderDialog();

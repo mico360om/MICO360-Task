@@ -31,7 +31,8 @@ import { createTemplateService } from './modules/templates/template-service';
 import { createPrismaTemplateRepository } from './modules/templates/prisma-template-repository';
 import { createProjectNotices } from './modules/projects/project-notices';
 import { createProjectAccess } from './modules/projects/project-access';
-import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles } from './modules/companies/company-access';
+import { createCompanyAccess, fallbackProjectCompanyId, isAdminRoles, readMyProjectsOnly } from './modules/companies/company-access';
+import { createPrismaArchiveLookup } from './modules/companies/archive-guard';
 import { createCompanyService, mailFromName, type OnCompanyAccessChanged } from './modules/companies/company-service';
 import { createPrismaCompanyRepository } from './modules/companies/prisma-company-repository';
 import { createCompanyMembership, createPrismaMembershipStore } from './modules/companies/company-membership';
@@ -248,7 +249,9 @@ async function main(): Promise<void> {
   // Late-bound: the realtime server re-checks who may see a project whose companies changed (MC1 Task 12 binds it).
   // companies: bound to the realtime server's re-check below (refreshCompanyAccess), once it exists.
   let onProjectAudienceChanged: OnProjectAudienceChanged = () => {};
-  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup, companies: projectCompanies });
+  // 1.22 "Show my projects only": an administrator's own setting, read on every list (never cached).
+  const myProjectsOnly = (userId: string) => readMyProjectsOnly(prisma, userId);
+  const projectService = createProjectService({ projects: projectRepository, people: peopleLookup, companies: projectCompanies, myProjectsOnly });
 
   const columnService = createColumnService({
     columns: createPrismaColumnRepository(prisma),
@@ -274,6 +277,7 @@ async function main(): Promise<void> {
   const projectAccess = createProjectAccess({
     projects: projectRepository,
     managers: createPrismaProjectManagerLookup(prisma),
+    myProjectsOnly, // 1.22: a list (the pick named) follows an administrator's "Show my projects only"
   });
   // companies: the access rule module (memberships and project companies, read fresh on every request).
   const companyAccess = createCompanyAccess(prisma);
@@ -347,6 +351,8 @@ async function main(): Promise<void> {
   const taskMoveService = createTaskMoveService({
     repo: createPrismaTaskMoveRepository(prisma),
     timeZone: companyTz,
+    // 1.22: the move dialog lists an administrator's own projects with "Show my projects only" (a list call).
+    pickerProjectIds: (actor) => projectAccess.accessibleProjectIds(actor.id, actor.roles ?? [], null),
     checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
     // A move into or out of a Done column is a status change too: the next repeat copy, meeting
     // action items and the timeline line, as for a card moved on the board. Quietly: the move's own
@@ -1598,6 +1604,8 @@ async function main(): Promise<void> {
     workloadStore: createPrismaWorkloadStore(prisma),
     projectAccess,
     companyAccess,
+    // 1.22: an archived project is read-only on the server too (companies/archive-guard.ts).
+    archiveLookup: createPrismaArchiveLookup(prisma),
     companyService,
     companyMembership,
     projectCompanies,

@@ -138,6 +138,8 @@ export interface MeetingRouteDeps {
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id): the meetings list follows it, and it is a new standalone meeting's default company. Absent: no pick. */
   pickOf?: PickOf;
+  /** 1.22: does this administrator list like a team member ("Show my projects only")? Absent: never. */
+  myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
   /** Calendar invitations / cancellations (enables POST /meetings/:id/invites + automatic updates). */
   notify?: Pick<MeetingNotifyService, 'sendInvites' | 'sendCancellation'> & Partial<Pick<MeetingNotifyService, 'previewInvites'>>;
   /** Structured logger for best-effort background sends. */
@@ -312,7 +314,12 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     // opened from the project) is checked by its own rule, as opening it is.
     const pick = q.projectId ? null : await (deps.pickOf ?? NO_PICK)(req);
     const { id: userId, roles } = actor(req);
-    const projectIds = deps.accessibleProjectIds ? await deps.accessibleProjectIds(userId, roles, pick) : null;
+    // A project's tab is an object check (no pick: admin-wide); the plain list is a list (the pick named,
+    // even null) — 1.22: an administrator's follows "Show my projects only", like a team member's.
+    const access = deps.accessibleProjectIds;
+    const projectIds = access ? await (q.projectId ? access(userId, roles) : access(userId, roles, pick)) : null;
+    const admin = roles.includes('ADMIN');
+    const mineOnly = admin && !q.projectId && !!deps.myProjectsOnly && (await deps.myProjectsOnly({ id: userId, roles }));
     const data = await meetingService.listMeetings({
       projectId: q.projectId,
       status: q.status,
@@ -320,10 +327,10 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       to: q.to,
       ...(q.mine ? { organizerId: userId } : {}),
       scope: pick
-        ? { userId, projectIds, pick: { companyId: pick, everyone: roles.includes('ADMIN') } }
+        ? { userId, projectIds, pick: { companyId: pick, everyone: admin && !mineOnly } }
         : q.mine
           ? { userId, projectIds: [] }
-          : { userId, projectIds },
+          : { userId, projectIds, ...(mineOnly ? { admin: true } : {}) },
     });
     const flagged = await withEditFlags(req, data);
     if (!deps.listCounts || flagged.length === 0) return { data: flagged };

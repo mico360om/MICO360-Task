@@ -62,6 +62,9 @@ function inMemoryRepo(): ProjectRepository & { all(): ProjectRecord[]; addMember
     async listForUser(userId, pick) {
       return [...rows.values()].filter((p) => canAccess(p, userId) && inPick(p, pick));
     },
+    async listTeamOf(userId, pick) {
+      return [...rows.values()].filter((p) => canAccess(p, userId) && inPick(p, pick));
+    },
     async isAccessibleTo(projectId, userId) {
       const p = rows.get(projectId);
       return p ? canAccess(p, userId) : false;
@@ -156,6 +159,31 @@ describe('ProjectService — membership-based visibility', () => {
     expect((await svc.listVisibleProjects({ id: 'admin', roles: ['ADMIN'] }, 'beta')).map((p) => p.code)).toEqual(['B']);
     expect((await svc.listVisibleProjects({ id: 'emp1', roles: ['EMPLOYEE'] }, 'alpha')).map((p) => p.code)).toEqual(['A']);
     expect((await svc.listVisibleProjects({ id: 'emp1', roles: ['EMPLOYEE'] })).map((p) => p.code).sort()).toEqual(['A', 'B']);
+  });
+
+  // 1.22 "Show my projects only": an administrator's lists use the team rule; the Projects page can
+  // ask for every project for one visit; opening one by its link is unchanged.
+  it('an administrator with “Show my projects only” lists the projects they own, manage or are on the team of', async () => {
+    const on = new Set(['admin']);
+    const mine = createProjectService({ projects: repo, myProjectsOnly: async (id) => on.has(id) });
+    const own = await mine.createProject({ code: 'OWN', name: 'Owned', createdById: 'admin', ownerId: 'admin' });
+    const mgr = await mine.createProject({ code: 'MGR', name: 'Managed', createdById: 'admin', managerId: 'admin' });
+    const mem = await mine.createProject({ code: 'MEM', name: 'Member', createdById: 'admin' });
+    const other = await mine.createProject({ code: 'OTHER', name: 'Not theirs', createdById: 'admin' });
+    repo.addMember(mem.id, 'admin');
+    repo.inCompanies(own.id, ['alpha']);
+    repo.inCompanies(other.id, ['alpha']);
+    const codes = (ps: { code: string }[]) => ps.map((p) => p.code).sort();
+    expect(codes(await mine.listVisibleProjects({ id: 'admin', roles: ['ADMIN'] }))).toEqual(['MEM', 'MGR', 'OWN']);
+    expect(codes(await mine.listVisibleProjects({ id: 'admin', roles: ['ADMIN'] }, 'alpha'))).toEqual(['OWN']); // with a pick both apply
+    // The Projects page's "for this visit" untick (GET /projects/overview?all=1).
+    expect(codes(await mine.listVisibleProjects({ id: 'admin', roles: ['ADMIN'] }, null, { everyProject: true }))).toEqual(['MEM', 'MGR', 'OTHER', 'OWN']);
+    // Opening one by its link.
+    expect((await mine.getVisibleProject(other.id, { id: 'admin', roles: ['ADMIN'] })).code).toBe('OTHER');
+    // Another administrator, and an employee asking for every project, are unchanged.
+    expect(codes(await mine.listVisibleProjects({ id: 'admin2', roles: ['ADMIN'] }))).toEqual(['MEM', 'MGR', 'OTHER', 'OWN']);
+    repo.addMember(mgr.id, 'emp1');
+    expect(codes(await mine.listVisibleProjects({ id: 'emp1', roles: ['EMPLOYEE'] }, null, { everyProject: true }))).toEqual(['MGR']);
   });
 
   it('lets an employee open a project they belong to', async () => {

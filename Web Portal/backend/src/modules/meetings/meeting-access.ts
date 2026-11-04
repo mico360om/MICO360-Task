@@ -90,9 +90,11 @@ export function createMeetingAccess({ meetings, projectAccess, meetingView }: Me
   /**
    * Project ids the user may see (null = admin) — used to scope meeting/search lists. companies:
    * with a picked company, that company's projects they may see (an admin: all of that company's).
+   * 1.22: a list (the pick named, even null) asks project access, where an administrator's "Show my
+   * projects only" applies; an object check (no pick) is everything for an admin.
    */
   async function accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null> {
-    if (isAdmin(roles) && !pick) return null;
+    if (isAdmin(roles) && (pick === undefined || (!pick && !projectAccess))) return null;
     return projectAccess ? projectAccess.accessibleProjectIds(userId, roles, pick) : [];
   }
 
