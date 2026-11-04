@@ -112,6 +112,23 @@ describe('Notification preferences: daily task emails', () => {
     expect(await put({ pending: false, completed: true, time: '07:00' })).toEqual({ pending: false, completed: true, time: '07:00', schedule: true, urgent: true, managed: false });
   });
 
+  it('1.22 review: an older app turning the email off and on again brings every part back, not just the task list', async () => {
+    const a = await appWithStore();
+    const auth = { authorization: `Bearer ${await token()}` };
+    const put = async (dailyEmails: Record<string, unknown>) =>
+      (await a.inject({ method: 'PUT', url: '/api/v1/notifications/preferences', headers: auth, payload: { dailyEmails } })).json().data.dailyEmails;
+    expect(await put({ pending: true, completed: true, time: '06:00' })).toEqual({ pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true });
+    // Both old emails off: no email at all.
+    expect(await put({ pending: false, completed: false, time: '06:00' })).toEqual({ pending: false, completed: false, time: '06:00', schedule: false, urgent: false, managed: false });
+    // Both on again: the email is as it was — Today's schedule and In your projects too.
+    expect(await put({ pending: true, completed: true, time: '06:00' })).toEqual({ pending: true, completed: true, time: '06:00', schedule: true, urgent: true, managed: true });
+    // Off again, then only "Completed yesterday" on: the parts beside the task list come back; the task list stays off.
+    await put({ pending: false, completed: false, time: '06:00' });
+    expect(await put({ pending: false, completed: true, time: '06:00' })).toEqual({ pending: false, completed: true, time: '06:00', schedule: true, urgent: false, managed: true });
+    // The time alone still changes nothing else (lane E's rule).
+    expect(await put({ pending: false, completed: true, time: '08:30' })).toEqual({ pending: false, completed: true, time: '08:30', schedule: true, urgent: false, managed: true });
+  });
+
   it('saves them without losing other settings, and an app that doesn’t know them keeps them', async () => {
     const a = await appWithStore();
     const auth = { authorization: `Bearer ${await token()}` };

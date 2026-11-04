@@ -5,7 +5,7 @@ import { KIND_KEYS } from './notification-kinds';
 import type { ListScope } from './notification-repository';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 import type { AuthGuard } from '../auth/auth-guard';
-import { dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type DailyEmailPrefs, type NotificationPreferences } from './notification-preferences';
+import { dailyEmailOn, dailyEmailPrefs, normalizePreferences, weeklySummaryOn, DAILY_EMAIL_TIME, MAX_REMINDER_LEAD_MINUTES, type DailyEmailPrefs, type NotificationPreferences } from './notification-preferences';
 
 const prefsSchema = z.object({
   muted: z.array(z.string()).optional(),
@@ -44,6 +44,8 @@ const bulkSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max
 /**
  * 1.22: a daily email save from an app that knows only the two old switches (pending tasks, completed
  * yesterday) keeps their meaning: "Overdue & urgent" follows "Pending tasks", and both off is no email.
+ * 1.22 review: turned back on from no email at all, "Today's schedule" and "In your projects" come
+ * back too (as an old app's settings read: on whenever either old email is) — not just the task list.
  */
 function dailyEmailsSaved(current: DailyEmailPrefs, sent: z.infer<typeof prefsSchema>['dailyEmails'] & object): DailyEmailPrefs {
   const next = { ...current, ...sent };
@@ -53,7 +55,13 @@ function dailyEmailsSaved(current: DailyEmailPrefs, sent: z.infer<typeof prefsSc
   const completedChanged = sent.completed !== undefined && sent.completed !== current.completed;
   if (!older || (!pendingChanged && !completedChanged)) return next;
   const off = !next.pending && !next.completed;
-  return { ...next, ...(pendingChanged ? { urgent: next.pending } : {}), ...(off ? { schedule: false, urgent: false, managed: false } : {}) };
+  const backOn = !off && !dailyEmailOn(current);
+  return {
+    ...next,
+    ...(pendingChanged ? { urgent: next.pending } : {}),
+    ...(backOn ? { schedule: true, managed: true } : {}),
+    ...(off ? { schedule: false, urgent: false, managed: false } : {}),
+  };
 }
 
 /** Preferences as the apps read them: the daily email settings and the weekly summary switch always filled in. */
