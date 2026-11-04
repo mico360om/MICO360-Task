@@ -224,7 +224,7 @@ export function NotesSection({
       ) : (
         <ul className="flex flex-col gap-2">
           {shown.map((note) => (
-            <li key={note.id} className={`relative overflow-hidden rounded-xl border pl-4 pr-3 py-2.5 ${note.highlighted ? 'border-warning/50 bg-warning-soft/30' : 'border-line bg-surface'}`}>
+            <li key={note.id} id={`note-${note.id}`} className={`relative scroll-mt-24 overflow-hidden rounded-xl border pl-4 pr-3 py-2.5 ${note.highlighted ? 'border-warning/50 bg-warning-soft/30' : 'border-line bg-surface'}`}>
               <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${TYPE_STYLE[note.type].stripe}`} />
               {editingId === note.id ? (
                 <NoteEditor

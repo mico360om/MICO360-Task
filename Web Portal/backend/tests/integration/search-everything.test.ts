@@ -167,6 +167,13 @@ describe('search everything (database)', () => {
     const r = await run(w('kestrel'));
     expect(r.counts).toMatchObject({ task: 4, meeting: 1, note: 1, file: 1, project: 0 });
     expect(r.total).toBe(7);
+    // One kind chosen: the counts still give every kind (the type chips), the total only the chosen.
+    const files = await run(w('kestrel'), { kinds: ['file'] });
+    expect(files.counts).toMatchObject({ task: 4, meeting: 1, note: 1, file: 1 });
+    expect(files.total).toBe(1);
+    const done = await run(w('kestrel'), { kinds: ['task'], taskStatuses: ['DONE'] });
+    expect(done.counts).toMatchObject({ task: 4, note: 1 });
+    expect(done.total).toBe(1);
     expect(await found(w('kestrel'), { kinds: ['note', 'file'] })).toEqual(expect.arrayContaining([`note:${note}`, `file:${file}`]));
     expect((await found(w('kestrel'), { kinds: ['note', 'file'] })).length).toBe(2);
     expect(await found(w('kestrel'), { done: true })).toEqual([`task:${t.done}`]);

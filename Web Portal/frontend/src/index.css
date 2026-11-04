@@ -581,6 +581,13 @@
 }
 
 @layer utilities {
+  /* 1.23 search: the place a result opened (a meeting's note, its final minutes, a task's file) is
+     marked for a moment (lib/useFoundAnchor). */
+  [data-found='true'] {
+    outline: 2px solid rgb(var(--c-brand));
+    outline-offset: 2px;
+    transition: outline-color 0.3s ease;
+  }
   /* A full-window layer (dialog, drawer) that covers just the part on screen: it ends at the top of
      a phone's on-screen keyboard, and starts where the browser slid the page up to. */
   .above-keyboard {

@@ -28,6 +28,7 @@ import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useMeetingRealtime, type MeetingChangeKind } from '../lib/useMeetingRealtime';
 import { useCurrentProject } from '../components/CurrentProject';
 import { usePageName } from '../lib/page-meta';
+import { useFoundAnchor } from '../lib/useFoundAnchor';
 
 /** While a meeting is running, poll its live parts so standalone meetings (no socket room) stay current too. */
 const LIVE_POLL_MS = 10_000;
@@ -55,6 +56,8 @@ export function MeetingDetailPage() {
   // A project meeting: New task starts in its project.
   useCurrentProject(meeting?.projectId);
   usePageName(meeting?.title);
+  // 1.23: a search result's place in the meeting (#note-…, #final-minutes) comes into view, marked.
+  useFoundAnchor(!!meeting);
   const live = meeting?.status === 'IN_PROGRESS';
   const pollMs = live ? LIVE_POLL_MS : false;
   // companies: the roster comes with the meeting's people by name; they are kept beside it (its own

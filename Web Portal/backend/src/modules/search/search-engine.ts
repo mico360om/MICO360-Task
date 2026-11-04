@@ -245,7 +245,14 @@ export function createSearchEngine({
     const all = (words: string[]) => words.length === terms.length;
 
     if (!input.extra) {
-      const [page, counted] = await Promise.all([rows(exact, input, limit + 1, offset), input.withCounts || offset === 0 ? counts(exact, input) : Promise.resolve(null)]);
+      const wantCounts = input.withCounts || offset === 0;
+      // With a kind (or a task status) chosen, the type chips still count every kind: those counts
+      // leave that choice out (every other filter holds); the total is of what is shown.
+      const [page, counted, facets] = await Promise.all([
+        rows(exact, input, limit + 1, offset),
+        wantCounts ? counts(exact, input) : Promise.resolve(null),
+        wantCounts && input.withCounts && narrowed(input) ? counts(exact, unnarrowed(input)) : Promise.resolve(null),
+      ]);
       const total = counted ? Object.values(counted).reduce((a, b) => a + b, 0) : null;
       // Plenty hold every word (or this is a later page of them): those, a page at a time.
       if (offset > 0 || total === null || total >= FEW) {
@@ -254,23 +261,21 @@ export function createSearchEngine({
           hits,
           next: page.length > limit ? { offset: offset + limit, extra: false } : null,
           corrected: [],
-          ...(input.withCounts && counted ? { counts: counted, total: total!, totalCapped: Object.values(counted).some((n) => n > COUNT_CAP) } : {}),
+          ...(input.withCounts && counted ? { counts: facets ?? counted, total: total!, totalCapped: Object.values(counted).some((n) => n > COUNT_CAP) } : {}),
         };
       }
     }
     return withExtras(input, exact, terms, limit, input.extra ? offset : 0, byNumber);
   }
 
+  const narrowed = (input: SearchAllInput) => Boolean(input.kinds?.length || input.taskStatuses?.length);
+  const unnarrowed = (input: SearchAllInput): SearchAllInput => ({ ...input, kinds: undefined, taskStatuses: undefined });
+
   /**
    * Few hold every word: those, then items found by corrected spellings, then items holding some of
    * the words — one list (each pass's best), paged in memory.
    */
   async function withExtras(input: SearchAllInput, exact: Pass, terms: string[], limit: number, offset: number, byNumber: (task: { key: string; formerKeys: string[] }) => string | null): Promise<SearchAllResult> {
-    const firstRows = await rows(exact, input, FEW, 0);
-    const seen = new Set(firstRows.map((r) => `${r.kind}:${r.id}`));
-    const list: { kind: SearchKind; id: string; match?: 'close' | 'some' }[] = [...firstRows];
-    const fresh = (r: { kind: SearchKind; id: string }) => !seen.has(`${r.kind}:${r.id}`) && (seen.add(`${r.kind}:${r.id}`), true);
-
     // Spelling mistakes: each word of 4 letters or more also as the indexed words it may be a mistake for.
     const alternatives = new Map<string, string[]>();
     if (suggest) for (const t of terms.slice(0, 6)) if (allowedTypos(t) > 0) {
@@ -278,14 +283,38 @@ export function createSearchEngine({
       if (alts.length) alternatives.set(t, alts);
     }
     const closeGroups = terms.map((t) => [t, ...(alternatives.get(t) ?? [])]);
-    if (alternatives.size) {
-      for (const r of await rows({ groups: closeGroups, min: terms.length, byNumber: null, phrase: null }, input, EXTRA, 0)) if (fresh(r)) list.push({ ...r, match: 'close' });
-    }
-    // Some of the words (two words or more): at least half of them.
-    if (terms.length > 1) {
-      const min = Math.ceil(terms.length / 2);
-      for (const r of await rows({ groups: closeGroups, min, byNumber: null, phrase: null }, input, EXTRA, 0)) if (fresh(r)) list.push({ ...r, match: 'some' });
-    }
+    /** The exact few, then the corrected spellings' results, then those with some of the words. */
+    const buildList = async (from: SearchAllInput) => {
+      const firstRows = await rows(exact, from, FEW, 0);
+      const seen = new Set(firstRows.map((r) => `${r.kind}:${r.id}`));
+      const list: { kind: SearchKind; id: string; match?: 'close' | 'some' }[] = [...firstRows];
+      const fresh = (r: { kind: SearchKind; id: string }) => !seen.has(`${r.kind}:${r.id}`) && (seen.add(`${r.kind}:${r.id}`), true);
+      if (alternatives.size) {
+        for (const r of await rows({ groups: closeGroups, min: terms.length, byNumber: null, phrase: null }, from, EXTRA, 0)) if (fresh(r)) list.push({ ...r, match: 'close' });
+      }
+      // Some of the words (two words or more): at least half of them.
+      if (terms.length > 1) {
+        for (const r of await rows({ groups: closeGroups, min: Math.ceil(terms.length / 2), byNumber: null, phrase: null }, from, EXTRA, 0)) if (fresh(r)) list.push({ ...r, match: 'some' });
+      }
+      return list;
+    };
+    const kindsOf = (items: { kind: SearchKind }[]) => {
+      const c = Object.fromEntries(SEARCH_KINDS.map((k) => [k, 0])) as Record<SearchKind, number>;
+      for (const item of items) c[item.kind] += 1;
+      return c;
+    };
+    /**
+     * The type chips with a kind chosen: what the search would show with no kind chosen — every kind
+     * holding every word, and (when few do) the extra passes' results too.
+     */
+    const facetsOf = async (): Promise<Record<SearchKind, number>> => {
+      const all = unnarrowed(input);
+      const exactCounts = await counts(exact, all);
+      if (Object.values(exactCounts).reduce((a, b) => a + b, 0) >= FEW) return exactCounts;
+      const extras = kindsOf((await buildList(all)).filter((i) => i.match));
+      return Object.fromEntries(SEARCH_KINDS.map((k) => [k, exactCounts[k] + extras[k]])) as Record<SearchKind, number>;
+    };
+    const [list, facets] = await Promise.all([buildList(input), input.withCounts && narrowed(input) ? facetsOf() : Promise.resolve(null)]);
 
     const flat = [...new Set(closeGroups.flat())];
     const groupsFound = (words: string[]) => closeGroups.filter((g) => g.some((a) => words.includes(a))).length;
@@ -305,13 +334,11 @@ export function createSearchEngine({
       const to = alts.find((alt) => shown.some((h) => mentions(h, alt)));
       if (to) corrected.push({ from, to });
     }
-    const counts = Object.fromEntries(SEARCH_KINDS.map((k) => [k, 0])) as Record<SearchKind, number>;
-    for (const item of list) counts[item.kind] += 1;
     return {
       hits: checked,
       next: list.length > offset + limit ? { offset: offset + limit, extra: true } : null,
       corrected,
-      ...(input.withCounts ? { counts, total: list.length, totalCapped: false } : {}),
+      ...(input.withCounts ? { counts: facets ?? kindsOf(list), total: list.length, totalCapped: false } : {}),
     };
   }
 
