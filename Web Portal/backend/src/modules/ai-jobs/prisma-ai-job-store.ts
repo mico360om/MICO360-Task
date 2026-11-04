@@ -148,12 +148,19 @@ export function createPrismaAiJobStore(prisma: PrismaClient): AiJobStore {
     async watch(kind, subjectId, at) {
       await prisma.aiJob.updateMany({ where: { activeKey: activeKeyOf(kind, subjectId) }, data: { watchedAt: at } });
     },
-    async claimUnkept(before, limit) {
+    async claimUnkept(before, limit, opts = {}) {
       if (limit <= 0) return [];
-      const found = await prisma.aiJob.findMany({ where: { status: 'DONE', outcome: null, finishedAt: { lt: before } }, orderBy: { finishedAt: 'asc' }, take: limit, select: { id: true } });
+      // Never kept (a server stopped between finishing and keeping) — 1.22 review: or marked SAVING
+      // so long ago that the server keeping it must have stopped too.
+      const unkept: Prisma.AiJobWhereInput[] = [
+        { outcome: null, finishedAt: { lt: before } },
+        ...(opts.staleSavingBefore ? [{ outcome: 'SAVING', outcomeAt: { lt: opts.staleSavingBefore } }] : []),
+      ];
+      const found = await prisma.aiJob.findMany({ where: { status: 'DONE', OR: unkept }, orderBy: { finishedAt: 'asc' }, take: limit, select: { id: true, outcome: true, outcomeAt: true } });
       const taken: AiJobRecord[] = [];
       for (const f of found) {
-        const { count } = await prisma.aiJob.updateMany({ where: { id: f.id, status: 'DONE', outcome: null }, data: { outcome: 'SAVING' } });
+        // One step two servers can't both win: the row must still be as it was read.
+        const { count } = await prisma.aiJob.updateMany({ where: { id: f.id, status: 'DONE', outcome: f.outcome, outcomeAt: f.outcomeAt }, data: { outcome: 'SAVING', outcomeAt: opts.at ?? new Date() } });
         const row = count ? await prisma.aiJob.findUnique({ where: { id: f.id } }) : null;
         if (row) taken.push(toRecord(row));
       }

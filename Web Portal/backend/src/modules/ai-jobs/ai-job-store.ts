@@ -91,10 +91,11 @@ export interface AiJobStore {
   watch(kind: AiJobKind, subjectId: string, at: Date): Promise<void>;
   /**
    * Take up to `limit` jobs that finished (DONE) before `before` but whose result was never kept
-   * (outcome still none: a server stopped between the two) — each marked SAVING in one step two
-   * servers can't both win — to keep them now.
+   * (outcome still none: a server stopped between the two) — each marked SAVING (outcomeAt = `at`)
+   * in one step two servers can't both win — to keep them now. 1.22 review: with
+   * `staleSavingBefore`, also jobs marked SAVING before then (a server that stopped while keeping).
    */
-  claimUnkept(before: Date, limit: number): Promise<AiJobRecord[]>;
+  claimUnkept(before: Date, limit: number, opts?: { at?: Date; staleSavingBefore?: Date }): Promise<AiJobRecord[]>;
   /** Delete jobs that ended before `before` (their facts and results go with them). */
   deleteEnded(before: Date): Promise<number>;
 }
@@ -206,9 +207,13 @@ export function createMemoryAiJobStore(): AiJobStore & { rows: Map<string, AiJob
       const j = activeOf(activeKeyOf(kind, subjectId));
       if (j) j.watchedAt = at;
     },
-    async claimUnkept(before, limit) {
-      const due = [...rows.values()].filter((j) => j.status === 'DONE' && j.outcome === null && !!j.finishedAt && j.finishedAt.getTime() < before.getTime()).slice(0, Math.max(0, limit));
-      for (const j of due) j.outcome = 'SAVING';
+    async claimUnkept(before, limit, opts = {}) {
+      const stale = opts.staleSavingBefore?.getTime();
+      const unkept = (j: AiJobRecord) =>
+        (j.outcome === null && !!j.finishedAt && j.finishedAt.getTime() < before.getTime()) ||
+        (stale !== undefined && j.outcome === 'SAVING' && !!j.outcomeAt && j.outcomeAt.getTime() < stale);
+      const due = [...rows.values()].filter((j) => j.status === 'DONE' && unkept(j)).slice(0, Math.max(0, limit));
+      for (const j of due) Object.assign(j, { outcome: 'SAVING', outcomeAt: opts.at ?? new Date() });
       return due.map(copy);
     },
     async deleteEnded(before) {

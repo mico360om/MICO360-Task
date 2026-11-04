@@ -226,4 +226,21 @@ describe('AI jobs in the database (integration)', () => {
     expect(await store.get(j.id)).toBeNull();
     expect(await store.get(live.id)).not.toBeNull(); // active: never
   });
+
+  // 1.22 review A2: a server that stopped while keeping (SAVING) — taken again once stale, by one server.
+  it('a result left SAVING is taken again only once that is stale, and then by one server only', async () => {
+    const { job: j } = await store.create(job(), new Date());
+    const [t] = await store.claimDue('srv-1', new Date(), 60_000, 5);
+    await store.finish(j.id, t!.leaseOwner!, { status: 'DONE', result: { summary: 'z' } }, new Date(Date.now() - 3_600_000));
+    const claim = () => store.claimUnkept(new Date(Date.now() - 60_000), 50, { at: new Date(), staleSavingBefore: new Date(Date.now() - 300_000) });
+    const mine = (taken: Array<{ id: string }[]>) => taken.flat().filter((x) => x.id === j.id);
+    expect(mine([await claim()])).toHaveLength(1);
+    const marked = await store.get(j.id);
+    expect(marked).toMatchObject({ outcome: 'SAVING' });
+    expect(Date.now() - marked!.outcomeAt!.getTime()).toBeLessThan(60_000); // when it was marked
+    expect(mine([await claim()])).toHaveLength(0); // fresh: whoever marked it may still be keeping it
+    await prisma.aiJob.update({ where: { id: j.id }, data: { outcomeAt: new Date(Date.now() - 600_000) } });
+    expect(mine(await Promise.all([claim(), claim(), claim()]))).toHaveLength(1);
+    expect(await store.get(j.id)).toMatchObject({ outcome: 'SAVING', result: { summary: 'z' } });
+  });
 });

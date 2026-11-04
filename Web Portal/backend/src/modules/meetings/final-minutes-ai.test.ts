@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createFinalMinutesAi } from './final-minutes-ai';
 import { createMemoryFinalMinutesRepository } from './final-minutes-repository';
 import { createMemoryAiJobStore, type AiJobRecord } from '../ai-jobs/ai-job-store';
-import { createAiJobRunner, KEEP_GRACE_MS } from '../ai-jobs/ai-job-runner';
+import { createAiJobRunner, KEEP_GRACE_MS, SAVING_STALE_MS } from '../ai-jobs/ai-job-runner';
 
 // 1.22 (§10) review fixes: the moment between finishing and keeping, "Use it" against a change at the
 // same moment, and an older app's waiting request (only the requester's waiting silences the bell).
@@ -58,6 +58,38 @@ describe('Final MOM AI draft: the moment between finishing and keeping', () => {
     expect(await s.ai.view('m1', await s.finalMinutes.get('m1'), 'u1')).toMatchObject({ status: 'failed', error: 'Something went wrong while keeping the AI’s work. Try again.' });
     await s.ai.discard('m1', id);
     expect(await s.ai.view('m1', await s.finalMinutes.get('m1'), 'u1')).toBeNull();
+  });
+});
+
+// 1.22 review A2 + A1: a keep cut short by a stopped server.
+describe('Final MOM AI draft: a keep cut short', () => {
+  it('“being kept” for longer than any keep takes no longer reads as drafting; the next sweep keeps it', async () => {
+    const s = setup();
+    await s.finalMinutes.save('m1', draft());
+    const id = await finished(s.store, 60 * 60_000, 'SAVING');
+    s.store.rows.get(id)!.outcomeAt = new Date(Date.now() - 1000);
+    expect(await s.ai.view('m1', await s.finalMinutes.get('m1'), 'u1')).toMatchObject({ id, status: 'running' });
+    s.store.rows.get(id)!.outcomeAt = new Date(Date.now() - SAVING_STALE_MS - 60_000);
+    expect(await s.ai.view('m1', await s.finalMinutes.get('m1'), 'u1')).not.toMatchObject({ status: 'running' });
+    // Taken again and finished: the minutes changed since it was asked for, so it is offered.
+    await s.runner.sweep();
+    expect((await s.store.get(id))!.outcome).toBe('OFFERED');
+    expect(await s.ai.view('m1', await s.finalMinutes.get('m1'), 'u1')).toMatchObject({ id, status: 'ready', content: aiContent });
+  });
+
+  it('keeping the same draft again (the first keep saved it, then failed to say so) says saved — not “changed meanwhile”', async () => {
+    const s = setup();
+    await s.finalMinutes.save('m1', draft());
+    const baseline = (await s.finalMinutes.get('m1'))!.savedAt.toISOString();
+    const { job } = await s.store.create({ kind: 'final-minutes', subjectId: 'm1', meetingId: 'm1', requestedById: 'u1', input: { baseline } }, new Date());
+    await new Promise((r) => setTimeout(r, 5));
+    const first = await s.ai.handler.save(job, aiContent);
+    expect(first.outcome).toBe('SAVED');
+    expect(await s.ai.handler.save(job, aiContent)).toEqual({ outcome: 'SAVED', at: first.at });
+    // Someone else's change is still a change: offered.
+    await new Promise((r) => setTimeout(r, 5));
+    await s.finalMinutes.save('m1', draft());
+    expect(await s.ai.handler.save(job, aiContent)).toEqual({ outcome: 'OFFERED' });
   });
 });
 

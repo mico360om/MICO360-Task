@@ -18,7 +18,8 @@ import type { AiJobError, AiJobKind, AiJobRecord, AiJobStore, NewAiJob } from '.
  * - the result is kept once (only the try that finishes the job keeps it), and the requester is told
  *   by the bell and a phone push when it ends — unless their page was showing it;
  * - a result a stopped server never kept (it finished the job, then stopped) is kept by a sweep a
- *   minute later — and if keeping it fails again, the job is settled as failed;
+ *   minute later — and if keeping it fails again, the job is settled as failed; one a server stopped
+ *   while keeping (SAVING) is taken again after SAVING_STALE_MS;
  * - jobs that ended more than 30 days ago are deleted (with the meeting facts they kept).
  */
 
@@ -35,6 +36,11 @@ export const JOB_SWEEP_MS = 15_000;
 export const JOB_CONCURRENCY = 16;
 /** A finished job whose result isn't kept this long after (its server stopped between) is kept by a sweep. */
 export const KEEP_GRACE_MS = 60_000;
+/**
+ * 1.22 review: a result marked SAVING this long ago is kept again — the server keeping it stopped
+ * (a keep is a few database writes; MySQL gives up waiting for a lock after 50 s).
+ */
+export const SAVING_STALE_MS = 5 * 60_000;
 /** Ended jobs are deleted after this long. */
 export const ENDED_KEEP_MS = 30 * 24 * 60 * 60_000;
 const CLEANUP_EVERY_MS = 60 * 60_000;
@@ -214,7 +220,7 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
   async function keepUnkept(): Promise<void> {
     let found: AiJobRecord[];
     try {
-      found = await store.claimUnkept(new Date(now().getTime() - KEEP_GRACE_MS), 10);
+      found = await store.claimUnkept(new Date(now().getTime() - KEEP_GRACE_MS), 10, { at: now(), staleSavingBefore: new Date(now().getTime() - SAVING_STALE_MS) });
     } catch (err) {
       log('AI jobs: looking for results to keep failed', err);
       return;

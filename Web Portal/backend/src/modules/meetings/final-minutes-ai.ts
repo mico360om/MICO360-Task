@@ -1,5 +1,5 @@
 import { ConflictError, HttpError, ValidationError } from '../../lib/http-errors';
-import { KEEP_GRACE_MS, MAX_ATTEMPTS, type AiJobHandler, type AiJobRunner } from '../ai-jobs/ai-job-runner';
+import { KEEP_GRACE_MS, MAX_ATTEMPTS, SAVING_STALE_MS, type AiJobHandler, type AiJobRunner } from '../ai-jobs/ai-job-runner';
 import type { AiJobError, AiJobRecord, AiJobStore } from '../ai-jobs/ai-job-store';
 import { normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
 import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
@@ -106,13 +106,13 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
       const meetingId = job.subjectId;
       if (deps.isArchived && (await deps.isArchived(meetingId))) return { outcome: 'OFFERED' };
       const asked = str(job.input.baseline);
-      const saved = await finalMinutes.saveIfUnchanged(meetingId, asked ? new Date(asked) : null, {
-        content: normalizeFinalMinutes(result),
-        status: 'DRAFT',
-        approvedById: null,
-        approvedAt: null,
-      });
-      return saved ? { outcome: 'SAVED', at: saved.savedAt } : { outcome: 'OFFERED' };
+      const content = normalizeFinalMinutes(result);
+      const saved = await finalMinutes.saveIfUnchanged(meetingId, asked ? new Date(asked) : null, { content, status: 'DRAFT', approvedById: null, approvedAt: null });
+      if (saved) return { outcome: 'SAVED', at: saved.savedAt };
+      // 1.22 review: kept again after a keep that saved it but couldn't say so — the draft is this one.
+      const current = await finalMinutes.get(meetingId);
+      if (current?.status === 'DRAFT' && JSON.stringify(normalizeFinalMinutes(current.content)) === JSON.stringify(content)) return { outcome: 'SAVED', at: current.savedAt };
+      return { outcome: 'OFFERED' };
     },
     async notify(job, end) {
       if (!deps.notify) return;
@@ -168,11 +168,16 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
   }
 
   /**
-   * Finished but its result not kept yet: being kept (SAVING), or the moment between the two (a
-   * stopped server's is kept by a sweep after KEEP_GRACE_MS) — still "drafting" to the page.
+   * Finished but its result not kept yet: being kept (SAVING — 1.22 review: not once that is stale, a
+   * sweep takes it again), or the moment between the two (a stopped server's is kept by a sweep after
+   * KEEP_GRACE_MS) — still "drafting" to the page.
    */
-  const keeping = (job: AiJobRecord) =>
-    job.status === 'DONE' && (job.outcome === 'SAVING' || (job.outcome === null && now().getTime() - (job.finishedAt ?? job.createdAt).getTime() < KEEP_GRACE_MS + 30_000));
+  const keeping = (job: AiJobRecord) => {
+    if (job.status !== 'DONE') return false;
+    const since = (at: Date | null) => now().getTime() - (at ?? job.finishedAt ?? job.createdAt).getTime();
+    if (job.outcome === 'SAVING') return since(job.outcomeAt) < SAVING_STALE_MS + 30_000;
+    return job.outcome === null && since(job.finishedAt) < KEEP_GRACE_MS + 30_000;
+  };
 
   /** The page's view of one job, given the minutes as they are now. */
   async function viewOf(job: AiJobRecord | null, minutes: FinalMinutesRecord | null): Promise<AiDraftView | null> {

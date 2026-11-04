@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMemoryAiJobStore, type AiJobRecord } from './ai-job-store';
-import { createAiJobRunner, isRetryable, KEEP_GRACE_MS, MAX_ATTEMPTS, RETRY_DELAYS_MS, type AiJobHandler } from './ai-job-runner';
+import { createAiJobRunner, isRetryable, KEEP_GRACE_MS, MAX_ATTEMPTS, RETRY_DELAYS_MS, SAVING_STALE_MS, type AiJobHandler } from './ai-job-runner';
 import { ProviderRefusedError } from '../ai/ai-completion';
 import { AiTimeoutError, readProviderJson } from '../ai/ai-network';
 import { AiBusyError, AiRateLimitedError } from '../ai/ai-limits';
@@ -360,6 +360,44 @@ describe('AI jobs: several servers and restarts', () => {
     expect(await store.get(j.id)).toMatchObject({ outcome: 'LOST' });
     expect(h.failed).toEqual([{ id: j.id, message: 'Something went wrong while keeping the AI’s work. Try again.' }]);
     expect(h.told.map((t) => t.status)).toEqual(['FAILED']);
+  });
+
+  // 1.22 review A2: a server that stopped while keeping a result (SAVING) left it so for good.
+  it('a result left “being kept” by a server that stopped is kept again once that is stale — by one server, once', async () => {
+    const store = createMemoryAiJobStore();
+    const h = scripted([]);
+    const [two, three] = ['srv-2', 'srv-3'].map((owner) => createAiJobRunner({ store, owner }));
+    two!.register('final-minutes', h.handler);
+    three!.register('final-minutes', h.handler);
+    const { job: j } = await store.create(job(), new Date());
+    // srv-1 finished it an hour ago, a sweep marked it SAVING a moment ago (it may still be keeping it).
+    Object.assign(store.rows.get(j.id)!, {
+      status: 'DONE',
+      activeKey: null,
+      result: { summary: 'Kept at last.' },
+      attempts: 1,
+      finishedAt: new Date(Date.now() - 60 * 60_000),
+      outcome: 'SAVING',
+      outcomeAt: new Date(Date.now() - 1000),
+    } satisfies Partial<AiJobRecord>);
+    await two!.sweep();
+    expect(h.saved).toEqual([]);
+    // That server stopped: once the mark is stale, one of the others keeps it.
+    store.rows.get(j.id)!.outcomeAt = new Date(Date.now() - SAVING_STALE_MS - 1000);
+    await Promise.all([two!.sweep(), three!.sweep()]);
+    await two!.sweep();
+    expect(h.saved).toEqual([{ id: j.id, result: { summary: 'Kept at last.' } }]);
+    expect(await store.get(j.id)).toMatchObject({ outcome: 'SAVED' });
+    expect(h.told).toEqual([{ id: j.id, status: 'DONE', outcome: 'SAVED' }]);
+  });
+
+  it('marking a result SAVING says when (the stale window starts there)', async () => {
+    const store = createMemoryAiJobStore();
+    const { job: j } = await store.create(job(), new Date());
+    Object.assign(store.rows.get(j.id)!, { status: 'DONE', activeKey: null, result: {}, finishedAt: new Date(Date.now() - KEEP_GRACE_MS - 1000) } satisfies Partial<AiJobRecord>);
+    const at = new Date();
+    expect((await store.claimUnkept(new Date(Date.now() - KEEP_GRACE_MS), 5, { at, staleSavingBefore: new Date(Date.now() - SAVING_STALE_MS) })).map((x) => x.id)).toEqual([j.id]);
+    expect(await store.get(j.id)).toMatchObject({ outcome: 'SAVING', outcomeAt: at });
   });
 
   it('a server that takes its own job again (its renewals failed) runs only the new try', async () => {
