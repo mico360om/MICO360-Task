@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { tasksApi, type ApiTask, type Priority } from '../api/tasks';
-import { projectsApi } from '../api/projects';
+import { useProjectsWithAll } from '../lib/useProjectsWith';
 import { columnsApi, type ApiColumn } from '../api/columns';
 import { assigneesApi } from '../api/assignees';
 import { usersApi } from '../api/users';
@@ -83,9 +83,10 @@ interface Enriched {
 
 export function MyTasksPage() {
   const tasksQ = useQuery({ queryKey: ['my-tasks'], queryFn: () => tasksApi(apiClient).mine() });
-  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list() });
   const tasks = useMemo(() => (Array.isArray(tasksQ.data) ? tasksQ.data : []), [tasksQ.data]);
-  const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
+  // Names and colours for every task's project — an administrator's own tasks show from projects
+  // off their "Show my projects only" list too (owner, 4 Nov).
+  const { projects } = useProjectsWithAll(useMemo(() => tasks.map((t) => t.projectId), [tasks]));
   const noProjectsYet = useNoProjectsYet();
 
   // A task opens in the app's task panel (?task=, so Back closes it), with the list as shown —

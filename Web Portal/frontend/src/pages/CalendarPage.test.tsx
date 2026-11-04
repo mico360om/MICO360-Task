@@ -417,6 +417,16 @@ describe('CalendarPage — details', () => {
     expect(useTaskSteps.getState()).toMatchObject({ ids: ['r1'], path: '/calendar' });
   });
 
+  it('names an administrator’s own task from a project off their "my projects" list (1.22 review)', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    tasks = [task({ id: 'h1', key: 'HRB-1', title: 'Harbour drawings', projectId: 'far' })];
+    override = (u) => (u.endsWith('/projects/far') ? json({ data: { id: 'far', code: 'HRB', name: 'Harbour Road', status: 'ACTIVE', color: '#2E7D32', icon: null, clientName: null } }) : undefined);
+    renderPage();
+    await userEvent.click(await chip(/Harbour drawings/));
+    const d = await screen.findByRole('dialog', { name: /Harbour drawings/ });
+    expect(await within(d).findByText('Harbour Road')).toBeInTheDocument();
+  });
+
   it('a task opened from a day steps through that day’s tasks, as the day lists them (Previous / Next, 1.22)', async () => {
     tasks = [
       task({ id: 'a1', key: 'MICO-11', title: 'Alpha work', priority: 'LOW' }),

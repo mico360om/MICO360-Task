@@ -5,6 +5,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MyTasksPage } from './MyTasksPage';
 import { useTaskSteps } from '../lib/task-steps';
+import { useAuthStore } from '../stores/auth-store';
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -40,6 +41,29 @@ describe('MyTasksPage', () => {
     );
     const label = (await screen.findAllByText('MICO Platform', { selector: '[title="MICO Platform"]' }))[0]!;
     expect(label.parentElement!.querySelector('[data-project-avatar="icon"]')).not.toBeNull();
+  });
+
+  it('names an administrator’s own task from a project off their "my projects" list (1.22 review)', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'admin1', email: 'a@b.c', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    try {
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith('/projects')) return json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO Platform', color: '#1E5A8B', icon: 'globe', status: 'ACTIVE' }] });
+        if (u.endsWith('/projects/p2')) return json({ data: { id: 'p2', code: 'HRB', name: 'Harbour Road', color: '#8B1E1E', icon: null, status: 'ACTIVE' } });
+        if (u.includes('/tasks/mine')) return json({ data: [{ id: 't2', key: 'HRB-4', title: 'Check the drawings', description: null, projectId: 'p2', columnId: 'c9', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 0, completedAt: null, createdAt: '', updatedAt: '' }] });
+        return json({ data: [] });
+      }));
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter>
+            <MyTasksPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      expect((await screen.findAllByText('Harbour Road', { selector: '[title="Harbour Road"]' })).length).toBeGreaterThan(0);
+    } finally {
+      useAuthStore.setState({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+    }
   });
 
   it('opens a task in the app’s task panel through the address (?task=), with My Tasks as shown as its list', async () => {

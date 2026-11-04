@@ -6,6 +6,7 @@ import { calendarApi, type CalendarRange } from '../api/calendar';
 import { meetingsApi } from '../api/meetings';
 import { filterCalendarMeetings, groupMeetingsByDay, meetingItems, meetingRange } from '../lib/calendar-meetings';
 import { projectsApi } from '../api/projects';
+import { useProjectsWithAll } from '../lib/useProjectsWith';
 import { tasksApi, type ApiTask } from '../api/tasks';
 import { usersApi } from '../api/users';
 import { ApiError } from '../lib/api-client';
@@ -139,7 +140,14 @@ export function CalendarPage() {
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
 
   const projects = useMemo(() => (Array.isArray(projectsQ.data) ? projectsQ.data : []), [projectsQ.data]);
-  const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  // Names and colours (not the filters): an administrator's own tasks show from projects off their
+  // "Show my projects only" list too (owner, 4 Nov), so those projects are fetched to name them.
+  const shownProjectIds = useMemo(
+    () => [...(rangeQ.data?.tasks ?? []), ...(Array.isArray(overdueQ.data) ? overdueQ.data : [])].map((t) => t.projectId),
+    [rangeQ.data, overdueQ.data],
+  );
+  const { projects: namedProjects } = useProjectsWithAll(shownProjectIds);
+  const projectById = useMemo(() => new Map(namedProjects.map((p) => [p.id, p])), [namedProjects]);
   const colorOf = useCallback((id: string) => projectById.get(id)?.color, [projectById]);
   // Companies: a project whose companies are all archived reads as archived here too.
   const projectStatus = useCallback((id: string) => {
