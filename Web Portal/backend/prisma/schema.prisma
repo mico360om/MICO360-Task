@@ -974,6 +974,7 @@ model Meeting {
   tasks         Task[]
   reminderSends MeetingReminderSend[]
   minutesSends  MeetingMinutesSend[]
+  aiJobs        AiJob[]
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
   companyId     String?
   company       Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
@@ -1421,13 +1422,66 @@ model MicoAiMessage {
   status    String     @default("DONE") @db.VarChar(16)
   /// While PENDING: what MICO AI is doing ("Checking tasks in Rig Inspection…").
   step      String?    @db.VarChar(200)
+  /// 1.22: a question's id from the page that sent it — sent again (a double click, a retry after a
+  /// lost answer), it joins the turn already asked instead of asking twice.
+  clientId  String?    @db.VarChar(64)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   chat      MicoAiChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
   proposal  MicoAiProposal?
+  aiJobs    AiJob[]
 
+  @@unique([chatId, clientId])
   @@index([chatId, createdAt])
   @@map("mico_ai_messages")
+}
+
+/// 1.22 (§10): AI work that keeps running in the background after the page is closed — a Final MOM
+/// "Draft with AI" or a MICO AI answer. One active job per thing (`activeKey` is unique while it is
+/// queued or running). A server takes a job with a lease it renews while it runs, so several servers
+/// never run one twice and a restart picks it up again; a try that fails on a time-out, a 429 or a
+/// 5xx waits and goes again (30 s, 2 min, 5 min). The requester's id is a scalar, as for MICO AI chats.
+model AiJob {
+  id            String         @id @default(cuid())
+  /// "final-minutes" or "mico-ai".
+  kind          String         @db.VarChar(32)
+  /// The thing it is for: the meeting (final-minutes) or the answer's message (mico-ai).
+  subjectId     String
+  meetingId     String?
+  messageId     String?
+  /// `${kind}:${subjectId}` while QUEUED or RUNNING, null once it ends: one active job per thing.
+  activeKey     String?        @unique @db.VarChar(100)
+  requestedById String
+  /// QUEUED (waiting for its first or its next try), RUNNING, DONE, FAILED or CANCELLED.
+  status        String         @default("QUEUED") @db.VarChar(16)
+  /// Tries started so far.
+  attempts      Int            @default(0)
+  nextTryAt     DateTime       @default(now())
+  leaseOwner    String?        @db.VarChar(64)
+  leaseUntil    DateTime?
+  /// What a try needs: the meeting's facts, the question, the requester's roles and picked company.
+  input         Json
+  result        Json?
+  /// What became of the result: SAVED, OFFERED (kept beside someone's own minutes), USED, DISCARDED, LOST.
+  outcome       String?        @db.VarChar(16)
+  outcomeAt     DateTime?
+  /// The last failed try's { message, code, status }.
+  error         Json?
+  /// When the requester's page last showed it: they are told by the bell and a push only when it wasn't open.
+  watchedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  /// When the latest try started.
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  updatedAt     DateTime       @updatedAt
+  meeting       Meeting?       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  message       MicoAiMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextTryAt])
+  @@index([kind, subjectId, createdAt])
+  @@index([meetingId])
+  @@index([messageId])
+  @@map("ai_jobs")
 }
 
 /// A card of changes MICO AI proposed in an answer (one per answer). Nothing is changed until its
