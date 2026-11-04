@@ -18,6 +18,8 @@ export class PreviewError extends Error {}
 const MAX_ENTRIES = 5000;
 /** Largest single part we unpack. */
 const MAX_PART_BYTES = 16 * 1024 * 1024;
+/** 1.23: the most all the parts unpacked together may come to (many parts each under the limit). */
+const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_PARAGRAPHS = 2000;
 const MAX_SLIDES = 200;
 const MAX_SHEETS = 10;
@@ -46,6 +48,7 @@ function readParts(buf: Buffer, wanted: (name: string) => boolean): Map<string, 
   if (count > MAX_ENTRIES) throw new PreviewError('The file has too many parts to preview.');
   let p = buf.readUInt32LE(eocd + 16);
   const parts = new Map<string, string>();
+  let total = 0;
   for (let i = 0; i < count; i++) {
     if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) throw damaged();
     const method = buf.readUInt16LE(p + 10);
@@ -74,6 +77,8 @@ function readParts(buf: Buffer, wanted: (name: string) => boolean): Map<string, 
         throw damaged();
       }
     } else throw damaged();
+    total += data.length;
+    if (total > MAX_TOTAL_BYTES) throw new PreviewError('This file is too large to preview.');
     parts.set(name, data.toString('utf8'));
   }
   return parts;

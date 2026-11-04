@@ -106,6 +106,8 @@ export function AppShell() {
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete('task');
+        // 1.23: the file a search result marked goes with the task (review M8).
+        next.delete('file');
         return next;
       },
       { replace: true },

@@ -260,9 +260,11 @@ describe('Search results page (search everything)', () => {
   });
 
   it('says “1000+ results” past the count, and which spellings it corrected', async () => {
-    serve([{ data: [task(1, { match: 'close' })], nextCursor: null, total: 1001, totalCapped: true, counts: COUNTS, corrected: [{ from: 'scafold', to: 'scaffold' }] }]);
+    serve([{ data: [task(1, { match: 'close' })], nextCursor: null, total: 1001, totalCapped: true, counts: { ...COUNTS, task: 1001 }, corrected: [{ from: 'scafold', to: 'scaffold' }] }]);
     open('/search?q=scafold');
     expect(await screen.findByText('1000+ results')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tasks 1000+' })).toBeInTheDocument(); // review M2
+    expect(screen.getByRole('button', { name: 'All 1000+' })).toBeInTheDocument();
     expect(screen.getByText(/Also showing close matches/)).toHaveTextContent('Also showing close matches: “scaffold” for “scafold”.');
     expect(await row('Check the scaffold 1')).toHaveTextContent('Close match');
   });
@@ -315,6 +317,21 @@ describe('the AI panel', () => {
     open('/search?q=overdue+electrical&type=task&person=me&ai=1');
     expect(await screen.findByText('The AI took too long (over 20 seconds). The normal results are below.')).toBeInTheDocument();
     expect(s.ai[0]).toEqual({ q: 'overdue electrical', type: 'task', person: 'me' });
+  });
+
+  it('review I5: a filter changed after asking waits to be asked again (no AI request per chip or date key)', async () => {
+    const s = serve(undefined, { ready: true });
+    open('/search?q=scaff&ai=1');
+    await waitFor(() => expect(s.ai).toHaveLength(1));
+    await userEvent.click(await screen.findByRole('button', { name: 'Tasks 2' }));
+    await waitFor(() => expect(lastAsked(s)).toMatchObject({ type: 'task' }));
+    await userEvent.type(screen.getByLabelText('From'), '2026-11-01');
+    await userEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(where()).not.toContain('ai=1');
+    expect(s.ai).toHaveLength(1);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ask AI' }));
+    await waitFor(() => expect(s.ai).toHaveLength(2));
+    expect(s.ai[1]).toMatchObject({ q: 'scaff', type: 'task', from: '2026-11-01', done: false });
   });
 
   it('new words wait to be asked again (typing never sends every keystroke to the AI)', async () => {

@@ -36,6 +36,21 @@ describe('search everything sweeps', () => {
     sweeps.stop();
   });
 
+  it('review I4: a minute run still going (a slow OCR call) is never started again beside itself', async () => {
+    vi.useFakeTimers();
+    let release = () => {};
+    const index = { healAll: vi.fn(async () => 0), healRecent: vi.fn(async () => 0) };
+    const files = { readUnread: vi.fn(async () => 0), readByOcr: vi.fn(() => new Promise<number>((r) => (release = () => r(0)))) };
+    const sweeps = startSearchSweeps({ index, files, lock: lock(), logger: quiet });
+    await vi.advanceTimersByTimeAsync(RECENT_HEAL_EVERY_MS * 3);
+    expect(files.readByOcr).toHaveBeenCalledTimes(1);
+    expect(index.healRecent).toHaveBeenCalledTimes(1);
+    release();
+    await vi.advanceTimersByTimeAsync(RECENT_HEAL_EVERY_MS);
+    expect(index.healRecent).toHaveBeenCalledTimes(2);
+    sweeps.stop();
+  });
+
   it('one failing step never stops the others', async () => {
     vi.useFakeTimers();
     const index = { healAll: vi.fn(async () => 0), healRecent: vi.fn(async () => { throw new Error('db'); }) };

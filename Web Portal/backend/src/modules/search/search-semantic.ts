@@ -17,6 +17,8 @@ const TEXT_CHARS = 1500;
 const BATCH = 100;
 /** Texts per embedding call. */
 const PER_CALL = 25;
+/** Vectors of gone items are removed this often (by the sweep). */
+const PRUNE_EVERY_MS = 30 * 60_000;
 /** A question is compared with at most this many items (the most recently embedded). */
 export const MAX_COMPARED = 30_000;
 
@@ -43,14 +45,19 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
   async function embedPending(limit = BATCH): Promise<number> {
     const model = await ai.embeddingModel().catch(() => null);
     if (!model) return 0;
-    const tasks = await prisma.$queryRaw<{ id: string; head: Buffer; body: Buffer; hash: string | null }[]>`SELECT si.taskId AS id, si.head AS head, si.doc AS body, e.textHash AS hash
+    if (now().getTime() - prunedAt > PRUNE_EVERY_MS) await prune().catch((err: unknown) => logger?.error('search: removing old meaning vectors failed', { err }));
+    const tasks = await prisma.$queryRaw<{ id: string; head: Buffer; body: Buffer; hash: string | null; model: string | null }[]>`SELECT si.taskId AS id, si.head AS head, si.doc AS body, e.textHash AS hash, e.model AS model
       FROM task_search_index si LEFT JOIN search_embeddings e ON e.kind = 'task' AND e.recordId = si.taskId
       WHERE e.recordId IS NULL OR e.model <> ${model.id} OR e.embeddedAt < si.indexedAt LIMIT ${limit}`;
-    const others = tasks.length >= limit ? [] : await prisma.$queryRaw<{ kind: string; id: string; head: Buffer; body: Buffer | null; hash: string | null }[]>`SELECT si.kind AS kind, si.recordId AS id, si.head AS head,
-        (CASE WHEN si.kind = 'meeting' THEN si.limited ELSE si.doc END) AS body, e.textHash AS hash
+    const others = tasks.length >= limit ? [] : await prisma.$queryRaw<{ kind: string; id: string; head: Buffer; body: Buffer | null; hash: string | null; model: string | null }[]>`SELECT si.kind AS kind, si.recordId AS id, si.head AS head,
+        (CASE WHEN si.kind = 'meeting' THEN si.limited ELSE si.doc END) AS body, e.textHash AS hash, e.model AS model
       FROM search_index si LEFT JOIN search_embeddings e ON e.kind = si.kind AND e.recordId = si.recordId
       WHERE e.recordId IS NULL OR e.model <> ${model.id} OR e.embeddedAt < si.indexedAt LIMIT ${limit - tasks.length}`;
-    const items = [...tasks.map((t) => ({ kind: 'task', id: t.id, text: textOf(t.head, t.body), hash: t.hash })), ...others.map((o) => ({ kind: o.kind, id: o.id, text: textOf(o.head, o.body), hash: o.hash }))];
+    const found = [...tasks.map((t) => ({ kind: 'task', id: t.id, text: textOf(t.head, t.body), hash: t.hash, model: t.model })), ...others.map((o) => ({ kind: o.kind, id: o.id, text: textOf(o.head, o.body), hash: o.hash, model: o.model }))];
+    // Indexed again with the same text (review M3): the vector it has still holds — only its time moves on.
+    const same = found.filter((f) => f.model === model.id && f.hash === hash(f.text));
+    for (const f of same) await prisma.searchEmbedding.updateMany({ where: { kind: f.kind, recordId: f.id }, data: { embeddedAt: now() } });
+    const items = found.filter((f) => !same.includes(f));
     let done = 0;
     for (let i = 0; i < items.length; i += PER_CALL) {
       const chunk = items.slice(i, i + PER_CALL);
@@ -67,6 +74,14 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
       }
     }
     return done;
+  }
+
+  /** Remove the vectors of items no longer in either index (deleted, gone). */
+  let prunedAt = 0;
+  async function prune(): Promise<void> {
+    prunedAt = now().getTime();
+    await prisma.$executeRaw`DELETE FROM search_embeddings WHERE kind = 'task' AND recordId NOT IN (SELECT taskId FROM task_search_index)`;
+    await prisma.$executeRaw`DELETE e FROM search_embeddings e LEFT JOIN search_index si ON si.kind = e.kind AND si.recordId = e.recordId WHERE e.kind <> 'task' AND si.recordId IS NULL`;
   }
 
   /** The items nearest in meaning to a question (any person's: the search keeps only what they may see). */
@@ -95,7 +110,7 @@ export function createSemanticSearch({ prisma, ai, logger, now = () => new Date(
     return best;
   }
 
-  return { ready, embedPending, nearest };
+  return { ready, embedPending, nearest, prune };
 }
 
 export type SemanticSearch = ReturnType<typeof createSemanticSearch>;

@@ -109,8 +109,9 @@ const KIND_SQL: Record<IndexKind, KindSql> = {
     live: Prisma.sql`x.deletedAt IS NULL`,
     stamp: Prisma.sql`CONCAT_WS('|', CRC32(CONCAT_WS('/', x.title, COALESCE(x.description, ''), COALESCE(x.place, ''), x.status, COALESCE(x.taskId, ''), x.inspectorId)), x.updatedAt,
       ${sum(Prisma.sql`CONCAT(a.id, '/', a.updatedAt)`, Prisma.sql`FROM inspection_answers a WHERE a.inspectionId = x.id`)},
-      (SELECT COALESCE(CRC32(CONCAT(t.\`key\`, '/', t.title)), 0) FROM tasks t WHERE t.id = x.taskId))`,
-    changedAt: Prisma.sql`x.updatedAt`,
+      (SELECT COALESCE(CRC32(CONCAT(t.\`key\`, '/', t.title, '/', t.projectId, '/', COALESCE(t.deletedAt, ''))), 0) FROM tasks t WHERE t.id = x.taskId))`,
+    // Its task moved or deleted changes what it is found by (review C1).
+    changedAt: Prisma.sql`GREATEST(x.updatedAt, COALESCE((SELECT t.updatedAt FROM tasks t WHERE t.id = x.taskId), x.updatedAt))`,
   },
 };
 
@@ -216,9 +217,14 @@ export function createSearchIndex({
       case 'inspection': {
         const rows = await prisma.inspection.findMany({
           where: { id: { in: ids }, deletedAt: null },
-          select: { id: true, projectId: true, title: true, description: true, place: true, structure: true, status: true, inspectorId: true, startedAt: true, answers: { select: { note: true, reading: true } }, task: { select: { key: true, title: true } } },
+          select: { id: true, projectId: true, title: true, description: true, place: true, structure: true, status: true, inspectorId: true, startedAt: true, answers: { select: { note: true, reading: true } }, task: { select: { key: true, title: true, projectId: true, deletedAt: true } } },
         });
-        for (const i of rows) out.set(i.id, { doc: inspectionDoc(i), meta: meta({ projectId: i.projectId, personId: i.inspectorId, status: i.status, at: i.startedAt }) });
+        for (const i of rows) {
+          // Its task only while it is live and the inspection's project's (review C1): a task moved to a
+          // project someone can't open, or deleted, is never found through the inspection.
+          const task = i.task && !i.task.deletedAt && i.task.projectId === i.projectId ? { key: i.task.key, title: i.task.title } : null;
+          out.set(i.id, { doc: inspectionDoc({ ...i, task }), meta: meta({ projectId: i.projectId, personId: i.inspectorId, status: i.status, at: i.startedAt }) });
+        }
         break;
       }
     }
@@ -330,6 +336,9 @@ export function createSearchIndex({
   const fileChanged = (fileId: string) => queued(`file:${fileId}`, () => refresh('file', [fileId]));
   /** An inspection changed. Never throws. */
   const inspectionChanged = (inspectionId: string) => queued(`inspection:${inspectionId}`, () => refresh('inspection', [inspectionId]));
+  /** A task changed (moved, renamed, deleted): the inspections carried out for it are read again. Never throws. */
+  const linkedTaskChanged = (taskId: string) =>
+    queued(`linked:${taskId}`, async () => refresh('inspection', (await prisma.inspection.findMany({ where: { taskId }, select: { id: true } })).map((i) => i.id)));
 
   /** Rows whose item is gone (deleted, or no longer live). */
   async function dropGone(kind: IndexKind): Promise<void> {
@@ -395,7 +404,7 @@ export function createSearchIndex({
     return written;
   }
 
-  return { refresh, projectChanged, meetingChanged, taskFilesChanged, fileChanged, inspectionChanged, healRecent, healAll, rebuildAll };
+  return { refresh, projectChanged, meetingChanged, taskFilesChanged, fileChanged, inspectionChanged, linkedTaskChanged, healRecent, healAll, rebuildAll };
 }
 
 export type SearchIndex = ReturnType<typeof createSearchIndex>;

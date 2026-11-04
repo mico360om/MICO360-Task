@@ -76,6 +76,8 @@ export interface DescribeContext {
   accept: (found: string[]) => boolean;
   /** Meetings seen as an invitee (their limited view). */
   invitee: ReadonlySet<string>;
+  /** May the person see this meeting's draft minutes (review I1: checked again on the minutes as they are now)? Absent: yes. */
+  canSeeDraft?: (m: { id: string; projectId: string | null; organizerId: string; createdById: string }) => boolean;
   timeZone: string;
   /** An item the index was behind on (re-index it). */
   onStale: (kind: IndexKind, id: string) => void;
@@ -123,12 +125,12 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
     ids('note').length
       ? prisma.meetingNote.findMany({ where: { id: { in: ids('note') }, deletedAt: null, meeting: { deletedAt: null } }, select: { id: true, meetingId: true, authorId: true, type: true, body: true, bodyFormat: true, createdAt: true, comments: { select: { body: true } }, checklist: { orderBy: { position: 'asc' }, select: { text: true } }, meeting: { select: { title: true, status: true, projectId: true } } } })
       : [],
-    ids('minutes').length ? prisma.meetingMinutes.findMany({ where: { meetingId: { in: ids('minutes') }, meeting: { deletedAt: null } }, select: { meetingId: true, content: true, status: true, approvedAt: true, generatedAt: true, meeting: { select: { title: true, projectId: true, organizerId: true } } } }) : [],
+    ids('minutes').length ? prisma.meetingMinutes.findMany({ where: { meetingId: { in: ids('minutes') }, meeting: { deletedAt: null } }, select: { meetingId: true, content: true, status: true, approvedAt: true, generatedAt: true, meeting: { select: { title: true, projectId: true, organizerId: true, createdById: true } } } }) : [],
     ids('file').length
       ? prisma.attachment.findMany({ where: { id: { in: ids('file') }, task: { deletedAt: null } }, select: { id: true, taskId: true, filename: true, uploadedById: true, createdAt: true, searchText: { select: { text: true, method: true } }, task: { select: { key: true, title: true, projectId: true, completedAt: true, column: { select: { name: true, category: true } } } } } })
       : [],
     ids('inspection').length
-      ? prisma.inspection.findMany({ where: { id: { in: ids('inspection') }, deletedAt: null }, select: { id: true, projectId: true, title: true, description: true, place: true, structure: true, status: true, inspectorId: true, startedAt: true, answers: { select: { note: true, reading: true } }, task: { select: { key: true, title: true } } } })
+      ? prisma.inspection.findMany({ where: { id: { in: ids('inspection') }, deletedAt: null }, select: { id: true, projectId: true, title: true, description: true, place: true, structure: true, status: true, inspectorId: true, startedAt: true, answers: { select: { note: true, reading: true } }, task: { select: { key: true, title: true, projectId: true, deletedAt: true } } } })
       : [],
   ]);
   await loadNames([...meetings.flatMap((m) => [m.organizerId, ...m.attendees.map((a) => a.userId)]), ...notes.map((n) => n.authorId), ...minutes.map((m) => m.meeting.organizerId), ...files.map((f) => f.uploadedById), ...inspections.map((i) => i.inspectorId)]);
@@ -201,6 +203,11 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
   for (const r of minutes) {
     const c = readMinutesContent(r.content);
     const final = r.status === 'APPROVED';
+    // A draft (reopened since it was indexed as final) only for those who may change the meeting.
+    if (!final && ctx.canSeeDraft && !ctx.canSeeDraft({ id: r.meetingId, projectId: r.meeting.projectId, organizerId: r.meeting.organizerId, createdById: r.meeting.createdById })) {
+      ctx.onStale('minutes', r.meetingId);
+      continue;
+    }
     keep(
       'minutes',
       r.meetingId,
@@ -244,11 +251,13 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
   }
 
   for (const i of inspections) {
+    // Its task only while live and the inspection's project's (review C1): never one the person may not open.
+    const task = i.task && !i.task.deletedAt && i.task.projectId === i.projectId ? i.task : null;
     keep(
       'inspection',
       i.id,
       {
-        ...(i.task ? { key: i.task.key, context: `${i.task.key} ${i.task.title}` } : {}),
+        ...(task ? { key: task.key, context: `${task.key} ${task.title}` } : {}),
         project: look(i.projectId),
         status: { label: i.status === 'FINISHED' ? 'Finished' : 'In progress', category: i.status, done: i.status === 'FINISHED' },
         date: { at: i.startedAt.toISOString(), kind: 'started' },
@@ -261,7 +270,7 @@ export async function describeIndexed(prisma: PrismaClient, items: { kind: Exclu
         { field: 'place', label: 'Place', text: i.place ?? '' },
         ...checklistNames(i.structure).map((t) => ({ field: 'checklist', label: 'Checklist item', text: t })),
         ...i.answers.flatMap((a) => [{ field: 'answer', label: 'Inspector’s note', text: a.note ?? '' }, { field: 'answer', label: 'Reading', text: a.reading ?? '' }]),
-        ...(i.task ? [{ field: 'task', label: 'Task', text: `${i.task.key} ${i.task.title}` }] : []),
+        ...(task ? [{ field: 'task', label: 'Task', text: `${task.key} ${task.title}` }] : []),
       ],
     );
   }

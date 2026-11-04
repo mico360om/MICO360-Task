@@ -32,6 +32,9 @@ export interface AiSearchFilters {
   personId?: string;
   from?: Date;
   to?: Date;
+  /** A task's due date by its calendar day (see SearchAllInput.dueFrom). */
+  dueFrom?: Date;
+  dueTo?: Date;
   includeArchived?: boolean;
 }
 
@@ -78,6 +81,8 @@ export type AiSearchAnswer =
 
 const KIND_LABEL: Record<SearchKind, string> = { task: 'Task', project: 'Project', meeting: 'Meeting', note: 'Meeting note', minutes: 'Minutes', file: 'File', inspection: 'Inspection' };
 const strings = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 60)).slice(0, max) : []);
+/** A day as due dates are stored: its UTC midnight. */
+const utcDay = (key: string) => new Date(`${key}T00:00:00Z`);
 const dayOf = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
 
 export function createAiSearch(deps: AiSearchDeps) {
@@ -133,11 +138,16 @@ export function createAiSearch(deps: AiSearchDeps) {
     }
     const stop = new AbortController();
     const timer = setTimeout(() => stop.abort(), budget);
+    // Every step races the deadline (review M5): one waiting where the stop can't reach (a model's
+    // concurrency slot) still ends the answer at 20 seconds.
+    const deadline = new Promise<never>((_, reject) => stop.signal.addEventListener('abort', () => reject(new Error('The AI took too long.')), { once: true }));
+    deadline.catch(() => undefined);
+    const inTime = <T>(work: Promise<T>): Promise<T> => Promise.race([work, deadline]);
     try {
       // The person's projects in this search's scope (the picked company's, with a pick).
       const allowed = input.scope.projectIds ? new Set(input.scope.projectIds) : null;
-      const projects = (await deps.projects(input.viewer).catch(() => [])).filter((p) => !allowed || allowed.has(p.id));
-      const plan = await understand(q, projects.slice(0, 60), stop.signal);
+      const projects = (await inTime(deps.projects(input.viewer).catch(() => []))).filter((p) => !allowed || allowed.has(p.id));
+      const plan = await inTime(understand(q, projects.slice(0, 60), stop.signal));
       const f = input.filters;
       const project = plan.project ? projects.find((p) => p.code.toLowerCase() === plan.project!.toLowerCase() || p.name.toLowerCase() === plan.project!.toLowerCase()) : undefined;
       const startOf = (day: string) => zonedStartOfDay(day, deps.timeZone);
@@ -151,19 +161,21 @@ export function createAiSearch(deps: AiSearchDeps) {
         from: f.from ?? (plan.from ? startOf(plan.from) : undefined),
         // "Overdue": due before today; a day the question names counts in full.
         to: f.to ?? (plan.overdue ? startOf(today) : plan.to ? startOf(shiftDayKey(plan.to, 1)) : undefined),
+        dueFrom: f.dueFrom ?? (f.from ? undefined : plan.from ? utcDay(plan.from) : undefined),
+        dueTo: f.dueTo ?? (f.to ? undefined : plan.overdue ? utcDay(today) : plan.to ? utcDay(shiftDayKey(plan.to, 1)) : undefined),
         includeArchived: f.includeArchived,
       };
       const words = [...new Set([...plan.keywords, ...plan.synonyms])];
-      let found = await deps.candidates({ ...planned, words, limit: MAX_CANDIDATES }, input.viewer, input.scope);
+      let found = await inTime(deps.candidates({ ...planned, words, limit: MAX_CANDIDATES }, input.viewer, input.scope));
       // The question's filters found nothing: the words alone (the page's filters still hold).
-      if (found.length === 0) found = await deps.candidates({ ...f, words, limit: MAX_CANDIDATES }, input.viewer, input.scope);
+      if (found.length === 0) found = await inTime(deps.candidates({ ...f, words, limit: MAX_CANDIDATES }, input.viewer, input.scope));
       let semantic = false;
-      if (deps.semantic && (await deps.semantic.ready().catch(() => false))) {
-        const near = await deps.semantic.nearest(q, { limit: 40, signal: stop.signal }).catch(() => []);
+      if (deps.semantic && (await inTime(deps.semantic.ready().catch(() => false)))) {
+        const near = await inTime(deps.semantic.nearest(q, { limit: 40, signal: stop.signal }).catch(() => []));
         if (near.length) {
           semantic = true;
           const have = new Set(found.map((h) => `${h.kind}:${h.id}`));
-          const extra = await deps.candidates({ ...f, words: [], only: near.filter((n) => !have.has(`${n.kind}:${n.id}`)).map((n) => ({ kind: n.kind, id: n.id })), limit: MAX_CANDIDATES }, input.viewer, input.scope);
+          const extra = await inTime(deps.candidates({ ...f, words: [], only: near.filter((n) => !have.has(`${n.kind}:${n.id}`)).map((n) => ({ kind: n.kind, id: n.id })), limit: MAX_CANDIDATES }, input.viewer, input.scope));
           const order = new Map(near.map((n, i) => [`${n.kind}:${n.id}`, i]));
           extra.sort((a, b) => (order.get(`${a.kind}:${a.id}`) ?? 99) - (order.get(`${b.kind}:${b.id}`) ?? 99));
           found = [...found.slice(0, 20), ...extra, ...found.slice(20)].slice(0, MAX_CANDIDATES);
@@ -171,7 +183,7 @@ export function createAiSearch(deps: AiSearchDeps) {
       }
       if (found.length === 0) return { state: 'ok', answer: 'Nothing you can open matches this question.', hits: [], understood: plan, semantic };
       const refs = found.map((_, i) => `R${i + 1}`);
-      const text = await deps.ai.chat({
+      const text = await inTime(deps.ai.chat({
         system: [
           'You help a person find things in MICO360 Tasks. You are given their question and numbered items they may open.',
           'Reply with ONLY JSON: {"answer": "one to three short, plain sentences answering the question from these items only (say plainly if none fits)", "best": [up to 5 item refs like "R3", best first]}.',
@@ -181,7 +193,7 @@ export function createAiSearch(deps: AiSearchDeps) {
         maxTokens: 500,
         json: true,
         signal: stop.signal,
-      });
+      }));
       const o = parseJsonObject(text);
       const answer = typeof o.answer === 'string' ? o.answer.trim().slice(0, 800) : '';
       if (!answer) return { state: 'failed', message: 'The AI couldn’t answer this time. The normal results are below.' };

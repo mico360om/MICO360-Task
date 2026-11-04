@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
-import { FILE_TEXT_MAX_CHARS, readFileText, type FileText } from '../../lib/file-text';
+import { FILE_TEXT_MAX_CHARS, type FileText } from '../../lib/file-text';
+import { readFileTextOffThread } from '../../lib/file-text-thread';
 import { MAX_ATTEMPTS, RETRY_DELAYS_MS, isRetryable } from '../ai-jobs/ai-job-runner';
 
 /**
@@ -12,7 +13,14 @@ import { MAX_ATTEMPTS, RETRY_DELAYS_MS, isRetryable } from '../ai-jobs/ai-job-ru
  * re-indexes the file (search_index).
  */
 
-export type StoredStatus = 'READ' | 'EMPTY' | 'OCR_WAIT' | 'OCR_DONE' | 'FAILED' | 'SKIPPED';
+export type StoredStatus = 'READING' | 'RETRY' | 'READ' | 'EMPTY' | 'OCR_WAIT' | 'OCR_DONE' | 'FAILED' | 'SKIPPED';
+
+/** A file is tried this many times (a read that never finished, storage that was away) before FAILED. */
+export const READ_TRIES = 3;
+/** …this long apart. */
+const READ_RETRY_MS = 10 * 60_000;
+/** An OCR try holds its file this long (a stopped server's is taken again after it). */
+const OCR_LEASE_MS = 10 * 60_000;
 
 /** At most this many files are sent to OCR per hour on one server. */
 export const OCR_PER_HOUR = 30;
@@ -55,22 +63,37 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
     await index.fileChanged(fileId);
   }
 
-  /** Read one file now (whatever it held before). Never throws: a failure is stored as FAILED. */
+  /**
+   * Read one file now. Never throws. It is marked READING first (review I3): a read that never ends — a
+   * server stopped by a hostile file — is tried again later, READ_TRIES times at most, then FAILED. The
+   * text is read off the main thread (lib/file-text-thread). Storage that can't be read now is tried
+   * again later (RETRY), the same number of times.
+   */
   async function readFile(fileId: string): Promise<StoredStatus | null> {
     try {
-      const file = await prisma.attachment.findUnique({ where: { id: fileId }, select: { id: true, filename: true, mimeType: true, storageKey: true } });
+      const file = await prisma.attachment.findFirst({ where: { id: fileId, task: { deletedAt: null } }, select: { id: true, filename: true, mimeType: true, storageKey: true } });
       if (!file) return null;
+      const before = await prisma.searchFileText.findUnique({ where: { fileId }, select: { status: true, attempts: true } });
+      const tries = (before && (before.status === 'READING' || before.status === 'RETRY') ? before.attempts : 0) + 1;
+      if (tries > READ_TRIES) {
+        await store(fileId, { status: 'FAILED', attempts: tries - 1, error: 'Reading the file failed several times.' });
+        return 'FAILED';
+      }
+      const mark = { status: 'READING', attempts: tries, nextTryAt: new Date(now().getTime() + READ_RETRY_MS), error: null, readAt: now() };
+      await prisma.searchFileText.upsert({ where: { fileId }, create: { fileId, ...mark }, update: mark });
       let content: Buffer;
       try {
         content = await storage.read(file.storageKey);
       } catch (err) {
-        await store(fileId, { status: 'FAILED', error: 'The file could not be read from storage.' });
-        logger?.error('search: reading a file failed', { err, fileId });
-        return 'FAILED';
+        const last = tries >= READ_TRIES;
+        await store(fileId, { status: last ? 'FAILED' : 'RETRY', attempts: tries, nextTryAt: last ? null : new Date(now().getTime() + READ_RETRY_MS), error: 'The file could not be read from storage.' });
+        logger?.error('search: reading a file failed', { err, fileId, tries });
+        return last ? 'FAILED' : 'RETRY';
       }
-      const t = readFileText(content, file);
+      const t = await readFileTextOffThread(content, file);
       const status = toStored(t);
-      await store(fileId, { status, method: t.method, text: t.text || null, error: t.error ?? null, nextTryAt: status === 'OCR_WAIT' ? now() : null });
+      // Read: its tries start again from nought (an OCR wait counts its own).
+      await store(fileId, { status, method: t.method, text: t.text || null, attempts: status === 'FAILED' ? tries : 0, error: t.error ?? null, nextTryAt: status === 'OCR_WAIT' ? now() : null });
       return status;
     } catch (err) {
       logger?.error('search: reading a file failed', { err, fileId });
@@ -97,9 +120,17 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
     });
   }
 
-  /** The sweep: files never read (older than this feature, or a server stopped first). Returns how many. */
+  /**
+   * The sweep: files never read (older than this feature), and those due again (a read that never
+   * finished, storage that was away) — of live tasks only. Returns how many were read.
+   */
   async function readUnread(limit = 20): Promise<number> {
-    const unread = await prisma.attachment.findMany({ where: { searchText: null }, select: { id: true }, orderBy: { createdAt: 'desc' }, take: limit });
+    const unread = await prisma.attachment.findMany({
+      where: { task: { deletedAt: null }, OR: [{ searchText: { is: null } }, { searchText: { is: { status: { in: ['READING', 'RETRY'] }, nextTryAt: { lte: now() } } } }] },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
     let n = 0;
     for (const f of unread) {
       await new Promise((resolve) => setImmediate(resolve));
@@ -116,16 +147,20 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
     while (sent.length && sent[0]! < hourAgo) sent.shift();
     const room = Math.min(limit, OCR_PER_HOUR - sent.length);
     if (room <= 0) return 0;
-    const due = await prisma.searchFileText.findMany({ where: { status: 'OCR_WAIT', OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }] }, orderBy: { readAt: 'asc' }, take: room, select: { fileId: true, attempts: true } });
+    const dueNow = () => ({ status: 'OCR_WAIT', OR: [{ nextTryAt: null }, { nextTryAt: { lte: now() } }] });
+    const due = await prisma.searchFileText.findMany({ where: { ...dueNow(), file: { task: { deletedAt: null } } }, orderBy: { readAt: 'asc' }, take: room, select: { fileId: true, attempts: true } });
     let done = 0;
     for (const row of due) {
       const file = await prisma.attachment.findUnique({ where: { id: row.fileId }, select: { filename: true, mimeType: true, storageKey: true } });
       if (!file) continue;
+      // Claimed first (review I4): another run (or server) at the same moment never sends it again.
+      const claimed = await prisma.searchFileText.updateMany({ where: { fileId: row.fileId, ...dueNow() }, data: { nextTryAt: new Date(now().getTime() + OCR_LEASE_MS) } });
+      if (claimed.count === 0) continue;
       sent.push(now().getTime());
       const attempts = row.attempts + 1;
       try {
         const content = await storage.read(file.storageKey);
-        const images = /^image\//.test(file.mimeType) ? (content.length <= OCR_MAX_BYTES ? [{ data: content, mimeType: file.mimeType }] : []) : readFileText(content, file).images.slice(0, OCR_MAX_PAGES).map((data) => ({ data, mimeType: 'image/jpeg' }));
+        const images = /^image\//.test(file.mimeType) ? (content.length <= OCR_MAX_BYTES ? [{ data: content, mimeType: file.mimeType }] : []) : (await readFileTextOffThread(content, file)).images.slice(0, OCR_MAX_PAGES).map((data) => ({ data, mimeType: 'image/jpeg' }));
         if (images.length === 0) {
           // A scan whose pages aren't pictures we can send: nothing more can be read from it.
           await store(row.fileId, { status: 'EMPTY', attempts });

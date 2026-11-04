@@ -48,8 +48,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   (with their companies, the picked company and "Show my projects only"), the meetings their meetings
   list shows, only a meeting itself and its final minutes to someone invited from another company
   (never its notes, decisions or action items), and draft minutes only to those who may change the
-  meeting. Counts never include anything else, and the AI is given nothing else. Client pages can't
-  use search.
+  meeting. An inspection never shows a task you can't open. Counts never include anything else, and
+  the AI is given nothing else. Client pages can't use search.
+- Reading the text inside files runs apart from the rest of the server, with a time and memory limit
+  and a cap on how far a Word, Excel or PowerPoint file may unpack, so a large or harmful file can't
+  slow the site down or stop it.
 
 ### Improvements
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.

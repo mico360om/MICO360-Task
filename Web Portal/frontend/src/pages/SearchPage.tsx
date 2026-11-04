@@ -52,11 +52,15 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   const timeZone = useCompanyTimeZone();
   const myId = useAuthStore((s) => s.user?.id);
 
-  /** Change the filters in the address (the task panel's `task` and `file` stay). */
+  /**
+   * Change the filters in the address (the task panel's `task` and `file` stay). Any change but an ask
+   * clears `ai` (review I5): the AI answers the new search when asked again — never once per chip or
+   * keystroke.
+   */
   const update = (patch: Partial<EverythingFilters>) =>
     setParams(
       (prev) => {
-        const next = new URLSearchParams(everythingAddress({ ...everythingFilters(prev), ...patch }));
+        const next = new URLSearchParams(everythingAddress({ ...everythingFilters(prev), ai: undefined, ...patch }));
         for (const keep of ['task', 'file']) {
           const v = prev.get(keep);
           if (v) next.set(keep, v);
@@ -157,6 +161,8 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   const chip = (active: boolean) =>
     `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
   const select = fieldClass(false, 'w-full py-1.5');
+  // Counts stop at 1000 (a kind with more says "1000+", review M2).
+  const shown = (n: number) => (n > 1000 ? '1000+' : String(n));
   const allCount = counts ? SEARCH_KINDS.reduce((n, k) => n + (counts[k] ?? 0), 0) : null;
 
   return (
@@ -190,12 +196,12 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
 
         <div role="group" aria-label="Type" className="flex flex-wrap gap-1.5">
           <button type="button" aria-pressed={!filters.type} onClick={() => chooseType(undefined)} className={chip(!filters.type)}>
-            All{allCount !== null ? ` ${allCount}` : ''}
+            All{allCount !== null ? ` ${shown(allCount)}` : ''}
           </button>
           {SEARCH_KINDS.map((k) => (
             <button key={k} type="button" aria-pressed={filters.type === k} onClick={() => chooseType(k)} className={chip(filters.type === k)}>
               {KIND_META[k].plural}
-              {counts ? ` ${counts[k] ?? 0}` : ''}
+              {counts ? ` ${shown(counts[k] ?? 0)}` : ''}
             </button>
           ))}
         </div>

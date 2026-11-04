@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { meetingViewsOf } from '../companies/company-access';
 import { meetingListScope } from '../meetings/meeting-repository';
 import { meetingScopeWhere } from '../meetings/prisma-meeting-repository';
@@ -21,13 +21,35 @@ export interface SearchScopeAll {
   /** Projects whose tasks, files, inspections and the projects themselves may be found; null = every one. */
   projectIds: string[] | null;
   meetings: {
-    /** Meetings seen in full; null = every meeting (an administrator listing everything). */
+    /**
+     * Meetings seen in full, one by one (the person's own meetings outside `fullProjects`); null = every
+     * meeting (an administrator listing everything).
+     */
     full: string[] | null;
+    /**
+     * Review I2: projects every meeting of which the list shows, in full (the person's projects; an
+     * administrator's picked company's) — said once per project instead of once per meeting, so a
+     * person on busy projects never makes a query too big for the database.
+     */
+    fullProjects?: string[];
+    /** And every meeting without a project filed under this company (an administrator's pick). */
+    fullStandaloneCompany?: string;
     /** Meetings seen as an invitee from another company. */
     invitee: string[];
-    /** Meetings whose draft minutes may be seen; null = every one. */
+    /** Meetings whose draft minutes may be seen, one by one; null = every one. */
     editable: string[] | null;
+    /** …and every meeting seen in full of these projects (the person runs them)… */
+    editableProjects?: string[];
+    /** …and every meeting seen in full that this person organizes or created (canEditMeetingRecord). */
+    editor?: string;
   };
+}
+
+/** May this person see the meeting's draft minutes (the scope's editable rule, for a meeting read)? */
+export function canSeeDraft(meetings: SearchScopeAll['meetings'], m: { id: string; projectId: string | null; organizerId: string; createdById: string }): boolean {
+  if (meetings.invitee.includes(m.id)) return false;
+  if (meetings.editable === null) return true;
+  return meetings.editable.includes(m.id) || (!!m.projectId && !!meetings.editableProjects?.includes(m.projectId)) || (!!meetings.editor && (m.organizerId === meetings.editor || m.createdById === meetings.editor));
 }
 
 export interface SearchScopeDeps {
@@ -47,31 +69,42 @@ export function createSearchScope(deps: SearchScopeDeps) {
     const [projectIds, mineOnly] = await Promise.all([deps.accessibleProjectIds(viewer.id, viewer.roles, pick), admin && deps.myProjectsOnly ? deps.myProjectsOnly(viewer) : Promise.resolve(false)]);
     const where = await meetingScopeWhere(deps.prisma, meetingListScope({ userId: viewer.id, projectIds, pick, admin, mineOnly }));
     if (!where.OR) return { projectIds, meetings: { full: null, invitee: [], editable: admin ? null : [] } };
+    // Every meeting of these projects is in the list, and seen in full: the person's projects (a
+    // visible project shares one of their active companies) — and an administrator's picked company's
+    // projects and its meetings without a project (meetingScopeWhere's `everyone`).
+    const everyone = admin && !!pick && !mineOnly;
+    const fullProjects = new Set(projectIds ?? []);
+    if (everyone) for (const r of await deps.prisma.projectCompany.findMany({ where: { companyId: pick! }, select: { projectId: true } })) fullProjects.add(r.projectId);
+    // The rest of the list one by one: the person's own meetings elsewhere (few). Spelled out, so a
+    // meeting without a project (a NULL project) is never lost to NOT IN.
+    const rest: Prisma.MeetingWhereInput = {
+      OR: [
+        { projectId: null, ...(everyone ? { OR: [{ companyId: null }, { companyId: { not: pick! } }] } : {}) },
+        fullProjects.size ? { projectId: { notIn: [...fullProjects] } } : { projectId: { not: null } },
+      ],
+    };
     const rows = await deps.prisma.meeting.findMany({
-      where: { AND: [{ deletedAt: null }, where] },
+      where: { AND: [{ deletedAt: null }, where, rest] },
       select: { id: true, projectId: true, organizerId: true, createdById: true, attendees: { where: { userId: viewer.id }, select: { userId: true } } },
     });
-    const visible = projectIds ? new Set(projectIds) : null;
-    // Seen through the project (its team): the full view. Otherwise as one of its people (or not at all).
-    const throughProject = (m: { projectId: string | null }) => admin || (!!m.projectId && (!visible || visible.has(m.projectId)));
-    const views = await meetingViewsOf(
-      deps.prisma,
-      viewer,
-      rows.filter((m) => !throughProject(m)).map((m) => ({ id: m.id, projectId: m.projectId, organizerId: m.organizerId, createdById: m.createdById, attendeeUserIds: m.attendees.map((a) => a.userId).filter((u): u is string => !!u) })),
-    );
+    // Seen by an administrator, or through a project they can see: the full view. Otherwise as one of
+    // its people — the full view, an invitee's, or none (meetingViewsOf, the batched meetingView).
+    const views = admin
+      ? new Map(rows.map((m) => [m.id, 'full' as const]))
+      : await meetingViewsOf(deps.prisma, viewer, rows.map((m) => ({ id: m.id, projectId: m.projectId, organizerId: m.organizerId, createdById: m.createdById, attendeeUserIds: m.attendees.map((a) => a.userId).filter((u): u is string => !!u) })));
     const full: string[] = [];
     const invitee: string[] = [];
     for (const m of rows) {
-      const view = throughProject(m) ? 'full' : views.get(m.id);
+      const view = views.get(m.id);
       if (view === 'full') full.push(m.id);
       else if (view === 'invitee') invitee.push(m.id);
     }
-    if (admin) return { projectIds, meetings: { full, invitee, editable: null } };
-    const projectsOf = [...new Set(rows.map((m) => m.projectId).filter((p): p is string => !!p))];
+    const base = { full, fullProjects: [...fullProjects], ...(everyone ? { fullStandaloneCompany: pick! } : {}), invitee };
+    if (admin) return { projectIds, meetings: { ...base, editable: null } };
+    // Drafts: whoever may change the meeting — its organizer or creator, or whoever runs its project.
+    const projectsOf = [...new Set([...fullProjects, ...rows.map((m) => m.projectId).filter((p): p is string => !!p)])];
     const runs = await deps.manageableProjectIds(viewer.id, viewer.roles, projectsOf);
-    const fullSet = new Set(full);
-    const editable = rows.filter((m) => fullSet.has(m.id) && (m.organizerId === viewer.id || m.createdById === viewer.id || (!!m.projectId && runs.has(m.projectId)))).map((m) => m.id);
-    return { projectIds, meetings: { full, invitee, editable } };
+    return { projectIds, meetings: { ...base, editable: [], editableProjects: [...runs], editor: viewer.id } };
   }
   return { forViewer };
 }

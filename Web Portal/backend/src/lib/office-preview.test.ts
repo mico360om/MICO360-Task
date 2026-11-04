@@ -91,6 +91,13 @@ describe('officePreview — what it won’t do', () => {
     expect(deflateRawSync).toBeTypeOf('function');
   });
 
+  it('1.23: refuses a file whose parts together unpack to too much (many parts, each under the part limit)', () => {
+    const part = Buffer.alloc(15 * 1024 * 1024, 0x20);
+    const sheets = Array.from({ length: 6 }, (_, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: part }));
+    const bomb = zip([{ name: 'xl/workbook.xml', data: Buffer.from('<workbook/>') }, ...sheets], when);
+    expect(() => officePreview(bomb, 'many.xlsx')).toThrow(/too large/i);
+  });
+
   it('shows only the start of a very long document', () => {
     const paras = Array.from({ length: 5000 }, (_, i) => `<w:p><w:r><w:t>Line ${i}</w:t></w:r></w:p>`).join('');
     const p = officePreview(pkg({ 'word/document.xml': `<w:document ${W}><w:body>${paras}</w:body></w:document>` }), 'long.docx');

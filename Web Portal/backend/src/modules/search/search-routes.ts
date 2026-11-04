@@ -29,6 +29,8 @@ export interface SearchEverythingDeps {
 export const GLOBAL_MORE_LIMIT = 5;
 /** Results per page of search everything (at most 50). */
 export const ALL_PAGE_SIZE = 20;
+/** Search everything pages go this deep at most (the counts stop at 1000 too). */
+export const MAX_ALL_OFFSET = 1000;
 
 const csv = <T extends string>(values: readonly [T, ...T[]]) =>
   z
@@ -122,7 +124,8 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
         ? everything.scope
             .forViewer(viewer, pick)
             .then((scope) => everything.engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: GLOBAL_MORE_LIMIT }))
-            .then((r) => r.hits, () => [] as SearchHit[])
+            // Only what holds every word (review M10): close and partial matches are for the results page, where they say so.
+            .then((r) => r.hits.filter((h) => !h.match), () => [] as SearchHit[])
         : Promise.resolve(null),
     ]);
     return { data: more ? { ...found, more } : found };
@@ -173,9 +176,9 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       ...(p.projectId ? { projectId: p.projectId } : {}),
       ...(p.done !== undefined ? { done: p.done } : {}),
       ...(p.person ? { personId: p.person === 'me' ? userId : p.person } : {}),
-      // Company days: "to 7 Nov" includes all of 7 Nov.
-      ...(p.from ? { from: startOf(p.from) } : {}),
-      ...(p.to ? { to: startOf(shiftDayKey(p.to, 1)) } : {}),
+      // Company days: "to 7 Nov" includes all of 7 Nov; a task's due date by its calendar day (UTC midnight).
+      ...(p.from ? { from: startOf(p.from), dueFrom: new Date(`${p.from}T00:00:00Z`) } : {}),
+      ...(p.to ? { to: startOf(shiftDayKey(p.to, 1)), dueTo: new Date(`${shiftDayKey(p.to, 1)}T00:00:00Z`) } : {}),
       ...(p.archived ? { includeArchived: true } : {}),
     });
 
@@ -248,6 +251,7 @@ export const encodeAllCursor = (next: { offset: number; extra: boolean }): strin
 function decodeAllCursor(cursor: string | undefined): { offset: number; extra: boolean } {
   if (!cursor) return { offset: 0, extra: false };
   const m = /^([ox]):(\d{1,7})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
-  if (!m) throw new z.ZodError([{ code: 'custom', path: ['cursor'], message: 'Invalid cursor.' }]);
+  // At most MAX_ALL_OFFSET deep (review M11): a page further on would make every match be sorted.
+  if (!m || Number(m[2]) > MAX_ALL_OFFSET) throw new z.ZodError([{ code: 'custom', path: ['cursor'], message: 'Invalid cursor.' }]);
   return { offset: Number(m[2]), extra: m[1] === 'x' };
 }

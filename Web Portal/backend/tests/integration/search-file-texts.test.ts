@@ -57,13 +57,55 @@ describe('file texts (database)', () => {
     expect((await prisma.searchFileText.count({ where: { fileId: { in: [pdf, txt] } } }))).toBe(2);
   });
 
-  it('the sweep reads files never read; a file gone from storage is FAILED, never a throw', async () => {
+  it('the sweep reads files never read; a file gone from storage is tried again later, never a throw', async () => {
     const svc = createFileTextService({ prisma, storage, index });
     const old = await att('old.csv', 'text/csv', Buffer.from(`tag,size\nV-${tag},6`));
     const lost = (await prisma.attachment.create({ data: { taskId, uploadedById: user, filename: 'lost.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: `${tag}-nowhere`, url: '/u/x' } })).id;
     expect(await svc.readUnread(50)).toBeGreaterThanOrEqual(2);
     expect(await textRow(old)).toMatchObject({ status: 'READ' });
-    expect(await textRow(lost)).toMatchObject({ status: 'FAILED' });
+    expect(await textRow(lost)).toMatchObject({ status: 'RETRY', attempts: 1 });
+  });
+
+  it('review I3/M6/M7: a file is marked as being read first — a read that never finished is tried again, three times at most; storage errors are retried later; deleted tasks’ files wait', async () => {
+    let t = new Date('2026-11-05T09:00:00Z').getTime();
+    const svc = createFileTextService({ prisma, storage, index, now: () => new Date(t) });
+    // A server stopped while reading it: left READING.
+    const stuck = await att('stuck.txt', 'text/plain', Buffer.from(`Stuck once ${tag}`));
+    await prisma.searchFileText.create({ data: { fileId: stuck, status: 'READING', attempts: 1, nextTryAt: new Date(t - 1000), readAt: new Date(t - 20 * 60_000) } });
+    // One that has killed the reader three times.
+    const killer = await att('killer.txt', 'text/plain', Buffer.from('x'));
+    await prisma.searchFileText.create({ data: { fileId: killer, status: 'READING', attempts: 3, nextTryAt: new Date(t - 1000), readAt: new Date(t - 20 * 60_000) } });
+    // Storage away for a moment.
+    const away = (await prisma.attachment.create({ data: { taskId, uploadedById: user, filename: 'away.txt', mimeType: 'text/plain', sizeBytes: 1, storageKey: `${tag}-away`, url: '/u/x' } })).id;
+    await svc.readUnread(50);
+    expect(await textRow(stuck)).toMatchObject({ status: 'READ', text: `Stuck once ${tag}` });
+    expect(await textRow(killer)).toMatchObject({ status: 'FAILED' });
+    expect(await textRow(away)).toMatchObject({ status: 'RETRY', attempts: 1 });
+    files.set(`${tag}-away`, Buffer.from(`Back again ${tag}`));
+    await svc.readUnread(50);
+    expect(await textRow(away)).toMatchObject({ status: 'RETRY' }); // not before its wait
+    t += 11 * 60_000;
+    await svc.readUnread(50);
+    expect(await textRow(away)).toMatchObject({ status: 'READ', text: `Back again ${tag}` });
+    // A deleted task's files are not read.
+    const col = (await prisma.kanbanColumn.findFirstOrThrow({ where: { projectId } })).id;
+    const gone = await prisma.task.create({ data: { key: `FT${tag.toUpperCase()}-9`, title: 'Gone', projectId, columnId: col, createdById: user, deletedAt: new Date() } });
+    const orphan = (await prisma.attachment.create({ data: { taskId: gone.id, uploadedById: user, filename: 'o.txt', mimeType: 'text/plain', sizeBytes: 1, storageKey: `${tag}-o`, url: '/u/x' } })).id;
+    files.set(`${tag}-o`, Buffer.from('orphan'));
+    await svc.readUnread(50);
+    expect(await textRow(orphan)).toBeNull();
+  });
+
+  it('review I4: two OCR runs at once never send the same file twice (the first claims it)', async () => {
+    const t = new Date('2026-11-05T10:00:00Z');
+    let calls = 0;
+    const ocr = { ready: async () => true, read: async () => { calls += 1; await new Promise((r) => setTimeout(r, 200)); return `CLAIMED ${tag}`; } };
+    const svc = createFileTextService({ prisma, storage, index, ocr, now: () => t });
+    const photo = await att('claim.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]));
+    await prisma.searchFileText.create({ data: { fileId: photo, status: 'OCR_WAIT', nextTryAt: null, readAt: new Date(t.getTime() - 1000) } });
+    await Promise.all([svc.readByOcr(), svc.readByOcr()]);
+    expect(calls).toBe(1);
+    expect(await textRow(photo)).toMatchObject({ status: 'OCR_DONE', text: `CLAIMED ${tag}` });
   });
 
   it('pictures wait for OCR; read only while an OCR model is set up; a busy provider is tried again later, then FAILED', async () => {

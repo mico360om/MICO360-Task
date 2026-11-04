@@ -325,7 +325,16 @@ async function main(): Promise<void> {
   // Task search: one normalised text per task (task_search_index), refreshed after every change the
   // services make (the hooks below call taskChanged), healed by the sweeps further down, and searched
   // by the top-bar search and the Search results page (GET /search/tasks).
-  const taskSearchIndex = createTaskSearchIndex({ prisma, logger, words: searchVocabulary });
+  const taskSearchIndexBase = createTaskSearchIndex({ prisma, logger, words: searchVocabulary });
+  // 1.23 (review C1): a task changed (moved, deleted, renamed) — the inspections carried out for it are
+  // read again too, so they are never found by a task someone may no longer open.
+  const taskSearchIndex: typeof taskSearchIndexBase = {
+    ...taskSearchIndexBase,
+    taskChanged: (taskId) => {
+      void searchIndex.linkedTaskChanged(taskId);
+      return taskSearchIndexBase.taskChanged(taskId);
+    },
+  };
   const taskSearchEngine = createTaskSearchEngine({ prisma, index: taskSearchIndex, timeZone: companyTz });
   // Task approvals: who may approve a project's tasks is who may manage it (admins, owner, named
   // manager, MANAGER members) — the person's current roles, read at the moment they act.

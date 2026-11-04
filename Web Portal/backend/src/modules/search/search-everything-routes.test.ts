@@ -76,6 +76,8 @@ describe('GET /search/all — search everything', () => {
       q: 'pump', viewerId: 'u1', kinds: ['task', 'note'], projectId: 'p1', taskStatuses: ['TODO', 'DONE'], done: false, personId: 'u1', includeArchived: true, limit: 10, offset: 0, withCounts: true,
       // Company days (Muscat): from the start of 1 Nov to the end of 7 Nov.
       from: new Date('2026-10-31T20:00:00Z'), to: new Date('2026-11-07T20:00:00Z'),
+      // A task's due date by its calendar day (stored as UTC midnight) — review M4.
+      dueFrom: new Date('2026-11-01T00:00:00Z'), dueTo: new Date('2026-11-08T00:00:00Z'),
     });
     // The next page: no counts again.
     const next = await app.inject({ method: 'GET', url: `/api/v1/search/all?q=pump&cursor=${body.nextCursor}`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
@@ -86,7 +88,8 @@ describe('GET /search/all — search everything', () => {
   it('refuses bad filters and cursors (400)', async () => {
     const { app } = await makeApp();
     const auth = { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` };
-    for (const url of ['/api/v1/search/all?q=x&type=chat', '/api/v1/search/all?q=x&from=3-11-2026', '/api/v1/search/all?q=x&cursor=bad', '/api/v1/search/all?q=x&status=LATE']) {
+    const tooDeep = Buffer.from('o:5000', 'utf8').toString('base64url'); // review M11: pages stop 1000 deep
+    for (const url of ['/api/v1/search/all?q=x&type=chat', '/api/v1/search/all?q=x&from=3-11-2026', '/api/v1/search/all?q=x&cursor=bad', '/api/v1/search/all?q=x&status=LATE', `/api/v1/search/all?q=x&cursor=${tooDeep}`]) {
       expect((await app.inject({ method: 'GET', url, headers: auth })).statusCode, url).toBe(400);
     }
   });

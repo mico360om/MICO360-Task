@@ -243,6 +243,22 @@ describe('search everything (database)', () => {
     expect(await found(w('summary'), { scope: team([m.one!]) })).toEqual([`minutes:${m.one}`]);
   });
 
+  it('review I1: minutes reopened as a draft while the index still says final are shown only to those who may change the meeting', async () => {
+    const team: SearchScopeAll = { projectIds: [p.a!], meetings: { full: [m.one!, m.two!], invitee: [], editable: [] } };
+    const invitee: SearchScopeAll = { projectIds: [], meetings: { full: [], invitee: [m.two!], editable: [] } };
+    await prisma.meetingMinutes.update({ where: { meetingId: m.two! }, data: { status: 'DRAFT', approvedAt: null, content: JSON.stringify({ summary: `Agreed the ${w('budget')} — reworded draft`, discussion: [], decisions: [], risks: [], nextSteps: [] }) } });
+    try {
+      stale.length = 0;
+      expect(await found(w('budget'), { scope: team })).toEqual([]);
+      expect(await found(w('budget'), { scope: invitee })).toEqual([]);
+      expect(stale).toContain(`minutes:${m.two}`);
+      expect(await found(w('budget'), { scope: { ...team, meetings: { ...team.meetings, editable: [m.two!] } } })).toEqual([`minutes:${m.two}`]);
+    } finally {
+      await prisma.meetingMinutes.update({ where: { meetingId: m.two! }, data: { status: 'APPROVED', approvedAt: new Date(), content: JSON.stringify({ summary: `Agreed the ${w('budget')}`, discussion: [{ topic: 'Scaffolds', text: `Tag every ${w('scaffold')}` }], decisions: [], risks: [], nextSteps: [] }) } });
+      await index.meetingChanged(m.two!);
+    }
+  });
+
   it('nothing outside the scope: another project’s items, meetings not listed', async () => {
     const other: SearchScopeAll = { projectIds: [p.b!], meetings: { full: [], invitee: [], editable: [] } };
     expect(await found(w('kestrel'), { scope: other })).toEqual([]);

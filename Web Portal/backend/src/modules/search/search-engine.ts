@@ -8,7 +8,7 @@ import { describeIndexed, projectLooks } from './search-describe';
 import { allowedTypos } from './search-fuzzy';
 import { SEARCH_KINDS, type SearchHit, type SearchKind } from './search-types';
 import type { IndexKind } from './search-docs';
-import type { SearchScopeAll } from './search-scope';
+import { canSeeDraft, type SearchScopeAll } from './search-scope';
 
 /**
  * 1.23 Search everything — the standard search, always there (AI or not): every kind of item the
@@ -47,6 +47,12 @@ export interface SearchAllInput {
   /** Its date (a task's due date, a meeting's start, a note written…) on or after / before. */
   from?: Date;
   to?: Date;
+  /**
+   * Review M4: the same days for a task's due date, which is stored as the day's UTC midnight
+   * (lib/due-date) — `dueFrom` the first day's, `dueTo` the day after the last's. Absent: from / to.
+   */
+  dueFrom?: Date;
+  dueTo?: Date;
   includeArchived?: boolean;
   limit: number;
   /** Where the page starts; `extra`: in the list of the extra passes (see the cursor). */
@@ -99,6 +105,22 @@ const inList = (col: Prisma.Sql, list: readonly string[] | null) => (list === nu
 const startsAWord = (a: string) => [`%\n${escapeLike(a)}%`, `% ${escapeLike(a)}%`].map((pattern) => Prisma.sql`si.head LIKE ${Buffer.from(pattern, 'utf8')} ESCAPE '!'`);
 const wordStarts = (groups: Group[]) =>
   groups.length ? Prisma.sql`(${Prisma.join(groups.map((g) => Prisma.sql`(${Prisma.join(g.flatMap(startsAWord), ' OR ')})`), ' AND ')})` : Prisma.sql`FALSE`;
+/** A meeting seen in full (search-scope): one by one, every meeting of some projects, or a company's without a project. */
+const fullMeetingSql = (meetings: SearchScopeAll['meetings']): Prisma.Sql => {
+  if (meetings.full === null) return Prisma.sql`TRUE`;
+  const parts = [inList(Prisma.sql`m.id`, meetings.full)];
+  if (meetings.fullProjects?.length) parts.push(Prisma.sql`m.projectId IN (${Prisma.join(meetings.fullProjects)})`);
+  if (meetings.fullStandaloneCompany) parts.push(Prisma.sql`(m.projectId IS NULL AND m.companyId = ${meetings.fullStandaloneCompany})`);
+  return Prisma.sql`(${Prisma.join(parts, ' OR ')})`;
+};
+/** A meeting whose draft minutes may be seen (with fullMeetingSql): canEditMeetingRecord's rule. */
+const editableMeetingSql = (meetings: SearchScopeAll['meetings']): Prisma.Sql => {
+  if (meetings.editable === null) return Prisma.sql`TRUE`;
+  const parts = [inList(Prisma.sql`m.id`, meetings.editable)];
+  if (meetings.editableProjects?.length) parts.push(Prisma.sql`m.projectId IN (${Prisma.join(meetings.editableProjects)})`);
+  if (meetings.editor) parts.push(Prisma.sql`(m.organizerId = ${meetings.editor} OR m.createdById = ${meetings.editor})`);
+  return Prisma.sql`(${Prisma.join(parts, ' OR ')})`;
+};
 const notIn = (col: Prisma.Sql, list: readonly string[]) => (list.length ? Prisma.sql`${col} NOT IN (${Prisma.join(list)})` : Prisma.sql`TRUE`);
 /** The person's own item (see SearchAllInput.mine), for the ranking. */
 const mineOf = (mine: NonNullable<SearchAllInput['mine']>, viewerId: string) => Prisma.sql`(CASE si.kind
@@ -152,8 +174,10 @@ export function createSearchEngine({
     if (input.done === false) where.push(Prisma.sql`NOT ${done}`);
     const assigned = (userId: string) => Prisma.sql`EXISTS (SELECT 1 FROM task_assignees a WHERE a.taskId = t.id AND a.userId = ${userId})`;
     if (input.personId) where.push(assigned(input.personId));
-    if (input.from) where.push(Prisma.sql`t.dueDate >= ${input.from}`);
-    if (input.to) where.push(Prisma.sql`t.dueDate < ${input.to}`);
+    const dueFrom = input.dueFrom ?? input.from;
+    const dueTo = input.dueTo ?? input.to;
+    if (dueFrom) where.push(Prisma.sql`t.dueDate >= ${dueFrom}`);
+    if (dueTo) where.push(Prisma.sql`t.dueDate < ${dueTo}`);
     const score = scored
       ? Prisma.sql`(${pass.byNumber ?? Prisma.sql`FALSE`}) * 1000
         + (${allOf(Prisma.sql`si.head`, pass.groups)}) * 200 + ${howMany(Prisma.sql`si.head`, pass.groups)} * 20 + (${wordStarts(pass.groups)}) * 50
@@ -180,9 +204,9 @@ export function createSearchEngine({
     const txt = invitee.length ? Prisma.sql`(CASE WHEN si.kind = 'meeting' AND si.meetingId IN (${ids(invitee)}) THEN si.limited ELSE si.doc END)` : Prisma.sql`si.doc`;
     const live = liveSql(input) ?? (input.includeArchived ? Prisma.sql`TRUE` : LIVE_PROJECT_SQL);
     const some = pass.min < pass.groups.length;
-    const full = inList(Prisma.sql`m.id`, meetings.full);
+    const full = fullMeetingSql(meetings);
     const seen = Prisma.sql`(${full} OR ${inList(Prisma.sql`m.id`, invitee)})`;
-    const editable = inList(Prisma.sql`m.id`, meetings.editable);
+    const editable = editableMeetingSql(meetings);
     const visible = Prisma.sql`(
       (si.kind IN ('project', 'inspection') AND p.deletedAt IS NULL AND ${inList(Prisma.sql`si.projectId`, projectIds)} AND ${live})
       OR (si.kind = 'file' AND ft.deletedAt IS NULL AND p.deletedAt IS NULL AND ${inList(Prisma.sql`ft.projectId`, projectIds)} AND ${live})
@@ -278,8 +302,8 @@ export function createSearchEngine({
   async function counts(pass: Pass, input: SearchAllInput): Promise<Record<SearchKind, number>> {
     const out = Object.fromEntries(SEARCH_KINDS.map((k) => [k, 0])) as Record<SearchKind, number>;
     const parts = [taskPart(pass, input, false), indexPart(pass, input, false)].filter((p): p is Prisma.Sql => !!p);
-    // Each kind counted up to COUNT_CAP + 1 (a big result set is never counted in full).
-    const results = await Promise.all(parts.map((part) => prisma.$queryRaw<{ kind: string; n: bigint | number }[]>`SELECT kind, COUNT(*) AS n FROM (SELECT kind FROM (${part}) y LIMIT ${(COUNT_CAP + 1) * SEARCH_KINDS.length}) x GROUP BY kind`));
+    // Each kind counted in full (review M1: one cap across kinds left some at 0), shown up to COUNT_CAP.
+    const results = await Promise.all(parts.map((part) => prisma.$queryRaw<{ kind: string; n: bigint | number }[]>`SELECT kind, COUNT(*) AS n FROM (${part}) x GROUP BY kind`));
     for (const r of results.flat()) if ((SEARCH_KINDS as readonly string[]).includes(r.kind)) out[r.kind as SearchKind] = Math.min(Number(r.n), COUNT_CAP + 1);
     return out;
   }
@@ -290,7 +314,7 @@ export function createSearchEngine({
     const others = found.filter((f): f is { kind: Exclude<SearchKind, 'task'>; id: string } => f.kind !== 'task');
     const [tasks, indexed] = await Promise.all([
       describeTaskHits(prisma, taskIds, terms, { timeZone, max: 2, ...(byNumber ? { byNumber } : {}), accept, onStale: (id) => onStale?.('task', id) }),
-      describeIndexed(prisma, others, { terms, accept, invitee: new Set(input.scope.meetings.invitee), timeZone, onStale: (kind, id) => onStale?.(kind, id) }),
+      describeIndexed(prisma, others, { terms, accept, invitee: new Set(input.scope.meetings.invitee), canSeeDraft: (m) => canSeeDraft(input.scope.meetings, m), timeZone, onStale: (kind, id) => onStale?.(kind, id) }),
     ]);
     const looks = await projectLooks(prisma, tasks.map((t) => t.projectId));
     const taskHits = new Map(tasks.map((t) => [t.id, fromTask(t, looks.get(t.projectId) ?? null)]));

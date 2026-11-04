@@ -57,6 +57,8 @@ describe('AI search', () => {
     expect(d.engineCalls[0]).toMatchObject({ words: ['electrical', 'wiring', 'cable'], kinds: ['task'], done: false, projectId: 'p1' });
     // Company days (Muscat): from the start of 1 Nov to the end of 7 Nov.
     expect(d.engineCalls[0]).toMatchObject({ from: new Date('2026-10-31T20:00:00Z'), to: new Date('2026-11-07T20:00:00Z') });
+    // A task's due date by its calendar day (stored as UTC midnight), whatever the company's zone (review M4).
+    expect(d.engineCalls[0]).toMatchObject({ dueFrom: new Date('2026-11-01T00:00:00Z'), dueTo: new Date('2026-11-08T00:00:00Z') });
     // Only the person's own candidates reach the model; today's date and their projects are in the plan prompt.
     expect(d.prompts[0]).toContain('Today is 2026-11-04');
     expect(d.prompts[1]).toContain('Electrical isolation');
@@ -68,6 +70,16 @@ describe('AI search', () => {
     const slow = deps([], { budgetMs: 20, ai: { chatReady: async () => true, startSearchQuestion: () => undefined, chat: (input) => new Promise((_resolve, reject) => input.signal?.addEventListener('abort', () => reject(new Error('aborted')))) } });
     expect(await ask(slow)).toMatchObject({ state: 'slow' });
     expect(await ask(deps(['{}', 'not json at all']))).toMatchObject({ state: 'failed' });
+  });
+
+  it('review M5: the 20 seconds hold even for a step that ignores the stop (waiting for a model slot)', async () => {
+    const d = deps([JSON.stringify({ keywords: ['power'] })], {
+      budgetMs: 50,
+      semantic: { ready: async () => true, nearest: () => new Promise(() => {}) },
+    });
+    const started = Date.now();
+    expect(await ask(d, 'power')).toMatchObject({ state: 'slow' });
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it('a plan it can’t read: the question’s own words are searched', async () => {

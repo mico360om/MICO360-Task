@@ -45,6 +45,7 @@ describe('useFoundAnchor (a search result’s place on a page)', () => {
     el.scrollIntoView = vi.fn();
     markFound(el);
     expect(el.getAttribute('data-found')).toBe('true');
+    expect(el.getAttribute('tabindex')).toBe('-1'); // review M12: the keyboard goes there too
     vi.advanceTimersByTime(3000);
     expect(el.hasAttribute('data-found')).toBe(false);
   });

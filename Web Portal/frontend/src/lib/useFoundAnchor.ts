@@ -7,10 +7,17 @@ const MARK_MS = 2500;
 const LOOK_MS = 5000;
 const STEP_MS = 150;
 
-/** Bring an element into view and mark it for a moment (data-found, styled in index.css). */
+/**
+ * Bring an element into view, mark it for a moment (data-found, styled in index.css) and give it the
+ * focus (review M12), so the keyboard and a screen reader are taken there too.
+ */
 export function markFound(el: Element): void {
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   el.setAttribute('data-found', 'true');
+  if (el instanceof HTMLElement) {
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+    el.focus({ preventScroll: true });
+  }
   setTimeout(() => el.removeAttribute('data-found'), MARK_MS);
 }
 

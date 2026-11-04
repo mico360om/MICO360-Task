@@ -31,13 +31,22 @@ export function startSearchSweeps({
       logger.error('search: a sweep step failed', { err, step: name });
     }
   };
+  // One minute run at a time on this server (review I4): a run still going (a slow OCR or embedding
+  // call) is never started again beside itself when the next minute comes.
+  let running = false;
   const recent = async () => {
-    await step('heal-recent', () => index.healRecent());
-    if (files) {
-      await step('read-files', () => files.readUnread(20));
-      await step('read-files-ocr', () => files.readByOcr(5));
+    if (running) return 0;
+    running = true;
+    try {
+      await step('heal-recent', () => index.healRecent());
+      if (files) {
+        await step('read-files', () => files.readUnread(20));
+        await step('read-files-ocr', () => files.readByOcr(5));
+      }
+      if (semantic) await step('meaning-vectors', () => semantic.embedPending(100));
+    } finally {
+      running = false;
     }
-    if (semantic) await step('meaning-vectors', () => semantic.embedPending(100));
     return 0;
   };
   const exclusive = (name: string, leaseMs: number, run: () => Promise<number>) =>

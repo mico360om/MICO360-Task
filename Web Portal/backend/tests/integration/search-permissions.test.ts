@@ -25,6 +25,7 @@ const prompts: string[] = [];
 
 let w: CompanyWorld;
 let api: CompanyApp;
+let scopes: ReturnType<typeof createSearchScope> | null = null;
 const extra = { file: '', inspection: '', decision: '' };
 
 type Page = { data: SearchHit[]; counts: Record<string, number>; total: number };
@@ -62,6 +63,7 @@ beforeAll(async () => {
       manageableProjectIds: (u, r, ids) => base.projectAuthz!.manageableProjectIds(u, r, ids),
       myProjectsOnly: (viewer) => companyAccess.myProjectsOnly(viewer),
     });
+    scopes = scope;
     const ai = createAiSearch({
       ai: {
         chatReady: async () => true,
@@ -169,6 +171,49 @@ describe('search everything: the permission leak matrix', () => {
         expect(await foundOf(viewer, pick), `${name} ${pick ?? 'all'}`).toEqual(await meetingsOf(viewer, pick));
       }
     }
+  });
+
+  it('review C1: an inspection never shows a linked task the person may not open (another project, or deleted)', async () => {
+    const { ana } = w.as;
+    // In PA (ana's), carried out for TB1 — a task of PB, which ana can't open.
+    const linked = (await prisma.inspection.create({ data: { projectId: w.projects.PA, title: 'ZZLINKED check', formVersion: 1, inspectorId: w.people.ana, startedById: w.people.ana, taskId: w.tasks.TB1, structure: { sections: [] } } })).id;
+    try {
+      await index.refresh('inspection', [linked]);
+      const own = await searchAll(ana, 'ZZLINKED');
+      expect(keys(own)).toEqual([`inspection:${linked}`]);
+      const text = JSON.stringify(own);
+      expect(text).not.toContain('ZZBETA');
+      expect(text).not.toContain('TB1');
+      const beta = await searchAll(ana, 'ZZBETA');
+      expect(beta.data).toEqual([]);
+      expect(beta.total).toBe(0); // not even counted
+      // A task of its own project is shown; once deleted, it is not (the index follows the task).
+      await prisma.inspection.update({ where: { id: linked }, data: { taskId: w.tasks.TA2 } });
+      await index.refresh('inspection', [linked]);
+      expect(JSON.stringify(await searchAll(ana, 'ZZLINKED'))).toContain('TA2');
+      await prisma.task.update({ where: { id: w.tasks.TA2 }, data: { deletedAt: new Date() } });
+      await index.linkedTaskChanged(w.tasks.TA2);
+      const after = JSON.stringify(await searchAll(ana, 'ZZLINKED'));
+      expect(after).not.toContain('TA2');
+    } finally {
+      await prisma.task.update({ where: { id: w.tasks.TA2 }, data: { deletedAt: null } });
+      await prisma.searchIndex.deleteMany({ where: { recordId: linked } });
+      await prisma.inspection.delete({ where: { id: linked } });
+    }
+  });
+
+  it('draft minutes: whoever may change the meeting — its organizer yes, a team member who doesn’t run the project no', async () => {
+    const { ana, cat } = w.as;
+    expect(keys(await searchAll(ana, 'ZZALPHA')).includes(`minutes:${w.meetings.MA}`)).toBe(true);
+    expect(keys(await searchAll(cat, 'ZZALPHA')).includes(`minutes:${w.meetings.MA}`)).toBe(false);
+  });
+
+  it('review I2: the scope names projects for their meetings, and lists only the rest one by one', async () => {
+    const scope = await scopes!.forViewer(w.as.cat, null);
+    expect(scope.meetings.fullProjects).toEqual(expect.arrayContaining([w.projects.PA, w.projects.PB]));
+    // MA (PA) and MB (PB) are covered by their projects: no meeting of a visible project is listed.
+    expect(scope.meetings.full).not.toContain(w.meetings.MA);
+    expect(scope.meetings.full).not.toContain(w.meetings.MB);
   });
 
   it('the batched invitee rule is meetingView’s, for every person and meeting', async () => {
