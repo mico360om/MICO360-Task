@@ -874,9 +874,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           viewOf: meetingViewOf,
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
           resolveTaskKeys: deps.resolveTaskKeys,
-          pickOf, // companies: My Action Items follows the pick
-          myProjectsOnly, // 1.22, with the list scope
-          accessibleProjectIds: meetingAccessibleProjectIds,
+          pickOf, // companies: My Action Items follows the pick (1.22: "Show my projects only" doesn't narrow it — owner, 4 Nov)
         });
       }
       if (deps.noteService) {

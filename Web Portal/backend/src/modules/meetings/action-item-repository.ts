@@ -66,12 +66,6 @@ export interface AssigneeListFilter {
    * project's team, as in 1.20.
    */
   admin?: boolean;
-  /**
-   * 1.22: an administrator listing like a team member ("Show my projects only"): only the items of
-   * these projects (by the item's project or its meeting's), of meetings they organize, made or were
-   * invited to, and of no project. With a pick, the pick's rule applies too.
-   */
-  projectIds?: string[];
 }
 
 export interface ActionItemRepository {

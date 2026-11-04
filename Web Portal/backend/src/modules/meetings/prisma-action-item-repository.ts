@@ -109,23 +109,6 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
           },
         ];
       }
-      if (filter.admin && filter.projectIds) {
-        // 1.22 "Show my projects only" (see AssigneeListFilter.projectIds).
-        const ids = filter.projectIds;
-        const own = { OR: [{ organizerId: userId }, { createdById: userId }, { attendees: { some: { userId } } }] };
-        where.AND = [
-          ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-          {
-            OR: [
-              { projectId: { in: ids } },
-              { projectId: null, meeting: { is: { projectId: { in: ids } } } },
-              { meeting: { is: own } },
-              { projectId: null, meetingId: null },
-              { projectId: null, meeting: { is: { projectId: null } } },
-            ],
-          },
-        ];
-      }
       const rows = await prisma.actionItem.findMany({ where, orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }] });
       return rows.map(toRecord);
     },

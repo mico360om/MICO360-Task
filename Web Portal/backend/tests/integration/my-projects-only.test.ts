@@ -177,7 +177,9 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       expect(await api.get(admin, '/notifications/unread-count')).toEqual({ count: 2 });
       // MA (PA), and MN_B — no project, the administrator is one of its people. Not MB (PB) or MN_A.
       expect(idsOf(await api.get(admin, '/meetings'))).toEqual(sorted([w.meetings.MA, w.meetings.MN_B]));
-      expect((await api.get(admin, '/me/action-items') as { description: string }[]).map((i) => i.description)).toEqual(['admin ZZALPHA action']);
+      // Owner, 4 Nov: My Action Items ALWAYS shows the administrator's own items, whatever the project —
+      // MB's (PB, not theirs) too; only other people's work and the project lists narrow.
+      expect(sorted((await api.get(admin, '/me/action-items') as { description: string }[]).map((i) => i.description))).toEqual(sorted(['admin ZZALPHA action', 'admin ZZBETA action']));
     });
 
     // 1.22 integration: lane B's Activity calendar (`?from=&to=` per day, `?day=` a day's changes)
@@ -237,6 +239,10 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       // Beta's meetings: PAB has none; MN_B (Beta, the administrator attends). Not MB (PB).
       expect(idsOf(await api.get(admin, '/meetings', beta))).toEqual([w.meetings.MN_B]);
       expect(projectIdsOf(await api.get(admin, '/projects', { 'x-company-id': w.companies.A }))).toEqual(sorted([w.projects.PA, w.projects.PAB]));
+      // My Action Items: the picked company still applies (as in 1.21) — the setting doesn't narrow it.
+      const items = async (headers: Record<string, string>) => (await api.get(admin, '/me/action-items', headers) as { description: string }[]).map((i) => i.description);
+      expect(await items(beta)).toEqual(['admin ZZBETA action']);
+      expect(await items({ 'x-company-id': w.companies.A })).toEqual(['admin ZZALPHA action']);
       // Reports' workload: the people with tasks in PAB — not every Beta member (bob has none there).
       const people = ((await api.get(admin, '/reports/workload', beta)) as { userId: string }[]).map((p) => p.userId);
       expect(people).not.toContain(w.people.bob);
