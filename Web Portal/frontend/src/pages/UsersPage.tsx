@@ -8,6 +8,8 @@ import { EditUserModal } from '../components/EditUserModal';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
 import { usersApi, type ApiUser, type CreatedUser, type UserStatus } from '../api/users';
+import { CLIENTS_KEY, clientsApi, isClientRoles } from '../api/clients';
+import { Badge } from '../components/ui/Badge';
 import { ApiError } from '../lib/api-client';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import {
@@ -72,6 +74,8 @@ interface Notice {
 /** A person's companies (A–Z, as the server lists them), their primary and archived ones marked; "No company" when none. */
 function CompanyNames({ user, archived }: { user: ApiUser; archived: ReadonlySet<string> }) {
   const companies = user.companies ?? [];
+  // 1.23: a client account never belongs to a company.
+  if (companies.length === 0 && isClientRoles(user.roles)) return <span className="text-ink-3">None (client)</span>;
   if (companies.length === 0) return <span className="text-ink-3">No company</span>;
   return (
     <ul aria-label="Companies" className="flex flex-wrap gap-1">
@@ -90,6 +94,23 @@ function CompanyNames({ user, archived }: { user: ApiUser; archived: ReadonlySet
 }
 
 const NOT_SET_UP_ID = 'users-email-not-set-up';
+
+/** The Role filter (1.23): everyone, or the people with one role. */
+type RoleFilter = '' | 'ADMIN' | 'EMPLOYEE' | 'CLIENT';
+const ROLE_FILTERS: { value: RoleFilter; label: string }[] = [
+  { value: '', label: 'All roles' },
+  { value: 'ADMIN', label: 'Administrator' },
+  { value: 'EMPLOYEE', label: 'Employee' },
+  { value: 'CLIENT', label: 'Client' },
+];
+const NO_ONE_WITH_ROLE: Record<Exclude<RoleFilter, ''>, string> = {
+  ADMIN: 'No one is an administrator.',
+  EMPLOYEE: 'No one is an employee.',
+  CLIENT: 'No client accounts yet. Make one with New user and Role “Client”.',
+};
+/** Said by the company bulk buttons (1.23): clients never belong to a company. */
+const CLIENTS_NO_COMPANY = 'Clients don’t belong to companies';
+const clientsLeftOut = (n: number) => `${n} ${n === 1 ? 'client' : 'clients'} left out: clients don’t belong to companies.`;
 const fullName = (u: ApiUser) => `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username;
 
 /** A padlock, drawn (an emoji looks different on every system). */
@@ -149,6 +170,10 @@ export function UsersPage() {
   });
   const phone = useMediaQuery(PHONE_QUERY);
   const users = Array.isArray(q.data) ? q.data : [];
+  // 1.23: client accounts' organisations (the people list doesn't carry them), once any client is listed.
+  const anyClient = users.some((u) => isClientRoles(u.roles));
+  const clientsQ = useQuery({ queryKey: CLIENTS_KEY, queryFn: () => clientsApi(apiClient).list(), enabled: anyClient });
+  const organisationOf = new Map((Array.isArray(clientsQ.data) ? clientsQ.data : []).map((c) => [c.id, c.organisation]));
   const lockedCount = users.filter((u) => u.locked).length;
   const timeZone = useCompanyTimeZone();
   // Welcome emails need email set up on the server (until /config answers, they're offered).
@@ -162,7 +187,9 @@ export function UsersPage() {
   // Show / Sort: everyone or only the people who have never signed in; the list's order or by last sign-in.
   const [show, setShow] = useState<'all' | 'never'>('all');
   const [sort, setSort] = useState<SignInSort>('newest');
-  const shown = sortBySignIn(show === 'never' ? users.filter((u) => !u.lastLoginAt) : users, sort);
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('');
+  const withRole = roleFilter ? users.filter((u) => u.roles.includes(roleFilter)) : users;
+  const shown = sortBySignIn(show === 'never' ? withRole.filter((u) => !u.lastLoginAt) : withRole, sort);
 
   // People picked for "Send welcome emails" (kept in the list's own order when sent).
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -172,6 +199,9 @@ export function UsersPage() {
   const [leftOut, setLeftOut] = useState<number | null>(null);
   const [confirmingOne, setConfirmingOne] = useState<ApiUser | null>(null);
   const chosen = users.filter((u) => selected.has(u.id));
+  // Company changes are for staff: the clients ticked are left out (and said so).
+  const chosenStaff = chosen.filter((u) => !isClientRoles(u.roles));
+  const chosenClients = chosen.length - chosenStaff.length;
   const candidates = welcomeCandidates(users, new Date());
   const allShownSelected = shown.length > 0 && shown.every((u) => selected.has(u.id));
   const pickNeverSignedIn = () => {
@@ -262,6 +292,17 @@ export function UsersPage() {
     ) : (
       <span data-username>{u.username}</span>
     );
+  /** Their roles: a client's "Client" badge (and organisation), staff as before. */
+  const roleWords = (u: ApiUser) => {
+    if (!isClientRoles(u.roles)) return <>{u.roles.join(', ') || '—'}</>;
+    const organisation = organisationOf.get(u.id);
+    return (
+      <span className="flex flex-col items-start gap-0.5">
+        <Badge tone="info">Client</Badge>
+        {organisation ? <bdi className="text-xs text-ink-2 [overflow-wrap:anywhere]">{organisation}</bdi> : null}
+      </span>
+    );
+  };
   const statusBadges = (u: ApiUser) => (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[u.status]}`}>{u.status}</span>
@@ -438,6 +479,14 @@ export function UsersPage() {
           </div>
         ) : null}
         <div className="flex flex-col gap-1">
+          <label htmlFor="users-role" className="text-xs font-medium text-ink-2">Role</label>
+          <select id="users-role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+            {ROLE_FILTERS.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
           <label htmlFor="users-sort" className="text-xs font-medium text-ink-2">Sort</label>
           <select id="users-sort" value={sort} onChange={(e) => setSort(e.target.value as SignInSort)} className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
             <option value="newest">Newest accounts first</option>
@@ -460,8 +509,8 @@ export function UsersPage() {
             <>
               {multi ? (
                 <>
-                  <Button variant="secondary" onClick={() => setBulk('add')}>Add to a company…</Button>
-                  <Button variant="secondary" onClick={() => setBulk('remove')}>Remove from a company…</Button>
+                  <Button variant="secondary" onClick={() => setBulk('add')} disabled={chosenStaff.length === 0} title={chosenStaff.length === 0 ? CLIENTS_NO_COMPANY : undefined}>Add to a company…</Button>
+                  <Button variant="secondary" onClick={() => setBulk('remove')} disabled={chosenStaff.length === 0} title={chosenStaff.length === 0 ? CLIENTS_NO_COMPANY : undefined}>Remove from a company…</Button>
                 </>
               ) : null}
               {emailEnabled ? (
@@ -475,6 +524,7 @@ export function UsersPage() {
             </>
           ) : null}
         </div>
+        {multi && chosenClients > 0 ? <p className="w-full text-sm text-ink-2">Clients are left out of company changes: they don’t belong to companies.</p> : null}
         {emailEnabled && chosen.length > MAX_WELCOME_BATCH ? (
           <p id="users-too-many" className="w-full text-sm text-warning">You can send up to {MAX_WELCOME_BATCH} welcome emails at a time. Choose fewer people.</p>
         ) : null}
@@ -491,6 +541,8 @@ export function UsersPage() {
             Couldn’t load users (admin only).{' '}
             <button type="button" onClick={() => void q.refetch()} className="font-semibold underline">Retry</button>
           </p>
+        ) : roleFilter && withRole.length === 0 ? (
+          <p className="p-4 text-ink-2">{NO_ONE_WITH_ROLE[roleFilter]}</p>
         ) : show === 'never' && shown.length === 0 ? (
           <p className="p-4 text-ink-2">Everyone has signed in at least once.</p>
         ) : companyFilter && shown.length === 0 ? (
@@ -519,7 +571,7 @@ export function UsersPage() {
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
                     <div className="min-w-0">
                       <dt className="text-xs text-ink-3">Roles</dt>
-                      <dd className="text-ink-2 [overflow-wrap:anywhere]">{u.roles.join(', ') || '—'}</dd>
+                      <dd className="text-ink-2 [overflow-wrap:anywhere]">{roleWords(u)}</dd>
                     </div>
                     <div className="min-w-0">
                       <dt className="text-xs text-ink-3">Last sign-in</dt>
@@ -567,7 +619,7 @@ export function UsersPage() {
                     {who(u)}
                   </td>
                   <td className="p-3 text-ink-2">{u.email}</td>
-                  <td className="p-3 text-ink-2">{u.roles.join(', ') || '—'}</td>
+                  <td className="p-3 text-ink-2">{roleWords(u)}</td>
                   {multi ? <td className="min-w-[10rem] p-3"><CompanyNames user={u} archived={archivedIds} /></td> : null}
                   <td className="p-3">{statusBadges(u)}</td>
                   <td className="whitespace-nowrap p-3 text-ink-2">{lastSignIn(u)}</td>
@@ -620,13 +672,14 @@ export function UsersPage() {
       {bulk ? (
         <BulkCompanyDialog
           mode={bulk}
-          userIds={chosen.map((u) => u.id)}
+          userIds={chosenStaff.map((u) => u.id)}
           onClose={() => setBulk(null)}
           onDone={(result) => {
             setBulk(null);
+            const leftOut = chosenClients;
             clearSelection();
             const { text, more } = peopleChangeText(result);
-            setNotice({ text, ...(more.length ? { more } : {}), error: result.changed === 0 && result.refused.length > 0 });
+            setNotice({ text: leftOut > 0 ? `${text} ${clientsLeftOut(leftOut)}` : text, ...(more.length ? { more } : {}), error: result.changed === 0 && result.refused.length > 0 });
           }}
         />
       ) : null}

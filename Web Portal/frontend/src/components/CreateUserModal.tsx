@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
 import { usersApi, type CreatedUser } from '../api/users';
+import { CLIENTS_KEY, clientAsUser, clientsApi } from '../api/clients';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
 import { useDialog } from '../hooks/useDialog';
@@ -13,14 +14,18 @@ import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
 import { useCompanyStore } from '../stores/company-store';
+import { ClientAccessEditor } from './clients/ClientAccessEditor';
+import { grantsOf, noModuleText, rowsWithoutModule, type AccessRow } from './clients/client-access';
 
 export interface CreateUserModalProps {
   onClose: () => void;
   /** The new account, and whether its welcome email went. */
   onCreated?: (result: CreatedUser) => void;
+  /** "New client" (the Clients page): a client account, no role to choose. */
+  clientOnly?: boolean;
 }
 
-type Role = 'EMPLOYEE' | 'ADMIN';
+type Role = 'EMPLOYEE' | 'ADMIN' | 'CLIENT';
 
 /** Why the server refused the new account, in words that point at the detail to fix. */
 function createFailure(e: unknown): string {
@@ -41,10 +46,24 @@ function createFailure(e: unknown): string {
   return 'Couldn’t create the account. Please try again.';
 }
 
-const FIELD_NAMES: Record<string, string> = { firstName: 'first name', lastName: 'last name', username: 'username', password: 'password', roleNames: 'role' };
+const FIELD_NAMES: Record<string, string> = {
+  firstName: 'first name',
+  lastName: 'last name',
+  username: 'username',
+  password: 'password',
+  roleNames: 'role',
+  organisation: 'organisation',
+  phone: 'phone',
+  projects: 'project access',
+};
 
-/** Admin dialog to create a new account (name, credentials, role). Used by User Management + Team. */
-export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
+/**
+ * Admin dialog to create a new account (name, credentials, role). Used by User Management + Team.
+ * 1.23: Role "Client" makes a client account instead (POST /clients): their organisation and phone,
+ * and in place of companies the projects they may open in the Client portal, with what they may see
+ * and do in each (the one editor the Clients page and Manage account use too).
+ */
+export function CreateUserModal({ onClose, onCreated, clientOnly = false }: CreateUserModalProps) {
   const qc = useQueryClient();
   const dialogRef = useDialog(onClose);
   const [firstName, setFirstName] = useState('');
@@ -52,7 +71,13 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('EMPLOYEE');
+  const [role, setRole] = useState<Role>(clientOnly ? 'CLIENT' : 'EMPLOYEE');
+  const isClient = role === 'CLIENT';
+  const [organisation, setOrganisation] = useState('');
+  const [phone, setPhone] = useState('');
+  const [access, setAccess] = useState<AccessRow[]>([]);
+  // After a save attempt: a project with no module is marked in the editor.
+  const [accessChecked, setAccessChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -71,8 +96,22 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
   const primaryCompanyId = chosenPrimary && companyIds.includes(chosenPrimary) ? chosenPrimary : (companyIds[0] ?? null);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      usersApi(apiClient).create({
+    mutationFn: (): Promise<CreatedUser> =>
+      isClient
+        ? clientsApi(apiClient)
+            .create({
+              firstName,
+              lastName,
+              username,
+              email,
+              organisation: organisation.trim() || null,
+              phone: phone.trim() || null,
+              ...(password ? { password } : {}),
+              sendWelcome,
+              projects: grantsOf(access),
+            })
+            .then((r) => ({ user: clientAsUser(r.client), welcome: r.welcome }))
+        : usersApi(apiClient).create({
         firstName,
         lastName,
         username,
@@ -85,6 +124,7 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['directory'] });
+      if (isClient) qc.invalidateQueries({ queryKey: CLIENTS_KEY });
       onCreated?.(result);
       onClose();
     },
@@ -104,7 +144,7 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
       return;
     }
     // An employee needs a company (administrators see every company anyway). The server's words.
-    if (companyChoices.show && role === 'EMPLOYEE' && companyIds.length === 0) {
+    if (!isClient && companyChoices.show && role === 'EMPLOYEE' && companyIds.length === 0) {
       setError('Choose at least one company.');
       return;
     }
@@ -124,13 +164,25 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
       setError(PASSWORD_RULE_ERROR);
       return;
     }
+    // A client's projects each need a module (the server's rule), said before anything is sent.
+    if (isClient) {
+      setAccessChecked(true);
+      const missing = rowsWithoutModule(access);
+      if (missing.length > 0) {
+        setError(noModuleText(missing));
+        return;
+      }
+    }
     createMut.mutate();
   }
 
   // Big form (1.22): with companies to choose, 960px and two columns from 1024px — the person on the
   // left, their companies on the right. A one-company site has no companies: a normal form, one column.
-  const size = companyChoices.show ? 'wide' : 'form';
-  const twoColumns = useTwoColumns() && companyChoices.show;
+  // A client (1.23): the same big form, their project access on the right.
+  const companiesShown = companyChoices.show && !isClient;
+  const size = companiesShown || isClient ? 'wide' : 'form';
+  const twoColumns = useTwoColumns() && (companiesShown || isClient);
+  const title = clientOnly ? 'New client' : 'New user';
   const personFields = (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -151,6 +203,22 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
         <FieldLabel htmlFor="nu-email" required>Email</FieldLabel>
         <input id="nu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
       </div>
+      {isClient ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="nu-organisation">
+              Organisation<span className="font-normal text-ink-2"> (optional)</span>
+            </FieldLabel>
+            <input id="nu-organisation" dir="auto" value={organisation} onChange={(e) => setOrganisation(e.target.value)} maxLength={160} autoComplete="organization" className={fieldClass(false)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="nu-phone">
+              Phone<span className="font-normal text-ink-2"> (optional)</span>
+            </FieldLabel>
+            <input id="nu-phone" type="tel" dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" className={fieldClass(false)} />
+          </div>
+        </div>
+      ) : null}
       <div className="flex items-start gap-2.5 rounded-lg border border-line bg-ground/60 px-3 py-2.5">
         <input
           id="nu-welcome"
@@ -190,17 +258,31 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
           <p id="nu-password-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
           {sendWelcome ? <p id="nu-password-optional" className="text-xs text-ink-2">Or leave it empty: they choose their own with the link.</p> : null}
         </div>
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor="nu-role">Role</FieldLabel>
-          <select id="nu-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className={fieldClass(false)}>
-            <option value="EMPLOYEE">Employee</option>
-            <option value="ADMIN">Administrator</option>
-          </select>
-        </div>
+        {clientOnly ? null : (
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="nu-role">Role</FieldLabel>
+            <select
+              id="nu-role"
+              value={role}
+              onChange={(e) => {
+                setRole(e.target.value as Role);
+                setError(null);
+              }}
+              aria-describedby={isClient ? 'nu-role-hint' : undefined}
+              className={fieldClass(false)}
+            >
+              <option value="EMPLOYEE">Employee</option>
+              <option value="ADMIN">Administrator</option>
+              <option value="CLIENT">Client</option>
+            </select>
+            {isClient ? <p id="nu-role-hint" className="text-xs text-ink-2">Someone outside the company: they sign in to the Client portal and see only the projects you give them.</p> : null}
+          </div>
+        )}
       </div>
     </>
   );
-  const companiesField = companyChoices.show ? (
+  const accessField = isClient ? <ClientAccessEditor value={access} onChange={setAccess} idPrefix="nu-access" showErrors={accessChecked} /> : null;
+  const companiesField = companiesShown ? (
     <CompanyChecklist
       companies={companyChoices.companies}
       value={companyIds}
@@ -215,11 +297,11 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     <ModalPortal>
       <div className={dialogLayer(size)}>
         <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New user" className={`keyboard-flow-cramped card relative flex ${dialogPanel(size)} animate-scale-in flex-col overflow-hidden`}>
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} className={`keyboard-flow-cramped card relative flex ${dialogPanel(size)} animate-scale-in flex-col overflow-hidden`}>
           {/* The fields scroll; the buttons stay in view — above a phone's keyboard, too. */}
           <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
             <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:p-6">
-              <h2 className="mb-1 font-display text-xl font-bold text-ink">New user</h2>
+              <h2 className="mb-1 font-display text-xl font-bold text-ink">{title}</h2>
               {error ? (
                 <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
                   {error}
@@ -228,12 +310,12 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
               {twoColumns ? (
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
                   <div data-form-column="person" className="flex min-w-0 flex-col gap-3">{personFields}</div>
-                  <div data-form-column="companies" className="flex min-w-0 flex-col gap-3">{companiesField}</div>
+                  <div data-form-column={isClient ? 'access' : 'companies'} className="flex min-w-0 flex-col gap-3">{isClient ? accessField : companiesField}</div>
                 </div>
               ) : (
                 <>
                   {personFields}
-                  {companiesField}
+                  {isClient ? accessField : companiesField}
                 </>
               )}
             </div>
@@ -242,7 +324,7 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                 Cancel
               </button>
               <Button type="submit" shortcut="submit" showShortcut loading={createMut.isPending} className="!min-h-[44px] flex-[2] sm:min-w-[9.5rem] sm:flex-none">
-                {createMut.isPending ? 'Creating…' : 'Create user'}
+                {createMut.isPending ? 'Creating…' : isClient ? 'Create client' : 'Create user'}
               </Button>
             </div>
           </form>

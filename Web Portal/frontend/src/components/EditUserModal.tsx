@@ -1,17 +1,21 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
+import { CLIENTS_KEY, clientKey, clientsApi, isClientRoles, type ClientAccount } from '../api/clients';
 import { usersApi, type ApiUser, type UserStatus } from '../api/users';
 import { ApiError } from '../lib/api-client';
 import { isStrongPassword, PASSWORD_RULE_ERROR, PASSWORD_RULE_HINT } from '../lib/passwordPolicy';
 import { useAuthStore } from '../stores/auth-store';
 import { Button } from './ui/Button';
 import { FieldLabel, fieldClass } from './ui/Field';
+import { LoadError } from './ui/LoadError';
 import { useDialog } from '../hooks/useDialog';
 import { ModalPortal } from './ui/ModalPortal';
 import { dialogLayer, dialogPanel, useTwoColumns } from './ui/dialog-size';
 import { CompanyChecklist } from './company/CompanyChecklist';
 import { useCompanyChoices } from './company/company-admin';
+import { ClientAccessEditor } from './clients/ClientAccessEditor';
+import { grantsChanged, grantsOf, noModuleText, rowsFromAccount, rowsWithoutModule, type AccessRow } from './clients/client-access';
 
 export interface EditUserModalProps {
   user: ApiUser;
@@ -25,6 +29,8 @@ const ROLE_OPTIONS: { value: string; label: string; hint: string }[] = [
   { value: 'ADMIN', label: 'Administrator', hint: 'Full access — manage users, settings and every project.' },
   { value: 'EMPLOYEE', label: 'Employee', hint: 'Works on assigned tasks and projects.' },
 ];
+
+const SECTION = 'mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-2';
 
 /** The server's reason for a rejected change (e.g. "the last administrator can't be removed"), else our fallback. */
 function reason(err: unknown, fallback: string): string {
@@ -42,76 +48,125 @@ class StatusChangeError extends Error {
 }
 
 /**
- * Admin dialog to edit a user's profile, roles and status, and to reset their password.
- * On your own account the roles and status are read-only, so an admin can't demote or
+ * Admin dialog ("Manage account") to edit a user's profile, roles and status, and to reset their
+ * password. On your own account the roles and status are read-only, so an admin can't demote or
  * deactivate themselves by mistake (the server also refuses to remove the last admin).
+ * 1.23: a client account edits their details and project access instead (no companies, no staff
+ * roles — staff stay staff and clients stay clients; a new account is made for the other kind).
  */
 export function EditUserModal({ user, onClose }: EditUserModalProps) {
-  const qc = useQueryClient();
+  return isClientRoles(user.roles) ? <ClientAccountDialog user={user} onClose={onClose} /> : <StaffAccountDialog user={user} onClose={onClose} />;
+}
+
+/** The window every account shares: "Manage account", their name, ✕ — and the form its kind brings. */
+function AccountDialog({ user, onClose, children }: { user: ApiUser; onClose: () => void; children: ReactNode }) {
   const dialogRef = useDialog(onClose);
-  const meId = useAuthStore((s) => s.user?.id);
-  const isSelf = user.id === meId;
-  const [firstName, setFirstName] = useState(user.firstName);
-  const [lastName, setLastName] = useState(user.lastName);
-  const [username, setUsername] = useState(user.username);
-  const [email, setEmail] = useState(user.email);
-  const [status, setStatus] = useState<UserStatus>(user.status);
-  const [roles, setRoles] = useState<Set<string>>(new Set(user.roles));
-  const [error, setError] = useState<string | null>(null);
+  return (
+    <ModalPortal>
+      <div className={dialogLayer('wide')}>
+        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Edit ${user.username}`}
+          className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}
+        >
+          <div className="flex flex-none items-start justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-6">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-ink-2">Manage account</p>
+              <h2 dir="auto" className="font-display text-xl font-bold text-ink [overflow-wrap:anywhere]">{user.firstName} {user.lastName}</h2>
+              <p className="text-sm text-ink-2">@{user.username}</p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:!h-11 [@media(pointer:coarse)]:!w-11">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+          {children}
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
 
-  // Their companies and primary company (with two or more companies on the site, or on their record).
-  // Sent only when changed: a name change never touches them.
-  const savedCompanyIds = (user.companies ?? []).map((c) => c.id);
-  const savedPrimary = user.primaryCompanyId && savedCompanyIds.includes(user.primaryCompanyId) ? user.primaryCompanyId : (savedCompanyIds[0] ?? null);
-  const companyChoices = useCompanyChoices(savedCompanyIds.length);
-  const [companyIds, setCompanyIds] = useState<string[]>(savedCompanyIds);
-  const [primaryCompanyId, setPrimaryCompanyId] = useState<string | null>(savedPrimary);
-  const companiesChanged =
-    companyChoices.show &&
-    (companyIds.length !== savedCompanyIds.length || companyIds.some((id) => !savedCompanyIds.includes(id)) || primaryCompanyId !== savedPrimary);
+/** Close and Save changes, in a footer that stays in view (above a phone's keyboard too). */
+function DialogFooter({ onClose, saving = false, disabled = false }: { onClose: () => void; saving?: boolean; disabled?: boolean }) {
+  return (
+    <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
+      <button type="button" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground sm:flex-none">
+        Close
+      </button>
+      <Button type="submit" shortcut="save" showShortcut disabled={disabled} loading={saving} className="!min-h-[44px] flex-[2] sm:min-w-[9.5rem] sm:flex-none">
+        {saving ? 'Saving…' : 'Save changes'}
+      </Button>
+    </div>
+  );
+}
 
+/** The fields and form body: two columns from 1024px (`left` and `right`), else one, in `single` order. */
+function AccountColumns({ left, right, single }: { left: ReactNode; right: ReactNode; single: ReactNode }) {
+  const twoColumns = useTwoColumns();
+  return twoColumns ? (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
+      <div data-form-column="profile" className="flex min-w-0 flex-col gap-4">{left}</div>
+      <div data-form-column="access" className="flex min-w-0 flex-col gap-4">{right}</div>
+    </div>
+  ) : (
+    <>{single}</>
+  );
+}
+
+interface NameValues {
+  firstName: string;
+  lastName: string;
+  username: string;
+  email: string;
+}
+
+/** Profile: first and last name, username, email (and, for a client, `more`: organisation and phone). */
+function ProfileFields({ values, onChange, firstRef, more }: { values: NameValues; onChange: (patch: Partial<NameValues>) => void; firstRef?: Ref<HTMLInputElement>; more?: ReactNode }) {
+  return (
+    <fieldset className="flex flex-col gap-3">
+      <legend className={SECTION}>Profile</legend>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="eu-first" required>First name</FieldLabel>
+          <input id="eu-first" ref={firstRef} dir="auto" value={values.firstName} onChange={(e) => onChange({ firstName: e.target.value })} className={fieldClass(false)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor="eu-last" required>Last name</FieldLabel>
+          <input id="eu-last" dir="auto" value={values.lastName} onChange={(e) => onChange({ lastName: e.target.value })} className={fieldClass(false)} />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="eu-username" required>Username</FieldLabel>
+        <input id="eu-username" value={values.username} onChange={(e) => onChange({ username: e.target.value })} className={fieldClass(false)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <FieldLabel htmlFor="eu-email" required>Email</FieldLabel>
+        <input id="eu-email" type="email" value={values.email} onChange={(e) => onChange({ email: e.target.value })} className={fieldClass(false)} />
+      </div>
+      {more}
+    </fieldset>
+  );
+}
+
+const missingName = (v: NameValues) => !v.firstName.trim() || !v.lastName.trim() || !v.username.trim() || !v.email.trim();
+
+/**
+ * Reset password, as its own form (1.22 review): its box and Reset button belong to the reset form
+ * (the `form` attribute — that form sits after the profile's, so both layouts keep their places).
+ * Enter in the box or Reset resets the password and never saves the profile. `holdsSave()`: a new
+ * password typed but not reset is never dropped by Save changes — it says so on the box instead.
+ */
+function usePasswordReset(userId: string, invalidate: () => void) {
   const [newPassword, setNewPassword] = useState('');
   const [pwNotice, setPwNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const newPwRef = useRef<HTMLInputElement>(null);
   const resetFormId = `${useId()}-reset`;
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      await usersApi(apiClient).update(user.id, {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        username: username.trim(),
-        email: email.trim(),
-        // Your own roles are never sent, so they can't change from this dialog.
-        ...(isSelf ? {} : { roleNames: [...roles] }),
-        ...(companiesChanged ? { companyIds, primaryCompanyId } : {}),
-      });
-      if (!isSelf && status !== user.status) {
-        try {
-          await usersApi(apiClient).setStatus(user.id, status);
-        } catch (err) {
-          throw new StatusChangeError(err);
-        }
-      }
-    },
-    onSuccess: () => {
-      invalidate();
-      onClose();
-    },
-    onError: (err) => {
-      if (err instanceof StatusChangeError) {
-        invalidate(); // the profile part was saved
-        setError(`Profile saved, but the status couldn’t be changed. ${reason(err.inner, '')}`.trim());
-        return;
-      }
-      setError(reason(err, 'Couldn’t save. Check the details (email/username may already be in use).'));
-    },
-  });
-
   const resetPwMut = useMutation({
-    mutationFn: () => usersApi(apiClient).resetPassword(user.id, newPassword),
+    mutationFn: () => usersApi(apiClient).resetPassword(userId, newPassword),
     onSuccess: () => {
       setNewPassword('');
       setPwNotice({ text: 'Password reset. Share the new password with the user securely.' });
@@ -119,37 +174,6 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     },
     onError: (err) => setPwNotice({ text: reason(err, `Couldn’t reset the password. ${PASSWORD_RULE_ERROR}`), error: true }),
   });
-
-  function toggleRole(value: string) {
-    if (isSelf) return;
-    setRoles((prev) => {
-      const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
-      return next;
-    });
-  }
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    // 1.22 review: a new password typed but not reset is never dropped by Save changes — the dialog
-    // stays open and says so on the box (Reset sets it; clearing the box lets Save go ahead).
-    if (newPassword !== '') {
-      setPwNotice({ text: UNAPPLIED_PASSWORD, error: true });
-      newPwRef.current?.focus();
-      return;
-    }
-    if (!firstName.trim() || !lastName.trim() || !username.trim() || !email.trim()) {
-      setError('First name, last name, username and email are all required.');
-      return;
-    }
-    if (!isSelf && roles.size === 0) {
-      setError('Give the account at least one role.');
-      return;
-    }
-    saveMut.mutate();
-  }
 
   function resetPassword(e?: FormEvent) {
     e?.preventDefault();
@@ -161,78 +185,14 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     resetPwMut.mutate();
   }
 
-  // Big form (1.22): 960px and two columns from 1024px — the profile and the password on the left,
-  // companies and access on the right; Close and Save in a footer that stays in view.
-  const twoColumns = useTwoColumns();
-  const SECTION = 'mb-1 text-[11px] font-bold uppercase tracking-wider text-ink-2';
-  const profileFields = (
-    <fieldset className="flex flex-col gap-3">
-      <legend className={SECTION}>Profile</legend>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor="eu-first" required>First name</FieldLabel>
-          <input id="eu-first" dir="auto" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={fieldClass(false)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor="eu-last" required>Last name</FieldLabel>
-          <input id="eu-last" dir="auto" value={lastName} onChange={(e) => setLastName(e.target.value)} className={fieldClass(false)} />
-        </div>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <FieldLabel htmlFor="eu-username" required>Username</FieldLabel>
-        <input id="eu-username" value={username} onChange={(e) => setUsername(e.target.value)} className={fieldClass(false)} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <FieldLabel htmlFor="eu-email" required>Email</FieldLabel>
-        <input id="eu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass(false)} />
-      </div>
-    </fieldset>
-  );
-  const companiesField = companyChoices.show ? (
-    <CompanyChecklist
-      companies={companyChoices.companies}
-      value={companyIds}
-      onChange={setCompanyIds}
-      primaryId={primaryCompanyId}
-      onPrimaryChange={setPrimaryCompanyId}
-      idPrefix="eu-companies"
-      variant="section"
-    />
-  ) : null;
-  const accessFields = (
-    <fieldset className="flex flex-col gap-3" disabled={isSelf} aria-describedby={isSelf ? 'eu-self-note' : undefined}>
-      <legend className={SECTION}>Access</legend>
-      {isSelf ? (
-        <p id="eu-self-note" className="rounded-lg bg-ground px-3 py-2 text-xs text-ink-2">
-          You can’t change your own roles or account status. Ask another administrator if they need to change.
-        </p>
-      ) : null}
-      <div className="flex flex-col gap-1.5">
-        <FieldLabel htmlFor="eu-status">Account status</FieldLabel>
-        <select id="eu-status" value={status} onChange={(e) => setStatus(e.target.value as UserStatus)} className={fieldClass(false, 'disabled:opacity-60')}>
-          <option value="ACTIVE">Active</option>
-          <option value="INACTIVE">Inactive</option>
-          <option value="SUSPENDED">Suspended</option>
-        </select>
-      </div>
-      <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium text-ink">Roles &amp; permissions</span>
-        {ROLE_OPTIONS.map((r) => (
-          <label key={r.value} className={`flex items-start gap-2.5 rounded-lg border border-line p-2.5 transition-colors [@media(pointer:coarse)]:!min-h-11 ${isSelf ? 'opacity-60' : 'cursor-pointer hover:bg-ground'}`}>
-            <input type="checkbox" aria-label={r.label} checked={roles.has(r.value)} onChange={() => toggleRole(r.value)} className="mt-0.5 h-4 w-4 flex-none accent-brand" />
-            <span>
-              <span className="block text-sm font-medium text-ink">{r.label}</span>
-              <span className="block text-xs text-ink-2">{r.hint}</span>
-            </span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  );
-  // Reset password is its own form (1.22 review): its box and Reset button belong to the reset form
-  // (the `form` attribute — that form sits after the profile's, so both layouts keep their places).
-  // Enter in the box or Reset resets the password and never saves the profile.
-  const passwordFields = (
+  function holdsSave(): boolean {
+    if (newPassword === '') return false;
+    setPwNotice({ text: UNAPPLIED_PASSWORD, error: true });
+    newPwRef.current?.focus();
+    return true;
+  }
+
+  const section = (
     <section aria-labelledby="eu-reset-title" className="flex flex-col gap-1.5 border-t border-line pt-4">
       <p id="eu-reset-title" className={SECTION}>Reset password</p>
       <p className="text-xs text-ink-2">Set a new password for this user. They can change it after signing in. Resetting also unlocks a locked account.</p>
@@ -269,65 +229,305 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
       <p id="eu-newpw-hint" className="text-xs text-ink-2">{PASSWORD_RULE_HINT}</p>
     </section>
   );
+  // Reset password's own form: its box and Reset button point here with `form`.
+  const form = <form id={resetFormId} onSubmit={resetPassword} hidden />;
+  return { section, form, holdsSave };
+}
+
+/** Account status: Active, Inactive or Suspended. */
+function StatusField({ value, onChange }: { value: UserStatus; onChange: (s: UserStatus) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <FieldLabel htmlFor="eu-status">Account status</FieldLabel>
+      <select id="eu-status" value={value} onChange={(e) => onChange(e.target.value as UserStatus)} className={fieldClass(false, 'disabled:opacity-60')}>
+        <option value="ACTIVE">Active</option>
+        <option value="INACTIVE">Inactive</option>
+        <option value="SUSPENDED">Suspended</option>
+      </select>
+    </div>
+  );
+}
+
+/** A staff account: profile, companies, roles and status, and the password. */
+function StaffAccountDialog({ user, onClose }: EditUserModalProps) {
+  const qc = useQueryClient();
+  const meId = useAuthStore((s) => s.user?.id);
+  const isSelf = user.id === meId;
+  const [names, setNames] = useState<NameValues>({ firstName: user.firstName, lastName: user.lastName, username: user.username, email: user.email });
+  const [status, setStatus] = useState<UserStatus>(user.status);
+  const [roles, setRoles] = useState<Set<string>>(new Set(user.roles));
+  const [error, setError] = useState<string | null>(null);
+
+  // Their companies and primary company (with two or more companies on the site, or on their record).
+  // Sent only when changed: a name change never touches them.
+  const savedCompanyIds = (user.companies ?? []).map((c) => c.id);
+  const savedPrimary = user.primaryCompanyId && savedCompanyIds.includes(user.primaryCompanyId) ? user.primaryCompanyId : (savedCompanyIds[0] ?? null);
+  const companyChoices = useCompanyChoices(savedCompanyIds.length);
+  const [companyIds, setCompanyIds] = useState<string[]>(savedCompanyIds);
+  const [primaryCompanyId, setPrimaryCompanyId] = useState<string | null>(savedPrimary);
+  const companiesChanged =
+    companyChoices.show &&
+    (companyIds.length !== savedCompanyIds.length || companyIds.some((id) => !savedCompanyIds.includes(id)) || primaryCompanyId !== savedPrimary);
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['users'] });
+  const password = usePasswordReset(user.id, invalidate);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      await usersApi(apiClient).update(user.id, {
+        firstName: names.firstName.trim(),
+        lastName: names.lastName.trim(),
+        username: names.username.trim(),
+        email: names.email.trim(),
+        // Your own roles are never sent, so they can't change from this dialog.
+        ...(isSelf ? {} : { roleNames: [...roles] }),
+        ...(companiesChanged ? { companyIds, primaryCompanyId } : {}),
+      });
+      if (!isSelf && status !== user.status) {
+        try {
+          await usersApi(apiClient).setStatus(user.id, status);
+        } catch (err) {
+          throw new StatusChangeError(err);
+        }
+      }
+    },
+    onSuccess: () => {
+      invalidate();
+      onClose();
+    },
+    onError: (err) => {
+      if (err instanceof StatusChangeError) {
+        invalidate(); // the profile part was saved
+        setError(`Profile saved, but the status couldn’t be changed. ${reason(err.inner, '')}`.trim());
+        return;
+      }
+      setError(reason(err, 'Couldn’t save. Check the details (email/username may already be in use).'));
+    },
+  });
+
+  function toggleRole(value: string) {
+    if (isSelf) return;
+    setRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (password.holdsSave()) return;
+    if (missingName(names)) {
+      setError('First name, last name, username and email are all required.');
+      return;
+    }
+    if (!isSelf && roles.size === 0) {
+      setError('Give the account at least one role.');
+      return;
+    }
+    saveMut.mutate();
+  }
+
+  const profileFields = <ProfileFields values={names} onChange={(p) => setNames((v) => ({ ...v, ...p }))} />;
+  const companiesField = companyChoices.show ? (
+    <CompanyChecklist
+      companies={companyChoices.companies}
+      value={companyIds}
+      onChange={setCompanyIds}
+      primaryId={primaryCompanyId}
+      onPrimaryChange={setPrimaryCompanyId}
+      idPrefix="eu-companies"
+      variant="section"
+    />
+  ) : null;
+  const accessFields = (
+    <fieldset className="flex flex-col gap-3" disabled={isSelf} aria-describedby={isSelf ? 'eu-self-note' : undefined}>
+      <legend className={SECTION}>Access</legend>
+      {isSelf ? (
+        <p id="eu-self-note" className="rounded-lg bg-ground px-3 py-2 text-xs text-ink-2">
+          You can’t change your own roles or account status. Ask another administrator if they need to change.
+        </p>
+      ) : null}
+      <StatusField value={status} onChange={setStatus} />
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-ink">Roles &amp; permissions</span>
+        {ROLE_OPTIONS.map((r) => (
+          <label key={r.value} className={`flex items-start gap-2.5 rounded-lg border border-line p-2.5 transition-colors [@media(pointer:coarse)]:!min-h-11 ${isSelf ? 'opacity-60' : 'cursor-pointer hover:bg-ground'}`}>
+            <input type="checkbox" aria-label={r.label} checked={roles.has(r.value)} onChange={() => toggleRole(r.value)} className="mt-0.5 h-4 w-4 flex-none accent-brand" />
+            <span>
+              <span className="block text-sm font-medium text-ink">{r.label}</span>
+              <span className="block text-xs text-ink-2">{r.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+
+  // Big form (1.22): 960px and two columns from 1024px — the profile and the password on the left,
+  // companies and access on the right; Close and Save in a footer that stays in view.
+  return (
+    <AccountDialog user={user} onClose={onClose}>
+      <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
+        <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+          {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
+          <AccountColumns
+            left={<>{profileFields}{password.section}</>}
+            right={<>{companiesField}{accessFields}</>}
+            single={<>{profileFields}{companiesField}{accessFields}{password.section}</>}
+          />
+        </div>
+        <DialogFooter onClose={onClose} saving={saveMut.isPending} />
+      </form>
+      {password.form}
+    </AccountDialog>
+  );
+}
+
+/** A client account: loads their details and project access (GET /clients/:id), then the form. */
+function ClientAccountDialog({ user, onClose }: EditUserModalProps) {
+  const q = useQuery({ queryKey: clientKey(user.id), queryFn: () => clientsApi(apiClient).get(user.id) });
+  return (
+    <AccountDialog user={user} onClose={onClose}>
+      {q.data ? (
+        <ClientAccountForm key={q.data.id} client={q.data} onClose={onClose} />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 px-4 py-4 sm:px-6 sm:py-5">
+            {q.isError ? <LoadError what="this client" onRetry={() => void q.refetch()} /> : <p className="text-sm text-ink-2" role="status">Loading…</p>}
+          </div>
+          {/* The footer as it will be; Save waits for the client. */}
+          <form onSubmit={(e) => e.preventDefault()}>
+            <DialogFooter onClose={onClose} disabled />
+          </form>
+        </div>
+      )}
+    </AccountDialog>
+  );
+}
+
+function ClientAccountForm({ client, onClose }: { client: ClientAccount; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [names, setNames] = useState<NameValues>({ firstName: client.firstName, lastName: client.lastName, username: client.username, email: client.email });
+  const [organisation, setOrganisation] = useState(client.organisation ?? '');
+  const [phone, setPhone] = useState(client.phone ?? '');
+  const [status, setStatus] = useState<UserStatus>(client.status);
+  const saved = rowsFromAccount(client.projects);
+  const [access, setAccess] = useState<AccessRow[]>(saved);
+  // After a save attempt: a project with no module is marked in the editor.
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const firstRef = useRef<HTMLInputElement>(null);
+  // The fields have just arrived: start on the first one, as a dialog does.
+  useEffect(() => firstRef.current?.focus(), []);
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ['users'] });
+    void qc.invalidateQueries({ queryKey: CLIENTS_KEY });
+  };
+  const password = usePasswordReset(client.id, invalidate);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      await clientsApi(apiClient).update(client.id, {
+        firstName: names.firstName.trim(),
+        lastName: names.lastName.trim(),
+        username: names.username.trim(),
+        email: names.email.trim(),
+        organisation: organisation.trim() || null,
+        phone: phone.trim() || null,
+        // Sent only when changed (exactly these projects): a name change never touches them.
+        ...(grantsChanged(saved, access) ? { projects: grantsOf(access) } : {}),
+      });
+      if (status !== client.status) {
+        try {
+          await usersApi(apiClient).setStatus(client.id, status);
+        } catch (err) {
+          throw new StatusChangeError(err);
+        }
+      }
+    },
+    onSuccess: () => {
+      invalidate();
+      onClose();
+    },
+    onError: (err) => {
+      if (err instanceof StatusChangeError) {
+        invalidate(); // the details were saved
+        setError(`Details saved, but the status couldn’t be changed. ${reason(err.inner, '')}`.trim());
+        return;
+      }
+      setError(reason(err, 'Couldn’t save. Check the details (email/username may already be in use).'));
+    },
+  });
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (password.holdsSave()) return;
+    if (missingName(names)) {
+      setError('First name, last name, username and email are all required.');
+      return;
+    }
+    setAccessChecked(true);
+    const missing = rowsWithoutModule(access);
+    if (missing.length > 0) {
+      setError(noModuleText(missing));
+      return;
+    }
+    saveMut.mutate();
+  }
+
+  const profileFields = (
+    <ProfileFields
+      values={names}
+      onChange={(p) => setNames((v) => ({ ...v, ...p }))}
+      firstRef={firstRef}
+      more={
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="eu-organisation">
+              Organisation<span className="font-normal text-ink-2"> (optional)</span>
+            </FieldLabel>
+            <input id="eu-organisation" dir="auto" value={organisation} onChange={(e) => setOrganisation(e.target.value)} maxLength={160} autoComplete="organization" className={fieldClass(false)} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <FieldLabel htmlFor="eu-phone">
+              Phone<span className="font-normal text-ink-2"> (optional)</span>
+            </FieldLabel>
+            <input id="eu-phone" type="tel" dir="ltr" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" className={fieldClass(false)} />
+          </div>
+        </div>
+      }
+    />
+  );
+  const accessField = <ClientAccessEditor value={access} onChange={setAccess} idPrefix="eu-access" showErrors={accessChecked} variant="section" />;
+  const accountFields = (
+    <fieldset className="flex flex-col gap-3">
+      <legend className={SECTION}>Account</legend>
+      <p className="rounded-lg bg-ground px-3 py-2 text-xs text-ink-2">
+        Client account: they sign in to the Client portal only. To make them staff, make a new account.
+      </p>
+      <StatusField value={status} onChange={setStatus} />
+    </fieldset>
+  );
 
   return (
-    <ModalPortal>
-      <div className={dialogLayer('wide')}>
-        <div className="absolute inset-0 bg-scrim animate-fade-in" onClick={onClose} aria-hidden="true" />
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Edit ${user.username}`}
-          className={`keyboard-flow-cramped card relative flex ${dialogPanel('wide')} animate-scale-in flex-col overflow-hidden`}
-        >
-          <div className="flex flex-none items-start justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-6">
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-ink-2">Manage account</p>
-              <h2 dir="auto" className="font-display text-xl font-bold text-ink [overflow-wrap:anywhere]">{user.firstName} {user.lastName}</h2>
-              <p className="text-sm text-ink-2">@{user.username}</p>
-            </div>
-            <button type="button" onClick={onClose} aria-label="Close" title="Close (Esc)" className="grid h-10 w-10 flex-none place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-ink [@media(pointer:coarse)]:!h-11 [@media(pointer:coarse)]:!w-11">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
-          </div>
-
-          <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
-            <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-              {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
-              {twoColumns ? (
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6">
-                  <div data-form-column="profile" className="flex min-w-0 flex-col gap-4">
-                    {profileFields}
-                    {passwordFields}
-                  </div>
-                  <div data-form-column="access" className="flex min-w-0 flex-col gap-4">
-                    {companiesField}
-                    {accessFields}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {profileFields}
-                  {companiesField}
-                  {accessFields}
-                  {passwordFields}
-                </>
-              )}
-            </div>
-            <div className="flex flex-none items-center gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end sm:px-6">
-              <button type="button" onClick={onClose} className="!min-h-[44px] flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-ink transition-colors hover:bg-ground sm:flex-none">
-                Close
-              </button>
-              <Button type="submit" shortcut="save" showShortcut loading={saveMut.isPending} className="!min-h-[44px] flex-[2] sm:min-w-[9.5rem] sm:flex-none">
-                {saveMut.isPending ? 'Saving…' : 'Save changes'}
-              </Button>
-            </div>
-          </form>
-          {/* Reset password's own form: its box and Reset button point here with `form`. */}
-          <form id={resetFormId} onSubmit={resetPassword} hidden />
+    <>
+      <form onSubmit={submit} className="keyboard-flow-body flex min-h-0 flex-1 flex-col">
+        <div className="keyboard-flow-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+          {error ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
+          <AccountColumns
+            left={<>{profileFields}{password.section}</>}
+            right={<>{accessField}{accountFields}</>}
+            single={<>{profileFields}{accessField}{accountFields}{password.section}</>}
+          />
         </div>
-      </div>
-    </ModalPortal>
+        <DialogFooter onClose={onClose} saving={saveMut.isPending} />
+      </form>
+      {password.form}
+    </>
   );
 }

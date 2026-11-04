@@ -64,15 +64,17 @@ describe('Sidebar: the Admin menu', () => {
     return names.slice(names.indexOf('User Management'), names.indexOf('Audit Logs') + 1);
   };
 
-  it('has Companies after User Management, with a link to the Companies page', () => {
+  it('has Clients and Companies after User Management, with links to their pages', () => {
     renderSidebar(true);
-    expect(adminLabels()).toEqual(['User Management', 'Companies', 'AI Management', 'System Settings', 'Audit Logs']);
+    expect(adminLabels()).toEqual(['User Management', 'Clients', 'Companies', 'AI Management', 'System Settings', 'Audit Logs']);
+    expect(screen.getByRole('link', { name: 'Clients' })).toHaveAttribute('href', '/admin/clients');
     expect(screen.getByRole('link', { name: 'Companies' })).toHaveAttribute('href', '/admin/companies');
   });
 
-  it('employees have no Companies link', () => {
+  it('employees have no Companies or Clients link', () => {
     renderSidebar(false);
     expect(screen.queryByRole('link', { name: 'Companies' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Clients' })).not.toBeInTheDocument();
   });
 });
 

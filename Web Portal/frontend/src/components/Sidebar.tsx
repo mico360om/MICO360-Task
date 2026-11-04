@@ -117,6 +117,14 @@ const I = {
       <circle cx="18.5" cy="15.5" r="2.2" />
     </>
   ),
+  // A visitor's pass: the client accounts (people outside the company).
+  clients: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <circle cx="9" cy="11" r="2.2" />
+      <path d="M5.8 16.5a3.4 3.4 0 0 1 6.4 0M14.5 10h4M14.5 13.5h3" />
+    </>
+  ),
   // Two buildings: the companies on the site.
   companies: (
     <>
@@ -185,6 +193,7 @@ const COMMUNICATION: NavItem[] = [
 ];
 const ADMIN: NavItem[] = [
   { label: 'User Management', to: '/admin/users', icon: I.users },
+  { label: 'Clients', to: '/admin/clients', icon: I.clients },
   { label: 'Companies', to: '/admin/companies', icon: I.companies },
   { label: 'AI Management', to: '/admin/ai', icon: I.aiManagement },
   { label: 'System Settings', to: '/admin/settings', icon: I.sliders },

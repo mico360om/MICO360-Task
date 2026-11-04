@@ -6,6 +6,7 @@ import { EditUserModal } from './EditUserModal';
 import { useAuthStore } from '../stores/auth-store';
 import { apiCompany, apiUser, companyServer, type ListedUser } from '../test/company-server';
 import { windowWidth } from '../test/window-width';
+import { MICO, access, apiClientAccount, clientServer } from './clients/test-server';
 
 const alpha = apiCompany({ id: 'ca', name: 'Alpha Co', code: 'ALPHA' });
 const beta = apiCompany({ id: 'cb', name: 'Beta Co', code: 'BETA' });
@@ -223,6 +224,143 @@ describe('EditUserModal: Reset password is its own form (1.22 review)', () => {
     await save();
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(server.requests('PUT', '/users/u-sam')).toHaveLength(1);
+  });
+});
+
+// 1.23: Manage account on a client edits their details and project access (PUT /clients/:id).
+describe('EditUserModal: a client account (1.23)', () => {
+  const huda = apiClientAccount({
+    id: 'c-huda',
+    username: 'huda',
+    firstName: 'Huda',
+    lastName: 'Saleh',
+    organisation: 'Owner Group',
+    phone: '+968 9000 0000',
+    projects: [
+      access(MICO, { modules: { progress: true }, actions: { comment: true } }),
+      access({ id: 'p-old', code: 'OLD', name: 'Old Works', company: null }, { modules: { meetings: true }, archived: true }),
+    ],
+  });
+  const listed = apiUser({ id: 'c-huda', username: 'huda', firstName: 'Huda', lastName: 'Saleh', roles: ['CLIENT'], companies: [] });
+  const card = (name: string) => screen.getByRole('group', { name });
+
+  it('loads the client and shows their details and project access — no companies, no staff roles', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    expect(await screen.findByLabelText(/organisation/i)).toHaveValue('Owner Group');
+    expect(server.requests('GET', '/clients/c-huda')).toHaveLength(1);
+    expect(screen.getByLabelText(/phone/i)).toHaveValue('+968 9000 0000');
+    expect(within(card('MICO Tower')).getByRole('checkbox', { name: 'Comment on tasks' })).toBeChecked();
+    expect(within(card('Old Works')).getByText('Archived')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Companies' })).toBeNull();
+    expect(screen.queryByLabelText('Administrator')).toBeNull();
+    expect(screen.queryByLabelText('Employee')).toBeNull();
+    expect(screen.getByText(/^Client account:/)).toBeInTheDocument();
+    // The account actions that work for clients stay: status and Reset password.
+    expect(screen.getByLabelText('Account status')).toHaveValue('ACTIVE');
+    expect(screen.getByLabelText(/new password/i)).toBeInTheDocument();
+  });
+
+  it('a tick and the organisation changed: PUT /clients/:id with exactly their projects (the archived one kept), never PUT /users', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    const org = await screen.findByLabelText(/organisation/i);
+    await userEvent.clear(org);
+    await userEvent.type(org, 'Owner Holdings');
+    await userEvent.click(within(card('MICO Tower')).getByRole('checkbox', { name: 'Sign off finished tasks' }));
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(server.requests('PUT', '/users/c-huda')).toHaveLength(0);
+    expect(server.lastBody('PUT', '/clients/c-huda')).toEqual({
+      firstName: 'Huda',
+      lastName: 'Saleh',
+      username: 'huda',
+      email: 'huda@client.test',
+      organisation: 'Owner Holdings',
+      phone: '+968 9000 0000',
+      projects: [
+        { projectId: 'p-mico', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: true, respond: false, download: false } },
+        { projectId: 'p-old', modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: false, download: false } },
+      ],
+    });
+  });
+
+  it('access left as it was is not sent (a name change never touches it)', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    await userEvent.type(await screen.findByLabelText(/first name/i), 'a');
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = server.lastBody('PUT', '/clients/c-huda') as Record<string, unknown>;
+    expect(body.firstName).toBe('Hudaa');
+    expect(body).not.toHaveProperty('projects');
+  });
+
+  it('a new project is added from the same editor, and a project with no module stops the save', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a project' }));
+    await userEvent.click(await screen.findByRole('option', { name: /Rig Refit/ }));
+    await save();
+    expect(screen.getByRole('alert')).toHaveTextContent('Tick at least one module for Rig Refit');
+    expect(server.requests('PUT', '/clients/c-huda')).toHaveLength(0);
+    await userEvent.click(within(card('Rig Refit')).getByRole('checkbox', { name: 'Meetings and minutes' }));
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect((server.lastBody('PUT', '/clients/c-huda') as { projects: { projectId: string }[] }).projects.map((p) => p.projectId)).toEqual(['p-mico', 'p-old', 'p-rig']);
+  });
+
+  it('the status is changed through User Management’s own route, after the details', async () => {
+    const server = clientServer({ clients: [huda] });
+    open(listed);
+    await userEvent.selectOptions(await screen.findByLabelText('Account status'), 'INACTIVE');
+    await save();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const order = server.sent.filter((r) => r.method !== 'GET').map((r) => `${r.method} ${r.path}`);
+    expect(order).toEqual(['PUT /clients/c-huda', 'PATCH /users/c-huda/status']);
+    expect(server.lastBody('PATCH', '/users/c-huda/status')).toEqual({ status: 'INACTIVE' });
+  });
+
+  it('shows the server’s refusal and stays open', async () => {
+    const server = clientServer({ clients: [huda] });
+    server.refuseNext(409, 'CONFLICT', 'That username is already taken.', { method: 'PUT', path: /^\/clients\/c-huda$/ });
+    open(listed);
+    await screen.findByLabelText(/organisation/i);
+    await save();
+    expect(await screen.findByRole('alert')).toHaveTextContent('That username is already taken.');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('when the client can’t be loaded, says so with Retry', async () => {
+    clientServer({ clients: [] });
+    open(listed);
+    expect(await screen.findByText(/couldn’t load this client/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
+  it('two columns from 1024px: details and password on the left, project access and status on the right', async () => {
+    windowWidth(1280);
+    clientServer({ clients: [huda] });
+    open(listed);
+    await screen.findByLabelText(/organisation/i);
+    const dialog = screen.getByRole('dialog', { name: 'Edit huda' });
+    const left = dialog.querySelector<HTMLElement>('[data-form-column="profile"]')!;
+    const right = dialog.querySelector<HTMLElement>('[data-form-column="access"]')!;
+    expect(left).toContainElement(screen.getByLabelText(/organisation/i));
+    expect(left).toContainElement(screen.getByLabelText(/new password/i));
+    expect(right).toContainElement(screen.getByRole('group', { name: 'Project access' }));
+    expect(right).toContainElement(screen.getByLabelText('Account status'));
+  });
+});
+
+describe('EditUserModal: staff stay staff (1.23)', () => {
+  it('a staff account is never offered the Client role', async () => {
+    companyServer({ companies: [alpha] });
+    open(apiUser({ ...sam, companies: [ref(alpha)], primaryCompanyId: 'ca' }));
+    const group = screen.getByText('Roles & permissions').parentElement!;
+    expect(within(group).getAllByRole('checkbox').map((c) => c.getAttribute('aria-label'))).toEqual(['Administrator', 'Employee']);
+    expect(screen.queryByRole('group', { name: 'Project access' })).toBeNull();
   });
 });
 
