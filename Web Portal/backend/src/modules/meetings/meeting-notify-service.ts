@@ -65,6 +65,12 @@ export interface MeetingNotifyDeps {
   now?: () => Date;
   /** Companies: the meeting's company brand on its emails (its project's main company, else its own company). */
   emailOptions?: (m: MeetingRecord) => Promise<TemplateOptions | undefined>;
+  /**
+   * 1.23 Client accounts: may this user attendee be emailed about the meeting? A client who no longer
+   * has the project's Meetings module (or whose account is off) is left out of every email of it —
+   * invitations, updates, cancellations and the minutes' default lines. Absent: everyone may.
+   */
+  reach?: (meetingId: string, userId: string) => Promise<boolean>;
 }
 
 /** Per-recipient outcome of a send: how many emails were delivered and how many failed. */
@@ -268,6 +274,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     }
 
     for (const a of await attendees.listByMeeting(m.id)) {
+      if (a.userId && deps.reach && !(await deps.reach(m.id, a.userId).catch(() => false))) continue;
       const person = await personFor(a);
       if (!person?.email) {
         missingEmail.push({ name: a.userId ? person?.name ?? 'A team member' : a.externalName ?? 'A guest', attendeeId: a.id });
@@ -544,6 +551,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
     let people = all.people;
     let icsAttendees = all.icsAttendees;
     if (only) {
+      if (only.userId && deps.reach && !(await deps.reach(m.id, only.userId).catch(() => false))) return { sent: 0, failed: 0 };
       const person = await personFor(only);
       if (!person?.email) return { sent: 0, failed: 0 };
       people = [person];

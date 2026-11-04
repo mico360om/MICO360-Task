@@ -5,6 +5,7 @@ import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import type { ProjectStatus } from './management-rules';
 import type { ActionLine, ManagementSource, MgmtPerson, TaskLine } from './management-source';
 import { inCompanyWhere, pickedCompanyWhere, teamWhere } from '../companies/company-access';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 /**
  * The Management page's reads straight from the database: grouped queries with bound parameters,
@@ -98,7 +99,8 @@ export function createPrismaManagementSource(prisma: PrismaClient, timeZone: str
 
     async people(ids) {
       if (ids.length === 0) return [];
-      return (await prisma.user.findMany({ where: { id: { in: ids }, deletedAt: null }, select: personFields })).map(toPerson);
+      // 1.23: client accounts are never one of Management's people.
+      return (await prisma.user.findMany({ where: { id: { in: ids }, deletedAt: null, ...STAFF_ONLY_WHERE }, select: personFields })).map(toPerson);
     },
 
     async taskFigures(projectIds, today) {

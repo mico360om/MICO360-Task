@@ -202,6 +202,8 @@ export interface AppDeps extends AuthRouteDeps {
   clientAccounts?: ClientAccounts;
   /** 1.23 The Client portal's reads and actions (client accounts only). */
   portal?: PortalService;
+  /** 1.23: the client copy of shown minutes for a client the minutes are emailed to (else they get nothing). */
+  clientMinutes?: { mayHave(meetingId: string, userId: string): Promise<boolean>; pdf(meetingId: string, userId: string): Promise<Buffer | null> };
   /** PDFs a client may download a minute from the portal (default 10). */
   portalPdfsPerMinute?: number;
   notificationService?: NotificationService;
@@ -924,6 +926,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           viewOf: meetingViewOf,
           // companies: the minutes email asks each of the meeting's users' view with their current roles.
           rolesOf: deps.userState ? async (userId: string) => (await deps.userState!(userId))?.roles ?? [] : undefined,
+          clientMinutes: deps.clientMinutes,
           // companies: the meeting's company on its minutes PDF (MC1 Task 14).
           pdfBrand: brands ? (meetingId) => brands.meeting(meetingId) : undefined,
           // 1.22: the minutes email's To and Cc — its "Sent" log, the audit log, and who may be picked or added.

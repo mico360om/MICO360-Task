@@ -36,6 +36,8 @@ function makeService(
     /** Blocked addresses (after a bounce): the minutes email leaves them out. */
     blocked?: string[];
     users?: Record<string, { id: string; name: string; email: string }>;
+    /** 1.23: may this user attendee be emailed about the meeting (a client without access may not)? */
+    reach?: (meetingId: string, userId: string) => Promise<boolean>;
   } = {},
 ) {
   const row = over.meetingRow ?? meeting();
@@ -73,6 +75,7 @@ function makeService(
     now: () => new Date('2026-10-05T13:00:00Z'),
     // A typed address that is someone's account (case aside).
     findUserByEmail: async (address: string) => Object.values(over.users ?? {}).find((u) => u.email.toLowerCase() === address.toLowerCase()) ?? null,
+    ...(over.reach ? { reach: over.reach } : {}),
   });
   return { svc, email, meetings, attendees, logger };
 }
@@ -510,5 +513,35 @@ describe('MeetingNotifyService — the meeting’s company brand (companies)', (
     });
     await svc.sendInvites('m1');
     expect(email.sendMeetingInvite.mock.calls.every((c) => c.length === 3)).toBe(true);
+  });
+});
+
+// 1.23 security review: a client attendee who no longer has the project's Meetings module (or whose
+// account is off) hears nothing more of the meeting — no invitation, update, cancellation or minutes.
+describe('MeetingNotifyService — client attendees without access', () => {
+  const users = { c1: { id: 'c1', name: 'Cliff Client', email: 'cliff@client.co' } };
+  const reach = async (_m: string, userId: string) => userId !== 'c1';
+  it('leaves them out of invitations and cancellations, not even as "no email"', async () => {
+    const { svc, email } = makeService({ users, reach, attendees: [attendee({ id: 'a1', userId: 'u2' }), attendee({ id: 'a2', userId: 'c1' })] });
+    const res = await svc.sendInvites('m1');
+    expect(email.sendMeetingInvite.mock.calls.map((c) => c[0]).sort()).toEqual(['aisha@mico360.test', 'khurram@mico360.test']);
+    expect(res.skipped).toEqual([]);
+    await svc.sendCancellation('m1');
+    expect(email.sendMeetingCancelled.mock.calls.map((c) => c[0])).not.toContain('cliff@client.co');
+    const preview = await svc.previewInvites('m1');
+    expect(preview.recipients.map((r) => r.email)).not.toContain('cliff@client.co');
+  });
+
+  it('leaves them off the minutes email’s default lines', async () => {
+    const { svc, email } = makeService({ users, reach, attendees: [attendee({ id: 'a1', userId: 'u2' }), attendee({ id: 'a2', userId: 'c1' })] });
+    await svc.sendMinutes('m1', Buffer.from('%PDF'));
+    const lines = linesOf(email.sendMeetingMinutes.mock.calls[0]![0] as Lines);
+    expect([...lines.to, ...lines.cc]).not.toContain('cliff@client.co');
+  });
+
+  it('a client who may be reached is invited as before', async () => {
+    const { svc, email } = makeService({ users, reach: async () => true, attendees: [attendee({ id: 'a2', userId: 'c1' })] });
+    await svc.sendInvites('m1');
+    expect(email.sendMeetingInvite.mock.calls.map((c) => c[0])).toContain('cliff@client.co');
   });
 });

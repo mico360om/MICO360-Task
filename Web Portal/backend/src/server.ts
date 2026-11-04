@@ -10,6 +10,7 @@ import { createWelcomeService } from './modules/users/welcome-service';
 import { STAFF_ONLY_WHERE, createIsClient } from './modules/clients/client-kind';
 import { createClientAccounts } from './modules/clients/client-accounts';
 import { createPortalService } from './modules/clients/portal-service';
+import { createClientMeetingRules } from './modules/clients/client-meeting-rules';
 import { createPrismaWelcomeTokenStore } from './modules/users/prisma-welcome-store';
 import { createHostedApkVersion } from './lib/apk-version';
 import { loadReleaseFile } from './modules/about/build-info';
@@ -1227,7 +1228,11 @@ async function main(): Promise<void> {
     if (!u || !u.email) return null;
     return { name: `${u.firstName} ${u.lastName}`.trim() || u.username, email: u.email };
   };
+  // 1.23 (security review): a client attendee hears of a meeting only while they may see it in the
+  // portal, and gets its minutes only as the client copy of minutes shown to them.
+  const clientMeetingRules = createClientMeetingRules(prisma, { clientMinutesPdf: (projectId, meetingId) => clientAccessService.projectMinutesPdf(projectId, meetingId) });
   const meetingNotifyService = createMeetingNotifyService({
+    reach: (meetingId, userId) => clientMeetingRules.reach(meetingId, userId),
     meetings: meetingRepository,
     attendees: {
       listByMeeting: (id) => attendeeService.listAttendees(id),
@@ -1700,6 +1705,7 @@ async function main(): Promise<void> {
     userState: userStateLookup,
     clientAccounts,
     portal,
+    clientMinutes: clientMeetingRules.minutes,
     onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
     chatService,

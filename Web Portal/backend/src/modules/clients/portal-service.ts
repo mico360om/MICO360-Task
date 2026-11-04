@@ -266,7 +266,8 @@ export function createPortalService(deps: PortalDeps) {
         projectId,
         deletedAt: null,
         ...(meetingId ? { id: meetingId } : {}),
-        OR: [{ attendees: { some: { userId: clientId } } }, { minutes: { is: shownMinutesWhere(projectId) } }],
+        // Invited: their own invitation went out (invitedAt), to a meeting that isn't a draft (security review).
+        OR: [{ status: { not: 'DRAFT' }, attendees: { some: { userId: clientId, invitedAt: { not: null } } } }, { minutes: { is: shownMinutesWhere(projectId) } }],
       },
       select: {
         id: true,
@@ -278,7 +279,7 @@ export function createPortalService(deps: PortalDeps) {
         timeZone: true,
         location: true,
         onlineLink: true,
-        attendees: { where: { userId: clientId }, select: { id: true, response: true }, take: 1 },
+        attendees: { where: { userId: clientId, invitedAt: { not: null } }, select: { id: true, response: true }, take: 1 },
         agendaItems: { select: { title: true, expectedMinutes: true }, orderBy: { position: 'asc' } },
         minutes: { select: { status: true, clientVisible: true, clientVisibleProjectId: true, clientShowRisks: true, approvedAt: true, content: true } },
       },
@@ -299,7 +300,7 @@ export function createPortalService(deps: PortalDeps) {
         timeZone: r.timeZone,
         location: r.location,
         onlineLink: r.onlineLink,
-        invitation: r.attendees[0] ? { response: r.attendees[0].response } : null,
+        invitation: r.status !== 'DRAFT' && r.attendees[0] ? { response: r.attendees[0].response } : null,
         agenda: r.agendaItems.map((a) => ({ title: a.title, expectedMinutes: a.expectedMinutes })),
         minutes: showsMinutes && r.minutes ? { approvedAt: r.minutes.approvedAt, content: readMinutesContent(r.minutes.content), showRisks: r.minutes.clientShowRisks, people: names.get(r.id) ?? [] } : null,
       };
@@ -411,9 +412,10 @@ export function createPortalService(deps: PortalDeps) {
       const columns = await prisma.kanbanColumn.findMany({ where: { projectId: project.id, enabled: true }, select: { id: true, category: true, position: true }, orderBy: { position: 'asc' } });
       const target = columns.find((c) => c.category === 'IN_PROGRESS') ?? columns.find((c) => c.category !== 'DONE');
       if (!target) throw new ConflictError(PORTAL_WORDS.noColumn, 'NO_COLUMN');
-      const c = await prisma.comment.create({ data: { taskId: t.id, userId: client.id, body: `Sent back: ${why}`, fromClient: true } });
-      await prisma.task.update({ where: { id: t.id }, data: { clientAcceptedAt: null, clientAcceptedById: null } });
+      // The move first (security review): if it is refused nothing else is written, and a retry adds no second reason.
       await deps.moveTask(t.id, target.id, client.id);
+      await prisma.task.update({ where: { id: t.id }, data: { clientAcceptedAt: null, clientAcceptedById: null } });
+      const c = await prisma.comment.create({ data: { taskId: t.id, userId: client.id, body: `Sent back: ${why}`, fromClient: true } });
       await activity({ taskId: t.id, userId: client.id, action: 'CLIENT_SENT_BACK', meta: { client: true, reason: why, commentId: c.id } });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.task.sent_back', entityId: t.id, newValue: { projectId: project.id, commentId: c.id } });
       await tellTeam(t.id, project.id, client.id, { type: 'TASK_CLIENT_SIGN_OFF', title: 'A client sent a task back', body: `${t.key} ${t.title}: ${why}`.slice(0, 500) }, 'task:updated');

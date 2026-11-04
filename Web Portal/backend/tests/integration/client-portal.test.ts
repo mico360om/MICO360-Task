@@ -401,3 +401,67 @@ describe('administrators: client accounts', () => {
     expect((await a.put(w.as.admin, `/users/${id}`, { roleNames: ['EMPLOYEE'] })).status).toBe(409);
   });
 });
+
+// 1.23 security review fixes.
+describe('security review: emails, un-sent invitations, staff lists', () => {
+  it('a meeting reaches a client only while they have its Meetings module; minutes only as the client copy of shown minutes', async () => {
+    const { createClientMeetingRules } = await import('../../src/modules/clients/client-meeting-rules');
+    const pdfFor: string[] = [];
+    const rules = createClientMeetingRules(prisma, { clientMinutesPdf: async (p, m) => (pdfFor.push(`${p}/${m}`), { pdf: Buffer.from('%PDF-client') }) });
+    expect(await rules.reach(w.meetings.M1, w.people.omar)).toBe(true); // staff: always
+    expect(await rules.reach(w.meetings.M1, w.people.c1)).toBe(true); // c1 has P1 Meetings
+    expect(await rules.reach(w.meetings.M1, w.people.c2)).toBe(false); // c2 has no P1 Meetings
+    expect(await rules.reach(w.meetings.M3, w.people.c1)).toBe(false); // no P3 grant at all
+    expect(await rules.minutes.mayHave(w.meetings.M1S, w.people.c1)).toBe(true);
+    expect(await rules.minutes.mayHave(w.meetings.M1N, w.people.c1)).toBe(false); // not shown
+    expect(await rules.minutes.mayHave(w.meetings.M1, w.people.c1)).toBe(false); // no minutes
+    expect(await rules.minutes.mayHave(w.meetings.M1S, w.people.omar)).toBe(false); // staff get the team's copy elsewhere
+    expect(await rules.minutes.pdf(w.meetings.M1S, w.people.c1)).toEqual(Buffer.from('%PDF-client'));
+    expect(pdfFor).toEqual([`${w.projects.P1}/${w.meetings.M1S}`]);
+    expect(await rules.minutes.pdf(w.meetings.M1N, w.people.c1)).toBeNull();
+    // Switched off: nothing reaches them.
+    await prisma.user.update({ where: { id: w.people.c1 }, data: { status: 'INACTIVE' } });
+    expect(await rules.reach(w.meetings.M1, w.people.c1)).toBe(false);
+    expect(await rules.minutes.mayHave(w.meetings.M1S, w.people.c1)).toBe(false);
+    await prisma.user.update({ where: { id: w.people.c1 }, data: { status: 'ACTIVE' } });
+  });
+
+  it('a meeting whose invitation hasn’t gone out (or a draft) isn’t in the portal yet', async () => {
+    const m = await prisma.meeting.create({
+      data: { title: 'ZZDRAFT plan', projectId: w.projects.P1, organizerId: w.people.omar, createdById: w.people.omar, startAt: new Date(Date.now() + 86_400_000), status: 'SCHEDULED', onlineLink: 'https://meet.example/zzdraft', attendees: { create: { userId: w.people.c1 } } },
+    });
+    const list = await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/meetings`);
+    expect(list.body).not.toContain('ZZDRAFT');
+    expect((await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/meetings/${m.id}`)).status).toBe(404);
+    await prisma.meetingAttendee.updateMany({ where: { meetingId: m.id }, data: { invitedAt: new Date() } });
+    expect((await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/meetings/${m.id}`)).status).toBe(200);
+    await prisma.meeting.update({ where: { id: m.id }, data: { status: 'DRAFT' } });
+    expect((await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/meetings/${m.id}`)).status).toBe(404);
+    await prisma.meeting.delete({ where: { id: m.id } });
+  });
+
+  it('Reports and Management never list a client as a person', async () => {
+    const { createPrismaReportDataSource } = await import('../../src/modules/reports/prisma-report-data-source');
+    const users = await createPrismaReportDataSource(prisma).getUsers();
+    expect(users.some((u) => u.id === w.people.c1 || u.id === w.people.c2)).toBe(false);
+    expect(users.some((u) => u.id === w.people.omar)).toBe(true);
+    const { createPrismaManagementSource } = await import('../../src/modules/management/prisma-management-source');
+    const people = await createPrismaManagementSource(prisma, 'Asia/Muscat').people([w.people.c1, w.people.omar]);
+    expect(people.map((p) => p.id)).toEqual([w.people.omar]);
+  });
+
+  it('Send back moves the task before anything else is written (a refused move leaves no comment)', async () => {
+    const t = await prisma.task.create({
+      data: { key: `T${w.tag.toUpperCase()}-SB`, title: 'Fence', projectId: w.projects.P1, columnId: w.columns[w.projects.P1]!.done, completedAt: new Date(Date.now() - 60_000), clientVisible: true, createdById: w.people.omar },
+    });
+    // No column to go back to: refused, and no "Sent back" comment is left behind.
+    await prisma.kanbanColumn.updateMany({ where: { projectId: w.projects.P1, category: { not: 'DONE' } }, data: { enabled: false } });
+    const refused = await a.post(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${t.id}/send-back`, { reason: 'Gate missing' });
+    await prisma.kanbanColumn.updateMany({ where: { projectId: w.projects.P1 }, data: { enabled: true } });
+    expect(refused.status).toBe(409);
+    expect(await prisma.comment.count({ where: { taskId: t.id } })).toBe(0);
+    const ok = await a.post(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${t.id}/send-back`, { reason: 'Gate missing' });
+    expect(ok.status).toBe(200);
+    expect(await prisma.comment.count({ where: { taskId: t.id, fromClient: true, body: 'Sent back: Gate missing' } })).toBe(1);
+  });
+});

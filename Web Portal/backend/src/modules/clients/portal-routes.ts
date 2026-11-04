@@ -14,6 +14,8 @@ export interface PortalRouteDeps {
   guard: AuthGuard;
   /** PDFs a client may download a minute (default 10). */
   pdfsPerMinute?: number;
+  /** Comments, sign-offs and answers a client may send a minute (default 20): each one tells the team. */
+  writesPerMinute?: number;
 }
 
 const commentBody = z.object({ body: longText.refine((s) => s.trim().length > 0, { message: 'A comment cannot be empty.' }) });
@@ -25,6 +27,8 @@ type Params = { projectId?: string; taskId?: string; meetingId?: string; itemId?
 export async function registerPortalRoutes(app: FastifyInstance, deps: PortalRouteDeps): Promise<void> {
   const { service, guard } = deps;
   const signedIn = { preHandler: guard.authenticate };
+  // Every write tells the team (the bell, phone pushes, emails): a client can't flood them (security review).
+  const write = { preHandler: guard.authenticate, config: { rateLimit: { max: deps.writesPerMinute ?? 20, timeWindow: '1 minute' } } };
   const me = (req: FastifyRequest) => req.user!.id;
   const p = (req: FastifyRequest) => req.params as Params;
   const ip = (req: FastifyRequest) => ({ ip: req.ip ?? null });
@@ -42,14 +46,14 @@ export async function registerPortalRoutes(app: FastifyInstance, deps: PortalRou
 
   app.get('/portal/projects/:projectId/tasks/:taskId', signedIn, async (req) => ({ data: await service.task(me(req), p(req).projectId, p(req).taskId) }));
 
-  app.post('/portal/projects/:projectId/tasks/:taskId/comments', signedIn, async (req, reply) => {
+  app.post('/portal/projects/:projectId/tasks/:taskId/comments', write, async (req, reply) => {
     const { body } = commentBody.parse(req.body ?? {});
     return reply.status(201).send({ data: await service.comment(me(req), p(req).projectId, p(req).taskId, body, ip(req)) });
   });
 
-  app.post('/portal/projects/:projectId/tasks/:taskId/accept', signedIn, async (req) => ({ data: await service.accept(me(req), p(req).projectId, p(req).taskId, ip(req)) }));
+  app.post('/portal/projects/:projectId/tasks/:taskId/accept', write, async (req) => ({ data: await service.accept(me(req), p(req).projectId, p(req).taskId, ip(req)) }));
 
-  app.post('/portal/projects/:projectId/tasks/:taskId/send-back', signedIn, async (req) => {
+  app.post('/portal/projects/:projectId/tasks/:taskId/send-back', write, async (req) => {
     const { reason } = sendBackBody.parse(req.body ?? {});
     return { data: await service.sendBack(me(req), p(req).projectId, p(req).taskId, reason, ip(req)) };
   });
@@ -60,7 +64,7 @@ export async function registerPortalRoutes(app: FastifyInstance, deps: PortalRou
 
   app.get('/portal/projects/:projectId/meetings/:meetingId', signedIn, async (req) => ({ data: await service.meeting(me(req), p(req).projectId, p(req).meetingId) }));
 
-  app.post('/portal/projects/:projectId/meetings/:meetingId/response', signedIn, async (req) => {
+  app.post('/portal/projects/:projectId/meetings/:meetingId/response', write, async (req) => {
     const { response } = responseBody.parse(req.body ?? {});
     return { data: await service.respond(me(req), p(req).projectId, p(req).meetingId, response, ip(req)) };
   });
@@ -69,7 +73,7 @@ export async function registerPortalRoutes(app: FastifyInstance, deps: PortalRou
     sendPdf(reply, await service.minutesPdf(me(req), p(req).projectId, p(req).meetingId, ip(req))),
   );
 
-  app.post('/portal/projects/:projectId/action-items/:itemId/done', signedIn, async (req) => ({ data: await service.completeItem(me(req), p(req).projectId, p(req).itemId, ip(req)) }));
+  app.post('/portal/projects/:projectId/action-items/:itemId/done', write, async (req) => ({ data: await service.completeItem(me(req), p(req).projectId, p(req).itemId, ip(req)) }));
 
   // An invitation email links to /meetings/<id>: the portal asks where that meeting is.
   app.get('/portal/meetings/:meetingId', signedIn, async (req) => ({ data: await service.whereIs(me(req), p(req).meetingId) }));
