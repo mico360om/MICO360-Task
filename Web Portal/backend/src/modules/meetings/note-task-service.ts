@@ -150,6 +150,8 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
             // The task's own date when none was picked: its project may make new tasks due today.
             dueDate: dueDate ?? task.dueDate ?? null,
             sourceNoteId: note.id,
+            // 1.23.0: under the note's topic, as it was written (none when the note had none).
+            agendaItemId: note.agendaItemId ?? null,
             projectId,
             taskId: task.id,
           });

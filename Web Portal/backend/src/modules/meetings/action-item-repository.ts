@@ -38,6 +38,7 @@ export interface CreateActionItemData {
 
 export interface UpdateActionItemData {
   description?: string;
+  agendaItemId?: string | null;
   assigneeId?: string | null;
   priority?: Priority;
   status?: ActionItemStatus;

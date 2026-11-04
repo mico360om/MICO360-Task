@@ -183,6 +183,18 @@ describe('createTaskFromNote', () => {
       expect((addItem.mock.calls[0]![2] as { dueDate: Date | null }).dueDate?.toISOString()).toBe('2026-10-23T00:00:00.000Z');
     });
 
+    it('1.23.0: takes the note’s topic (none when the note has none)', async () => {
+      const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      (f.note as Record<string, unknown>).agendaItemId = 'a1';
+      const { addItem, svc } = withActionItems(f);
+      await svc.createTaskFromNote('m1', 'n1', 'u1', {});
+      expect(addItem.mock.calls[0]![2]).toMatchObject({ agendaItemId: 'a1' });
+      const g = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
+      const second = withActionItems(g);
+      await second.svc.createTaskFromNote('m1', 'n1', 'u1', {});
+      expect(second.addItem.mock.calls[0]![2]).toMatchObject({ agendaItemId: null });
+    });
+
     it('only for action notes — a decision becomes a task without an action item', async () => {
       const f = fakes({ id: 'm1', title: 'Q4 Planning', projectId: 'p1' });
       f.note.type = 'DECISION';

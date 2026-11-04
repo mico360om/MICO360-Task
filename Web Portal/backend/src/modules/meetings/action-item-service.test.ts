@@ -159,4 +159,37 @@ describe('ActionItemService.followTask (an action item follows the task it is tr
     await svc.followTask('t1', true);
     expect((await svc.getItem(doing.id)).status).toBe('CANCELLED');
   });
+
+  describe('1.23.0: an item’s topic (the agenda topic it belongs to)', () => {
+    // Topics a1, a2 are on meeting m1; b1 is on meeting m2.
+    const topics: Record<string, string> = { a1: 'm1', a2: 'm1', b1: 'm2' };
+    const make = () => createActionItemService({ actionItems: inMemory(), topicMeetingOf: async (id) => topics[id] ?? null });
+
+    it('is set when the item is added, if it is a topic of the same meeting', async () => {
+      const svc = make();
+      const a = await svc.addItem('m1', 'u1', { description: 'Order rebar', agendaItemId: 'a1' });
+      expect(a.agendaItemId).toBe('a1');
+      await expect(svc.addItem('m1', 'u1', { description: 'x', agendaItemId: 'b1' })).rejects.toThrow(/not on this meeting’s agenda/);
+      await expect(svc.addItem('m1', 'u1', { description: 'x', agendaItemId: 'gone' })).rejects.toThrow(/not on this meeting’s agenda/);
+      // An item of no meeting has no topic.
+      await expect(svc.addItem(null, 'u1', { description: 'x', agendaItemId: 'a1' })).rejects.toThrow(/not on this meeting’s agenda/);
+    });
+
+    it('can be changed to another topic of its meeting, or taken off', async () => {
+      const svc = make();
+      const a = await svc.addItem('m1', 'u1', { description: 'Order rebar', agendaItemId: 'a1' });
+      expect((await svc.updateItem(a.id, { agendaItemId: 'a2' })).agendaItemId).toBe('a2');
+      expect((await svc.updateItem(a.id, { agendaItemId: null })).agendaItemId).toBeNull();
+      await expect(svc.updateItem(a.id, { agendaItemId: 'b1' })).rejects.toThrow(/not on this meeting’s agenda/);
+      expect((await svc.getItem(a.id)).agendaItemId).toBeNull();
+      // Other fields are untouched by it.
+      expect((await svc.getItem(a.id)).description).toBe('Order rebar');
+    });
+
+    it('leaves the topic alone when a change doesn’t name it', async () => {
+      const svc = make();
+      const a = await svc.addItem('m1', 'u1', { description: 'Order rebar', agendaItemId: 'a1' });
+      expect((await svc.updateItem(a.id, { priority: 'HIGH' })).agendaItemId).toBe('a1');
+    });
+  });
 });

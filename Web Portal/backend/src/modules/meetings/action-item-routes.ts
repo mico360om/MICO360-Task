@@ -20,6 +20,8 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   description: z.string().min(1).optional(),
+  // 1.23.0: the agenda topic it belongs to — one of the same meeting's (the service checks), or null.
+  agendaItemId: z.string().min(1).nullable().optional(),
   assigneeId: z.string().min(1).nullable().optional(),
   priority: priorityEnum.optional(),
   dueDate: z.coerce.date().nullable().optional(),
