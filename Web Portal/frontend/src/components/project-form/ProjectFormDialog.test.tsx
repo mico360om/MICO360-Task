@@ -112,6 +112,13 @@ describe('New project form', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  // 1.22 QA: "every form field … 44px tall to a finger" — the project form's own text boxes were 42px.
+  it('its text boxes are finger-sized on a touch screen (44px), like every form field', () => {
+    renderForm();
+    const dialog = screen.getByRole('dialog', { name: 'New project' });
+    for (const box of [/^name/i, /^code/i, /client/i]) expect(within(dialog).getByLabelText(box).className).toContain('[@media(pointer:coarse)]:!min-h-11');
+  });
+
   it('keeps a code you typed when the name changes, and checks its format there and then', async () => {
     renderForm();
     const code = screen.getByLabelText(/^code/i);
