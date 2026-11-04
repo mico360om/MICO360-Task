@@ -41,6 +41,7 @@ export const NOTIFICATION_TYPES: { type: string; label: string; description: str
   { type: 'TASK_ASSIGNED', label: 'Task assignments', description: 'When a task is assigned to you' },
   { type: 'TASK_STATUS', label: 'Status changes', description: 'When one of your tasks moves column' },
   { type: 'TASK_APPROVAL', label: 'Approvals', description: 'When a task waits for your approval, or yours is approved or sent back' },
+  { type: 'TASK_CLIENT_SIGN_OFF', label: 'Client sign-off', description: 'When a client accepts a task or sends it back' },
   { type: 'TASK_COMMENT', label: 'Comments', description: 'New comments on tasks you’re on' },
   { type: 'MENTION', label: 'Mentions', description: 'When someone @mentions you' },
   { type: 'TASK_DUE_SOON', label: 'Due soon', description: 'A reminder shortly before a task is due' },

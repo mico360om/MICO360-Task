@@ -1,9 +1,11 @@
 import { dateTimeText, instantDayText } from '../../lib/day-words';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Avatar } from '../ui/Avatar';
+import { Badge } from '../ui/Badge';
 import type { MentionPerson } from '../../lib/mentions';
 import { useMentionAutocomplete } from '../../hooks/useMentionAutocomplete';
 import { MentionList, MentionText } from '../Mentions';
+import { ClientEyeIcon } from '../TaskCard';
 import { failureMessage } from './save-state';
 
 export interface DrawerComment {
@@ -18,7 +20,18 @@ export interface DrawerComment {
   canEdit?: boolean;
   /** The viewer wrote it, or is an admin: they may delete it. */
   canDelete?: boolean;
+  /** The comment this one replies to (shown under it). */
+  parentId?: string | null;
+  /** 1.23: written by a client in the Client portal — marked "Client"; the team may reply to it. */
+  fromClient?: boolean;
+  /** 1.23: the client's organisation (a client's comment). */
+  organisation?: string | null;
+  /** 1.23: a reply to a client's comment that the client sees (and was emailed). */
+  clientVisible?: boolean;
 }
+
+/** Send a reply to a comment; `clientVisible`: the client sees it and gets it by email (a client's comment only). */
+export type ReplyToComment = (parentId: string, body: string, clientVisible: boolean) => Promise<void> | void;
 
 /** "3m ago", "2h ago", "5d ago" for recent, else a short date. The full time goes in a tooltip. */
 export function relativeTime(iso: string): string {
@@ -38,18 +51,117 @@ const noOneOnProject = (query: string) => `No one on this project matches “@${
 const textBox =
   'w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20';
 
-/** One comment. Its author can change the text; the author (or an admin) can delete it, after confirming. */
+/** A small text button under a comment ("Reply"); 44px tall on a touch screen. */
+const smallButton = 'h-8 rounded px-2 text-xs font-medium text-ink-2 hover:bg-ground hover:text-ink sm:h-7 [@media(pointer:coarse)]:h-11';
+
+/**
+ * 1.23: a reply to a client's comment. It is for the team unless "Visible to client" is ticked (off to
+ * start) — then the client sees it under their comment in the Client portal and gets it by email.
+ */
+function ReplyBox({ to, people, onSend, onCancel }: { to: string; people: MentionPerson[]; onSend: (body: string, clientVisible: boolean) => Promise<void> | void; onCancel: () => void }) {
+  const [draft, setDraft] = useState('');
+  const [visible, setVisible] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  const mentions = useMentionAutocomplete({ people, value: draft, onChange: setDraft, inputRef: boxRef });
+  const hintId = useId();
+
+  async function send() {
+    const body = draft.trim();
+    if (!body || sending) return;
+    setSending(true);
+    setProblem(null);
+    try {
+      await onSend(body, visible);
+    } catch (err) {
+      setProblem(failureMessage(err, 'Couldn’t send the reply.'));
+      setSending(false);
+    }
+  }
+
+  return (
+    <form
+      className="mt-2 flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void send();
+      }}
+    >
+      <div className="relative">
+        <textarea
+          ref={boxRef}
+          dir="auto"
+          aria-label={`Reply to ${to}`}
+          autoFocus
+          value={draft}
+          data-unsaved={draft.trim() !== '' || undefined}
+          {...mentions.inputProps}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          placeholder="Write a reply…"
+          rows={2}
+          className={textBox}
+        />
+        <MentionList mentions={mentions} emptyText={noOneOnProject} />
+      </div>
+      <div>
+        <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium text-ink [@media(pointer:coarse)]:min-h-11">
+          <input
+            type="checkbox"
+            checked={visible}
+            onChange={(e) => setVisible(e.target.checked)}
+            aria-describedby={hintId}
+            className="h-4 w-4 flex-none accent-[rgb(var(--c-brand))]"
+          />
+          Visible to client
+        </label>
+        <p id={hintId} className="ps-7 text-xs text-ink-2">
+          The client sees this reply and gets it by email.
+        </p>
+      </div>
+      {problem ? (
+        <p role="alert" className="rounded-md bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
+          {problem}
+        </p>
+      ) : null}
+      <div className="flex items-center justify-end gap-2 text-xs">
+        <button type="button" onClick={onCancel} aria-label="Cancel reply" className="h-8 rounded-lg px-2.5 text-ink-2 hover:bg-ground [@media(pointer:coarse)]:h-11">
+          Cancel
+        </button>
+        <button type="submit" disabled={!draft.trim() || sending} className="h-8 rounded-lg bg-brand px-3 font-semibold text-white transition-colors hover:bg-brand-2 disabled:opacity-50 [@media(pointer:coarse)]:h-11">
+          {sending ? 'Sending…' : 'Send reply'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * One comment. Its author can change the text; the author (or an admin) can delete it, after
+ * confirming. Its replies sit under it; a client's comment offers Reply (1.23).
+ */
 function CommentItem({
   comment: c,
   people,
   onEdit,
   onDelete,
+  replies = [],
+  onReply,
 }: {
   comment: DrawerComment;
   people: MentionPerson[];
   onEdit?: (id: string, body: string) => Promise<void> | void;
   onDelete?: (id: string) => void;
+  replies?: DrawerComment[];
+  onReply?: ReplyToComment;
 }) {
+  const [replying, setReplying] = useState(false);
+  const canReply = Boolean(c.fromClient && onReply);
   const [draft, setDraft] = useState<string | null>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const draftMentions = useMentionAutocomplete({ people, value: draft ?? '', onChange: setDraft, inputRef: draftRef });
@@ -74,17 +186,37 @@ function CommentItem({
     }
   }
 
-  const author = c.authorName ?? 'Unknown';
+  const author = c.authorName ?? (c.fromClient ? 'Client' : 'Unknown');
   return (
     <li className="flex gap-2.5">
       <span className="flex-none pt-0.5">
         <Avatar name={author} size="md" src={c.authorAvatar} />
       </span>
-      <div className="min-w-0 flex-1 rounded-xl border border-line bg-ground/40 px-3 py-2">
+      <div className="min-w-0 flex-1">
+      {/* A client's comment is tinted, so the team sees at a glance what came from the client. */}
+      <div className={`rounded-xl border px-3 py-2 ${c.fromClient ? 'border-info/30 bg-info-soft/40' : 'border-line bg-ground/40'}`}>
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span dir="auto" className="text-sm font-semibold text-ink">
             {author}
           </span>
+          {c.fromClient ? (
+            <>
+              <span className="self-center" title={c.organisation ? `A client, from ${c.organisation}` : 'A client, in the Client portal'}>
+                <Badge tone="info">Client</Badge>
+              </span>
+              {c.organisation ? (
+                <span dir="auto" className="text-xs text-ink-2">
+                  {c.organisation}
+                </span>
+              ) : null}
+            </>
+          ) : null}
+          {c.clientVisible ? (
+            <span className="inline-flex items-center gap-1 self-center rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] font-semibold text-info" title="The client sees this reply in the Client portal">
+              <ClientEyeIcon size={11} />
+              Visible to client
+            </span>
+          ) : null}
           {c.createdAt ? (
             <time dateTime={c.createdAt} className="text-xs text-ink-3" title={dateTimeText(c.createdAt)}>
               {relativeTime(c.createdAt)}
@@ -151,8 +283,65 @@ function CommentItem({
           </div>
         )}
       </div>
+      {replies.length > 0 ? (
+        <ul aria-label={`Replies to ${author}`} className="mt-2 flex flex-col gap-2 border-s-2 border-line ps-3">
+          {replies.map((r) => (
+            <CommentItem key={r.id} comment={r} people={people} onEdit={onEdit} onDelete={onDelete} />
+          ))}
+        </ul>
+      ) : null}
+      {canReply ? (
+        replying ? (
+          <ReplyBox
+            to={author}
+            people={people}
+            onCancel={() => setReplying(false)}
+            onSend={async (body, visible) => {
+              await onReply!(c.id, body, visible);
+              setReplying(false);
+            }}
+          />
+        ) : (
+          <button type="button" onClick={() => setReplying(true)} aria-label={`Reply to ${author}`} className={`mt-1 inline-flex items-center gap-1 ${smallButton}`}>
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="rtl:-scale-x-100">
+              <path d="M9 17 4 12l5-5" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+            Reply
+          </button>
+        )
+      ) : null}
+      </div>
     </li>
   );
+}
+
+/**
+ * Comments in threads, oldest first: each top-level comment with every reply under it (a reply to a
+ * reply joins its thread). A reply whose comment was deleted stands on its own.
+ */
+export function commentThreads(comments: DrawerComment[]): { comment: DrawerComment; replies: DrawerComment[] }[] {
+  const byId = new Map(comments.map((c) => [c.id, c]));
+  const rootOf = (c: DrawerComment): DrawerComment => {
+    let at = c;
+    const seen = new Set<string>([at.id]);
+    while (at.parentId && byId.has(at.parentId) && !seen.has(at.parentId)) {
+      at = byId.get(at.parentId)!;
+      seen.add(at.id);
+    }
+    return at;
+  };
+  const threads = new Map<string, { comment: DrawerComment; replies: DrawerComment[] }>();
+  for (const c of comments) {
+    const root = rootOf(c);
+    if (root === c) threads.set(c.id, { comment: c, replies: threads.get(c.id)?.replies ?? [] });
+    else {
+      const thread = threads.get(root.id) ?? { comment: root, replies: [] };
+      thread.replies.push(c);
+      threads.set(root.id, thread);
+    }
+  }
+  return [...threads.values()];
 }
 
 /** The discussion: comments (oldest first) and a composer with @mention suggestions. */
@@ -162,13 +351,17 @@ export function CommentsSection({
   onAdd,
   onEdit,
   onDelete,
+  onReply,
 }: {
   comments: DrawerComment[];
   people: MentionPerson[];
   onAdd?: (body: string) => Promise<void> | void;
   onEdit?: (id: string, body: string) => Promise<void> | void;
   onDelete?: (id: string) => void;
+  /** 1.23: reply to a client's comment (offered on those only). */
+  onReply?: ReplyToComment;
 }) {
+  const threads = commentThreads(comments);
   const [draft, setDraft] = useState('');
   const [posting, setPosting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -200,8 +393,8 @@ export function CommentsSection({
         <p className="text-sm text-ink-3">No comments yet. Start the conversation.</p>
       ) : (
         <ul className="flex flex-col gap-2.5">
-          {comments.map((c) => (
-            <CommentItem key={c.id} comment={c} people={people} onEdit={onEdit} onDelete={onDelete} />
+          {threads.map(({ comment, replies }) => (
+            <CommentItem key={comment.id} comment={comment} people={people} onEdit={onEdit} onDelete={onDelete} replies={replies} onReply={onReply} />
           ))}
         </ul>
       )}

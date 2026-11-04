@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { checklistApi } from '../api/checklist';
-import { commentsApi } from '../api/comments';
+import { commentsApi, type CommentReply } from '../api/comments';
 import { attachmentsApi } from '../api/attachments';
 import { dependenciesApi } from '../api/dependencies';
 import { assigneesApi } from '../api/assignees';
@@ -252,7 +252,8 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
     onError: failed('Couldn’t delete the comment.'),
   });
   const addCommentM = useMutation({
-    mutationFn: (body: string) => commentsApi(apiClient).add(taskId, body),
+    // 1.23: a reply to a client's comment carries it (and "Visible to client" when ticked).
+    mutationFn: ({ body, reply }: { body: string; reply?: CommentReply }) => commentsApi(apiClient).add(taskId, body, reply),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', taskId] });
       refreshTaskViews(); // comment counts
@@ -375,18 +376,26 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
             onRemoveChecklistItem={(id) => removeItemM.mutate(id)}
             onSuggestChecklist={suggestChecklist}
             onSuggestPriority={suggestPriority}
-            comments={(commentsQ.data ?? []).map((c) => ({
+            comments={(Array.isArray(commentsQ.data) ? commentsQ.data : []).map((c) => ({
               id: c.id,
               body: c.body,
-              authorName: authorName(c.userId),
-              authorAvatar: avatarOf(c.userId),
+              // 1.23: a client's comment names its writer itself (clients aren't in the directory).
+              authorName: c.fromClient ? c.clientAuthor?.name || 'Client' : authorName(c.userId),
+              authorAvatar: c.fromClient ? null : avatarOf(c.userId),
               createdAt: c.createdAt,
               edited: Boolean(c.editedAt),
+              parentId: c.parentId ?? null,
+              fromClient: c.fromClient === true,
+              organisation: c.fromClient ? (c.clientAuthor?.organisation ?? null) : null,
+              clientVisible: c.clientVisible === true,
               // The server allows the author to edit, and the author or an admin to delete.
               canEdit: c.userId === myId,
               canDelete: c.userId === myId || isAdmin,
             }))}
-            onAddComment={(body) => attempt(() => addCommentM.mutateAsync(body), 'Couldn’t post the comment.').then(() => undefined)}
+            onAddComment={(body) => attempt(() => addCommentM.mutateAsync({ body }), 'Couldn’t post the comment.').then(() => undefined)}
+            onReplyComment={(parentId, body, clientVisible) =>
+              attempt(() => addCommentM.mutateAsync({ body, reply: { parentId, clientVisible } }), 'Couldn’t send the reply.').then(() => undefined)
+            }
             onEditComment={(id, body) => attempt(() => editCommentM.mutateAsync({ id, body }), 'Couldn’t save the comment.').then(() => undefined)}
             onDeleteComment={(id) => deleteCommentM.mutate(id)}
             mentionable={mentionable}
@@ -451,9 +460,23 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
               runsProject
                 ? async (visible) => {
                     const updated = await clientSharesApi(apiClient).setTaskVisible(taskId, visible);
-                    queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, clientVisible: updated.clientVisible ?? visible } : old));
+                    // Hidden: its description is off too (the server says; an older one doesn't).
+                    queryClient.setQueryData(['task', taskId], (old: unknown) =>
+                      old && typeof old === 'object' ? { ...old, clientVisible: updated.clientVisible ?? visible, clientShowDescription: updated.clientShowDescription ?? (visible ? (old as { clientShowDescription?: boolean }).clientShowDescription : false) } : old,
+                    );
                     refreshTaskViews();
                   }
+                : undefined
+            }
+            // 1.23: "Also show its description" — only while it is shown (the server checks too).
+            onSetClientDescription={
+              runsProject
+                ? (show) =>
+                    attempt(async () => {
+                      const updated = await clientSharesApi(apiClient).setTaskVisible(taskId, true, show);
+                      queryClient.setQueryData(['task', taskId], (old: unknown) => (old && typeof old === 'object' ? { ...old, clientVisible: updated.clientVisible ?? true, clientShowDescription: updated.clientShowDescription ?? show } : old));
+                      refreshTaskViews();
+                    }, 'Couldn’t change it.')
                 : undefined
             }
             approval={

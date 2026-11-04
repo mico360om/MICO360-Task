@@ -131,6 +131,26 @@ export interface CodeCheck {
   suggestion?: string;
 }
 
+/** 1.23: a client who may open the project in the Client portal ("Clients with access" on its page). */
+export interface ProjectClient {
+  id: string;
+  name: string;
+  organisation: string | null;
+  email: string;
+  /** ACTIVE, INACTIVE or SUSPENDED. */
+  status: string;
+  /** What they may do, in plain words ("Progress, milestones and tasks", "Comment on tasks"…). */
+  access: string[];
+  modules: { progress: boolean; meetings: boolean };
+  actions: { comment: boolean; signOff: boolean; respond: boolean; download: boolean };
+}
+
+/** The project's clients, and whether the asker may change them (administrators, on the Clients page). */
+export interface ProjectClients {
+  clients: ProjectClient[];
+  canChange: boolean;
+}
+
 export function projectsApi(client: ApiClient) {
   return {
     list: () => client.get<{ data: ApiProject[] }>('/projects').then((r) => r.data),
@@ -151,6 +171,8 @@ export function projectsApi(client: ApiClient) {
       return client.upload<{ data: ApiProject }>(`/projects/${id}/image`, form, opts.onProgress ? { onProgress: opts.onProgress } : undefined).then((r) => r.data);
     },
     removeImage: (id: string) => client.del<{ data: ApiProject }>(`/projects/${id}/image`).then((r) => r.data),
+    /** 1.23: "Clients with access" — anyone who can see the project reads it; only administrators change it. */
+    clients: (id: string) => client.get<{ data: ProjectClients }>(`/projects/${encodeURIComponent(id)}/clients`).then((r) => r.data),
   };
 }
 

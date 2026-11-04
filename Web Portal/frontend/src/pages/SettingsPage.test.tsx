@@ -74,6 +74,13 @@ describe('SettingsPage — notification switches', () => {
     expect(screen.getByText('When a task waits for your approval, or yours is approved or sent back')).toBeInTheDocument();
   });
 
+  // 1.23: a client accepting a task or sending it back (in the Client portal).
+  it('lets people mute the client sign-off notices', async () => {
+    renderPage();
+    expect(await screen.findByRole('switch', { name: 'Notify me: Client sign-off' })).toBeInTheDocument();
+    expect(screen.getByText('When a client accepts a task or sends it back')).toBeInTheDocument();
+  });
+
   it('lets people switch off meeting reminders (on until they do)', async () => {
     renderPage();
     const sw = await screen.findByRole('switch', { name: 'Notify me: Meeting reminders' });

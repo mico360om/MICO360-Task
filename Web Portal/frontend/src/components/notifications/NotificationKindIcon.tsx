@@ -21,6 +21,8 @@ const LOOKS: Record<string, KindLook> = {
   TASK_ESCALATION: { id: 'overdue', name: 'Escalation', tone: 'text-danger bg-danger-soft', paths: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></> },
   TASK_COMMENT: { id: 'comment', name: 'Comment', tone: 'text-info bg-info-soft', paths: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /> },
   TASK_APPROVAL: { id: 'approval', name: 'Approval', tone: 'text-success bg-success-soft', paths: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></> },
+  // 1.23: a client accepted a task or sent it back in the Client portal (with the approvals).
+  TASK_CLIENT_SIGN_OFF: { id: 'client-sign-off', name: 'Client sign-off', tone: 'text-success bg-success-soft', paths: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="m16 11 2 2 4-4" /></> },
   MEETING_REMINDER: { id: 'meeting', name: 'Meeting', tone: 'text-brand bg-brand/10', paths: <><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></> },
   TASK_STATUS: { id: 'status', name: 'Status change', tone: 'text-ink-2 bg-ground', paths: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></> },
   CHAT_MESSAGE: { id: 'message', name: 'Message', tone: 'text-info bg-info-soft', paths: <><path d="M14 9a2 2 0 0 1-2 2H6l-3 3V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2z" /><path d="M18 9h1a2 2 0 0 1 2 2v10l-3-3h-6a2 2 0 0 1-2-2v-1" /></> },

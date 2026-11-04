@@ -357,6 +357,12 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
         return { ...base, text: reason ? `sent this task back: ${quote(reason)}` : 'sent this task back', path: statusPath([newest]) };
       }
       if (newest.action === 'APPROVAL_WITHDRAWN') return { ...base, text: 'withdrew the approval request', path: statusPath([newest]) };
+      // 1.23: a client's sign-off in the Client portal (their name ends "(client)" from the server).
+      if (newest.action === 'CLIENT_ACCEPTED') return { ...base, text: 'accepted this task (client sign-off)' };
+      if (newest.action === 'CLIENT_SENT_BACK') {
+        const reason = str(newest.meta?.reason);
+        return { ...base, text: reason ? `sent this task back: ${quote(reason)}` : 'sent this task back' };
+      }
       return { ...base, text: OTHER_TEXT[newest.action] ?? (newest.action || '').toLowerCase().replace(/[._]/g, ' ') };
   }
 }

@@ -19,7 +19,7 @@ import { MinutesSentLog } from '../components/meeting/MinutesSentLog';
 import { FinalMinutesSection } from '../components/meeting/FinalMinutesSection';
 import { InviteeView } from '../components/meeting/InviteeView';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
-import { Section, userName } from '../components/meeting/kit';
+import { Section, userName, type MeetingPageUser } from '../components/meeting/kit';
 import type { ActionMenuItem } from '../components/meeting/ActionMenu';
 import { primaryAction } from '../lib/meeting-flow';
 import { recurrenceSummary } from '../lib/recurrence-summary';
@@ -329,10 +329,14 @@ export function MeetingDetailPage() {
 
 /**
  * The people directory plus the meeting's people it doesn't know (named by the roster): they are
- * named on the page, never offered in a picker (colleague: false keeps them out of pickers).
+ * named on the page, never offered in a picker (colleague: false keeps them out of pickers). 1.23: a
+ * client among them is marked (clients aren't in the directory) — "Client" on the People list, and
+ * offered as an action item's owner.
  */
-function withMeetingPeople(directory: DirectoryUser[], people: MeetingPerson[]): DirectoryUser[] {
+function withMeetingPeople(directory: DirectoryUser[], people: MeetingPerson[]): MeetingPageUser[] {
   const known = new Set(directory.map((d) => d.id));
-  const extra = people.filter((p) => !known.has(p.id)).map((p): DirectoryUser => ({ id: p.id, username: '', firstName: p.name, lastName: '', avatarUrl: p.avatarUrl, colleague: false }));
+  const extra = people
+    .filter((p) => !known.has(p.id))
+    .map((p): MeetingPageUser => ({ id: p.id, username: '', firstName: p.name, lastName: '', avatarUrl: p.avatarUrl, colleague: false, ...(p.client ? { client: true } : {}) }));
   return extra.length ? [...directory, ...extra] : directory;
 }

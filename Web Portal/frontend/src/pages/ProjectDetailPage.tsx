@@ -28,6 +28,7 @@ import { TemplateGlyph } from '../components/templates/TemplateCard';
 import { ownerChoices } from '../components/project-form/owner-options';
 import { Breadcrumbs } from '../components/ui/Breadcrumbs';
 import { ProjectSteps } from '../components/projects/ProjectSteps';
+import { ClientsWithAccess } from '../components/projects/ClientsWithAccess';
 import { NewTaskModal } from '../components/NewTaskModal';
 import { useCurrentProject } from '../components/CurrentProject';
 import { ProjectCompanies } from '../components/company/ProjectCompanies';
@@ -460,6 +461,7 @@ export function ProjectDetailPage() {
         {tab === 'inspections' ? <ProjectInspectionsTab projectId={id} tasks={tasks.map((t) => ({ id: t.id, key: t.key, title: t.title }))} onOpenTask={setOpenTaskId} /> : null}
 
         {tab === 'team' ? (
+          <>
           <section className="card p-5">
             <h2 className="eyebrow mb-3">Team members</h2>
             {project ? (
@@ -483,6 +485,9 @@ export function ProjectDetailPage() {
               onSetRole={(userId, role) => roleM.mutate({ userId, role })}
             />
           </section>
+          {/* 1.23: who may open the project in the Client portal (administrators change it on the Clients page). */}
+          <ClientsWithAccess projectId={id} />
+          </>
         ) : null}
       </div>
 

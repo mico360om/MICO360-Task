@@ -4,7 +4,7 @@ import { tasksTabRowLabel } from '../lib/project-dashboard';
 import type { ApiTask } from '../lib/types';
 
 /** Show a task to the client, and the eye mark (Stage 4 Task 18; the board's mark is Stage 2's). */
-const HINT = 'its title, status and due date appear on the project’s client page. Never people, comments, files or the description.';
+const HINT = 'its title, status and due date appear on the project’s client page and in the Client portal, where clients with access may comment on it or sign it off, if allowed.';
 
 it('the eye is a drawn icon with its words, on cards and project task rows', () => {
   for (const f of ['components/board/BoardCard.tsx', 'components/project/TasksTab.tsx']) expect(src(f), f).toMatch(/<Icon name="misc\.eye"[^>]*label="Visible to client"/);

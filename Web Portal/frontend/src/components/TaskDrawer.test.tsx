@@ -745,3 +745,110 @@ describe('TaskDrawer — a task the person may not delete', () => {
     expect(onDelete).toHaveBeenCalledWith();
   });
 });
+
+// 1.23 Client accounts: what the team sees of the project's clients in a task.
+describe('TaskDrawer — clients (1.23)', () => {
+  const now = new Date().toISOString();
+  const clientComment = { id: 'c3', body: 'The gauge photo is missing.', authorName: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman', fromClient: true, createdAt: now };
+  const staffComment = { id: 'c2', body: 'Someone else’s comment', authorName: 'Omar Ahmed', createdAt: now };
+
+  it('a client’s comment shows its writer with a Client mark and their organisation; only it offers Reply', () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[staffComment, clientComment]} onAddComment={vi.fn()} onReplyComment={vi.fn()} onClose={vi.fn()} />);
+    const item = screen.getByText('The gauge photo is missing.').closest('li')!;
+    expect(within(item).getByText('Hamad Al Busaidi')).toBeInTheDocument();
+    expect(within(item).getByText('Client')).toBeInTheDocument();
+    expect(within(item).getByText('Petroleum Development Oman')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reply to Hamad Al Busaidi' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reply to Omar Ahmed' })).toBeNull();
+    // The tick is only ever in a reply to a client: not in the main comment box.
+    expect(screen.queryByRole('checkbox', { name: 'Visible to client' })).toBeNull();
+  });
+
+  it('a reply to a client is for the team unless “Visible to client” is ticked (off to start, saying what it does)', async () => {
+    const onReply = vi.fn(async () => {});
+    render(<TaskDrawer task={task} checklist={[]} comments={[clientComment]} onAddComment={vi.fn()} onReplyComment={onReply} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reply to Hamad Al Busaidi' }));
+    const tick = screen.getByRole('checkbox', { name: 'Visible to client' });
+    expect(tick).not.toBeChecked();
+    expect(tick).toHaveAccessibleDescription('The client sees this reply and gets it by email.');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Reply to Hamad Al Busaidi' }), 'Checking with the crew');
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    expect(onReply).toHaveBeenCalledWith('c3', 'Checking with the crew', false);
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Reply to Hamad Al Busaidi' })).toBeNull());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reply to Hamad Al Busaidi' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Reply to Hamad Al Busaidi' }), 'Photo added');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Visible to client' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    expect(onReply).toHaveBeenLastCalledWith('c3', 'Photo added', true);
+  });
+
+  it('keeps the reply and says why when it couldn’t be sent; Cancel closes it', async () => {
+    const onReply = vi.fn(async () => {
+      throw new Error('Only a reply to a client’s comment can be shown to the client.');
+    });
+    render(<TaskDrawer task={task} checklist={[]} comments={[clientComment]} onReplyComment={onReply} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reply to Hamad Al Busaidi' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Reply to Hamad Al Busaidi' }), 'Done');
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only a reply to a client’s comment can be shown to the client.');
+    expect(screen.getByRole('textbox', { name: 'Reply to Hamad Al Busaidi' })).toHaveValue('Done');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel reply' }));
+    expect(screen.queryByRole('textbox', { name: 'Reply to Hamad Al Busaidi' })).toBeNull();
+  });
+
+  it('replies sit under the comment they answer; one the client sees is marked so', () => {
+    const replies = [
+      { id: 'r1', body: 'Photo added', authorName: 'Omar Ahmed', parentId: 'c3', clientVisible: true, createdAt: now },
+      { id: 'r2', body: 'Internal: crew to re-check', authorName: 'Sara Ali', parentId: 'c3', createdAt: now },
+    ];
+    render(<TaskDrawer task={task} checklist={[]} comments={[clientComment, staffComment, ...replies]} onReplyComment={vi.fn()} onClose={vi.fn()} />);
+    const thread = screen.getByRole('list', { name: 'Replies to Hamad Al Busaidi' });
+    expect(within(thread).getByText('Photo added')).toBeInTheDocument();
+    expect(within(thread).getByText('Internal: crew to re-check')).toBeInTheDocument();
+    const shown = screen.getByText('Photo added').closest('li')!;
+    expect(within(shown).getByText('Visible to client')).toBeInTheDocument();
+    expect(within(screen.getByText('Internal: crew to re-check').closest('li')!).queryByText('Visible to client')).toBeNull();
+    // A reply isn't offered a reply of its own.
+    expect(screen.queryByRole('button', { name: 'Reply to Omar Ahmed' })).toBeNull();
+  });
+
+  it('a task the client accepted says so in its header, with the day', () => {
+    const { rerender } = render(
+      <TaskDrawer task={{ ...task, columnCategory: 'DONE', clientAcceptedAt: '2026-10-30T09:00:00.000Z' }} timeZone="Asia/Muscat" checklist={[]} comments={[]} onClose={vi.fn()} />,
+    );
+    expect(within(screen.getByTestId('task-header')).getByText('Client accepted · 30 Oct 2026')).toBeInTheDocument();
+    rerender(<TaskDrawer task={{ ...task, clientAcceptedAt: null }} checklist={[]} comments={[]} onClose={vi.fn()} />);
+    expect(within(screen.getByTestId('task-header')).queryByText(/Client accepted/)).toBeNull();
+  });
+
+  it('“Also show its description” is offered only while the task is shown to the client', async () => {
+    const onDescription = vi.fn(async () => {});
+    const props = { checklist: [], comments: [], onSetClientVisible: vi.fn(), onSetClientDescription: onDescription, onClose: vi.fn() };
+    const { rerender } = render(<TaskDrawer task={task} {...props} />);
+    expect(screen.queryByRole('checkbox', { name: 'Also show its description' })).toBeNull();
+    // What the client sees, said in plain words: the Client portal too, the description only with the tick.
+    expect(screen.getByText(/Client portal/)).toBeInTheDocument();
+    expect(screen.getByText(/description only with “Also show its description”/)).toBeInTheDocument();
+    rerender(<TaskDrawer task={{ ...task, clientVisible: true, clientShowDescription: false }} {...props} />);
+    const tick = screen.getByRole('checkbox', { name: 'Also show its description' });
+    expect(tick).not.toBeChecked();
+    await userEvent.click(tick);
+    expect(onDescription).toHaveBeenCalledWith(true);
+    // Ticked at once, while it saves.
+    expect(tick).toBeChecked();
+    rerender(<TaskDrawer task={{ ...task, clientVisible: true, clientShowDescription: true }} {...props} />);
+    expect(screen.getByRole('checkbox', { name: 'Also show its description' })).toBeChecked();
+  });
+
+  it('says why the description tick couldn’t be changed', async () => {
+    const onDescription = vi.fn(async () => {
+      throw new Error('Only whoever runs this project can change what its client sees.');
+    });
+    render(<TaskDrawer task={{ ...task, clientVisible: true }} checklist={[]} comments={[]} onSetClientVisible={vi.fn()} onSetClientDescription={onDescription} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Also show its description' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only whoever runs this project can change what its client sees.');
+    // …and the tick is back as it was.
+    expect(screen.getByRole('checkbox', { name: 'Also show its description' })).not.toBeChecked();
+  });
+});

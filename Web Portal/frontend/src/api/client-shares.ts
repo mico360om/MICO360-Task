@@ -41,7 +41,9 @@ export function clientSharesApi(client: ApiClient) {
     resend: (projectId: string, shareId: string) =>
       client.post<{ data: ClientShare }>(`/projects/${seg(projectId)}/client-shares/${seg(shareId)}/resend`, {}).then((r) => r.data),
     remove: (projectId: string, shareId: string) => client.del<void>(`/projects/${seg(projectId)}/client-shares/${seg(shareId)}`),
-    setTaskVisible: (taskId: string, visible: boolean) => client.put<{ data: ApiTask }>(`/tasks/${seg(taskId)}/client-visible`, { visible }).then((r) => r.data),
+    /** Show a task to the client or not; `showDescription` (1.23, only while shown): its description too. */
+    setTaskVisible: (taskId: string, visible: boolean, showDescription?: boolean) =>
+      client.put<{ data: ApiTask }>(`/tasks/${seg(taskId)}/client-visible`, showDescription === undefined ? { visible } : { visible, showDescription }).then((r) => r.data),
     minutesVisibility: (meetingId: string) => client.get<{ data: MinutesClientVisibility }>(`/meetings/${seg(meetingId)}/client-visibility`).then((r) => r.data),
     minutesPreview: (meetingId: string) => client.get<{ data: MinutesClientPreview }>(`/meetings/${seg(meetingId)}/client-visibility/preview`).then((r) => r.data),
     setMinutesVisible: (meetingId: string, visible: boolean, includeRisks?: boolean) =>

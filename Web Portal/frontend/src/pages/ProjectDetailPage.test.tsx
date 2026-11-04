@@ -566,3 +566,79 @@ describe('ProjectDetailPage: its companies', () => {
     expect(screen.queryByRole('list', { name: 'Companies' })).toBeNull();
   });
 });
+
+// 1.23 Client accounts: who may open the project in the Client portal, on its Team tab.
+describe('ProjectDetailPage: Clients with access (1.23)', () => {
+  const HAMAD = {
+    id: 'cl1', name: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman', email: 'hamad@pdo.test', status: 'ACTIVE',
+    access: ['Progress, milestones and tasks', 'Meetings and minutes', 'Comment on tasks', 'Sign off finished tasks'],
+    modules: { progress: true, meetings: true }, actions: { comment: true, signOff: true, respond: false, download: false },
+  };
+  const NOOR = {
+    id: 'cl2', name: 'Noor Al Said', organisation: null, email: 'noor@oxy.test', status: 'INACTIVE',
+    access: ['Meetings and minutes'], modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: false, download: false },
+  };
+  let asked = false;
+  const answer = (clients: unknown[], canChange: boolean) => {
+    asked = false;
+    const base = globalThis.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!String(url).endsWith('/projects/p1/clients')) return base(url, init);
+      asked = true;
+      return json({ data: { clients, canChange } });
+    }));
+  };
+  const openTeam = async () => {
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'MICO Platform' });
+    await userEvent.click(screen.getByRole('tab', { name: /team/i }));
+  };
+
+  it('a project manager sees each client, their organisation and what they may do — read-only, asked to go to an administrator', async () => {
+    answer([HAMAD, NOOR], false);
+    await openTeam();
+    const section = await screen.findByRole('region', { name: 'Clients with access' });
+    const hamad = within(section).getByText('Hamad Al Busaidi').closest('li')!;
+    expect(within(hamad).getByText('Petroleum Development Oman')).toBeInTheDocument();
+    expect(within(hamad).getByRole('list', { name: 'What Hamad Al Busaidi may do' })).toHaveTextContent(/Progress, milestones and tasks.*Meetings and minutes.*Comment on tasks.*Sign off finished tasks/);
+    const noor = within(section).getByText('Noor Al Said').closest('li')!;
+    expect(within(noor).getByText('Inactive')).toBeInTheDocument();
+    expect(within(hamad).queryByText('Active')).toBeNull();
+    expect(within(section).getByText('Ask an administrator to change this.')).toBeInTheDocument();
+    expect(within(section).queryByRole('link', { name: /clients page/i })).toBeNull();
+    // Nothing on the page changes a client's access.
+    expect(within(section).queryByRole('button')).toBeNull();
+  });
+
+  it('an administrator gets a link to the Clients page instead', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'm@b.c', username: 'manager', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    answer([HAMAD], true);
+    await openTeam();
+    const section = await screen.findByRole('region', { name: 'Clients with access' });
+    expect(within(section).getByRole('link', { name: 'Manage on the Clients page' })).toHaveAttribute('href', '/admin/clients');
+    expect(within(section).queryByText('Ask an administrator to change this.')).toBeNull();
+  });
+
+  it('with no clients: nothing for the team', async () => {
+    answer([], false);
+    await openTeam();
+    await waitFor(() => expect(asked).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByRole('region', { name: 'Clients with access' })).toBeNull();
+  });
+
+  it('with no clients, an administrator sees one quiet line and the link', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'm@b.c', username: 'manager', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    answer([], true);
+    await openTeam();
+    const section = await screen.findByRole('region', { name: 'Clients with access' });
+    expect(within(section).getByText('No clients can open this project in the Client portal.')).toBeInTheDocument();
+    expect(within(section).getByRole('link', { name: 'Manage on the Clients page' })).toBeInTheDocument();
+  });
+
+  it('an older server (no such list): nothing', async () => {
+    await openTeam();
+    await act(async () => {});
+    expect(screen.queryByRole('region', { name: 'Clients with access' })).toBeNull();
+  });
+});

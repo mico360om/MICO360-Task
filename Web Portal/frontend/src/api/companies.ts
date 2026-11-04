@@ -105,6 +105,9 @@ export interface CompanyPersonOption {
   lastName: string;
   username: string;
   avatarUrl: string | null;
+  /** 1.23: a client account (a project meeting's invite picker only), marked "Client" with their organisation. */
+  client?: boolean;
+  organisation?: string | null;
 }
 
 /** The query key of `GET /me/companies`: kept when the pick changes (the picker reads it). */

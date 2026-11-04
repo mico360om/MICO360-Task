@@ -11,14 +11,14 @@ import { statusMeta } from '../lib/taskStatus';
 import { formatDueDay, isTaskLate } from '../lib/due-display';
 import { DEFAULT_TIME_ZONE } from '../lib/company-clock';
 import { formatMeetingDay } from '../lib/meetingFormat';
-import { dayText } from '../lib/day-words';
+import { dayText, instantDayText } from '../lib/day-words';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { Icon } from './meeting/kit';
 import type { MentionPerson } from '../lib/mentions';
 import { InlineDescription, InlineTitle } from './task-drawer/inline-text';
 import { PropertiesPanel, type DrawerAssignee, type DrawerStatusColumn, type FieldPatch } from './task-drawer/properties';
 import { ChecklistSection, type DrawerChecklistItem } from './task-drawer/checklist';
-import { CommentsSection, type DrawerComment } from './task-drawer/comments';
+import { CommentsSection, type DrawerComment, type ReplyToComment } from './task-drawer/comments';
 import { ActivityTimeline, type DrawerActivity } from './task-drawer/activity';
 import { AttachmentsSection, type DrawerAttachment, type LoadOfficePreview } from './task-drawer/attachments';
 import { DependenciesSection, type DrawerDependencies, type DrawerTaskRef } from './task-drawer/dependencies';
@@ -59,6 +59,11 @@ export interface TaskDrawerProps {
   /** Save a comment's new text; rejects with a message to show when it could not be saved. */
   onEditComment?: (id: string, body: string) => Promise<void> | void;
   onDeleteComment?: (id: string) => void;
+  /**
+   * 1.23: reply to a client's comment — `clientVisible`: the client sees the reply and gets it by
+   * email. Rejects with the reason to show when it couldn't be sent (the draft is kept).
+   */
+  onReplyComment?: ReplyToComment;
   /** Who an @mention in this task's comments would notify — suggested while typing, marked in comments. */
   mentionable?: MentionPerson[];
   assignees?: DrawerAssignee[];
@@ -117,6 +122,11 @@ export interface TaskDrawerProps {
    * project. Rejects with the reason to show when it couldn't be changed.
    */
   onSetClientVisible?: (visible: boolean) => Promise<void> | void;
+  /**
+   * 1.23: "Also show its description" (only while the task is shown to the client). Rejects with
+   * the reason to show when it couldn't be changed.
+   */
+  onSetClientDescription?: (show: boolean) => Promise<void> | void;
   /** The task's inspections (carried out for it, or the one it follows up), beside its details. */
   inspections?: ReactNode;
   /** The "Approval" section (needs approval; Approve / Send back while it waits) — first while it waits. */
@@ -165,16 +175,42 @@ const CalendarIcon = () => (
   </svg>
 );
 
-/** "Show to client": whether the project's client page lists this task (its title, status and due date only). */
-function ClientViewSwitch({ on, onChange }: { on: boolean; onChange: (visible: boolean) => Promise<void> | void }) {
+/**
+ * "Show to client": whether the project's client page and the Client portal list this task (its
+ * title, status and due date) — and, with a tick of its own while it is shown, its description (1.23).
+ */
+function ClientViewSwitch({
+  on,
+  onChange,
+  description,
+  onDescription,
+}: {
+  on: boolean;
+  onChange: (visible: boolean) => Promise<void> | void;
+  description: boolean;
+  onDescription?: (show: boolean) => Promise<void> | void;
+}) {
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const change = async () => {
+  // The description tick shows what was ticked while it saves, until the task says so too (back as
+  // it was if the save fails; after a moment, whatever the task says).
+  const [ticking, setTicking] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (ticking === null || saving) return;
+    if (ticking === description) {
+      setTicking(null);
+      return;
+    }
+    const t = setTimeout(() => setTicking(null), 1000);
+    return () => clearTimeout(t);
+  }, [ticking, saving, description]);
+  const run = async (save: () => Promise<void> | void) => {
     setSaving(true);
     setProblem(null);
     try {
-      await onChange(!on);
+      await save();
     } catch (err) {
+      setTicking(null);
       setProblem(err instanceof Error && err.message && !/^Request failed/.test(err.message) ? err.message : 'Couldn’t change it. Please try again.');
     } finally {
       setSaving(false);
@@ -184,13 +220,43 @@ function ClientViewSwitch({ on, onChange }: { on: boolean; onChange: (visible: b
     <section aria-labelledby="task-client-heading" className="rounded-xl border border-line p-3">
       <div className="flex items-center justify-between gap-3">
         <h3 id="task-client-heading" className="eyebrow">Client view</h3>
-        <Toggle on={on} onChange={() => void change()} label="Show to client" describedBy="task-client-hint" disabled={saving} />
+        <Toggle on={on} onChange={() => void run(() => onChange(!on))} label="Show to client" describedBy="task-client-hint" disabled={saving} />
       </div>
       <p id="task-client-hint" className="mt-1 text-xs leading-relaxed text-ink-2">
-        Show to client: its title, status and due date appear on the project’s client page. Never people, comments, files or the description.
+        Show to client: its title, status and due date appear on the project’s client page and in the Client portal, where clients with access may comment on it or sign it off, if allowed.
+        {' '}Its description only with “Also show its description”. Never people, files or the team’s comments, except replies marked “Visible to client”.
       </p>
+      {on && onDescription ? (
+        <label className="mt-2 flex min-h-9 cursor-pointer items-center gap-2 text-sm text-ink [@media(pointer:coarse)]:min-h-11">
+          <input
+            type="checkbox"
+            checked={ticking ?? description}
+            disabled={saving}
+            onChange={(e) => {
+              const show = e.target.checked;
+              setTicking(show);
+              void run(() => onDescription(show));
+            }}
+            className="h-4 w-4 flex-none accent-[rgb(var(--c-brand))]"
+          />
+          Also show its description
+        </label>
+      ) : null}
       {problem ? <p role="alert" className="mt-1 text-xs font-medium text-danger">{problem}</p> : null}
     </section>
+  );
+}
+
+/** 1.23: "Client accepted · 30 Oct 2026" — the client signed off this finish in the Client portal. */
+function ClientAcceptedMark({ at, timeZone }: { at: string; timeZone: string }) {
+  const day = instantDayText(at, timeZone);
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-success-soft px-1.5 py-0.5 text-xs font-semibold text-success" title="The client signed it off in the Client portal">
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      {day ? `Client accepted · ${day}` : 'Client accepted'}
+    </span>
   );
 }
 
@@ -235,6 +301,7 @@ export function TaskDrawer({
   onAddComment,
   onEditComment,
   onDeleteComment,
+  onReplyComment,
   mentionable = NO_PEOPLE,
   assignees,
   assignableUsers = [],
@@ -266,6 +333,7 @@ export function TaskDrawer({
   moveUnavailable,
   onSaveAsTemplate,
   onSetClientVisible,
+  onSetClientDescription,
   inspections,
   approval,
   externalContacts,
@@ -328,7 +396,9 @@ export function TaskDrawer({
   const phone = useMediaQuery(PHONE_QUERY);
   const sideParts = (
     <>
-      {onSetClientVisible ? <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} /> : null}
+      {onSetClientVisible ? (
+        <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} description={!!task.clientShowDescription} onDescription={onSetClientDescription} />
+      ) : null}
       {task.approvalRequestedAt ? null : approval}
       {task.inspectionFormId ? null : inspections}
       <AttachmentsSection attachments={attachments} onUpload={onUploadFile} onDelete={onDeleteAttachment} onPreview={onPreviewAttachment} />
@@ -360,6 +430,7 @@ export function TaskDrawer({
               </span>
             ) : null}
             <StatusPill category={task.columnCategory} />
+            {task.clientAcceptedAt ? <ClientAcceptedMark at={task.clientAcceptedAt} timeZone={timeZone} /> : null}
             <PriorityBadge priority={task.priority} />
             {task.isMilestone ? (
               <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 text-xs font-semibold text-brand">
@@ -545,7 +616,7 @@ export function TaskDrawer({
             />
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-3">
-            <CommentsSection comments={comments} people={mentionable} onAdd={onAddComment} onEdit={onEditComment} onDelete={onDeleteComment} />
+            <CommentsSection comments={comments} people={mentionable} onAdd={onAddComment} onEdit={onEditComment} onDelete={onDeleteComment} onReply={onReplyComment} />
           </div>
           {phone ? <div className="flex min-w-0 flex-col gap-5">{sideParts}</div> : null}
           {activity.length > 0 ? (

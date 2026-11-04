@@ -5,7 +5,7 @@ import { usersApi } from '../../api/users';
 import { Avatar } from '../ui/Avatar';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import { useInviteCandidates } from './invite-candidates';
+import { invitablePeople, personHint, useClientInvitees, useInviteCandidates } from './invite-candidates';
 import { colleaguesOf } from '../../lib/people';
 
 /** Someone invited from the new-meeting form: a portal user, or an outside guest by email. */
@@ -33,8 +33,12 @@ export function PeopleField({
 }) {
   const dirQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory() });
   const candidates = useInviteCandidates(target);
+  // 1.23: a project meeting may also invite the project's clients (marked "Client").
+  const clients = useClientInvitees(target.projectId);
   const directory = Array.isArray(dirQ.data) ? dirQ.data : [];
-  const invitable: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null; active?: boolean }[] = candidates ?? colleaguesOf(directory);
+  const invitable: { id: string; firstName: string; lastName: string; username: string; avatarUrl: string | null; active?: boolean; client?: boolean; organisation?: string | null }[] =
+    invitablePeople(candidates, colleaguesOf(directory), clients);
+  const isClient = (id: string) => invitable.some((u) => u.id === id && u.client === true);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -43,7 +47,7 @@ export function PeopleField({
   const options = invitable
     // Inactive and suspended accounts can't be invited (an older server sends no flag: offered).
     .filter((u) => u.id !== organizerId && u.active !== false && !chosen.has(`u:${u.id}`))
-    .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
+    .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: personHint(u) }));
 
   const addUser = (id: string) => {
     const u = invitable.find((d) => d.id === id);
@@ -75,6 +79,7 @@ export function PeopleField({
             <li key={personKey(p)} className="flex min-h-9 max-w-full items-center gap-1.5 rounded-full border border-line bg-surface py-0.5 pl-1 pr-0.5 text-sm">
               <Avatar size="sm" name={p.name} src={p.kind === 'user' ? (invitable.find((d) => d.id === p.id) ?? directory.find((d) => d.id === p.id))?.avatarUrl : null} />
               <bdi className="truncate text-ink">{p.name}</bdi>
+              {p.kind === 'user' && isClient(p.id) ? <span className="flex-none rounded bg-info-soft px-1.5 text-[11px] font-semibold text-info">Client</span> : null}
               {p.kind === 'guest' ? <span className="truncate text-xs text-ink-3" dir="ltr">{p.email}</span> : null}
               <button
                 type="button"

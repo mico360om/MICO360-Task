@@ -70,8 +70,20 @@ export function userName(dir: DirectoryUser[], id: string | null | undefined): s
   return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : null;
 }
 
-export function peopleOptions(dir: DirectoryUser[], emptyLabel?: string) {
-  const people = dir.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
+/**
+ * Someone a meeting page names: from the people directory, or one of the meeting's people known only
+ * from its roster — a client account among them marked (1.23; clients aren't in the directory).
+ */
+export type MeetingPageUser = DirectoryUser & { client?: boolean };
+
+/** 1.23: is this one of the meeting's clients (named from its roster)? */
+export function isClientUser(dir: readonly MeetingPageUser[], id: string | null | undefined): boolean {
+  return !!id && dir.some((d) => d.id === id && d.client === true);
+}
+
+/** A picker's people: "@username" beside each name, "Client" beside a client (someone known only from the roster: nothing). */
+export function peopleOptions(dir: MeetingPageUser[], emptyLabel?: string) {
+  const people = dir.map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: u.client ? 'Client' : u.username ? `@${u.username}` : undefined }));
   return emptyLabel ? [{ value: '', label: emptyLabel }, ...people] : people;
 }
 
