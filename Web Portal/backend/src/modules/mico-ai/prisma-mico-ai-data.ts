@@ -21,7 +21,11 @@ import type {
 export interface PrismaMicoAiDataDeps {
   prisma: PrismaClient;
   /** companies: with the viewer's pick (that company's projects; an admin: all of them). */
-  projectAccess: { accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null> };
+  projectAccess: {
+    accessibleProjectIds(userId: string, roles: string[], pick?: string | null): Promise<string[] | null>;
+    /** 1.22: the projects the asker's own tasks are listed from ("Show my projects only" never applied). */
+    ownProjectIds?(userId: string, roles: string[], pick: string | null): Promise<string[] | null>;
+  };
   meetingAccess: {
     canViewMeeting(userId: string, roles: string[], meetingId: string): Promise<boolean>;
     /** Who may change a meeting (organizer, creator, its project's managers, admins): a draft Final MOM is theirs only. */
@@ -141,6 +145,7 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
     // companies: in the company the question was asked under (v.pick).
     accessibleProjectIds: (v) => projectAccess.accessibleProjectIds(v.userId, v.roles, v.pick ?? null),
     myProjectsOnly,
+    ...(projectAccess.ownProjectIds ? { ownProjectIds: (v: Viewer) => projectAccess.ownProjectIds!(v.userId, v.roles, v.pick ?? null) } : {}),
 
     async projects(ids) {
       const rows = await prisma.project.findMany({

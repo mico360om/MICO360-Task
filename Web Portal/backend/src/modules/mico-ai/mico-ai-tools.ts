@@ -238,7 +238,11 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
     const allowed = (projectId: string | null | undefined) => !!projectId && (projectIds === null || projectIds.includes(projectId));
     // An administrator sees every meeting and channel — 1.22: unless "Show my projects only" (the team rule).
     const everything = admin && !mineOnly;
-    return { viewer, pick: viewer.pick ?? null, admin, companyIds, projectIds, projects: visible, people, allowed, everything, person: new Map(people.map((p) => [p.id, p])) };
+    // 1.22 (owner, 4 Nov — as My Tasks): an administrator with "Show my projects only" still has their
+    // OWN tasks from every project (in the pick); `ownIds` is where those are looked up (undefined: no wider look).
+    const ownIds = admin && mineOnly && data.ownProjectIds ? await data.ownProjectIds(viewer) : undefined;
+    const ownTask = (t: Pick<AiTaskRec, 'projectId' | 'assigneeIds'>) => ownIds !== undefined && t.assigneeIds.includes(viewer.userId) && (ownIds === null || ownIds.includes(t.projectId));
+    return { viewer, pick: viewer.pick ?? null, admin, companyIds, projectIds, projects: visible, people, allowed, everything, ownIds, ownTask, person: new Map(people.map((p) => [p.id, p])) };
   }
   type Scope = Awaited<ReturnType<typeof scopeOf>>;
 
@@ -304,9 +308,14 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
   };
 
   /** The person's tasks, checked against their scope again (a row from another project never gets through). */
-  async function visibleTasks(s: Scope, filter: { projectId?: string; assigneeId?: string } = {}) {
-    const rows = await data.tasks({ projectIds: s.projectIds, ...filter });
-    return rows.filter((t) => s.allowed(t.projectId) && (!filter.projectId || t.projectId === filter.projectId) && (!filter.assigneeId || t.assigneeIds.includes(filter.assigneeId)));
+  /** `ownToo` (1.22, owner 4 Nov): also the administrator's own tasks from projects "Show my projects only" leaves out. */
+  async function visibleTasks(s: Scope, filter: { projectId?: string; assigneeId?: string } = {}, ownToo = false) {
+    const matches = (t: AiTaskRec) => (!filter.projectId || t.projectId === filter.projectId) && (!filter.assigneeId || t.assigneeIds.includes(filter.assigneeId));
+    const rows = (await data.tasks({ projectIds: s.projectIds, ...filter })).filter((t) => s.allowed(t.projectId) && matches(t));
+    if (!ownToo || s.ownIds === undefined) return rows;
+    const seen = new Set(rows.map((t) => t.id));
+    const own = await data.tasks({ projectIds: s.ownIds, ...filter, assigneeId: s.viewer.userId });
+    return [...rows, ...own.filter((t) => !seen.has(t.id) && s.ownTask(t) && matches(t))];
   }
 
   const ownMeeting = (s: Scope, m: AiMeetingRec) => m.organizerId === s.viewer.userId || m.createdById === s.viewer.userId || m.attendeeUserIds.includes(s.viewer.userId);
@@ -371,7 +380,7 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
       const person = a.assignee ? resolvePerson(s, a.assignee as string) : null;
       const status = (a.status as (typeof STATUS)[number] | undefined) ?? 'any';
       const q = normalizeForSearch(a.text as string | undefined);
-      const rows = (await visibleTasks(s, { projectId: project?.id, assigneeId: person?.id }))
+      const rows = (await visibleTasks(s, { projectId: project?.id, assigneeId: person?.id }, true))
         .filter((t) => {
           const done = isTaskDone({ columnCategory: t.category, completedAt: t.completedAt });
           if (status === 'open' && done) return false;
@@ -397,8 +406,9 @@ export function createMicoAiTools({ data, timeZone, now = () => new Date() }: Mi
 
     async task_details(s, a) {
       const said = String(a.task).replace(/^task:/, '');
-      const t = await data.findTask(s.projectIds, said);
-      if (!t || !s.allowed(t.projectId)) throw new ToolProblem(`No task you can see matches “${said}”.`);
+      // 1.22 (owner, 4 Nov): the administrator's own task opens whatever the project, as it lists.
+      const t = (await data.findTask(s.projectIds, said)) ?? (s.ownIds !== undefined ? await data.findTask(s.ownIds, said) : null);
+      if (!t || !(s.allowed(t.projectId) || s.ownTask(t))) throw new ToolProblem(`No task you can see matches “${said}”.`);
       const x = await data.taskExtras(t.id);
       const link = (l: AiTaskLink) => ({ ref: `task:${l.id}`, key: l.key, title: clip(l.title, 120), status: l.columnName || categoryLabel(l.category) });
       // A blocker in a project the person can't see is left out silently, as the task panel does.

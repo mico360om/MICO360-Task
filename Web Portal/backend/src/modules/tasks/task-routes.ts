@@ -157,6 +157,12 @@ export interface TaskRouteDeps {
   canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   /** Project ids a user may see (`null` = admin, no scoping) — scopes the task list to their projects. */
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
+  /**
+   * 1.22 (owner, 4 Nov — "always show my own"): the projects the caller's OWN tasks are listed from
+   * (My Tasks, theirs on the calendar) — "Show my projects only" never narrows them, the pick does.
+   * Absent: the list scope above.
+   */
+  ownProjectIds?: (userId: string, roles: string[], pick: string | null) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id); the lists and the calendar follow it. Absent: no pick. */
   pickOf?: PickOf;
   /** When provided, `tags` supplied on create are applied to the new task. */
@@ -194,6 +200,13 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
   async function listScopeOf(req: FastifyRequest): Promise<string[] | null> {
     const pick = await pickOf(req);
     return deps.accessibleProjectIds ? deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? [], pick) : null;
+  }
+  /** 1.22: the list scope, and the wider one of the caller's own tasks (see ownProjectIds), from one pick. */
+  async function listAndOwnScopeOf(req: FastifyRequest): Promise<{ list: string[] | null; own: string[] | null }> {
+    const pick = await pickOf(req);
+    const roles = req.user!.roles ?? [];
+    const list = deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, roles, pick) : null;
+    return { list, own: deps.ownProjectIds ? await deps.ownProjectIds(req.user!.id, roles, pick) : list };
   }
 
   app.get('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {
@@ -246,9 +259,14 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     if (span < 0 || span > MAX_CALENDAR_DAYS) {
       return reply.status(400).send({ error: { code: 'VALIDATION', message: `Ask for 1 to ${MAX_CALENDAR_DAYS + 1} days, ending on or after the start.` } });
     }
-    const allowedIds = await listScopeOf(req); // companies: the calendar follows the pick
-    const scope = allowedIds ? { projectIds: allowedIds } : {};
-    const visible = <T extends { projectId: string }>(rows: T[]) => (allowedIds ? rows.filter((t) => allowedIds.includes(t.projectId)) : rows);
+    // companies: the calendar follows the pick. 1.22 (owner, 4 Nov): the caller's own tasks always show,
+    // whatever the project ("Show my projects only" narrows other people's work only).
+    const { list: allowedIds, own: ownIds } = await listAndOwnScopeOf(req);
+    const me = req.user!.id;
+    const scope = ownIds ? { projectIds: ownIds } : {};
+    const shown = (t: { projectId: string; assignees?: { id: string }[] }) =>
+      (!ownIds || ownIds.includes(t.projectId)) && (!allowedIds || allowedIds.includes(t.projectId) || !!t.assignees?.some((a) => a.id === me));
+    const visible = <T extends { projectId: string; assignees?: { id: string }[] }>(rows: T[]) => rows.filter(shown);
     const tz = taskService.timeZone;
     const dayStart = (key: string) => new Date(`${key}T00:00:00.000Z`);
     // A due date is a day (UTC midnight) or an instant read in company time: a day either side of
@@ -273,9 +291,10 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     return { data: { from, to, timeZone: tz, tasks, occurrences, series } };
   });
 
-  // Tasks assigned to the current user (My Tasks) — only in projects they can still see.
+  // Tasks assigned to the current user (My Tasks) — only in projects they can still see. 1.22 (owner,
+  // 4 Nov): "Show my projects only" doesn't narrow it — an administrator's own tasks always show.
   app.get('/tasks/mine', { preHandler: guard.authenticate }, async (req) => {
-    const allowedIds = await listScopeOf(req); // companies: My Tasks follows the pick
+    const { own: allowedIds } = await listAndOwnScopeOf(req); // companies: My Tasks follows the pick
     return { data: await taskService.listTasks({ assigneeId: req.user!.id, ...(allowedIds ? { projectIds: allowedIds } : {}) }) };
   });
 

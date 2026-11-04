@@ -534,6 +534,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const canViewProject = access ? (u: string, r: string[], p: string) => access.canViewProject(u, r, p) : undefined;
       // companies: routes pass the request's pick, `deps.accessibleProjectIds(u, r, await pickOf(req))` (from MC1 Task 8).
       const accessibleProjectIds = access ? (u: string, r: string[], pick?: string | null) => access.accessibleProjectIds(u, r, pick) : undefined;
+      // 1.22 (owner, 4 Nov): the person's OWN tasks are listed from here — "Show my projects only" never narrows them.
+      const ownProjectIds = access?.ownProjectIds ? (u: string, r: string[], pick: string | null) => access.ownProjectIds!(u, r, pick) : undefined;
       const mAccess = deps.meetingAccess;
       // companies (MC1 Task 10): someone invited from outside a project's companies has the invitee view
       // of that one meeting. The meeting routes get the full-view check, which refuses an invitee with
@@ -658,6 +660,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           canDeleteTask: (userId, roles, taskId) => projectAuthz.canManageTask(userId, roles, taskId),
           canViewTask,
           accessibleProjectIds,
+          ownProjectIds, // 1.22: My Tasks and the caller's own tasks on the calendar
           pickOf, // companies: the task lists and the calendar follow the pick
           tagService: deps.tagService,
           assigneeService: deps.assigneeService,

@@ -128,8 +128,8 @@ export interface CompanyAccess {
   /**
    * The projects (deleted ones too) in the person's active companies, in the pick when given — null only
    * for an admin without a pick. The bell's scope: companies add this one condition to what 1.20 showed
-   * (a task's notices reach its assignee even off the project's team). 1.22: an administrator with
-   * "Show my projects only" gets the projects they own, manage or are on the team of (in the pick).
+   * (a task's notices reach its assignee even off the project's team). 1.22 (owner, 4 Nov — "always
+   * show my own"): "Show my projects only" never narrows it — every notice is the person's own.
    */
   companyProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null>;
   /** May this person open the project (an object check: administrators always — the setting never applies)? */
@@ -196,9 +196,10 @@ export function createCompanyAccess(prisma: PrismaClient): CompanyAccess {
 
   async function companyProjectIds(viewer: Viewer, pick: string | null): Promise<string[] | null> {
     const admin = isAdminRoles(viewer.roles);
-    const mine = admin && (await myProjectsOnly(viewer));
-    if (admin && !pick && !mine) return null;
-    const where: Prisma.ProjectWhereInput = admin ? adminWhere(viewer, pick, mine) : pick ? pickedCompanyWhere(viewer.id, pick) : sharedCompanyWhere(viewer.id);
+    // 1.22 (owner, 4 Nov): an administrator's notices are their own — "Show my projects only" doesn't
+    // narrow them (as a non-admin's reach them off the team); the pick still does.
+    if (admin && !pick) return null;
+    const where: Prisma.ProjectWhereInput = admin ? adminWhere(viewer, pick, false) : pick ? pickedCompanyWhere(viewer.id, pick) : sharedCompanyWhere(viewer.id);
     return (await prisma.project.findMany({ where, select: { id: true } })).map((p) => p.id);
   }
 

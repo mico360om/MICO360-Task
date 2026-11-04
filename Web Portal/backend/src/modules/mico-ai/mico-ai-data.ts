@@ -185,6 +185,11 @@ export interface MicoAiDataPort {
   accessibleProjectIds(viewer: Viewer): Promise<string[] | null>;
   /** 1.22: does this administrator list like a team member ("Show my projects only")? Absent: never. */
   myProjectsOnly?(viewer: Viewer): Promise<boolean>;
+  /**
+   * 1.22 (owner, 4 Nov — "always show my own"): the projects the asker's OWN tasks are listed from —
+   * accessibleProjectIds with "Show my projects only" never applied. Absent: accessibleProjectIds.
+   */
+  ownProjectIds?(viewer: Viewer): Promise<string[] | null>;
   projects(ids: string[] | null): Promise<AiProjectRec[]>;
   tasks(filter: { projectIds: string[] | null; projectId?: string; assigneeId?: string }): Promise<AiTaskRec[]>;
   /** One task by key or id within the scope, or null. */

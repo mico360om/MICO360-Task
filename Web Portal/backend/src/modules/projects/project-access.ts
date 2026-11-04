@@ -75,8 +75,20 @@ export function createProjectAccess({
     }
     return (await projects.listForUser(userId, pick ?? null)).map((p) => p.id);
   }
+  /**
+   * 1.22 (owner, 4 Nov — "always show my own"): the projects a list of the person's OWN work reaches
+   * (My Tasks, their tasks on the calendar, MICO AI's tasks) — the list scope with "Show my projects
+   * only" never applied: an administrator's every project (in the pick; null without one), anyone
+   * else's visible ones, exactly as accessibleProjectIds gives them.
+   */
+  async function ownProjectIds(userId: string, roles: string[], pick: string | null): Promise<string[] | null> {
+    if (isAdmin(roles)) return pick ? (await projects.list(pick)).map((p) => p.id) : null;
+    return (await projects.listForUser(userId, pick)).map((p) => p.id);
+  }
 
-  return { canViewProject, canViewTask, canViewColumn, accessibleProjectIds };
+  return { canViewProject, canViewTask, canViewColumn, accessibleProjectIds, ownProjectIds };
 }
 
-export type ProjectAccess = ReturnType<typeof createProjectAccess>;
+type FullProjectAccess = ReturnType<typeof createProjectAccess>;
+/** ownProjectIds (1.22) is optional so hand-made fakes keep compiling; without it, own work lists like any list. */
+export type ProjectAccess = Omit<FullProjectAccess, 'ownProjectIds'> & Partial<Pick<FullProjectAccess, 'ownProjectIds'>>;

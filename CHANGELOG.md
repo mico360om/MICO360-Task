@@ -33,8 +33,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Settings → "Show my projects only" (administrators): when on, every list on the site shows you only
   the projects you own, manage or are on the team of — Projects, the boards, the dashboard, My Tasks,
   the calendar, timeline, workload, meetings, reports, Management, activity, the bell, search, Chat,
-  MICO AI and the project pickers. My Action Items and MICO AI still show all of your own action items, whatever
-  the project. It is saved for every device and session; you can still open any project by its link,
+  MICO AI and the project pickers. Your own work always shows, whatever the project: tasks assigned to
+  you (My Tasks, the calendar and MICO AI), your notifications (the bell, the Notifications page and
+  its counts, and Mark all read) and your action items (My Action Items and MICO AI); only other
+  people's work narrows. It is saved for every device and session; you can still open any project by its link,
   and untick "Only my projects" on the Projects page to see every project for that visit.
 - Notifications page: All and Unread tabs ("Unread (12)") and type chips — Mentions, Assigned to me, Due & overdue, Comments, Approvals, Meetings — remembered in this browser, with an empty message for each.
 - Notifications page: notifications grouped by day (Today, Yesterday, "Mon 2 Nov"), each with an icon for its kind, its project's name and picture, and its time.

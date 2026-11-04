@@ -151,15 +151,29 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
     beforeAll(() => setting(true));
     afterAll(() => setting(false));
 
-    it('Projects, the All projects board, My Tasks, the calendar and the approvals hold only PA and PAB', async () => {
+    it('Projects, the All projects board and the approvals hold only PA and PAB', async () => {
       const { admin } = w.as;
       const mine = sorted([w.projects.PA, w.projects.PAB]);
       expect(projectIdsOf(await api.get(admin, '/projects'))).toEqual(mine);
       expect(projectIdsOf(await api.get(admin, '/projects/overview'))).toEqual(mine);
       expect(projectIdsOf(await api.get(admin, '/tasks'))).toEqual(mine);
-      expect(idsOf(await api.get(admin, '/tasks/mine'))).toEqual([w.tasks.TA1]); // not TB1 (PB)
-      expect(projectIdsOf(((await api.get(admin, calendar())) as { tasks: Row[] }).tasks)).toEqual(mine);
       expect(idsOf(((await api.get(admin, '/tasks/approvals')) as { tasks: Row[] }).tasks)).toEqual([w.tasks.TA2]);
+    });
+
+    // Owner, 4 Nov ("Yes, always show my own" — as My Action Items, e9fe5a9c): the administrator's OWN
+    // tasks always show, whatever the project — TB1 (PB, not theirs) too; other people's work narrows.
+    it('My Tasks and the calendar always hold the administrator’s own tasks, whatever the project', async () => {
+      const { admin } = w.as;
+      expect(idsOf(await api.get(admin, '/tasks/mine'))).toEqual(sorted([w.tasks.TA1, w.tasks.TB1]));
+      // The calendar: PA's and PAB's tasks, and TB1 (theirs) — not TB2 (PB, someone else's).
+      expect(idsOf(((await api.get(admin, calendar())) as { tasks: Row[] }).tasks)).toEqual(sorted([w.tasks.TA1, w.tasks.TA2, w.tasks.TAB1, w.tasks.TB1]));
+      // A picked company still applies: Beta holds PB and PAB, Alpha PA and PAB.
+      const beta = { 'x-company-id': w.companies.B };
+      expect(idsOf(await api.get(admin, '/tasks/mine', beta))).toEqual([w.tasks.TB1]);
+      expect(idsOf(await api.get(admin, '/tasks/mine', { 'x-company-id': w.companies.A }))).toEqual([w.tasks.TA1]);
+      expect(idsOf(((await api.get(admin, calendar(), beta)) as { tasks: Row[] }).tasks)).toEqual(sorted([w.tasks.TAB1, w.tasks.TB1]));
+      // An employee is unchanged: ben (PB's owner, on PAB's team) has his own TB1 and TAB1.
+      expect(idsOf(await api.get(w.as.ben, '/tasks/mine'))).toEqual(sorted([w.tasks.TB1, w.tasks.TAB1]));
     });
 
     it('the Projects page’s untick for this visit (?all=1) shows every project; no other list takes it', async () => {
@@ -173,17 +187,35 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
     it('Activity, the bell, Meetings and My Action Items', async () => {
       const { admin } = w.as;
       expect(projectIdsOf(await api.get(admin, '/activity'))).toEqual(sorted([w.projects.PA, w.projects.PAB]));
-      expect(titlesOf(await api.get(admin, '/notifications'))).toEqual(sorted(['admin ZZALPHA notice', 'admin digest']));
-      expect(await api.get(admin, '/notifications/unread-count')).toEqual({ count: 2 });
-      // 1.22 integration: lane N's Notifications page reads the same scope — its pages, Unread tab and chip counts.
-      expect(titlesOf(await api.get(admin, '/notifications?limit=50&unread=1'))).toEqual(sorted(['admin ZZALPHA notice', 'admin digest']));
-      expect(titlesOf(await api.get(admin, '/notifications?limit=50&kinds=comments'))).toEqual(['admin ZZALPHA notice']);
-      expect(await api.get(admin, '/notifications/counts')).toMatchObject({ unread: 2, kinds: { comments: 1 } });
+      // Owner, 4 Nov: the administrator's own notifications always show, whatever the project — the
+      // ZZBETA notice (PB, not theirs) too — in the bell, the badge, the Notifications page and its chips.
+      const all = sorted(['admin ZZALPHA notice', 'admin ZZBETA notice', 'admin digest']);
+      expect(titlesOf(await api.get(admin, '/notifications'))).toEqual(all);
+      expect(await api.get(admin, '/notifications/unread-count')).toEqual({ count: 3 });
+      expect(titlesOf(await api.get(admin, '/notifications?limit=50&unread=1'))).toEqual(all);
+      expect(titlesOf(await api.get(admin, '/notifications?limit=50&kinds=comments'))).toEqual(sorted(['admin ZZALPHA notice', 'admin ZZBETA notice']));
+      expect(await api.get(admin, '/notifications/counts')).toMatchObject({ unread: 3, kinds: { comments: 2 } });
+      // A picked company still applies: under Alpha the ZZBETA notice (PB is Beta's) is out.
+      expect(titlesOf(await api.get(admin, '/notifications', { 'x-company-id': w.companies.A }))).not.toContain('admin ZZBETA notice');
+      expect(titlesOf(await api.get(admin, '/notifications', { 'x-company-id': w.companies.B }))).toContain('admin ZZBETA notice');
       // MA (PA), and MN_B — no project, the administrator is one of its people. Not MB (PB) or MN_A.
       expect(idsOf(await api.get(admin, '/meetings'))).toEqual(sorted([w.meetings.MA, w.meetings.MN_B]));
       // Owner, 4 Nov: My Action Items ALWAYS shows the administrator's own items, whatever the project —
       // MB's (PB, not theirs) too; only other people's work and the project lists narrow.
       expect(sorted((await api.get(admin, '/me/action-items') as { description: string }[]).map((i) => i.description))).toEqual(sorted(['admin ZZALPHA action', 'admin ZZBETA action']));
+    });
+
+    it('“Mark all read” reads the administrator’s own notifications from every project', async () => {
+      const { admin } = w.as;
+      try {
+        const res = await api.post(admin, '/notifications/read-all');
+        expect(res.statusCode, res.body).toBe(200);
+        expect(await api.get(admin, '/notifications/unread-count')).toEqual({ count: 0 });
+        const beta = await prisma.notification.findFirstOrThrow({ where: { userId: w.people.admin, title: 'admin ZZBETA notice' } });
+        expect(beta.readAt).not.toBeNull();
+      } finally {
+        await prisma.notification.updateMany({ where: { userId: w.people.admin }, data: { readAt: null } });
+      }
     });
 
     // 1.22 integration: lane B's Activity calendar (`?from=&to=` per day, `?day=` a day's changes)
@@ -231,7 +263,27 @@ describe('“Show my projects only” (1.22): an administrator’s lists follow 
       const { admin } = w.as;
       expect(refsOf(await tools.run(asAi(admin), 'list_projects', {}), 'project')).toEqual(sorted([w.projects.PA, w.projects.PAB]));
       expect(refsOf(await tools.run(asAi(admin), 'list_meetings', { from: dayKey(-1), to: dayKey(5) }), 'meeting')).toEqual(sorted([w.meetings.MA, w.meetings.MN_B]));
-      expect(JSON.stringify(await tools.run(asAi(admin), 'search_tasks', { query: 'ZZBETA' }))).not.toContain('ZZBETA task');
+      // Of PB, only the administrator's own TB1 (owner, 4 Nov — as My Tasks); never TB2 or PC's.
+      const out = JSON.stringify(await tools.run(asAi(admin), 'search_tasks', {}));
+      expect(out).toContain('TB1 ZZBETA task');
+      expect(out).not.toContain('TB2 ZZBETA task');
+      expect(out).not.toContain('ZZGAMMA task');
+    });
+
+    // Owner, 4 Nov (as My Tasks): MICO AI's tasks always include the administrator's own, whatever the
+    // project; other people's tasks still follow the team rule, and the picked company still applies.
+    it('MICO AI’s tasks always include the administrator’s own, whatever the project', async () => {
+      const { admin } = w.as;
+      const tasks = async (viewer: AiViewer, args: Record<string, unknown> = {}) => refsOf(await tools.run(viewer, 'search_tasks', args), 'task');
+      expect(await tasks(asAi(admin))).toEqual(sorted([w.tasks.TA1, w.tasks.TA2, w.tasks.TAB1, w.tasks.TB1]));
+      expect(await tasks(asAi(admin), { assignee: 'me' })).toEqual(sorted([w.tasks.TA1, w.tasks.TB1]));
+      expect(await tasks(asAi(admin, w.companies.B), { assignee: 'me' })).toEqual([w.tasks.TB1]);
+      expect(await tasks(asAi(admin, w.companies.A), { assignee: 'me' })).toEqual([w.tasks.TA1]);
+      // Its details open too; TB2 (someone else's, PB) still doesn't.
+      expect((await tools.run(asAi(admin), 'task_details', { task: `task:${w.tasks.TB1}` })).error).toBeUndefined();
+      expect((await tools.run(asAi(admin), 'task_details', { task: `task:${w.tasks.TB2}` })).error).toMatch(/No task you can see/);
+      // An employee is unchanged: ana (PA, PAB) has none of PB.
+      expect(await tasks(asAi(w.as.ana))).toEqual(sorted([w.tasks.TA1, w.tasks.TA2, w.tasks.TAB1]));
     });
 
     // Owner, 4 Nov (as My Action Items, e9fe5a9c): MICO AI's action items ALWAYS include the
