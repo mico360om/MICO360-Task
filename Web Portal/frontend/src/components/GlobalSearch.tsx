@@ -23,6 +23,9 @@ import { resultsQuery, type TaskSearchHit } from '../lib/search-highlight';
 import { Highlighted } from './ui/Highlighted';
 import { FoundTaskKey } from './TaskKey';
 
+/** "open …" typed (the open command, or a page: "open calendar"). */
+const OPEN_VERB = /^open\s/i;
+
 interface PaletteItem {
   id: string;
   group: string;
@@ -88,6 +91,16 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     queryFn: () => searchApi(apiClient).search(debounced),
     enabled: searchEnabled,
   });
+  // 1.22.3 review: "open" and a loosely typed number ("open mico 142", "open phase 2") is offered once a
+  // search for that number finds the task (the search for the whole text wouldn't); until then — or
+  // with no such task — it is a plain search. (A number typed alone is looked up by the search itself.)
+  const settled = searchEnabled ? parseCommand(debounced, isAdmin, canLead) : null;
+  const lookupKey = settled?.type === 'open' && settled.onlyIfFound && OPEN_VERB.test(debounced.trim()) ? settled.taskKey : null;
+  const lookupQ = useQuery({
+    queryKey: ['search', lookupKey],
+    queryFn: () => searchApi(apiClient).search(lookupKey!),
+    enabled: lookupKey !== null,
+  });
   // Found projects show their picture; the project list is normally cached already.
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi(apiClient).list(), enabled: searchEnabled });
   // companies: found people are colleagues only (spec §3 "directory search"): a teammate from another
@@ -97,8 +110,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
   // "complete WEB-5" must never fall back to WEB-50 when WEB-5 is gone or not visible to you. A key a
-  // task had before it moved project counts too: "open RIG-4" opens what is OPS-17 now. 1.22.3: a
-  // run-together number ("HR214") is each of its splits (HR-214, HR2-14, HR21-4), tried in order.
+  // task had before it moved project counts too: "open RIG-4" opens what is OPS-17 now. (1.22.3 review:
+  // these commands name the number with its hyphen; a run-together "HR214" — HR-214 or HR2-14? — is
+  // only ever offered as the task the search found, "Open HR2-14".)
   const resolveTask = async (key: string) => {
     const r = await searchApi(apiClient).search(key);
     return pickByTaskNumber(r.tasks, commandTaskKeys(key));
@@ -179,9 +193,11 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const items = useMemo<PaletteItem[]>(() => {
     const out: PaletteItem[] = [];
     const parsed = raw ? parseCommand(raw, isAdmin, canLead) : null;
-    // 1.22.3: a number typed loosely without a verb ("mico 142", "MICO142") is offered once the search
-    // finds that task, now or by an old number (null: not found — "phase 2" stays a plain search).
-    const loose = parsed?.type === 'open' && parsed.onlyIfFound ? (searchEnabled ? pickByTaskNumber(q.data?.tasks ?? [], commandTaskKeys(parsed.taskKey)) : null) : undefined;
+    // 1.22.3: a number typed loosely ("mico 142", "MICO142", "open mico 142") is offered once the search
+    // finds that task, now or by an old number (null: not found — "phase 2" stays a plain search). Of a
+    // run-together one it is the task found ("Open HR2-14" for "open hr214"), never a guess.
+    const lookedUp = OPEN_VERB.test(raw) ? lookupQ.data : searchEnabled ? q.data : undefined;
+    const loose = parsed?.type === 'open' && parsed.onlyIfFound ? (lookedUp ? pickByTaskNumber(lookedUp.tasks ?? [], commandTaskKeys(parsed.taskKey)) : null) : undefined;
     if (parsed) {
       if (parsed.type === 'navigate') out.push({ id: 'cmd-nav', group: 'Command', primary: `Go to ${parsed.label}`, run: () => { navigate(parsed.to); reset(); } });
       else if (parsed.type === 'open' && loose) out.push({ id: 'cmd-open', group: 'Command', primary: `Open ${loose.key}`, run: () => openTask(loose.id) });
@@ -217,7 +233,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
     }
     return out;
-  }, [raw, isAdmin, canLead, myId, q.data, searchEnabled, projectsQ.data]);
+  }, [raw, isAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 

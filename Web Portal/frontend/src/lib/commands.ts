@@ -41,17 +41,21 @@ export const NAV_COMMANDS: NavCommand[] = [
  * #MICO-142 — in a command whose spaces are collapsed; `commandKey` then reads it (or turns it down).
  */
 const TASK_KEY = /#? ?[A-Za-z][A-Za-z0-9]*(?: ?[-_‐-―−] ?| )?\d+/.source;
-/** A number as it was always written ("MICO-7", any code): a command straight away. */
-const HYPHENATED = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
+/**
+ * A number with its hyphen, as numbers were always written ("MICO-7", any code; a dash a phone types,
+ * or spaces around it, too): a command straight away. 1.22.3 review: complete, assign and move read
+ * only this form, as on 1.22.2 — "close door 3" or "done step 1" is an ordinary search.
+ */
+const HYPHENATED = /^([A-Za-z][A-Za-z0-9]*) ?[-‐-―−] ?(\d+)$/;
 
 export type ParsedCommand =
   | { type: 'assign'; taskKey: string; assignee: string }
   | { type: 'complete'; taskKey: string }
   | { type: 'move'; taskKey: string; status: string }
   /**
-   * `onlyIfFound`: a number typed loosely without a verb ("mico 142", "MICO142") — offered only once
-   * the search finds a task with that number, so a plain search such as "phase 2" still opens its
-   * first result.
+   * `onlyIfFound`: a number typed loosely, alone ("mico 142", "MICO142") or after "open" ("open mico
+   * 142") — offered only once the search finds a task with that number, so a plain search such as
+   * "phase 2" or "open phase 2" still opens its first result.
    */
   | { type: 'open'; taskKey: string; onlyIfFound?: true }
   | { type: 'navigate'; to: string; label: string };
@@ -63,7 +67,8 @@ export type ParsedCommand =
  */
 function commandKey(typed: string): { key: string; hyphenated: boolean } | null {
   const text = typed.trim().replace(/^# ?/, '');
-  if (HYPHENATED.test(text)) return { key: text.toUpperCase(), hyphenated: true };
+  const apart = HYPHENATED.exec(text);
+  if (apart) return { key: `${apart[1]}-${apart[2]}`.toUpperCase(), hyphenated: true };
   const keys = taskNumberKeys(text);
   if (keys.length === 0) return null;
   return { key: keys.length === 1 ? keys[0]! : text.toUpperCase(), hyphenated: false };
@@ -111,24 +116,23 @@ export function parseCommand(input: string, isAdmin = true, leads = isAdmin): Pa
   const text = input.trim().replace(/\s+/g, ' ');
   if (!text) return null;
 
+  // Changing a task takes its number with the hyphen (1.22.3 review): "close door 3" stays a search,
+  // and a run-together "complete hr214" never picks HR-214 or HR2-14 by itself.
   let m = new RegExp(`^assign\\s+(${TASK_KEY})\\s+to\\s+(.+)$`, 'i').exec(text);
   let key = m ? commandKey(m[1]!) : null;
-  if (m && key) return { type: 'assign', taskKey: key.key, assignee: m[2]!.trim() };
+  if (m && key?.hyphenated) return { type: 'assign', taskKey: key.key, assignee: m[2]!.trim() };
 
   m = new RegExp(`^move\\s+(${TASK_KEY})\\s+to\\s+(.+)$`, 'i').exec(text);
   key = m ? commandKey(m[1]!) : null;
-  if (m && key) return { type: 'move', taskKey: key.key, status: m[2]!.trim() };
+  if (m && key?.hyphenated) return { type: 'move', taskKey: key.key, status: m[2]!.trim() };
 
   m = new RegExp(`^(?:complete|done|finish|close)\\s+(${TASK_KEY})$`, 'i').exec(text);
   key = m ? commandKey(m[1]!) : null;
-  if (key) return { type: 'complete', taskKey: key.key };
+  if (key?.hyphenated) return { type: 'complete', taskKey: key.key };
 
-  m = new RegExp(`^open\\s+(${TASK_KEY})$`, 'i').exec(text);
-  key = m ? commandKey(m[1]!) : null;
-  if (key) return { type: 'open', taskKey: key.key };
-
-  // Just a number: the hyphenated one is a command straight away; a loosely typed one once found.
-  m = new RegExp(`^(${TASK_KEY})$`).exec(text);
+  // Opening one, or just a number: the hyphenated one is a command straight away; a loosely typed
+  // one ("open mico 142", "mico142", "open phase 2") once the search finds that task.
+  m = new RegExp(`^(?:open\\s+)?(${TASK_KEY})$`, 'i').exec(text);
   key = m ? commandKey(m[1]!) : null;
   if (key) return key.hyphenated ? { type: 'open', taskKey: key.key } : { type: 'open', taskKey: key.key, onlyIfFound: true };
 

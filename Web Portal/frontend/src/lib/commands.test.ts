@@ -31,8 +31,8 @@ describe('parseCommand', () => {
   });
 
   describe('a task number however it is typed (1.22.3)', () => {
-    it('reads mico-142, mico 142, MICO142, MICO_142 and #MICO-142 in every command', () => {
-      for (const key of ['mico 142', 'MICO_142', '#MICO-142', '#mico 142', 'MICO - 142']) {
+    it('a number with its hyphen (any case, a leading #, a dash a phone types, spaces around it) works in every command', () => {
+      for (const key of ['mico-142', '#MICO-142', 'MICO - 142', 'MICO–142', '# mico-142']) {
         expect(parseCommand(`open ${key}`), key).toEqual({ type: 'open', taskKey: 'MICO-142' });
         expect(parseCommand(`complete ${key}`), key).toEqual({ type: 'complete', taskKey: 'MICO-142' });
         expect(parseCommand(`assign ${key} to Sara`), key).toEqual({ type: 'assign', taskKey: 'MICO-142', assignee: 'Sara' });
@@ -41,9 +41,26 @@ describe('parseCommand', () => {
       expect(parseCommand('#MICO-142')).toEqual({ type: 'open', taskKey: 'MICO-142' });
     });
 
+    it('1.22.3 review: a number typed loosely (mico 142, MICO_142, MICO142) is read by "open" only, and only once the search finds it', () => {
+      for (const key of ['mico 142', 'MICO_142', '#mico 142']) {
+        expect(parseCommand(`open ${key}`), key).toEqual({ type: 'open', taskKey: 'MICO-142', onlyIfFound: true });
+        expect(parseCommand(`complete ${key}`), key).toBeNull();
+        expect(parseCommand(`assign ${key} to Sara`), key).toBeNull();
+        expect(parseCommand(`move ${key} to Review`), key).toBeNull();
+      }
+    });
+
+    it('1.22.3 review: ordinary searches that start with a verb stay plain searches, as on 1.22.2', () => {
+      for (const text of ['close door 3', 'done step 1', 'finish level 2', 'complete hr214', 'move phase 2 to done', 'assign room 4 to Sara']) expect(parseCommand(text), text).toBeNull();
+      // "open phase 2" is offered as a task only if the search finds PHASE-2 (GlobalSearch); otherwise a search.
+      expect(parseCommand('open phase 2')).toEqual({ type: 'open', taskKey: 'PHASE-2', onlyIfFound: true });
+      // The commands people use keep working.
+      expect(parseCommand('complete MICO-142')).toEqual({ type: 'complete', taskKey: 'MICO-142' });
+      expect(parseCommand('close x-1')).toEqual({ type: 'complete', taskKey: 'X-1' });
+    });
+
     it('a run-together number keeps what was typed, and is looked up under every split', () => {
-      expect(parseCommand('open mico142')).toEqual({ type: 'open', taskKey: 'MICO142' });
-      expect(parseCommand('complete hr214')).toEqual({ type: 'complete', taskKey: 'HR214' });
+      expect(parseCommand('open mico142')).toEqual({ type: 'open', taskKey: 'MICO142', onlyIfFound: true });
       expect(commandTaskKeys('HR214')).toEqual(['HR214', 'HR-214', 'HR2-14', 'HR21-4']);
       expect(commandTaskKeys('MICO-142')).toEqual(['MICO-142']);
       expect(commandTaskKeys('mico-7')).toEqual(['MICO-7']);

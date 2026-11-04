@@ -186,11 +186,43 @@ describe('GlobalSearch', () => {
       }
     });
 
-    it('a run-together number tries every split: "open hr214" opens HR2-14', async () => {
+    it('a run-together number tries every split: "open hr214" is offered as the one found, "Open HR2-14"', async () => {
       found([{ id: 'hr', key: 'HR2-14', title: 'Fence line' }]);
       setup(<><GlobalSearch debounceMs={0} /><Where /></>);
-      await userEvent.type(box(), 'open hr214{Enter}');
+      await userEvent.type(box(), 'open hr214');
+      expect(await screen.findByText('Open HR2-14')).toBeInTheDocument();
+      await userEvent.keyboard('{Enter}');
       await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/?task=hr'));
+    });
+
+    it('1.22.3 review: "open mico 142" is offered only once the search finds MICO-142 — otherwise a plain search', async () => {
+      found([]);
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(box(), 'open mico 142');
+      expect(await screen.findByText(/Nothing matches/)).toBeInTheDocument();
+      expect(screen.queryByText(/^Open /)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Ask MICO AI.*open mico 142/ })).toBeInTheDocument();
+    });
+
+    it('1.22.3 review: "open phase 2", "close door 3", "done step 1", "finish level 2" and "complete hr214" are plain searches — no command, MICO AI still offered', async () => {
+      for (const typed of ['open phase 2', 'close door 3', 'done step 1', 'finish level 2', 'complete hr214']) {
+        found([{ id: 'tp', key: 'MICO-9', title: 'Phase 2 handover' }, { id: 'hr', key: 'HR-214', title: 'Gate' }, { id: 'hr2', key: 'HR2-14', title: 'Fence line' }]);
+        const { unmount } = setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+        await userEvent.type(box(), typed);
+        expect(await screen.findByText('Phase 2 handover')).toBeInTheDocument();
+        // (The lookup for "open phase 2" has had its answer: no task numbered PHASE-2.)
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+        expect(screen.queryByText(/^(Open|Complete|Assign|Move) /), typed).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: new RegExp(`Ask MICO AI.*${typed}`) }), typed).toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it('"complete MICO-142" still completes MICO-142', async () => {
+      found([{ id: 't142', key: 'MICO-142', title: 'Valve check' }]);
+      setup(<GlobalSearch debounceMs={0} />);
+      await userEvent.type(box(), 'complete mico-142');
+      expect(await screen.findByText('Complete MICO-142')).toBeInTheDocument();
     });
 
     it('typed without a verb ("mico142"), it is offered as "Open MICO-142" once the search finds it', async () => {
