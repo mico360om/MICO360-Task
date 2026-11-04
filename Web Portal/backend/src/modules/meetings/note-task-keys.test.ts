@@ -42,4 +42,16 @@ describe('GET /meetings/:id/notes — the task number of each note’s task', ()
     expect(rows.map((n: { taskKey: string | null }) => n.taskKey)).toEqual([null, null, null]);
     expect(rows[0]).toMatchObject({ id: 'n1', taskId: 't1', body: 'n1' });
   });
+
+  it('1.22.3 review: only the numbers of tasks the reader may open — in their projects (an administrator: every one)', async () => {
+    const asked: unknown[] = [];
+    // The note's task t1 is on p1 (it moved there); this reader may open p2's tasks only.
+    const keysIn = async (_ids: string[], projectIds?: readonly string[] | null): Promise<Record<string, string>> => (asked.push(projectIds), !projectIds || projectIds.includes('p1') ? { t1: 'MICO-142' } : {});
+    const member = await app({ accessibleProjectIds: async () => ['p2'], resolveTaskKeys: keysIn });
+    const rows = (await member.inject({ method: 'GET', url: '/meetings/m1/notes' })).json().data;
+    expect(rows.map((n: { taskId: string | null; taskKey: string | null }) => [n.taskId, n.taskKey])).toEqual([['t1', null], [null, null], ['gone', null]]);
+    const admin = await app({ accessibleProjectIds: async () => null, resolveTaskKeys: keysIn });
+    expect((await admin.inject({ method: 'GET', url: '/meetings/m1/notes' })).json().data[0].taskKey).toBe('MICO-142');
+    expect(asked).toEqual([['p2'], null]);
+  });
 });

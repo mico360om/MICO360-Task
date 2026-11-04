@@ -82,6 +82,26 @@ describe('Action item routes', () => {
     expect(items.map((i) => [i.description, i.taskKey])).toEqual([['Linked', 'KEY-t7'], ['Not linked', null]]);
   });
 
+  it('1.22.3 review: no number for a linked task the reader may not open — the meeting’s list and My Action Items; an administrator sees it', async () => {
+    const authService = createAuthService({ users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} }, maxAttempts: 5 });
+    const meetingService = createMeetingService({ meetings: meetingRepo() });
+    const actionItemService = createActionItemService({ actionItems: actionRepo() });
+    // t7 is on p1 now (it moved there); u1 may open p2's tasks only.
+    const projectAccess = {
+      async canViewProject() { return true; }, async canViewTask() { return true; }, async canViewColumn() { return true; },
+      async accessibleProjectIds(_u: string, roles: string[]) { return roles.includes('ADMIN') ? null : ['p2']; },
+    };
+    const resolveTaskKeys = async (ids: string[], projectIds?: readonly string[] | null) => (!projectIds || projectIds.includes('p1') ? Object.fromEntries(ids.map((i) => [i, `KEY-${i}`])) : {});
+    const app = await buildApp({ authService, tokenService, meetingService, actionItemService, projectAccess, resolveTaskKeys });
+    const id = await ownedMeeting(app, 'u1');
+    await actionItemService.addItem(id, 'u1', { description: 'Linked', taskId: 't7', assigneeId: 'u1' });
+    const keysFor = async (url: string, roles: string[]) =>
+      ((await app.inject({ method: 'GET', url: `/api/v1${url}`, headers: { authorization: `Bearer ${await tokenFor('u1', roles)}` } })).json().data as Array<{ taskId: string | null; taskKey: string | null }>).map((i) => [i.taskId, i.taskKey]);
+    expect(await keysFor(`/meetings/${id}/action-items`, ['EMPLOYEE'])).toEqual([['t7', null]]);
+    expect(await keysFor('/me/action-items', ['EMPLOYEE'])).toEqual([['t7', null]]);
+    expect(await keysFor('/me/action-items', ['ADMIN'])).toEqual([['t7', 'KEY-t7']]);
+  });
+
   it('adds an action item to a meeting the caller organizes', async () => {
     const app = await makeApp();
     const id = await ownedMeeting(app, 'u1');

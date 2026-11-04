@@ -74,6 +74,12 @@ export interface NotificationRouteDeps {
   accessibleProjectIds?: (userId: string, roles: string[], pick?: string | null) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id). Absent: no pick. */
   pickOf?: PickOf;
+  /**
+   * 1.22.3 review: the projects whose tasks the person may open (null = every project: an
+   * administrator) — the normal project visibility, "Show my projects only" not applied. A task
+   * notice names the task's number now only when the task is in one of them. Absent: the list's scope decides.
+   */
+  visibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
 }
 
 export async function registerNotificationRoutes(app: FastifyInstance, deps: NotificationRouteDeps): Promise<void> {
@@ -92,7 +98,11 @@ export async function registerNotificationRoutes(app: FastifyInstance, deps: Not
   // as before; `nextCursor` (null at the end) and each row's `project` are new fields beside them.
   app.get('/notifications', { preHandler: guard.authenticate }, async (req) => {
     const q = pageSchema.parse(req.query ?? {});
-    return notificationService.listPage(req.user!.id, await scopeOf(req), q);
+    const scope = await scopeOf(req);
+    // 1.22.3 review: a task notice's number only for a task the reader may open.
+    if (!deps.visibleProjectIds) return notificationService.listPage(req.user!.id, scope, q);
+    const taskProjectIds = await deps.visibleProjectIds(req.user!.id, req.user!.roles ?? []);
+    return notificationService.listPage(req.user!.id, { ...(scope ?? { projectIds: null, pick: null }), taskProjectIds }, q);
   });
 
   // 1.22: unread ones per type chip, and in all, for the Notifications page.

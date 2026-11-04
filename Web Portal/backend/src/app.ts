@@ -238,8 +238,11 @@ export interface AppDeps extends AuthRouteDeps {
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
   /** Each listed meeting's people, minutes, decisions and open action items (the meetings list). */
   meetingListCounts?: (meetingIds: string[]) => Promise<Record<string, MeetingListCounts>>;
-  /** Board keys of tasks by id (meeting action items name their linked task). */
-  resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /**
+   * Board keys of tasks by id (meeting action items name their linked task); with `projectIds`, only of
+   * the tasks in those projects (1.22.3 review: the reader's; null: every project).
+   */
+  resolveTaskKeys?: (taskIds: string[], projectIds?: readonly string[] | null) => Promise<Record<string, string>>;
   /** Resolve user ids → display names for server-rendered documents (e.g. meeting minutes). */
   resolveUserNames?: (ids: string[]) => Promise<Map<string, string>>;
   /** Resolve a project id → its details for server-rendered documents (meeting minutes header). */
@@ -536,6 +539,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const accessibleProjectIds = access ? (u: string, r: string[], pick?: string | null) => access.accessibleProjectIds(u, r, pick) : undefined;
       // 1.22 (owner, 4 Nov): the person's OWN tasks are listed from here — "Show my projects only" never narrows them.
       const ownProjectIds = access?.ownProjectIds ? (u: string, r: string[], pick: string | null) => access.ownProjectIds!(u, r, pick) : undefined;
+      // 1.22.3 review: the projects whose tasks a person may open — the object check canViewTask makes
+      // (no pick: an administrator's every one, null; "Show my projects only" not applied). A task's
+      // number shown as a chip that opens it (a notice, a meeting note, an action item) only for these.
+      const openableProjectIds = access ? (u: string, r: string[]) => access.accessibleProjectIds(u, r) : undefined;
       const mAccess = deps.meetingAccess;
       // companies (MC1 Task 10): someone invited from outside a project's companies has the invitee view
       // of that one meeting. The meeting routes get the full-view check, which refuses an invitee with
@@ -813,7 +820,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         // pick); the team rule stays as in 1.20 (an assignee off the team keeps their task's notices).
         const companies = deps.companyAccess;
         const noticeScope = companies ? (u: string, r: string[], pick?: string | null) => companies.companyProjectIds({ id: u, roles: r }, pick ?? null) : accessibleProjectIds;
-        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds: noticeScope, pickOf });
+        // 1.22.3 review: …but a task notice names the task's number now only when the reader may open the task.
+        await registerNotificationRoutes(api, { notificationService: deps.notificationService, guard, accessibleProjectIds: noticeScope, pickOf, visibleProjectIds: openableProjectIds });
       }
       if (deps.dailyEmails) {
         await registerDailyEmailRoutes(api, { ...deps.dailyEmails, guard, audit: deps.auditService });
@@ -879,6 +887,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           viewOf: meetingViewOf,
           resolveMeetingProjectId: deps.resolveMeetingProjectId,
           resolveTaskKeys: deps.resolveTaskKeys,
+          visibleProjectIds: openableProjectIds, // 1.22.3 review: a linked task's number only for a reader who may open it
           pickOf, // companies: My Action Items follows the pick (1.22: "Show my projects only" doesn't narrow it — owner, 4 Nov)
         });
       }

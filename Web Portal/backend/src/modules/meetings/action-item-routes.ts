@@ -39,8 +39,17 @@ export interface ActionItemRouteDeps {
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
   /** Inherit the meeting's project on creation (so the item shows up in project scope). */
   resolveMeetingProjectId?: (meetingId: string) => Promise<string | null>;
-  /** Board keys of linked tasks (id → key), so an item can name and open its task. */
-  resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /**
+   * Board keys of linked tasks (id → key), so an item can name and open its task; with `projectIds`,
+   * only of the tasks in those projects (null: every project).
+   */
+  resolveTaskKeys?: (taskIds: string[], projectIds?: readonly string[] | null) => Promise<Record<string, string>>;
+  /**
+   * 1.22.3 review: the projects whose tasks the person may open (null = every project: an
+   * administrator; "Show my projects only" not applied). An item names its task's number only when
+   * the task is in one of them — the chip must never open a "not found" panel. Absent: every number.
+   */
+  visibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
   /** companies: the request's picked company (X-Company-Id); My Action Items follows it. Absent: no pick. */
   pickOf?: PickOf;
   /** companies: how a person sees the meeting — an invitee from another company sees only their own items. */
@@ -60,10 +69,11 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
   const canViewMeeting = (req: FastifyRequest, meetingId: string): Promise<boolean> =>
     deps.canViewMeeting ? deps.canViewMeeting(req.user!.id, req.user!.roles ?? [], meetingId) : Promise.resolve(true);
 
-  /** Add `taskKey` (null when the item has no task, or the task is gone). */
-  async function withTaskKeys<T extends { taskId: string | null }>(items: T[]): Promise<Array<T & { taskKey: string | null }>> {
+  /** Add `taskKey` (null when the item has no task, the task is gone, or — 1.22.3 review — the reader may not open it). */
+  async function withTaskKeys<T extends { taskId: string | null }>(req: FastifyRequest, items: T[]): Promise<Array<T & { taskKey: string | null }>> {
     const ids = [...new Set(items.map((i) => i.taskId).filter((t): t is string => Boolean(t)))];
-    const keys = ids.length && deps.resolveTaskKeys ? await deps.resolveTaskKeys(ids) : {};
+    const resolve = deps.resolveTaskKeys;
+    const keys = ids.length && resolve ? await resolve(ids, deps.visibleProjectIds ? await deps.visibleProjectIds(req.user!.id, req.user!.roles ?? []) : null) : {};
     return items.map((i) => ({ ...i, taskKey: (i.taskId && keys[i.taskId]) || null }));
   }
 
@@ -98,7 +108,7 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
     // 1.22 (owner, 4 Nov): "Show my projects only" doesn't narrow this list — My Action Items always
     // shows the administrator's own items, whatever the project; only other people's work and the
     // project lists narrow. The picked company still applies, as above.
-    return { data: await withTaskKeys(await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope, admin: isAdmin(req) })) };
+    return { data: await withTaskKeys(req, await actionItemService.listMine(req.user!.id, { status: q.status, openOnly: q.openOnly, ...scope, admin: isAdmin(req) })) };
   });
 
   // ── Meeting-scoped register ──
@@ -109,7 +119,7 @@ export async function registerActionItemRoutes(app: FastifyInstance, deps: Actio
     const items = await actionItemService.listByMeeting(id);
     // companies: an invitee from another company sees their own items, without the project's tasks.
     if (view === 'invitee') return { data: items.filter((i) => i.assigneeId === req.user!.id).map((i) => ({ ...i, taskId: null, taskKey: null })) };
-    return { data: await withTaskKeys(items) };
+    return { data: await withTaskKeys(req, items) };
   });
 
   app.post('/meetings/:id/action-items', { preHandler: guard.authenticate }, async (req, reply) => {

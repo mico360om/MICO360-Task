@@ -50,6 +50,7 @@ import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move
 import { createMoveNotifier } from './modules/tasks/task-move-notices';
 import { createStatusChangeEffects, type StatusChangeEffects } from './modules/tasks/task-status-effects';
 import { createPrismaApprovalSource } from './modules/tasks/prisma-approval-source';
+import { createPrismaTaskKeyResolver } from './modules/tasks/prisma-task-keys';
 import type { MoveExtra } from './modules/tasks/task-service';
 import { directMessageTitle } from './modules/chat/chat-notices';
 import { taskNoticeBody } from './modules/notifications/task-notice';
@@ -671,8 +672,7 @@ async function main(): Promise<void> {
     actionItems: actionItemService,
   });
   const meetingListCounts = createPrismaMeetingListCounts(prisma);
-  const resolveTaskKeys = async (ids: string[]) =>
-    Object.fromEntries((await prisma.task.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, key: true } })).map((t) => [t.id, t.key]));
+  const resolveTaskKeys = createPrismaTaskKeyResolver(prisma);
 
   const activityService = createActivityService({ activities: createPrismaActivityRepository(prisma) });
   // Timeline lines from the task's checklist, comment, file and blocker routes: filed under the

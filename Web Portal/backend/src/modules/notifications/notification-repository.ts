@@ -69,6 +69,13 @@ export interface ListScope {
   /** The project ids they may see in the pick; null = every project (an administrator without a pick). */
   projectIds: string[] | null;
   pick: string | null;
+  /**
+   * 1.22.3 review: the projects whose tasks the reader may open — an administrator's every one (null),
+   * anyone else's their projects' (team and company; "Show my projects only" not applied). The list's
+   * scope above is the whole company, so a task notice names its task's number now only when the task
+   * is in one of these too. Absent: `projectIds` alone decides.
+   */
+  taskProjectIds?: string[] | null;
 }
 
 export interface NotificationRepository {
@@ -93,6 +100,6 @@ export interface NotificationRepository {
   bulk(userId: string, ids: readonly string[], action: NotificationBulkAction): Promise<number>;
   /** The projects a page of notifications is about (one that is gone or in the trash is left out). */
   projectLooks(ids: readonly string[]): Promise<NotificationProject[]>;
-  /** 1.22.3: the current numbers of the tasks a page is about (one that is gone or in the trash is left out). */
+  /** 1.22.3: the current numbers of the tasks a page is about (one that is gone, in the trash or in a project in the trash is left out). */
   taskKeys(ids: readonly string[]): Promise<NotificationTaskKey[]>;
 }

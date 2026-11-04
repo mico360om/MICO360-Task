@@ -42,10 +42,16 @@ export interface NoteRouteDeps {
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
   /** When present, enables ⭐ Create Task from Note. */
   noteTaskService?: NoteTaskService;
-  /** Project ids the caller may target when creating a task (null = admin/any). */
+  /**
+   * Project ids the caller may see (null = admin/any): where they may create a task, and (1.22.3
+   * review) whose tasks' numbers their notes list may name.
+   */
   accessibleProjectIds?: (userId: string, roles: string[]) => Promise<string[] | null>;
-  /** 1.22.3: the current numbers of tasks by id (a task that is gone is left out). */
-  resolveTaskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /**
+   * 1.22.3: the current numbers of tasks by id (a task that is gone is left out); with `projectIds`, only
+   * of the tasks in those projects (null: every project).
+   */
+  resolveTaskKeys?: (taskIds: string[], projectIds?: readonly string[] | null) => Promise<Record<string, string>>;
 }
 
 export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDeps): Promise<void> {
@@ -66,9 +72,12 @@ export async function registerNoteRoutes(app: FastifyInstance, deps: NoteRouteDe
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(404).send(notFound);
     // 1.22.3: each note's task by its number (`taskKey`, additive; null without a task or when it is gone).
+    // 1.22.3 review: and null for a task the reader may not open (moved to a project they aren't on) —
+    // the page then says "Task", as before.
     const notes = await noteService.listNotes(id);
     const ids = [...new Set(notes.map((n) => n.taskId).filter((t): t is string => Boolean(t)))];
-    const keys = ids.length && deps.resolveTaskKeys ? await deps.resolveTaskKeys(ids) : {};
+    const resolve = deps.resolveTaskKeys;
+    const keys = ids.length && resolve ? await resolve(ids, deps.accessibleProjectIds ? await deps.accessibleProjectIds(req.user!.id, req.user!.roles ?? []) : null) : {};
     return { data: notes.map((n) => ({ ...n, taskKey: (n.taskId && keys[n.taskId]) || null })) };
   });
 

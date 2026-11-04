@@ -158,6 +158,19 @@ describe('the task each is about, by its current number (1.22.3)', () => {
     const [row] = (await svc.listPage('u1', { projectIds: ['p1'], pick: 'A' })).data;
     expect(row).toMatchObject({ title: 'moved away', taskKey: null });
   });
+
+  it('1.22.3 review: names no number of a task the reader may not open, though its project is in the list’s scope (the whole company)', async () => {
+    repo.seed({ userId: 'u1', type: 'TASK_COMMENT', title: 'moved to Finance', entityType: 'task', entityId: 't2', projectId: 'p1', createdAt: at(2) });
+    repo.seed({ userId: 'u1', type: 'TASK_COMMENT', title: 'still on the rig', entityType: 'task', entityId: 't1', projectId: 'p1', createdAt: at(1) });
+    // The bell's scope is both projects (the company); the reader is on the rig's team only.
+    const rows = (await svc.listPage('u1', { projectIds: ['p1', 'p2'], pick: null, taskProjectIds: ['p1'] })).data;
+    expect(rows.map((n) => [n.title, n.taskKey])).toEqual([
+      ['moved to Finance', null],
+      ['still on the rig', 'RIG-7'],
+    ]);
+    // An administrator (null): every number, as before.
+    expect((await svc.listPage('u1', { projectIds: null, pick: null, taskProjectIds: null })).data.map((n) => n.taskKey)).toEqual(['FIN-3', 'RIG-7']);
+  });
 });
 
 describe('the companies scope reaches every list and count (unchanged rule)', () => {

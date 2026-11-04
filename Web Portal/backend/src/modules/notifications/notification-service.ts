@@ -177,11 +177,15 @@ export function createNotificationService({ notifications, preferences, push, lo
     const looks = new Map((projectIds.length ? await notifications.projectLooks(projectIds) : []).map((p) => [p.id, p]));
     // 1.22.3: each task notice names the task's number now — the website shows it as the chip, so a
     // notice made before 1.22.3, or before the task moved, shows the right one. Never the number of a
-    // task now in a project outside the reader's scope.
+    // task now in a project outside the reader's scope — nor (1.22.3 review) of one the reader may not
+    // open: the scope is their whole company, a task moved to a project of it they aren't on isn't theirs.
     const taskIds = [...new Set(page.filter((n) => n.entityType === 'task' && n.entityId).map((n) => n.entityId!))];
-    const visible = scope?.projectIds ? new Set(scope.projectIds) : null;
+    const inScope = scope?.projectIds ? new Set(scope.projectIds) : null;
+    const openable = scope?.taskProjectIds ? new Set(scope.taskProjectIds) : null;
     const keys = new Map(
-      (taskIds.length ? await notifications.taskKeys(taskIds) : []).filter((t) => !visible || visible.has(t.projectId)).map((t) => [t.id, t.key]),
+      (taskIds.length ? await notifications.taskKeys(taskIds) : [])
+        .filter((t) => (!inScope || inScope.has(t.projectId)) && (!openable || openable.has(t.projectId)))
+        .map((t) => [t.id, t.key]),
     );
     const last = page[page.length - 1];
     return {
