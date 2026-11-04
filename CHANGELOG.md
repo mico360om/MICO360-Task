@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-11-04
+
 ### Improvements
 - Projects: the "Only my projects" tick is now the same saved setting as Settings → "Show my projects
   only". Ticking or unticking it is kept for you on every device and every visit, and every page
