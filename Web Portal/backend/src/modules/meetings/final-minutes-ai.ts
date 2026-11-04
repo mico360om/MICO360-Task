@@ -1,5 +1,5 @@
 import { ConflictError, HttpError, ValidationError } from '../../lib/http-errors';
-import { MAX_ATTEMPTS, type AiJobHandler, type AiJobRunner } from '../ai-jobs/ai-job-runner';
+import { KEEP_GRACE_MS, MAX_ATTEMPTS, type AiJobHandler, type AiJobRunner } from '../ai-jobs/ai-job-runner';
 import type { AiJobError, AiJobRecord, AiJobStore } from '../ai-jobs/ai-job-store';
 import { normalizeFinalMinutes, type FinalMinutesContent } from './final-minutes';
 import type { FinalMinutesRecord, FinalMinutesRepository } from './final-minutes-repository';
@@ -24,6 +24,8 @@ export const AI_DRAFT_FAILED = 'AI_DRAFT_FAILED';
 /** Older apps wait for the text in the request, as before: up to this long (the Android app waits 190 s). */
 export const LEGACY_WAIT_MS = 180_000;
 const DRAFT_GONE = 'This AI draft is no longer there to use.';
+const STILL_KEEPING = 'The AI draft is still being saved. Try again in a moment.';
+const CHANGED_JUST_NOW = 'The minutes were changed just now. Look at them again, then use the AI draft if you still want it.';
 const EMPTY = 'The AI’s draft was empty. Try again, or start from the notes.';
 const FAILED = 'Something went wrong while drafting with AI. Try again, or start from the notes.';
 const STILL_RUNNING = 'The AI is still drafting. It will be saved as the draft, and you’ll be told when it’s ready.';
@@ -165,11 +167,18 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
     });
   }
 
+  /**
+   * Finished but its result not kept yet: being kept (SAVING), or the moment between the two (a
+   * stopped server's is kept by a sweep after KEEP_GRACE_MS) — still "drafting" to the page.
+   */
+  const keeping = (job: AiJobRecord) =>
+    job.status === 'DONE' && (job.outcome === 'SAVING' || (job.outcome === null && now().getTime() - (job.finishedAt ?? job.createdAt).getTime() < KEEP_GRACE_MS + 30_000));
+
   /** The page's view of one job, given the minutes as they are now. */
   async function viewOf(job: AiJobRecord | null, minutes: FinalMinutesRecord | null): Promise<AiDraftView | null> {
     if (!job) return null;
     const finishedAt = (job.finishedAt ?? job.createdAt).toISOString();
-    if (job.status === 'QUEUED' || job.status === 'RUNNING') {
+    if (job.status === 'QUEUED' || job.status === 'RUNNING' || keeping(job)) {
       const waiting = job.status === 'QUEUED' && job.attempts > 0;
       const names = deps.userNames ? await deps.userNames([job.requestedById]).catch(() => new Map<string, string>()) : new Map<string, string>();
       return {
@@ -189,7 +198,7 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
         const still = minutes && minutes.status === 'DRAFT' && job.outcomeAt && minutes.savedAt.getTime() === job.outcomeAt.getTime();
         return still ? { id: job.id, status: 'saved', finishedAt } : null;
       }
-      // Offered (or a save cut off before it said which): the draft is there to use.
+      // Offered (or, long after, a save that never said which): the draft is there to use.
       if (job.outcome === null || job.outcome === 'OFFERED') {
         let content: FinalMinutesContent;
         try {
@@ -199,14 +208,18 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
         }
         return { id: job.id, status: 'ready', reason: minutes?.status === 'APPROVED' ? 'final' : 'changed', content, finishedAt };
       }
+      // Its draft could never be kept (LOST): said as a failure.
+      if (job.outcome === 'LOST') return failedView(job, minutes, finishedAt);
       return null;
     }
-    if (job.status === 'FAILED' && job.outcome !== 'DISCARDED') {
-      // The minutes saved since it failed: the failure is old news.
-      if (minutes && job.finishedAt && minutes.savedAt.getTime() > job.finishedAt.getTime()) return null;
-      return { id: job.id, status: 'failed', error: job.error?.message ?? FAILED, finishedAt };
-    }
+    if (job.status === 'FAILED' && job.outcome !== 'DISCARDED') return failedView(job, minutes, finishedAt);
     return null;
+  }
+
+  /** A failure (until the minutes are saved again: then it is old news). */
+  function failedView(job: AiJobRecord, minutes: FinalMinutesRecord | null, finishedAt: string): AiDraftView | null {
+    if (minutes && job.finishedAt && minutes.savedAt.getTime() > job.finishedAt.getTime()) return null;
+    return { id: job.id, status: 'failed', error: job.error?.message ?? FAILED, finishedAt };
   }
 
   /**
@@ -226,18 +239,33 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
   /** The job, if it is this meeting's offered draft (else 409: used, discarded or gone). */
   async function offered(meetingId: string, jobId: string): Promise<AiJobRecord> {
     const job = await store.get(jobId);
+    if (job && job.kind === FINAL_MINUTES_JOB && job.subjectId === meetingId && keeping(job)) throw new ConflictError(STILL_KEEPING, 'AI_DRAFT_RUNNING');
     if (!job || job.kind !== FINAL_MINUTES_JOB || job.subjectId !== meetingId || job.status !== 'DONE' || !(job.outcome === null || job.outcome === 'OFFERED')) {
       throw new ConflictError(DRAFT_GONE, 'AI_DRAFT_GONE');
     }
     return job;
   }
 
-  /** "Use it": the offered AI draft becomes the draft (not over final minutes: reopen them first). Once. */
+  /**
+   * "Use it": the offered AI draft becomes the draft — not over final minutes (reopen them first),
+   * and only over the minutes as they were read here (one conditional save: a change or an approval
+   * at the same moment wins, and the offer stays). Once.
+   */
   async function use(meetingId: string, jobId: string): Promise<FinalMinutesRecord> {
     const job = await offered(meetingId, jobId);
-    if ((await finalMinutes.get(meetingId))?.status === 'APPROVED') throw new ConflictError(MINUTES_LOCKED, 'FINAL_MINUTES_LOCKED');
+    const current = await finalMinutes.get(meetingId);
+    if (current?.status === 'APPROVED') throw new ConflictError(MINUTES_LOCKED, 'FINAL_MINUTES_LOCKED');
     if (!(await store.setOutcome(job.id, 'USED', { at: now(), from: [null, 'OFFERED'] }))) throw new ConflictError(DRAFT_GONE, 'AI_DRAFT_GONE');
-    const saved = await finalMinutes.save(meetingId, { content: normalizeFinalMinutes(job.result), status: 'DRAFT', approvedById: null, approvedAt: null });
+    const saved = await finalMinutes.saveIfUnchanged(meetingId, current ? current.savedAt : null, {
+      content: normalizeFinalMinutes(job.result),
+      status: 'DRAFT',
+      approvedById: null,
+      approvedAt: null,
+    });
+    if (!saved) {
+      await store.setOutcome(job.id, 'OFFERED', { at: now(), from: ['USED'] });
+      throw new ConflictError(CHANGED_JUST_NOW, 'FINAL_MINUTES_CHANGED');
+    }
     deps.onChanged?.(meetingId);
     return saved;
   }
@@ -246,18 +274,19 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
   async function discard(meetingId: string, jobId: string): Promise<void> {
     const job = await store.get(jobId);
     if (!job || job.kind !== FINAL_MINUTES_JOB || job.subjectId !== meetingId) throw new ConflictError(DRAFT_GONE, 'AI_DRAFT_GONE');
-    if (job.status !== 'DONE' && job.status !== 'FAILED') throw new ConflictError('The AI is still drafting.', 'AI_DRAFT_RUNNING');
+    if ((job.status !== 'DONE' && job.status !== 'FAILED') || keeping(job)) throw new ConflictError('The AI is still drafting.', 'AI_DRAFT_RUNNING');
     if (job.outcome === 'DISCARDED') return;
-    if (!(await store.setOutcome(job.id, 'DISCARDED', { at: now(), from: [null, 'OFFERED'] }))) throw new ConflictError(DRAFT_GONE, 'AI_DRAFT_GONE');
+    if (!(await store.setOutcome(job.id, 'DISCARDED', { at: now(), from: [null, 'OFFERED', 'LOST'] }))) throw new ConflictError(DRAFT_GONE, 'AI_DRAFT_GONE');
     deps.onChanged?.(meetingId);
   }
 
   /**
    * Older apps (the Android app before 1.22) wait in the request for the text, as before: the job is
-   * followed (and marked watched, so no bell) until it ends or the wait is over. Its text is saved as
-   * the draft too, by the rule above.
+   * followed until it ends or the wait is over — marked watched (no bell) only while the person who
+   * asked is the one waiting — and no longer once the app has gone (`gone`). Its text is saved as the
+   * draft too, by the rule above.
    */
-  async function waitForContent(jobId: string, meetingId: string): Promise<FinalMinutesContent> {
+  async function waitForContent(jobId: string, meetingId: string, viewerId: string, gone?: AbortSignal): Promise<FinalMinutesContent> {
     const until = Date.now() + (deps.legacyWaitMs ?? LEGACY_WAIT_MS);
     const pollMs = deps.pollMs ?? 500;
     for (;;) {
@@ -266,8 +295,8 @@ export function createFinalMinutesAi(deps: FinalMinutesAiDeps) {
       if (job.status === 'DONE') return normalizeFinalMinutes(job.result);
       if (job.status === 'FAILED') throw new HttpError(job.error?.message ?? FAILED, job.error?.code ?? 'AI_DRAFT_FAILED', job.error?.status ?? 500);
       if (job.status === 'CANCELLED') throw new ConflictError('The AI draft was stopped.', 'AI_DRAFT_STOPPED');
-      if (Date.now() >= until) throw new ConflictError(STILL_RUNNING, 'AI_DRAFT_RUNNING');
-      await deps.jobs.watch(FINAL_MINUTES_JOB, meetingId);
+      if (Date.now() >= until || gone?.aborted) throw new ConflictError(STILL_RUNNING, 'AI_DRAFT_RUNNING');
+      if (job.requestedById === viewerId) await deps.jobs.watch(FINAL_MINUTES_JOB, meetingId);
       await new Promise((r) => setTimeout(r, pollMs));
     }
   }

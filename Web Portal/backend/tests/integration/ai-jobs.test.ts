@@ -212,4 +212,18 @@ describe('AI jobs in the database (integration)', () => {
     expect(await repo.interruptStale(new Date(Date.now() - 60_000), { error: 'interrupted' }, chat.id)).toBe(1);
     expect(await turn('c-3')).not.toBe('busy');
   });
+
+  it('results never kept are taken by one server to keep; ended jobs are deleted after their time', async () => {
+    const { job: j } = await store.create(job(), new Date());
+    const [t] = await store.claimDue('srv-1', new Date(), 60_000, 5);
+    await store.finish(j.id, t!.leaseOwner!, { status: 'DONE', result: { summary: 'x' } }, new Date(Date.now() - 120_000));
+    const takes = await Promise.all([store.claimUnkept(new Date(Date.now() - 60_000), 5), store.claimUnkept(new Date(Date.now() - 60_000), 5)]);
+    expect(takes.flat().map((x) => x.id)).toEqual([j.id]);
+    expect(await store.get(j.id)).toMatchObject({ outcome: 'SAVING', result: { summary: 'x' } });
+    expect(await store.deleteEnded(new Date(Date.now() - 180_000))).toBe(0);
+    const { job: live } = await store.create(job(), new Date());
+    expect(await store.deleteEnded(new Date())).toBeGreaterThanOrEqual(1);
+    expect(await store.get(j.id)).toBeNull();
+    expect(await store.get(live.id)).not.toBeNull(); // active: never
+  });
 });

@@ -88,8 +88,10 @@ export function FinalMinutesSection({
   const [changed, setChanged] = useState(false);
   const [problem, setProblem] = useState<{ text: string; aiFailed?: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  /** Typed here since the AI was asked (so its draft arriving is offered, not put over the typing). */
-  const typedSince = useRef(false);
+  /** Changes written here (typing, a draft from the notes): counted, so the AI's draft never goes over them unasked. */
+  const edits = useRef(0);
+  /** The count when the AI's draft was asked for here ("Replace what is written?" answered yes); null: not asked here. */
+  const askedAt = useRef<number | null>(null);
   /** The AI draft that arrived saved while this page had changes typed since: offered here. */
   const [localOffer, setLocalOffer] = useState<{ id: string; content: FinalMinutesContent } | null>(null);
   /** The saved AI drafts this page has already dealt with. */
@@ -110,12 +112,14 @@ export function FinalMinutesSection({
     setEditing(next.status === 'DRAFT' && next.content ? toEditing(next.content) : null);
     setProblem(null);
     setNotice(message);
+    // Saved, approved or reopened: an AI draft offered against the typing no longer stands.
+    setLocalOffer(null);
   };
   const edit = (patch: Partial<Editing>) => {
     setEditing((e) => (e ? { ...e, ...patch } : e));
     setChanged(true);
     setNotice(null);
-    typedSince.current = true;
+    edits.current += 1;
   };
 
   // The AI's draft was saved as the draft: it opens in the editor — unless something was typed here
@@ -123,14 +127,20 @@ export function FinalMinutesSection({
   useEffect(() => {
     if (!fm || aiDraft?.status !== 'saved' || seen.current === aiDraft.id) return;
     seen.current = aiDraft.id;
+    const asked = askedAt.current;
+    askedAt.current = null;
     if (!changed || !fm.content) return;
-    if (typedSince.current) setLocalOffer({ id: aiDraft.id, content: fm.content });
+    if (asked === null || edits.current > asked) setLocalOffer({ id: aiDraft.id, content: fm.content });
     else {
-      // Asked with "Replace what is written?" answered yes: the draft takes its place.
+      // Asked here with "Replace what is written?" answered yes, and nothing written since: it takes its place.
       setEditing(toEditing(fm.content));
       setChanged(false);
     }
   }, [fm, aiDraft, changed]);
+  // The offer against the typing holds only while the AI's draft is still the saved one.
+  useEffect(() => {
+    if (localOffer && !(aiDraft?.status === 'saved' && aiDraft.id === localOffer.id)) setLocalOffer(null);
+  }, [aiDraft, localOffer]);
 
   // From the notes: at once, into the editor (not kept until saved).
   const draftMut = useMutation({
@@ -139,6 +149,7 @@ export function FinalMinutesSection({
     onSuccess: (res) => {
       setEditing(toEditing(res.content));
       setChanged(true);
+      edits.current += 1; // a draft from the notes is something written here
       setNotice(res.source === 'ai' ? 'Drafted by the AI from the meeting’s agenda, notes and action items. Check it, then save it.' : 'Put together from the meeting’s notes. Edit it, then save it.');
     },
     onError: (err, source) => setProblem({ text: meetingFailure(err, 'Couldn’t make a draft.'), aiFailed: source === 'ai' }),
@@ -151,9 +162,11 @@ export function FinalMinutesSection({
       setNotice(null);
       setLocalOffer(null);
       setComparing(false);
-      typedSince.current = false;
+      return { at: edits.current };
     },
-    onSuccess: (res) => {
+    onSuccess: (res, _v, ctx) => {
+      // Asked (only now: a request that failed asked nothing): what is written now may be replaced.
+      askedAt.current = ctx?.at ?? edits.current;
       qc.setQueryData<FinalMinutes>(key, (old) => (old ? { ...old, aiDraft: res.aiDraft } : old));
       void qc.invalidateQueries({ queryKey: key, exact: true });
     },

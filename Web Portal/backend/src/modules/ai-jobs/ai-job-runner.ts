@@ -16,7 +16,10 @@ import type { AiJobError, AiJobKind, AiJobRecord, AiJobStore, NewAiJob } from '.
  * - a try that fails on a time-out, a 429 or a 5xx waits 30 s, 2 min, then 5 min and goes again
  *   (four tries in all); configuration, limit and content errors end it at once;
  * - the result is kept once (only the try that finishes the job keeps it), and the requester is told
- *   by the bell and a phone push when it ends — unless their page was showing it.
+ *   by the bell and a phone push when it ends — unless their page was showing it;
+ * - a result a stopped server never kept (it finished the job, then stopped) is kept by a sweep a
+ *   minute later — and if keeping it fails again, the job is settled as failed;
+ * - jobs that ended more than 30 days ago are deleted (with the meeting facts they kept).
  */
 
 /** The waits before the second, third and fourth tries. */
@@ -28,8 +31,13 @@ export const JOB_LEASE_MS = 60_000;
 export const JOB_HEARTBEAT_MS = 20_000;
 /** How often every server looks for due jobs. */
 export const JOB_SWEEP_MS = 15_000;
-/** At most this many tries at once on one server. */
-export const JOB_CONCURRENCY = 4;
+/** At most this many tries at once on one server (each model's own limit still governs its calls). */
+export const JOB_CONCURRENCY = 16;
+/** A finished job whose result isn't kept this long after (its server stopped between) is kept by a sweep. */
+export const KEEP_GRACE_MS = 60_000;
+/** Ended jobs are deleted after this long. */
+export const ENDED_KEEP_MS = 30 * 24 * 60 * 60_000;
+const CLEANUP_EVERY_MS = 60 * 60_000;
 /**
  * A requester's page that showed the job this recently is open: the page says it is done, not the
  * bell. Just over the pages' own reading (MICO AI every second, the Final MOM every 3 s), so a page
@@ -96,6 +104,7 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
   const running = new Map<string, { controller: AbortController; done: Promise<void> }>();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   let interval: ReturnType<typeof setInterval> | null = null;
+  let cleanup: ReturnType<typeof setInterval> | null = null;
   let sweeping: Promise<void> | null = null;
   let again = false;
   const watched = new Map<string, number>();
@@ -146,6 +155,7 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
         }
         for (const job of taken) start(job);
       } while (again);
+      await keepUnkept();
     })().finally(() => {
       sweeping = null;
     });
@@ -163,6 +173,8 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
 
   function start(job: AiJobRecord): void {
     const token = job.leaseOwner!;
+    // Taken again by this server (its renewals failed past the lease): the old try is no longer the job's.
+    running.get(job.id)?.controller.abort();
     const controller = new AbortController();
     // Hold the lease while the try runs; a renewal that no longer matches (cancelled, taken over, deleted) stops it.
     const beat = setInterval(() => {
@@ -174,15 +186,52 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
         .catch((err) => log('AI jobs: renewing a lease failed', err, { jobId: job.id }));
     }, heartbeatMs);
     beat.unref?.();
-    const done = execute(job, token, controller.signal)
+    const entry: { controller: AbortController; done: Promise<void> } = { controller, done: Promise.resolve() };
+    entry.done = execute(job, token, controller.signal)
       .catch((err) => log('AI jobs: a job failed unexpectedly', err, { jobId: job.id, kind: job.kind }))
       .finally(() => {
         clearInterval(beat);
-        running.delete(job.id);
+        if (running.get(job.id) === entry) running.delete(job.id);
         // A slot is free: anything waiting for one goes now.
         void sweep();
       });
-    running.set(job.id, { controller, done });
+    running.set(job.id, entry);
+  }
+
+  /** Keep a finished job's result (once); false when keeping it failed (it is kept again later, or settled). */
+  async function keep(job: AiJobRecord, handler: AiJobHandler, from: ReadonlyArray<string | null>): Promise<{ outcome: string } | null> {
+    try {
+      const kept = await handler.save(job, job.result);
+      await store.setOutcome(job.id, kept.outcome, { at: kept.at ?? now(), from });
+      return { outcome: kept.outcome };
+    } catch (err) {
+      log('AI jobs: keeping a result failed', err, { jobId: job.id, kind: job.kind });
+      return null;
+    }
+  }
+
+  /** Results a stopped server never kept: kept now; if that fails too, the job is settled as failed. */
+  async function keepUnkept(): Promise<void> {
+    let found: AiJobRecord[];
+    try {
+      found = await store.claimUnkept(new Date(now().getTime() - KEEP_GRACE_MS), 10);
+    } catch (err) {
+      log('AI jobs: looking for results to keep failed', err);
+      return;
+    }
+    for (const job of found) {
+      const handler = handlers.get(job.kind);
+      if (!handler) continue;
+      const kept = await keep(job, handler, ['SAVING']);
+      if (kept) {
+        await tell({ ...job, outcome: kept.outcome }, handler, { status: 'DONE', outcome: kept.outcome });
+        continue;
+      }
+      const error: AiJobError = { message: 'Something went wrong while keeping the AI’s work. Try again.', code: 'AI_JOB_NOT_KEPT', status: 500 };
+      await store.setOutcome(job.id, 'LOST', { at: now(), from: ['SAVING'] }).catch((err) => log('AI jobs: settling a result failed', err));
+      if (handler.failed) await quietly('settling a failed job', job, () => handler.failed!(job, error));
+      await tell({ ...job, outcome: 'LOST' }, handler, { status: 'FAILED', error });
+    }
   }
 
   async function tell(job: AiJobRecord, handler: AiJobHandler, end: AiJobEnding): Promise<void> {
@@ -229,13 +278,10 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
     if (signal.aborted) return;
     if (!(await store.finish(job.id, token, { status: 'DONE', result }, now()))) return;
     const done = { ...job, status: 'DONE' as const, result, activeKey: null };
-    let outcome: string | null = null;
-    await quietly('keeping a result', job, async () => {
-      const kept = await handler.save(done, result);
-      outcome = kept.outcome;
-      await store.setOutcome(job.id, kept.outcome, { at: kept.at ?? now() });
-    });
-    await tell({ ...done, outcome }, handler, { status: 'DONE', outcome });
+    const kept = await keep(done, handler, [null]);
+    // Not kept (a failure): a sweep keeps it again a minute later, and tells then.
+    if (!kept) return;
+    await tell({ ...done, outcome: kept.outcome }, handler, { status: 'DONE', outcome: kept.outcome });
   }
 
   /** Cancel the active job of a thing (its try in flight here stops at once; elsewhere at its next renewal). */
@@ -261,12 +307,19 @@ export function createAiJobRunner(deps: AiJobRunnerDeps) {
     interval = setInterval(() => void sweep(), sweepMs);
     interval.unref?.();
     void sweep();
+    // Ended jobs go after 30 days (any server may; deleting twice is harmless).
+    const prune = () => void store.deleteEnded(new Date(now().getTime() - ENDED_KEEP_MS)).catch((err) => log('AI jobs: deleting old jobs failed', err));
+    cleanup = setInterval(prune, CLEANUP_EVERY_MS);
+    cleanup.unref?.();
+    prune();
   }
 
   /** Stop sweeping (a try in flight runs on; its lease lapses if the process ends). */
   function stop(): void {
     if (interval) clearInterval(interval);
+    if (cleanup) clearInterval(cleanup);
     interval = null;
+    cleanup = null;
     for (const t of timers) clearTimeout(t);
     timers.clear();
   }

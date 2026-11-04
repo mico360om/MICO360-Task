@@ -161,6 +161,31 @@ describe('Final minutes: writing them', () => {
     expect(screen.getByLabelText('Summary')).toHaveValue('Drafted by the AI.');
   });
 
+  // Review fixes (1.22): the offer against the typing goes once the typing is saved; a draft from the
+  // notes made while the AI drafts is something written, so the AI's draft is offered beside it.
+  it('the offer against the typing goes once the typing is saved (Use it can’t show unsaved text as saved)', async () => {
+    current = { ...draft, aiDraft: running };
+    answer['PUT /meetings/m1/final-minutes'] = () => json({ data: { ...draft, content: { ...content, summary: `${content.summary} Mine.` }, aiDraft: null } });
+    renderSection();
+    await userEvent.type(await screen.findByLabelText('Summary'), ' Mine.');
+    current = { ...draft, content: aiContent, savedAt: '2026-11-04T06:01:00.000Z', aiDraft: { id: 'j1', status: 'saved', finishedAt: '2026-11-04T06:01:00.000Z' } };
+    await screen.findByRole('region', { name: 'AI draft ready' }, { timeout: 2000 });
+    await userEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'AI draft ready' })).toBeNull());
+    expect(screen.getByLabelText('Summary')).toHaveValue(`${content.summary} Mine.`);
+  });
+
+  it('a draft from the notes made while the AI drafts is kept, and the AI’s draft offered beside it', async () => {
+    current = { ...none, aiDraft: running };
+    answer['POST /meetings/m1/final-minutes/draft'] = () => json({ data: { content, source: 'notes' } });
+    renderSection();
+    await userEvent.click(await within(section()).findByRole('button', { name: 'Start from the notes' }));
+    expect(await screen.findByLabelText('Summary')).toHaveValue(content.summary);
+    current = { ...draft, content: aiContent, savedAt: '2026-11-04T06:01:00.000Z', aiDraft: { id: 'j1', status: 'saved', finishedAt: '2026-11-04T06:01:00.000Z' } };
+    expect(await screen.findByRole('region', { name: 'AI draft ready' }, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.getByLabelText('Summary')).toHaveValue(content.summary);
+  });
+
   it('failed for good: says why, with Try again, Start from the notes and Dismiss', async () => {
     current = { ...none, aiDraft: { id: 'j1', status: 'failed', error: 'The AI service is busy right now (HTTP 429). Try again in a moment.', finishedAt: '2026-11-04T06:09:00.000Z' } };
     answer['POST /meetings/m1/final-minutes/ai-draft/j1/discard'] = () => json({ data: { ...none, aiDraft: null } });

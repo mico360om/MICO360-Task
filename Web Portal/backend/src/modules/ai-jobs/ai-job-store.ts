@@ -89,6 +89,14 @@ export interface AiJobStore {
   setOutcome(id: string, outcome: string, opts: { at: Date; from?: ReadonlyArray<string | null> }): Promise<boolean>;
   /** The requester's page shows the active job of a thing. */
   watch(kind: AiJobKind, subjectId: string, at: Date): Promise<void>;
+  /**
+   * Take up to `limit` jobs that finished (DONE) before `before` but whose result was never kept
+   * (outcome still none: a server stopped between the two) — each marked SAVING in one step two
+   * servers can't both win — to keep them now.
+   */
+  claimUnkept(before: Date, limit: number): Promise<AiJobRecord[]>;
+  /** Delete jobs that ended before `before` (their facts and results go with them). */
+  deleteEnded(before: Date): Promise<number>;
 }
 
 export const activeKeyOf = (kind: AiJobKind, subjectId: string): string => `${kind}:${subjectId}`;
@@ -197,6 +205,21 @@ export function createMemoryAiJobStore(): AiJobStore & { rows: Map<string, AiJob
     async watch(kind, subjectId, at) {
       const j = activeOf(activeKeyOf(kind, subjectId));
       if (j) j.watchedAt = at;
+    },
+    async claimUnkept(before, limit) {
+      const due = [...rows.values()].filter((j) => j.status === 'DONE' && j.outcome === null && !!j.finishedAt && j.finishedAt.getTime() < before.getTime()).slice(0, Math.max(0, limit));
+      for (const j of due) j.outcome = 'SAVING';
+      return due.map(copy);
+    },
+    async deleteEnded(before) {
+      let n = 0;
+      for (const [id, j] of rows) {
+        if (!j.activeKey && j.finishedAt && j.finishedAt.getTime() < before.getTime()) {
+          rows.delete(id);
+          n++;
+        }
+      }
+      return n;
     },
   };
 }

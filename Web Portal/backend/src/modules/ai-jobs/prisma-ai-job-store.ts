@@ -148,5 +148,20 @@ export function createPrismaAiJobStore(prisma: PrismaClient): AiJobStore {
     async watch(kind, subjectId, at) {
       await prisma.aiJob.updateMany({ where: { activeKey: activeKeyOf(kind, subjectId) }, data: { watchedAt: at } });
     },
+    async claimUnkept(before, limit) {
+      if (limit <= 0) return [];
+      const found = await prisma.aiJob.findMany({ where: { status: 'DONE', outcome: null, finishedAt: { lt: before } }, orderBy: { finishedAt: 'asc' }, take: limit, select: { id: true } });
+      const taken: AiJobRecord[] = [];
+      for (const f of found) {
+        const { count } = await prisma.aiJob.updateMany({ where: { id: f.id, status: 'DONE', outcome: null }, data: { outcome: 'SAVING' } });
+        const row = count ? await prisma.aiJob.findUnique({ where: { id: f.id } }) : null;
+        if (row) taken.push(toRecord(row));
+      }
+      return taken;
+    },
+    async deleteEnded(before) {
+      const { count } = await prisma.aiJob.deleteMany({ where: { activeKey: null, finishedAt: { lt: before } } });
+      return count;
+    },
   };
 }

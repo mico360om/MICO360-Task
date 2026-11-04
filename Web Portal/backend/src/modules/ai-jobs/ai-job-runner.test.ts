@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMemoryAiJobStore, type AiJobRecord } from './ai-job-store';
-import { createAiJobRunner, isRetryable, MAX_ATTEMPTS, RETRY_DELAYS_MS, type AiJobHandler } from './ai-job-runner';
+import { createAiJobRunner, isRetryable, KEEP_GRACE_MS, MAX_ATTEMPTS, RETRY_DELAYS_MS, type AiJobHandler } from './ai-job-runner';
 import { ProviderRefusedError } from '../ai/ai-completion';
-import { AiTimeoutError } from '../ai/ai-network';
+import { AiTimeoutError, readProviderJson } from '../ai/ai-network';
 import { AiBusyError, AiRateLimitedError } from '../ai/ai-limits';
 import { HttpError, ValidationError } from '../../lib/http-errors';
 
@@ -88,6 +88,13 @@ describe('AI jobs: which failures are tried again', () => {
     ]) {
       expect(isRetryable(err), String(err)).toBe(false);
     }
+  });
+
+  it('a time-out while the answer is still coming in is a time-out too (tried again)', async () => {
+    const res = { json: () => Promise.reject(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })) } as unknown as Response;
+    await expect(readProviderJson(res)).rejects.toBeInstanceOf(AiTimeoutError);
+    const garbled = { json: () => Promise.reject(new SyntaxError('Unexpected token <')) } as unknown as Response;
+    await expect(readProviderJson(garbled)).rejects.toMatchObject({ message: 'The AI provider returned an unreadable response.' });
   });
 
   it('a time-out reads as before: a 400 in plain words', () => {
@@ -301,10 +308,12 @@ describe('AI jobs: several servers and restarts', () => {
     const logger = { error: vi.fn(), info: vi.fn() };
     const runner = createAiJobRunner({ store, owner: 'srv-1', logger });
     const h = scripted([{ summary: 'x' }]);
+    let saves = 0;
     runner.register('final-minutes', {
       ...h.handler,
       save: async () => {
-        throw new Error('database gone');
+        if (saves++ === 0) throw new Error('database gone');
+        return { outcome: 'SAVED' };
       },
       notify: async () => {
         throw new Error('push down');
@@ -313,8 +322,74 @@ describe('AI jobs: several servers and restarts', () => {
     const { job: j } = await runner.enqueue(job());
     await until(ended(store, j.id));
     await runner.idle();
-    expect(logger.error).toHaveBeenCalled();
-    const errs = logger.error.mock.calls.map(([, meta]) => String((meta as { err?: Error }).err?.message));
-    expect(errs).toEqual(expect.arrayContaining(['database gone', 'push down']));
+    const errs = () => logger.error.mock.calls.map(([, meta]) => String((meta as { err?: Error }).err?.message));
+    expect(errs()).toContain('database gone');
+    expect((await store.get(j.id))!.outcome).toBeNull(); // not kept yet: the sweep keeps it later
+    store.rows.get(j.id)!.finishedAt = new Date(Date.now() - KEEP_GRACE_MS - 1000);
+    await runner.sweep();
+    expect((await store.get(j.id))!.outcome).toBe('SAVED');
+    expect(errs()).toContain('push down');
+  });
+
+  it('a result a stopped server never kept is kept by the next sweep (once), and its requester told', async () => {
+    const store = createMemoryAiJobStore();
+    const h = scripted([]);
+    const runner = createAiJobRunner({ store, owner: 'srv-2' });
+    runner.register('final-minutes', h.handler);
+    const { job: j } = await store.create(job(), new Date());
+    // srv-1 finished it (DONE, with its result) and stopped before keeping it.
+    Object.assign(store.rows.get(j.id)!, { status: 'DONE', activeKey: null, result: { summary: 'Kept late.' }, attempts: 1, finishedAt: new Date(Date.now() - 1000) } satisfies Partial<AiJobRecord>);
+    await runner.sweep();
+    expect(h.saved).toEqual([]); // within the grace: srv-1 may still be keeping it
+    store.rows.get(j.id)!.finishedAt = new Date(Date.now() - KEEP_GRACE_MS - 1000);
+    await Promise.all([runner.sweep(), runner.sweep()]);
+    await runner.sweep();
+    expect(h.saved).toEqual([{ id: j.id, result: { summary: 'Kept late.' } }]);
+    expect(await store.get(j.id)).toMatchObject({ outcome: 'SAVED' });
+    expect(h.told).toEqual([{ id: j.id, status: 'DONE', outcome: 'SAVED' }]);
+  });
+
+  it('and if keeping it fails again, the job is settled as failed and the requester told', async () => {
+    const store = createMemoryAiJobStore();
+    const h = scripted([]);
+    const runner = createAiJobRunner({ store, owner: 'srv-2' });
+    runner.register('final-minutes', { ...h.handler, save: async () => Promise.reject(new Error('still gone')) });
+    const { job: j } = await store.create(job(), new Date());
+    Object.assign(store.rows.get(j.id)!, { status: 'DONE', activeKey: null, result: { summary: 'x' }, finishedAt: new Date(Date.now() - KEEP_GRACE_MS - 1000) } satisfies Partial<AiJobRecord>);
+    await runner.sweep();
+    expect(await store.get(j.id)).toMatchObject({ outcome: 'LOST' });
+    expect(h.failed).toEqual([{ id: j.id, message: 'Something went wrong while keeping the AI’s work. Try again.' }]);
+    expect(h.told.map((t) => t.status)).toEqual(['FAILED']);
+  });
+
+  it('a server that takes its own job again (its renewals failed) runs only the new try', async () => {
+    const store = createMemoryAiJobStore();
+    let signal: AbortSignal | undefined;
+    const h = scripted([(sig: AbortSignal) => new Promise((_r, reject) => ((signal = sig), sig.addEventListener('abort', () => reject(new Error('aborted'))))), { summary: 'Second try.' }]);
+    const runner = createAiJobRunner({ store, owner: 'srv-1', leaseMs: 20, heartbeatMs: 60_000 });
+    runner.register('final-minutes', h.handler);
+    const { job: j } = await runner.enqueue(job());
+    await until(() => !!signal);
+    await tick(30);
+    await runner.sweep();
+    await until(ended(store, j.id));
+    await runner.idle();
+    expect(signal!.aborted).toBe(true);
+    expect(h.saved).toEqual([{ id: j.id, result: { summary: 'Second try.' } }]);
+  });
+
+  it('ended jobs are deleted after 30 days; active ones never', async () => {
+    const store = createMemoryAiJobStore();
+    const old = (await store.create(job('old'), new Date())).job;
+    Object.assign(store.rows.get(old.id)!, { status: 'DONE', activeKey: null, finishedAt: new Date(Date.now() - 31 * 86_400_000) });
+    const live = (await store.create(job('live'), new Date(Date.now() - 40 * 86_400_000))).job;
+    const recent = (await store.create(job('recent'), new Date())).job;
+    Object.assign(store.rows.get(recent.id)!, { status: 'FAILED', activeKey: null, finishedAt: new Date() });
+    const runner = createAiJobRunner({ store, owner: 'srv-1', concurrency: 0 });
+    runner.startSweeps();
+    await until(async () => !(await store.get(old.id)));
+    runner.stop();
+    expect(await store.get(live.id)).not.toBeNull();
+    expect(await store.get(recent.id)).not.toBeNull();
   });
 });

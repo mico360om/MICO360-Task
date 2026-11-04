@@ -219,7 +219,10 @@ export async function providerFetch(url: string, init: RequestInit, opts: Provid
 export async function readProviderJson(res: Response): Promise<unknown> {
   try {
     return await res.json();
-  } catch {
+  } catch (err) {
+    // The time allowed ran out while the answer was still coming (1.22: tried again in the background).
+    const name = (err as { name?: string } | null)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new AiTimeoutError();
     throw new ValidationError('The AI provider returned an unreadable response.');
   }
 }

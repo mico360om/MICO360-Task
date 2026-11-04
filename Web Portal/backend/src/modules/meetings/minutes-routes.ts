@@ -548,7 +548,12 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
         const { job, joined } = await ai.start(viewer, id, { title: (await meetingService.getMeeting(id)).title, facts, waiting: !background }, current);
         if (!joined) deps.onFinalMinutesChanged?.(id);
         if (background) return reply.status(202).send({ data: { source, joined, aiDraft: await ai.view(id, current, viewer.userId, { watch: false }) } });
-        return { data: { content: await ai.waitForContent(job.id, id), source } };
+        // An older app waits for the text; once it has gone, this request stops following the job.
+        const gone = new AbortController();
+        reply.raw.once('close', () => {
+          if (!reply.raw.writableEnded) gone.abort();
+        });
+        return { data: { content: await ai.waitForContent(job.id, id, viewer.userId, gone.signal), source } };
       }
       const { data } = await gather(req, id);
       if (source === 'notes') return { data: { content: draftFromNotes(data), source } };
