@@ -122,6 +122,50 @@ export interface PdfDocumentOptions {
    * the built-in logo, as before.
    */
   logo?: Buffer | null;
+  /**
+   * How tightly the document is set: 'regular' (the default, every PDF so far) or 'compact' (the
+   * minutes of meeting: smaller type, narrower margins, a one-row header, slim tiles and no filled
+   * bands). Only the defaults change; sizes a caller passes are kept.
+   */
+  density?: PdfDensity;
+}
+
+/** See PdfDocumentOptions.density. */
+export type PdfDensity = 'regular' | 'compact';
+
+/** The type sizes and spacing a density sets (points). */
+interface PdfScale {
+  /** Side and top margin. */
+  margin: number;
+  /** Default size of text, lists, formatted text and key/value rows. */
+  body: number;
+  /** heading(): its size, the room above it, the rule under it and the room after the rule. */
+  heading: { size: number; topGap: number; ruleGap: number; rule: number; after: number };
+  /** subheading(): its size, the room above it and after it. */
+  subheading: { size: number; topGap: number; gap: number };
+  /** table(): default type size and the room above and below each line. */
+  table: { size: number; padY: number };
+}
+
+const SCALES: Record<PdfDensity, PdfScale> = {
+  regular: { margin: 54, body: 10.5, heading: { size: 12.5, topGap: 14, ruleGap: 3, rule: 0.7, after: 6 }, subheading: { size: 11, topGap: 10, gap: 3 }, table: { size: 8.5, padY: 3 } },
+  // 46 pt ≈ 16 mm margins; 9 pt text (12.6 pt lines), 10.5 pt headings, 8 pt tables.
+  compact: { margin: 46, body: 9, heading: { size: 10.5, topGap: 10, ruleGap: 2, rule: 0.5, after: 4 }, subheading: { size: 9.5, topGap: 7, gap: 2 }, table: { size: 8, padY: 2.5 } },
+};
+
+/** A "Label: value" row; a third entry makes the value a link to that address (only the label is shown). */
+export type KeyValueRow = readonly [label: string, value: string, href?: string];
+
+/** Where the last line of a paragraph, list item or formatted text was drawn (for aside()). */
+interface LastLine {
+  page: number;
+  baseline: number;
+  /** The left and right ends of its words. */
+  x0: number;
+  x1: number;
+  rtl: boolean;
+  /** The cursor just after it: an aside only joins the line while nothing else has been drawn since. */
+  after: number;
 }
 
 /** A picture pdfkit has opened: embedded once however often it is drawn; its size in pixels. */
@@ -174,7 +218,9 @@ export interface TableColumn {
 /** Room between a table cell's edge and its text, left and right (points). */
 export const TABLE_PAD_X = 5;
 
-const MARGIN = 54; // 0.75"
+const MARGIN = SCALES.regular.margin; // 0.75"
+/** The compact header's mark (the project's picture, icon or initials, or the logo mark), in points. */
+const COMPACT_MARK = 32;
 
 /** The width between the side margins of an A4 page in this orientation, in points. */
 export function contentWidthOf(orientation: 'portrait' | 'landscape' = 'portrait'): number {
@@ -199,7 +245,7 @@ export const BULLET = '•';
 export class PdfDocument {
   readonly pageWidth: number; // A4, the paper size used in Oman
   readonly pageHeight: number;
-  readonly margin = MARGIN;
+  readonly margin: number;
   readonly bottomMargin = 62; // leaves room for the footer
   /** Where content starts on pages after the first when a running header is drawn above it. */
   private readonly continuationTop: number;
@@ -214,9 +260,16 @@ export class PdfDocument {
   private readonly pal: { ink: RGB; muted: RGB; brand: RGB; line: RGB };
   /** Companies: the company's own logo, opened once (null: the built-in logo is used). */
   private readonly companyMark: OpenedImage | null;
+  /** The density's type sizes and spacing. */
+  private readonly scale: PdfScale;
+  private readonly compact: boolean;
+  private lastLine: LastLine | null = null;
 
   constructor(private readonly opts: PdfDocumentOptions = {}) {
     const landscape = opts.orientation === 'landscape';
+    this.compact = opts.density === 'compact';
+    this.scale = SCALES[opts.density ?? 'regular'];
+    this.margin = this.scale.margin;
     this.pageWidth = landscape ? 841.89 : 595.28;
     this.pageHeight = landscape ? 595.28 : 841.89;
     this.continuationTop = opts.runningTitle ? this.margin + 14 : this.margin;
@@ -286,6 +339,7 @@ export class PdfDocument {
   private newPage(): void {
     this.doc.addPage({ size: 'A4', layout: this.opts.orientation === 'landscape' ? 'landscape' : 'portrait', margin: 0 });
     this.y = this.continuationTop;
+    this.lastLine = null;
   }
 
   /** Room left on the current page, in points. */
@@ -313,11 +367,17 @@ export class PdfDocument {
     this.doc.rect(x, top, w, h).fill(toHex(color));
   }
 
-  /** Draw a laid-out line on `baseline`, aligned inside [left, left + width]. */
-  private placeLine(line: TextLine, left: number, width: number, baseline: number, size: number, color: RGB, align: TextAlign): void {
+  /** Draw a laid-out line on `baseline`, aligned inside [left, left + width]. Returns where its left end is. */
+  private placeLine(line: TextLine, left: number, width: number, baseline: number, size: number, color: RGB, align: TextAlign): number {
     const effective = align === 'start' ? (line.rtl ? 'right' : 'left') : align;
     const x = effective === 'right' ? left + width - line.width : effective === 'center' ? left + (width - line.width) / 2 : left;
     drawTextLine(this.doc, line, x, baseline, size, toHex(color));
+    return x;
+  }
+
+  /** Remember the line just drawn (its baseline and ends) as the one an aside() may join. */
+  private noteLine(line: TextLine, x: number, baseline: number): void {
+    this.lastLine = { page: this.doc.bufferedPageRange().count, baseline, x0: x, x1: x + line.width, rtl: line.rtl, after: this.y };
   }
 
   /** Draw the brand logo mark: a rounded gradient tile with a white check + progress dot. `y` is the tile's bottom edge in PDF (bottom-up) space. */
@@ -353,12 +413,18 @@ export class PdfDocument {
    * and a brand rule beneath. Positions itself from the current cursor and advances past it.
    */
   brandHeader(opts: { title: string; subtitle?: string; eyebrow?: string; from?: RGB; to?: RGB; badge?: HeaderBadge }): this {
-    const s = 42;
+    const s = this.compact ? COMPACT_MARK : 42;
     const top = this.y;
     this.logoMark(this.margin, this.pageHeight - top - s, s, opts.from, opts.to);
-    this.y = this.headerText(top, s, opts) + 10;
-    this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
-    this.y += 2 + 12;
+    return this.headerRule(this.headerText(top, s, opts));
+  }
+
+  /** The brand rule under a header whose text ends at `bottom`, and the room after it. */
+  private headerRule(bottom: number): this {
+    const [gap, thick, after] = this.compact ? [7, 1.2, 9] : [10, 2, 12];
+    this.y = bottom + gap;
+    this.fillRect(this.margin, this.y, this.contentWidth, thick, this.pal.brand);
+    this.y += thick + after;
     return this;
   }
 
@@ -369,7 +435,7 @@ export class PdfDocument {
    * on the right, and a brand rule beneath.
    */
   identityHeader(opts: { image?: Buffer | null; icon?: readonly string[] | null; initials: string; color?: RGB; title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): this {
-    const s = 46;
+    const s = this.compact ? COMPACT_MARK : 46;
     const top = this.y;
     const x = this.margin;
     const image = opts.image ? this.prepareImage(opts.image) : null;
@@ -391,13 +457,12 @@ export class PdfDocument {
       for (const d of opts.icon) this.doc.path(d).lineWidth(1.9).lineCap('round').lineJoin('round').stroke(toHex(WHITE));
       this.doc.restore();
     } else {
-      const initials = layoutText(opts.initials.slice(0, 3).toUpperCase(), { size: 17, bold: true })[0]!;
-      drawTextLine(this.doc, initials, x + (s - initials.width) / 2, top + s / 2 + 6, 17, toHex(WHITE));
+      // 17 pt on the 46 pt tile, in step on a smaller one.
+      const size = (17 * s) / 46;
+      const initials = layoutText(opts.initials.slice(0, 3).toUpperCase(), { size, bold: true })[0]!;
+      drawTextLine(this.doc, initials, x + (s - initials.width) / 2, top + s / 2 + (6 * s) / 46, size, toHex(WHITE));
     }
-    this.y = this.headerText(top, s, opts) + 10;
-    this.fillRect(this.margin, this.y, this.contentWidth, 2, this.pal.brand);
-    this.y += 2 + 12;
-    return this;
+    return this.headerRule(this.headerText(top, s, opts));
   }
 
   /**
@@ -407,6 +472,7 @@ export class PdfDocument {
    * Returns where the header's text ends (at least the bottom of the mark).
    */
   private headerText(top: number, s: number, opts: { title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): number {
+    if (this.compact) return this.compactHeaderText(top, s, opts);
     const badgeSize = 7.5;
     const badgeLine = opts.badge ? layoutText(opts.badge.text.toUpperCase(), { size: badgeSize, bold: true })[0]! : null;
     const badgeW = badgeLine ? badgeLine.width + 16 : 0;
@@ -454,10 +520,73 @@ export class PdfDocument {
   }
 
   /**
+   * The compact header's words (one row): the eyebrow over the title (and a subtitle under it) beside
+   * the mark, centred on it; on the right the badge as a small pill, then the company's logo. A line
+   * too long for the room shrinks a little, then wraps (never cut); the header grows to hold it.
+   */
+  private compactHeaderText(top: number, s: number, opts: { title: string; subtitle?: string; eyebrow?: string; badge?: HeaderBadge }): number {
+    let right = this.margin + this.contentWidth;
+    const img = this.companyMark;
+    if (img) {
+      const box = fitBox(img.width, img.height, 84, s - 6);
+      this.drawOpened(img, right - box.w, top + (s - box.h) / 2, box.w, box.h);
+      right -= box.w + 10;
+    }
+    if (opts.badge) {
+      const size = 6.5;
+      const line = layoutText(opts.badge.text.toUpperCase(), { size, bold: true })[0]!;
+      const tone = opts.badge.tone === 'success' ? SUCCESS : opts.badge.tone === 'warning' ? WARNING : this.pal.muted;
+      const w = line.width + 14;
+      const h = 14;
+      const bx = right - w;
+      const by = top + (s - h) / 2;
+      this.doc.save().roundedRect(bx, by, w, h, h / 2).fill(toHex(mix(tone, WHITE, 0.86))).restore();
+      this.doc.save().lineWidth(0.7).roundedRect(bx, by, w, h, h / 2).stroke(toHex(tone)).restore();
+      drawTextLine(this.doc, line, bx + 7, by + h / 2 + size * 0.36, size, toHex(darken(tone, 0.15)));
+      right = bx - 12;
+    }
+    const tx = this.margin + s + 10;
+    const tw = Math.max(80, right - tx);
+    const fit = (text: string, size: number, min: number, bold: boolean, color: RGB) => {
+      let sz = size;
+      while (sz > min && measureText(text, sz, bold) > tw) sz -= 0.5;
+      return { size: sz, color, lines: layoutText(text, { size: sz, bold, maxWidth: tw }) };
+    };
+    const blocks = [
+      opts.eyebrow ? fit(opts.eyebrow.toUpperCase(), 7, 6.5, true, this.pal.brand) : null,
+      fit(opts.title, 12.5, 10, true, this.pal.ink),
+      opts.subtitle ? fit(opts.subtitle, 8, 7, false, this.pal.muted) : null,
+    ].filter((b): b is NonNullable<typeof b> => b !== null);
+    // Tight lines for these one-line labels; Arabic keeps its taller box.
+    const boxOf = (ln: TextLine, size: number) => (ln.arabic ? lineBox(ln, size) : { height: size * 1.3, ascent: size * 0.98 });
+    const total = blocks.reduce((h, b) => h + b.lines.reduce((t, ln) => t + boxOf(ln, b.size).height, 0), 0);
+    let y = top + Math.max(0, (s - total) / 2);
+    for (const b of blocks) {
+      for (const ln of b.lines) {
+        const box = boxOf(ln, b.size);
+        drawTextLine(this.doc, ln, tx, y + box.ascent, b.size, toHex(b.color));
+        y += box.height;
+      }
+    }
+    return Math.max(top + s, y);
+  }
+
+  /**
    * A band that opens a part of the document ("Final Minutes of Meeting", "Meeting record"): its
-   * title in the heading face on a tinted strip with a brand edge. Kept with what follows it.
+   * title in the heading face on a tinted strip with a brand edge. Kept with what follows it. In a
+   * compact document: the title in the brand colour over a thin brand rule, no band.
    */
   partBand(title: string, options: { topGap?: number; keepWith?: number } = {}): this {
+    if (this.compact) {
+      const size = 11.5;
+      this.spacer(options.topGap ?? 12);
+      this.ensure(this.textHeight(title, { bold: true, size, family: 'display' }) + 9 + Math.max(40, options.keepWith ?? 0));
+      this.text(title, { bold: true, size, color: this.pal.brand, family: 'display' });
+      this.y += 2;
+      this.fillRect(this.margin, this.y, this.contentWidth, 1, this.pal.brand);
+      this.y += 1 + 6;
+      return this;
+    }
     const size = 13.5;
     const h = 30;
     this.spacer(options.topGap ?? 18);
@@ -479,8 +608,27 @@ export class PdfDocument {
    * "DRAFT · Not yet approved" in amber. Wraps when long.
    */
   statusStrip(text: string, tone: 'success' | 'warning' | 'muted' = 'muted'): this {
-    const size = 9.5;
     const color = tone === 'success' ? SUCCESS : tone === 'warning' ? WARNING : this.pal.muted;
+    if (this.compact) {
+      // One slim line: a faint tint with an edge in the tone, the words a shade darker for contrast.
+      const size = 8;
+      const lines = layoutText(text, { size, bold: true, maxWidth: this.contentWidth - 18 });
+      const padY = 3;
+      const h = lines.reduce((t, ln) => t + lineBox(ln, size).height, 0) + padY * 2;
+      this.ensure(h + 6);
+      const top = this.y;
+      this.fillRect(this.margin, top, this.contentWidth, h, mix(color, WHITE, 0.9));
+      this.fillRect(this.margin, top, 2, h, color);
+      let y = top + padY;
+      for (const ln of lines) {
+        const box = lineBox(ln, size);
+        this.placeLine(ln, this.margin + 9, this.contentWidth - 18, y + box.ascent, size, darken(color, 0.2), 'start');
+        y += box.height;
+      }
+      this.y = top + h + 6;
+      return this;
+    }
+    const size = 9.5;
     const lines = layoutText(text, { size, bold: true, maxWidth: this.contentWidth - 24 });
     const box = lineBox(null, size, true);
     const h = lines.length * box.height + 12;
@@ -495,21 +643,22 @@ export class PdfDocument {
 
   /** A heading inside a part: bold ink, no rule, kept with the start of what follows. */
   subheading(text: string, options: { topGap?: number; keepWith?: number } = {}): this {
-    const size = 11;
-    this.spacer(options.topGap ?? 10);
+    const { size, topGap, gap } = this.scale.subheading;
+    this.spacer(options.topGap ?? topGap);
     this.ensure(size * 1.6 + Math.max(28, options.keepWith ?? 0));
-    this.text(text, { bold: true, size, color: this.pal.ink, family: 'display', gap: 3 });
+    this.text(text, { bold: true, size, color: this.pal.ink, family: 'display', gap });
     return this;
   }
 
   /** The room subheading() with these options keeps together (its gap, its line and what it keeps with it): a heading above it keeps this much. */
   subheadingRoom(options: { topGap?: number; keepWith?: number } = {}): number {
-    return (options.topGap ?? 10) + 11 * 1.6 + Math.max(28, options.keepWith ?? 0);
+    const { size, topGap } = this.scale.subheading;
+    return (options.topGap ?? topGap) + size * 1.6 + Math.max(28, options.keepWith ?? 0);
   }
 
   /** The height text() would take for this paragraph (its gap included), in points. */
   textHeight(content: string, options: TextOptions = {}): number {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
     const lines = layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family });
     return lines.reduce((h, ln) => h + lineBox(ln, size).height, 0) + (options.gap ?? 0);
@@ -517,18 +666,19 @@ export class PdfDocument {
 
   /**
    * "Label: value" pairs in two columns, each with its own label width; values wrap within their
-   * column. Kept together on one page.
+   * column. A row with an address (see KeyValueRow) shows its value as a link to it. Kept together
+   * on one page.
    */
-  keyValueColumns(left: ReadonlyArray<readonly [string, string]>, right: ReadonlyArray<readonly [string, string]>, options: { size?: number } = {}): this {
-    const size = options.size ?? 10.5;
+  keyValueColumns(left: ReadonlyArray<KeyValueRow>, right: ReadonlyArray<KeyValueRow>, options: { size?: number } = {}): this {
+    const size = options.size ?? this.scale.body;
     const gutter = 24;
     const colW = (this.contentWidth - gutter) / 2;
     const columns = [left, right];
     const laid = columns.map((col) => {
       const labels = col.map(([label]) => layoutText(label, { size, bold: true })[0]!);
       const labelW = Math.max(0, ...labels.map((l) => l.width)) + size * 0.9;
-      const rows = col.map(([, value], i) => {
-        const values = layoutText(value || '—', { size, maxWidth: colW - labelW });
+      const rows = col.map(([, value, href], i) => {
+        const values = href ? layoutStyledText([{ text: value || '—', href }], { size, maxWidth: colW - labelW }) : layoutText(value || '—', { size, maxWidth: colW - labelW });
         const boxes = values.map((ln, j) => lineBox(ln, size, ln.arabic || (j === 0 && labels[i]!.arabic)));
         return { label: labels[i]!, values, boxes, height: boxes.reduce((h, b) => h + b.height, 0) };
       });
@@ -562,14 +712,14 @@ export class PdfDocument {
 
   /** A flowing paragraph; honors embedded "\n", wraps to the content width, aligns RTL paragraphs right. */
   text(content: string, options: TextOptions = {}): this {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
     return this.flowLines(layoutText(content, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family }), size, options);
   }
 
   /** A flowing paragraph of formatted runs (bold, italic, underlined, highlighted, links), laid out as text() lays out plain text. */
   styledText(runs: StyledRun[], options: TextOptions = {}): this {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const width = this.contentWidth - (options.inset ?? 0) - (options.indent ?? 0);
     return this.flowLines(layoutStyledText(runs, { size, bold: options.bold ?? false, maxWidth: width, direction: options.direction, family: options.family }), size, options);
   }
@@ -580,14 +730,51 @@ export class PdfDocument {
     const indent = options.indent ?? 0;
     const left = this.margin + (options.inset ?? 0);
     const width = this.contentWidth - (options.inset ?? 0) - indent;
+    let last: [TextLine, number, number] | null = null;
     for (const line of lines) {
       const box = lineBox(line, size);
       this.ensure(box.height);
       if (options.bar) this.fillRect(Math.max(this.margin, left - 10), this.y, 1.5, box.height, options.bar);
-      this.placeLine(line, line.rtl ? left : left + indent, width, this.y + box.ascent, size, color, options.align ?? 'start');
+      const x = this.placeLine(line, line.rtl ? left : left + indent, width, this.y + box.ascent, size, color, options.align ?? 'start');
+      last = [line, x, this.y + box.ascent];
       this.y += box.height;
     }
     if (options.gap) this.y += options.gap;
+    if (last) this.noteLine(...last);
+    return this;
+  }
+
+  /**
+   * A small aside after the paragraph, list item or formatted text just drawn — an attribution
+   * such as "Ada Lovelace · 09:05", muted and smaller than the text. It sits on that block's last
+   * line, flush to the line's end edge (the right one; the left one when the line is right-to-left),
+   * when there is room beside the words; otherwise on a short line of its own under them, at the
+   * same edge. Something else drawn since that block: a line of its own.
+   */
+  aside(content: string, options: { size?: number; color?: RGB; direction?: TextDirection } = {}): this {
+    const size = options.size ?? this.scale.body - 1.5;
+    const color = options.color ?? this.pal.muted;
+    const prev = this.lastLine;
+    const last = prev && prev.after === this.y && prev.page === this.doc.bufferedPageRange().count ? prev : null;
+    const rtl = options.direction ? options.direction === 'rtl' : (last?.rtl ?? false);
+    const lines = layoutText(content, { size, maxWidth: this.contentWidth, direction: rtl ? 'rtl' : 'ltr' });
+    const left = this.margin;
+    const right = this.margin + this.contentWidth;
+    const gap = 10;
+    const one = lines.length === 1 ? lines[0]! : null;
+    if (last && one && (rtl ? left + one.width + gap <= last.x0 : last.x1 + gap <= right - one.width)) {
+      drawTextLine(this.doc, one, rtl ? left : right - one.width, last.baseline, size, toHex(color));
+      return this;
+    }
+    lines.forEach((ln, i) => {
+      const box = lineBox(ln, size);
+      // Kept with the block it belongs to: a one-line aside right under it may reach one line into
+      // the bottom margin (still clear of the footer) rather than sit alone at the top of a page.
+      if (!(i === 0 && last && lines.length === 1)) this.ensure(box.height);
+      this.placeLine(ln, left, this.contentWidth, this.y + box.ascent, size, color, rtl ? 'left' : 'right');
+      this.y += box.height;
+    });
+    this.lastLine = null;
     return this;
   }
 
@@ -689,18 +876,38 @@ export class PdfDocument {
     return { cols, gap, w, h, size, capBox: lineBox(null, size, true) };
   }
 
-  /** A section heading: bold, slightly larger, with a hairline rule beneath. Kept with what follows it. */
-  heading(text: string, options: { size?: number; color?: RGB; topGap?: number; keepWith?: number } = {}): this {
-    const size = options.size ?? 12.5;
-    this.spacer(options.topGap ?? 14);
+  /**
+   * A section heading: bold, slightly larger, with a hairline rule beneath. Kept with what follows it.
+   * `aside`: a short muted note (a count, say) at the end of the heading's line, or under the rule
+   * when the line has no room for it.
+   */
+  heading(text: string, options: { size?: number; color?: RGB; topGap?: number; keepWith?: number; aside?: string } = {}): this {
+    const h = this.scale.heading;
+    const size = options.size ?? h.size;
+    this.spacer(options.topGap ?? h.topGap);
     // Heading + rule + the start of what follows (at least two lines, or `keepWith` points). A long
     // heading counts all its lines (one line keeps the room it always kept).
     const own = Math.max(size * 1.8, this.textHeight(text, { bold: true, size, family: 'display' }));
-    this.ensure(own + 9 + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - own - 9)));
+    const below = h.ruleGap + h.after;
+    this.ensure(own + below + Math.max(32, Math.min(options.keepWith ?? 0, this.contentBottom - this.continuationTop - own - below)));
     this.text(text, { bold: true, size, color: options.color ?? this.pal.brand, family: 'display' });
-    this.y += 3;
-    this.fillRect(this.margin, this.y, this.contentWidth, 0.7, this.pal.line);
-    this.y += 6;
+    let aside = options.aside ?? null;
+    const last = this.lastLine;
+    if (aside && last) {
+      const asideSize = this.scale.body - 1;
+      const ln = layoutText(aside, { size: asideSize, direction: last.rtl ? 'rtl' : 'ltr' })[0]!;
+      const left = this.margin;
+      const right = this.margin + this.contentWidth;
+      if (last.rtl ? left + ln.width + 12 <= last.x0 : last.x1 + 12 <= right - ln.width) {
+        drawTextLine(this.doc, ln, last.rtl ? left : right - ln.width, last.baseline, asideSize, toHex(this.pal.muted));
+        aside = null;
+      }
+    }
+    this.y += h.ruleGap;
+    this.fillRect(this.margin, this.y, this.contentWidth, h.rule, this.pal.line);
+    this.y += h.after;
+    if (aside) this.text(aside, { size: this.scale.body - 1, color: this.pal.muted, gap: 2 });
+    this.lastLine = null;
     return this;
   }
 
@@ -710,7 +917,7 @@ export class PdfDocument {
    * flush right like any Arabic paragraph.
    */
   keyValue(label: string, value: string, options: { size?: number } = {}): this {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const labelLine = layoutText(label, { size, bold: true })[0]!;
     const labelWidth = labelLine.width + size * 0.9;
     const valueWidth = this.contentWidth - labelWidth;
@@ -729,12 +936,13 @@ export class PdfDocument {
 
   /** A bullet list item with a hanging indent; a small square marks it (on the right for RTL items). */
   bullet(content: string, options: { indent?: number; color?: RGB; size?: number; direction?: TextDirection } = {}): this {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const indent = options.indent ?? 0;
     const marker = 12;
     const width = this.contentWidth - indent - marker;
     const lines = layoutText(content, { size, maxWidth: width, direction: options.direction });
     const rtl = lines[0]?.rtl ?? false;
+    let last: [TextLine, number, number] | null = null;
     lines.forEach((ln, i) => {
       const box = lineBox(ln, size);
       this.ensure(box.height);
@@ -744,21 +952,23 @@ export class PdfDocument {
         const sx = rtl ? this.pageWidth - this.margin - indent - 1 - sq : this.margin + indent + 1;
         this.fillRect(sx, baseline - size * 0.28 - sq, sq, sq, options.color ?? this.pal.brand);
       }
-      this.placeLine(ln, rtl ? this.margin : this.margin + indent + marker, width, baseline, size, this.pal.ink, 'start');
+      last = [ln, this.placeLine(ln, rtl ? this.margin : this.margin + indent + marker, width, baseline, size, this.pal.ink, 'start'), baseline];
       this.y += box.height;
     });
+    if (last) this.noteLine(...(last as [TextLine, number, number]));
     return this;
   }
 
   /** A numbered list item with a hanging indent aligned past the number (mirrored for RTL items). */
   numbered(marker: string, content: string, options: { indent?: number; size?: number; direction?: TextDirection } = {}): this {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const indent = options.indent ?? 0;
     const gutter = Math.max(16, measureText(marker, size, true) + size * 0.3 + 4);
     const width = this.contentWidth - indent - gutter;
     const lines = layoutText(content, { size, maxWidth: width, direction: options.direction });
     const rtl = lines[0]?.rtl ?? false;
     const markerLine = layoutText(marker, { size, bold: true, direction: rtl ? 'rtl' : 'ltr' })[0]!;
+    let last: [TextLine, number, number] | null = null;
     lines.forEach((ln, i) => {
       const box = lineBox(ln, size);
       this.ensure(box.height);
@@ -767,9 +977,10 @@ export class PdfDocument {
         const mx = rtl ? this.pageWidth - this.margin - indent - markerLine.width : this.margin + indent;
         drawTextLine(this.doc, markerLine, mx, baseline, size, toHex(this.pal.brand));
       }
-      this.placeLine(ln, rtl ? this.margin : this.margin + indent + gutter, width, baseline, size, this.pal.ink, 'start');
+      last = [ln, this.placeLine(ln, rtl ? this.margin : this.margin + indent + gutter, width, baseline, size, this.pal.ink, 'start'), baseline];
       this.y += box.height;
     });
+    if (last) this.noteLine(...(last as [TextLine, number, number]));
     return this;
   }
 
@@ -780,8 +991,9 @@ export class PdfDocument {
    * to-left blocks are set from the right edge, their markers too.
    */
   richBlocks(blocks: PdfRichBlock[], options: { lead?: string; size?: number } = {}): this {
-    const size = options.size ?? 10.5;
+    const size = options.size ?? this.scale.body;
     const leadW = options.lead ? this.markerWidth(options.lead, size) : 0;
+    let last: [TextLine, number, number] | null = null;
     blocks.forEach((b, bi) => {
       const heading = b.kind === 'heading';
       const s = heading ? size + 0.5 : size;
@@ -799,10 +1011,11 @@ export class PdfDocument {
         const baseline = this.y + box.ascent;
         if (i === 0 && bi === 0 && options.lead) this.drawMarker(options.lead, 0, baseline, s, rtl);
         if (i === 0 && b.kind === 'item') this.drawMarker(b.marker ?? BULLET, leadW + itemIndent, baseline, s, rtl);
-        this.placeLine(ln, rtl ? this.margin : this.margin + textIndent, width, baseline, s, this.pal.ink, 'start');
+        last = [ln, this.placeLine(ln, rtl ? this.margin : this.margin + textIndent, width, baseline, s, this.pal.ink, 'start'), baseline];
         this.y += box.height;
       });
     });
+    if (last) this.noteLine(...(last as [TextLine, number, number]));
     return this;
   }
 
@@ -876,6 +1089,7 @@ export class PdfDocument {
    */
   statTiles(items: StatTile[]): this {
     if (items.length === 0) return this;
+    if (this.compact) return this.slimTiles(items);
     const gap = 10;
     const w = (this.contentWidth - gap * (items.length - 1)) / items.length;
     const inner = w - 20;
@@ -917,6 +1131,61 @@ export class PdfDocument {
         drawTextLine(this.doc, ln, x + 12, ly, 8.5, toHex(accent));
         ly += 11;
       }
+    });
+    this.y = top + h + 8;
+    return this;
+  }
+
+  /**
+   * The compact document's tiles: slim cards, the value (Archivo) with its label beside it on one
+   * line, and the note after the label (or under it when the line is full). A label too long for
+   * its card wraps there; every card takes the tallest one's height.
+   */
+  private slimTiles(items: StatTile[]): this {
+    const gap = 8;
+    const w = (this.contentWidth - gap * (items.length - 1)) / items.length;
+    const padX = 9;
+    const padY = 6;
+    const inner = w - padX * 2;
+    const small = 7.5;
+    const step = small * 1.3;
+    const laid = items.map((it) => {
+      let size = 11;
+      while (size > 8 && measureText(it.value, size, true, 'display') > inner * 0.55) size -= 0.5;
+      const value = layoutText(it.value, { size, bold: true, family: 'display', maxWidth: inner })[0]!;
+      const labelX = value.width + 5;
+      const room = Math.max(30, inner - labelX);
+      const label = layoutText(it.label, { size: small, maxWidth: room });
+      const lastW = label.at(-1)?.width ?? 0;
+      const note = it.note ? layoutText(it.note, { size: small, bold: true, maxWidth: room }) : [];
+      const beside = note.length === 1 && labelX + lastW + 5 + note[0]!.width <= inner;
+      const rows = label.length + (note.length && !beside ? note.length : 0);
+      return { it, size, value, labelX, label, note, beside, lastW, rows };
+    });
+    const h = Math.max(24, ...laid.map((l) => padY * 2 + (l.rows - 1) * step + l.size * 1.2));
+    this.ensure(h + 8);
+    const top = this.y;
+    laid.forEach(({ it, size, value, labelX, label, note, beside, lastW }, i) => {
+      const x = this.margin + i * (w + gap);
+      const accent = this.tone(it.tone);
+      this.doc.roundedRect(x, top, w, h, 4).fill(toHex(mix(accent, WHITE, 0.93)));
+      this.doc.save();
+      this.doc.roundedRect(x, top, w, h, 4).clip();
+      this.fillRect(x, top, 2.5, h, accent);
+      this.doc.restore();
+      const baseline = top + padY + size * 0.95;
+      drawTextLine(this.doc, value, x + padX, baseline, size, toHex(it.tone === 'danger' ? DANGER : this.pal.ink));
+      let ly = baseline;
+      label.forEach((ln, li) => {
+        if (li > 0) ly += step;
+        drawTextLine(this.doc, ln, x + padX + labelX, ly, small, toHex(this.pal.muted));
+      });
+      if (note.length && beside) drawTextLine(this.doc, note[0]!, x + padX + labelX + lastW + 5, ly, small, toHex(darken(accent, 0.1)));
+      else
+        for (const ln of note) {
+          ly += step;
+          drawTextLine(this.doc, ln, x + padX + labelX, ly, small, toHex(darken(accent, 0.1)));
+        }
     });
     this.y = top + h + 8;
     return this;
@@ -1038,7 +1307,7 @@ export class PdfDocument {
   ): this {
     const n = columns.length;
     if (n === 0) return this;
-    const layout = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit, options.cellBold);
+    const layout = this.tableLayout(columns, rows, options.size ?? this.scale.table.size, options.wide, options.fit, options.cellBold);
     const { size, padX, padY, total, widths, numeric, header, body } = layout;
 
     // Lines [from, to) of a row: all of it, or the part of a too-tall row that goes on this page.
@@ -1092,7 +1361,7 @@ export class PdfDocument {
     options: { size?: number; wide?: number; firstRows?: number; fit?: { minSize?: number }; cellBold?: (row: number, col: number) => boolean } = {},
   ): number {
     if (columns.length === 0) return 0;
-    const { header, body } = this.tableLayout(columns, rows, options.size ?? 8.5, options.wide, options.fit, options.cellBold);
+    const { header, body } = this.tableLayout(columns, rows, options.size ?? this.scale.table.size, options.wide, options.fit, options.cellBold);
     return header.height + body.slice(0, options.firstRows ?? body.length).reduce((s, r) => s + r.height, 0);
   }
 
@@ -1105,7 +1374,7 @@ export class PdfDocument {
     cellBold?: (row: number, col: number) => boolean,
   ) {
     const padX = TABLE_PAD_X;
-    const padY = 3;
+    const padY = this.scale.table.padY;
     const total = this.contentWidth;
     let size = baseSize;
     let widths: number[];
@@ -1133,7 +1402,8 @@ export class PdfDocument {
     const layoutRow = (cells: ReadonlyArray<string>, bold: boolean, ri?: number): TableRowLayout => {
       const laid = columns.map((_, ci) => layoutText(cells[ci] ?? '', { size, bold: bold || (ri !== undefined && cellBold?.(ri, ci) === true), maxWidth: widths[ci]! - padX * 2 }));
       const lines = Math.max(1, ...laid.map((l) => l.length));
-      const rowBox = fit ? lineBox(null, size, laid.some((cell) => cell.some((ln) => ln.arabic))) : box;
+      // A compact document's rows are as tight as a balanced table's.
+      const rowBox = fit || this.compact ? lineBox(null, size, laid.some((cell) => cell.some((ln) => ln.arabic))) : box;
       return { laid, lines, box: rowBox, height: lines * rowBox.height + padY * 2 };
     };
 
