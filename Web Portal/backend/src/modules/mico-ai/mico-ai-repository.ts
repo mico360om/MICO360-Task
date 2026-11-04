@@ -102,17 +102,24 @@ export interface MicoAiRepository {
   /**
    * In one step that two requests can't interleave: unless an answer is still being written in the
    * chat, add the question and a pending answer. Pending answers untouched since `staleBefore` don't
-   * count: they become `interrupted` first. 'busy' when an answer is still being written.
+   * count: they become `interrupted` first — unless a background job (1.22) is still writing them.
+   * 'busy' when an answer is still being written. 1.22: a `clientId` already asked in this chat (the
+   * page sent the same message again) gives that turn back (`joined`) instead of asking twice.
    */
   startTurn(
     chatId: string,
-    turn: { question: string; step: string; staleBefore: Date; interrupted: unknown },
-  ): Promise<{ question: MessageRecord; answer: MessageRecord } | 'busy'>;
+    turn: { question: string; step: string; staleBefore: Date; interrupted: unknown; clientId?: string },
+  ): Promise<{ question: MessageRecord; answer: MessageRecord; joined?: boolean } | 'busy'>;
+  /** 1.22: the turn a page's message id was asked as in this chat (its question and answer), if any. */
+  findTurn(chatId: string, clientId: string): Promise<{ question: MessageRecord; answer: MessageRecord } | null>;
   /** Add one message (tests, and anything outside a turn). */
   addMessage(chatId: string, message: NewMessage): Promise<MessageRecord>;
   /** Change a message; with `onlyIf`, only while it still has that status (true if it changed). */
   updateMessage(messageId: string, patch: MessagePatch, onlyIf?: MessageStatus): Promise<boolean>;
-  /** Answers still pending but untouched since `before` (cut off by a restart) become `content` errors; in one chat or all. */
+  /**
+   * Answers still pending but untouched since `before` (cut off by a restart) become `content` errors;
+   * in one chat or all. 1.22: not one a background job is still writing (it resumes after a restart).
+   */
   interruptStale(before: Date, content: unknown, chatId?: string): Promise<number>;
   /** Keep a card of proposed changes with its answer (one per answer). */
   createProposal(input: NewProposal): Promise<ProposalRecord>;
@@ -139,15 +146,23 @@ export function snippetOf(text: string, query: string): string {
   return `${start > 0 ? '…' : ''}${clean.slice(start, end)}${end < clean.length ? '…' : ''}`;
 }
 
-type StoredMessage = MessageWithResults;
+type StoredMessage = MessageWithResults & { clientId?: string | null };
 const withoutResults = (m: StoredMessage): MessageRecord => {
-  const { results: _results, ...rest } = m;
+  const { results: _results, clientId: _clientId, ...rest } = m;
   void _results;
+  void _clientId;
   return rest;
 };
 
-/** In-memory storage, for tests. */
-export function createMemoryMicoAiRepository(now: () => Date = () => new Date()): MicoAiRepository & { messages: StoredMessage[]; chats: ChatRecord[]; proposals: ProposalRecord[] } {
+/**
+ * In-memory storage, for tests. `hasActiveJob` (1.22): whether a background job is still writing an
+ * answer — such an answer is never "interrupted" (the database store reads its jobs table).
+ */
+export function createMemoryMicoAiRepository(
+  now: () => Date = () => new Date(),
+  opts: { hasActiveJob?: (messageId: string) => boolean } = {},
+): MicoAiRepository & { messages: StoredMessage[]; chats: ChatRecord[]; proposals: ProposalRecord[] } {
+  const working = (id: string) => opts.hasActiveJob?.(id) ?? false;
   const chats: ChatRecord[] = [];
   const messages: StoredMessage[] = [];
   const proposals: ProposalRecord[] = [];
@@ -161,9 +176,9 @@ export function createMemoryMicoAiRepository(now: () => Date = () => new Date())
   };
   const own = (userId: string, chatId: string) => chats.find((c) => c.id === chatId && c.userId === userId) ?? null;
   const ofChat = (chatId: string) => messages.filter((m) => m.chatId === chatId).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  const insert = (chatId: string, m: NewMessage): StoredMessage => {
+  const insert = (chatId: string, m: NewMessage, clientId: string | null = null): StoredMessage => {
     const at = tick();
-    const row: StoredMessage = { id: randomUUID(), chatId, role: m.role, text: m.text, content: m.content, results: null, status: m.status, step: m.step ?? null, createdAt: at, updatedAt: at };
+    const row: StoredMessage = { id: randomUUID(), chatId, role: m.role, text: m.text, content: m.content, results: null, status: m.status, step: m.step ?? null, createdAt: at, updatedAt: at, clientId };
     messages.push(row);
     const chat = chats.find((c) => c.id === chatId);
     if (chat) chat.lastMessageAt = at;
@@ -177,6 +192,13 @@ export function createMemoryMicoAiRepository(now: () => Date = () => new Date())
       const p = proposals.findIndex((x) => x.messageId === gone.id);
       if (p >= 0) proposals.splice(p, 1);
     }
+  };
+  /** A page's message id's turn: its question, and the answer after it. */
+  const turnOf = (chatId: string, clientId: string) => {
+    const all = ofChat(chatId);
+    const at = all.findIndex((m) => m.role === 'user' && m.clientId === clientId);
+    const answer = at < 0 ? undefined : all.slice(at + 1).find((m) => m.role === 'assistant');
+    return at >= 0 && answer ? { question: withoutResults(all[at]!), answer: withoutResults(answer) } : null;
   };
   const applyProposal = (p: ProposalRecord, patch: ProposalPatch) => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined) Object.assign(p, { [k]: copy(v) });
@@ -260,12 +282,17 @@ export function createMemoryMicoAiRepository(now: () => Date = () => new Date())
     },
     // No await between the check and the inserts: two calls can't interleave.
     async startTurn(chatId, turn) {
+      const asked = turn.clientId ? turnOf(chatId, turn.clientId) : null;
+      if (asked) return { ...asked, joined: true };
       const open = messages.filter((m) => m.chatId === chatId && m.status === 'PENDING');
-      for (const m of open) if (m.updatedAt < turn.staleBefore) Object.assign(m, { status: 'ERROR', content: turn.interrupted, step: null, updatedAt: tick() });
+      for (const m of open) if (m.updatedAt < turn.staleBefore && !working(m.id)) Object.assign(m, { status: 'ERROR', content: turn.interrupted, step: null, updatedAt: tick() });
       if (open.some((m) => m.status === 'PENDING')) return 'busy';
-      const question = insert(chatId, { role: 'user', text: turn.question, content: null, status: 'DONE' });
+      const question = insert(chatId, { role: 'user', text: turn.question, content: null, status: 'DONE' }, turn.clientId ?? null);
       const answer = insert(chatId, { role: 'assistant', text: '', content: null, status: 'PENDING', step: turn.step });
       return { question: withoutResults(question), answer: withoutResults(answer) };
+    },
+    async findTurn(chatId, clientId) {
+      return turnOf(chatId, clientId);
     },
     async addMessage(chatId, m) {
       return insert(chatId, m);
@@ -279,7 +306,7 @@ export function createMemoryMicoAiRepository(now: () => Date = () => new Date())
     async interruptStale(before, content, chatId) {
       let n = 0;
       for (const m of messages) {
-        if (m.status === 'PENDING' && m.updatedAt < before && (!chatId || m.chatId === chatId)) {
+        if (m.status === 'PENDING' && m.updatedAt < before && (!chatId || m.chatId === chatId) && !working(m.id)) {
           Object.assign(m, { status: 'ERROR', content, step: null, updatedAt: tick() });
           n++;
         }

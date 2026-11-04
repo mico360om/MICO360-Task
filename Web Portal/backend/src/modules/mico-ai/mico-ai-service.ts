@@ -11,6 +11,8 @@ import type { ChatRecord, MessageRecord, MessageWithResults, MicoAiRepository } 
 import type { MicoAiActions } from './mico-ai-actions';
 import { UNDO_WINDOW_MS, type ItemChoice, type ItemResult, type ItemUndo, type ProposalRecord, type ProposalView } from './mico-ai-actions-types';
 import { proposalHistory, proposalSearchText, proposalView } from './mico-ai-proposal-view';
+import { MAX_ATTEMPTS, type AiJobHandler, type AiJobRunner } from '../ai-jobs/ai-job-runner';
+import type { AiJobError, AiJobKind, AiJobRecord } from '../ai-jobs/ai-job-store';
 
 /**
  * MICO AI's chats: create, rename, search, delete and switch between them, ask a question and
@@ -23,6 +25,11 @@ import { proposalHistory, proposalSearchText, proposalView } from './mico-ai-pro
  * the answer; Confirm acts on that stored card — with only the person's own edits on top, checked
  * again — and moves it on in one step, so a double click or a retry never carries it out twice.
  * Undo stays open for 15 minutes after.
+ *
+ * 1.22 (§10): with `jobs`, an answer is a background job (modules/ai-jobs) — it is written and kept
+ * whether or not the page stays open, resumed by another server after a restart, tried again after
+ * a time-out, a 429 or a 5xx, and the person is told by the bell and a push when their page wasn't
+ * showing it. The page's own message id (`clientId`) joins a resend to the turn already asked.
  */
 
 export const NOT_READY = 'MICO AI isn’t set up yet. An administrator can add the AI service in AI Management.';
@@ -47,8 +54,12 @@ export const PAGE_SIZE = 50;
 const SUMMARY_BATCH = 10;
 /** Results of recent turns the model may still cite and tabulate. */
 const EARLIER_RESULTS = 8;
-/** The longest an answer may take, start to finish. */
+/** The longest an answer may take, start to finish (1.22: each try). */
 export const ANSWER_TIMEOUT_MS = 3 * 60_000;
+/** 1.22: a MICO AI answer's background job, and the requester's notices. */
+export const MICO_AI_JOB: AiJobKind = 'mico-ai';
+export const MICO_AI_ANSWER = 'MICO_AI_ANSWER';
+export const MICO_AI_FAILED = 'MICO_AI_FAILED';
 const MAX_CHATS = 200;
 
 export class MicoAiNotReadyError extends HttpError {
@@ -80,6 +91,13 @@ export interface MicoAiServiceDeps {
   answerTimeoutMs?: number;
   /** MICO AI's changes: without them it stays read-only. */
   actions?: Pick<MicoAiActions, 'prepare' | 'applyEdits' | 'carryOut' | 'revert'>;
+  /**
+   * 1.22 (§10): answers as background jobs (the runner, and which answers have a job still active).
+   * Without it, an answer is written by this process alone, as before.
+   */
+  jobs?: Pick<AiJobRunner, 'enqueue' | 'cancel' | 'watch'> & { activeSubjects(answerIds: readonly string[]): Promise<Set<string>> };
+  /** 1.22: the bell, the phone push and the live pop-up for the person who asked (the notification service's notify). */
+  notify?: (n: { userId: string; type: string; title: string; body: string; entityType: string; entityId: string }) => Promise<unknown>;
 }
 
 /** The person's choices on a card, sent with Confirm. */
@@ -186,7 +204,13 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     return chat;
   }
 
-  const isStale = (m: MessageRecord) => m.status === 'PENDING' && !running.has(m.id) && m.updatedAt < staleBefore();
+  /** `working`: answers a background job is still writing (never stale: a restart resumes them). */
+  const isStale = (m: MessageRecord, working?: ReadonlySet<string>) => m.status === 'PENDING' && !running.has(m.id) && !working?.has(m.id) && m.updatedAt < staleBefore();
+  /** Of these messages, the pending answers a background job is still writing. */
+  const workingOn = async (messages: MessageRecord[]): Promise<Set<string>> => {
+    const pending = messages.filter((m) => m.role === 'assistant' && m.status === 'PENDING').map((m) => m.id);
+    return deps.jobs && pending.length ? deps.jobs.activeSubjects(pending) : new Set();
+  };
 
   /**
    * Each change's result once a confirm ends early: one it never reached wasn't made; one it was in
@@ -235,10 +259,10 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     return new Map(found.map((p) => [p.messageId, p]));
   }
 
-  function view(m: MessageRecord, cards?: Map<string, ProposalRecord>): MessageView {
+  function view(m: MessageRecord, cards?: Map<string, ProposalRecord>, working?: ReadonlySet<string>): MessageView {
     const base = { id: m.id, role: m.role, text: m.text, createdAt: m.createdAt.toISOString(), step: null as string | null };
     if (m.role === 'user') return { ...base, status: 'done' };
-    if (isStale(m)) return { ...base, text: '', status: 'error', error: INTERRUPTED };
+    if (isStale(m, working)) return { ...base, text: '', status: 'error', error: INTERRUPTED };
     if (m.status === 'PENDING') return { ...base, status: 'pending', step: m.step };
     if (m.status === 'STOPPED') return { ...base, status: 'stopped' };
     if (m.status === 'ERROR') {
@@ -256,8 +280,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     return { ...base, status: 'done', text: c.text, answer: { kind, unavailable, tables, sources, followUps, options } };
   }
   const viewAll = async (messages: MessageRecord[]) => {
-    const cards = await cardsOf(messages);
-    return messages.map((m) => view(m, cards));
+    const [cards, working] = await Promise.all([cardsOf(messages), workingOn(messages)]);
+    return messages.map((m) => view(m, cards, working));
   };
 
   async function status(): Promise<{ ready: boolean; message: string | null }> {
@@ -303,7 +327,10 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
 
   async function deleteChat(viewer: Viewer, chatId: string): Promise<void> {
     const chat = await ownChat(viewer, chatId);
-    for (const m of (await repo.recentMessages(chat.id, 4)).filter((x) => x.status === 'PENDING')) running.get(m.id)?.controller.abort();
+    for (const m of (await repo.recentMessages(chat.id, 4)).filter((x) => x.status === 'PENDING')) {
+      running.get(m.id)?.controller.abort();
+      await deps.jobs?.cancel(MICO_AI_JOB, m.id).catch((err) => log('MICO AI could not stop an answer’s job', err));
+    }
     if (!(await repo.deleteChat(viewer.userId, chat.id))) throw new NotFoundError(NOT_FOUND);
   }
 
@@ -352,6 +379,48 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     }
   }
 
+  /** The AI's answer to a question (it calls the tools and the model; it keeps nothing). */
+  async function computeAnswer(viewer: Viewer, chat: ChatRecord, question: string, answerId: string, signal: AbortSignal) {
+    // The recent turns (with their results) before this question: the new question and answer are the last two.
+    const window = (await repo.recentMessages(chat.id, HISTORY_WINDOW + 2)).filter((m) => m.id !== answerId).slice(0, -1);
+    const cards = await cardsOf(window);
+    const history = window.map((m) => historyTurn(m, cards)).filter((h): h is HistoryTurn => !!h);
+    const kept = window.flatMap((m) => (m.role === 'assistant' && m.status === 'DONE' ? resultsOf(m) : [])).slice(-EARLIER_RESULTS);
+    // Checked against what the person can see now: access may have changed since they were found.
+    const earlier = kept.length ? await tools.recheck(viewer, kept) : [];
+    const at = now();
+    const today = todayKey(timeZone, at);
+    const weekday = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short' }).format(at);
+    const out = await runTurn(
+      {
+        complete: (req: ModelRequest) => model.chat(req, viewer.userId),
+        tools: tools.catalogue,
+        runTool: (name, args) => tools.run(viewer, name, args),
+        onStep: async (step) => {
+          await repo.updateMessage(answerId, { step }, 'PENDING');
+        },
+        context: { today, todayLabel: `${weekday} ${formatDay(today)}`, timeZone, userName: (await deps.userName?.(viewer.userId)) || 'the user' },
+        ...(actions ? { propose: (changes: Array<Record<string, unknown>>, opts: { final: boolean }) => actions.prepare(viewer, changes, opts) } : {}),
+      },
+      { question, history, summary: chat.summary, earlier, signal },
+    );
+    if (signal.aborted) throw new AiCallStoppedError();
+    return out;
+  }
+  type Answer = Awaited<ReturnType<typeof computeAnswer>>;
+
+  /** Keep an answer into the chat, once: only while it is still pending (false: it was stopped or is gone). */
+  async function keepAnswer(viewer: Viewer, answerId: string, out: Answer): Promise<boolean> {
+    const { results, proposal, ...answer } = out;
+    if (proposal) {
+      // The card is kept on its own (with what Undo will need); the answer keeps only its id.
+      const card = await repo.createProposal({ messageId: answerId, userId: viewer.userId, items: proposal.items, note: proposal.note });
+      const words = `${out.text}\n${proposalSearchText(proposal.items)}`.slice(0, 60_000);
+      return repo.updateMessage(answerId, { status: 'DONE', text: words, content: { ...answer, proposalId: card.id }, results, step: null }, 'PENDING');
+    }
+    return repo.updateMessage(answerId, { status: 'DONE', text: searchText(out), content: answer, results, step: null }, 'PENDING');
+  }
+
   async function answerInBackground(viewer: Viewer, chat: ChatRecord, question: string, answerId: string, controller: AbortController): Promise<void> {
     const { signal } = controller;
     let timedOut = false;
@@ -361,37 +430,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     }, answerTimeoutMs);
     timer.unref?.();
     try {
-      // The recent turns (with their results) before this question: the new question and answer are the last two.
-      const window = (await repo.recentMessages(chat.id, HISTORY_WINDOW + 2)).filter((m) => m.id !== answerId).slice(0, -1);
-      const cards = await cardsOf(window);
-      const history = window.map((m) => historyTurn(m, cards)).filter((h): h is HistoryTurn => !!h);
-      const kept = window.flatMap((m) => (m.role === 'assistant' && m.status === 'DONE' ? resultsOf(m) : [])).slice(-EARLIER_RESULTS);
-      // Checked against what the person can see now: access may have changed since they were found.
-      const earlier = kept.length ? await tools.recheck(viewer, kept) : [];
-      const at = now();
-      const today = todayKey(timeZone, at);
-      const weekday = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short' }).format(at);
-      const out = await runTurn(
-        {
-          complete: (req: ModelRequest) => model.chat(req, viewer.userId),
-          tools: tools.catalogue,
-          runTool: (name, args) => tools.run(viewer, name, args),
-          onStep: async (step) => {
-            await repo.updateMessage(answerId, { step }, 'PENDING');
-          },
-          context: { today, todayLabel: `${weekday} ${formatDay(today)}`, timeZone, userName: (await deps.userName?.(viewer.userId)) || 'the user' },
-          ...(actions ? { propose: (changes: Array<Record<string, unknown>>, opts: { final: boolean }) => actions.prepare(viewer, changes, opts) } : {}),
-        },
-        { question, history, summary: chat.summary, earlier, signal },
-      );
-      if (signal.aborted) throw new AiCallStoppedError();
-      const { results, proposal, ...answer } = out;
-      if (proposal) {
-        // The card is kept on its own (with what Undo will need); the answer keeps only its id.
-        const card = await repo.createProposal({ messageId: answerId, userId: viewer.userId, items: proposal.items, note: proposal.note });
-        const words = `${out.text}\n${proposalSearchText(proposal.items)}`.slice(0, 60_000);
-        await repo.updateMessage(answerId, { status: 'DONE', text: words, content: { ...answer, proposalId: card.id }, results, step: null }, 'PENDING');
-      } else await repo.updateMessage(answerId, { status: 'DONE', text: searchText(out), content: answer, results, step: null }, 'PENDING');
+      const out = await computeAnswer(viewer, chat, question, answerId, signal);
+      await keepAnswer(viewer, answerId, out);
       clearTimeout(timer);
       await summarize(viewer, chat, new AbortController().signal).catch((err) => log('MICO AI summary failed', err));
     } catch (err) {
@@ -425,16 +465,29 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     for (const card of await repo.proposalsFor([...targets])) await repo.moveProposal(card.id, ['PROPOSED'], 'SUPERSEDED');
   }
 
-  async function ask(viewer: Viewer, chatId: string, text: string, meta: { ip?: string | null; retryOf?: string } = {}): Promise<{ question: MessageView; answer: MessageView }> {
+  /**
+   * `clientId` (1.22): the page's own id for the message. Sent again — a double click, or a resend after
+   * the answer to the first send was lost — it joins the turn already asked (nothing is asked twice).
+   */
+  async function ask(viewer: Viewer, chatId: string, text: string, meta: { ip?: string | null; retryOf?: string; clientId?: string } = {}): Promise<{ question: MessageView; answer: MessageView }> {
     const chat = await ownChat(viewer, chatId);
     const question = text.trim();
     if (!question) throw new ValidationError('Type a question first.');
+    const joined = async (t: { question: MessageRecord; answer: MessageRecord }) => {
+      const [q, a] = await viewAll([t.question, t.answer]);
+      return { question: q!, answer: a! };
+    };
+    if (meta.clientId) {
+      const asked = await repo.findTurn(chat.id, meta.clientId);
+      if (asked) return joined(asked);
+    }
     if (!(await model.ready())) throw new MicoAiNotReadyError();
     // The person's shared AI limit: the question counts once against the minute, up front, so nothing
     // is stored when it is used up; each AI call then counts against the day as it is made.
     model.startQuestion(viewer.userId);
-    const turn = await repo.startTurn(chat.id, { question, step: 'Thinking…', staleBefore: staleBefore(), interrupted: { error: INTERRUPTED } });
+    const turn = await repo.startTurn(chat.id, { question, step: 'Thinking…', staleBefore: staleBefore(), interrupted: { error: INTERRUPTED }, clientId: meta.clientId });
     if (turn === 'busy') throw new ConflictError(BUSY, 'MICO_AI_BUSY');
+    if (turn.joined) return joined(turn);
     await supersede(chat.id, question, meta.retryOf).catch((err) => log('MICO AI could not replace an earlier card', err));
     if (!chat.title) await repo.renameChat(viewer.userId, chat.id, titleFrom(question)).catch((err) => log('MICO AI could not name a chat', err));
     // Only that MICO AI was used: never the question or the answer. A failed audit write doesn't stop the answer.
@@ -444,6 +497,23 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
       log('MICO AI could not write the audit log', err);
     }
 
+    if (deps.jobs) {
+      // 1.22: a background job writes it (this server starts it at once).
+      try {
+        await deps.jobs.enqueue({
+          kind: MICO_AI_JOB,
+          subjectId: turn.answer.id,
+          messageId: turn.answer.id,
+          requestedById: viewer.userId,
+          input: { chatId: chat.id, question, roles: viewer.roles, pick: viewer.pick ?? null },
+        });
+      } catch (err) {
+        log('MICO AI could not start an answer', err);
+        await settle(turn.answer.id, { status: 'ERROR', content: { error: FAILED }, step: null });
+        return { question: view(turn.question), answer: (await viewAll([(await repo.getMessage(chat.id, turn.answer.id)) ?? turn.answer]))[0]! };
+      }
+      return { question: view(turn.question), answer: view(turn.answer) };
+    }
     const controller = new AbortController();
     const done = answerInBackground(viewer, chat, question, turn.answer.id, controller)
       .catch((err) => log('MICO AI answer failed unexpectedly', err))
@@ -456,6 +526,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const chat = await ownChat(viewer, chatId);
     const m = await repo.getMessage(chat.id, messageId);
     if (!m) throw new NotFoundError('That message doesn’t exist.');
+    // 1.22: the page is following this answer: it shows it when it comes (no bell for it then).
+    if (m.status === 'PENDING' && deps.jobs) await deps.jobs.watch(MICO_AI_JOB, m.id);
     return (await viewAll([m]))[0]!;
   }
 
@@ -549,6 +621,8 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     const m = await repo.getMessage(chat.id, messageId);
     if (!m) throw new NotFoundError('That message doesn’t exist.');
     running.get(m.id)?.controller.abort();
+    // 1.22: its background job is cancelled (its try in flight stops, here or on another server).
+    if (m.status === 'PENDING') await deps.jobs?.cancel(MICO_AI_JOB, m.id).catch((err) => log('MICO AI could not stop an answer’s job', err));
     await repo.updateMessage(m.id, { status: 'STOPPED', step: null }, 'PENDING');
     return (await viewAll([(await repo.getMessage(chat.id, messageId))!]))[0]!;
   }
@@ -593,7 +667,85 @@ export function createMicoAiService(deps: MicoAiServiceDeps) {
     await running.get(messageId)?.done;
   }
 
-  return { status, listChats, createChat, getChat, olderMessages, renameChat, deleteChat, ask, getMessage, stop, table, answer, whenDone, interruptStale, confirm, cancel, undo };
+  // ── 1.22 (§10): an answer as a background job ──
+  const jobInput = (job: AiJobRecord) => {
+    const i = job.input as { chatId?: unknown; question?: unknown; roles?: unknown; pick?: unknown };
+    const viewer: Viewer = { userId: job.requestedById, roles: Array.isArray(i.roles) ? (i.roles as string[]) : [], pick: typeof i.pick === 'string' ? i.pick : null };
+    return { viewer, chatId: typeof i.chatId === 'string' ? i.chatId : '', question: typeof i.question === 'string' ? i.question : '' };
+  };
+  const clip = (t: string, n: number) => {
+    const flat = t.replace(/\s+/g, ' ').trim();
+    return flat.length > n ? `${flat.slice(0, n - 1)}…` : flat;
+  };
+  /** When the next try is, in words: "30 seconds", "2 minutes" (or "a moment"). */
+  const inWords = (at: Date) => {
+    const seconds = Math.round(Math.max(0, at.getTime() - Date.now()) / 1000);
+    if (seconds < 1) return 'a moment';
+    if (seconds < 90) return `${seconds} seconds`;
+    const minutes = Math.round(seconds / 60);
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  };
+  const jobHandler: AiJobHandler = {
+    async run(job, signal) {
+      const { viewer, chatId, question } = jobInput(job);
+      const chat = await repo.getChat(viewer.userId, chatId);
+      if (!chat) throw new NotFoundError(NOT_FOUND);
+      // Each try has the whole time limit; a try that runs over ends it (a narrower question is needed).
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      signal.addEventListener('abort', stop);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, answerTimeoutMs);
+      timer.unref?.();
+      try {
+        if (job.attempts > 1) await repo.updateMessage(job.subjectId, { step: 'Thinking…' }, 'PENDING');
+        return await computeAnswer(viewer, chat, question, job.subjectId, controller.signal);
+      } catch (err) {
+        if (timedOut) throw new MicoAiError(TOO_LONG);
+        throw err;
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', stop);
+      }
+    },
+    async save(job, result) {
+      const { viewer, chatId } = jobInput(job);
+      const kept = await keepAnswer(viewer, job.subjectId, result as Answer);
+      if (kept) {
+        const chat = await repo.getChat(viewer.userId, chatId);
+        if (chat) void summarize(viewer, chat, new AbortController().signal).catch((err) => log('MICO AI summary failed', err));
+      }
+      return { outcome: kept ? 'SAVED' : 'LOST' };
+    },
+    async failed(job, error) {
+      await settle(job.subjectId, { status: 'ERROR', content: { error: error.message }, step: null });
+    },
+    async waiting(job, at) {
+      const step = `The AI service didn’t answer, so MICO AI will try again in ${inWords(at)} (try ${job.attempts + 1} of ${MAX_ATTEMPTS}).`;
+      await repo.updateMessage(job.subjectId, { step }, 'PENDING');
+    },
+    async notify(job, end) {
+      if (!deps.notify) return;
+      const { viewer, chatId, question } = jobInput(job);
+      // Only what the chat shows now: an answer that was stopped (or its chat deleted) tells nobody.
+      const m = (await repo.getChat(viewer.userId, chatId)) ? await repo.getMessage(chatId, job.subjectId) : null;
+      if (!m || m.status !== (end.status === 'DONE' ? 'DONE' : 'ERROR')) return;
+      const asked = `“${clip(question, 60)}”`;
+      const base = { userId: viewer.userId, entityType: 'mico-ai-chat', entityId: chatId };
+      if (end.status === 'DONE') await deps.notify({ ...base, type: MICO_AI_ANSWER, title: `MICO AI answered ${asked}`, body: 'Open MICO AI to read the answer.' });
+      else await deps.notify({ ...base, type: MICO_AI_FAILED, title: `MICO AI couldn’t answer ${asked}`, body: end.error.message });
+    },
+    describe(err): AiJobError {
+      const message = plainError(err);
+      if (message === FAILED) log('MICO AI answer failed', err);
+      return { message, code: err instanceof HttpError ? err.code : null, status: err instanceof HttpError ? err.status : err instanceof MicoAiError ? 400 : 500 };
+    },
+  };
+
+  return { status, listChats, createChat, getChat, olderMessages, renameChat, deleteChat, ask, getMessage, stop, table, answer, whenDone, interruptStale, confirm, cancel, undo, jobHandler };
 }
 
 export type MicoAiService = ReturnType<typeof createMicoAiService>;

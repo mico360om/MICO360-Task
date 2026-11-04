@@ -191,4 +191,25 @@ describe('AI jobs in the database (integration)', () => {
     expect((await finalMinutes.get(meetingId))!.content.summary).toBe('Drafted by the AI.');
     await expect(ai.use(meetingId, offer!.id)).rejects.toMatchObject({ status: 409 });
   });
+
+  it('MICO AI over the database: a resend joins its turn; an answer a job still writes is never “interrupted”', async () => {
+    const repo = createPrismaMicoAiRepository(prisma);
+    const chat = await repo.createChat(USER, 'Jobs');
+    const turn = (clientId?: string) => repo.startTurn(chat.id, { question: 'hi', step: 'Thinking…', staleBefore: new Date(Date.now() - 60_000), interrupted: { error: 'interrupted' }, clientId });
+    const both = await Promise.all([turn('c-1'), turn('c-1')]);
+    const [a, b] = both as Array<Exclude<Awaited<ReturnType<typeof turn>>, 'busy'>>;
+    expect(a!.answer.id).toBe(b!.answer.id);
+    expect(both.filter((t) => t !== 'busy' && t.joined)).toHaveLength(1);
+    expect(await repo.findTurn(chat.id, 'c-1')).toMatchObject({ question: { id: a!.question.id }, answer: { id: a!.answer.id } });
+    expect(await repo.findTurn(chat.id, 'c-2')).toBeNull();
+    // The answer waits for its job's next try, untouched for ten minutes.
+    await store.create({ kind: 'mico-ai', subjectId: a!.answer.id, messageId: a!.answer.id, requestedById: USER, input: { chatId: chat.id } }, new Date());
+    await prisma.$executeRaw`UPDATE mico_ai_messages SET updatedAt = ${new Date(Date.now() - 10 * 60_000)} WHERE id = ${a!.answer.id}`;
+    expect(await repo.interruptStale(new Date(Date.now() - 60_000), { error: 'interrupted' }, chat.id)).toBe(0);
+    expect(await turn('c-3')).toBe('busy');
+    // Its job ended (a crash between): then it is interrupted, and the chat is free.
+    await store.cancel('mico-ai', a!.answer.id, new Date());
+    expect(await repo.interruptStale(new Date(Date.now() - 60_000), { error: 'interrupted' }, chat.id)).toBe(1);
+    expect(await turn('c-3')).not.toBe('busy');
+  });
 });

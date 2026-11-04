@@ -1087,6 +1087,13 @@ async function main(): Promise<void> {
       meetingInvitees,
     }),
   });
+  // 1.22 (§10): AI work that keeps running in the background after the page is closed — MICO AI's
+  // answers and the Final MOM's "Draft with AI". Jobs in ai_jobs: this server starts the ones it is
+  // asked for at once, and every server sweeps every 15 s for due ones (a retry's wait over, or a
+  // stopped server's job), each taken under a renewed lease so several servers never run one twice
+  // and a restart resumes it.
+  const aiJobStore = createPrismaAiJobStore(prisma);
+  const aiJobs = createAiJobRunner({ store: aiJobStore, logger });
   const micoAiService = createMicoAiService({
     repo: micoAiRepository,
     tools: createMicoAiTools({ data: micoAiData, timeZone: companyTz }),
@@ -1096,6 +1103,14 @@ async function main(): Promise<void> {
       chat: (req, userId) => aiFeatureService.chat(req, { userId }),
       startQuestion: (userId) => aiFeatureService.startMicoAiQuestion(userId),
     },
+    // 1.22: each answer is a background job; the person who asked is told by the bell and a push.
+    jobs: {
+      enqueue: (job) => aiJobs.enqueue(job),
+      cancel: (kind, subjectId) => aiJobs.cancel(kind, subjectId),
+      watch: (kind, subjectId) => aiJobs.watch(kind, subjectId),
+      activeSubjects: (answerIds) => aiJobStore.activeSubjects('mico-ai', answerIds),
+    },
+    notify: (n) => notificationService.notify(n),
     audit: auditService,
     timeZone: companyTz,
     userName: async (id) => {
@@ -1107,12 +1122,7 @@ async function main(): Promise<void> {
   // Answers a restart cut off (pending past the time limit) are marked interrupted, so no chat stays blocked.
   void micoAiService.interruptStale().catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
 
-  // 1.22 (§10): AI work that keeps running in the background after the page is closed — the Final
-  // MOM's "Draft with AI". Jobs in ai_jobs: this server starts the ones it is asked for at once, and
-  // every server sweeps every 15 s for due ones (a retry's wait over, or a stopped server's job), each
-  // taken under a renewed lease so several servers never run one twice and a restart resumes it.
-  const aiJobStore = createPrismaAiJobStore(prisma);
-  const aiJobs = createAiJobRunner({ store: aiJobStore, logger });
+  // 1.22 (§10): the Final MOM's "Draft with AI" as a background job too (the runner is above).
   const aiJobArchive = createPrismaArchiveLookup(prisma);
   const finalMinutesAi = createFinalMinutesAi({
     jobs: aiJobs,
@@ -1132,6 +1142,7 @@ async function main(): Promise<void> {
     userNames: resolveUserNames,
   });
   aiJobs.register('final-minutes', finalMinutesAi.handler);
+  aiJobs.register('mico-ai', micoAiService.jobHandler);
   aiJobs.startSweeps();
 
   // Per-date boards: each night carry still-open tasks onto today's board. Config lives in
