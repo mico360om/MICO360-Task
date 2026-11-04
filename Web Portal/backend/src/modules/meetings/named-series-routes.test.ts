@@ -45,7 +45,8 @@ async function setup() {
     },
   });
   const follow = async (m: Parameters<typeof namedSeriesService.followPlace>[0], kind: string) => {
-    if (kind === 'updated') await namedSeriesService.followPlace(m);
+    if (kind === 'deleted') await namedSeriesService.afterDeleted(m);
+    else await namedSeriesService.followPlace(m);
   };
   const meetingService = createMeetingService({ meetings, access: meetingAccess, defaultTimeZone: TZ, onChanged: follow });
   const meetingSeriesService = createMeetingSeriesService({
@@ -214,5 +215,41 @@ describe('meeting series over the API', () => {
     const s = (await t.call('POST', '/meeting-series', { name: 'Monthly OXY review', meetingId: res.json().data.id })).json().data;
     const pre = (await t.call('GET', `/meeting-series/${s.id}/prefill`)).json().data;
     expect(pre).toMatchObject({ seriesId: s.id, title: 'Monthly OXY review', projectId: 'p1', location: 'Room 4', durationMinutes: 90 });
+  });
+
+  // ── Review fixes (5 Nov) ──
+  it('moving all upcoming repeats to another project with a new repeat: the new repeats join the moved ones there', async () => {
+    const t = await setup();
+    const res = await t.call('POST', '/meetings', { title: 'Weekly sync', startAt: '2026-10-20T06:00:00Z', projectId: 'p1', recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [2] } });
+    const first = res.json().data;
+    const before = t.meetings.rows.get(first.id)!.seriesId;
+    const edit = await t.call('PUT', `/meetings/${first.id}?scope=series`, { projectId: 'p2', recurrenceRule: { freq: 'DAILY', interval: 1 }, startAt: '2026-10-22T06:00:00Z' });
+    expect(edit.statusCode).toBe(200);
+    const all = t.alive();
+    expect(all.length).toBeGreaterThan(13); // daily now: more meetings were made
+    expect(all.every((m) => m.projectId === 'p2')).toBe(true);
+    const there = new Set(all.map((m) => m.seriesId));
+    expect(there.size).toBe(1);
+    const id = [...there][0]!;
+    expect(id).not.toBe(before);
+    expect(t.store.series.get(id!)).toMatchObject({ projectId: 'p2' });
+    expect(t.store.series.has(before!)).toBe(false); // the p1 series, left empty, is gone
+  });
+
+  it('deleting a repeating meeting and all its upcoming repeats takes its empty automatic series away', async () => {
+    const t = await setup();
+    const res = await t.call('POST', '/meetings', { title: 'Made by mistake', startAt: '2026-10-20T06:00:00Z', projectId: 'p1', recurrenceRule: { freq: 'WEEKLY', interval: 1, weekdays: [2] } });
+    const id = t.meetings.rows.get(res.json().data.id)!.seriesId!;
+    expect(t.store.series.has(id)).toBe(true);
+    expect((await t.call('DELETE', `/meetings/${res.json().data.id}?scope=series`)).statusCode).toBe(204);
+    expect(t.alive()).toHaveLength(0);
+    expect(t.store.series.has(id)).toBe(false);
+  });
+
+  it('a paused repeating meeting is in a series too', async () => {
+    const t = await setup();
+    const res = await t.call('POST', '/meetings', { title: 'Paused', startAt: '2026-10-20T06:00:00Z', projectId: 'p1', recurrenceRule: { freq: 'WEEKLY', interval: 1, paused: true } });
+    expect(res.statusCode).toBe(201);
+    expect(t.meetings.rows.get(res.json().data.id)!.seriesId).toBeTruthy();
   });
 });

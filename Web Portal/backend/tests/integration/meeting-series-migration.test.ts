@@ -94,6 +94,10 @@ beforeAll(async () => {
   await meeting('F0', { title: 'Old title', start: 6, rule: WEEKLY, deleted: true });
   await meeting('F1', { title: 'Supplier call', start: 13, parent: 'F0' });
   await meeting('F2', { title: 'Supplier call later', start: 20, parent: 'F0' });
+  // K: a first meeting whose repeat was cleared (a one-off now), its later meetings still there.
+  await meeting('K0', { title: 'Was weekly', start: 7 });
+  await meeting('K1', { title: 'Later one', start: 14, parent: 'K0' });
+  await meeting('K2', { start: 21, parent: 'K0' });
   // H: a family already in a series (made in 1.23): left as it is.
   await prisma.meetingSeries.create({ data: { id: `${TAG}_manual`, name: 'Hand-made', projectId: P1, createdById: `${TAG}_maker` } });
   await meeting('H0', { start: 11, rule: WEEKLY, seriesId: `${TAG}_manual` });
@@ -150,14 +154,22 @@ describe('Meeting series backfill (migration 20261105110100)', () => {
     expect((await prisma.meetingSeries.findUniqueOrThrow({ where: { id: f! } })).name).toBe('Supplier call');
   });
 
+  it('a first meeting no longer repeating stays out; the meetings made from it still get their series', async () => {
+    expect(await seriesOf('K0')).toBeNull();
+    const k = await seriesOf('K1');
+    expect(k).toBeTruthy();
+    expect(await seriesOf('K2')).toBe(k);
+    expect((await prisma.meetingSeries.findUniqueOrThrow({ where: { id: k! } })).name).toBe('Later one');
+  });
+
   it('leaves one-off meetings and meetings already in a series alone', async () => {
     expect(await seriesOf('E')).toBeNull();
     expect(await seriesOf('G')).toBeNull();
     expect(await seriesOf('H0')).toBe(`${TAG}_manual`);
     expect(await seriesOf('H1')).toBe(`${TAG}_manual`);
-    // A: 1, B: 2, C: 2, D: 1, F: 1 — and the hand-made one.
+    // A: 1, B: 2, C: 2, D: 1, F: 1, K: 1 — and the hand-made one.
     const made = await prisma.meetingSeries.count({ where: { OR: [{ projectId: { in: [P1, P2] } }, { companyId: CO }] } });
-    expect(made).toBe(8);
+    expect(made).toBe(9);
   });
 
   it('is safe to run again: nothing changes', async () => {

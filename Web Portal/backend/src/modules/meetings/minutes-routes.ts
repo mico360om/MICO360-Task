@@ -138,7 +138,7 @@ export interface MinutesRouteDeps {
    * 1.23 Meeting series: the meeting's series and the open action items of its earlier meetings, as
    * `who` sees them (`ownOnly`: an invitee's own copy — only their own items). Absent: no series facts.
    */
-  seriesFacts?: (meeting: MeetingRecord, who: { userId: string; ownOnly?: boolean }) => Promise<SeriesFacts | null>;
+  seriesFacts?: (meeting: MeetingRecord, who: { userId: string; ownOnly?: boolean; alsoVisibleTo?: string }) => Promise<SeriesFacts | null>;
 }
 
 /**
@@ -178,7 +178,8 @@ export function createMinutesData(
     opts: { seriesFor?: MinutesSeriesFor } = {},
   ): Promise<{ data: MinutesData; title: string; nameOf: (uid: string | null) => string | null }> {
     const meeting = await meetingService.getMeeting(id);
-    const seriesWho = opts.seriesFor === 'organizer' ? { userId: meeting.organizerId } : (opts.seriesFor ?? { userId: viewerId });
+    // The organizer's view for the AI's draft — kept to what the person asking may see too, as they read it.
+    const seriesWho = opts.seriesFor === 'organizer' ? { userId: meeting.organizerId, alsoVisibleTo: viewerId } : (opts.seriesFor ?? { userId: viewerId });
     const [attendees, agenda, notes, projectSrc, actionItems, series] = await Promise.all([
       attendeeService.listAttendees(id),
       agendaService.listAgenda(id),

@@ -203,7 +203,9 @@ export function MeetingDetailPage() {
   if (primary !== 'export-minutes') menu.push({ label: 'Export minutes (PDF)', onSelect: exportPdf });
   if (primary !== 'duplicate') menu.push({ label: 'Duplicate', onSelect: () => duplicate.mutate(meeting.id) });
   // 1.23: put it in a series, or take it out (its organizer, the project's managers, an administrator).
-  if (canEdit && meeting.seriesId === null) menu.push({ label: 'Add to a series…', onSelect: () => setDialog('add-series') });
+  // A repeating meeting is always in a series — its own automatic one until it is put in another (with all its meetings).
+  const repeatsInOwnSeries = !!seriesContext?.series.auto && !!seriesContext.meetings.find((m) => m.id === meeting.id)?.repeats;
+  if (canEdit && (meeting.seriesId === null || repeatsInOwnSeries)) menu.push({ label: 'Add to a series…', onSelect: () => setDialog('add-series') });
   if (seriesContext?.canRemove) menu.push({ label: 'Remove from series…', onSelect: () => setDialog('remove-series') });
   if (canEdit && !ended) menu.push({ label: 'Cancel meeting…', danger: true, onSelect: () => setDialog('cancel') });
   if (canEdit) menu.push({ label: 'Delete meeting…', danger: true, shortcut: 'delete', onSelect: () => setDialog('delete') });
@@ -322,7 +324,7 @@ export function MeetingDetailPage() {
             onRetry={() => void attendeesQ.refetch()}
             canEdit={canEdit}
           />
-          {seriesContext ? <SeriesSection context={seriesContext} meetingId={id} timeZone={timeZone} canAddNew /> : null}
+          {seriesContext ? <SeriesSection context={seriesContext} meetingId={id} timeZone={timeZone} canAddNew={seriesContext.canAdd !== false} /> : null}
         </aside>
       </div>
 

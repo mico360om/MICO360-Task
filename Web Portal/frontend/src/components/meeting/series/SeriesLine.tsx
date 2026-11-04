@@ -20,7 +20,7 @@ function Neighbour({ which, to, timeZone, now }: { which: 'previous' | 'next'; t
   const day = seriesDay(to.startAt, timeZone, now);
   const word = which === 'previous' ? 'Previous' : 'Next';
   return (
-    <Link to={`/meetings/${encodeURIComponent(to.id)}`} className={linkClass} aria-label={`${word} meeting in the series: ${to.title}, ${day}`} title={to.title}>
+    <Link to={`/meetings/${encodeURIComponent(to.id)}`} className={linkClass} aria-label={`${word} (${day}): ${to.title}`} title={to.title}>
       {which === 'previous' ? <span aria-hidden="true" className="rtl:rotate-180">‹</span> : null}
       <span>
         {word} <span className="font-normal text-ink-2">({day})</span>

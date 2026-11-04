@@ -512,3 +512,95 @@ describe('repeating meetings are always in a series', () => {
     expect(t.changed).toEqual([]);
   });
 });
+
+// ── Review fixes (1.23.0 review, 5 Nov) ──────────────────────────────────────────────────────────
+describe('review fixes', () => {
+  it('no count of a family someone can’t see: options and the "add all N?" question come only with the right to move it', async () => {
+    const t = setup();
+    const fam = await t.family('Weekly site', [3, 10, 17, 24, 31]);
+    await t.attendees.add({ meetingId: fam[4]!.id, userId: 'dan' });
+    const opts = await t.service.options(t.as('dan'), fam[4]!.id);
+    expect(opts).toMatchObject({ canChange: false, familySize: 0 });
+    await expect(t.service.create(t.as('dan'), { name: 'X', meetingId: fam[4]!.id })).rejects.toMatchObject({ status: 403 });
+    // The organizer still gets the question, with the count.
+    await expect(t.service.create(t.as('mgr'), { name: 'X', meetingId: fam[4]!.id })).rejects.toMatchObject({ status: 409, details: { count: 5 } });
+  });
+
+  it('the AI’s carry-over (organizer’s view) holds only items the person asking may see too', async () => {
+    const t = setup();
+    const a = await t.meeting('Hidden from ben', 3, { projectId: null, companyId: 'c1', organizerId: 'mgr', createdById: 'mgr' });
+    const b = await t.meeting('Ben made this', 10, { projectId: null, companyId: 'c1', organizerId: 'mgr', createdById: 'ben' });
+    await t.series('Standalone', [a.id, b.id], { projectId: null, companyId: 'c1' });
+    t.item(a.id, 'Only the organizer may see this');
+    const record = (await t.meetings.findById(b.id))!;
+    expect((await t.service.minutesSeries(record, { userId: 'mgr' }))!.openFromEarlier).toHaveLength(1);
+    expect((await t.service.minutesSeries(record, { userId: 'mgr', alsoVisibleTo: 'ben' }))!.openFromEarlier).toEqual([]);
+    expect((await t.service.minutesSeries(record, { userId: 'mgr', alsoVisibleTo: 'mgr' }))!.openFromEarlier).toHaveLength(1);
+  });
+
+  it('an automatic series emptied by deleting its meetings goes, and empty automatic series are never offered', async () => {
+    const t = setup();
+    const fam = await t.family('Made by mistake', [3, 10]);
+    const id = (await t.service.ensureFamilySeries((await t.meetings.findById(fam[0]!.id))!))!;
+    const other = await t.meeting('Another', 5, { organizerId: 'ana', createdById: 'ana' });
+    // An empty automatic series (left from before) is not offered.
+    const stale = await t.store.create({ name: 'Stale auto', projectId: 'p1', companyId: null, auto: true, createdById: 'mgr' });
+    expect((await t.service.options(t.as('ana'), other.id)).series.map((s) => s.name)).toEqual(['Made by mistake']);
+    for (const m of fam) {
+      const rec = (await t.meetings.findById(m.id))!;
+      await t.meetings.softDelete(m.id);
+      await t.service.afterDeleted(rec);
+    }
+    expect(t.store.series.has(id)).toBe(false);
+    expect(t.store.series.has(stale.id)).toBe(true); // only the meeting's own series is looked at
+    expect((await t.service.options(t.as('ana'), other.id)).series).toEqual([]);
+  });
+
+  it('a repeating meeting in no series (a paused repeat, or one made before 1.23) gets one when it changes', async () => {
+    const t = setup();
+    const fam = await t.family('Paused weekly', [3, 10]);
+    await t.service.followPlace((await t.meetings.findById(fam[1]!.id))!);
+    const id = await seriesIdOf(t, fam[0]!.id);
+    expect(id).toBeTruthy();
+    expect(await seriesIdOf(t, fam[1]!.id)).toBe(id);
+  });
+
+  it('says a repeat can’t leave only to someone who sees the whole series', async () => {
+    const t = setup();
+    const fam = await t.family('Weekly site', [3, 10, 17]);
+    await t.attendees.add({ meetingId: fam[2]!.id, userId: 'dan' });
+    const s = await t.series('Site', fam.map((m) => m.id));
+    expect((await t.service.context(t.as('dan'), fam[2]!.id))!.keepsRepeat).toBe(false);
+    expect((await t.service.context(t.as('mgr'), fam[2]!.id))!.keepsRepeat).toBe(true);
+    expect((await t.service.page(t.as('dan'), s.id)).keepsRepeat).toBe(false);
+  });
+
+  it('the meeting page says whether the person may add a meeting to the series', async () => {
+    const t = setup();
+    const a = await t.meeting('One', 3, { people: ['xena'] });
+    await t.series('Board', [a.id]);
+    expect((await t.service.context(t.as('ana'), a.id))!.canAdd).toBe(true);
+    expect((await t.service.context(t.as('xena'), a.id))!.canAdd).toBe(false);
+  });
+
+  it('merging moves every meeting of the other series, even one that joined after the page was read', async () => {
+    const t = setup();
+    const a = await t.meeting('One', 3);
+    const b = await t.meeting('Two', 10);
+    const s1 = await t.series('Keep', [a.id]);
+    const s2 = await t.series('Merge me', [b.id]);
+    const late = await t.meeting('Joined late', 12);
+    const realMeetingsOf = t.store.meetingsOf.bind(t.store);
+    let first = true;
+    t.store.meetingsOf = async (id) => {
+      const rows = await realMeetingsOf(id);
+      if (id === s2.id && first) {
+        first = false;
+        await t.store.link([late.id], s2.id); // someone adds a meeting meanwhile
+      }
+      return rows;
+    };
+    await t.service.merge(t.as('mgr'), s1.id, s2.id);
+    expect(await seriesIdOf(t, late.id)).toBe(s1.id);
+  });
+});

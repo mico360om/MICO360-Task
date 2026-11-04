@@ -26,6 +26,7 @@ WHERE m.`deletedAt` IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM `meetings` e
     WHERE e.`deletedAt` IS NULL
+      AND (e.`recurrenceParentId` IS NOT NULL OR (e.`recurrenceRule` IS NOT NULL AND CAST(e.`recurrenceRule` AS CHAR) <> 'null'))
       AND (e.`id` = COALESCE(m.`recurrenceParentId`, m.`id`) OR e.`recurrenceParentId` = COALESCE(m.`recurrenceParentId`, m.`id`))
       AND e.`projectId` <=> m.`projectId`
       AND (m.`projectId` IS NOT NULL OR e.`companyId` <=> m.`companyId`)

@@ -16,6 +16,8 @@ export interface NamedSeriesStore {
   family(rootId: string): Promise<SeriesMeetingRow[]>;
   /** Put these meetings in the series (null: in none). */
   link(meetingIds: string[], seriesId: string | null): Promise<void>;
+  /** Move every meeting of one series (as it is now) into another. */
+  moveAll(fromSeriesId: string, toSeriesId: string): Promise<void>;
   /** The series of a place (a project, or a company's meetings without a project), newest first. */
   ofPlace(place: SeriesPlace): Promise<NamedSeriesRecord[]>;
   /** The place's one-off meetings in no series, newest first, at most `limit`. */

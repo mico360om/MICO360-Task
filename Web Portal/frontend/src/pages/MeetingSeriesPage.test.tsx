@@ -86,7 +86,7 @@ describe('the Series page', () => {
 
   it('removes a meeting from the series after asking', async () => {
     renderPage();
-    await userEvent.click(await screen.findByRole('button', { name: 'Remove Monthly 2 from the series' }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Remove Monthly 2, .+, from the series$/ }));
     const ask = await screen.findByRole('alertdialog', { name: 'Remove from the series?' });
     await userEvent.click(within(ask).getByRole('button', { name: 'Remove from series' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/meeting-series/s1/meetings/m2'))).toBe(true));

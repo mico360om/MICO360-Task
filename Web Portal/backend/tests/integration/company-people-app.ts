@@ -129,7 +129,9 @@ export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parame
       })
     : undefined;
   const follow = async (m: MeetingRecord, kind: string) => {
-    if (namedSeriesService && kind === 'updated') await namedSeriesService.followPlace(m);
+    if (!namedSeriesService) return;
+    if (kind === 'deleted') await namedSeriesService.afterDeleted(m);
+    else await namedSeriesService.followPlace(m);
   };
   const meetingService = createMeetingService({ meetings: meetingRepository, access: meetingAccess, defaultTimeZone: tz, isActiveUser, onChanged: follow });
   const meetingSeriesService = createMeetingSeriesService({

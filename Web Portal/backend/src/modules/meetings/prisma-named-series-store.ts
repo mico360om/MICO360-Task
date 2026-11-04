@@ -107,6 +107,10 @@ export function createPrismaNamedSeriesStore(prisma: PrismaClient): NamedSeriesS
       await prisma.meeting.updateMany({ where: { id: { in: meetingIds } }, data: { seriesId } });
     },
 
+    async moveAll(fromSeriesId, toSeriesId) {
+      await prisma.meeting.updateMany({ where: { seriesId: fromSeriesId }, data: { seriesId: toSeriesId } });
+    },
+
     async ofPlace(place) {
       const where: Prisma.MeetingSeriesWhereInput = place.projectId ? { projectId: place.projectId } : { projectId: null, companyId: place.companyId };
       return (await prisma.meetingSeries.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], take: 500 })).map(toSeries);

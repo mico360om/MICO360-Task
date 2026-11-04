@@ -65,6 +65,8 @@ export interface MeetingSeriesContext {
   canRemove: boolean;
   /** A repeat alone in its series: it can't leave it. */
   keepsRepeat: boolean;
+  /** May add a meeting to the series ("New meeting in this series"); older servers leave it out. */
+  canAdd?: boolean;
 }
 
 export interface SeriesPage {

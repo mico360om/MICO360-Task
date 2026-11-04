@@ -82,6 +82,9 @@ export function memoryNamedSeries(meetings: MemoryMeetings, attendees?: MemoryAt
         if (m) meetings.rows.set(id, { ...m, seriesId });
       }
     },
+    async moveAll(fromId, toId) {
+      for (const m of meetings.rows.values()) if (m.seriesId === fromId) meetings.rows.set(m.id, { ...m, seriesId: toId });
+    },
     async ofPlace(place) {
       return [...series.values()]
         .filter((s) => s.projectId === place.projectId && (place.projectId !== null || s.companyId === place.companyId))

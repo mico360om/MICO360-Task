@@ -93,8 +93,8 @@ describe('a meeting in a series', () => {
     expect(nav).toHaveTextContent('Series: Monthly OXY review');
     expect(nav).toHaveTextContent('3 of 4');
     expect(within(nav).getByRole('link', { name: 'Monthly OXY review' })).toHaveAttribute('href', '/meetings/series/s1');
-    expect(within(nav).getByRole('link', { name: /previous meeting in the series: monthly 2, 6 oct/i })).toHaveAttribute('href', '/meetings/m2');
-    expect(within(nav).getByRole('link', { name: /next meeting in the series: monthly 4, 1 dec/i })).toHaveAttribute('href', '/meetings/m4');
+    expect(within(nav).getByRole('link', { name: /^previous \(6 oct\): monthly 2/i })).toHaveAttribute('href', '/meetings/m2');
+    expect(within(nav).getByRole('link', { name: /^next \(1 dec\): monthly 4/i })).toHaveAttribute('href', '/meetings/m4');
   });
 
   it('shows only the series name to someone who can open just this meeting', async () => {
@@ -123,7 +123,7 @@ describe('a meeting in a series', () => {
     expect(section).toHaveTextContent('Send the drawings');
     expect(section).toHaveTextContent('Bilal Said');
     expect(section).toHaveTextContent('overdue');
-    expect(within(section).getByRole('link', { name: /from the meeting monthly 1, 1 sep/i })).toHaveAttribute('href', '/meetings/m1');
+    expect(within(section).getByRole('link', { name: /^from 1 sep: monthly 1/i })).toHaveAttribute('href', '/meetings/m1');
     await userEvent.click(within(section).getByRole('button', { name: /status for send the drawings/i }));
     await userEvent.click(await screen.findByRole('option', { name: 'Completed' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/action-items/ai1'))?.body).toEqual({ status: 'COMPLETED' }));
@@ -170,5 +170,51 @@ describe('a meeting in no series', () => {
     await userEvent.click(await within(dialog).findByRole('radio', { name: 'Board meetings' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Add to series' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/meeting-series/s9/meetings'))?.body).toEqual({ meetingIds: ['m3'] }));
+  });
+});
+
+describe('review fixes (5 Nov)', () => {
+  it('a repeating meeting in its own automatic series can still be added to another series', async () => {
+    seriesData = series({
+      series: { id: 's1', name: 'Weekly site', projectId: 'p1', companyId: null, auto: true },
+      meetings: series().meetings.map((m) => ({ ...m, repeats: true })),
+    });
+    renderPage();
+    await screen.findByRole('navigation', { name: 'Meeting series' });
+    await userEvent.click(screen.getByRole('button', { name: /more meeting actions/i }));
+    expect(screen.getByRole('menuitem', { name: 'Add to a series…' })).toBeInTheDocument();
+  });
+
+  it('not for a meeting in a series made by hand (it is taken out first)', async () => {
+    renderPage();
+    await screen.findByRole('navigation', { name: 'Meeting series' });
+    await userEvent.click(screen.getByRole('button', { name: /more meeting actions/i }));
+    expect(screen.queryByRole('menuitem', { name: 'Add to a series…' })).not.toBeInTheDocument();
+  });
+
+  it('lists the series in date order with this meeting in its place, even when later meetings are past too', async () => {
+    const now = Date.now();
+    const day = (n: number) => new Date(now + n * 86_400_000).toISOString();
+    meetingData = meeting({ id: 'm3', startAt: day(-40) });
+    seriesData = series({
+      meetings: [
+        { id: 'm1', title: 'Monthly 1', status: 'COMPLETED', startAt: day(-70), endAt: null, timeZone: null, minutesFinal: false, repeats: false },
+        { id: 'm3', title: 'Monthly 3', status: 'COMPLETED', startAt: day(-40), endAt: null, timeZone: null, minutesFinal: false, repeats: false, current: true },
+        { id: 'm4', title: 'Monthly 4', status: 'COMPLETED', startAt: day(-10), endAt: null, timeZone: null, minutesFinal: false, repeats: false },
+        { id: 'm5', title: 'Monthly 5', status: 'SCHEDULED', startAt: day(20), endAt: null, timeZone: null, minutesFinal: false, repeats: false },
+      ],
+    });
+    renderPage();
+    const section = (await screen.findByRole('heading', { name: /^Series/ })).closest('section')!;
+    const order = [...section.querySelectorAll('li')].map((li) => li.textContent ?? '');
+    expect(order.map((t) => /Monthly \d/.exec(t)?.[0])).toEqual(['Monthly 1', 'Monthly 3', 'Monthly 4', 'Monthly 5']);
+    expect(order[1]).toContain('This meeting');
+  });
+
+  it('offers New meeting in this series only to someone who may add one', async () => {
+    seriesData = series({ canAdd: false });
+    renderPage();
+    await screen.findByRole('heading', { name: /^Series/ });
+    expect(screen.queryByRole('button', { name: /new meeting in this series/i })).not.toBeInTheDocument();
   });
 });

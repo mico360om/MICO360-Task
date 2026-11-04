@@ -114,7 +114,8 @@ export function MeetingFormModal({ meeting, defaultProjectId, prefill, onClose, 
   const seriesQ = useQuery({ queryKey: ['meeting', meeting?.id, 'series'], queryFn: () => meetingSeriesApi(apiClient).ofMeeting(meeting!.id), enabled: !!meeting?.seriesId });
   const seriesPlace = fill ? { projectId: fill.projectId, companyId: fill.companyId } : null;
   const joinsSeries = !!fill && (seriesPlace!.projectId ? projectId === seriesPlace!.projectId : !projectId && companyId === seriesPlace!.companyId);
-  const leavesSeries = !!opened?.seriesId && (projectId || null) !== (opened.projectId ?? null) ? (seriesQ.data?.series.name ?? opened.seriesName ?? 'its series') : null;
+  const movedAway = (projectId || null) !== (opened?.projectId ?? null) || (!projectId && !opened?.projectId && companyId !== (opened?.companyId ?? null));
+  const leavesSeries = !!opened?.seriesId && movedAway ? (seriesQ.data?.series.name ?? opened.seriesName ?? 'its series') : null;
 
   // A later meeting of a series doesn't carry the rule — its own record names the series'.
   const ownQ = useQuery({
@@ -271,6 +272,7 @@ export function MeetingFormModal({ meeting, defaultProjectId, prefill, onClose, 
     onSuccess: (saved) => {
       void qc.invalidateQueries({ queryKey: ['meetings'] });
       void qc.invalidateQueries({ queryKey: ['meeting'] });
+      void qc.invalidateQueries({ queryKey: ['meeting-series'] }); // 1.23: a Series page shows it (or no longer)
       if (editing) void qc.invalidateQueries({ queryKey: ['meeting', saved.id] });
       onSaved?.(saved.id);
       onClose();

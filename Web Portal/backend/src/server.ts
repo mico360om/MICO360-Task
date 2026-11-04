@@ -623,10 +623,12 @@ async function main(): Promise<void> {
     },
     timeZone: companyTz,
   });
-  // A meeting moved to another project (company) leaves its series there (a repeat: into one in its new place).
+  // After every meeting change (made, changed, cancelled — a repeat made by the daily job too): a meeting
+  // moved to another project (company) leaves its series there (a repeat: into one in its new place), and a
+  // repeat in no series gets one. A deleted meeting's automatic series, left empty, goes.
   const followSeriesPlace = async (meeting: import('./modules/meetings/meeting-repository').MeetingRecord, kind: string) => {
-    if (kind !== 'updated') return;
-    await namedSeriesService.followPlace(meeting).catch((err) => logger.error('meeting series: following a moved meeting failed', { err, meetingId: meeting.id }));
+    const work = kind === 'deleted' ? namedSeriesService.afterDeleted(meeting) : namedSeriesService.followPlace(meeting);
+    await work.catch((err) => logger.error('meeting series: following a meeting change failed', { err, meetingId: meeting.id, kind }));
   };
   // Live meeting events reach the project's room AND the organizer, creator and internal attendees
   // (standalone meetings have no room), once per socket. The audience is read without the
@@ -1114,7 +1116,7 @@ async function main(): Promise<void> {
       },
       finalMinutes: createPrismaFinalMinutesRepository(prisma),
       // 1.23: the series' carry-over as the organizer sees it, as for the meeting page's Draft with AI.
-      minutesFacts: async (viewer, meetingId) => minutesFacts((await gatherMinutes(viewer.userId, meetingId, [], { seriesFor: 'organizer' })).data),
+      minutesFacts: async (viewer, meetingId) => minutesFacts((await gatherMinutes(viewer.userId, meetingId, [], { seriesFor: 'organizer' })).data), // (kept to what the asker may see too)
       draftMinutesWithAi: (facts, requester, opts) => aiFeatureService.draftMinutes(facts, requester, opts),
       onFinalMinutesChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:updated'),
       workingDays: async () => (await settingsService.workingHours()).days,

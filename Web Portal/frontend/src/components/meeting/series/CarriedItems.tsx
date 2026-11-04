@@ -46,7 +46,7 @@ export function CarriedItems({
               <Link
                 to={`/meetings/${encodeURIComponent(item.meeting.id)}`}
                 title={item.meeting.title}
-                aria-label={`From the meeting ${item.meeting.title}, ${from}`}
+                aria-label={`from ${from}: ${item.meeting.title}`}
                 className={`${CHIP} bg-ground text-ink-2 hover:text-brand ${TOUCH_TALL}`}
               >
                 from {from}

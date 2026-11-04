@@ -13,7 +13,7 @@ import { SeriesIcon } from '../components/meeting/series/SeriesLine';
 import { CarriedItems } from '../components/meeting/series/CarriedItems';
 import { NewMeetingInSeriesForm, SeriesMeetingRow, useCarriedStatus, useNewMeetingInSeries } from '../components/meeting/series/SeriesSection';
 import { AddExistingMeetingsDialog, DeleteSeriesDialog, MergeSeriesDialog, RemoveFromSeriesDialog, RenameSeriesDialog } from '../components/meeting/series/SeriesDialogs';
-import { splitByNow } from '../lib/meeting-series';
+import { seriesDay, splitByNow } from '../lib/meeting-series';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useProjectsWith } from '../lib/useProjectsWith';
 import { useCurrentProject } from '../components/CurrentProject';
@@ -84,7 +84,7 @@ export function MeetingSeriesPage() {
           <button
             type="button"
             onClick={() => setDialog({ remove: m })}
-            aria-label={`Remove ${m.title} from the series`}
+            aria-label={`Remove ${m.title}, ${seriesDay(m.startAt, timeZone)}, from the series`}
             title="Remove from the series"
             className={`grid h-9 w-9 flex-none place-items-center rounded-md text-xs text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_SQUARE}`}
           >

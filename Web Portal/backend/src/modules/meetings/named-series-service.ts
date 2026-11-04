@@ -100,6 +100,8 @@ export interface MeetingSeriesContext extends SeriesNav {
   canRemove: boolean;
   /** This meeting repeats and its family is all the series holds: it can't leave (a repeat always has a series). */
   keepsRepeat: boolean;
+  /** May add a meeting to the series ("New meeting in this series"). */
+  canAdd: boolean;
 }
 
 export interface SeriesPage {
@@ -294,6 +296,13 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     return n;
   }
 
+  /** May add meetings to it: a new one ("New meeting in this series"), or existing ones of theirs. */
+  async function canAddTo(viewer: SeriesViewer, series: NamedSeriesRecord, visible: readonly SeriesMeetingRow[], views: Map<string, View>): Promise<boolean> {
+    if (isAdmin(viewer.roles)) return true;
+    if (series.projectId) return deps.canViewProject(viewer.id, viewer.roles, series.projectId);
+    return visible.some((r) => views.get(r.id) === 'full') || series.createdById === viewer.id;
+  }
+
   const item = (r: SeriesMeetingRow, currentId?: string): SeriesMeetingItem => ({
     id: r.id, title: r.title, status: r.status, startAt: r.startAt, endAt: r.endAt, timeZone: r.timeZone, minutesFinal: r.minutesFinal, repeats: !!r.familyRootId,
     ...(currentId ? { current: r.id === currentId } : {}),
@@ -351,14 +360,17 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     const earlier = visible.filter((r) => r.startAt.getTime() < row.startAt.getTime());
     const unit = await unitOf(row);
     const keepsRepeat = !!row.familyRootId && onlyOneFamily(rows);
+    const full = views.get(row.id) === 'full';
     return {
       series: summary(series),
       meetings: inDateOrder(visible).map((r) => item(r, row.id)),
       ...seriesNav(visible, row.id),
       openFromEarlier: await openItems(viewer, earlier, views),
-      canManage: views.get(row.id) === 'full' && (await canManage(viewer, series)),
+      canManage: full && (await canManage(viewer, series)),
       canRemove: !keepsRepeat && (await mayMove(viewer, unit.filter((r) => r.seriesId === series.id))),
-      keepsRepeat,
+      // Said only to someone who sees the whole series (it tells what the series holds).
+      keepsRepeat: keepsRepeat && visible.length === rows.length,
+      canAdd: full && (await canAddTo(viewer, series, visible, views)),
     };
   }
 
@@ -366,7 +378,8 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
   async function page(viewer: SeriesViewer, seriesId: string): Promise<SeriesPage> {
     const { series, rows, views, visible } = await seen(viewer, seriesId);
     const manage = await canManage(viewer, series);
-    const keepsRepeat = onlyOneFamily(rows);
+    // What the series holds is said only to someone who sees all of it (else the server answers a delete itself).
+    const keepsRepeat = visible.length === rows.length && onlyOneFamily(rows);
     const removable: string[] = [];
     if (!keepsRepeat) {
       for (const r of visible) {
@@ -375,7 +388,7 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
         if (await mayMove(viewer, unit, views)) removable.push(r.id);
       }
     }
-    const canAdd = isAdmin(viewer.roles) || (series.projectId ? await deps.canViewProject(viewer.id, viewer.roles, series.projectId) : visible.some((r) => views.get(r.id) === 'full') || series.createdById === viewer.id);
+    const canAdd = await canAddTo(viewer, series, visible, views);
     const mergeOptions: Array<{ id: string; name: string }> = [];
     if (manage) {
       for (const other of await visibleSeries(viewer, (await store.ofPlace(placeOf(series))).filter((s) => s.id !== series.id))) {
@@ -400,8 +413,9 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     const out: NamedSeriesRecord[] = [];
     for (const s of list) {
       try {
-        await seen(viewer, s.id);
-        out.push(s);
+        const { rows } = await seen(viewer, s.id);
+        // An automatic series left empty (its repeats deleted) is no choice.
+        if (!(s.auto && rows.length === 0)) out.push(s);
       } catch (err) {
         if (!(err instanceof NotFoundError)) throw err;
       }
@@ -419,7 +433,8 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     return {
       canChange,
       repeats: !!row.familyRootId,
-      familySize: unit.length,
+      // How many meetings the family has is said only to someone who may move it (who sees them all).
+      familySize: canChange ? unit.length : 0,
       current: current ? { id: current.id, name: current.name, auto: current.auto } : null,
       series: all.map((s) => ({ id: s.id, name: s.name })),
     };
@@ -434,6 +449,8 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     if (view !== 'full') throw new ForbiddenError(WORDS.cannotChange);
     if (!samePlace(row, target)) throw new ValidationError(target.projectId ? WORDS.place : WORDS.placeCompany);
     const unit = await unitOf(row);
+    // The right to move them first: the question names how many meetings the family has.
+    if (!(await mayMove(viewer, unit))) throw new ForbiddenError(WORDS.cannotChange);
     if (row.familyRootId && !wholeFamily) throw new SeriesConflict(WORDS.repeats(unit.length), 'SERIES_REPEATS', { count: unit.length });
     const from = new Set(unit.map((r) => r.seriesId).filter((s): s is string => !!s && s !== target.id));
     for (const id of from) {
@@ -530,7 +547,8 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     if (!samePlace(series, other.series)) throw new ValidationError(series.projectId ? WORDS.place : WORDS.placeCompany);
     if (!(await canManage(viewer, series)) || !(await canManage(viewer, other.series))) throw new ForbiddenError(WORDS.cannotManage);
     const ids = other.rows.map((r) => r.id);
-    await store.link(ids, series.id);
+    // Every meeting in it as it is now (one added meanwhile too), so none is left in no series.
+    await store.moveAll(other.series.id, series.id);
     await store.remove(other.series.id);
     changed(ids);
   }
@@ -622,7 +640,12 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
    * into none, a repeat into the series there that holds its family's meetings, else a new automatic one.
    */
   async function followPlace(m: MeetingRecord): Promise<void> {
-    if (!m.seriesId || m.deletedAt) return;
+    if (m.deletedAt) return;
+    if (!m.seriesId) {
+      // A repeating meeting in no series (a paused repeat, or one made before 1.23): it gets one (R7).
+      if (m.recurrenceParentId || m.recurrenceRule) await ensureFamilySeries(m);
+      return;
+    }
     const series = await store.find(m.seriesId);
     if (!series || samePlace(m, series)) return;
     const row = await store.meeting(m.id);
@@ -647,14 +670,27 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
   }
 
   /** The minutes' series facts, as `who` sees them (`ownOnly`: an invitee's copy — only their own items). */
-  async function minutesSeries(m: MeetingRecord, who: { userId: string; ownOnly?: boolean }): Promise<MinutesSeries | null> {
+  async function minutesSeries(m: MeetingRecord, who: { userId: string; ownOnly?: boolean; alsoVisibleTo?: string }): Promise<MinutesSeries | null> {
     if (!m.seriesId) return null;
     const series = await store.find(m.seriesId);
     if (!series) return null;
-    const viewer = { id: who.userId, roles: deps.rolesOf ? await deps.rolesOf(who.userId) : [] };
     const earlier = (await store.meetingsOf(series.id)).filter((r) => r.id !== m.id && r.startAt.getTime() < m.startAt.getTime());
-    const views = await viewsOf(viewer, earlier);
-    return { name: series.name, openFromEarlier: await openItems(viewer, earlier, views, !!who.ownOnly) };
+    const itemsFor = async (userId: string, ownOnly: boolean) => {
+      const viewer = { id: userId, roles: deps.rolesOf ? await deps.rolesOf(userId) : [] };
+      return openItems(viewer, earlier, await viewsOf(viewer, earlier), ownOnly);
+    };
+    let items = await itemsFor(who.userId, !!who.ownOnly);
+    // The AI's draft (R15): the organizer's view, kept to the items the person asking may see too.
+    if (who.alsoVisibleTo && who.alsoVisibleTo !== who.userId) {
+      const theirs = new Set((await itemsFor(who.alsoVisibleTo, false)).map((i) => i.id));
+      items = items.filter((i) => theirs.has(i.id));
+    }
+    return { name: series.name, openFromEarlier: items };
+  }
+
+  /** After a meeting was deleted: its automatic series, left empty, goes (R9). */
+  async function afterDeleted(m: Pick<MeetingRecord, 'seriesId'>): Promise<void> {
+    await dropIfEmptyAuto([m.seriesId ?? null]);
   }
 
   return {
@@ -673,6 +709,7 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     checkJoin,
     ensureFamilySeries,
     followPlace,
+    afterDeleted,
     minutesSeries,
     names: (ids: string[]) => store.names(ids),
   };

@@ -41,6 +41,7 @@ export function useInvalidateMeetings() {
     void qc.invalidateQueries({ queryKey: ['meetings'] });
     void qc.invalidateQueries({ queryKey: ['meeting'] });
     void qc.invalidateQueries({ queryKey: ['meeting', id] });
+    void qc.invalidateQueries({ queryKey: ['meeting-series'] }); // 1.23: its Series page
   };
 }
 

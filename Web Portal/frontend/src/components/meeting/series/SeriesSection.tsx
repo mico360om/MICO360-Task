@@ -76,14 +76,14 @@ export function SeriesSection({ context, meetingId, timeZone, canAddNew, now = n
   const list = context.meetings;
   const at = list.findIndex((m) => m.id === meetingId);
   const shown = all || list.length <= AROUND * 2 + 1 ? list : list.slice(Math.max(0, at - AROUND), at + AROUND + 1);
-  const others = shown.filter((m) => m.id !== meetingId);
-  const { earlier, upcoming } = splitByNow(others, now);
-  const current = list[at];
+  // Date order throughout (the list comes in it): the held ones under Earlier, the rest under Coming up —
+  // this meeting in its place among them, marked.
+  const { earlier, upcoming } = splitByNow(shown, now);
   const group = (label: string, items: SeriesMeeting[]) =>
     items.length ? (
       <div>
         <h3 className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-ink-3">{label}</h3>
-        <ul className="flex flex-col">{items.map((m) => <SeriesMeetingRow key={m.id} m={m} timeZone={timeZone} now={now} />)}</ul>
+        <ul className="flex flex-col">{items.map((m) => <SeriesMeetingRow key={m.id} m={m} timeZone={timeZone} now={now} current={m.id === meetingId} />)}</ul>
       </div>
     ) : null;
   return (
@@ -103,7 +103,6 @@ export function SeriesSection({ context, meetingId, timeZone, canAddNew, now = n
       <SectionError message={newMeeting.error} onDismiss={newMeeting.clearError} />
       <div className="flex flex-col gap-2">
         {group('Earlier', earlier)}
-        {current ? <ul className="flex flex-col"><SeriesMeetingRow m={current} timeZone={timeZone} now={now} current /></ul> : null}
         {group('Coming up', upcoming)}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
