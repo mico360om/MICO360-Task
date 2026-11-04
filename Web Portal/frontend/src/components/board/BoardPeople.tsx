@@ -64,7 +64,8 @@ export function BoardPeople({ project }: { project: ApiProject }) {
             People on this project
           </h3>
           <p className="mb-2 text-xs text-ink-2">{people.length === 1 ? '1 person can open this board.' : `${people.length} people can open this board.`}</p>
-          <ul className="-mx-1 flex max-h-[min(22rem,50vh)] flex-col overflow-y-auto overscroll-contain">
+          {/* A long team scrolls here: Tab reaches it, so the arrow keys scroll it too. */}
+          <ul tabIndex={0} aria-label="People" className="-mx-1 flex max-h-[min(22rem,50vh)] flex-col overflow-y-auto overscroll-contain rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
             {people.map((p) => (
               <li key={p.id} className="flex min-h-[2.5rem] items-center gap-2.5 rounded-lg px-1 py-1">
                 <Avatar name={p.name} src={p.avatarUrl} size="md" />

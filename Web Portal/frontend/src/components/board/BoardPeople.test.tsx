@@ -89,6 +89,14 @@ describe('BoardPeople — the board’s face row', () => {
     expect(screen.getByRole('button', { name: 'People on this project: 12' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  // 1.22 QA: a long team scrolls inside the panel, and Tab never reached it (axe: scrollable-region-focusable).
+  it('a long list scrolls from the keyboard: Tab reaches it', async () => {
+    renderRow();
+    await userEvent.click(await screen.findByRole('button', { name: 'People on this project: 12' }));
+    const list = within(screen.getByRole('dialog', { name: 'People on this project' })).getByRole('list', { name: 'People' });
+    expect(list).toHaveAttribute('tabindex', '0');
+  });
+
   it('those who run the project, and administrators, get “Manage team” — the project’s Team tab', async () => {
     renderRow(project({ canManage: true }));
     await userEvent.click(await screen.findByRole('button', { name: /People on this project/ }));
