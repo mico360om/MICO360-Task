@@ -473,7 +473,8 @@ export function ProjectFormDialog({ project, onClose, onSaved, templateId }: { p
           Change icon or image
         </button>
       </div>
-      <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_9.5rem]">
+      {/* Two columns: the narrower column puts the code under the name, so the name reads in full. */}
+      <div className={twoColumns ? 'grid min-w-0 flex-1 gap-4' : 'grid min-w-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_9.5rem]'}>
         <div>
           <Label htmlFor={ids.name} required>Name</Label>
           <input
