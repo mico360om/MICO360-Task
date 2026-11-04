@@ -149,7 +149,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   };
 
   const chip = (active: boolean) =>
-    `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
+    `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
   const select = fieldClass(false, 'w-full py-1.5');
 
   return (

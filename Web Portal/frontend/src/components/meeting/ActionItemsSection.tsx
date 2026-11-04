@@ -150,12 +150,20 @@ export function ActionItemsSection({
         <div className={PAIRS}>
           <div className={PAIR_A}>
             <SearchableSelect ariaLabel="Owner of the new item" className={OWNER} placeholder="Owner" options={peopleOptions(directory, 'Unassigned')} value={assigneeId} onChange={setAssigneeId} />
-            <input aria-label="Due date of the new item" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={`${fieldClass(false)} ${DATE}`} />
+            {/* The site's own day picker and pickers beside the owner's (1.22): not the browser's boxes. */}
+            <DayPickerButton
+              ariaLabel={`Due date of the new item: ${dueDate ? dayText(dueDate) : 'No due date'}`}
+              value={dueDate}
+              today={today}
+              weekStart={weekStart}
+              placeholder="No due date"
+              clearLabel="No due date"
+              onPick={(day) => setDueDate(day ?? '')}
+              className={`flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm outline-none transition-colors hover:border-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 ${DATE}`}
+            />
           </div>
           <div className={PAIR_B}>
-            <select aria-label="Priority of the new item" value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={`${fieldClass(false)} ${PRIORITY}`}>
-              {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
-            </select>
+            <SearchableSelect ariaLabel="Priority of the new item" className={PRIORITY} options={PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))} value={priority} onChange={(v) => setPriority(v as Priority)} />
             <Button type="submit" size="sm" loading={addMut.isPending} className="flex-none">Add</Button>
           </div>
         </div>

@@ -284,7 +284,7 @@ describe('UsersPage on a phone (below 768px): one card per person', () => {
     renderPage();
     const list = await screen.findByRole('list', { name: 'Users' });
     const omar = within(list).getAllByRole('listitem')[0]!;
-    for (const b of [...within(omar).getAllByRole('button'), within(omar).getByRole('combobox')]) expect(b.className, b.textContent ?? '').toMatch(/\[@media\(pointer:coarse\)\]:min-h-11/);
+    for (const b of [...within(omar).getAllByRole('button'), within(omar).getByRole('combobox')]) expect(b.className, b.textContent ?? '').toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/); // the ! form: the base 32px button rule outranks a plain class
   });
 });
 

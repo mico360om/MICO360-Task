@@ -125,7 +125,7 @@ export function AgendaField({
       ) : null}
       <div className="flex gap-2">
         <input aria-label="New agenda item" dir="auto" value={title} onChange={(e) => { setTitle(e.target.value); setProblem(null); }} onKeyDown={onEnter} placeholder="Add a topic…" className={`${fieldClass(!!problem)} min-w-0 flex-1`} />
-        <button type="button" onClick={add} className="min-h-[44px] flex-none rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
+        <button type="button" onClick={add} className="!min-h-[44px] flex-none rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
           Add item
         </button>
       </div>

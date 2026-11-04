@@ -128,6 +128,10 @@ describe('Meeting page: action items, one line each', () => {
     renderIt();
     const owner = await screen.findByRole('button', { name: /owner of the new item/i });
     expect(owner.closest('.relative')!.className).toMatch(/flex-\[1_1_12rem\]/);
-    expect(owner.closest('.relative')!.parentElement).toContainElement(screen.getByLabelText('Due date of the new item'));
+    expect(owner.closest('.relative')!.parentElement).toContainElement(screen.getByRole('button', { name: /^Due date of the new item/ }));
+    // The site's own pickers beside the owner's, not the browser's date box and dropdown (1.22).
+    expect(screen.getByRole('button', { name: 'Due date of the new item: No due date' })).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(screen.getByRole('button', { name: 'Priority of the new item' })).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(document.querySelector('input[type="date"], select')).toBeNull();
   });
 });

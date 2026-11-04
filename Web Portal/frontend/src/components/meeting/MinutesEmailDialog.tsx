@@ -362,7 +362,7 @@ function AddRow({
           placeholder="Or type an email address"
           className={fieldClass(!!problem)}
         />
-        <button type="button" onClick={add} className="min-h-[44px] rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
+        <button type="button" onClick={add} className="!min-h-[44px] rounded-xl border border-line px-4 text-sm font-semibold text-ink hover:bg-ground">
           Add to {line}
         </button>
       </div>

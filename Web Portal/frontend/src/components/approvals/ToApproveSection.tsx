@@ -84,7 +84,7 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
                     type="button"
                     onClick={() => onOpen(t.id)}
                     aria-label={`Open ${t.key}: ${t.title}`}
-                    className="flex min-w-0 max-w-full items-center gap-2 text-start [@media(pointer:coarse)]:min-h-11"
+                    className="flex min-w-0 max-w-full items-center gap-2 text-start [@media(pointer:coarse)]:!min-h-11"
                   >
                     <span className="flex-none rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink-2">{t.key}</span>
                     <bdi className="truncate text-sm font-medium text-ink hover:text-brand">{t.title}</bdi>

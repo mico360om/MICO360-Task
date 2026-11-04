@@ -21,6 +21,11 @@ describe('Field primitives', () => {
     expect(screen.getByText('*')).toBeInTheDocument();
   });
 
+  it('fieldClass makes every field 44px tall on a touch screen (the ! form beats the base 32px rule)', () => {
+    expect(fieldClass(false)).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+    expect(fieldClass(true, 'w-full')).toMatch(/\[@media\(pointer:coarse\)\]:!min-h-11/);
+  });
+
   it('fieldClass adds a danger ring only in the error state', () => {
     expect(fieldClass(true)).toMatch(/border-danger/);
     expect(fieldClass(false)).not.toMatch(/border-danger/);

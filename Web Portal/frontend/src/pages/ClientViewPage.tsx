@@ -316,7 +316,7 @@ function SignIn({
           {note}
           <Button type="submit" loading={busy} disabled={code.trim().length < 6}>Open the project</Button>
           <div className="flex flex-wrap justify-between gap-2 text-sm">
-            <button type="button" onClick={onDifferentEmail} className="min-h-[2.75rem] font-semibold text-brand underline-offset-2 hover:underline">
+            <button type="button" onClick={onDifferentEmail} className="!min-h-[2.75rem] font-semibold text-brand underline-offset-2 hover:underline">
               Use a different email
             </button>
             <button

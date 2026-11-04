@@ -28,7 +28,7 @@ const NEW_ROW_CHOICES: DraftTime[] = [
   { amount: '5', unit: 'minutes', email: false },
 ];
 
-const FIELD = 'rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-brand [@media(pointer:coarse)]:min-h-11';
+const FIELD = 'rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-brand [@media(pointer:coarse)]:!min-h-11';
 
 /**
  * System Settings → Meeting reminders (owner, 31 Oct 2026): the switch for everyone and when the
@@ -133,7 +133,7 @@ export function MeetingReminderSettings() {
                   ))}
                 </select>
                 <span className="text-sm text-ink-2">before</span>
-                <label className="ms-1 flex cursor-pointer items-center gap-2 text-sm text-ink [@media(pointer:coarse)]:min-h-11">
+                <label className="ms-1 flex cursor-pointer items-center gap-2 text-sm text-ink [@media(pointer:coarse)]:!min-h-11">
                   <input type="checkbox" checked={r.email} onChange={(e) => edit(i, { email: e.target.checked })} className="h-4 w-4 accent-[rgb(var(--c-brand))]" />
                   <span>
                     <span className="sr-only">{`Reminder ${n}: `}</span>also by email
