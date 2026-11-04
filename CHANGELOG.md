@@ -14,6 +14,35 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Table view for tasks: a project's Tasks tab (List | Table), My Tasks (Grid | List | Table), the
+  Kanban Board page — one project or All projects — and a project's Board tab (Board | Table) can show
+  their tasks as a clear table: number, title, project (where tasks come from several), people,
+  priority, due date and status, with start date, progress and tags under "Columns". Click a column's
+  name to sort by it (again for the other way round, a third time for the page's usual order). Change
+  a title, the people, priority, due date or status right in the table — it shows at once, and if the
+  change can't be saved it goes back with "Couldn't save — …" and the reason. A status is one of the
+  task's own project's columns; a task that needs approval goes to wait, as on the board. The arrow at
+  the end of a row opens the task. Archived and completed projects' tables are there to look at. My
+  Tasks' table uses the page's own filters, Sort menu (a column click sets it) and saved views, which
+  now keep the table's columns too, and keeps the selection boxes; the Tasks tab uses its own chips and
+  "Find a task"; the Board's table has its own filter bar (words or a task number, status, assignee —
+  Me, Unassigned — priority, due date, and a count such as "12 of 40"). Each page remembers, for each
+  person on this device, which view they chose and the table's sort, filters and columns. A hundred
+  rows are shown at a time ("Show 100 more"). On a phone the table scrolls sideways under its title
+  column; the page itself never does.
+- Table view for meetings: once a meeting has an agenda topic or an action item, "List | Table" at the
+  top of its Agenda shows the agenda and the action items as one table — each topic as a row (who
+  presents it, its planned minutes, covered or not; its arrow folds it) with its action items under it
+  (owner, priority, due date, status and the linked task's number), then "Other" for items with no
+  topic. Sorting orders the items inside each topic. Whoever may change the agenda changes topics in
+  place; whoever may change action items changes them in place, including which topic an item is
+  under. Its own filter bar finds items by words or a task number, owner, status ("Open only") and
+  priority. Someone invited from another company sees only their own items, as in the list.
+- Action items under topics: the "add an action item" form has a Topic choice (none at first), each
+  item in the list names its topic, and an action note made into a task puts its action item under the
+  note's topic. Older items made from a note are shown under that note's topic.
+
 ### Improvements
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.
   An administrator can turn it on or off for any administrator — their lists then show only the
