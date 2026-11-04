@@ -37,10 +37,10 @@ const CheckIcon = () => (
   </svg>
 );
 
-const quiet = 'inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:cursor-not-allowed disabled:opacity-50';
-const download = 'inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground';
+const quiet = 'inline-flex min-h-9 [@media(pointer:coarse)]:!min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink disabled:cursor-not-allowed disabled:opacity-50';
+const download = 'inline-flex min-h-9 [@media(pointer:coarse)]:!min-h-11 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground';
 const pill =
-  'inline-flex min-h-9 max-w-full items-center rounded-full border border-brand/25 bg-brand/5 px-3.5 py-1.5 text-start text-sm font-medium text-brand transition-colors hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex min-h-9 [@media(pointer:coarse)]:!min-h-11 max-w-full items-center rounded-full border border-brand/25 bg-brand/5 px-3.5 py-1.5 text-start text-sm font-medium text-brand transition-colors hover:bg-brand/10 disabled:cursor-not-allowed disabled:opacity-50';
 
 /**
  * One message, as in a ChatGPT-style conversation: your question in a bubble on the right; MICO AI's

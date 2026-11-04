@@ -90,3 +90,17 @@ describe('MICO AI message: a card of proposed changes', () => {
     expect(screen.getByRole('button', { name: /^Confirm/ })).toBeDisabled();
   });
 });
+
+describe('MICO AI message: buttons a finger can hit (1.22 design pass)', () => {
+  it('PDF report, Copy, Retry and the follow-ups are 44px tall on a touch screen', () => {
+    renderMessage({
+      ...proposalMessage,
+      id: 'a2',
+      text: 'There are 3 open tasks.',
+      answer: { ...proposalMessage.answer!, kind: 'answer', proposal: undefined, followUps: ['Which are overdue?'] },
+    });
+    for (const name of [/PDF report/, /^Copy$/, /^Retry$/, /Which are overdue\?/]) {
+      expect(screen.getByRole('button', { name }).className).toContain('[@media(pointer:coarse)]:!min-h-11');
+    }
+  });
+});

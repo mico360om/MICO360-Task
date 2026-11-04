@@ -58,7 +58,7 @@ function ChatRow({ chat, active, onOpen, onRename, onDelete }: { chat: MicoAiCha
         type="button"
         aria-current={active ? 'true' : undefined}
         onClick={() => onOpen(chat.id)}
-        className={`min-h-9 min-w-0 flex-1 rounded-lg px-2.5 py-2 text-start text-sm ${active ? 'font-semibold text-ink' : 'text-ink-2 hover:text-ink'}`}
+        className={`min-h-9 [@media(pointer:coarse)]:!min-h-11 min-w-0 flex-1 rounded-lg px-2.5 py-2 text-start text-sm ${active ? 'font-semibold text-ink' : 'text-ink-2 hover:text-ink'}`}
       >
         <span dir="auto" className="block truncate">{title}</span>
         {chat.match ? (
@@ -72,7 +72,7 @@ function ChatRow({ chat, active, onOpen, onRename, onDelete }: { chat: MicoAiCha
         aria-haspopup="menu"
         aria-expanded={menu}
         onClick={() => setMenu((v) => !v)}
-        className={`me-1 grid h-8 w-8 flex-none place-items-center rounded-md text-ink-2 transition-opacity hover:bg-ground hover:text-ink focus-visible:opacity-100 ${active || menu ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-focus-within:opacity-100 lg:group-hover:opacity-100'}`}
+        className={`me-1 grid h-8 w-8 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 flex-none place-items-center rounded-md text-ink-2 transition-opacity hover:bg-ground hover:text-ink focus-visible:opacity-100 ${active || menu ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-focus-within:opacity-100 lg:group-hover:opacity-100'}`}
       >
         <MoreIcon size={16} />
       </button>
@@ -111,7 +111,7 @@ export function ChatList({ chats, activeId, query, onQuery, onOpen, onNew, onRen
         <button
           type="button"
           onClick={onNew}
-          className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-brand-gradient px-3 text-sm font-semibold text-white shadow-brand transition-shadow hover:shadow-lift"
+          className="flex min-h-10 [@media(pointer:coarse)]:!min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-gradient px-3 text-sm font-semibold text-white shadow-brand transition-shadow hover:shadow-lift"
         >
           <PlusIcon size={16} />
           New chat
