@@ -167,3 +167,19 @@ describe('EditUserModal: a big form (1.22)', () => {
     expect(server.requests('PUT', '/users/u-sam')).toHaveLength(0);
   });
 });
+
+// 1.22 review I3: Enter in "Search companies" filters; it never submits the form.
+describe('EditUserModal: Search companies (1.22 review)', () => {
+  it('Enter in Search companies filters the list and doesn’t save', async () => {
+    const seven = Array.from({ length: 7 }, (_, i) => apiCompany({ id: `c${i}`, name: `Company ${'ABCDEFG'[i]}`, code: `C${i}` }));
+    const server = companyServer({ companies: seven });
+    open(apiUser({ ...sam, companies: [ref(seven[0]!), ref(seven[1]!)], primaryCompanyId: 'c0' }));
+    const search = await screen.findByRole('searchbox', { name: /search companies/i });
+    await userEvent.type(search, 'Company C{Enter}');
+    expect(screen.getByRole('checkbox', { name: 'Company C' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Company D' })).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(server.requests('PUT', '/users/u-sam')).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

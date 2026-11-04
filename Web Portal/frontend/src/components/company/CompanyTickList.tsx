@@ -63,6 +63,10 @@ export function CompanyTickList({ legend, legendClassName = 'mb-1.5 text-sm font
             placeholder="Search companies"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            // It filters as you type; Enter must never submit the form it sits in (New user, Manage account).
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.preventDefault();
+            }}
             className={fieldClass(false, 'w-full ps-9 [@media(pointer:coarse)]:!min-h-11')}
           />
         </div>

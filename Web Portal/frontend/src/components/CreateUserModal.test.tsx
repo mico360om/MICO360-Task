@@ -297,6 +297,23 @@ describe('CreateUserModal: companies', () => {
     await create();
     expect(await screen.findByRole('alert')).toHaveTextContent('Company not found.');
   });
+
+  // 1.22 review I3: from 7 companies the list has a search box; Enter there only filters.
+  it('Enter in Search companies filters the list and never creates the user', async () => {
+    const seven = Array.from({ length: 7 }, (_, i) => apiCompany({ id: `c${i}`, name: `Company ${'ABCDEFG'[i]}`, code: `C${i}` }));
+    useCompanyStore.setState({ pick: 'c0' }); // ticked from the start: the form is complete
+    const server = companyServer({ companies: seven });
+    const onClose = renderModal();
+    const search = await screen.findByRole('searchbox', { name: /search companies/i });
+    expect(screen.getByRole('checkbox', { name: 'Company A' })).toBeChecked();
+    await basics();
+    await userEvent.type(search, 'Company C{Enter}');
+    expect(screen.getByRole('checkbox', { name: 'Company C' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Company D' })).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(server.requests('POST', '/users')).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 describe('CreateUserModal: a big form (1.22)', () => {
