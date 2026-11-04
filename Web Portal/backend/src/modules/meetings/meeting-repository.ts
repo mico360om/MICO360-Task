@@ -27,6 +27,10 @@ export interface MeetingRecord {
   organizerId: string;
   location: string | null;
   onlineLink: string | null;
+  /** 1.23: 'TEAMS' when the online link was made (or is to be made) by Microsoft Teams; null for a hand-pasted link. */
+  onlineMeetingProvider?: 'TEAMS' | null;
+  /** 1.23: a Teams link was asked for but couldn't be made yet (the meeting page offers "Make Teams link"). */
+  teamsLinkPending?: boolean;
   startAt: Date;
   endAt: Date | null;
   timeZone: string | null;
@@ -60,6 +64,8 @@ export interface CreateMeetingData {
   organizerId: string;
   location?: string | null;
   onlineLink?: string | null;
+  /** 1.23: a repeat copies its family's Teams marker (the Teams service links the Teams meeting itself). */
+  onlineMeetingProvider?: 'TEAMS' | null;
   startAt: Date;
   endAt?: Date | null;
   timeZone?: string | null;

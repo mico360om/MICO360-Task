@@ -102,6 +102,23 @@ describe('MeetingNotifyService', () => {
     expect(meetings.markInvitesSent).toHaveBeenCalledWith('m1', expect.any(Date));
   });
 
+  it('1.23: the invitation carries the meeting’s link in the email and in the calendar file — a Teams link as one', async () => {
+    const join = 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0';
+    const { svc, email } = makeService({ meetingRow: meeting({ onlineLink: join, onlineMeetingProvider: 'TEAMS' }), attendees: [attendee({ userId: 'u2' })] });
+    await svc.sendInvites('m1');
+    const params = email.sendMeetingInvite.mock.calls[0]![1] as { onlineLink: string; onlineMeetingProvider?: string | null };
+    expect(params).toMatchObject({ onlineLink: join, onlineMeetingProvider: 'TEAMS' });
+    const ics = (email.sendMeetingInvite.mock.calls[0]![2] as { content: Buffer }).content.toString('utf8').replace(/\r\n[ \t]/g, '');
+    expect(ics).toContain(`X-MICROSOFT-SKYPETEAMSMEETINGURL:${join}`);
+    expect(ics).toMatch(/DESCRIPTION:Demo \+ retro\\n\\nJoin the Microsoft Teams meeting: https:\/\/teams\.microsoft\.com\//);
+    // A plain link: in the calendar file too, without the Teams line.
+    const plain = makeService({ attendees: [attendee({ userId: 'u2' })] });
+    await plain.svc.sendInvites('m1');
+    const plainIcs = (plain.email.sendMeetingInvite.mock.calls[0]![2] as { content: Buffer }).content.toString('utf8').replace(/\r\n[ \t]/g, '');
+    expect(plainIcs).toContain('Join online: https://meet/x');
+    expect(plainIcs).not.toContain('X-MICROSOFT');
+  });
+
   it('skips attendees with no resolvable email', async () => {
     const { svc, email } = makeService({ attendees: [attendee({ userId: 'ghost' }), attendee({ externalName: 'No Email' })] });
     const res = await svc.sendInvites('m1');

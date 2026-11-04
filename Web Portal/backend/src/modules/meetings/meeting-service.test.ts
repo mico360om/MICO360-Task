@@ -77,6 +77,18 @@ describe('MeetingService', () => {
     expect(copy.createdById).toBe('u2');
   });
 
+  it('1.23: a duplicate keeps a hand-pasted link but not a Teams-made one (that one belongs to its meeting)', async () => {
+    const repo = inMemory();
+    const svc = createMeetingService({ meetings: repo });
+    const pasted = await svc.createMeeting({ ...base, title: 'Pasted', onlineLink: 'https://meet.example.com/abc' });
+    expect((await svc.duplicateMeeting(pasted.id, 'u1')).onlineLink).toBe('https://meet.example.com/abc');
+    const teams = await svc.createMeeting({ ...base, title: 'Teams', onlineLink: 'https://teams.microsoft.com/l/meetup-join/x' });
+    await repo.update(teams.id, { onlineMeetingProvider: 'TEAMS' });
+    const copy = await svc.duplicateMeeting(teams.id, 'u1');
+    expect(copy.onlineLink).toBeNull();
+    expect(copy.onlineMeetingProvider ?? null).toBeNull();
+  });
+
   it('stores the company time zone on new meetings and shows it for legacy ones (MTG-01)', async () => {
     const repo = inMemory();
     const svc = createMeetingService({ meetings: repo, defaultTimeZone: 'Asia/Muscat' });

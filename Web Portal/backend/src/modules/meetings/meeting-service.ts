@@ -113,7 +113,8 @@ export function createMeetingService({ meetings, onChanged, access, defaultTimeZ
       companyId: src.companyId ?? null,
       organizerId: src.organizerId,
       location: src.location,
-      onlineLink: src.onlineLink,
+      // 1.23: a Teams-made link belongs to its own meeting — the copy can make its own.
+      onlineLink: src.onlineMeetingProvider === 'TEAMS' ? null : src.onlineLink,
       startAt: src.startAt,
       endAt: src.endAt,
       timeZone: src.timeZone || defaultTimeZone || null,

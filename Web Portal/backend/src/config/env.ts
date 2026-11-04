@@ -104,6 +104,20 @@ const EnvSchema = z.object({
    * background tries again, in ms ("2000,2000,2000"); empty = 30 s, 2 min, 5 min (1.22 §10).
    */
   AI_JOB_RETRY_DELAYS_MS: z.string().optional().default(''),
+  // 1.23 automatic Teams links (docs/microsoft-teams-setup.md): the app registered in Microsoft Entra.
+  // Without MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID and MS_TOKEN_KEY the feature is hidden everywhere.
+  MS_CLIENT_ID: z.string().optional().default(''),
+  MS_CLIENT_SECRET: z.string().optional().default(''),
+  // The Directory (tenant) ID — or "organizations" for several companies' tenants (MS_ALLOWED_TENANTS lists them).
+  MS_TENANT_ID: z.string().optional().default(''),
+  MS_ALLOWED_TENANTS: z.string().optional().default(''),
+  // 32 random bytes as base64: seals each person's Microsoft refresh token in the database.
+  MS_TOKEN_KEY: z.string().optional().default(''),
+  // Blank: API_BASE_URL/api/v1/integrations/microsoft/callback (it must match the redirect URI in Entra).
+  MS_REDIRECT_URI: z.string().optional().default(''),
+  /** Tests and local checks: a stand-in for Microsoft (blank = Microsoft's own; https only in production). */
+  MS_LOGIN_BASE_URL: z.string().optional().default(''),
+  MS_GRAPH_BASE_URL: z.string().optional().default(''),
 }).transform((env) => ({ ...env, BACKUP_NIGHTLY: env.BACKUP_NIGHTLY ?? env.NODE_ENV === 'production' }));
 
 export type Env = z.infer<typeof EnvSchema>;

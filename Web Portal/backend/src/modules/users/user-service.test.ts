@@ -226,6 +226,19 @@ describe('UserService', () => {
     expect(gone).toEqual([u.id]);
   });
 
+  it('1.23: an account made inactive, suspended or deleted loses what it connected (its Microsoft Teams connection); reactivating does not call it', async () => {
+    const stopped: string[] = [];
+    const { svc } = make({ onDeactivated: async (id) => void stopped.push(id) });
+    const a = await svc.createUser(person({ email: 'a1@x', username: 'a1' }));
+    const b = await svc.createUser(person({ email: 'b1@x', username: 'b1' }));
+    const c = await svc.createUser(person({ email: 'c1@x', username: 'c1' }));
+    await svc.setUserStatus(a.id, 'SUSPENDED');
+    await svc.setUserStatus(b.id, 'INACTIVE');
+    await svc.deleteUser(c.id);
+    await svc.setUserStatus(a.id, 'ACTIVE');
+    expect(stopped).toEqual([a.id, b.id, c.id]);
+  });
+
   it('ends sessions when a user is deleted', async () => {
     const { svc, revoked } = make();
     const u = await svc.createUser(person());

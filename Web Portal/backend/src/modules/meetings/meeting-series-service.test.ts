@@ -50,6 +50,16 @@ describe('meeting series: creating the meetings', () => {
     expect(t.onChanged).toHaveBeenCalledWith(expect.objectContaining({ id: second.id }), 'created');
   });
 
+  it('1.23: a repeat copies the family’s Teams marker with its link (one Teams link for all its meetings)', async () => {
+    const t = setup(WEEKLY, { onlineLink: 'https://teams.microsoft.com/l/meetup-join/abc', onlineMeetingProvider: 'TEAMS' });
+    const root = await t.begin();
+    const list = t.alive(root.id);
+    expect(list.length).toBeGreaterThan(2);
+    for (const m of list) expect(m).toMatchObject({ onlineLink: 'https://teams.microsoft.com/l/meetup-join/abc', onlineMeetingProvider: 'TEAMS' });
+    const plain = setup(WEEKLY, { onlineLink: 'https://meet.example.com/x' });
+    for (const m of plain.alive((await plain.begin()).id)) expect(m.onlineMeetingProvider ?? null).toBeNull();
+  });
+
   it('keeps at most 26 upcoming meetings of a daily series', async () => {
     const t = setup({ freq: 'DAILY', interval: 1 });
     const root = await t.begin();

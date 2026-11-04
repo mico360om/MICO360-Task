@@ -136,6 +136,8 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
         organizerId: template.organizerId,
         location: template.location,
         onlineLink: template.onlineLink,
+        // 1.23: one Teams link for the whole family (the Teams service links the new meeting to it).
+        onlineMeetingProvider: template.onlineMeetingProvider ?? null,
         startAt: start,
         endAt: duration != null ? new Date(start.getTime() + duration) : null,
         timeZone,

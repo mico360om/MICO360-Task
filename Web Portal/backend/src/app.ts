@@ -102,6 +102,8 @@ import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
+import { registerMicrosoftRoutes, type MicrosoftRouteDeps } from './modules/integrations/microsoft/microsoft-routes';
+import type { MeetingTeamsLinks } from './modules/meetings/meeting-routes';
 import type { CompanyAccess } from './modules/companies/company-access';
 import { createArchiveGuard, installArchiveGuard, type ArchiveLookup } from './modules/companies/archive-guard';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
@@ -144,6 +146,8 @@ export interface AppDeps extends AuthRouteDeps {
     androidAppVersion?: () => string | null;
     /** The company week start (everyone's default) and whether the weekly management summary is on. */
     company?: () => Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }>;
+    /** 1.23: automatic Teams links are set up on this server (the website shows them only then). */
+    microsoftTeams?: boolean;
   };
   /**
    * Live account state for the auth guard (token version, status, current roles). When set, a
@@ -328,6 +332,10 @@ export interface AppDeps extends AuthRouteDeps {
   pdfBranding?: PdfBrands;
   /** Companies: each company's week start and working days and hours (MC1 Task 15). Absent: the site's. */
   companyTime?: Pick<CompanyTime, 'hoursFor'>;
+  /** 1.23: Settings → Microsoft Teams (each person's own connection) and Make Teams link on a meeting. */
+  microsoft?: Omit<MicrosoftRouteDeps, 'guard' | 'audit'>;
+  /** 1.23: the meeting form's "Create a Teams link" (made, taken away or made plain after a save). */
+  meetingTeams?: MeetingTeamsLinks;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -494,6 +502,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // The phone app says "new version" only when this download is newer than itself, so a release
       // that changes only the website never asks anyone to update.
       androidAppVersion: deps.appConfig?.androidAppVersion?.() ?? null,
+      // 1.23: Teams links are set up here (Settings → Microsoft Teams and the meeting form's tick show then).
+      microsoftTeams: deps.appConfig?.microsoftTeams ?? false,
       serverTime: new Date().toISOString(),
     },
   }));
@@ -834,6 +844,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser,
           // companies (MC1 Task 10): the invitee view, a standalone meeting's company, who may be invited.
           viewOf: meetingViewOf, pickOf, meetingCompany: deps.meetingCompany, invitees: deps.meetingInvitees, knownIds, myProjectsOnly,
+          teams: deps.meetingTeams, // 1.23: automatic Teams links
         });
       }
       if (deps.attendeeService) {
@@ -974,6 +985,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.backups) {
         await registerBackupRoutes(api, { ...deps.backups, guard, audit: deps.auditService });
+      }
+      // 1.23: Settings → Microsoft Teams and Make Teams link (staff only; the meeting's own view and edit rules).
+      if (deps.microsoft) {
+        await registerMicrosoftRoutes(api, { ...deps.microsoft, canViewMeeting: deps.microsoft.canViewMeeting ?? canViewMeetingQuietly, guard, audit: deps.auditService });
       }
       // companies: the Companies admin API and GET /me/companies.
       if (deps.companyService) {

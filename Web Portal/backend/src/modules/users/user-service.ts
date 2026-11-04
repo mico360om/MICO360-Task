@@ -28,6 +28,8 @@ export interface UserServiceDeps {
   onDeleted?: (userId: string) => Promise<void>;
   /** After a person's first name, last name or username changed (the task search finds them by it). */
   onRenamed?: (userId: string) => void | Promise<void>;
+  /** 1.23: after an account is made inactive, suspended or deleted: forget what it connected (Microsoft Teams). */
+  onDeactivated?: (userId: string) => Promise<void>;
 }
 
 const ADMIN = 'ADMIN';
@@ -39,7 +41,7 @@ const sameRoles = (a: string[], b: string[]) => a.length === b.length && a.every
 /** How long after a self-service password change the old live sockets are closed (see revokeAccess). */
 const OWN_CHANGE_SOCKET_GRACE_MS = 5000;
 
-export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed }: UserServiceDeps) {
+export function createUserService({ users, revokeSessions, onSessionsRevoked, issueSession, forgetDevices, onDeleted, onRenamed, onDeactivated }: UserServiceDeps) {
   /** Never leave the system without an administrator who can sign in. */
   async function ensureAnotherActiveAdmin(id: string): Promise<void> {
     if ((await users.countActiveAdmins(id)) === 0) {
@@ -185,6 +187,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
       // A stopped account's welcome or reset link must not set a password (or work once it's reactivated).
       await users.endPasswordLinks(id);
       await revokeAccess(id);
+      await onDeactivated?.(id);
     }
     return updated;
   }
@@ -195,6 +198,7 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     await users.softDelete(id);
     await users.endPasswordLinks(id);
     await revokeAccess(id);
+    await onDeactivated?.(id);
     await onDeleted?.(id);
   }
 
