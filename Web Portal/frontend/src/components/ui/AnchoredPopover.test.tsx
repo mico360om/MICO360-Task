@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { useRef, useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -33,6 +33,30 @@ function Harness({ items = ['First action', 'Second action'] }: { items?: string
 }
 
 describe('AnchoredPopover', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('is never taller than the room it has: fitting neither below nor above, it goes where there is more room and scrolls', async () => {
+    // A phone (812px tall), the trigger near the middle, the popover 507px tall (the board's people list).
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(812);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 297, bottom: 318, left: 270, right: 360, width: 90, height: 21, x: 270, y: 297, toJSON: () => ({}) });
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(507);
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open details' }));
+    const dialog = screen.getByRole('dialog', { name: 'Details' });
+    expect(dialog.style.top).toBe('326px'); // below: 478px of room, above only 281px
+    expect(dialog.style.maxHeight).toBe('478px');
+    expect(dialog.style.overflowY).toBe('auto');
+  });
+
+  it('fitting above but not below, it opens above the trigger', async () => {
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(812);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 700, bottom: 721, left: 20, right: 110, width: 90, height: 21, x: 20, y: 700, toJSON: () => ({}) });
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(300);
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open details' }));
+    expect(screen.getByRole('dialog', { name: 'Details' }).style.top).toBe('392px'); // 700 − 8 − 300
+  });
+
   it('sits right after its trigger (reading order), takes focus, and Escape closes it back to the trigger', async () => {
     render(<Harness />);
     const trigger = screen.getByRole('button', { name: 'Open details' });

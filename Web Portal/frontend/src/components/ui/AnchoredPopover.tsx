@@ -3,8 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
 /**
  * A small non-modal dialog next to the control that opened it (a bar, a marker, a number). It is
  * placed right after that control in the page, so it is read where it belongs, and shown with fixed
- * positioning below it (above it when there's no room), so a scrolling table or chart doesn't cut
- * it off. Focus moves into it; Escape closes it back to its control; a press elsewhere or Tab out of
+ * positioning below it (above it when only that has room; where there is more room, scrolling,
+ * when it fits neither — a phone), so a scrolling table or chart doesn't cut it off. Focus moves into it; Escape closes it back to its control; a press elsewhere or Tab out of
  * it closes it; a press on its own control is left to that control (which toggles it). When the part
  * that had focus goes away (a suggestion applied), focus moves to the next `[data-popover-action]`,
  * else the `[data-popover-heading]`, never back to the page.
@@ -25,7 +25,7 @@ export function AnchoredPopover({
   className?: string;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight?: number }>({ top: 0, left: 0 });
   const close = useRef(onClose);
   close.current = onClose;
   /** Focus is (or was last) inside: keep it there if its element goes away. */
@@ -37,11 +37,17 @@ export function AnchoredPopover({
       const el = root.current;
       if (!a || !el) return;
       const r = a.getBoundingClientRect();
-      const [w, h] = [el.offsetWidth, el.offsetHeight];
+      // Its whole height, even while it is held to the room it has (and scrolls).
+      const [w, h] = [el.offsetWidth, el.scrollHeight];
       const below = r.bottom + 8;
-      const top = below + h > window.innerHeight - 8 && r.top - 8 - h >= 8 ? r.top - 8 - h : below;
+      const roomBelow = window.innerHeight - 8 - below;
+      const roomAbove = r.top - 16;
+      // Below when it fits; above when only that fits; fitting neither, where there is more room.
+      const up = h > roomBelow && (h <= roomAbove || roomAbove > roomBelow);
+      const top = up ? Math.max(8, r.top - 8 - h) : below;
+      const maxHeight = Math.max(120, Math.round(up ? roomAbove : roomBelow));
       const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-      setPos((p) => (p.top === top && p.left === left ? p : { top, left }));
+      setPos((p) => (p.top === top && p.left === left && p.maxHeight === maxHeight ? p : { top, left, maxHeight }));
     };
     place();
     window.addEventListener('resize', place);
@@ -106,7 +112,7 @@ export function AnchoredPopover({
         close.current();
       }}
       className={`fixed z-40 text-start outline-none animate-fade-in ${className}`}
-      style={{ top: pos.top, left: pos.left }}
+      style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight, overflowY: 'auto' }}
     >
       {children}
     </div>
