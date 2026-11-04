@@ -47,7 +47,7 @@ export function AiPanel({
   if (status.isLoading) return null;
   const frame = 'mb-4 rounded-xl border border-brand/30 bg-brand/5 p-3';
   const heading = (
-    <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand">
+    <span className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-brand">
       <Sparkle />
       AI answer
     </span>
@@ -63,7 +63,7 @@ export function AiPanel({
   if (!asked) {
     return (
       <section aria-label="AI answer" className={`${frame} flex flex-wrap items-center justify-between gap-2`}>
-        <span className="flex items-center gap-2 text-sm text-ink-2">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
           {heading}
           <span>Ask AI to answer from what you can open.</span>
         </span>
