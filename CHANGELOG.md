@@ -20,6 +20,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   projects they own, manage or are on the team of, from their next page. It is the same setting as
   Settings → "Show my projects only", so on your own account both always agree. Only administrators
   have it; someone taken off the Administrator role has it turned off. Each change is in the audit log.
+- Project page: a new "Board" tab, after Overview, shows the project's Kanban board right on its
+  page — drag cards between columns, add a task to a column, open a task (Previous / Next follow the
+  columns), see who is on the board, manage its columns, with live updates and the N shortcut, just
+  like the Kanban Board page. A link can open it directly (…?tab=board). On a phone the columns
+  scroll sideways. The Kanban Board page and its "Open board" links work as before.
 
 ## [1.22.2] - 2026-11-04
 
