@@ -77,6 +77,25 @@ describe('installErrorCapture: what the page reports by itself', () => {
     ]);
   });
 
+  it('1.23.2: a site code file that failed while the page reloads to a newer build isn’t recorded; when the reload can’t help, it is', async () => {
+    uninstall();
+    let stands = false;
+    uninstall = installErrorCapture(window, { report: (r) => reports.push(r), flush: async () => {} }, { origin: window.location.origin, codeFailureStands: async () => stands });
+    const fail = (src: string) => {
+      const script = document.createElement('link');
+      script.rel = 'modulepreload';
+      script.href = `${window.location.origin}${src}`;
+      document.body.appendChild(script);
+      script.dispatchEvent(new Event('error'));
+    };
+    fail('/assets/ManagementPage-SAS2EKa4.js');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reports).toEqual([]);
+    stands = true;
+    fail('/assets/ManagementPage-SAS2EKa4.js');
+    await vi.waitFor(() => expect(reports).toEqual([{ kind: 'BLOCKED', detail: 'resource', tag: 'link', resource: '/assets/ManagementPage-SAS2EKa4.js' }]));
+  });
+
   it('another site’s file, an uploaded picture or an avatar that is gone is not a blocked site file', () => {
     for (const src of ['https://elsewhere.example/x.png', `${window.location.origin}/uploads/avatar.png`]) {
       const img = document.createElement('img');

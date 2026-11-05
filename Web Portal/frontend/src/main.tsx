@@ -14,12 +14,17 @@ import { bindCompanyPickToSession } from './stores/company-store';
 import { installKeyboardAwareness } from './lib/keyboard-aware';
 import { browserServiceWorkerWorld, setUpServiceWorker } from './lib/service-worker';
 import { installErrorReporting } from './lib/error-reporting';
+import { installPreloadRecovery, startUpdateWatcher } from './lib/update-recovery';
 import { apiBaseUrl } from './api/client';
 import './index.css';
 
 // 1.22.4: first of all, what goes wrong in this browser is sent to System Settings → Error log
 // (errors, blocked files and scripts, slow pages). It never throws; the page works the same without it.
 installErrorReporting({ baseUrl: apiBaseUrl, getToken: () => useAuthStore.getState().accessToken });
+// 1.23.2: after an update, an open page loads the new build by itself (a page's missing code reloads to
+// it once; a newer build noticed on focus or every 10 minutes is loaded at the next move to another page).
+installPreloadRecovery();
+startUpdateWatcher();
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
 initDensity(); // and the person's compact / comfortable rows (their last on this device; the account's follows)

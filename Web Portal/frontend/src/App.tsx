@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ComponentType } from 'react';
+import { lazy, Suspense, useEffect, useRef, type ComponentType } from 'react';
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { ProtectedRoute, returnPathFrom } from './features/auth/ProtectedRoute';
 import { AdminRoute } from './features/auth/AdminRoute';
@@ -9,12 +9,14 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { useAuthStore } from './stores/auth-store';
 import { usePageMeta } from './lib/page-meta';
+import { loadWithRecovery, pageUpdateWatcher } from './lib/update-recovery';
 
 // Eager: the auth flow + the landing dashboard (first paint on a slow device should not wait
 // on a second chunk). Everything else is code-split so a low-resource client only downloads
 // and parses the JavaScript for the screen it actually opens.
+// 1.23.2: a page's code from an older build (gone after an update) loads the new build instead of failing.
 const lazyPage = <T extends string>(load: () => Promise<Record<T, ComponentType>>, name: T) =>
-  lazy(() => load().then((m) => ({ default: m[name] })));
+  lazy(loadWithRecovery(() => load().then((m) => ({ default: m[name] }))));
 
 const ForgotPasswordPage = lazyPage(() => import('./pages/ForgotPasswordPage'), 'ForgotPasswordPage');
 const ResetPasswordPage = lazyPage(() => import('./pages/ResetPasswordPage'), 'ResetPasswordPage');
@@ -48,7 +50,7 @@ const MeetingDetailPage = lazyPage(() => import('./pages/MeetingDetailPage'), 'M
 const MeetingSeriesPage = lazyPage(() => import('./pages/MeetingSeriesPage'), 'MeetingSeriesPage');
 const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'MyActionItemsPage');
 // Takes props (see ChatRoute), so it is loaded with its own type rather than through lazyPage.
-const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
+const ChatPage = lazy(loadWithRecovery(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage }))));
 const ProfilePage = lazyPage(() => import('./pages/ProfilePage'), 'ProfilePage');
 const MicoAiPage = lazyPage(() => import('./pages/MicoAiPage'), 'MicoAiPage');
 const TemplatesPage = lazyPage(() => import('./pages/TemplatesPage'), 'TemplatesPage');
@@ -107,9 +109,27 @@ function ChatRoute() {
   );
 }
 
+/**
+ * 1.23.2: once a newer build is deployed (lib/update-recovery checks on focus and every 10 minutes), the
+ * next move to another page is a full page load there — the new build, never an old page's missing code.
+ */
+function useFullLoadAfterUpdate() {
+  const location = useLocation();
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    pageUpdateWatcher()?.navigate(`${location.pathname}${location.search}${location.hash}`);
+    // Another page only (a filter typed into the address's query is not a move).
+  }, [location.pathname]);
+}
+
 export function App() {
   // Tab title per page, and noindex on everything that isn't a public page.
   usePageMeta();
+  useFullLoadAfterUpdate();
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>

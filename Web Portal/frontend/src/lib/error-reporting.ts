@@ -1,5 +1,6 @@
 import { createErrorReporter, type ErrorReporter, type ReporterWorld } from './error-reporter';
 import { CHUNK_FAILURE, installErrorCapture, isLeaving, requestReport } from './error-capture';
+import { recoverChunk } from './update-recovery';
 
 /**
  * The page's Error log reporter (1.22.4), set up once by main.tsx before the app renders. Until then
@@ -52,7 +53,9 @@ export function installErrorReporting(opts: { baseUrl: string; getToken: () => s
   try {
     if (reporter || typeof window === 'undefined' || typeof fetch !== 'function') return;
     const r = createErrorReporter(browserReporterWorld(opts));
-    installErrorCapture(window, r, { origin: window.location.origin });
+    // 1.23.2: a code file of an older build (gone after an update) is recorded only when the page can't
+    // reload to the new build by itself.
+    installErrorCapture(window, r, { origin: window.location.origin, codeFailureStands: async () => (await recoverChunk()) === 'failed' });
     reporter = r;
   } catch {
     // Without a reporter the page works exactly as before.

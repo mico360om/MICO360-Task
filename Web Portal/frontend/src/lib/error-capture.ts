@@ -154,7 +154,29 @@ function observePerformance(win: Window, sink: Sink): { finish: () => void; stop
  * script / style / picture files that fail to load, what the security policy blocks, and slow pages.
  * Each listener is wrapped: nothing here can throw at the page. Returns a function that removes them.
  */
-export function installErrorCapture(win: Window, sink: Sink, opts: { origin: string }): () => void {
+export function installErrorCapture(
+  win: Window,
+  sink: Sink,
+  opts: {
+    origin: string;
+    /**
+     * 1.23.2: the site's own code failed to load (a script or style of /assets/, a chunk error): does the
+     * failure stand? A page that reloads to a newer build by itself (update-recovery) says no, and it isn't
+     * recorded. Absent: it always stands.
+     */
+    codeFailureStands?: () => Promise<boolean>;
+  },
+): () => void {
+  /** Report a code-loading failure only when it stands (the automatic reload can't help). */
+  const reportCode = (report: ErrorReport) => {
+    if (!opts.codeFailureStands) return sink.report(report);
+    void opts.codeFailureStands().then(
+      (stands) => {
+        if (stands) sink.report(report);
+      },
+      () => sink.report(report),
+    );
+  };
   const safe = <E extends Event>(fn: (e: E) => void) => (e: E) => {
     try {
       fn(e);
@@ -173,7 +195,9 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
       if (!url.startsWith(`${opts.origin}/`)) return; // another site's file isn't the site's
       const path = url.slice(opts.origin.length).split(/[?#]/)[0]!;
       if (path.startsWith('/uploads/') || path.startsWith('/api/')) return; // someone's picture, not the site's own files
-      sink.report({ kind: 'BLOCKED', detail: 'resource', tag: tag as 'script' | 'link' | 'img', resource: path });
+      const blocked: ErrorReport = { kind: 'BLOCKED', detail: 'resource', tag: tag as 'script' | 'link' | 'img', resource: path };
+      if (tag !== 'img' && path.startsWith('/assets/')) reportCode(blocked);
+      else sink.report(blocked);
       return;
     }
     if (!(e instanceof ErrorEvent)) return;
@@ -182,7 +206,8 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
     const message = err && typeof err.message === 'string' ? `${typeof err.name === 'string' ? err.name : 'Error'}: ${err.message}` : String(e.message ?? '').replace(/^Uncaught\s+/, '');
     const report: ErrorReport = { kind: 'ERROR', detail: CHUNK_FAILURE.test(message) ? 'chunk' : 'error', message };
     if (err && typeof err.stack === 'string') report.stack = err.stack;
-    sink.report(report);
+    if (report.detail === 'chunk') reportCode(report);
+    else sink.report(report);
   });
 
   const onRejection = safe((e: Event) => {
@@ -203,7 +228,8 @@ export function installErrorCapture(win: Window, sink: Sink, opts: { origin: str
     }
     const report: ErrorReport = { kind: 'ERROR', detail: CHUNK_FAILURE.test(message) ? 'chunk' : 'rejection', message };
     if (stack) report.stack = stack;
-    sink.report(report);
+    if (report.detail === 'chunk') reportCode(report);
+    else sink.report(report);
   });
 
   const onViolation = safe((e: Event) => {

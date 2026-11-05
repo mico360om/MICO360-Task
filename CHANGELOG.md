@@ -36,6 +36,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ### Improvements
 - Task panel: Delete task sits at the right of the panel's bottom bar.
+- After an update, an open page loads the new version by itself instead of showing an error. A page left
+  open over an update used to fail with "Failed to fetch dynamically imported module" when you opened another
+  screen; now it reloads once to the new version (the same address). An open page also notices a new version
+  when you come back to it (and every 10 minutes) and opens the next screen from the new version — never
+  while you are typing. If the page still can't load (no connection), it says "This page couldn't load —
+  check your connection and try again" with a Reload button, and only then is it recorded in the Error log.
 
 ## [1.23.1] - 2026-11-05
 
