@@ -41,8 +41,9 @@ function Milestone({ row, onOpen, onOpenTask }: { row: HealthRow; onOpen: OpenLi
   const late = !m.waiting && m.daysLeft !== null && m.daysLeft < 0;
   return (
     <span className="block min-w-0">
-      {/* 1.22.3: its number first; the title truncates, the number never does. */}
-      <button type="button" onClick={() => onOpenTask(m.id)} className={`flex min-w-0 max-w-full items-center gap-1.5 text-start hover:underline ${TOUCH}`}>
+      {/* 1.22.3: its number first; the title truncates, the number never does. In a narrow column the
+          title moves under the number (wrap) instead of widening the table. */}
+      <button type="button" onClick={() => onOpenTask(m.id)} className={`flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 text-start hover:underline ${TOUCH}`}>
         <TaskKey value={m.key} />
         <span className="block min-w-0 truncate font-medium text-ink" title={m.title}>
           <bdi>{m.title}</bdi>

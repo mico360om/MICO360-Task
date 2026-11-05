@@ -32,6 +32,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   private link shows only as its pattern, such as /client/:token. A "Collect browser errors" switch
   on the same card turns the browser part off for everyone.
 
+### Security
+- The site's security policy is as strict as before — it now only also lets the task panel show
+  the site's own PDF previews — and browsers now also report to the server (the Error log) what it
+  blocks. The website's source maps, made for the Error log, stay on the server and are never
+  served to browsers.
+
+### Bug fixes
+- Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing
+  the preview, so the box stayed empty.
+
+## [1.22.3] - 2026-11-05
+
 ### Improvements
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.
   An administrator can turn it on or off for any administrator — their lists then show only the
@@ -73,16 +85,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - New task: after you create a task with the form, a short notice says "Task MICO-143 created" with
   Open, which opens it. A task created while offline says "Task MICO-143 saved" once it reaches the
   server.
-
-### Security
-- The site's security policy is as strict as before — it now only also lets the task panel show
-  the site's own PDF previews — and browsers now also report to the server (the Error log) what it
-  blocks. The website's source maps, made for the Error log, stay on the server and are never
-  served to browsers.
-
-### Bug fixes
-- Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing
-  the preview, so the box stayed empty.
 
 ## [1.22.2] - 2026-11-04
 
