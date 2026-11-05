@@ -33,7 +33,8 @@ function setup() {
       return m.projectId && OTHER_COMPANY.has(viewer.id) ? 'invitee' : 'full';
     },
     userNames: async (ids) => new Map(ids.map((id) => [id, id.toUpperCase()])),
-    taskKeys: async (ids) => Object.fromEntries(ids.map((id) => [id, `KEY-${id}`])),
+    // 1.23 integration (the 1.22.3 number rule): t-hr's task is in a project only mgr (and an administrator) may open.
+    taskKeys: async (ids, viewer) => Object.fromEntries(ids.filter((id) => id !== 't-hr' || viewer.id === 'mgr' || viewer.roles.includes('ADMIN')).map((id) => [id, `KEY-${id}`])),
     rolesOf: async (id) => (id === 'ceo' ? ['ADMIN'] : ['EMPLOYEE']),
     attendeesOf: (id) => attendees.listByMeeting(id),
     agendaOf: async (id) => agenda.filter((g) => g.meetingId === id),
@@ -167,6 +168,22 @@ describe('Open from earlier meetings (carry-over)', () => {
     expect(first).toMatchObject({ description: 'Send the drawings', assigneeName: 'ANA', status: 'OPEN', taskKey: 'KEY-t1', meeting: { id: a.id, title: 'Monthly 1' }, overdue: true });
     // The first meeting has nothing earlier.
     expect((await t.service.context(t.as('ana'), a.id))!.openFromEarlier).toEqual([]);
+  });
+
+  it('1.23 integration: names a linked task’s number only for someone who may open that task (the 1.22.3 rule)', async () => {
+    const t = setup();
+    const a = await t.meeting('Monthly 1', 3);
+    const b = await t.meeting('Monthly 2', 10);
+    const s = await t.series('Board', [a.id, b.id]);
+    // Its task was moved to a project ana and ben aren't on: the item still says it has a task, not its number.
+    const moved = t.item(a.id, 'Hire the scaffold', { taskId: 't-hr' });
+    const asAna = (await t.service.context(t.as('ana'), b.id))!.openFromEarlier.find((i) => i.id === moved.id)!;
+    expect(asAna).toMatchObject({ taskId: 't-hr', taskKey: null });
+    const asMgr = (await t.service.context(t.as('mgr'), b.id))!.openFromEarlier.find((i) => i.id === moved.id)!;
+    expect(asMgr).toMatchObject({ taskId: 't-hr', taskKey: 'KEY-t-hr' });
+    // The Series page's open items and the minutes follow the same rule.
+    expect((await t.service.page(t.as('ben'), s.id)).openActionItems.find((i) => i.id === moved.id)).toMatchObject({ taskKey: null });
+    expect((await t.service.page(t.as('ceo'), s.id)).openActionItems.find((i) => i.id === moved.id)).toMatchObject({ taskKey: 'KEY-t-hr' });
   });
 
   it('shows only items of earlier meetings the person may open', async () => {

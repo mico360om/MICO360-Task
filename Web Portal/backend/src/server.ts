@@ -746,7 +746,9 @@ async function main(): Promise<void> {
     canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
     meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
     userNames: (ids) => resolveUserNames(ids),
-    taskKeys: (ids) => resolveTaskKeys(ids),
+    // 1.22.3: a linked task's number only for a reader who may open it (an administrator's every project;
+    // anyone else's by the team and company rule, "Show my projects only" not applied).
+    taskKeys: async (ids, viewer) => resolveTaskKeys(ids, await projectAccess.accessibleProjectIds(viewer.id, viewer.roles)),
     rolesOf: async (userId) => (await userStateLookup(userId))?.roles ?? [],
     attendeesOf: (meetingId) => attendeeRepository.listByMeeting(meetingId),
     agendaOf: (meetingId) => agendaService.listAgenda(meetingId),

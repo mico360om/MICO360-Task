@@ -49,7 +49,11 @@ export interface NamedSeriesDeps {
    */
   meetingView?: (viewer: SeriesViewer, m: MeetingAccessCore) => Promise<View | null>;
   userNames: (ids: string[]) => Promise<Map<string, string>>;
-  taskKeys?: (taskIds: string[]) => Promise<Record<string, string>>;
+  /**
+   * Linked tasks' current numbers, of the tasks this person may open (1.22.3: a number is named only for
+   * a reader who may open the task — a task moved to a project they aren't on is a plain "Task").
+   */
+  taskKeys?: (taskIds: string[], viewer: SeriesViewer) => Promise<Record<string, string>>;
   /** A person's current roles (the minutes are made for someone other than the person asking). */
   rolesOf?: (userId: string) => Promise<string[]>;
   /** The people and agenda "New meeting in this series" copies. */
@@ -325,7 +329,7 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     const full = (i: ActionItemRecord) => views.get(i.meetingId!) === 'full';
     const names = await deps.userNames([...new Set(items.flatMap((i) => (i.assigneeId ? [i.assigneeId] : [])))]);
     const taskIds = [...new Set(items.filter(full).flatMap((i) => (i.taskId ? [i.taskId] : [])))];
-    const keys = taskIds.length && deps.taskKeys ? await deps.taskKeys(taskIds) : {};
+    const keys = taskIds.length && deps.taskKeys ? await deps.taskKeys(taskIds, viewer) : {};
     const at = now();
     const out = items.map((i): CarryOverItem => {
       const m = byId.get(i.meetingId!)!;
