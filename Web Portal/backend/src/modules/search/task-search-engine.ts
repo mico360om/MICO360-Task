@@ -115,10 +115,13 @@ export function createTaskSearchEngine({
       JOIN kanban_columns c ON c.id = t.columnId
       WHERE ${Prisma.join(where, ' AND ')}`;
     const inHead = Prisma.join(terms.map((term) => Prisma.sql`si.head LIKE ${like(term)} ESCAPE '!'`), ' AND ');
+    // 1.23.1: the number first only when the query can be one — never a constant `(FALSE)` term, which
+    // MariaDB reads as column position 0 (error 1054, "Unknown column '0' in 'ORDER BY'", lib/sql-portability).
+    const numberFirst = byNumber ? Prisma.sql`(${byNumber}) DESC, ` : Prisma.empty;
 
     const [rows, counted] = await Promise.all([
       prisma.$queryRaw<{ id: string }[]>`SELECT t.id AS id ${from}
-        ORDER BY (${byNumber ?? Prisma.sql`FALSE`}) DESC, (t.completedAt IS NOT NULL OR c.category = 'DONE') ASC, (${inHead}) DESC, t.updatedAt DESC, t.id DESC
+        ORDER BY ${numberFirst}(t.completedAt IS NOT NULL OR c.category = 'DONE') ASC, (${inHead}) DESC, t.updatedAt DESC, t.id DESC
         LIMIT ${limit + 1} OFFSET ${offset}`,
       input.withTotal ? prisma.$queryRaw<{ n: bigint | number }[]>`SELECT COUNT(*) AS n FROM (SELECT 1 AS one ${from} LIMIT ${TOTAL_CAP + 1}) x` : Promise.resolve(null),
     ]);
