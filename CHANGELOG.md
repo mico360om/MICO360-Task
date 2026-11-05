@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.2] - 2026-11-06
+
 ### New features
 - Merge tasks (1.23.2): combine two or more tasks into one without losing anything. On a task, ⋯ →
   "Merge with other tasks…" (or select 2 to 10 tasks in My Tasks and click "Merge…"). Find more tasks by
