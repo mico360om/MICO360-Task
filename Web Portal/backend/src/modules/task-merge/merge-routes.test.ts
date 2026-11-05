@@ -31,6 +31,7 @@ const record = (id: string, key: string): TaskRecord =>
   }) as unknown as TaskRecord;
 
 let calls: { name: string; args: unknown[] }[] = [];
+let added: string[] = [];
 let events: { projectId: string; event: string; payload: unknown }[] = [];
 let audits: Record<string, unknown>[] = [];
 
@@ -79,6 +80,7 @@ function fakeService(): TaskMergeService {
 
 async function makeApp() {
   calls = [];
+  added = [];
   events = [];
   audits = [];
   const tasks = new Map([
@@ -105,7 +107,11 @@ async function makeApp() {
     taskMergeService: fakeService(),
     projectAccess,
     auditService,
-    commentService: { async listComments(id: string) { comments.push(id); return []; }, async mentionable() { return []; } } as never,
+    commentService: {
+      async listComments(id: string) { comments.push(id); return []; },
+      async mentionable() { return []; },
+      async addComment(taskId: string, _userId: string, body: string) { added.push(`comment:${taskId}`); return { id: 'c9', taskId, body }; },
+    } as never,
     onTaskEvent: (projectId, event, payload) => { events.push({ projectId, event, payload }); },
   });
   return { app, comments };
@@ -186,10 +192,20 @@ describe('a merged task’s id keeps working', () => {
     expect(comments).toEqual(['t1']);
   });
 
-  it('a change sent to a merged task’s id is refused, naming the main task; to someone who can’t open it, 404', async () => {
+  it('something added to a merged task’s id (a comment from a stale screen or the app’s queue) lands on the main task, saying so', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/tasks/t2/comments', headers: await bearer('aisha'), payload: { body: 'hi' } });
+    expect(res.statusCode).toBe(201);
+    expect(added).toEqual(['comment:t1']);
+    expect(res.json()).toMatchObject({ data: { taskId: 't1' }, mergedInto: { taskId: 't1', key: 'RIG-1', fromKey: 'RIG-2' } });
+    // Added to a main task the person can't open: the route's own refusal, nothing added.
+    expect((await app.inject({ method: 'POST', url: '/api/v1/tasks/secret-merged/comments', headers: await bearer('aisha'), payload: { body: 'hi' } })).statusCode).toBe(403);
+    expect(added).toEqual(['comment:t1']);
+  });
+
+  it('a change to a merged task’s own fields (or deleting it) is refused, naming the main task; to someone who can’t open it, 404', async () => {
+    const res = await app.inject({ method: 'PUT', url: '/api/v1/tasks/t2', headers: await bearer('aisha'), payload: { title: 'x' } });
     expect(res.statusCode).toBe(409);
-    expect(res.json().error).toMatchObject({ code: 'TASK_MERGED', message: 'RIG-2 was merged into RIG-1. Open RIG-1 to change it.', details: { mainTaskId: 't1' } });
+    expect(res.json().error).toMatchObject({ code: 'TASK_MERGED', message: 'RIG-2 was merged into RIG-1. Open RIG-1 to change it.', details: { mainTaskId: 't1', mainKey: 'RIG-1' } });
     expect((await app.inject({ method: 'DELETE', url: '/api/v1/tasks/t2', headers: await bearer('aisha') })).statusCode).toBe(409);
     expect((await app.inject({ method: 'PUT', url: '/api/v1/tasks/secret-merged', headers: await bearer('aisha'), payload: { title: 'x' } })).statusCode).toBe(404);
     expect(comments).toEqual([]);

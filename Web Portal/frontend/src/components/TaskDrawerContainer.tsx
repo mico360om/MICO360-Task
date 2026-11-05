@@ -35,6 +35,7 @@ import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED,
 import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
 import { taskMergeApi, type MergeResult } from '../api/task-merge';
 import { invalidateMergeQueries, mergeAvailability, mergeNoticeText } from '../lib/task-merge';
+import { addedToMainText, onMergedWrite } from '../lib/merged-write';
 import { todayKey } from '../lib/due-date';
 import { MergeTasksDialog } from './MergeTasksDialog';
 import { MergedFromPanel } from './task-merge/MergedFromPanel';
@@ -80,11 +81,45 @@ const fullName = (u: { firstName: string | null; lastName: string | null; userna
  * id), with a line saying which task was asked for.
  */
 export function TaskDrawerContainer(props: TaskDrawerContainerProps) {
+  const queryClient = useQueryClient();
   const asked = useQuery({ queryKey: ['task', props.taskId], queryFn: () => tasksApi(apiClient).get(props.taskId) });
   const mainId = asked.data && asked.data.id && asked.data.id !== props.taskId ? asked.data.id : null;
   const timeZone = useCompanyTimeZone();
   const notice = mainId && asked.data?.mergeNotice ? mergeNoticeText(asked.data.mergeNotice, timeZone, todayKey(timeZone)) : null;
-  return <TaskDrawerPanel key={mainId ?? props.taskId} {...props} taskId={mainId ?? props.taskId} mergeNotice={notice} />;
+  // Something added on a panel opened before its task was merged went to the main task: say where, and
+  // show the main task (reading the task again finds it).
+  const [added, setAdded] = useState<string | null>(null);
+  useEffect(
+    () =>
+      onMergedWrite((m) => {
+        setAdded(addedToMainText(m));
+        void invalidateMergeQueries(queryClient);
+      }),
+    [queryClient],
+  );
+  useEffect(() => {
+    if (!added) return;
+    const t = setTimeout(() => setAdded(null), 8000);
+    return () => clearTimeout(t);
+  }, [added]);
+  return (
+    <>
+      <TaskDrawerPanel key={mainId ?? props.taskId} {...props} taskId={mainId ?? props.taskId} mergeNotice={notice} />
+      {added
+        ? createPortal(
+            <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[70] flex justify-center px-4 sm:bottom-6">
+              <p role="status" className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 text-sm font-medium text-ink shadow-lift">
+                <span>{added}</span>
+                <button type="button" onClick={() => setAdded(null)} aria-label="Dismiss" className="text-ink-2 hover:text-ink [@media(pointer:coarse)]:!min-h-11">
+                  ✕
+                </button>
+              </p>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
 }
 
 function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice }: TaskDrawerContainerProps & { mergeNotice: string | null }) {

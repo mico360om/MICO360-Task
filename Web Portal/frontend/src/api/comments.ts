@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import { noteMergedWrite } from '../lib/merged-write';
 
 export interface ApiComment {
   id: string;
@@ -42,7 +43,7 @@ export function commentsApi(client: ApiClient) {
     add: (taskId: string, body: string, reply?: CommentReply) =>
       client
         .post<{ data: ApiComment }>(`/tasks/${taskId}/comments`, reply ? { body, parentId: reply.parentId, ...(reply.clientVisible ? { clientVisible: true } : {}) } : { body })
-        .then((r) => r.data),
+        .then((r) => (noteMergedWrite(r), r.data)),
     /** Change the text of your own comment. */
     update: (commentId: string, body: string) => client.put<{ data: ApiComment }>(`/comments/${commentId}`, { body }).then((r) => r.data),
     /** Delete your own comment (an admin may delete anyone's). */

@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import { noteMergedWrite } from '../lib/merged-write';
 
 export interface ApiChecklistItem {
   id: string;
@@ -13,7 +14,7 @@ export function checklistApi(client: ApiClient) {
     list: (taskId: string) =>
       client.get<{ data: { items: ApiChecklistItem[]; progress: number } }>(`/tasks/${taskId}/checklist`).then((r) => r.data),
     add: (taskId: string, text: string) =>
-      client.post<{ data: ApiChecklistItem }>(`/tasks/${taskId}/checklist`, { text }).then((r) => r.data),
+      client.post<{ data: ApiChecklistItem }>(`/tasks/${taskId}/checklist`, { text }).then((r) => (noteMergedWrite(r), r.data)),
     toggle: (itemId: string, done: boolean) =>
       client.put<{ data: ApiChecklistItem }>(`/checklist/${itemId}`, { done }).then((r) => r.data),
     /** Change an item's text. */

@@ -58,6 +58,8 @@ export interface CompanyApp {
   post(viewer: Viewer, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; body: string; json(): unknown }>;
   /** PUT as this person; the whole answer. */
   put(viewer: Viewer, path: string, body?: unknown, headers?: Record<string, string>): Promise<{ statusCode: number; body: string; json(): unknown }>;
+  /** This person's Authorization header value (for a request of another kind: a delete, an upload). */
+  bearer(viewer: Viewer): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -154,5 +156,5 @@ export async function buildCompanyApp(prisma: PrismaClient, extra: (base: Partia
   }
   const post = (viewer: Viewer, path: string, body: unknown = {}, headers: Record<string, string> = {}) => send('POST', viewer, path, body, headers);
   const put = (viewer: Viewer, path: string, body: unknown = {}, headers: Record<string, string> = {}) => send('PUT', viewer, path, body, headers);
-  return { app, deps, get, getRaw, post, put, close: () => app.close() };
+  return { app, deps, get, getRaw, post, put, bearer: auth, close: () => app.close() };
 }

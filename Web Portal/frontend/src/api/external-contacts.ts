@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import { noteMergedWrite } from '../lib/merged-write';
 import type { ExternalContactDraft, ExternalContactFields } from '../lib/external-contacts';
 
 /** A person outside the company responsible for a task (one task's own copy). */
@@ -16,7 +17,7 @@ export function externalContactsApi(client: ApiClient) {
   return {
     list: (taskId: string) => client.get<{ data: ApiExternalContact[] }>(`/tasks/${taskId}/external-contacts`).then((r) => r.data),
     add: (taskId: string, contact: ExternalContactDraft) =>
-      client.post<{ data: ApiExternalContact }>(`/tasks/${taskId}/external-contacts`, contact).then((r) => r.data),
+      client.post<{ data: ApiExternalContact }>(`/tasks/${taskId}/external-contacts`, contact).then((r) => (noteMergedWrite(r), r.data)),
     /** Change the fields sent (one sent empty is cleared); the rest stay as they are. */
     update: (contactId: string, contact: ExternalContactDraft) =>
       client.put<{ data: ApiExternalContact }>(`/external-contacts/${contactId}`, contact).then((r) => r.data),

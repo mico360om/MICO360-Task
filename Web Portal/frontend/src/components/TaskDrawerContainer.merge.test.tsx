@@ -19,16 +19,23 @@ const PANEL = {
 };
 let calls: { method: string; url: string }[] = [];
 let manages = true;
+/** The merged task's own answer, until it is merged (a panel opened before someone else merged it). */
+let staleUntilWrite = false;
 
 beforeEach(() => {
   calls = [];
   manages = true;
+  staleUntilWrite = false;
   useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: [] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
       calls.push({ method: init?.method ?? 'GET', url: u });
+      if (init?.method === 'POST' && u.endsWith('/tasks/t14/comments')) {
+        staleUntilWrite = false;
+        return json({ data: { id: 'c9', taskId: 't12', userId: 'u1', body: 'Typed on the old panel', createdAt: '' }, mergedInto: { taskId: 't12', key: 'MICO-12', fromKey: 'MICO-14' } }, 201);
+      }
       if (u.endsWith('/tasks/move-targets')) return json({ data: { managesAll: false, managedProjectIds: manages ? ['p1'] : [], projects: [] } });
       if (u.endsWith('/tasks/t12/merges')) return json({ data: PANEL });
       if (u.endsWith('/task-merges/m1/undo-preview')) return json({ data: { mergeId: 'm1', mainTaskId: 't12', mainKey: 'MICO-12', tasks: [{ id: 't14', key: 'MICO-14', title: 'Pump check' }], canUndo: true, reason: null, deletedSince: ['1 file from MICO-14 was deleted after the merge.'], mainMoved: null } });
@@ -38,6 +45,7 @@ beforeEach(() => {
       if (u.includes('/dependencies')) return json({ data: { blockedBy: [], blocks: [] } });
       if (u.includes('/members') || u.includes('/attachments') || u.includes('/assignees') || u.includes('/activity') || u.includes('/watchers') || u.includes('/columns') || u.includes('/tasks?') || u.includes('/users') || u.includes('/projects')) return json({ data: [] });
       if (u.endsWith('/watch')) return json({ data: { watching: false } });
+      if (staleUntilWrite && u.endsWith('/tasks/t14')) return json({ data: { ...MAIN, id: 't14', key: 'MICO-14', title: 'Pump check', formerKeys: [], mergedFrom: [] } });
       // An old link: the merged task's id answers with the main task, saying which was asked for.
       if (u.endsWith('/tasks/t14')) return json({ data: { ...MAIN, mergeNotice: { key: 'MICO-14', mergedAt: '2026-11-05T09:00:00Z', mergedByName: 'Khurram Admin' } } });
       if (u.endsWith('/tasks/t12')) return json({ data: MAIN });
@@ -83,6 +91,16 @@ describe('The task panel and merged tasks', () => {
     await userEvent.click(within(ask).getByRole('button', { name: 'Undo merge' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/task-merges/m1/undo'))).toBe(true));
     expect(await screen.findByText('Undid the merge: MICO-14 is a separate task again')).toBeInTheDocument();
+  });
+
+  it('a comment typed on a panel opened before the merge goes to the main task: the panel says so and shows the main task', async () => {
+    staleUntilWrite = true;
+    open('t14');
+    const panel = await screen.findByRole('dialog', { name: 'Task MICO-14' });
+    await userEvent.type(within(panel).getByPlaceholderText(/Write a comment/), 'Typed on the old panel');
+    await userEvent.click(within(panel).getByRole('button', { name: 'Comment' }));
+    expect(await screen.findByText('Added to MICO-12 (MICO-14 was merged into it).')).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Task MICO-12' })).toBeInTheDocument();
   });
 
   it('“Merge with other tasks…” is for whoever manages the project; employees don’t see it', async () => {

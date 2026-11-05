@@ -158,7 +158,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   project involved can merge; someone not on the main task's project team is either added to the team or
   left off (your choice). The other tasks disappear from every list, board, calendar, report, export,
   daily email and search — but their numbers, links and old notices open the main task ("MICO-14 was
-  merged into this task on 5 Nov by Khurram"). The main task's "Merged from" panel lists them (each opens
+  merged into this task on 5 Nov by Khurram"), and anything added to one of them afterwards — a comment, a
+  file, a checklist item, a contact, following it, from an old screen or the phone app — goes to the main
+  task (changing or deleting a merged task itself is refused). The main task's "Merged from" panel lists them (each opens
   its read-only record) and Undo gives each one back as it was; anything added since stays on the main
   task. Reports and exports show "Merged from: MICO-14, MICO-15" on the main task's row.
 

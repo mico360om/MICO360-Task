@@ -1,4 +1,5 @@
 import type { ApiClient } from '../lib/api-client';
+import { noteMergedWrite } from '../lib/merged-write';
 
 export interface ApiAttachment {
   id: string;
@@ -25,7 +26,7 @@ export function attachmentsApi(client: ApiClient) {
     upload: (taskId: string, file: File, onProgress?: (fraction: number) => void) => {
       const form = new FormData();
       form.append('file', file, file.name);
-      return client.upload<{ data: ApiAttachment }>(`/tasks/${taskId}/attachments`, form, onProgress ? { onProgress } : undefined).then((r) => r.data);
+      return client.upload<{ data: ApiAttachment }>(`/tasks/${taskId}/attachments`, form, onProgress ? { onProgress } : undefined).then((r) => (noteMergedWrite(r), r.data));
     },
     remove: (attachmentId: string) => client.del<void>(`/attachments/${attachmentId}`),
     /** The text of a .docx / .xlsx / .pptx attachment, for previewing it in the app. */

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler, RouteOptions } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler, preSerializationAsyncHookHandler, RouteOptions } from 'fastify';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
 import type { Logger } from '../../lib/logger';
@@ -125,10 +125,24 @@ export async function registerTaskMergeRoutes(app: FastifyInstance, deps: MergeR
 /** What the server says when a merged task's id is used to change it. */
 export const TASK_MERGED_CODE = 'TASK_MERGED';
 
+/**
+ * Writes that ADD something to a task: sent to a merged task's id (a stale screen, an old link, the phone
+ * app's offline queue — the app isn't updated), they land on the main task and the answer names it
+ * (`mergedInto`) — "without losing any information". Any other write (a change to its own fields, deleting
+ * it, unfollowing, taking something off) is refused: 409 TASK_MERGED, naming the main task.
+ */
+export const ADDS_TO_TASK: ReadonlySet<string> = new Set([
+  'POST /tasks/:id/comments',
+  'POST /tasks/:id/attachments',
+  'POST /tasks/:id/checklist',
+  'POST /tasks/:id/watch',
+  'POST /tasks/:id/external-contacts',
+]);
+
 declare module 'fastify' {
   interface FastifyRequest {
     /** 1.23.1: this request named a merged task; it is answered for the main task. */
-    mergedFrom?: { taskId: string; key: string; mergedAt: Date | null; mergedByName: string | null };
+    mergedFrom?: { taskId: string; key: string; mergedAt: Date | null; mergedByName: string | null; mainKey?: string | null };
   }
 }
 
@@ -148,14 +162,19 @@ export function installMergedTaskRedirect(
   app.addHook('onRoute', (route: RouteOptions) => {
     const path = route.url.startsWith(prefix) ? route.url.slice(prefix.length) || '/' : route.url;
     if (!/^\/tasks\/:id(\/|\.|$)/.test(path)) return;
+    const methods = (Array.isArray(route.method) ? route.method : [route.method]).map((m) => String(m).toUpperCase());
+    const adds = methods.some((m) => ADDS_TO_TASK.has(`${m} ${path}`));
     const own = route.preHandler ? (Array.isArray(route.preHandler) ? route.preHandler : [route.preHandler]) : [];
     const redirect: preHandlerAsyncHookHandler = async (req, reply) => {
       const params = req.params as { id?: string };
       if (!params?.id || !req.user) return;
       const merged = await deps.resolve(params.id);
       if (!merged) return;
-      if (req.method === 'GET' || req.method === 'HEAD') {
+      if (req.method === 'GET' || req.method === 'HEAD' || adds) {
+        // A read, or something added: answered for the main task (by its own checks: the route asks
+        // whether this person may see — and change — the main task, as for any task).
         req.mergedFrom = { taskId: params.id, key: merged.key, mergedAt: merged.mergedAt, mergedByName: merged.mergedByName };
+        if (adds && deps.keyOf) req.mergedFrom.mainKey = await deps.keyOf(merged.mainTaskId);
         params.id = merged.mainTaskId;
         return;
       }
@@ -172,5 +191,15 @@ export function installMergedTaskRedirect(
     };
     // After the route's own sign-in, before anything else it does (the archive guard included).
     route.preHandler = [...own.slice(0, 1), redirect, ...own.slice(1)];
+    if (!adds) return;
+    // What was added names the task it went to: { data, mergedInto: { taskId, key, fromKey } } (additive).
+    // Before serialisation, so a repeated request (Idempotency-Key, the app's queue) gets the same answer.
+    const name: preSerializationAsyncHookHandler = async (req, reply, payload) => {
+      const from = req.mergedFrom;
+      if (!from || reply.statusCode >= 300 || !payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+      return { ...(payload as Record<string, unknown>), mergedInto: { taskId: (req.params as { id: string }).id, key: from.mainKey ?? null, fromKey: from.key } };
+    };
+    const serial = route.preSerialization ? (Array.isArray(route.preSerialization) ? route.preSerialization : [route.preSerialization]) : [];
+    route.preSerialization = [...serial, name] as RouteOptions['preSerialization'];
   });
 }
