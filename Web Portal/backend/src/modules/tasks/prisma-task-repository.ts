@@ -20,7 +20,8 @@ import { currentAcceptance } from '../clients/sign-off';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
-type EnrichedTask = Omit<Task, 'carryForwardLog'> & {
+// 1.23.1: a merged task's merge columns aren't read here (merged tasks aren't live tasks).
+type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' | 'mergedById' | 'mergeId'> & {
   /** Absent on list rows — the carry-forward history is only returned for a single task. */
   carryForwardLog?: Prisma.JsonValue;
   /** Its old keys (a single task only). */

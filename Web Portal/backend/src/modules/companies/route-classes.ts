@@ -431,4 +431,13 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'DELETE /integrations/microsoft': 'own',
   'GET /integrations/microsoft/callback': 'public',
   'POST /meetings/:id/teams-link': 'object',
+  // 1.23.1 Merge tasks: the dialog's preview and the merge (each task by the task rule, then the merge's
+  // own: administrators, or the manager of every project involved), a main task's "Merged from" panel,
+  // a merged record and Undo (by the main task's rule; Undo by the merge's own).
+  'POST /tasks/merge-preview': 'object',
+  'POST /tasks/merge': 'object',
+  'GET /tasks/:id/merges': 'object',
+  'GET /task-merges/:mergeId/tasks/:taskId': 'object',
+  'GET /task-merges/:mergeId/undo-preview': 'object',
+  'POST /task-merges/:mergeId/undo': 'object',
 };

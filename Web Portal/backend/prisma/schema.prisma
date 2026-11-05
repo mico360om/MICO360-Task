@@ -395,6 +395,14 @@ model Task {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
+  /// 1.23.1 Merge tasks: the main task this one was merged into. A merged task is a read-only merged
+  /// record: hidden like a deleted one (deletedAt is set with it), its number an alias of the main task.
+  /// Undo (task_merges) clears all four.
+  mergedIntoId   String?
+  mergedAt       DateTime?
+  mergedById     String?
+  /// The merge (task_merges) that merged it.
+  mergeId        String?
 
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   column       KanbanColumn     @relation(fields: [columnId], references: [id])
@@ -436,8 +444,56 @@ model Task {
   @@index([approvalRequestedAt])
   @@index([approvalRequestedById])
   @@index([approvedById])
+  /// 1.23.1: the tasks merged into a main task.
+  @@index([mergedIntoId])
   @@fulltext([title, description])
   @@map("tasks")
+}
+
+/// 1.23.1 Merge tasks: one merge of tasks into a main task — what it chose and changed, and its undo.
+/// The merged tasks are those with this mergeId (task_merge_items remembers every row it moved).
+model TaskMerge {
+  id                String          @id @default(cuid())
+  mainTaskId        String
+  /// The main task's number and project before and after (a project chosen from another task gives it a new number).
+  mainKeyBefore     String
+  mainKeyAfter      String
+  mainProjectBefore String
+  mainProjectAfter  String
+  /// The merged tasks, in the order chosen: [{ id, key }].
+  taskIds           Json
+  /// What the merge changed on the main task, field by field ({ field: { before, after } }), and the choices made.
+  changes           Json
+  /// What was combined and what was kept once (the preview's counts), for the history and the audit log.
+  summary           Json
+  mergedById        String
+  mergedAt          DateTime        @default(now())
+  undoneAt          DateTime?
+  undoneById        String?
+  items             TaskMergeItem[]
+
+  @@index([mainTaskId])
+  @@map("task_merges")
+}
+
+/// 1.23.1: a row a merge moved to the main task (a comment, file, checklist item, history line…), or a
+/// link it gave it (a person, a tag), and the task it came from — so Undo moves it back.
+model TaskMergeItem {
+  id         String    @id @default(cuid())
+  mergeId    String
+  /// comment, attachment, checklist, activity, inspection, followUp, actionItem, notification, assignee,
+  /// watcher, tag, contact, contactFill, dependency, alias, aliasNew.
+  kind       String    @db.VarChar(20)
+  /// The row's id (a person's or tag's id for a link).
+  rowId      String
+  fromTaskId String
+  /// What Undo needs besides: a position, a project, the fields a contact was filled with.
+  data       Json?
+  merge      TaskMerge @relation(fields: [mergeId], references: [id], onDelete: Cascade)
+
+  @@index([mergeId])
+  @@index([kind, rowId])
+  @@map("task_merge_items")
 }
 
 /// Task search: one normalised text per task — its keys (old ones too), title, description, live

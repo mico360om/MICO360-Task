@@ -188,6 +188,11 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'putting away the AI’s offered draft: the minutes don’t change',
   // 1.23: deleting a series (its meetings stay).
   'DELETE /meeting-series/:id': 'deleting, as today (its meetings stay)',
+  // 1.23.1 Merge tasks: the merge and its undo refuse archived (and completed) projects themselves —
+  // they check every project involved, not one (task-merge/merge-service.ts); the preview is a read.
+  'POST /tasks/merge-preview': 'a read: what a merge would do (the merge itself checks every project)',
+  'POST /tasks/merge': 'the merge refuses archived and completed projects itself, for every task involved (merge-service)',
+  'POST /task-merges/:mergeId/undo': 'Undo refuses archived projects itself, for every task involved (merge-service)',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */

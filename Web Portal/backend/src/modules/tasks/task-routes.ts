@@ -181,6 +181,8 @@ export interface TaskRouteDeps {
   taskInspectionForm?: (formId: string) => Promise<{ id: string; title: string; deleted: boolean } | null>;
   /** When provided, a task’s details say who may approve it, who finished it and who approved it. */
   taskApproval?: (viewer: ApprovalViewer, task: TaskRecord) => Promise<TaskApprovalDetails>;
+  /** 1.23.1: the tasks merged into this one (additive `mergedFrom`; its "Merged from" panel opens from them). */
+  mergedFrom?: (taskId: string) => Promise<{ id: string; key: string; mergeId: string }[]>;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): Promise<void> {
@@ -350,7 +352,10 @@ export async function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDe
     const inspectionForm = task.inspectionFormId && deps.taskInspectionForm ? await deps.taskInspectionForm(task.inspectionFormId) : null;
     const approval = deps.taskApproval ? { approval: await deps.taskApproval({ id: req.user!.id, roles: req.user!.roles ?? [] }, task) } : {};
     const { canDelete, canDeleteSeries } = await deleteRightsOf(req, task);
-    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries } };
+    // 1.23.1: the tasks merged into it; and, opened by a merged task's id (an old link), which one that was.
+    const merged = deps.mergedFrom ? { mergedFrom: await deps.mergedFrom(task.id) } : {};
+    const notice = req.mergedFrom ? { mergeNotice: { key: req.mergedFrom.key, mergedAt: req.mergedFrom.mergedAt, mergedByName: req.mergedFrom.mergedByName } } : {};
+    return { data: { ...task, meeting: await meetingLinkOf(req, task.meetingId ?? null), inspectionForm, ...approval, canDelete, canDeleteSeries, ...merged, ...notice } };
   });
 
   app.post('/tasks', { preHandler: guard.authenticate }, async (req, reply) => {

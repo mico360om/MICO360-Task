@@ -97,8 +97,9 @@ describe('reportSheets', () => {
 
   it('lists every task with real dates, people and an overdue flag', () => {
     const tasks = reportSheets(bundle(), meta, ['tasks'])[0]!;
-    expect(tasks.columns.map((c) => c.header)).toEqual(['Key', 'Title', 'Project', 'Status', 'Priority', 'Assignees', 'Due', 'Completed', 'Overdue']);
-    expect(tasks.rows[0]).toEqual(['MICO-1', 'مراجعة تقرير المبيعات الشهري', 'MICO360 Platform', 'In progress', 'Urgent', 'Ada Lovelace, Omar Ahmed', { date: '2026-09-30' }, null, 'Yes']);
+    // 1.23.1: "Merged from" — the tasks merged into each one (empty for most).
+    expect(tasks.columns.map((c) => c.header)).toEqual(['Key', 'Title', 'Project', 'Status', 'Priority', 'Assignees', 'Due', 'Completed', 'Overdue', 'Merged from']);
+    expect(tasks.rows[0]).toEqual(['MICO-1', 'مراجعة تقرير المبيعات الشهري', 'MICO360 Platform', 'In progress', 'Urgent', 'Ada Lovelace, Omar Ahmed', { date: '2026-09-30' }, null, 'Yes', '']);
     // Completion time in company time (13:30 UTC is 17:30 in Muscat).
     expect(tasks.rows[1]![7]).toEqual({ date: '2026-09-30 17:30' });
   });

@@ -21,6 +21,8 @@ import type { TaskRecord } from './modules/tasks/task-repository';
 import { registerTaskExportRoutes } from './modules/tasks/task-export-routes';
 import { registerTaskMoveRoutes } from './modules/tasks/task-move-routes';
 import type { TaskMoveService } from './modules/tasks/task-move-service';
+import { installMergedTaskRedirect, registerTaskMergeRoutes } from './modules/task-merge/merge-routes';
+import type { TaskMergeService } from './modules/task-merge/merge-service';
 import type { TaskExportSource } from './modules/tasks/task-export';
 import type { TaskService } from './modules/tasks/task-service';
 import { registerAssigneeRoutes } from './modules/tasks/assignee-routes';
@@ -181,6 +183,8 @@ export interface AppDeps extends AuthRouteDeps {
   taskService?: TaskService;
   /** Moving tasks to another project (move-targets, move-preview, move-to-project). */
   taskMoveService?: TaskMoveService;
+  /** 1.23.1 Merge tasks: the merge dialog, the merge, a main task's "Merged from" panel and Undo. */
+  taskMergeService?: TaskMergeService;
   carryForwardService?: import('./modules/tasks/carry-forward-service').CarryForwardService;
   assigneeService?: AssigneeService;
   watcherService?: WatcherService;
@@ -641,6 +645,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           '/api/v1',
         );
       }
+      // 1.23.1: a merged task's id (an old link, a notice, the phone app) reads as its main task; a change
+      // sent to it is refused. Installed before the routes, like the archive guard.
+      if (deps.taskMergeService) {
+        const merges = deps.taskMergeService;
+        installMergedTaskRedirect(
+          api,
+          {
+            resolve: (id) => merges.resolveMerged(id),
+            canViewTask,
+            keyOf: deps.taskService ? async (id) => (await deps.taskService!.getTask(id).catch(() => null))?.key ?? null : undefined,
+          },
+          '/api/v1',
+        );
+      }
       if (deps.projectService) {
         await registerProjectRoutes(api, {
           projectService: deps.projectService,
@@ -718,6 +736,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           taskMeeting: deps.taskMeeting ?? taskMeetingFrom(deps),
           taskInspectionForm: deps.taskInspectionForm,
           taskApproval: deps.taskApprovalDetails,
+          // 1.23.1: the tasks merged into a task (its "Merged from" panel opens from them).
+          mergedFrom: deps.taskMergeService ? (id) => deps.taskMergeService!.mergedInto(id) : undefined,
           projectOwnerOf: deps.projectService
             ? async (projectId) => (await deps.projectService!.getProject(projectId)).ownerId
             : undefined,
@@ -738,6 +758,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.taskMoveService) {
         await registerTaskMoveRoutes(api, { service: deps.taskMoveService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
+      }
+      if (deps.taskMergeService) {
+        await registerTaskMergeRoutes(api, { service: deps.taskMergeService, guard, broadcast: deps.onTaskEvent, canViewTask, audit: deps.auditService, logger: deps.logger });
       }
       if (deps.assigneeService) {
         await registerAssigneeRoutes(api, {

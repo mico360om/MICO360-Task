@@ -20,6 +20,8 @@ export interface ReportTask {
   columnName?: string;
   /** Waiting for approval since then (task approvals): not overdue while it waits (owner, 30 Oct). */
   approvalRequestedAt?: Date | null;
+  /** 1.23.1: the numbers of the tasks merged into it (merged tasks themselves are never rows). */
+  mergedFrom?: string[];
 }
 
 export interface ReportUser {
@@ -44,6 +46,8 @@ export interface TaskListRow {
   completedAt: Date | null;
   done: boolean;
   overdue: boolean;
+  /** 1.23.1: "Merged from: MICO-14, MICO-15" — the tasks merged into it. */
+  mergedFrom?: string[];
 }
 
 /** The on-screen report filters; every report and export applies the same ones. */
@@ -224,6 +228,7 @@ export function createReportService({ data, timeZone = defaultCompanyTimeZone(),
         completedAt: done ? t.completedAt : null,
         done,
         overdue: isOverdueOpen(t, timeZone, at),
+        mergedFrom: t.mergedFrom ?? [],
       };
     });
     return rows.sort(

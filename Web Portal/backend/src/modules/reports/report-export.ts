@@ -172,6 +172,7 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
           { header: 'Due', kind: 'date' },
           { header: 'Completed', kind: 'datetime' },
           { header: 'Overdue' },
+          { header: 'Merged from', wrap: true },
         ],
         rows: b.tasks.map((t): XlsxValue[] => [
           t.key,
@@ -183,6 +184,7 @@ export function reportSheets(b: ReportBundle, meta: ReportMeta, sections: Report
           t.dueDate ? { date: t.dueDate } : null,
           t.completedAt ? { date: wallClock(t.completedAt, meta.timeZone) } : null,
           t.overdue ? 'Yes' : '',
+          t.mergedFrom?.length ? t.mergedFrom.join(', ') : '',
         ]),
       });
     }
@@ -277,7 +279,7 @@ export function reportPdf(b: ReportBundle, meta: ReportMeta, sections: ReportSec
       const shown = b.tasks.slice(0, PDF_TASK_LIMIT);
       const rows = shown.map((t) => [
             t.key,
-            t.title,
+            t.mergedFrom?.length ? `${t.title} (merged from ${t.mergedFrom.join(', ')})` : t.title,
             t.projectName,
             t.status,
             priorityLabel(t.priority),

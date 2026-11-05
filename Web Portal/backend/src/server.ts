@@ -52,6 +52,8 @@ import { createCarryForwardService } from './modules/tasks/carry-forward-service
 import { createTaskMoveService, type MoveResult } from './modules/tasks/task-move-service';
 import { createPrismaTaskMoveRepository } from './modules/tasks/prisma-task-move-repository';
 import { createMoveNotifier } from './modules/tasks/task-move-notices';
+import { createTaskMergeService, type MergeResult, type UndoResult } from './modules/task-merge/merge-service';
+import { mergedNoticeTitle } from './modules/task-merge/merge-rules';
 import { createStatusChangeEffects, type StatusChangeEffects } from './modules/tasks/task-status-effects';
 import { createPrismaApprovalSource } from './modules/tasks/prisma-approval-source';
 import { createPrismaTaskKeyResolver } from './modules/tasks/prisma-task-keys';
@@ -737,6 +739,20 @@ async function main(): Promise<void> {
     meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);
+  // 1.23.1 Merge tasks. Late-bound: search and the people following the main task are told below.
+  let onTasksMerged: (result: MergeResult & { actorId: string }) => Promise<void> = async () => {};
+  let onMergeUndone: (result: UndoResult & { actorId: string }) => Promise<void> = async () => {};
+  const taskMergeService = createTaskMergeService({
+    prisma,
+    timeZone: companyTz,
+    // Duplicate files are compared by content (the same name and size first).
+    readFile: async (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey).catch(() => null) : null),
+    checklistPercent: async (taskId, db) => progressFromItems(await db.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
+    canViewMeeting: (userId, roles, meetingId) => meetingAccess.canViewMeeting(userId, roles, meetingId),
+    onMerged: (result) => onTasksMerged(result),
+    onUndone: (result) => onMergeUndone(result),
+    onError: (err, what) => logger.error(`merging tasks: a step ${what} failed`, { err }),
+  });
   // 1.23 Meeting series: named series of related meetings (repeat families are in one each). Its
   // people, agenda, roles and task numbers are read through arrows: those are set up further down.
   const namedSeriesService = createNamedSeriesService({
@@ -1115,6 +1131,27 @@ async function main(): Promise<void> {
   onTaskProjectMoved = async (move) => {
     await taskSearchIndex.taskChanged(move.task.id);
     await notifyProjectMove(move);
+  };
+
+  // 1.23.1: tasks merged — search finds the main task by every number and word now (the merged ones
+  // leave it), and the people following the main task (theirs now too) hear it once: "MICO-14 and
+  // MICO-15 were merged into MICO-12" — never the person who merged them.
+  const reindexMerge = async (ids: string[]) => {
+    for (const id of ids) {
+      await taskSearchIndex.taskChanged(id);
+      void searchIndex.taskFilesChanged(id);
+    }
+  };
+  onTasksMerged = async (result) => {
+    await reindexMerge([result.mainTaskId, ...result.merged.map((t) => t.id)]);
+    const main = await taskService.getTask(result.mainTaskId).catch(() => null);
+    const title = mergedNoticeTitle(result.merged.map((t) => t.key), result.mainKey);
+    for (const userId of await taskRecipientIds(result.mainTaskId, result.actorId)) {
+      await notificationService.notify({ userId, type: 'TASK_STATUS', title, body: main ? taskNoticeBody(main) : null, entityType: 'task', entityId: result.mainTaskId });
+    }
+  };
+  onMergeUndone = async (result) => {
+    await reindexMerge([result.mainTaskId, ...result.restored.map((t) => t.id)]);
   };
 
   // A chat @mention notifies each mentioned (real, active) user who can read the conversation —
@@ -1961,6 +1998,7 @@ async function main(): Promise<void> {
     }),
     taskService,
     taskMoveService,
+    taskMergeService,
     carryForwardService,
     assigneeService,
     watcherService,

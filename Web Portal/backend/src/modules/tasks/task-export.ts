@@ -108,6 +108,8 @@ export interface TaskExportData {
   activity: { at: Date; who: string; action: string; meta: unknown }[];
   /** How many activity entries the task has in all, when more than `activity` holds. */
   activityTotal?: number;
+  /** 1.23.1: the numbers of the tasks merged into it ("Merged from: MICO-14, MICO-15"). */
+  mergedFrom?: string[];
 }
 
 export interface TaskExportContext {
@@ -174,6 +176,7 @@ function detailRows(t: TaskExportData, tz: string): [string, string][] {
     ['Repeat', t.repeat ?? ''],
     ['Created', `${formatDateTime(t.createdAt, tz)} by ${t.createdBy}`],
     ['Last updated', formatDateTime(t.updatedAt, tz)],
+    ...(t.mergedFrom?.length ? [['Merged from', t.mergedFrom.join(', ')] as [string, string]] : []),
   ];
 }
 
@@ -388,6 +391,7 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
       ['Repeat', t.repeat ?? ''],
       ['Created', `${formatDateTime(t.createdAt, tz)} by ${isolate(t.createdBy)}`],
       ['Last updated', formatDateTime(t.updatedAt, tz)],
+      ['Merged from', t.mergedFrom?.length ? t.mergedFrom.join(', ') : ''],
     ]),
     { size: 9.5 },
   );
@@ -539,6 +543,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         },
       });
       if (!t) return null;
+      const merged = await prisma.task.findMany({ where: { mergedIntoId: t.id }, select: { key: true }, orderBy: { key: 'asc' } });
       const rule = t.recurrenceRule as unknown as RecurrenceRule | null;
       const done = isTaskDone({ columnCategory: t.column.category, completedAt: t.completedAt });
       // Who can be @mentioned: the people who can open the task (as when the comment was written).
@@ -591,6 +596,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         mentionable,
         activity: [...t.activities].reverse().map((a) => ({ at: a.createdAt, who: personName(a.user), action: a.action, meta: a.meta })),
         activityTotal: t._count.activities,
+        ...(merged.length ? { mergedFrom: merged.map((m) => m.key) } : {}),
       };
     },
   };
