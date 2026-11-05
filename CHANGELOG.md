@@ -98,8 +98,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - The Series page (open it from a meeting, or from the Series chip on a Meetings card): every meeting
   of the series you may open, coming up and earlier, its open action items, "New meeting in this
   series" (the form starts from the latest meeting — title, project, people, place, online link,
-  length and agenda — and you pick the day), "Add existing meetings", remove a meeting, rename the
-  series, "Merge another series into this one" and delete the series (its meetings stay).
+  length and agenda — and you pick the day; a link Microsoft Teams made isn't copied: "Create a
+  Teams link" is ticked instead, so the new meeting gets its own), "Add existing meetings", remove a
+  meeting, rename the series, "Merge another series into this one" and delete the series (its meetings
+  stay).
 - Meetings page: cards of meetings in a series show a Series chip (it opens the Series page), and the
   Filters panel has a Series filter.
 - Repeating meetings are a series automatically: every existing repeating meeting has a series named
@@ -142,7 +144,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   topic. Sorting orders the items inside each topic. Whoever may change the agenda changes topics in
   place; whoever may change action items changes them in place, including which topic an item is
   under. Its own filter bar finds items by words or a task number, owner, status ("Open only") and
-  priority. Someone invited from another company sees only their own items, as in the list.
+  priority. Someone invited from another company sees only their own items, as in the list. In a
+  meeting series the items still open from earlier meetings are the table's last group, "Open from
+  earlier meetings", each with the day of its meeting ("from 3 Nov").
 - Action items under topics: the "add an action item" form has a Topic choice (none at first), each
   item in the list names its topic, and an action note made into a task puts its action item under the
   note's topic. Older items made from a note are shown under that note's topic.
