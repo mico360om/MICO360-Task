@@ -15,22 +15,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
-- System Settings → Error log (administrators only; also in the Admin menu): when something goes
-  wrong in someone's browser, the site now tells the server — an error in the page, a request or
-  the live connection that was blocked on the way (a firewall, a proxy or an antivirus), one of the
-  site's own files or scripts that was blocked, and slow pages (a page taking over 8 seconds to
-  load, slow to show, slow to answer a click, jumping around, or a request taking over 10 seconds).
-  Errors on the server are there too: failed requests and background jobs (nightly backup, daily
-  emails, meeting reminders, AI model refresh, search index, recurring copies and the others). The
-  same error is one row with how many times and to how many people it happened, when it was first
-  and last seen, the page and the version; filters for Errors, Blocked, Slow and Server, Today /
-  7 days / 30 days and a search box; "New" marks what appeared since your last visit. Opening a row
-  shows where in the site's own code it happened (file and line), the latest occurrences (when, who,
-  page, browser, version, window size) and "Mark as fixed", which hides it until it happens again in
-  a newer version ("Marked fixed" lists those, with "Not fixed"). Kept 30 days. Never sent: what
-  anyone typed, form contents, passwords, sign-in or share links, cookies or stored data — a
-  private link shows only as its pattern, such as /client/:token. A "Collect browser errors" switch
-  on the same card turns the browser part off for everyone.
 - Client accounts: people outside the company (your clients) can now have their own sign-in. In User
   Management → New user, choose Role "Client": enter their name, username, email, organisation and
   phone, send the welcome email (or give a temporary password), and under Project access pick their
@@ -160,10 +144,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   "All upcoming repeats of this meeting", so it isn't mixed up with the new named series.
 
 ### Security
-- The site's security policy is as strict as before — it now only also lets the task panel show
-  the site's own PDF previews — and browsers now also report to the server (the Error log) what it
-  blocks. The website's source maps, made for the Error log, stay on the server and are never
-  served to browsers.
 - Client accounts can use only the Client portal: the server refuses every other page and request to
   them, and refuses the portal to staff. Every portal request is checked, in order, for an active
   client account, access to that project, the part of the project, the action, and that the item is
@@ -191,10 +171,38 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   it. Connecting and disconnecting are in the audit log.
 
 ### Bug fixes
-- Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing
-  the preview, so the box stayed empty.
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
   link pasted by hand, used to be refused as "too long".
+
+## [1.22.4] - 2026-11-05
+
+### New features
+- System Settings → Error log (administrators only; also in the Admin menu): when something goes
+  wrong in someone's browser, the site now tells the server — an error in the page, a request or
+  the live connection that was blocked on the way (a firewall, a proxy or an antivirus), one of the
+  site's own files or scripts that was blocked, and slow pages (a page taking over 8 seconds to
+  load, slow to show, slow to answer a click, jumping around, or a request taking over 10 seconds).
+  Errors on the server are there too: failed requests and background jobs (nightly backup, daily
+  emails, meeting reminders, AI model refresh, search index, recurring copies and the others). The
+  same error is one row with how many times and to how many people it happened, when it was first
+  and last seen, the page and the version; filters for Errors, Blocked, Slow and Server, Today /
+  7 days / 30 days and a search box; "New" marks what appeared since your last visit. Opening a row
+  shows where in the site's own code it happened (file and line), the latest occurrences (when, who,
+  page, browser, version, window size) and "Mark as fixed", which hides it until it happens again in
+  a newer version ("Marked fixed" lists those, with "Not fixed"). Kept 30 days. Never sent: what
+  anyone typed, form contents, passwords, sign-in or share links, cookies or stored data — a
+  private link shows only as its pattern, such as /client/:token. A "Collect browser errors" switch
+  on the same card turns the browser part off for everyone.
+
+### Security
+- The site's security policy is as strict as before — it now only also lets the task panel show
+  the site's own PDF previews — and browsers now also report to the server (the Error log) what it
+  blocks. The website's source maps, made for the Error log, stay on the server and are never
+  served to browsers.
+
+### Bug fixes
+- Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing
+  the preview, so the box stayed empty.
 
 ## [1.22.3] - 2026-11-05
 
