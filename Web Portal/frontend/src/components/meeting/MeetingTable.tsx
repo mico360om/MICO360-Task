@@ -40,6 +40,11 @@ export interface MeetingTableExtraGroup {
   items: ActionItem[];
   note?: (item: ActionItem) => ReactNode;
   editable?: (item: ActionItem) => ReadonlySet<Exclude<ItemField, 'topic'>>;
+  /**
+   * 1.23 (series): the owner's name as the group's source gave it — they may not be among this meeting's
+   * people (someone of an earlier meeting only). Used to name them; never offered as an owner here.
+   */
+  ownerName?: (item: ActionItem) => string | null;
 }
 
 export interface MeetingTableProps {
@@ -115,7 +120,19 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
   const items = itemEdits.apply(rawItems, (i) => i.id);
   const notes = useMemo(() => new Map((Array.isArray(notesQ.data) ? notesQ.data : []).map((n) => [n.id, n])), [notesQ.data]);
   const topicName = new Map(topics.map((t, i) => [t.id, `${i + 1}. ${t.title}`]));
-  const ownerName = (id: string | null) => userName(directory, id);
+  // Carried groups name their items' owners (people of earlier meetings may not be among this one's).
+  const extraNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const g of extraGroups) {
+      if (!g.ownerName) continue;
+      for (const i of g.items) {
+        const name = i.assigneeId ? g.ownerName(i) : null;
+        if (i.assigneeId && name) names.set(i.assigneeId, name);
+      }
+    }
+    return names;
+  }, [extraGroups]);
+  const ownerName = (id: string | null) => userName(directory, id) ?? (id ? (extraNames.get(id) ?? null) : null);
 
   const personOptions = useMemo(() => {
     const ids = new Set([...rawItems, ...extraGroups.flatMap((g) => g.items)].map((i) => i.assigneeId).filter((x): x is string => Boolean(x) && x !== myId));
@@ -123,9 +140,9 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
       { value: '', label: 'Anyone' },
       { value: ME, label: 'Me' },
       { value: NO_PERSON, label: 'Unassigned' },
-      ...[...ids].map((id) => ({ value: id, label: userName(directory, id) ?? 'Someone' })).sort((a, b) => a.label.localeCompare(b.label, 'en')),
+      ...[...ids].map((id) => ({ value: id, label: userName(directory, id) ?? extraNames.get(id) ?? 'Someone' })).sort((a, b) => a.label.localeCompare(b.label, 'en')),
     ];
-  }, [rawItems, extraGroups, directory, myId]);
+  }, [rawItems, extraGroups, extraNames, directory, myId]);
   const statusOptions = [{ value: '', label: 'Any status' }, { value: OPEN_ONLY, label: 'Open only' }, ...ACTION_STATUSES.map((s) => ({ value: s, label: ACTION_STATUS_LABELS[s] }))];
   // Remembered for the page, not each meeting: an owner with no items here is let go (never an empty
   // table with a blank box).
@@ -141,9 +158,11 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
   const rawItemById = new Map([...rawItems, ...extraGroups.flatMap((g) => g.items)].map((i) => [i.id, i]));
   // What shows action items: this meeting's list (and, with carried groups, its series'), My Action
   // Items and the meetings lists — as the List refreshes them.
-  const afterItem = () => {
+  const afterItem = (i: ActionItem) => {
     void qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'action-items'] });
     if (extraGroups.length) void qc.invalidateQueries({ queryKey: ['meeting', meetingId, 'series'] });
+    // A carried item is of an earlier meeting: its own list too (as the List's carry-over section does).
+    if (i.meetingId && i.meetingId !== meetingId) void qc.invalidateQueries({ queryKey: ['meeting', i.meetingId, 'action-items'] });
     void qc.invalidateQueries({ queryKey: ['my-action-items'] });
     void qc.invalidateQueries({ queryKey: ['meetings'] });
   };
@@ -152,7 +171,7 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
     if (!base) return;
     void itemEdits.edit(i.id, base, patch, async () => {
       const saved = await meetingsApi(apiClient).updateActionItem(i.id, body);
-      afterItem();
+      afterItem(i);
       const keys = Object.keys(patch) as (keyof ActionItem)[];
       return Object.fromEntries(keys.map((k) => [k, saved[k]])) as Partial<ActionItem>;
     });

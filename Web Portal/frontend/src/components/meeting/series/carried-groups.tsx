@@ -60,6 +60,8 @@ export function carriedTableGroups(items: readonly CarriedItem[], opts: { timeZo
           </Link>
         );
       },
+      // The owner as the series named them: they may not be among this meeting's people.
+      ownerName: (i) => byId.get(i.id)?.assigneeName ?? null,
       ...(opts.editable ? { editable: () => STATUS_ONLY } : {}),
     },
   ];

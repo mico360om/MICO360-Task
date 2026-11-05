@@ -66,9 +66,9 @@ function Where() {
   search = useLocation().search;
   return null;
 }
-function show(props: Partial<MeetingTableProps> = {}) {
+function show(props: Partial<MeetingTableProps> = {}, qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/meetings/m1']}>
         <MeetingTable meetingId="m1" directory={DIRECTORY} canEdit pollMs={false} timeZone="UTC" {...props} />
         <Where />
@@ -304,3 +304,34 @@ describe('MeetingTable', () => {
     expect(screen.getByText('4 action items')).toBeInTheDocument();
   });
 });
+
+describe('1.23 integration: a carried group (meeting series) in the table', () => {
+  it('names a carried item’s owner from the group when this meeting’s people don’t include them — never offered as an owner here', async () => {
+    const carried = item('c1', 'Survey the yard', { meetingId: 'm0', assigneeId: 'u9' });
+    show({ extraGroups: [{ key: 'carried', label: 'Open from earlier meetings', items: [carried], ownerName: () => 'Bilal Said', editable: () => new Set(['status'] as const) }] });
+    await waitFor(() => expect(groups()).toHaveLength(4));
+    expect(within(itemRow('Survey the yard')).getByText('Bilal Said')).toBeInTheDocument();
+    // The owner filter names them too…
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^Filter by owner/ }));
+    expect(screen.getByRole('option', { name: 'Bilal Said' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    // …but the owner picker of this meeting's own items stays this meeting's people.
+    await user.click(within(itemRow('Call client')).getByRole('button', { name: /^Owner of Call client/ }));
+    expect(screen.queryByRole('option', { name: 'Bilal Said' })).toBeNull();
+  });
+
+  it('a status changed on a carried item refreshes its own (earlier) meeting’s list too', async () => {
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(['meeting', 'm0', 'action-items'], [item('c1', 'Survey the yard', { meetingId: 'm0' })]);
+    const carried = item('c1', 'Survey the yard', { meetingId: 'm0' });
+    show({ extraGroups: [{ key: 'carried', label: 'Open from earlier meetings', items: [carried], editable: () => new Set(['status'] as const) }] }, qc);
+    await waitFor(() => expect(groups()).toHaveLength(4));
+    expect(qc.getQueryState(['meeting', 'm0', 'action-items'])?.isInvalidated).toBe(false);
+    await user.click(within(itemRow('Survey the yard')).getByRole('button', { name: 'Status of Survey the yard: Open' }));
+    await user.click(screen.getByRole('option', { name: 'Pending' }));
+    await waitFor(() => expect(qc.getQueryState(['meeting', 'm0', 'action-items'])?.isInvalidated).toBe(true));
+  });
+});
+

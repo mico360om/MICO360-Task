@@ -45,6 +45,11 @@ describe('carriedTableGroups', () => {
     expect(screen.getByRole('link', { name: 'from 1 Dec 2025: Kick-off' })).toBeInTheDocument();
   });
 
+  it('names each item’s owner as the series gave it (they may not be among this meeting’s people)', () => {
+    const [group] = carriedTableGroups([carried()], { timeZone: 'Asia/Muscat', editable: true, now: NOW });
+    expect(group!.ownerName!(group!.items[0]!)).toBe('Bilal Said');
+  });
+
   it('the section’s edit rule: only the status, and only where the section may change it', () => {
     const [mine] = carriedTableGroups([carried()], { timeZone: 'Asia/Muscat', editable: true, now: NOW });
     expect([...mine!.editable!(mine!.items[0]!)]).toEqual(['status']);
