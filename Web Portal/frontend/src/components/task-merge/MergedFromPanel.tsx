@@ -38,7 +38,7 @@ export function MergedFromPanel({ panel, timeZone, today, onUndo }: { panel: Pan
                   <button
                     type="button"
                     onClick={() => setViewing({ mergeId: m.mergeId, taskId: t.id })}
-                    className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-lg px-1.5 py-1 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:min-h-11"
+                    className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-lg px-1.5 py-1 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
                     aria-label={`${t.key} ${t.title}: open its merged record`}
                   >
                     <span className="flex min-w-0 items-center gap-1.5">
@@ -58,7 +58,7 @@ export function MergedFromPanel({ panel, timeZone, today, onUndo }: { panel: Pan
               <button
                 type="button"
                 onClick={() => onUndo(m.mergeId)}
-                className="self-start rounded-lg px-1.5 py-1 text-xs font-semibold text-brand transition-colors hover:bg-ground [@media(pointer:coarse)]:min-h-11"
+                className="self-start rounded-lg px-1.5 py-1 text-xs font-semibold text-brand transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
               >
                 Undo this merge…
               </button>

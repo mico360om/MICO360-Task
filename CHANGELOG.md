@@ -145,6 +145,22 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   are. The choice is saved to your account, so it follows you to every computer, and this computer
   remembers it so a page never loads comfortable first. Phones and touch screens always keep the
   comfortable spacing and their finger-sized buttons; Settings says so there.
+- Merge tasks (1.23.1): combine two or more tasks into one without losing anything. On a task, ⋯ →
+  "Merge with other tasks…" (or select 2 to 10 tasks in My Tasks and click "Merge…"). Find more tasks by
+  title or number, choose the main task (the one that stays — the oldest unless you pick another), and
+  where the tasks differ pick which value to keep: title, project, status, priority, start and due date,
+  milestone, "Show to client", repeat (one, or none), inspection form, linked meeting, needs approval.
+  Before merging you see what each task brings (comments, checklist, files, people, contacts, blockers,
+  action items, inspections, history) and what appears twice and is kept once. Comments, files, the
+  checklist ("From MICO-14" group), history, inspections, action items and notices move to the main task
+  with their original authors and times; people, watchers, tags, contacts and blockers are combined;
+  descriptions are joined under a heading per task. Only administrators and whoever manages every
+  project involved can merge; someone not on the main task's project team is either added to the team or
+  left off (your choice). The other tasks disappear from every list, board, calendar, report, export,
+  daily email and search — but their numbers, links and old notices open the main task ("MICO-14 was
+  merged into this task on 5 Nov by Khurram"). The main task's "Merged from" panel lists them (each opens
+  its read-only record) and Undo gives each one back as it was; anything added since stays on the main
+  task. Reports and exports show "Merged from: MICO-14, MICO-15" on the main task's row.
 
 ### Improvements
 - Show to client: a new tick "Also show its description" — the Client portal shows a task's

@@ -7,16 +7,18 @@ import { useEffect, useRef } from 'react';
  */
 export function MergedToast({ text, onOpen, onUndo, onDismiss, ms = 12_000 }: { text: string; onOpen?: () => void; onUndo?: () => void; onDismiss: () => void; ms?: number }) {
   const holding = useRef(false);
+  const dismiss = useRef(onDismiss);
+  dismiss.current = onDismiss;
   useEffect(() => {
     const t = setInterval(() => {
-      if (!holding.current) onDismiss();
+      if (!holding.current) dismiss.current();
     }, ms);
     return () => clearInterval(t);
-  }, [ms, onDismiss]);
+  }, [ms]);
   const hold = (on: boolean) => () => {
     holding.current = on;
   };
-  const action = 'rounded-full px-2.5 py-1 text-sm font-semibold text-brand transition-colors hover:bg-ground [@media(pointer:coarse)]:min-h-11';
+  const action = 'rounded-full px-2.5 py-1 text-sm font-semibold text-brand transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11';
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[70] flex justify-center px-4 sm:bottom-6" onClick={(e) => e.stopPropagation()}>
       <div

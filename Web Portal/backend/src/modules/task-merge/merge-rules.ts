@@ -95,9 +95,12 @@ export function fieldValue(task: MergeTaskFacts, field: MergeField, timeZone: st
       return { key: task.title.trim(), label: task.title.trim() };
     case 'project':
       return { key: task.projectId, label: task.projectName };
-    case 'status':
-      // The kind of column (completion follows it); a column name of its own when the names differ.
-      return { key: `${task.columnCategory}|${task.columnName}`, label: `${task.columnName}${STATUS_WORDS[task.columnCategory] && STATUS_WORDS[task.columnCategory] !== task.columnName ? ` (${STATUS_WORDS[task.columnCategory]})` : ''}` };
+    case 'status': {
+      // The kind of column (completion follows it); its kind in words too when the column is named otherwise.
+      const kind = STATUS_WORDS[task.columnCategory];
+      const named = kind && kind.toLowerCase() !== task.columnName.trim().toLowerCase() ? ` (${kind})` : '';
+      return { key: `${task.columnCategory}|${task.columnName}`, label: `${task.columnName}${named}` };
+    }
     case 'priority':
       return { key: task.priority, label: PRIORITY_WORDS[task.priority] ?? task.priority };
     case 'startDate': {

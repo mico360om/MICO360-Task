@@ -270,8 +270,8 @@ export function MergeTasksDialog({ tasks: initial, onClose, onMerged, onTop = fa
                                 className={`${radioClass} mt-0.5`}
                               />
                               <span className="min-w-0">
-                                <span dir="auto">{o.label}</span>
-                                {o.keys.length ? <span className="ms-1.5 text-xs text-ink-3">{o.keys.join(', ')}</span> : null}
+                                <span dir="auto">{o.label}</span>{' '}
+                                {o.keys.length ? <span className="ms-1 text-xs text-ink-3">· {o.keys.join(', ')}</span> : null}
                               </span>
                             </label>
                           ))}
@@ -297,7 +297,7 @@ export function MergeTasksDialog({ tasks: initial, onClose, onMerged, onTop = fa
                         Not on the {projectName} team
                       </h3>
                       {outsiders.map((o, i) => (
-                        <fieldset key={o.id} className="flex flex-col gap-0.5" aria-required="true">
+                        <fieldset key={o.id} role="radiogroup" aria-required="true" className="flex flex-col gap-0.5">
                           <legend className="text-sm text-ink">
                             <span dir="auto" className="font-medium">
                               {o.name}

@@ -114,7 +114,7 @@ describe('Merge tasks', () => {
     await userEvent.click(await within(dialog).findByRole('button', { name: 'Merge 2 tasks' }));
     expect(await within(dialog).findByText('Choose for each person whether to add them to the team or leave them off.')).toBeInTheDocument();
     expect(merges()).toEqual([]);
-    const sara = within(dialog).getByRole('group', { name: /Sara Al Balushi/ });
+    const sara = within(dialog).getByRole('radiogroup', { name: /Sara Al Balushi/ });
     // From another company: only "leave off".
     expect(within(sara).getByRole('radio', { name: /Can’t join/ })).toBeDisabled();
     await userEvent.click(within(sara).getByRole('radio', { name: /Leave off this task/ }));
