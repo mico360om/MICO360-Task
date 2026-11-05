@@ -3,6 +3,7 @@ import type { TaskSearchEngine } from '../search/task-search-engine';
 import type { SearchEngine } from '../search/search-engine';
 import type { SearchScopeAll } from '../search/search-scope';
 import { createPrismaManagementSource } from '../management/prisma-management-source';
+import type { TaskMergeService } from '../task-merge/merge-service';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -13,7 +14,20 @@ export const NOWHERE = '~database-check~';
  * BY'" on MariaDB — a task number and a bare number), search everything (its exact, spelling and
  * some-words passes, its counts, the vocabulary) and the Management page's figures and lists.
  */
-export function databaseProbes({ prisma, taskSearch, searchEngine, timeZone }: { prisma: PrismaClient; taskSearch: Pick<TaskSearchEngine, 'search'>; searchEngine?: Pick<SearchEngine, 'search'>; timeZone: string }): { name: string; run: () => Promise<unknown> }[] {
+export function databaseProbes({
+  prisma,
+  taskSearch,
+  searchEngine,
+  timeZone,
+  taskMerge,
+}: {
+  prisma: PrismaClient;
+  taskSearch: Pick<TaskSearchEngine, 'search'>;
+  searchEngine?: Pick<SearchEngine, 'search'>;
+  timeZone: string;
+  /** 1.23.2 Merge tasks: its transaction, row locks and late-writes look (merge-service selfCheck). */
+  taskMerge?: Pick<TaskMergeService, 'selfCheck'>;
+}): { name: string; run: () => Promise<unknown> }[] {
   const scope = { projectIds: [NOWHERE] };
   const nowhere: SearchScopeAll = { projectIds: [NOWHERE], meetings: { full: [NOWHERE], fullProjects: [NOWHERE], invitee: [NOWHERE], editable: [NOWHERE], editableProjects: [NOWHERE], editor: NOWHERE } };
   const tasks = (q: string) => () => taskSearch.search({ q, scope, limit: 1, withTotal: true });
@@ -63,5 +77,6 @@ export function databaseProbes({ prisma, taskSearch, searchEngine, timeZone }: {
       ]);
     },
   });
+  if (taskMerge) probes.push({ name: 'merging tasks (locks, late writes, undo)', run: () => taskMerge.selfCheck(NOWHERE) });
   return probes;
 }

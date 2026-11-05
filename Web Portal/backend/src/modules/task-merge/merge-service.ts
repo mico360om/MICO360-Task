@@ -236,8 +236,11 @@ type StatusChange = { prevColumnId: string; approval: ApprovalEvent | null; requ
 
 /** How many tries when another task takes the main task's new number at the same moment. */
 const KEY_ATTEMPTS = 5;
-// Read committed: every read after the locks sees what is committed now (never a snapshot from before them).
-const TX = { timeout: 60_000, maxWait: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted } as const;
+// The server's own isolation level (REPEATABLE READ): every merge, undo and late-writes look takes its row
+// locks FIRST, so its first plain read — where the snapshot starts — comes after them and sees what is
+// committed now. (1.23.2: no READ COMMITTED — MariaDB and MySQL refuse writes at that level when the binary
+// log is statement-based, error 1665; nor any isolation statement at all.)
+const TX = { timeout: 60_000, maxWait: 15_000 } as const;
 const TASK_ENTITIES = ['task', 'TASK'];
 
 /** The refusal of one task (or the whole merge), with the preview's short words. */
@@ -1492,7 +1495,21 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     return rows.map((r) => ({ id: r.id, key: r.key, mergeId: r.mergeId! }));
   }
 
-  return { preview, merge, mergedFrom, mergedRecord, resolveMerged, undoPreview, undo, mergeMain, mergedInto };
+  /**
+   * 1.23.2 — the start-up database check (error-log/database-probes): the merge's own SQL once, harmlessly,
+   * on ids no row has — its transaction (read committed), the row locks it takes on tasks and on a merge, and
+   * the late-writes look (every table it joins). Nothing is found, locked or written.
+   */
+  async function selfCheck(nowhere = '~database-check~'): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM task_merges WHERE id = ${nowhere} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join([nowhere])}) FOR UPDATE`;
+    }, TX);
+    await hasLate(nowhere);
+    await mergedInto(nowhere);
+  }
+
+  return { preview, merge, mergedFrom, mergedRecord, resolveMerged, undoPreview, undo, mergeMain, mergedInto, selfCheck };
 }
 
 export type TaskMergeService = ReturnType<typeof createTaskMergeService>;

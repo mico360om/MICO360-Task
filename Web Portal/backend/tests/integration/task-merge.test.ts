@@ -6,6 +6,9 @@ import { createTaskMergeService, type MergeActor } from '../../src/modules/task-
 import { runBackfill } from './company-helpers';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createSearchIndex } from '../../src/modules/search/search-index';
+import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
+import { databaseProbes } from '../../src/modules/error-log/database-probes';
+import { constantOrderTerms } from '../../src/lib/sql-portability';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -618,5 +621,55 @@ describe('Merging tasks — review round (integration)', () => {
     const done = await prisma.task.findUniqueOrThrow({ where: { id: w.id }, select: { columnId: true, approvalRequestedAt: true, completedAt: true, needsApproval: true } });
     expect(done).toMatchObject({ columnId: rig.done, approvalRequestedAt: null, needsApproval: false });
     expect(done.completedAt).not.toBeNull();
+  });
+});
+
+// ---- 1.23.2: MariaDB (the live server is almost certainly MariaDB, not MySQL 8) ----
+describe('Merging tasks on MariaDB as well as MySQL 8 (integration)', () => {
+  it('every statement a merge, its preview, the panel, late writes and Undo send is portable', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    try {
+      const logged = createTaskMergeService({ prisma: client, timeZone: TZ, now: () => NOW, readFile: async (k) => files.get(k) ?? null, canViewTask: async () => true });
+      const a = await fullTask('Alpha', {}, 1);
+      const b = await fullTask('Bravo', { assigneeIds: [mateId], recurrenceRule: { freq: 'WEEKLY', interval: 1 } }, 2);
+      const c = await newTask('Charlie', { projectId: ops.id, columnId: ops.done });
+      await prisma.taskDependency.create({ data: { taskId: b.id, dependsOnTaskId: c.id } });
+      await logged.preview(manager, { taskIds: [a.id, b.id, c.id], choices: { project: c.id } });
+      const r = await logged.merge(manager, { taskIds: [a.id, b.id, c.id], mainTaskId: a.id, choices: { project: c.id, status: c.id, repeat: b.id }, people: { [outsiderId]: 'LEAVE_OFF' } });
+      await prisma.comment.create({ data: { taskId: b.id, userId: manager.id, body: 'late' } });
+      await logged.mergedFrom(manager, a.id);
+      await logged.mergedRecord(r.mergeId, b.id);
+      await logged.resolveMerged(b.id);
+      await logged.undoPreview(manager, r.mergeId);
+      await logged.undo(manager, r.mergeId);
+      await logged.selfCheck();
+      expect(sent.length).toBeGreaterThan(100);
+      const problems: string[] = [];
+      for (const sql of sent) {
+        // A constant or boolean ORDER BY / GROUP BY term: MariaDB reads it as a column position (1054).
+        if (constantOrderTerms(sql).length) problems.push(`constant sort term: ${sql}`);
+        // LIMIT inside IN (…): MariaDB refuses it ("doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'").
+        if (/\bIN\s*\(\s*SELECT\b[^()]*(?:\([^()]*\)[^()]*)*\bLIMIT\b/i.test(sql)) problems.push(`LIMIT in IN (…): ${sql}`);
+        // MariaDB-only or MySQL-only syntax and functions that differ between the two.
+        if (/\bRETURNING\b|->>|\bJSON_[A-Z_]+\s*\(|\bOVER\s*\(|^\s*WITH\b|SKIP\s+LOCKED|\bNOWAIT\b/i.test(sql)) problems.push(`not portable: ${sql}`);
+        // No isolation statement: READ COMMITTED writes fail on a statement-based binary log (error 1665).
+        if (/\bSET\s+(?:SESSION\s+|GLOBAL\s+)?TRANSACTION\b/i.test(sql)) problems.push(`isolation statement: ${sql}`);
+        if (/^\s*(?:UPDATE|DELETE)\b[\s\S]*\bJOIN\b[\s\S]*\b(?:ORDER\s+BY|LIMIT)\b/i.test(sql)) problems.push(`multi-table update/delete with ORDER BY/LIMIT: ${sql}`);
+      }
+      expect(problems).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  it('the start-up database check runs the merge’s own SQL once, harmlessly', async () => {
+    const before = { merges: await prisma.taskMerge.count(), items: await prisma.taskMergeItem.count(), tasks: await prisma.task.count() };
+    const probes = databaseProbes({ prisma, taskSearch: createTaskSearchEngine({ prisma, timeZone: TZ }), timeZone: TZ, taskMerge: merges });
+    const probe = probes.find((p) => p.name === 'merging tasks (locks, late writes, undo)');
+    expect(probe).toBeDefined();
+    await expect(probe!.run()).resolves.not.toThrow();
+    expect({ merges: await prisma.taskMerge.count(), items: await prisma.taskMergeItem.count(), tasks: await prisma.task.count() }).toEqual(before);
   });
 });

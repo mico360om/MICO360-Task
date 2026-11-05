@@ -6,6 +6,7 @@ import { createTaskSearchIndex } from '../../src/modules/search/task-search-inde
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
 import { createSearchEngine } from '../../src/modules/search/search-engine';
 import { constantOrderTerms } from '../../src/lib/sql-portability';
+import { createTaskMergeService } from '../../src/modules/task-merge/merge-service';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 // 1.23.1 — the database self-check on a real database (built by the migrations, as the live one is),
@@ -105,7 +106,9 @@ describe('every search query under the sql_mode the live server might have', () 
         const everything = await searchEngine.search({ q: 'pump repair', scope: { projectIds: null, meetings: { full: null, invitee: [], editable: null } }, viewerId: owner, limit: 5, withCounts: true });
         expect(everything.hits.map((h) => h.id).length).toBeGreaterThan(0);
         const recorded: string[] = [];
-        const r = await createDatabaseCheck({ ...prismaDatabaseReads(client), probes: databaseProbes({ prisma: client, taskSearch, searchEngine, timeZone: 'Asia/Muscat' }), record: (p) => void recorded.push(p.text) }).run();
+        // 1.23.2: and the merge's own SQL (its locks and late-writes look) under the same sql_mode.
+        const taskMerge = createTaskMergeService({ prisma: client, timeZone: 'Asia/Muscat' });
+        const r = await createDatabaseCheck({ ...prismaDatabaseReads(client), probes: databaseProbes({ prisma: client, taskSearch, searchEngine, timeZone: 'Asia/Muscat', taskMerge }), record: (p) => void recorded.push(p.text) }).run();
         expect(r.problems).toEqual([]);
       } finally {
         await client.$disconnect();

@@ -1811,7 +1811,7 @@ async function main(): Promise<void> {
   // and settings; System Settings → Error log shows the result.
   const databaseCheck = createDatabaseCheck({
     ...prismaDatabaseReads(prisma),
-    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz }),
+    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz, taskMerge: taskMergeService }),
     record: ({ text, err }) => logger.job('database check').error(text, err !== undefined ? { err } : undefined),
   });
   void jobs.ready

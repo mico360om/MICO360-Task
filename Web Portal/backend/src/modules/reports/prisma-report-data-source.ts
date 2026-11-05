@@ -16,7 +16,8 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         },
       });
       // 1.23.1: the main task's row says which tasks were merged into it.
-      const merged = await prisma.task.findMany({ where: { mergedIntoId: { in: tasks.map((t) => t.id) } }, select: { key: true, mergedIntoId: true }, orderBy: [{ mergedAt: 'asc' }, { key: 'asc' }] });
+      // The merged tasks themselves (merges are few) — never every task's id in one IN (…) list.
+      const merged = await prisma.task.findMany({ where: { mergedIntoId: { not: null } }, select: { key: true, mergedIntoId: true }, orderBy: [{ mergedAt: 'asc' }, { key: 'asc' }] });
       const mergedFrom = new Map<string, string[]>();
       for (const m of merged) mergedFrom.set(m.mergedIntoId!, [...(mergedFrom.get(m.mergedIntoId!) ?? []), m.key]);
       return tasks.map((t) => ({
