@@ -749,8 +749,10 @@ describe('TaskDrawer — a task the person may not delete', () => {
     render(<TaskDrawer task={task} checklist={[]} comments={[]} onDelete={vi.fn()} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
     expect(screen.getByRole('group', { name: 'Confirm delete' }).className).toMatch(/\bjustify-end\b/);
-    // On a phone the question wraps above the buttons, right-aligned like them.
-    expect(screen.getByText('Delete this task? This can’t be undone.').className).toMatch(/\btext-right\b/);
+    // On a phone the question takes its own line above the buttons (they stay together), right-aligned like them.
+    const question = screen.getByText('Delete this task? This can’t be undone.');
+    expect(question.className).toMatch(/\btext-right\b/);
+    expect(question.className).toMatch(/(^|\s)max-sm:basis-full(\s|$)/);
   });
 
   it('1.23.2: a series that can’t be deleted says why at the right as well', async () => {
