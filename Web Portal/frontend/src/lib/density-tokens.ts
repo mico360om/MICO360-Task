@@ -4,6 +4,9 @@
  * the Avatar use them without pulling in the settings code. The whole design: lib/density.ts.
  */
 
+/** The per-person name of the choice on this device (lib/user-storage; kept across sign-out). */
+export const DENSITY_PREF = 'density';
+
 /** Where compact can show: the `compact:` variant's media (tailwind.config.js). */
 export const COMPACT_MEDIA = '(min-width: 48em) and (pointer: fine)';
 

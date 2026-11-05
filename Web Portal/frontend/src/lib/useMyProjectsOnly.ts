@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { preferencesApi, type DatePreferences } from '../api/preferences';
+import { PREFERENCES_SCOPE, preferencesApi, type DatePreferences } from '../api/preferences';
 import { useAuthStore } from '../stores/auth-store';
 import { resetCompanyScopedQueries } from './company-scope';
 import { DATE_PREFS_KEY } from './useDatePrefs';
@@ -24,6 +24,8 @@ export function useMyProjectsOnly(): boolean {
 export function useSetMyProjectsOnly() {
   const qc = useQueryClient();
   return useMutation({
+    // In order with the other changes to these settings (the date settings, compact rows).
+    scope: PREFERENCES_SCOPE,
     mutationFn: (on: boolean) => preferencesApi(apiClient).set({ myProjectsOnly: on }),
     onSuccess: (prefs) => {
       qc.setQueryData(DATE_PREFS_KEY, prefs);

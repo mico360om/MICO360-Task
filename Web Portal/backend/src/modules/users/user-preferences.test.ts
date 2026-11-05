@@ -111,6 +111,11 @@ describe('Compact / comfortable rows — each person’s own (1.23.0)', () => {
   it('is anyone’s to set (an administrator too) and takes only the two words', async () => {
     const { app, as } = await setup();
     expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: await as('a1', ['ADMIN']), payload: { density: 'compact' } })).statusCode).toBe(200);
+    // "Show my projects only" refused for an employee refuses the whole change: their rows stay as they were.
+    const emp = await as('e1');
+    const both = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { myProjectsOnly: true, density: 'compact' } });
+    expect(both.statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: emp })).json().data.density).toBe('comfortable');
     for (const density of ['dense', 'COMPACT', '', null, 1, true]) {
       expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: await as('e1'), payload: { density } })).statusCode).toBe(400);
     }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { preferencesApi, type DatePreferences as Prefs } from '../api/preferences';
+import { PREFERENCES_SCOPE, preferencesApi, type DatePreferences as Prefs } from '../api/preferences';
 import { DATE_PREFS_KEY, useDateSettings } from '../lib/useDatePrefs';
 import { SearchableSelect } from './ui/SearchableSelect';
 
@@ -29,6 +29,8 @@ export function DatePreferences() {
   const [problem, setProblem] = useState<string | null>(null);
   const zones = useMemo(() => timeZones().map((z) => ({ value: z, label: z.replace(/_/g, ' '), hint: z === companyTimeZone ? 'company' : undefined })), [companyTimeZone]);
   const save = useMutation({
+    // In order with the other changes to these settings (lib/density's rows, too).
+    scope: PREFERENCES_SCOPE,
     mutationFn: (patch: Partial<Prefs>) => preferencesApi(apiClient).set(patch),
     onMutate: async (patch) => {
       setProblem(null);
@@ -37,8 +39,15 @@ export function DatePreferences() {
       qc.setQueryData<Prefs>(DATE_PREFS_KEY, { ...prev, timeZone: prev?.timeZone ?? null, weekStart: prev?.weekStart ?? null, ...patch });
       return { prev };
     },
-    onError: (_e, _v, ctx) => {
-      qc.setQueryData(DATE_PREFS_KEY, ctx?.prev);
+    onError: (_e, patch, ctx) => {
+      // Only what this change touched goes back: another setting changed meanwhile (compact rows) stays.
+      qc.setQueryData<Prefs>(DATE_PREFS_KEY, (cur) => {
+        if (!cur || !ctx?.prev) return ctx?.prev;
+        const back: Prefs = { ...cur };
+        if ('timeZone' in patch) back.timeZone = ctx.prev.timeZone ?? null;
+        if ('weekStart' in patch) back.weekStart = ctx.prev.weekStart ?? null;
+        return back;
+      });
       setProblem('Couldn’t save that change. Please try again.');
     },
     onSuccess: (saved) => {

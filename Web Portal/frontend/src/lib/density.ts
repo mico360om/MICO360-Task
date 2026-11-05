@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
-import { preferencesApi, type DatePreferences } from '../api/preferences';
+import { PREFERENCES_SCOPE, preferencesApi, type DatePreferences } from '../api/preferences';
 import { useAuthStore } from '../stores/auth-store';
 import { DATE_PREFS_KEY } from './useDatePrefs';
 import { readUserValue, writeUserValue } from './user-storage';
+import { DENSITY_PREF } from './density-tokens';
 
 /**
  * Compact / comfortable rows (1.23.0). Each person's own choice (Settings → Appearance, and the quick
@@ -31,10 +32,7 @@ import { readUserValue, writeUserValue } from './user-storage';
 
 export type Density = 'comfortable' | 'compact';
 
-/** The per-person name on this device (lib/user-storage; kept across sign-out — it is their choice). */
-export const DENSITY_PREF = 'density';
-
-export { COMPACT_MEDIA, DENSE_FACE, DENSE_STACK, DENSE_TEXT } from './density-tokens';
+export { COMPACT_MEDIA, DENSE_FACE, DENSE_STACK, DENSE_TEXT, DENSITY_PREF } from './density-tokens';
 
 export function isDensity(v: unknown): v is Density {
   return v === 'comfortable' || v === 'compact';
@@ -133,6 +131,8 @@ export function useSetDensity() {
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const m = useMutation({
     mutationKey: MUTATION_KEY,
+    // After any other change to these settings, in order (a double click: the last click wins).
+    scope: PREFERENCES_SCOPE,
     mutationFn: ({ to }: { to: Density; before: Density }) => preferencesApi(apiClient).set({ density: to }),
     onMutate: async ({ to }) => {
       await qc.cancelQueries({ queryKey: DATE_PREFS_KEY });
@@ -148,6 +148,8 @@ export function useSetDensity() {
     onSuccess: (prefs) => {
       qc.setQueryData(DATE_PREFS_KEY, prefs);
     },
+    // Read the account again either way (a first read cancelled by the change is read now too).
+    onSettled: () => qc.invalidateQueries({ queryKey: DATE_PREFS_KEY }),
   });
   return {
     change: (to: Density) => {

@@ -13,7 +13,7 @@ export function DensityButton({ className = '', size = 'md' }: { className?: str
   const { change, failed } = useSetDensity();
   const on = density === 'compact';
   return (
-    <span data-density-button className={`inline-flex flex-none items-center gap-1.5 max-md:hidden [@media(pointer:coarse)]:hidden ${className}`}>
+    <span data-density-button className={`relative inline-flex flex-none items-center max-md:hidden [@media(pointer:coarse)]:hidden ${className}`}>
       <span className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5">
         <button
           type="button"
@@ -28,8 +28,9 @@ export function DensityButton({ className = '', size = 'md' }: { className?: str
           </svg>
         </button>
       </span>
+      {/* Under the button, out of the toolbar's flow: a toolbar that doesn't wrap never widens the page. */}
       {failed ? (
-        <span role="alert" className="text-xs font-medium text-danger">
+        <span role="alert" className="absolute end-0 top-full z-10 mt-1 whitespace-nowrap rounded-lg border border-danger/30 bg-danger-soft px-2 py-1 text-xs font-medium text-danger shadow-soft">
           {DENSITY_WORDS.failed}
         </span>
       ) : null}

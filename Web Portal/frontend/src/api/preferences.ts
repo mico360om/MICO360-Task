@@ -10,6 +10,13 @@ export interface DatePreferences {
   density?: 'comfortable' | 'compact';
 }
 
+/**
+ * Changes to these settings go to the server one after the other (TanStack's mutation scope), so two
+ * quick changes — a double click on "Compact rows", a week start and a density — arrive in order and
+ * the last one is what the account keeps.
+ */
+export const PREFERENCES_SCOPE = { id: 'my-preferences' } as const;
+
 export function preferencesApi(client: ApiClient) {
   return {
     get: () => client.get<{ data: DatePreferences }>('/users/me/preferences').then((r) => r.data),

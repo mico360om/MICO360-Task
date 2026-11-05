@@ -104,7 +104,10 @@ describe('the quick “Compact rows” button (tables and lists)', () => {
     failSave = true;
     const button = within(screen.getByTestId('toolbar')).getByRole('button', { name: 'Compact rows' });
     await userEvent.setup().click(button);
-    expect(await within(screen.getByTestId('toolbar')).findByRole('alert')).toHaveTextContent(DENSITY_WORDS.failed);
+    const alert = await within(screen.getByTestId('toolbar')).findByRole('alert');
+    expect(alert).toHaveTextContent(DENSITY_WORDS.failed);
+    // Under the button, out of the toolbar's flow: a toolbar that doesn't wrap never widens the page.
+    expect(alert).toHaveClass('absolute', 'whitespace-nowrap');
     expect(html()).toBe('comfortable');
     expect(button).toHaveAttribute('aria-pressed', 'false');
   });

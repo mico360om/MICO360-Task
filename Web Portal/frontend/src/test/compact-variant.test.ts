@@ -33,9 +33,23 @@ describe('the compact: variant', () => {
   });
 
   it('outranks the plain classes it narrows (whatever their order in the sheet)', async () => {
-    // :root + [data-density] + the class is (0,3,0), over a utility's (0,1,0) — sm:/md: ones too.
-    const css = await cssFor('md:py-3 compact:py-2');
-    expect(css).toMatch(/:root\[data-density="compact"\] \.compact\\:py-2/);
+    const css = await cssFor('md:py-3 first:pt-0 compact:py-2 compact:first:pt-0');
+    // A rule's selector, found by its class, and its weight in classes / attributes / pseudo-classes.
+    const selectorOf = (escapedClass: string) => {
+      const at = css.indexOf(escapedClass);
+      const start = Math.max(css.lastIndexOf('}', at), css.lastIndexOf('{', at)) + 1;
+      return css.slice(start, css.indexOf('{', at)).trim();
+    };
+    const weight = (selector: string) => (selector.replace(/\\./g, '_').match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) ?? []).length;
+    const compact = selectorOf('.compact\\:py-2');
+    expect(compact).toBe(':root[data-density="compact"] .compact\\:py-2');
+    // (0,3,0) over a plain or md:/sm: utility's (0,1,0)…
+    expect(weight(compact)).toBe(3);
+    expect(weight(selectorOf('.md\\:py-3'))).toBe(1);
+    // …and over first:/last: (0,2,0): a row that drops its first padding must say so in compact too
+    // (compact:first:pt-0, as the approvals list does), which is (0,4,0).
+    expect(weight(selectorOf('.first\\:pt-0'))).toBe(2);
+    expect(weight(selectorOf('.compact\\:first\\:pt-0'))).toBe(4);
   });
 });
 
@@ -85,7 +99,7 @@ describe('where compact is used', () => {
   };
   it.each(Object.entries(PLACES))('%s', (_what, file) => {
     const text = readFileSync(join(src, file), 'utf8');
-    expect(/compact:|DENSE_(TEXT|FACE|STACK)|dense(=\{true\}|="compact"|\s*\/>|\s)|<DensityButton/.test(text)).toBe(true);
+    expect(/compact:|DENSE_(TEXT|FACE|STACK)|dense="compact"|\bdense\s*\/>|<DensityButton/.test(text)).toBe(true);
   });
 
   it('the quick button sits beside every view switch (Board page and tab, project Tasks tab, meeting page)', () => {
