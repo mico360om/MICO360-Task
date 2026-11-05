@@ -51,30 +51,37 @@ export function databaseProbes({
       const day = '2026-01-05';
       const from = new Date('2026-01-01T00:00:00Z');
       const to = new Date('2026-01-08T00:00:00Z');
-      await Promise.all([
-        source.projects(NOWHERE),
-        source.runCount(NOWHERE),
-        source.people(ids),
-        source.taskFigures(ids, day),
-        source.openMilestones(ids),
-        source.checks(ids, { dueFrom: from, dueTo: to, openBefore: to, doneFrom: from, doneTo: to }),
-        source.finishedInspections(ids, from, to),
-        source.failedItems(ids, from, to, 1),
-        source.structures(ids),
-        source.openFollowUps(ids),
-        source.lateByPerson(ids, day),
-        source.actionItems(ids, day),
-        source.trend(ids, [{ from, to, lateDay: day, lateAt: to }]),
-        source.lateTasks({ projectIds: ids, today: day, limit: 1 }),
-        source.tasksByIds(ids),
-        source.followUpTasks({ projectIds: ids, limit: 1 }),
-        source.awaitingApproval(ids),
-        source.awaitingApprovalTasks({ projectIds: ids, limit: 1 }),
-        source.failedOccurrences({ projectIds: ids, from, to, formId: null, itemId: NOWHERE, limit: 1 }),
-        source.actionItemList({ projectIds: ids, limit: 1 }),
-        source.failedAnswers({ projectIds: ids, from, to, formId: null, limit: 1 }),
-        source.formTitles(ids),
-      ]);
+      // 1.23.2: one after another (never a burst of connections at start-up), and every raw form the page
+      // can send — a person's late tasks, late milestones, overdue action items, one form's failures.
+      const reads: (() => Promise<unknown>)[] = [
+        () => source.projects(NOWHERE),
+        () => source.runCount(NOWHERE),
+        () => source.people(ids),
+        () => source.taskFigures(ids, day),
+        () => source.openMilestones(ids),
+        () => source.checks(ids, { dueFrom: from, dueTo: to, openBefore: to, doneFrom: from, doneTo: to }),
+        () => source.finishedInspections(ids, from, to),
+        () => source.failedItems(ids, from, to, 1),
+        () => source.structures(ids),
+        () => source.openFollowUps(ids),
+        () => source.lateByPerson(ids, day),
+        () => source.actionItems(ids, day),
+        () => source.trend(ids, [{ from, to, lateDay: day, lateAt: to }]),
+        () => source.lateTasks({ projectIds: ids, today: day, limit: 1 }),
+        () => source.lateTasks({ projectIds: ids, today: day, personId: NOWHERE, milestonesOnly: true, limit: 1 }),
+        () => source.tasksByIds(ids),
+        () => source.followUpTasks({ projectIds: ids, limit: 1 }),
+        () => source.awaitingApproval(ids),
+        () => source.awaitingApprovalTasks({ projectIds: ids, limit: 1 }),
+        () => source.failedOccurrences({ projectIds: ids, from, to, formId: null, itemId: NOWHERE, limit: 1 }),
+        () => source.failedOccurrences({ projectIds: ids, from, to, formId: NOWHERE, itemId: NOWHERE, limit: 1 }),
+        () => source.actionItemList({ projectIds: ids, limit: 1 }),
+        () => source.actionItemList({ projectIds: ids, personId: NOWHERE, overdueOn: day, limit: 1 }),
+        () => source.failedAnswers({ projectIds: ids, from, to, formId: null, limit: 1 }),
+        () => source.failedAnswers({ projectIds: ids, from, to, formId: NOWHERE, limit: 1 }),
+        () => source.formTitles(ids),
+      ];
+      for (const read of reads) await read();
     },
   });
   if (taskMerge) probes.push({ name: 'merging tasks (locks, late writes, undo)', run: () => taskMerge.selfCheck(NOWHERE) });

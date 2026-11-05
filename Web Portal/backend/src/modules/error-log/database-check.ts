@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { databaseDiagnosis } from './db-error';
+import { databaseConnectionCode } from '../../lib/db-connection';
 import { redactText } from './error-redact';
 
 /**
@@ -27,7 +28,8 @@ export interface DatabaseServer {
 }
 
 export interface DatabaseProblem {
-  kind: 'server' | 'table' | 'column' | 'query';
+  /** 1.23.2 'busy': a query family that couldn't be checked — the database didn't answer (a connection blip). */
+  kind: 'server' | 'table' | 'column' | 'query' | 'busy';
   /** The table, `table.column` or query family it is about. */
   name: string;
   /** In words, with the exact names. */
@@ -41,6 +43,8 @@ export interface DatabaseCheckResult {
   problems: DatabaseProblem[];
   /** "Database check: OK (MySQL 8.0.46)", "Database check: 2 problems (MariaDB 11.4.5)". */
   summary: string;
+  /** 1.23.2: the server refuses text too long for its column (strict mode), or cuts it short (false); null: unknown. */
+  strict: boolean | null;
 }
 
 export interface ExpectedTable {
@@ -59,6 +63,19 @@ export interface DatabaseCheckDeps {
   /** Into the Error log (the server: logger.job('database check').error). */
   record: (problem: { text: string; err?: unknown }) => void;
   now?: () => Date;
+  /** Waiting between tries after a connection blip (tests pass a quick one). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** 1.23.2: a query family that couldn't connect (P1001, P1017, P2024…) is tried this many more times, this far apart. */
+export const BLIP_RETRIES = 3;
+export const BLIP_WAIT_MS = 10_000;
+/** Said when the server isn't in strict mode. */
+export const NOT_STRICT = 'not in strict mode: text that’s too long is cut short instead of refused';
+
+/** Is this sql_mode strict (STRICT_TRANS_TABLES, STRICT_ALL_TABLES, or TRADITIONAL, which includes them)? */
+export function isStrictMode(sqlMode: string): boolean {
+  return /(^|,)\s*(STRICT_TRANS_TABLES|STRICT_ALL_TABLES|TRADITIONAL)\s*(,|$)/i.test(sqlMode);
 }
 
 /** At most this many problems are recorded one by one; the rest as one line. */
@@ -93,20 +110,44 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export function createDatabaseCheck(deps: DatabaseCheckDeps) {
   const now = deps.now ?? (() => new Date());
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let latest: DatabaseCheckResult | null = null;
+  let running: Promise<DatabaseCheckResult> | null = null;
 
-  async function run(): Promise<DatabaseCheckResult> {
-    const problems: (DatabaseProblem & { err?: unknown })[] = [];
+  async function check(): Promise<DatabaseCheckResult> {
+    // 1.23.2: a connection blip is tried again (BLIP_RETRIES times, BLIP_WAIT_MS apart) before it counts —
+    // once per check: after one step used up its tries, the rest are tried once (never minutes of waiting).
+    let patience = true;
+    async function patiently<T>(run: () => Promise<T>): Promise<T> {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await run();
+        } catch (err) {
+          if (!databaseConnectionCode(err)) throw err;
+          if (!patience || attempt >= BLIP_RETRIES) {
+            patience = false;
+            throw err;
+          }
+          await sleep(BLIP_WAIT_MS);
+        }
+      }
+    }
+    /** A step that still couldn't connect: it couldn't be checked — never "fails". */
+    const BUSY = ' — the database was busy';
+
+    const problems: (DatabaseProblem & { err?: unknown; line?: string })[] = [];
     let server: DatabaseServer | null = null;
     try {
-      const s = await deps.readServer();
+      const s = await patiently(() => deps.readServer());
       server = { product: productOf(s.version), version: s.version, sqlMode: s.sqlMode, lowerCaseTableNames: s.lowerCaseTableNames };
     } catch (err) {
-      problems.push({ kind: 'server', name: 'server', text: 'The database server’s version and settings couldn’t be read', err });
+      const words = 'the database server’s version and settings couldn’t be read';
+      if (databaseConnectionCode(err)) problems.push({ kind: 'busy', name: 'server', text: `${capital(words)}${BUSY}`, line: `${words}${BUSY}` });
+      else problems.push({ kind: 'server', name: 'server', text: capital(words), err });
     }
 
     try {
-      const actual = await deps.readColumns();
+      const actual = await patiently(() => deps.readColumns());
       const exact = server?.lowerCaseTableNames === 0 || server?.lowerCaseTableNames == null;
       const tables = new Map<string, Set<string>>();
       for (const { table, column } of actual) {
@@ -130,14 +171,18 @@ export function createDatabaseCheck(deps: DatabaseCheckDeps) {
         for (const c of want.columns) if (!columns.has(c.toLowerCase())) problems.push({ kind: 'column', name: `${want.table}.${c}`, text: `Column ${want.table}.${c} is missing` });
       }
     } catch (err) {
-      problems.push({ kind: 'server', name: 'columns', text: 'The database’s tables and columns couldn’t be read', err });
+      const words = 'the database’s tables and columns couldn’t be read';
+      if (databaseConnectionCode(err)) problems.push({ kind: 'busy', name: 'columns', text: `${capital(words)}${BUSY}`, line: `${words}${BUSY}` });
+      else problems.push({ kind: 'server', name: 'columns', text: capital(words), err });
     }
 
     for (const probe of deps.probes) {
       try {
-        await probe.run();
+        await patiently(() => probe.run());
       } catch (err) {
-        problems.push({ kind: 'query', name: probe.name, text: `${capital(probe.name)} fails: ${said(err)}`, err });
+        // Still no connection after the tries: it couldn't be checked — not a query this server reads otherwise.
+        if (databaseConnectionCode(err)) problems.push({ kind: 'busy', name: probe.name, text: `${capital(probe.name)} couldn’t be checked${BUSY}`, line: `${probe.name} couldn’t be checked${BUSY}` });
+        else problems.push({ kind: 'query', name: probe.name, text: `${capital(probe.name)} fails: ${said(err)}`, err });
       }
     }
 
@@ -145,7 +190,7 @@ export function createDatabaseCheck(deps: DatabaseCheckDeps) {
     const tail = label ? ` — ${label}` : '';
     problems.slice(0, MAX_RECORDED).forEach((p) => {
       try {
-        const text = p.kind === 'query' ? `Database check: ${p.name} fails${tail}` : `Database check: ${p.text}${tail}`;
+        const text = p.kind === 'query' ? `Database check: ${p.name} fails${tail}` : `Database check: ${p.line ?? p.text}${tail}`;
         deps.record(p.err !== undefined ? { text, err: p.err } : { text });
       } catch {
         // Recording can never stop the check.
@@ -161,14 +206,24 @@ export function createDatabaseCheck(deps: DatabaseCheckDeps) {
 
     const named = server ? ` (${server.product} ${shortVersion(server.version)})` : '';
     const n = problems.length;
+    const onlyBusy = n > 0 && problems.every((p) => p.kind === 'busy');
+    const strict = server ? isStrictMode(server.sqlMode) : null;
+    const result = n === 0 ? `Database check: OK${named}` : onlyBusy ? `Database check: couldn’t finish${BUSY}${named}` : `Database check: ${n} ${n === 1 ? 'problem' : 'problems'}${named}`;
     latest = {
       checkedAt: now().toISOString(),
       ok: n === 0,
       server,
       problems: problems.map(({ kind, name, text }) => ({ kind, name, text })),
-      summary: n === 0 ? `Database check: OK${named}` : `Database check: ${n} ${n === 1 ? 'problem' : 'problems'}${named}`,
+      summary: strict === false ? `${result} · ${NOT_STRICT}` : result,
+      strict,
     };
     return latest;
+  }
+
+  /** Run the check; one at a time ("Check again" while one runs gets that one). */
+  function run(): Promise<DatabaseCheckResult> {
+    if (!running) running = check().finally(() => (running = null));
+    return running;
   }
 
   return { run, latest: () => latest };

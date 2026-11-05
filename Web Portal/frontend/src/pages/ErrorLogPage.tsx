@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Badge } from '../components/ui/Badge';
@@ -8,7 +8,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { LoadError } from '../components/ui/LoadError';
 import { Toggle } from '../components/ui/Toggle';
 import { apiClient } from '../api/client';
-import { errorLogApi, type ErrorGroup, type ErrorKindFilter, type ErrorOccurrence, type ErrorRange } from '../api/error-log';
+import { errorLogApi, type ErrorGroup, type ErrorKindFilter, type ErrorLogPage as ErrorLogPageData, type ErrorOccurrence, type ErrorRange } from '../api/error-log';
 import { dateTimeText } from '../lib/day-words';
 import { relativeTime } from '../lib/relative-time';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
@@ -66,6 +66,14 @@ export function ErrorLogPage() {
   const counts = listQ.data?.pages[0]?.counts;
   // 1.23.1: the server's database self-check (null until it ran; absent from an older server).
   const databaseCheck = listQ.data?.pages[0]?.databaseCheck ?? null;
+  // 1.23.2 "Check again": the check runs now; its result replaces the line in every list already loaded.
+  const checkAgain = useMutation({
+    mutationFn: () => api.checkDatabase(),
+    onSuccess: (fresh) =>
+      qc.setQueriesData<InfiniteData<ErrorLogPageData>>({ queryKey: ['error-log', 'list'] }, (old) =>
+        old ? { ...old, pages: old.pages.map((p, i) => (i === 0 ? { ...p, databaseCheck: fresh } : p)) } : old,
+      ),
+  });
   const newCount = groups.filter((g) => isNewSince(g, previousVisit)).length;
   const filtered = kind !== 'all' || q.trim() !== '' || range !== '7d';
 
@@ -77,7 +85,16 @@ export function ErrorLogPage() {
         subtitle="What went wrong in people’s browsers and on the server — kept 30 days."
       />
 
-      {databaseCheck ? <DatabaseCheckLine check={databaseCheck} /> : null}
+      {databaseCheck ? (
+        <DatabaseCheckLine
+          check={databaseCheck}
+          onCheckAgain={() => {
+            if (!checkAgain.isPending) checkAgain.mutate();
+          }}
+          checking={checkAgain.isPending}
+          checkFailed={checkAgain.isError}
+        />
+      ) : null}
 
       <div className="card mb-4 flex flex-col gap-3 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

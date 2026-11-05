@@ -12,8 +12,8 @@ export interface ErrorLogRouteDeps {
   /** The verified signed-in person of a request (its bearer token), or null — never taken from the body. */
   userIdOf: (req: FastifyRequest) => string | null;
   audit?: AuditService;
-  /** 1.23.1: the database self-check's latest result (null until it ran), shown above the rows. */
-  databaseCheck?: { latest(): DatabaseCheckResult | null };
+  /** 1.23.1: the database self-check's latest result (null until it ran), shown above the rows; 1.23.2: run it again. */
+  databaseCheck?: { latest(): DatabaseCheckResult | null; run?(): Promise<DatabaseCheckResult> };
 }
 
 /** A batch of the page's reports, or one of the browser's security-policy reports, is never bigger than this. */
@@ -73,6 +73,12 @@ export async function registerErrorLogRoutes(app: FastifyInstance, deps: ErrorLo
     const page = await service.list({ kind: q.kind, range: q.range, q: q.q ?? null, status: q.status, before: q.before ?? null, limit: q.limit });
     // 1.23.1: "Database check: OK (MySQL 8.0.46)" or its problems (administrators only, like the rest).
     return { data: { ...page, databaseCheck: deps.databaseCheck?.latest() ?? null } };
+  });
+
+  // 1.23.2: "Check again" beside the result — the check runs now (administrators only; clients refused).
+  app.post('/error-log/database-check', admin, async (req, reply) => {
+    if (!deps.databaseCheck?.run) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'The database check isn’t available.' } });
+    return { data: await deps.databaseCheck.run() };
   });
 
   app.get('/error-log/:id', admin, async (req) => {

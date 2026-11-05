@@ -42,6 +42,14 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   when you come back to it (and every 10 minutes) and opens the next screen from the new version — never
   while you are typing. If the page still can't load (no connection), it says "This page couldn't load —
   check your connection and try again" with a Reload button, and only then is it recorded in the Error log.
+- Database check: when the database doesn't answer for a moment (as at a restart), the check tries again
+  — up to 3 times, about 10 seconds apart — instead of reporting a problem. If it still can't connect it
+  says "couldn't be checked — the database was busy" (in amber), never "the Management page fails".
+  System Settings → Error log now has a **Check again** button beside the result (administrators only),
+  and the result says when the database isn't in strict mode: "not in strict mode: text that's too long
+  is cut short instead of refused". The check now also runs every kind of query the Management page can
+  send (a person's late tasks, late milestones, overdue action items, one form's failures), one after
+  another.
 
 ## [1.23.1] - 2026-11-05
 

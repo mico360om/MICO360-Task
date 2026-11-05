@@ -59,9 +59,15 @@ export interface DatabaseCheck {
   checkedAt: string;
   ok: boolean;
   server: { product: 'MySQL' | 'MariaDB'; version: string; sqlMode: string; lowerCaseTableNames: number | null } | null;
-  problems: { kind: 'server' | 'table' | 'column' | 'query'; name: string; text: string }[];
-  /** "Database check: OK (MySQL 8.0.46)", "Database check: 2 problems (MariaDB 11.4.5)". */
+  /** 1.23.2 'busy': couldn't be checked — the database didn't answer (a connection blip), not a failure. */
+  problems: { kind: 'server' | 'table' | 'column' | 'query' | 'busy'; name: string; text: string }[];
+  /**
+   * "Database check: OK (MySQL 8.0.46)", "Database check: 2 problems (MariaDB 11.4.5)"; 1.23.2: "… · not in
+   * strict mode: text that's too long is cut short instead of refused" when the server isn't strict.
+   */
   summary: string;
+  /** 1.23.2: the server refuses text too long for its column (strict mode); null: unknown. Absent from an older server. */
+  strict?: boolean | null;
 }
 
 export interface ErrorLogPage {
@@ -94,5 +100,7 @@ export function errorLogApi(client: ApiClient) {
     notFixed: (id: string) => client.del<{ data: ErrorGroup }>(`/error-log/${encodeURIComponent(id)}/fixed`).then((r) => r.data),
     /** The page opened: the administrator's previous visit ("new since your last visit"); now is kept. */
     visit: () => client.post<{ data: { previousVisitAt: string | null } }>('/error-log/visit').then((r) => r.data.previousVisitAt),
+    /** 1.23.2 "Check again": the database check runs now (it may wait up to about 30 s for a busy database). */
+    checkDatabase: () => client.post<{ data: DatabaseCheck }>('/error-log/database-check').then((r) => r.data),
   };
 }

@@ -389,6 +389,8 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'POST /error-log/:id/fixed': 'admin',
   'DELETE /error-log/:id/fixed': 'admin',
   'POST /error-log/visit': 'admin',
+  // 1.23.2: System Settings → Error log's "Check again" (the database check, run now).
+  'POST /error-log/database-check': 'admin',
   // 1.23 Client accounts: administrators manage them; "Clients with access" is the project's (object).
   'GET /clients': 'admin',
   'POST /clients': 'admin',

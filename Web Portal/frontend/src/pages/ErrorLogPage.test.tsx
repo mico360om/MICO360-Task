@@ -31,6 +31,8 @@ const SERVER_DETAIL = {
 let calls: { url: string; method: string }[];
 let previousVisitAt: string | null;
 let databaseCheck: unknown = null;
+/** 1.23.2: what POST /error-log/database-check ("Check again") answers. */
+let checkAgain: () => Promise<Response> = async () => json({ data: null });
 let fixed: Set<string>;
 beforeEach(() => {
   calls = [];
@@ -43,6 +45,7 @@ beforeEach(() => {
       const method = init?.method ?? 'GET';
       calls.push({ url: u, method });
       if (u.endsWith('/error-log/visit')) return json({ data: { previousVisitAt } });
+      if (u.endsWith('/error-log/database-check') && method === 'POST') return checkAgain();
       if (/\/error-log\/g1\/fixed$/.test(u)) {
         if (method === 'POST') fixed.add('g1');
         else fixed.delete('g1');
@@ -67,6 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   databaseCheck = null;
+  checkAgain = async () => json({ data: null });
 });
 
 function renderPage() {
@@ -206,6 +210,34 @@ describe('Error log — the database check', () => {
     expect(box).toHaveTextContent('11.4.5-MariaDB-log');
     const items = within(box).getAllByRole('listitem').map((li) => li.textContent);
     expect(items).toEqual(['Column task_search_index.head is missing', "The task search (two words) fails: P2010 · code 1054 · Unknown column '0' in 'ORDER BY'"]);
+  });
+
+  it('1.23.2 “Check again”: runs the check now and shows its new result', async () => {
+    databaseCheck = { checkedAt: '2026-11-05T09:30:00.000Z', ok: false, server, problems: [{ kind: 'busy', name: 'the Management page', text: 'The Management page couldn’t be checked — the database was busy' }], summary: 'Database check: couldn’t finish — the database was busy (MySQL 8.0.46)', strict: true };
+    let answer: (r: Response) => void = () => {};
+    checkAgain = () => new Promise<Response>((r) => (answer = r));
+    renderPage();
+    const box = (await screen.findByText('Database check: couldn’t finish — the database was busy (MySQL 8.0.46)')).closest('[data-database-check]') as HTMLElement;
+    // A database that was busy is a warning, not a list of failures.
+    expect(box).toHaveAttribute('data-database-check', 'busy');
+    await userEvent.click(within(box).getByRole('button', { name: 'Check again' }));
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/error-log/database-check'))).toBe(true);
+    // Busy: announced as unavailable and ignores presses (focus stays on it).
+    expect(within(box).getByRole('button', { name: /Checking/ })).toHaveAttribute('aria-disabled', 'true');
+    answer(json({ data: { checkedAt: new Date().toISOString(), ok: true, server, problems: [], summary: 'Database check: OK (MySQL 8.0.46)', strict: true } }));
+    expect(await screen.findByText('Database check: OK (MySQL 8.0.46)')).toBeInTheDocument();
+    expect(screen.getByText('Database check: OK (MySQL 8.0.46)').closest('[data-database-check]')).toHaveAttribute('data-database-check', 'ok');
+    expect(screen.queryByText(/couldn’t be checked/)).toBeNull();
+  });
+
+  it('1.23.2 “Check again” that can’t run says so and keeps the last result', async () => {
+    databaseCheck = { checkedAt: '2026-11-05T09:30:00.000Z', ok: true, server, problems: [], summary: 'Database check: OK (MySQL 8.0.46)', strict: true };
+    checkAgain = async () => json({ error: { code: 'INTERNAL', message: 'x' } }, 500);
+    renderPage();
+    const box = (await screen.findByText('Database check: OK (MySQL 8.0.46)')).closest('[data-database-check]') as HTMLElement;
+    await userEvent.click(within(box).getByRole('button', { name: 'Check again' }));
+    expect(await within(box).findByRole('alert')).toHaveTextContent('The check couldn’t run just now — try again.');
+    expect(within(box).getByText('Database check: OK (MySQL 8.0.46)')).toBeInTheDocument();
   });
 
   it('nothing until the check ran (or an older server)', async () => {

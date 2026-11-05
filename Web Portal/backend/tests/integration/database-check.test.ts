@@ -5,7 +5,7 @@ import { databaseProbes } from '../../src/modules/error-log/database-probes';
 import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
 import { createSearchEngine } from '../../src/modules/search/search-engine';
-import { constantOrderTerms } from '../../src/lib/sql-portability';
+import { constantOrderTerms, portabilityProblems } from '../../src/lib/sql-portability';
 import { createTaskMergeService } from '../../src/modules/task-merge/merge-service';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
@@ -129,6 +129,33 @@ describe('every search query under the sql_mode the live server might have', () 
       const raw = sent.filter((s) => /task_search_index|search_index/.test(s));
       expect(raw.length).toBeGreaterThan(8);
       for (const sql of raw) expect(constantOrderTerms(sql), sql).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
+// 1.23.2 — the Management page's raw SQL on MariaDB: the start-up probe sends every raw form the page
+// can send (a person's late tasks, late milestones, overdue action items, one form's failures), and
+// none of them holds what MariaDB reads otherwise or refuses (lib/sql-portability).
+describe('the Management page’s SQL, as the start-up check sends it', () => {
+  it('every raw form is sent, and every statement is portable', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    try {
+      const { taskSearch } = engines(client);
+      const probe = databaseProbes({ prisma: client, taskSearch, timeZone: 'Asia/Muscat' }).find((p) => p.name === 'the Management page');
+      expect(probe).toBeDefined();
+      await probe!.run();
+      const raw = sent.filter((s) => /^\s*SELECT\b/i.test(s) && !/^\s*SELECT\s+`/.test(s));
+      // The person's late tasks, the late milestones, the overdue action items, one form's failures.
+      expect(raw.some((s) => /EXISTS \(SELECT 1 FROM task_assignees ta WHERE ta\.taskId = t\.id AND ta\.userId = \?\)/.test(s))).toBe(true);
+      expect(raw.some((s) => /t\.isMilestone = 1/.test(s))).toBe(true);
+      expect(raw.some((s) => /FROM action_items a WHERE a\.dueDate IS NOT NULL/.test(s))).toBe(true);
+      expect(raw.some((s) => /a\.itemId = \? AND i\.formId = \?/.test(s))).toBe(true);
+      const problems = sent.flatMap((sql) => portabilityProblems(sql).map((p) => `${p}: ${sql}`));
+      expect(problems).toEqual([]);
     } finally {
       await client.$disconnect();
     }

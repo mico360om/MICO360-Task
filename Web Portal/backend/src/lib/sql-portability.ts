@@ -23,6 +23,26 @@ export function constantOrderTerms(sql: string): string[] {
   return found;
 }
 
+/**
+ * 1.23.2 — every rule of the MariaDB audit in one place (the merge's SQL, the Management page's): what
+ * MariaDB reads otherwise or refuses, for one statement's text. An empty list: portable.
+ */
+export function portabilityProblems(sql: string): string[] {
+  const s = String(sql ?? '');
+  const found: string[] = [];
+  // A constant or boolean ORDER BY / GROUP BY term: MariaDB reads it as a column position (1054).
+  for (const term of constantOrderTerms(s)) found.push(`constant sort term: ${term.trim()}`);
+  // LIMIT inside IN (…): MariaDB refuses it ("doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'").
+  if (/\bIN\s*\(\s*SELECT\b[^()]*(?:\([^()]*\)[^()]*)*\bLIMIT\b/i.test(s)) found.push('LIMIT in IN (…)');
+  // Syntax and functions one of the two lacks or reads differently.
+  if (/\bRETURNING\b|->>|\bJSON_[A-Z_]+\s*\(|\bOVER\s*\(|^\s*WITH\b|SKIP\s+LOCKED|\bNOWAIT\b/i.test(s)) found.push('not portable syntax');
+  // No isolation statement: READ COMMITTED writes fail on a statement-based binary log (error 1665).
+  if (/\bSET\s+(?:SESSION\s+|GLOBAL\s+)?TRANSACTION\b/i.test(s)) found.push('isolation statement');
+  // A multi-table UPDATE or DELETE can't sort or stop early.
+  if (/^\s*(?:UPDATE|DELETE)\b[\s\S]*\bJOIN\b[\s\S]*\b(?:ORDER\s+BY|LIMIT)\b/i.test(s)) found.push('multi-table update/delete with ORDER BY/LIMIT');
+  return found;
+}
+
 /** A literal, a boolean, NULL or a placeholder: no column and nothing computed from one. */
 const CONSTANT = /^(?:TRUE|FALSE|NULL|UNKNOWN|[+-]?\d+(?:\.\d+)?|'(?:[^']|'')*'|"(?:[^"]|"")*"|\?)$/i;
 /** Where a sort list ends (at its own depth). */

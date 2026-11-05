@@ -8,7 +8,7 @@ import { createTaskSearchIndex } from '../../src/modules/search/task-search-inde
 import { createSearchIndex } from '../../src/modules/search/search-index';
 import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
 import { databaseProbes } from '../../src/modules/error-log/database-probes';
-import { constantOrderTerms } from '../../src/lib/sql-portability';
+import { portabilityProblems } from '../../src/lib/sql-portability';
 
 // Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } });
@@ -646,18 +646,9 @@ describe('Merging tasks on MariaDB as well as MySQL 8 (integration)', () => {
       await logged.undo(manager, r.mergeId);
       await logged.selfCheck();
       expect(sent.length).toBeGreaterThan(100);
-      const problems: string[] = [];
-      for (const sql of sent) {
-        // A constant or boolean ORDER BY / GROUP BY term: MariaDB reads it as a column position (1054).
-        if (constantOrderTerms(sql).length) problems.push(`constant sort term: ${sql}`);
-        // LIMIT inside IN (…): MariaDB refuses it ("doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'").
-        if (/\bIN\s*\(\s*SELECT\b[^()]*(?:\([^()]*\)[^()]*)*\bLIMIT\b/i.test(sql)) problems.push(`LIMIT in IN (…): ${sql}`);
-        // MariaDB-only or MySQL-only syntax and functions that differ between the two.
-        if (/\bRETURNING\b|->>|\bJSON_[A-Z_]+\s*\(|\bOVER\s*\(|^\s*WITH\b|SKIP\s+LOCKED|\bNOWAIT\b/i.test(sql)) problems.push(`not portable: ${sql}`);
-        // No isolation statement: READ COMMITTED writes fail on a statement-based binary log (error 1665).
-        if (/\bSET\s+(?:SESSION\s+|GLOBAL\s+)?TRANSACTION\b/i.test(sql)) problems.push(`isolation statement: ${sql}`);
-        if (/^\s*(?:UPDATE|DELETE)\b[\s\S]*\bJOIN\b[\s\S]*\b(?:ORDER\s+BY|LIMIT)\b/i.test(sql)) problems.push(`multi-table update/delete with ORDER BY/LIMIT: ${sql}`);
-      }
+      // Constant sort terms, LIMIT in IN (…), RETURNING / ->> / JSON_ / window functions / CTEs / SKIP
+      // LOCKED / NOWAIT, isolation statements, multi-table UPDATE/DELETE with ORDER BY/LIMIT (lib/sql-portability).
+      const problems = sent.flatMap((sql) => portabilityProblems(sql).map((p) => `${p}: ${sql}`));
       expect(problems).toEqual([]);
     } finally {
       await client.$disconnect();

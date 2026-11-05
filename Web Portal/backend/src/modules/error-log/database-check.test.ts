@@ -121,3 +121,113 @@ describe('expectedSchema: the tables and columns the app’s schema uses', () =>
     expect(serverLabel({ version: '10.11.10-MariaDB', sqlMode: '', lowerCaseTableNames: null })).toBe('MariaDB 10.11.10 (10.11.10-MariaDB) · sql_mode (none)');
   });
 });
+
+// 1.23.2 — the live check said "The Management page fails: P1001 · Can't reach database server": a
+// connection blip at start-up, not a dialect problem (the page opened fine minutes later).
+describe('database check — connection blips and strict mode (1.23.2)', () => {
+  const blip = (code: string) => Object.assign(new Error(code === 'P1001' ? "Can't reach database server at `db`:`3306`" : 'Timed out fetching a new connection from the connection pool'), { name: 'PrismaClientKnownRequestError', code });
+
+  it('a probe that can’t connect is tried again (3 times, about 10 s apart) before anything is said', async () => {
+    let tries = 0;
+    const waits: number[] = [];
+    const { c, recorded } = check({
+      probes: [{ name: 'the Management page', run: async () => { if (++tries < 3) throw blip('P1001'); return []; } }],
+      sleep: async (ms) => void waits.push(ms),
+    });
+    const r = await c.run();
+    expect(tries).toBe(3);
+    expect(waits).toEqual([10_000, 10_000]);
+    expect(r).toMatchObject({ ok: true, problems: [], summary: 'Database check: OK (MySQL 8.0.46)' });
+    expect(recorded).toEqual([]);
+  });
+
+  it('still can’t connect: “couldn’t be checked — the database was busy”, never “the page fails”', async () => {
+    let tries = 0;
+    const { c, recorded } = check({ probes: [{ name: 'the Management page', run: async () => { tries++; throw blip('P2024'); } }], sleep: async () => {} });
+    const r = await c.run();
+    expect(tries).toBe(4);
+    expect(r.problems).toEqual([{ kind: 'busy', name: 'the Management page', text: 'The Management page couldn’t be checked — the database was busy' }]);
+    expect(r.summary).toBe('Database check: couldn’t finish — the database was busy (MySQL 8.0.46)');
+    expect(r.ok).toBe(false);
+    expect(recorded.map((x) => x.text)).toEqual(['Database check: the Management page couldn’t be checked — the database was busy — MySQL 8.0.46 · sql_mode ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES · lower_case_table_names 0']);
+    expect(recorded.join(' ')).not.toMatch(/fails/);
+  });
+
+  it('a real query problem is still a problem at once (no waiting)', async () => {
+    const waits: number[] = [];
+    const bad = Object.assign(new Error("Unknown column '0' in 'ORDER BY'"), { name: 'PrismaClientKnownRequestError', code: 'P2010' });
+    const { c } = check({ probes: [{ name: 'the task search', run: async () => { throw bad; } }], sleep: async (ms) => void waits.push(ms) });
+    const r = await c.run();
+    expect(waits).toEqual([]);
+    expect(r.problems[0]).toMatchObject({ kind: 'query', name: 'the task search' });
+  });
+
+  it('a server not in strict mode is said (text that is too long is cut short instead of refused)', async () => {
+    const live = { version: '11.8.9-MariaDB-log', sqlMode: 'NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION', lowerCaseTableNames: 0 };
+    const { c } = check({ readServer: async () => live });
+    const r = await c.run();
+    expect(r.summary).toBe('Database check: OK (MariaDB 11.8.9) · not in strict mode: text that’s too long is cut short instead of refused');
+    expect(r.strict).toBe(false);
+    const strictOne = await check({ readServer: async () => MARIADB }).c.run();
+    expect(strictOne.summary).toBe('Database check: OK (MariaDB 11.4.5)');
+    expect(strictOne.strict).toBe(true);
+    // TRADITIONAL is strict too.
+    expect((await check({ readServer: async () => ({ ...MYSQL, sqlMode: 'TRADITIONAL' }) }).c.run()).strict).toBe(true);
+  });
+
+  it('the server’s settings and its tables read during a blip are “busy” too — never a failure', async () => {
+    const { c, recorded } = check({
+      readServer: async () => { throw blip('P1001'); },
+      readColumns: async () => { throw blip('P1017'); },
+      probes: [{ name: 'the task search', run: async () => { throw blip('P1001'); } }],
+      sleep: async () => {},
+    });
+    const r = await c.run();
+    expect(r.problems).toEqual([
+      { kind: 'busy', name: 'server', text: 'The database server’s version and settings couldn’t be read — the database was busy' },
+      { kind: 'busy', name: 'columns', text: 'The database’s tables and columns couldn’t be read — the database was busy' },
+      { kind: 'busy', name: 'the task search', text: 'The task search couldn’t be checked — the database was busy' },
+    ]);
+    expect(r.summary).toBe('Database check: couldn’t finish — the database was busy');
+    expect(r.strict).toBeNull();
+    expect(recorded.map((x) => x.text)).toEqual([
+      'Database check: the database server’s version and settings couldn’t be read — the database was busy',
+      'Database check: the database’s tables and columns couldn’t be read — the database was busy',
+      'Database check: the task search couldn’t be checked — the database was busy',
+    ]);
+  });
+
+  it('once a step used up its tries, the rest are tried once without waiting (the check never takes much over 30 s)', async () => {
+    const waits: number[] = [];
+    const tries = { a: 0, b: 0, c: 0 };
+    const { c } = check({
+      probes: [
+        { name: 'the Management page', run: async () => { tries.a++; throw blip('P1001'); } },
+        { name: 'the task search', run: async () => { tries.b++; throw blip('P2024'); } },
+        { name: 'search everything', run: async () => { tries.c++; return []; } },
+      ],
+      sleep: async (ms) => void waits.push(ms),
+    });
+    const r = await c.run();
+    expect(waits).toEqual([10_000, 10_000, 10_000]);
+    expect(tries).toEqual({ a: 4, b: 1, c: 1 });
+    expect(r.problems.map((p) => [p.kind, p.name])).toEqual([['busy', 'the Management page'], ['busy', 'the task search']]);
+  });
+
+  it('“Check again” while a check runs gets that run (never two at once); the next one runs afresh', async () => {
+    let release: () => void = () => {};
+    let runs = 0;
+    const { c } = check({ probes: [{ name: 'the task search', run: () => { runs++; return new Promise<void>((r) => (release = r)); } }] });
+    const first = c.run();
+    const second = c.run();
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    expect(await second).toBe(await first);
+    expect(runs).toBe(1);
+    const third = c.run();
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    expect(await third).not.toBe(await first);
+    expect(runs).toBe(2);
+  });
+});

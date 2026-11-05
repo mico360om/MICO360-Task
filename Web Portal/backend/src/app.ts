@@ -369,7 +369,7 @@ export interface AppDeps extends AuthRouteDeps {
    */
   errorLog?: ErrorLogService;
   /** 1.23.1: the database self-check's latest result (System Settings → Error log shows it). */
-  databaseCheck?: { latest(): DatabaseCheckResult | null };
+  databaseCheck?: { latest(): DatabaseCheckResult | null; run?(): Promise<DatabaseCheckResult> };
   /** 1.23: Settings → Microsoft Teams (each person's own connection) and Make Teams link on a meeting. */
   microsoft?: Omit<MicrosoftRouteDeps, 'guard' | 'audit'>;
   /** 1.23: the meeting form's "Create a Teams link" (made, taken away or made plain after a save). */
