@@ -19,6 +19,14 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   Search page still show the projects, people, meetings, notes and files they found, with one quiet line
   "Tasks couldn't be searched just now — try again". Before, the whole search failed. The problem is
   still recorded in the Error log, once.
+- When the database is away for a moment (for example while the site restarts after an update), pages
+  now say "The database is busy — please try again in a moment." instead of "Something went wrong".
+  The Error log keeps one row for each kind of database outage, with its code, instead of one row per
+  page.
+- Background jobs (daily task emails, the weekly management summary, reminders, backups and the rest)
+  now start only once the database answers, try once more after a few seconds when the database
+  doesn't answer, and stop before the server does. A restart of the site no longer fills the Error log
+  with "Can't reach database server".
 
 ### Bug fixes
 - Search: searching for two or more words (for example "pump repair") failed on the live site, and the

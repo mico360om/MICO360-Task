@@ -7,6 +7,7 @@ import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
 import { HttpError, NotFoundError } from './lib/http-errors';
 import type { Logger } from './lib/logger';
+import { DATABASE_BUSY_MESSAGE, databaseConnectionCode } from './lib/db-connection';
 import { registerIdempotency, type IdempotencyStore } from './lib/idempotency';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
@@ -485,6 +486,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     const mapped = prismaErrorResponse(err);
     if (mapped) return reply.status(mapped.status).send({ error: { code: mapped.code, message: mapped.message } });
+    // 1.23.1: the database couldn't be reached, dropped the connection or had none free — a blip (the live
+    // site's came at deploy restarts), not a bug: 503 with words that say to try again, still recorded
+    // (the Error log keeps one row per kind, with its code).
+    if (databaseConnectionCode(err)) {
+      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, route: req.routeOptions?.url, status: 503, err, userId: req.user?.id });
+      else console.error(`[${req.method} ${req.url}] 503`, err);
+      return reply.status(503).header('Retry-After', '5').send({ error: { code: 'DATABASE_BUSY', message: DATABASE_BUSY_MESSAGE } });
+    }
     const status = (err as { statusCode?: number }).statusCode ?? 500;
     if (status === 429) {
       return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment and try again.' } });

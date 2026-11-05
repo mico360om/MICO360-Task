@@ -51,7 +51,16 @@ export interface ApiClientOptions {
    * the fact; nothing it does changes the request.
    */
   onRequestDone?: (info: { method: string; path: string; status: number; ms: number }) => void;
+  /**
+   * 1.23.1: the server answered DATABASE_BUSY (503 — its database was away for a moment, a deploy
+   * restart) to a read or a change — just before it is thrown to the caller; the app says so across the
+   * page in the server's words.
+   */
+  onDatabaseBusy?: (err: ApiError) => void;
 }
+
+/** The code the server answers a database blip with (lib/db-connection.ts there). */
+export const DATABASE_BUSY_CODE = 'DATABASE_BUSY';
 
 export interface RequestOptions {
   /** Extra request headers, e.g. `Idempotency-Key` on a replay-safe POST. */
@@ -107,7 +116,7 @@ async function refusesCompany(status: number, text: () => Promise<string>): Prom
   return isCompanyGone(errorFrom(status, await text()));
 }
 
-export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone }: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthorized, getHeaders, onCompanyGone, onRefused, onRequestDone, onDatabaseBusy }: ApiClientOptions): ApiClient {
   const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
   /** Tell onRequestDone how a request went (never in its way). */
   const told = (method: string, path: string, status: number, started: number) => {
@@ -117,9 +126,21 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       // Reporting must never change what the caller gets.
     }
   };
+  /** 1.23.1: an error answer, told to onDatabaseBusy first when it is the database being away (never in its way). */
+  const failure = (status: number, text: string): ApiError => {
+    const err = errorFrom(status, text);
+    if (err.code === DATABASE_BUSY_CODE) {
+      try {
+        onDatabaseBusy?.(err);
+      } catch {
+        // Saying it across the page must never change what the caller gets.
+      }
+    }
+    return err;
+  };
   /** The error to throw for a refused change, told to onRefused first (never in its way). */
   const refusal = (status: number, text: string): ApiError => {
-    const err = errorFrom(status, text);
+    const err = failure(status, text);
     try {
       onRefused?.(err);
     } catch {
@@ -217,7 +238,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   async function request<T>(method: string, path: string, body?: unknown, reqOpts?: RequestOptions): Promise<T> {
     const res = await authedFetch(method, path, { body, headers: reqOpts?.headers, ...(reqOpts?.keepalive ? { keepalive: true } : {}), ...(reqOpts?.credentials ? { credentials: reqOpts.credentials } : {}) });
     const text = await res.text();
-    if (!res.ok) throw method === 'GET' ? errorFrom(res.status, text) : refusal(res.status, text);
+    if (!res.ok) throw method === 'GET' ? failure(res.status, text) : refusal(res.status, text);
     return (text ? JSON.parse(text) : {}) as T;
   }
 
@@ -277,14 +298,14 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
   async function getText(path: string): Promise<string> {
     const res = await authedFetch('GET', path);
     const text = await res.text();
-    if (!res.ok) throw errorFrom(res.status, text);
+    if (!res.ok) throw failure(res.status, text);
     return text;
   }
 
   /** A download; when the server names the file (Content-Disposition) it comes back as a File with that name. */
   async function getBlob(path: string): Promise<Blob> {
     const res = await authedFetch('GET', path);
-    if (!res.ok) throw errorFrom(res.status, await res.text());
+    if (!res.ok) throw failure(res.status, await res.text());
     const blob = await res.blob();
     const name = fileNameFromDisposition(res.headers.get('content-disposition'));
     return name ? new File([blob], name, { type: blob.type }) : blob;

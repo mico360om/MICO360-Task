@@ -23,9 +23,11 @@ export function startSearchSweeps({
   logger: TaskSearchSweepLogger;
   now?: () => Date;
 }): { started: Promise<void>; stop(): void } {
+  // 1.23.1 (lib/job-gate): through the lock's gate — after the database answered, a blip tried once more.
+  const attempt = <T,>(work: () => Promise<T>): Promise<T> => (lock.attempt ? lock.attempt(work) : work());
   const step = async (name: string, run: () => Promise<number>): Promise<void> => {
     try {
-      const count = await run();
+      const count = await attempt(run);
       if (count > 0) logger.info('search: items brought up to date', { step: name, count });
     } catch (err) {
       logger.error('search: a sweep step failed', { err, step: name });

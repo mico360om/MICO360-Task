@@ -30,9 +30,11 @@ export function startTaskSearchSweeps({
   logger: TaskSearchSweepLogger;
   now?: () => Date;
 }): { started: Promise<void>; stop(): void } {
+  // 1.23.1 (lib/job-gate): through the lock's gate — after the database answered, a blip tried once more.
+  const attempt = <T,>(work: () => Promise<T>): Promise<T> => (lock.attempt ? lock.attempt(work) : work());
   const heal = async (sweep: string, run: () => Promise<number>): Promise<void> => {
     try {
-      const count = await run();
+      const count = await attempt(run);
       if (count > 0) logger.info('task search: tasks re-indexed', { sweep, count });
     } catch (err) {
       logger.error('task search: the index sweep failed', { err, sweep });

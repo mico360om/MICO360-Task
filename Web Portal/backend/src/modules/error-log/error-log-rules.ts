@@ -83,7 +83,18 @@ export interface ReportFacts {
   top?: { file: string; fn: string | null } | null;
   /** A server error's database codes ("P2010/1038", 1.22.5): two different database errors at one line are two rows. */
   cause?: string | null;
+  /** 1.23.1: a request that met a database blip (P1001, P1017, P2024…): one row per kind, whatever the page. */
+  blip?: string | null;
 }
+
+/** 1.23.1: what each database blip is, in words (lib/db-connection's codes). */
+const BLIP_WORDS: Record<string, string> = {
+  P1001: 'The database couldn’t be reached',
+  P1002: 'The database was reached but didn’t answer in time',
+  P1008: 'The database took too long',
+  P1017: 'The database closed the connection',
+  P2024: 'No free database connection in time',
+};
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 const TAG_WORD: Record<string, string> = { script: 'script', link: 'style', img: 'picture' };
@@ -126,6 +137,10 @@ export function describeReport(r: ReportFacts): { title: string; groupTitle: str
       return { title, groupTitle: title, key: fingerprintOf(['BLOCKED', 'csp', directive, target]) };
     }
     case 'SERVER': {
+      if (r.blip) {
+        const words = `${BLIP_WORDS[r.blip] ?? 'The database was away'} (${r.blip})`;
+        return { title: words, groupTitle: words, key: fingerprintOf(['SERVER', 'database-blip', r.blip]) };
+      }
       const title = (r.message || 'Server error').slice(0, 500);
       // Without database codes the key is as it was, so the rows already kept stay one row.
       const parts = ['SERVER', r.job ?? r.route ?? '', normalizeMessage(title), ...top];

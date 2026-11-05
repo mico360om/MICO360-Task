@@ -451,3 +451,35 @@ describe('server stacks keep the paths of their frames', () => {
     expect(repo.eventRows[0]!.stack).not.toContain(':token');
   });
 });
+
+// 1.23.1 — a database blip fails many requests on many pages at once (the live site's two at 14:24):
+// one row per kind of blip, with its code, each occurrence keeping its own page.
+describe('requests that met a database blip: one row per kind', () => {
+  const blip = (code: string, route: string) => {
+    const e = new Prisma.PrismaClientKnownRequestError(`\nInvalid \`prisma.project.findMany()\` invocation:\n\n\nCan't reach database server at \`srv123.hstgr.io\`:\`3306\``, { code, clientVersion: '5.22.0' });
+    e.stack = `PrismaClientKnownRequestError: x\n    at Object.list (/srv/app/dist/src/modules/projects/${route.split('/')[3]}.js:12:5)`;
+    return e;
+  };
+
+  it('P1001 on two pages is one row; P2024 is another; each says what happened and its code', async () => {
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/projects/:id/members', status: 503, err: blip('P1001', '/api/v1/projects'), userId: 'u1' });
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/projects/:id/meetings-overview', status: 503, err: blip('P1001', '/api/v1/meetings'), userId: 'u2' });
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/tasks', status: 503, err: blip('P2024', '/api/v1/tasks'), userId: 'u1' });
+    await service.settled();
+    expect(repo.groups).toHaveLength(2);
+    const p1001 = repo.groups.find((g) => g.title.includes('P1001'))!;
+    expect(p1001).toMatchObject({ kind: 'SERVER', title: 'The database couldn’t be reached (P1001)', count: 2, peopleCount: 2 });
+    expect(repo.groups.find((g) => g.title.includes('P2024'))!.title).toBe('No free database connection in time (P2024)');
+    const shown = await service.detail(p1001.id);
+    expect(shown!.events.map((e) => e.page).sort()).toEqual(['GET /api/v1/projects/:id/meetings-overview', 'GET /api/v1/projects/:id/members']);
+    expect(shown!.events[0]!.database).toMatch(/^P1001 · Can't reach database server at/);
+    expect(JSON.stringify(repo.eventRows)).not.toContain('hstgr');
+  });
+
+  it('a background job’s blip stays the job’s own row', async () => {
+    service.recordServer('weekly management summary sweep failed', { err: blip('P1001', '/api/v1/management'), job: 'weekly-management-summary' });
+    await service.settled();
+    expect(repo.groups[0]!.title).not.toBe('The database couldn’t be reached (P1001)');
+    expect(repo.eventRows[0]).toMatchObject({ job: 'weekly-management-summary' });
+  });
+});
