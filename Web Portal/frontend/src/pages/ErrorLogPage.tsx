@@ -13,7 +13,7 @@ import { dateTimeText } from '../lib/day-words';
 import { relativeTime } from '../lib/relative-time';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
-import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, detailText, isNewSince, peopleText, personText, placeText, timesText, topFrameText } from '../components/admin/error-log-words';
+import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, isNewSince, peopleText, personText, placeText, timesText, topFrameText } from '../components/admin/error-log-words';
 
 const segment = (active: boolean) =>
   `rounded-lg px-3 py-1 text-sm font-medium transition-colors ${TOUCH_SQUARE} ${active ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
@@ -216,6 +216,8 @@ function ErrorDetails({ id, groupId, status, timeZone, onChanged }: { id: string
   });
   const latest = q.data?.events[0];
   const frame = q.data ? topFrameText(q.data.group) : '';
+  // A database error (1.22.5): what the database said the latest time it said something.
+  const said = q.data?.events.find((e) => e.database)?.database ?? '';
   return (
     <div id={id} className="border-t border-line bg-ground/60 px-4 py-3">
       {q.isLoading ? (
@@ -227,6 +229,11 @@ function ErrorDetails({ id, groupId, status, timeZone, onChanged }: { id: string
           {frame ? (
             <p className="text-sm text-ink-2">
               Where: <code className="break-all rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-ink">{frame}</code>
+            </p>
+          ) : null}
+          {said ? (
+            <p role="note" aria-label="What the database said (latest)" className="text-sm text-ink-2">
+              Database said: <code className="break-all rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-ink">{said}</code>
             </p>
           ) : null}
           {latest?.stack ? (
@@ -276,6 +283,7 @@ function Occurrence({ e, timeZone }: { e: ErrorOccurrence; timeZone: string }) {
       </span>
       {e.kind !== 'ERROR' && e.kind !== 'SERVER' ? <span dir="auto" className="break-words text-ink-2">{e.message}</span> : null}
       {e.resource ? <span className="break-all font-mono text-[11px] text-ink-3">{e.resource}</span> : null}
+      {e.database ? <span className="break-all font-mono text-[11px] text-ink-3">{databaseText(e)}</span> : null}
       <span className="break-words text-ink-3">{facts.join(' · ')}</span>
     </li>
   );

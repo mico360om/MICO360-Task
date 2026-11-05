@@ -1,4 +1,5 @@
 import { parseClientBatch, parseCspReports, type ClientReport } from './client-reports';
+import { databaseDiagnosis } from './db-error';
 import { redactText } from './error-redact';
 import { describeReport, isNewerVersion, isVersion, kindsFor, sinceFor, type ErrorKind, type KindFilter, type RangeFilter } from './error-log-rules';
 import type { ErrorEventRow, ErrorGroupRow, ErrorLogRepository, NewEvent } from './error-log-repository';
@@ -260,6 +261,11 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
    * A server error, from the logger's error lines (lib/error-log-logger.ts): a failed request ("request
    * failed" with its route pattern — never the address, which can carry a token), a background job
    * (`job`, or a search sweep's `sweep`) or another background step. Never throws.
+   *
+   * 1.22.5 — a database error (Prisma's) also keeps its diagnosis: Prisma's code, the database's code
+   * and its message with the values masked (db-error.ts), shown as "Database said: …" and kept in the
+   * occurrence's `resource` (a server error has no other use for it). The codes are part of the row's
+   * key, so two different database errors at one line are two rows; any other error keeps its old key.
    */
   function recordServer(message: string, ctx?: Record<string, unknown>): void {
     try {
@@ -269,7 +275,9 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
       const route = typeof read('route') === 'string' ? (read('route') as string) : null;
       const method = typeof read('method') === 'string' ? (read('method') as string) : null;
       const userId = typeof read('userId') === 'string' ? (read('userId') as string) : null;
-      const e = errorText(read('err') ?? read('error'));
+      const thrown = read('err') ?? read('error');
+      const e = errorText(thrown);
+      const db = databaseDiagnosis(thrown);
       // Only the first line of the error's message, and only the frames of its stack: the rest of a
       // message can quote what someone typed (a database error prints the values it was given).
       const first = (e.message ?? '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 300) ?? '';
@@ -282,7 +290,8 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         const resolved = frames ? await resolveStack(frames, deps.maps) : { stack: '', top: null };
         // A request by its route pattern (never its address, which can carry a token).
         const page = request ? clip(`${method ?? ''} ${route ?? '(no route)'}`.trim(), 300) : null;
-        const d = describeReport({ kind: 'SERVER', message: title, job, route: page, top: resolved.top });
+        const cause = db ? [db.code, db.dbCode].filter(Boolean).join('/') : '';
+        const d = describeReport({ kind: 'SERVER', message: title, job, route: page, top: resolved.top, cause: cause || null });
         await store({
           fingerprint: d.key,
           kind: 'SERVER',
@@ -298,7 +307,7 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
             stack: resolved.stack ? redactText(resolved.stack, 4096) : null,
             page,
             job: job ? job.slice(0, 100) : null,
-            resource: null,
+            resource: clip(db?.text, 300),
             value: null,
             count: 1,
             version,
@@ -377,7 +386,9 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         stack: e.stack,
         page: e.page,
         job: e.job,
-        resource: e.resource,
+        // A server error's resource is its database diagnosis (1.22.5): the page says "Database said: …".
+        resource: e.kind === 'SERVER' ? null : e.resource,
+        database: e.kind === 'SERVER' ? e.resource : null,
         value: e.value,
         count: e.count,
         version: e.version,

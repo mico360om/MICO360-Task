@@ -83,6 +83,11 @@ export function placeText(e: Pick<ErrorOccurrence, 'page' | 'job'>): string {
   return e.job ?? e.page ?? '';
 }
 
+/** A database error's diagnosis (1.22.5), as an occurrence shows it. */
+export function databaseText(e: Pick<ErrorOccurrence, 'database'>): string {
+  return e.database ? `Database said: ${e.database}` : '';
+}
+
 /** The site's own file:line and function, when known. */
 export function topFrameText(g: { topFile: string | null; topLine: number | null; topFunction: string | null }): string {
   if (!g.topFile) return '';

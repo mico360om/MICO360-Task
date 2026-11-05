@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 import { addressKey, createErrorLogService, type ErrorLogService } from './error-log-service';
 import { createMemoryErrorLogRepository } from './error-log-repository';
 import { createMapStore } from './stack';
+import { Prisma } from '@prisma/client';
+import { fingerprintOf } from './error-log-rules';
+import { normalizeMessage } from './error-redact';
 
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 const err = (over: Record<string, unknown> = {}) => ({ kind: 'ERROR', detail: 'error', message: 'TypeError: x is undefined', stack: 'TypeError: x is undefined\n    at q (https://task.mico360.com/assets/BoardPage-B3x9kQ2a.js:1:120)', page: '/board', version: '1.22.4', screen: '1440x900', ...over });
@@ -380,5 +383,53 @@ describe('long values fit their columns', () => {
     expect(repo.eventRows[0]!.page!.length).toBeLessThanOrEqual(300);
     expect(repo.eventRows[0]!.resource!.length).toBeLessThanOrEqual(300);
     expect(repo.groups[0]!.title.length).toBeLessThanOrEqual(500);
+  });
+});
+
+// 1.22.5: a database error names its cause — Prisma's code, the database's code and its message with
+// the values masked — and two different database errors at one line are two rows.
+describe('server errors from the database keep their diagnosis', () => {
+  const rawFailed = (code: string, message: string) =>
+    new Prisma.PrismaClientKnownRequestError(`\nInvalid \`prisma.$queryRaw()\` invocation:\n\n\nRaw query failed. Code: \`${code}\`. Message: \`${message}\``, { code: 'P2010', clientVersion: '5.22.0', meta: { code, message } });
+  const at = (e: Error) => {
+    e.stack = `PrismaClientKnownRequestError: ${e.message}\n    at Object.search (/srv/app/dist/src/modules/search/task-search-engine.js:85:29)`;
+    return e;
+  };
+
+  it('a P2010 keeps its code and the database’s masked message, never the typed value', async () => {
+    const e = at(rawFailed('1366', "Incorrect string value: '\xF0\x9F Pay Ahmed 500 OMR' for column 'doc' at row 1"));
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/search', status: 500, err: e, userId: 'u1' });
+    await service.settled();
+    expect(repo.groups[0]!.title).toBe('Invalid `prisma.$queryRaw()` invocation:');
+    expect(repo.eventRows[0]!.resource).toBe("P2010 · code 1366 · Incorrect string value: '?' for column 'doc' at row 1");
+    expect(JSON.stringify(repo.eventRows)).not.toContain('Ahmed');
+    expect(JSON.stringify(repo.groups)).not.toContain('Ahmed');
+    const shown = await service.detail(repo.groups[0]!.id);
+    expect(shown!.events[0]).toMatchObject({ database: "P2010 · code 1366 · Incorrect string value: '?' for column 'doc' at row 1", resource: null });
+  });
+
+  it('different database errors at the same line are different rows; the same one again adds up', async () => {
+    for (const [code, message] of [['1038', 'Out of sort memory, consider increasing server sort buffer size'], ['1210', 'Incorrect arguments to ESCAPE'], ['1038', 'Out of sort memory, consider increasing server sort buffer size']] as const) {
+      service.recordServer('request failed', { method: 'GET', route: '/api/v1/search', status: 500, err: at(rawFailed(code, message)), userId: 'u1' });
+    }
+    await service.settled();
+    expect(repo.groups).toHaveLength(2);
+    expect(repo.groups.map((g) => g.count).sort()).toEqual([1, 2]);
+  });
+
+  it('an error that isn’t Prisma’s is kept exactly as before (no diagnosis, the same row)', async () => {
+    const e = new Error('Raw query failed. Code: `1064`. Message: `near Pay Ahmed`');
+    e.stack = `Error: ${e.message}\n    at Object.search (/srv/app/dist/src/modules/search/task-search-engine.js:85:29)`;
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/search', status: 500, err: e, userId: 'u1' });
+    await service.settled();
+    expect(repo.eventRows[0]!.resource).toBeNull();
+    expect(repo.groups[0]!.fingerprint).toBe(fingerprintOf(['SERVER', 'GET /api/v1/search', normalizeMessage(e.message), '', '']));
+    expect((await service.detail(repo.groups[0]!.id))!.events[0]).toMatchObject({ database: null });
+  });
+
+  it('a background job’s database error keeps its diagnosis too', async () => {
+    service.recordServer('task search: the index sweep failed', { err: rawFailed('1205', 'Lock wait timeout exceeded; try restarting transaction'), sweep: 'search-index-heal-recent' });
+    await service.settled();
+    expect(repo.eventRows[0]).toMatchObject({ job: 'search-index-heal-recent', resource: 'P2010 · code 1205 · Lock wait timeout exceeded; try restarting transaction' });
   });
 });

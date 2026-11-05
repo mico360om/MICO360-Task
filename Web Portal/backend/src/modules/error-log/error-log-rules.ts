@@ -81,6 +81,8 @@ export interface ReportFacts {
   job?: string | null;
   route?: string | null;
   top?: { file: string; fn: string | null } | null;
+  /** A server error's database codes ("P2010/1038", 1.22.5): two different database errors at one line are two rows. */
+  cause?: string | null;
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
@@ -125,7 +127,9 @@ export function describeReport(r: ReportFacts): { title: string; groupTitle: str
     }
     case 'SERVER': {
       const title = (r.message || 'Server error').slice(0, 500);
-      return { title, groupTitle: title, key: fingerprintOf(['SERVER', r.job ?? r.route ?? '', normalizeMessage(title), ...top]) };
+      // Without database codes the key is as it was, so the rows already kept stay one row.
+      const parts = ['SERVER', r.job ?? r.route ?? '', normalizeMessage(title), ...top];
+      return { title, groupTitle: title, key: fingerprintOf(r.cause ? [...parts, r.cause] : parts) };
     }
     default: {
       const title = (r.message || 'Error').slice(0, 500);

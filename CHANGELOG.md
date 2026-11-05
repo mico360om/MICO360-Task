@@ -14,6 +14,13 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Error log: a server error from the database now says what the database said — its error code
+  and its message (the names of tables and columns stay; any value someone typed shows as ?) — on
+  the row's details as "Database said: …", so the cause of an error such as "Invalid
+  `prisma.$queryRaw()` invocation" can be found. Two different database errors at the same place
+  in the code are now two rows.
+
 ## [1.22.4] - 2026-11-05
 
 ### New features
