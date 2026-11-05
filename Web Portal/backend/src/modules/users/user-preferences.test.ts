@@ -27,19 +27,19 @@ describe('GET/PUT /users/me/preferences — personal date settings', () => {
     const { app, as } = await setup();
     const res = await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u1') });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false });
+    expect(res.json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable' });
   });
 
   it('keeps each person’s own week start and time zone', async () => {
     const { app, as } = await setup();
     const put = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: await as('u1'), payload: { weekStart: 1, timeZone: 'Europe/London' } });
     expect(put.statusCode).toBe(200);
-    expect(put.json().data).toEqual({ timeZone: 'Europe/London', weekStart: 1, myProjectsOnly: false });
-    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u1') })).json().data).toEqual({ timeZone: 'Europe/London', weekStart: 1, myProjectsOnly: false });
-    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u2') })).json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false });
+    expect(put.json().data).toEqual({ timeZone: 'Europe/London', weekStart: 1, myProjectsOnly: false, density: 'comfortable' });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u1') })).json().data).toEqual({ timeZone: 'Europe/London', weekStart: 1, myProjectsOnly: false, density: 'comfortable' });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u2') })).json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable' });
     // Back to the defaults; a partial change leaves the rest.
     await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: await as('u1'), payload: { timeZone: null } });
-    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u1') })).json().data).toEqual({ timeZone: null, weekStart: 1, myProjectsOnly: false });
+    expect((await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers: await as('u1') })).json().data).toEqual({ timeZone: null, weekStart: 1, myProjectsOnly: false, density: 'comfortable' });
   });
 
   it('refuses an unknown time zone or week start', async () => {
@@ -63,27 +63,56 @@ describe('“Show my projects only” — an administrator’s own setting (1.22
     const { app, as } = await setup();
     const admin = await as('a1', ['ADMIN']);
     expect((await get(app, admin)).myProjectsOnly).toBe(false);
-    const put = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: admin, payload: { myProjectsOnly: true } });
+    const put = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: admin, payload: { myProjectsOnly: true, density: 'comfortable' } });
     expect(put.statusCode).toBe(200);
-    expect(put.json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: true });
-    expect(await get(app, admin)).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: true });
+    expect(put.json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: true, density: 'comfortable' });
+    expect(await get(app, admin)).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: true, density: 'comfortable' });
     expect((await get(app, await as('a2', ['ADMIN']))).myProjectsOnly).toBe(false);
     // Changing the week start keeps it; turning it off again works.
     await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: admin, payload: { weekStart: 6 } });
-    expect(await get(app, admin)).toEqual({ timeZone: null, weekStart: 6, myProjectsOnly: true });
-    await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: admin, payload: { myProjectsOnly: false } });
+    expect(await get(app, admin)).toEqual({ timeZone: null, weekStart: 6, myProjectsOnly: true, density: 'comfortable' });
+    await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: admin, payload: { myProjectsOnly: false, density: 'comfortable' } });
     expect((await get(app, admin)).myProjectsOnly).toBe(false);
   });
 
   it('is an administrator’s option: an employee asking to turn it on is refused, their other settings still save', async () => {
     const { app, as } = await setup();
     const emp = await as('e1');
-    const res = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { myProjectsOnly: true } });
+    const res = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { myProjectsOnly: true, density: 'comfortable' } });
     expect(res.statusCode).toBe(403);
     expect(res.json().error.message).toBe('Only administrators have this setting.');
     expect((await get(app, emp)).myProjectsOnly).toBe(false);
     expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { weekStart: 1 } })).statusCode).toBe(200);
     // Saying "off" is harmless, so an older client sending the whole object back is not refused.
-    expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { myProjectsOnly: false } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { myProjectsOnly: false, density: 'comfortable' } })).statusCode).toBe(200);
+  });
+});
+
+describe('Compact / comfortable rows — each person’s own (1.23.0)', () => {
+  const get = async (app: Awaited<ReturnType<typeof setup>>['app'], headers: Record<string, string>) =>
+    (await app.inject({ method: 'GET', url: '/api/v1/users/me/preferences', headers })).json().data;
+
+  it('is comfortable until the person picks compact, and follows only them', async () => {
+    const { app, as } = await setup();
+    const emp = await as('e1');
+    expect((await get(app, emp)).density).toBe('comfortable');
+    const put = await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { density: 'compact' } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().data).toEqual({ timeZone: null, weekStart: null, myProjectsOnly: false, density: 'compact' });
+    expect((await get(app, emp)).density).toBe('compact');
+    expect((await get(app, await as('e2'))).density).toBe('comfortable');
+    // Another setting saved later keeps it; back to comfortable works.
+    await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { weekStart: 1 } });
+    expect(await get(app, emp)).toEqual({ timeZone: null, weekStart: 1, myProjectsOnly: false, density: 'compact' });
+    await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: emp, payload: { density: 'comfortable' } });
+    expect((await get(app, emp)).density).toBe('comfortable');
+  });
+
+  it('is anyone’s to set (an administrator too) and takes only the two words', async () => {
+    const { app, as } = await setup();
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: await as('a1', ['ADMIN']), payload: { density: 'compact' } })).statusCode).toBe(200);
+    for (const density of ['dense', 'COMPACT', '', null, 1, true]) {
+      expect((await app.inject({ method: 'PUT', url: '/api/v1/users/me/preferences', headers: await as('e1'), payload: { density } })).statusCode).toBe(400);
+    }
   });
 });

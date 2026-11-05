@@ -18,7 +18,15 @@ export interface UserPreferences {
    * show only the projects they own, manage or are on the team of (companies/company-access.ts).
    */
   myProjectsOnly: boolean;
+  /**
+   * Compact / comfortable rows (1.23.0, anyone's own; comfortable by default): compact makes the
+   * website's lists, tables and boards denser. Phones and touch screens always stay comfortable.
+   */
+  density: Density;
 }
+
+export const DENSITIES = ['comfortable', 'compact'] as const;
+export type Density = (typeof DENSITIES)[number];
 
 /** Said to someone who isn't an administrator asking to turn "Show my projects only" on. */
 export const MY_PROJECTS_ONLY_REFUSED = 'Only administrators have this setting.';
@@ -28,7 +36,7 @@ export interface PreferencesRepository {
   set(userId: string, patch: Partial<UserPreferences>): Promise<UserPreferences>;
 }
 
-const NONE: UserPreferences = { timeZone: null, weekStart: null, myProjectsOnly: false };
+const NONE: UserPreferences = { timeZone: null, weekStart: null, myProjectsOnly: false, density: 'comfortable' };
 
 /** True when the runtime knows `tz` as an IANA time zone. */
 function isTimeZone(tz: string): boolean {
@@ -45,6 +53,7 @@ const patchSchema = z
     timeZone: z.string().max(64).refine(isTimeZone, 'Unknown time zone.').nullable().optional(),
     weekStart: z.union([z.literal(0), z.literal(1), z.literal(6)]).nullable().optional(),
     myProjectsOnly: z.boolean().optional(),
+    density: z.enum(DENSITIES).optional(),
   })
   .strict();
 
@@ -63,21 +72,23 @@ export function createMemoryPreferences(): PreferencesRepository {
 }
 
 export function createPrismaPreferences(prisma: PrismaClient): PreferencesRepository {
-  const toPrefs = (u: { preferredTimeZone: string | null; weekStart: number | null; myProjectsOnly: boolean } | null): UserPreferences => ({
+  const toPrefs = (u: { preferredTimeZone: string | null; weekStart: number | null; myProjectsOnly: boolean; density: string } | null): UserPreferences => ({
     timeZone: u?.preferredTimeZone ?? null,
     weekStart: u?.weekStart === 0 || u?.weekStart === 1 || u?.weekStart === 6 ? u.weekStart : null,
     myProjectsOnly: u?.myProjectsOnly === true,
+    density: u?.density === 'compact' ? 'compact' : 'comfortable',
   });
-  const select = { preferredTimeZone: true, weekStart: true, myProjectsOnly: true } as const;
+  const select = { preferredTimeZone: true, weekStart: true, myProjectsOnly: true, density: true } as const;
   return {
     async get(userId) {
       return toPrefs(await prisma.user.findUnique({ where: { id: userId }, select }));
     },
     async set(userId, patch) {
-      const data: { preferredTimeZone?: string | null; weekStart?: number | null; myProjectsOnly?: boolean } = {};
+      const data: { preferredTimeZone?: string | null; weekStart?: number | null; myProjectsOnly?: boolean; density?: Density } = {};
       if (patch.timeZone !== undefined) data.preferredTimeZone = patch.timeZone;
       if (patch.weekStart !== undefined) data.weekStart = patch.weekStart;
       if (patch.myProjectsOnly !== undefined) data.myProjectsOnly = patch.myProjectsOnly;
+      if (patch.density !== undefined) data.density = patch.density;
       return toPrefs(await prisma.user.update({ where: { id: userId }, data, select }));
     },
   };
@@ -85,7 +96,7 @@ export function createPrismaPreferences(prisma: PrismaClient): PreferencesReposi
 
 /**
  * GET / PUT /users/me/preferences — each person's own; a PUT changes only what it names. Turning on
- * "Show my projects only" is an administrator's alone (anyone may send it off).
+ * "Show my projects only" is an administrator's alone (anyone may send it off); the density is anyone's.
  */
 export async function registerPreferenceRoutes(app: FastifyInstance, deps: { repo: PreferencesRepository; guard: AuthGuard }): Promise<void> {
   const { repo, guard } = deps;

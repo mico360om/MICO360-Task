@@ -114,6 +114,9 @@ model User {
   // "Show my projects only" (an administrator's own): their lists show only the projects they own,
   // manage or are on the team of. Off by default; means nothing for anyone else (they always list so).
   myProjectsOnly      Boolean    @default(false)
+  // Compact / comfortable rows (1.23.0, anyone's own): 'comfortable' (today's look) | 'compact' — the
+  // website's lists, tables and boards denser. Phones and touch screens always stay comfortable.
+  density             String     @default("comfortable") @db.VarChar(16)
   // Per-user notification preferences, e.g. { "muted": ["TASK_COMMENT"] } (null = all enabled).
   notificationPrefs   Json?
   createdAt           DateTime   @default(now())
