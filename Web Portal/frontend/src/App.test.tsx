@@ -50,7 +50,7 @@ describe('App routing', () => {
     useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
     renderApp('/search?q=scaffold');
     expect(await screen.findByRole('heading', { level: 1, name: 'Search results' })).toBeInTheDocument();
-    expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toHaveValue('scaffold');
+    expect(screen.getByRole('searchbox', { name: 'Search everything' })).toHaveValue('scaffold');
   });
 
   it('a client page opens outside the staff app: no sign-in page, no shell, no staff token — even in a staff browser', async () => {

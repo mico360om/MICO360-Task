@@ -55,6 +55,33 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   with the client's reason as a comment, and its assignees and managers are told. The project's Team
   tab lists the "Clients with access" and what each may do (only administrators change it). Clients who
   have a project's Meetings module can be invited to its meetings; they are marked "Client".
+- Search everything: the Search results page now finds everything you can open — tasks, projects,
+  meetings, meeting notes, final minutes, files and inspections — not only tasks. Each result shows
+  what it is, its title with your words marked, the place it matched (a comment, an agenda item, a
+  decision, a line inside a file…), its project with its picture, its state, its date and who it
+  belongs to, and opens straight at its place: a note or the minutes open the meeting at that note or
+  the minutes, a file opens its task with the file marked, and a project, meeting or inspection is a
+  link you can also open in a new tab.
+- Search reads inside files: the text of PDF, Word, Excel, PowerPoint, CSV and text files attached
+  to tasks is searched too. New files are read a moment after they are uploaded (the upload never
+  waits); older files are read once in the background. Scanned PDFs and photos are read by AI (the OCR
+  model in AI Management) when AI is set up.
+- Spelling mistakes are forgiven: when few results hold every word, search also finds the words you
+  probably meant (one letter off for short words, two for long ones — "genarator" finds "generator")
+  and then results holding some of your words; both are marked ("Close match", "Some of the words"),
+  and the page says which spelling it used.
+- Filters on the Search results page: by kind (each with its count), project, task status, assignee
+  or organizer, "Only mine", a date range (from and to), open or done, and archived projects. They
+  stay in the address, so a search can be shared. The company picker in the top bar narrows it too.
+- AI search: when AI is set up, press Enter on the Search results page (or choose "See all results
+  and ask AI" in the top bar) and an AI panel above the results answers your question in a sentence
+  or two — "overdue electrical tasks for the Rig project this week" — with the best matches as links.
+  The normal results show at once and never wait for it. It answers only from what you can open, uses
+  one of your AI requests, and says so in one line when AI is off, you've reached your AI limit, it
+  takes longer than 20 seconds, or it fails. With an embedding model set up in AI Management it also
+  finds items by meaning, not only by their words.
+- The top-bar search also shows the best notes, minutes, files and inspections it finds, and always
+  offers "See all results".
 
 ### Improvements
 - Show to client: a new tick "Also show its description" — the Client portal shows a task's
@@ -77,6 +104,15 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   project's meetings), the client copy of approved minutes shown to them, and replies marked "Visible
   to client". They are never sent the team's minutes. Every client change and every client action is
   in the audit log.
+- Search shows only what each person may open, by the same rules as everywhere else: their projects
+  (with their companies, the picked company and "Show my projects only"), the meetings their meetings
+  list shows, only a meeting itself and its final minutes to someone invited from another company
+  (never its notes, decisions or action items), and draft minutes only to those who may change the
+  meeting. An inspection never shows a task you can't open. Counts never include anything else, and
+  the AI is given nothing else. Client pages can't use search.
+- Reading the text inside files runs apart from the rest of the server, with a time and memory limit
+  and a cap on how far a Word, Excel or PowerPoint file may unpack, so a large or harmful file can't
+  slow the site down or stop it.
 
 ### Bug fixes
 - Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing

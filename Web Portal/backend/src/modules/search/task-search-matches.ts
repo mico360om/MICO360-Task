@@ -53,7 +53,7 @@ export function describeMatches(
   task: TaskSearchLive,
   terms: string[],
   { timeZone, max = 3 }: { timeZone: string; max?: number },
-): { titleRanges: TextRange[]; matches: TaskMatch[]; complete: boolean } {
+): { titleRanges: TextRange[]; matches: TaskMatch[]; complete: boolean; found: string[] } {
   const title = displayText(task.title);
   const day = (at: Date) => formatDay(wallClock(at, timeZone).slice(0, 10));
   const sources: Omit<Candidate, 'terms'>[] = [
@@ -101,10 +101,12 @@ export function describeMatches(
   // Shown in reading order, whatever order they were picked in.
   picked.sort((a, b) => candidates.indexOf(a) - candidates.indexOf(b));
 
+  const found = terms.filter((t) => inTitle(t) || candidates.some((c) => c.terms.has(t)));
   return {
     titleRanges: findRanges(title, terms),
     matches: picked.map((c) => ({ field: c.field, label: c.label, ...snippetAround(c.text, findRanges(c.text, [...c.terms])) })),
-    complete: terms.every((t) => inTitle(t) || candidates.some((c) => c.terms.has(t))),
+    complete: found.length === terms.length,
+    found,
   };
 }
 

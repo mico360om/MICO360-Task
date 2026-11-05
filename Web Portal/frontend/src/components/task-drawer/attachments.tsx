@@ -6,6 +6,7 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { failureMessage } from './save-state';
 import { pastedFiles } from '../../lib/clipboard-files';
 import { detectPlatform, isTypingTarget } from '../../lib/shortcuts';
+import { markFound } from '../../lib/useFoundAnchor';
 import type { OfficePreview } from '../../api/attachments';
 
 /** Loads the text of a Word / Excel / PowerPoint attachment (the server unpacks it). */
@@ -223,8 +224,14 @@ function AttachmentRow({ a, onDelete, onPreview }: { a: DrawerAttachment; onDele
   const mode = previewMode(kind, a.filename, (a.mimeType ?? '').toLowerCase(), Boolean(onPreview));
   const href = `${API_ORIGIN}${a.url}`;
   const canDelete = Boolean(onDelete) && a.canDelete !== false;
+  // 1.23: a search result opened this file's task (…&file=<id>): the file comes into view, marked.
+  const rowRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const named = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('file');
+    if (named === a.id && rowRef.current) markFound(rowRef.current);
+  }, [a.id]);
   return (
-    <li className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-2">
+    <li ref={rowRef} id={`file-${a.id}`} className="flex scroll-mt-24 flex-col gap-1 rounded-lg border border-line bg-surface p-2">
       <div className="flex items-center gap-2.5">
         {kind === 'image' ? (
           <img src={href} alt={a.filename} loading="lazy" className="h-10 w-10 flex-none rounded-md border border-line object-cover" />

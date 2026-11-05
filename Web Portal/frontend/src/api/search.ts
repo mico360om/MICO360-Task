@@ -1,5 +1,6 @@
 import type { ApiClient } from '../lib/api-client';
 import type { TaskSearchHit } from '../lib/search-highlight';
+import { allQuery, type EverythingFilters, type SearchHit, type SearchKind } from '../lib/search-everything';
 
 export interface SearchResults {
   /**
@@ -10,6 +11,8 @@ export interface SearchResults {
   projects: { id: string; code: string; name: string }[];
   users: { id: string; username: string; email: string; firstName: string; lastName: string }[];
   meetings: { id: string; title: string; projectId: string | null; snippet: string }[];
+  /** 1.23: the best few notes, minutes, files and inspections (an older server sends none). */
+  more?: SearchHit[];
 }
 
 export function searchApi(client: ApiClient) {
@@ -57,5 +60,42 @@ export function taskSearchQuery(p: TaskSearchParams): string {
 export function taskSearchApi(client: ApiClient) {
   return {
     search: (p: TaskSearchParams) => client.get<TaskSearchPage>(`/search/tasks?${taskSearchQuery(p)}`),
+  };
+}
+
+// ── 1.23 Search everything ───────────────────────────────────────────────────────────────────────
+
+/** A page of GET /search/all: the first one also counts each kind (up to 1000) and says what was corrected. */
+export interface EverythingPage {
+  data: SearchHit[];
+  nextCursor: string | null;
+  corrected?: { from: string; to: string }[];
+  counts?: Record<SearchKind, number>;
+  total?: number;
+  totalCapped?: boolean;
+}
+
+/** The AI panel's answer (POST /search/ai): an answer and the best matches, or one line saying why not. */
+export type AiSearchAnswer =
+  | { state: 'ok'; answer: string; hits: SearchHit[]; semantic: boolean; understood?: unknown }
+  | { state: 'off' | 'limit' | 'slow' | 'failed'; message: string };
+
+export function searchEverythingApi(client: ApiClient) {
+  return {
+    search: (f: EverythingFilters, cursor?: string) => client.get<EverythingPage>(`/search/all?${allQuery(f, cursor)}`),
+    aiStatus: () => client.get<{ data: { ready: boolean; semantic: boolean } }>('/search/ai/status').then((r) => r.data),
+    ask: (f: EverythingFilters) =>
+      client
+        .post<{ data: AiSearchAnswer }>('/search/ai', {
+          q: f.q.trim(),
+          ...(f.type ? { type: f.type } : {}),
+          ...(f.projectId ? { projectId: f.projectId } : {}),
+          ...(f.person ? { person: f.person } : {}),
+          ...(f.from ? { from: f.from } : {}),
+          ...(f.to ? { to: f.to } : {}),
+          ...(f.done !== undefined ? { done: f.done } : {}),
+          ...(f.archived ? { archived: true } : {}),
+        })
+        .then((r) => r.data),
   };
 }

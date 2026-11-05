@@ -107,6 +107,38 @@ export async function fallbackProjectCompanyId(db: CompanyDb, creatorId: string)
   return primary?.companyId ?? onlyActiveCompanyId(db);
 }
 
+/**
+ * CompanyAccess.meetingView for many meetings at once (1.23 search): the same rule — not one of its
+ * people: null; none of their own companies active: null; no project: 'full'; a project sharing an
+ * active company with them: 'full', else 'invitee'; administrators 'full' — read with two queries
+ * instead of one per meeting. tests/integration/search-scope.test.ts checks it against meetingView.
+ */
+export async function meetingViewsOf(
+  db: Pick<PrismaClient, 'companyMember' | 'projectCompany'>,
+  viewer: Viewer,
+  meetings: readonly { id: string; projectId: string | null; organizerId: string; createdById: string; attendeeUserIds: readonly string[] }[],
+): Promise<Map<string, 'full' | 'invitee' | null>> {
+  const out = new Map<string, 'full' | 'invitee' | null>();
+  if (isAdminRoles(viewer.roles)) {
+    for (const m of meetings) out.set(m.id, 'full');
+    return out;
+  }
+  const own = meetings.filter((m) => m.organizerId === viewer.id || m.createdById === viewer.id || m.attendeeUserIds.includes(viewer.id));
+  for (const m of meetings) out.set(m.id, null);
+  if (own.length === 0) return out;
+  const mine = (await db.companyMember.findMany({ where: { userId: viewer.id, company: { status: 'ACTIVE' } }, select: { companyId: true } })).map((r) => r.companyId);
+  // Archived means no access (owner, 3 Nov 2026): no active company of their own, no meeting.
+  if (mine.length === 0) return out;
+  const projectIds = [...new Set(own.map((m) => m.projectId).filter((p): p is string => !!p))];
+  const shared = new Set(
+    projectIds.length
+      ? (await db.projectCompany.findMany({ where: { projectId: { in: projectIds }, companyId: { in: mine }, company: { status: 'ACTIVE' } }, select: { projectId: true } })).map((r) => r.projectId)
+      : [],
+  );
+  for (const m of own) out.set(m.id, !m.projectId || shared.has(m.projectId) ? 'full' : 'invitee');
+  return out;
+}
+
 export interface CompanyAccess {
   /** The person's ACTIVE companies, oldest membership first. */
   activeCompanyIds(userId: string): Promise<string[]>;

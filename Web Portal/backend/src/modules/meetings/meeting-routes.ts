@@ -8,7 +8,7 @@ import type { AttendeeService } from './attendee-service';
 import type { AgendaService } from './agenda-service';
 import { ruleProblem, seriesStarts } from './meeting-series';
 import { findClashes, suggestTimes, type BusyBlock } from './free-times';
-import { BUSY_ROWS_LIMIT, type BusyMeetingsStore } from './meeting-repository';
+import { BUSY_ROWS_LIMIT, meetingListScope, type BusyMeetingsStore } from './meeting-repository';
 import type { WorkingHours } from '../settings/settings-service';
 import { zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { buildProjectMeetingsOverview, type MinutesState, type ProjectMeetingsData } from './project-meetings';
@@ -326,11 +326,8 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       from: q.from,
       to: q.to,
       ...(q.mine ? { organizerId: userId } : {}),
-      scope: pick
-        ? { userId, projectIds, pick: { companyId: pick, everyone: admin && !mineOnly } }
-        : q.mine
-          ? { userId, projectIds: [] }
-          : { userId, projectIds, ...(mineOnly ? { admin: true } : {}) },
+      // 1.23: the plain list's scope is the one search uses too (meetingListScope).
+      scope: !pick && q.mine ? { userId, projectIds: [] } : meetingListScope({ userId, projectIds, pick, admin, mineOnly }),
     });
     const flagged = await withEditFlags(req, data);
     if (!deps.listCounts || flagged.length === 0) return { data: flagged };

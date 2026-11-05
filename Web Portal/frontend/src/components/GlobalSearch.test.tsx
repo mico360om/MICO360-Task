@@ -127,7 +127,7 @@ describe('GlobalSearch', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [], meetings: [] } }))));
     setup(<GlobalSearch debounceMs={0} />);
     await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'zebra');
-    expect(await screen.findByText(/Nothing matches/)).toHaveTextContent('Nothing matches “zebra” in tasks, projects, people or meetings.');
+    expect(await screen.findByText(/Nothing matches/)).toHaveTextContent('Nothing matches “zebra” in tasks, projects, people, meetings or files.');
     expect(screen.getByRole('button', { name: /Ask MICO AI.*zebra/ })).toBeInTheDocument();
   });
 
@@ -298,12 +298,46 @@ describe('GlobalSearch', () => {
       expect(screen.getByTestId('where')).toHaveTextContent('/search?q=scaff+permit');
     });
 
-    it('no “See all results” when no task was found', async () => {
+    it('1.23: “See all results” is there even when no task was found (the Search results page looks in everything)', async () => {
       vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [{ id: 'p1', code: 'SCF', name: 'Scaffolds' }], users: [] } }))));
-      setup(<GlobalSearch debounceMs={0} />);
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
       await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'scaff');
       await screen.findByRole('button', { name: /Scaffolds/ });
-      expect(screen.queryByRole('button', { name: 'See all results' })).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'See all results' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/search?q=scaff');
+    });
+
+    it('1.23: with AI set up, it reads “See all results and ask AI” and opens the page asking the AI', async () => {
+      vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(json(String(url).includes('/search/ai/status') ? { data: { ready: true, semantic: false } } : { data: { tasks: [hit(1)], projects: [], users: [] } }))));
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'scaff');
+      await userEvent.click(await screen.findByRole('button', { name: 'See all results and ask AI' }));
+      expect(screen.getByTestId('where')).toHaveTextContent('/search?q=scaff&ai=1');
+    });
+
+    it('1.23: notes, minutes, files and inspections found are offered too, each to its place', async () => {
+      const more = [
+        { kind: 'note', id: 'n1', title: 'Weekly review', titleRanges: [], project: null, status: null, date: null, people: null, matches: [{ field: 'note', label: 'Decision note by Sara · 3 Nov 2026', snippet: 'Stop the scaffold work', ranges: [{ start: 9, end: 14 }] }], target: { type: 'meeting', meetingId: 'm1', noteId: 'n1' } },
+        { kind: 'file', id: 'f1', title: 'scaffold-permit.pdf', titleRanges: [{ start: 0, end: 5 }], project: null, status: null, date: null, people: null, matches: [], target: { type: 'file', taskId: 't7', fileId: 'f1' } },
+      ];
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [], more } }))));
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'scaff');
+      const note = await taskRow('Weekly review');
+      expect(note).toHaveTextContent('Note · Decision note by Sara · 3 Nov 2026: Stop the scaffold work');
+      expect(note.querySelector('[data-kind-icon="note"]')).not.toBeNull();
+      expect(screen.queryByText(/Nothing matches/)).toBeNull();
+      await userEvent.click(note);
+      expect(screen.getByTestId('where')).toHaveTextContent('/meetings/m1');
+    });
+
+    it('1.23: a file found opens its task with the file marked', async () => {
+      const more = [{ kind: 'file', id: 'f1', title: 'scaffold-permit.pdf', titleRanges: [], project: null, status: null, date: null, people: null, matches: [], target: { type: 'file', taskId: 't7', fileId: 'f1' } }];
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [], projects: [], users: [], more } }))));
+      setup(<><GlobalSearch debounceMs={0} /><Where /></>);
+      await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'permit');
+      await userEvent.click(await taskRow('scaffold-permit.pdf'));
+      expect(screen.getByTestId('where')).toHaveTextContent('?task=t7&file=f1');
     });
   });
 

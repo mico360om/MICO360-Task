@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { searchApi } from '../api/search';
+import { searchApi, searchEverythingApi } from '../api/search';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import type { SearchResults } from '../api/search';
@@ -19,9 +19,11 @@ import { useAuthStore } from '../stores/auth-store';
 import { useShortcut, useShortcutSettings } from './shortcuts/ShortcutProvider';
 import { ariaKeyshortcuts, shortcutLabel } from '../lib/shortcuts';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { resultsQuery, type TaskSearchHit } from '../lib/search-highlight';
+import type { TaskSearchHit } from '../lib/search-highlight';
 import { Highlighted } from './ui/Highlighted';
 import { FoundTaskKey } from './TaskKey';
+import { KindIcon } from './search/KindIcon';
+import { KIND_META, everythingAddress, targetLink, type SearchHit } from '../lib/search-everything';
 
 /** "open …" typed (the open command, or a page: "open calendar"). */
 const OPEN_VERB = /^open\s/i;
@@ -106,6 +108,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // companies: found people are colleagues only (spec §3 "directory search"): a teammate from another
   // company, known only from a shared project or an old chat, is left out (the directory says so).
   const directoryQ = useQuery({ queryKey: ['directory'], queryFn: () => usersApi(apiClient).directory(), enabled: searchEnabled });
+  // 1.23: with AI set up, "See all results" also asks the AI panel on the Search results page.
+  const aiQ = useQuery({ queryKey: ['search-ai-status'], queryFn: () => searchEverythingApi(apiClient).aiStatus(), enabled: searchEnabled, staleTime: 60_000, retry: false });
+  const aiReady = aiQ.data?.ready === true;
 
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
@@ -117,13 +122,24 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     const r = await searchApi(apiClient).search(key);
     return pickByTaskNumber(r.tasks, commandTaskKeys(key));
   };
-  const openTask = (id: string) => {
+  const openTask = (id: string, fileId?: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set('task', id);
+      if (fileId) next.set('file', fileId);
+      else next.delete('file');
       return next;
     });
     reset();
+  };
+  /** 1.23: a note, minutes, a file or an inspection found: its page (a file: its task, the file marked). */
+  const openHit = (h: SearchHit) => {
+    const to = targetLink(h);
+    if (to) {
+      navigate(to);
+      reset();
+    } else if (h.target.type === 'file') openTask(h.target.taskId, h.target.fileId);
+    else if (h.target.type === 'task') openTask(h.target.taskId);
   };
   const withStatus = async (label: string, fn: () => Promise<string>) => {
     setBusy(true);
@@ -214,8 +230,6 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
     const r = colleaguesOnly(q.data, Array.isArray(directoryQ.data) ? directoryQ.data : []);
     if (searchEnabled && r) {
       for (const t of r.tasks.slice(0, 5)) out.push({ id: `task-${t.id}`, group: 'Tasks', primary: <Highlighted text={t.title} ranges={t.titleRanges} />, taskKey: { value: t.key, ...(t.formerKeys ? { former: t.formerKeys } : {}) }, secondary: whereMatched(t), run: () => openTask(t.id) });
-      // Every match, with filters, on the Search results page.
-      if (r.tasks.length > 0) out.push({ id: 'task-see-all', group: 'Tasks', primary: 'See all results', run: () => { navigate(`/search?${resultsQuery({ q: debounced })}`); reset(); } });
       const looks = Array.isArray(projectsQ.data) ? projectsQ.data : [];
       for (const p of r.projects.slice(0, 5)) {
         const look = looks.find((x) => x.id === p.id);
@@ -227,13 +241,27 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       }
       for (const u of r.users.slice(0, 5)) out.push({ id: `user-${u.id}`, group: 'People', primary: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username, run: () => { navigate(personPath(u.id)); reset(); } });
       for (const m of (r.meetings ?? []).slice(0, 6)) out.push({ id: `meeting-${m.id}`, group: 'Meetings', primary: m.title, secondary: m.snippet, run: () => { navigate(`/meetings/${m.id}`); reset(); } });
+      // 1.23: the best few notes, minutes, files and inspections (search everything).
+      for (const h of (r.more ?? []).slice(0, 5)) {
+        const m = h.matches[0];
+        out.push({
+          id: `more-${h.kind}-${h.id}`, group: 'Notes, minutes and files', icon: <KindIcon kind={h.kind} size="sm" />,
+          primary: <><span className="sr-only">{KIND_META[h.kind].label}: </span><Highlighted text={h.title} ranges={h.titleRanges} /></>,
+          secondary: m ? <><span className="font-medium text-ink-2">{KIND_META[h.kind].label} · {m.label}: </span><Highlighted text={m.snippet} ranges={m.ranges} /></> : KIND_META[h.kind].label,
+          run: () => openHit(h),
+        });
+      }
+    }
+    // Every match of every kind, with filters, on the Search results page (and the AI's answer, when AI is on).
+    if (searchEnabled) {
+      out.push({ id: 'see-all', group: 'Search everything', primary: aiReady ? 'See all results and ask AI' : 'See all results', run: () => { navigate(`/search?${everythingAddress({ q: debounced, ...(aiReady ? { ai: true } : {}) })}`); reset(); } });
     }
     // Last, so Enter still opens the first result: ask MICO AI what was typed (a new chat with it).
     if (raw.length >= 2 && (!parsed || loose === null)) {
       out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
     }
     return out;
-  }, [raw, isAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data]);
+  }, [raw, isAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data, aiReady, debounced]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 
@@ -270,7 +298,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // (Not for a typed command — "go to calendar" is an instruction, not a search.)
   const nothingFound =
     searchEnabled && q.isSuccess && !!found && !items.some((it) => it.group === 'Command') &&
-    found.tasks.length === 0 && found.projects.length === 0 && found.users.length === 0 && (found.meetings ?? []).length === 0;
+    found.tasks.length === 0 && found.projects.length === 0 && found.users.length === 0 && (found.meetings ?? []).length === 0 && (found.more ?? []).length === 0;
   let idx = -1; // running index across groups for keyboard highlight
 
   return (
@@ -312,7 +340,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
             <>
             {nothingFound ? (
               <p className="border-b border-line px-3 py-2 text-sm text-ink-2">
-                Nothing matches “<span dir="auto">{debounced}</span>” in tasks, projects, people or meetings.
+                Nothing matches “<span dir="auto">{debounced}</span>” in tasks, projects, people, meetings or files.
               </p>
             ) : null}
             <div ref={listRef} className="max-h-96 overflow-y-auto py-1">
