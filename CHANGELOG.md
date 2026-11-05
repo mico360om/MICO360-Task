@@ -34,6 +34,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   its read-only record) and Undo gives each one back as it was; anything added since stays on the main
   task. Reports and exports show "Merged from: MICO-14, MICO-15" on the main task's row.
 
+### Improvements
+- Task panel: Delete task sits at the right of the panel's bottom bar.
+
 ## [1.23.1] - 2026-11-05
 
 ### Improvements

@@ -733,6 +733,33 @@ describe('TaskDrawer — a task the person may not delete', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
+  it('1.23.2 (owner: "keep it on right align"): Delete task sits at the right of the bottom bar, its reason just before it', async () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onDelete={vi.fn()} deleteBlocked={REASON} onClose={vi.fn()} />);
+    const button = screen.getByRole('button', { name: /delete task/i });
+    const row = button.parentElement!;
+    expect(row.className).toMatch(/\bjustify-end\b/);
+    const note = screen.getByText(REASON);
+    expect(note.className).toMatch(/\btext-right\b/);
+    // The note comes before the button (reading order and Tab order follow what is seen).
+    expect(note.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button).toHaveAccessibleDescription(REASON);
+  });
+
+  it('1.23.2: the delete question sits at the right too', async () => {
+    render(<TaskDrawer task={task} checklist={[]} comments={[]} onDelete={vi.fn()} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
+    expect(screen.getByRole('group', { name: 'Confirm delete' }).className).toMatch(/\bjustify-end\b/);
+    // On a phone the question wraps above the buttons, right-aligned like them.
+    expect(screen.getByText('Delete this task? This can’t be undone.').className).toMatch(/\btext-right\b/);
+  });
+
+  it('1.23.2: a series that can’t be deleted says why at the right as well', async () => {
+    render(<TaskDrawer task={{ ...task, recurrenceRule: { freq: 'WEEKLY', interval: 1 } }} checklist={[]} comments={[]} onDelete={vi.fn()} seriesDeleteBlocked={SERIES} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /delete task/i }));
+    expect(screen.getByText(SERIES).className).toMatch(/\btext-right\b/);
+    expect(screen.getByRole('button', { name: /entire series/i })).toHaveAccessibleDescription(SERIES);
+  });
+
   it('a repeating copy they may delete, but not its series: “Entire series” greyed out with why', async () => {
     const onDelete = vi.fn();
     render(

@@ -660,8 +660,9 @@ export function TaskDrawer({
       {onDelete ? (
         <div data-drawer-footer className="flex-none border-t border-line px-4 py-2.5 sm:px-6">
           {confirmingDelete ? (
-            <div role="group" aria-label="Confirm delete" className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-ink">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
+            // 1.23.2 (owner): at the right of the bottom bar, where Delete task is.
+            <div role="group" aria-label="Confirm delete" className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-right text-sm text-ink">{inSeries ? 'This is a recurring task — delete which?' : 'Delete this task? This can’t be undone.'}</span>
               <button type="button" onClick={() => onDelete()} className="h-9 rounded-lg bg-danger px-3 text-xs font-semibold text-white transition-colors hover:brightness-95 sm:h-8 [@media(pointer:coarse)]:h-11">
                 {inSeries ? 'This occurrence' : 'Delete'}
               </button>
@@ -683,13 +684,20 @@ export function TaskDrawer({
                 Cancel
               </button>
               {inSeries && seriesDeleteBlocked ? (
-                <span id={seriesWhyId} className="basis-full text-xs text-ink-3">
+                <span id={seriesWhyId} className="basis-full text-right text-xs text-ink-3">
                   {seriesDeleteBlocked}
                 </span>
               ) : null}
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            // 1.23.2 (owner: "keep it on right align"): Delete task at the far right, its reason just before it
+            // (wrapping above it, right-aligned, on a narrow panel).
+            <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+              {deleteBlocked ? (
+                <span id={deleteWhyId} className="text-right text-xs text-ink-3">
+                  {deleteBlocked}
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -707,11 +715,6 @@ export function TaskDrawer({
                 Delete task
                 {deleteBlocked ? null : <ShortcutHint action="delete" />}
               </button>
-              {deleteBlocked ? (
-                <span id={deleteWhyId} className="text-xs text-ink-3">
-                  {deleteBlocked}
-                </span>
-              ) : null}
             </div>
           )}
         </div>
