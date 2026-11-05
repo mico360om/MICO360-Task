@@ -21,6 +21,11 @@ export type ClientRouteClass = 'client' | 'both' | 'public' | 'staff';
 export const CLIENT_ROUTE_CLASSES: Readonly<Record<string, ClientRouteClass>> = {
   // ---- both: a client's own account ----------------------------------------------------------
   'POST /users/me/password': 'both',
+  // 1.23 (with the 1.22.4 Error log): what a page's browser reports — a client's portal pages are pages
+  // too. The routes ask for no sign-in (the companies table has them public); a session sent with a
+  // report only says whose browser it was. Reading the Error log stays staff (administrators only).
+  'POST /client-errors': 'both',
+  'POST /client-errors/csp': 'both',
 
   // ---- client: the Client portal (modules/clients/portal-routes.ts) ----------------------------
   'GET /portal/me': 'client',

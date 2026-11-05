@@ -72,3 +72,31 @@ describe('the Error log in the app (1.22.4)', () => {
     expect(csp.statusCode).toBe(204);
   });
 });
+
+describe('1.23 integration: a client account’s browser and the Error log', () => {
+  const report = { kind: 'ERROR', detail: 'error', message: 'TypeError: boom', page: '/portal/projects/:id', version: '1.23.0' };
+
+  it('a client’s session can report what goes wrong on their portal pages, and it says it was them', async () => {
+    const { repo, errorLog } = world();
+    const app = await buildApp({ authService, tokenService, errorLog });
+    const token = (await tokenService.issueTokens({ id: 'client1', roles: ['CLIENT'] })).accessToken;
+    const r = await app.inject({ method: 'POST', url: '/api/v1/client-errors', headers: { 'content-type': 'text/plain', authorization: `Bearer ${token}` }, payload: JSON.stringify({ reports: [report] }) });
+    expect(r.statusCode).toBe(204);
+    const csp = await app.inject({ method: 'POST', url: '/api/v1/client-errors/csp', headers: { 'content-type': 'application/csp-report', authorization: `Bearer ${token}` }, payload: '{}' });
+    expect(csp.statusCode).toBe(204);
+    await errorLog.settled();
+    expect(repo.eventRows.at(-1)).toMatchObject({ userId: 'client1' });
+  });
+
+  it('…and still can’t read the Error log (System Settings is staff, administrators only)', async () => {
+    const { errorLog } = world();
+    const app = await buildApp({ authService, tokenService, errorLog });
+    const token = (await tokenService.issueTokens({ id: 'client1', roles: ['CLIENT'] })).accessToken;
+    for (const [method, url] of [['GET', '/api/v1/error-log'], ['GET', '/api/v1/error-log/g1'], ['POST', '/api/v1/error-log/g1/fixed'], ['DELETE', '/api/v1/error-log/g1/fixed'], ['POST', '/api/v1/error-log/visit']] as const) {
+      const res = await app.inject({ method, url, headers: { authorization: `Bearer ${token}` } });
+      expect(res.statusCode, `${method} ${url}`).toBe(403);
+      expect(res.json().error.code, `${method} ${url}`).toBe('CLIENT_NOT_ALLOWED');
+    }
+  });
+});
+

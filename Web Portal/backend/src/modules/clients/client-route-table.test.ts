@@ -23,7 +23,12 @@ const found = FILES.flatMap((file) =>
 const scanned = found.map((r) => r.key);
 
 /** Every route a client account may call besides the portal itself, reviewed one by one. */
-const REVIEWED_BOTH = ['POST /users/me/password'];
+const REVIEWED_BOTH = [
+  'POST /users/me/password',
+  // 1.23 integration: the Error log's reports come from every page's browser — a client's portal pages too.
+  'POST /client-errors',
+  'POST /client-errors/csp',
+];
 
 describe('Client route table (deny by default)', () => {
   it('the scan finds the routes', () => {
@@ -89,3 +94,24 @@ describe('Client route table (deny by default)', () => {
     expect(routeKeyOf('HEAD', '/api/v1/portal/me')).toBe('GET /portal/me');
   });
 });
+
+describe('1.23 integration: the other lanes’ routes and client accounts', () => {
+  it('a client’s browser may report to the Error log, but never read it', () => {
+    expect(clientMayCall('POST /client-errors')).toBe(true);
+    expect(clientMayCall('POST /client-errors/csp')).toBe(true);
+    for (const k of ['GET /error-log', 'GET /error-log/:id', 'POST /error-log/:id/fixed', 'DELETE /error-log/:id/fixed', 'POST /error-log/visit']) {
+      expect(clientRouteClass(k), k).toBe('staff');
+    }
+    // Staff report too (the sign-in page and every staff page).
+    expect(staffMayCall('POST /client-errors')).toBe(true);
+  });
+
+  it('search, meeting series, Teams and the Table view’s action-item edits are staff routes', () => {
+    const staffOnly = scanned.filter((k) => /^\w+ \/(search|meeting-series|integrations\/microsoft)/.test(k) || /\/meetings\/:id\/(series|series-options|teams-link)$/.test(k) || k === 'PATCH /action-items/:id');
+    expect(staffOnly.length).toBeGreaterThan(14);
+    for (const k of staffOnly) expect(clientMayCall(k), k).toBe(false);
+    // Microsoft's way back carries no session (the signed state and the browser's flow cookie decide).
+    expect(clientRouteClass('GET /integrations/microsoft/callback')).toBe('public');
+  });
+});
+

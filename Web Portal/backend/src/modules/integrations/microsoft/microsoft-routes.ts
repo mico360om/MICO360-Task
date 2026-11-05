@@ -6,6 +6,7 @@ import { ConflictError } from '../../../lib/http-errors';
 import type { MeetingRecord } from '../../meetings/meeting-repository';
 import type { MeetingNotifyService } from '../../meetings/meeting-notify-service';
 import { readCookie } from '../../client-view/client-tokens';
+import { isClientRoles } from '../../clients/client-kind';
 import { FLOW_COOKIE, type MicrosoftConnections } from './microsoft-connections';
 import type { TeamsMeetings } from './teams-meetings';
 
@@ -39,11 +40,12 @@ const NOT_SET_UP = 'Teams links aren’t set up on this site yet.';
  * state and that cookie stand in for the sign-in. Nothing a link opens begins a connection.
  */
 export async function registerMicrosoftRoutes(app: FastifyInstance, deps: MicrosoftRouteDeps): Promise<void> {
-  // Staff only: client accounts (1.23) never connect anything or make links.
+  // Staff only: client accounts (1.23) never connect anything or make links. (The auth guard refuses a
+  // client's session on these routes already — client-route-table.ts; this is the same rule, kept here.)
   const staff = {
     preHandler: async (req: FastifyRequest, reply: FastifyReply) => {
       await deps.guard.authenticate(req, reply);
-      if ((req.user?.roles ?? []).includes('CLIENT')) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'This is for staff accounts only.' } });
+      if (isClientRoles(req.user?.roles)) return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'This is for staff accounts only.' } });
     },
   };
   const secure = (req: FastifyRequest) => Boolean(deps.secureCookies) || req.protocol === 'https';
