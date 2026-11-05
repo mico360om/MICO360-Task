@@ -15,6 +15,28 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
+- Merge tasks (1.23.1): combine two or more tasks into one without losing anything. On a task, ⋯ →
+  "Merge with other tasks…" (or select 2 to 10 tasks in My Tasks and click "Merge…"). Find more tasks by
+  title or number, choose the main task (the one that stays — the oldest unless you pick another), and
+  where the tasks differ pick which value to keep: title, project, status, priority, start and due date,
+  milestone, "Show to client", repeat (one, or none), inspection form, linked meeting, needs approval.
+  Before merging you see what each task brings (comments, checklist, files, people, contacts, blockers,
+  action items, inspections, history) and what appears twice and is kept once. Comments, files, the
+  checklist ("From MICO-14" group), history, inspections, action items and notices move to the main task
+  with their original authors and times; people, watchers, tags, contacts and blockers are combined;
+  descriptions are joined under a heading per task. Only administrators and whoever manages every
+  project involved can merge; someone not on the main task's project team is either added to the team or
+  left off (your choice). The other tasks disappear from every list, board, calendar, report, export,
+  daily email and search — but their numbers, links and old notices open the main task ("MICO-14 was
+  merged into this task on 5 Nov by Khurram"), and anything added to one of them afterwards — a comment, a
+  file, a checklist item, a contact, following it, from an old screen or the phone app — goes to the main
+  task (changing or deleting a merged task itself is refused). The main task's "Merged from" panel lists them (each opens
+  its read-only record) and Undo gives each one back as it was; anything added since stays on the main
+  task. Reports and exports show "Merged from: MICO-14, MICO-15" on the main task's row.
+
+## [1.23.0] - 2026-11-05
+
+### New features
 - Client accounts: people outside the company (your clients) can now have their own sign-in. In User
   Management → New user, choose Role "Client": enter their name, username, email, organisation and
   phone, send the welcome email (or give a temporary password), and under Project access pick their
@@ -145,24 +167,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   are. The choice is saved to your account, so it follows you to every computer, and this computer
   remembers it so a page never loads comfortable first. Phones and touch screens always keep the
   comfortable spacing and their finger-sized buttons; Settings says so there.
-- Merge tasks (1.23.1): combine two or more tasks into one without losing anything. On a task, ⋯ →
-  "Merge with other tasks…" (or select 2 to 10 tasks in My Tasks and click "Merge…"). Find more tasks by
-  title or number, choose the main task (the one that stays — the oldest unless you pick another), and
-  where the tasks differ pick which value to keep: title, project, status, priority, start and due date,
-  milestone, "Show to client", repeat (one, or none), inspection form, linked meeting, needs approval.
-  Before merging you see what each task brings (comments, checklist, files, people, contacts, blockers,
-  action items, inspections, history) and what appears twice and is kept once. Comments, files, the
-  checklist ("From MICO-14" group), history, inspections, action items and notices move to the main task
-  with their original authors and times; people, watchers, tags, contacts and blockers are combined;
-  descriptions are joined under a heading per task. Only administrators and whoever manages every
-  project involved can merge; someone not on the main task's project team is either added to the team or
-  left off (your choice). The other tasks disappear from every list, board, calendar, report, export,
-  daily email and search — but their numbers, links and old notices open the main task ("MICO-14 was
-  merged into this task on 5 Nov by Khurram"), and anything added to one of them afterwards — a comment, a
-  file, a checklist item, a contact, following it, from an old screen or the phone app — goes to the main
-  task (changing or deleting a merged task itself is refused). The main task's "Merged from" panel lists them (each opens
-  its read-only record) and Undo gives each one back as it was; anything added since stays on the main
-  task. Reports and exports show "Merged from: MICO-14, MICO-15" on the main task's row.
 
 ### Improvements
 - Show to client: a new tick "Also show its description" — the Client portal shows a task's
@@ -229,6 +233,23 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
   link pasted by hand, used to be refused as "too long".
+
+## [1.22.5] - 2026-11-05
+
+### Improvements
+- Error log: a server error from the database now says what the database said — its error code
+  and its message (the names of tables and columns stay; any value someone typed shows as ?) — on
+  the row's details as "Database said: …", so the cause of an error such as "Invalid
+  `prisma.$queryRaw()` invocation" can be found. Two different database errors at the same place
+  in the code are now two rows.
+
+### Bug fixes
+- Error log: a stack's lines inside a library whose folder is named "client" (such as the
+  database library's node_modules/@prisma/client/…) showed as ":token"; they now keep their
+  file and line. The site's own private links (/client/…, /reset/…) are still hidden.
+- Search: the top-bar search now reads at most the first 200 characters of what was typed or
+  pasted (the rest is left out, as the full task search already did), instead of searching for
+  any length of text.
 
 ## [1.22.4] - 2026-11-05
 

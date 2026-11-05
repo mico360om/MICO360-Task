@@ -154,4 +154,18 @@ describe('GET /search/tasks — the full task search', () => {
     expect(res.json().data.tasks).toEqual([{ id: 't1', key: 'MICO-1', title: 'Prepare report', projectId: 'p1', matches: [] }]);
     expect(calls[0]).toMatchObject({ q: 'report', scope: { projectIds: ['p1'] }, limit: 5 });
   });
+
+  // 1.22.5: the website, the app and the extension send whatever was typed or pasted — a long text is
+  // cut to 200 characters (as the full task search allows), never refused.
+  it('the global search reads at most 200 characters of the query', async () => {
+    const { app, calls } = makeTaskApp();
+    const a = await app;
+    const token = await tokenFor('u1', ['EMPLOYEE']);
+    const res = await get(a, `/search?q=${encodeURIComponent(`report ${'x'.repeat(5000)}`)}`, token);
+    expect(res.statusCode).toBe(200);
+    expect(calls[0]!.q).toBe(`report ${'x'.repeat(193)}`);
+    // A cut never leaves half of a letter written as two (an emoji) at the end.
+    await get(a, `/search?q=${encodeURIComponent(`${'a'.repeat(199)}😀`)}`, token);
+    expect(calls[1]!.q).toBe('a'.repeat(199));
+  });
 });
