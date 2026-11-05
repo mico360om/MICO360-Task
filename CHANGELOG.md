@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-11-05
+
 ### New features
 - Client accounts: people outside the company (your clients) can now have their own sign-in. In User
   Management → New user, choose Role "Client": enter their name, username, email, organisation and
