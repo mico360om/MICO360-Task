@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.22.4] - 2026-11-05
+
 ### New features
 - System Settings → Error log (administrators only; also in the Admin menu): when something goes
   wrong in someone's browser, the site now tells the server — an error in the page, a request or
