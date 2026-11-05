@@ -34,11 +34,19 @@ import { meetingSeriesApi } from '../api/meeting-series';
 import { SeriesLine } from '../components/meeting/series/SeriesLine';
 import { CarryOverSection, SeriesSection } from '../components/meeting/series/SeriesSection';
 import { AddToSeriesDialog, RemoveFromSeriesDialog } from '../components/meeting/series/SeriesDialogs';
+import { MeetingTable, useMeetingTableAvailable } from '../components/meeting/MeetingTable';
+import { VIEW_ICONS, ViewSwitch } from '../components/data-table/ViewSwitch';
+import { useViewChoice } from '../components/data-table/hooks';
+import { isProjectArchived } from '../lib/project-archive';
 
 /** While a meeting is running, poll its live parts so standalone meetings (no socket room) stay current too. */
 const LIVE_POLL_MS = 10_000;
 
 type Dialog = 'edit' | 'invite' | 'minutes' | 'cancel' | 'delete' | 'add-series' | 'remove-series' | null;
+const AGENDA_VIEWS = [
+  { value: 'list' as const, label: 'List', icon: VIEW_ICONS.list },
+  { value: 'table' as const, label: 'Table', icon: VIEW_ICONS.table },
+];
 
 export function MeetingDetailPage() {
   const { id = '' } = useParams();
@@ -92,6 +100,11 @@ export function MeetingDetailPage() {
   // 1.23: its series — the meetings of it this person may open, where this one sits, and the carry-over.
   const seriesQ = useQuery({ queryKey: ['meeting', id, 'series'], queryFn: () => meetingSeriesApi(apiClient).ofMeeting(id), enabled: !!id && !!meeting?.seriesId });
   const seriesContext = meeting?.seriesId ? (seriesQ.data ?? null) : null;
+
+  // 1.23.0: the agenda and action items as a list (two sections) or one table — offered once the
+  // meeting has a topic or an action item, remembered for the person.
+  const [agendaView, setAgendaView] = useViewChoice('meeting.view', ['list', 'table'] as const, 'list');
+  const tableAvailable = useMeetingTableAvailable(id);
 
   // Live updates from other people in the meeting (notes, agenda, attendees, action items).
   useMeetingRealtime(id, meeting?.projectId ?? null, (kind: MeetingChangeKind) => {
@@ -221,9 +234,12 @@ export function MeetingDetailPage() {
   ].filter(Boolean) as { k: string; v: React.ReactNode }[];
 
   const finished = meeting.status === 'COMPLETED';
+  const switcher = tableAvailable ? <ViewSwitch label="Show the agenda as" value={agendaView} onChange={setAgendaView} options={AGENDA_VIEWS} /> : null;
+  const asTable = tableAvailable && agendaView === 'table';
   // Each part keyed, so ending the meeting moves them (their state kept) instead of remaking them.
   const agenda = (
     <AgendaSection
+      switcher={switcher}
       key="agenda"
       meetingId={id}
       startAt={meeting.startAt}
@@ -245,6 +261,13 @@ export function MeetingDetailPage() {
   const actions = <ActionItemsSection key="actions" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} ended={finished} />;
   // 1.23: the open action items of the series' earlier meetings (the same items: their status changes everywhere).
   const carryOver = seriesContext ? <CarryOverSection key="carry-over" context={seriesContext} meetingId={id} timeZone={timeZone} editable /> : null;
+  // 1.23.0: the agenda and action items as one table, in the agenda's place (the add forms under it).
+  // An archived project's meeting takes no changes on the server: its table is there to look at.
+  const table = (
+    <MeetingTable key="table" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} switcher={switcher} locked={project && isProjectArchived(project) ? 'archived' : null} />
+  );
+  const agendaParts = asTable ? [table] : [agenda];
+  const actionParts = asTable ? [] : [actions];
   // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).
   const sentLog = canEdit ? (
     <MinutesSentLog
@@ -315,7 +338,7 @@ export function MeetingDetailPage() {
           {/* Planned or under way: the agenda and the live notes lead. Once finished, what came of it
               leads — the Final MOM and the action items, above the agenda and notes they came from. The
               page's own order (not CSS order), so the keyboard and a screen reader follow it too. */}
-          {finished ? [finalMom, actions, carryOver, agenda, notes] : [agenda, carryOver, notes, actions, finalMom]}
+          {finished ? [finalMom, ...actionParts, carryOver, ...agendaParts, notes] : [...agendaParts, carryOver, notes, ...actionParts, finalMom]}
         </div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">

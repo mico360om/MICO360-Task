@@ -13,5 +13,6 @@ import { Board } from '../board/Board';
  */
 export function BoardTab({ project, readOnly = null }: { project: ApiProject; readOnly?: ProjectReadOnly | null }) {
   const projects = useMemo(() => [project], [project]);
-  return <Board projectId={project.id} projects={projects} readOnly={readOnly} />;
+  // Board | Table remembered for the tab on its own (1.23.0), apart from the Board page's choice.
+  return <Board projectId={project.id} projects={projects} readOnly={readOnly} viewPlace="project-board" />;
 }

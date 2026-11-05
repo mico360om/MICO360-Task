@@ -118,6 +118,7 @@ export function createPrismaActionItemRepository(prisma: PrismaClient): ActionIt
         where: { id },
         data: {
           ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.agendaItemId !== undefined ? { agendaItemId: patch.agendaItemId } : {}),
           ...(patch.assigneeId !== undefined ? { assigneeId: patch.assigneeId } : {}),
           ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
           ...(patch.status !== undefined ? { status: patch.status } : {}),

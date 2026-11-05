@@ -136,6 +136,29 @@ describe('Action item routes', () => {
     expect(other.json().data).toHaveLength(0);
   });
 
+  it('1.23.0: PATCH sets an item’s topic — one of the same meeting’s, else 400', async () => {
+    const authService = createAuthService({ users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} }, maxAttempts: 5 });
+    const meetings = meetingRepo();
+    const meetingService = createMeetingService({ meetings });
+    let other = '';
+    const actionItemService = createActionItemService({ actionItems: actionRepo(), topicMeetingOf: async (agendaItemId) => (agendaItemId === 'topic-here' ? mine : agendaItemId === 'topic-elsewhere' ? other : null) });
+    const app = await buildApp({ authService, tokenService, meetingService, actionItemService });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const mine = await ownedMeeting(app, 'u1');
+    other = await ownedMeeting(app, 'u1');
+    const created = await app.inject({ method: 'POST', url: `/api/v1/meetings/${mine}/action-items`, headers: { authorization: auth }, payload: { description: 'Do it', agendaItemId: 'topic-here' } });
+    expect(created.statusCode).toBe(201);
+    const aid = created.json().data.id;
+    expect(created.json().data.agendaItemId).toBe('topic-here');
+    const moved = await app.inject({ method: 'PATCH', url: `/api/v1/action-items/${aid}`, headers: { authorization: auth }, payload: { agendaItemId: null } });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json().data.agendaItemId).toBeNull();
+    const refused = await app.inject({ method: 'PATCH', url: `/api/v1/action-items/${aid}`, headers: { authorization: auth }, payload: { agendaItemId: 'topic-elsewhere' } });
+    expect(refused.statusCode).toBe(400);
+    const badAdd = await app.inject({ method: 'POST', url: `/api/v1/meetings/${mine}/action-items`, headers: { authorization: auth }, payload: { description: 'x', agendaItemId: 'topic-elsewhere' } });
+    expect(badAdd.statusCode).toBe(400);
+  });
+
   it('lets the assignee update their own standalone-accessible item but forbids an unrelated user', async () => {
     const app = await makeApp();
     const id = await ownedMeeting(app, 'u1');

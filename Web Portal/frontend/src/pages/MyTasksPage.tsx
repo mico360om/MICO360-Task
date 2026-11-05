@@ -42,6 +42,10 @@ import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
 import { TOUCH_TALL } from '../lib/touch';
 import { useMediaQuery } from '../lib/useMediaQuery';
+import { TaskTable } from '../components/data-table/TaskTable';
+import { useTableMemory } from '../components/data-table/hooks';
+import { sortRows, type SortValue } from '../lib/data-table';
+import { myTasksSort, myTasksSortLabel, myTasksSortValue } from '../lib/task-table';
 
 const CheckIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -51,8 +55,10 @@ const CheckIcon = (
 
 const P_RANK: Record<Priority, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
 
-type View = 'grid' | 'list';
-type Sort = 'due' | 'priority' | 'progress' | 'title';
+type View = 'grid' | 'list' | 'table';
+const VIEWS: readonly View[] = ['grid', 'list', 'table'];
+/** 'due', 'priority', 'progress', 'title' — and (1.23.0) a table header's: 'title:desc', 'status'… (lib/task-table). */
+type Sort = string;
 const SORT_OPTIONS = [
   { value: 'due', label: 'Due date' },
   { value: 'priority', label: 'Priority' },
@@ -106,7 +112,12 @@ export function MyTasksPage() {
   // External company: only tasks with a contact from it (not part of saved views).
   const [company, setCompany] = useState('');
   const [sort, setSort] = useState<Sort>('due');
-  const [view, setView] = useState<View>(() => (readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View) || 'grid');
+  const [view, setView] = useState<View>(() => {
+    const saved = readUserValue(useAuthStore.getState().user?.id, 'mytasks.view') as View | null;
+    return saved && VIEWS.includes(saved) ? saved : 'grid';
+  });
+  // 1.23.0: the Table view's optional columns, remembered for the person (and kept with saved views).
+  const tableMemory = useTableMemory('mytasks', { shown: [] });
   // A phone (below the sm width): the filters wait behind one button.
   const phone = useMediaQuery('(max-width: 39.9375em)');
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -189,21 +200,25 @@ export function MyTasksPage() {
     });
   }, [enriched, project, status, priority, assignee, due, company, timeZone]);
 
+  // The Sort menu's choice — or a table header's (the same sort): due date with undated last, priority
+  // most urgent first, progress most done first, title A–Z, and each the other way round.
   const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      if (sort === 'due') {
-        if (a.dueKey && b.dueKey) return a.dueKey < b.dueKey ? -1 : a.dueKey > b.dueKey ? 1 : 0;
-        if (a.dueKey) return -1;
-        if (b.dueKey) return 1;
-        return 0;
+    const valueOf = (e: Enriched, column: string): SortValue => {
+      switch (column) {
+        case 'due': return e.dueKey;
+        case 'priority': return P_RANK[e.task.priority];
+        case 'progress': return e.task.progress;
+        case 'title': return e.task.title;
+        case 'key': return e.task.key;
+        case 'status': return STATUS_ORDER.indexOf(e.cat as (typeof STATUS_ORDER)[number]);
+        case 'project': return e.projectName ?? '';
+        case 'assignee': return e.task.assignees?.[0]?.name ?? '';
+        case 'start': return dueDayKey(e.task.startDate, timeZone);
+        default: return null;
       }
-      if (sort === 'priority') return P_RANK[a.task.priority] - P_RANK[b.task.priority];
-      if (sort === 'progress') return b.task.progress - a.task.progress;
-      return a.task.title.localeCompare(b.task.title, 'en');
-    });
-    return arr;
-  }, [filtered, sort]);
+    };
+    return sortRows(filtered, myTasksSort(sort), valueOf);
+  }, [filtered, sort, timeZone]);
 
   const counts = useMemo(() => {
     let open = 0, overdue = 0, done = 0;
@@ -217,12 +232,16 @@ export function MyTasksPage() {
   const filtersActive = !!(project || status || priority || assignee || due || company);
   const clearFilters = () => { setProject(''); setStatus(''); setPriority(''); setAssignee(''); setDue(''); setCompany(''); };
 
-  // Saved views: snapshot the filter state and apply a preset back onto it.
-  const currentFilters: TaskFilters = { project, status, priority, assignee, due, sort };
+  // Saved views: snapshot the filter state and apply a preset back onto it — 1.23.0: with the table's
+  // columns (a view saved before keeps the columns as they are).
+  const currentFilters: TaskFilters = { project, status, priority, assignee, due, sort, columns: tableMemory.shown.join(',') };
   const applyView = (f: TaskFilters) => {
     setProject(f.project); setStatus(f.status); setPriority(f.priority); setAssignee(f.assignee); setDue(f.due);
     setSort((f.sort as Sort) || 'due');
+    if (f.columns !== undefined) tableMemory.setShown(f.columns.split(',').filter(Boolean));
   };
+  // A header's sort not in the menu (Status, Title Z–A…) is shown there as the choice in force.
+  const sortOptions = SORT_OPTIONS.some((o) => o.value === sort) ? SORT_OPTIONS : [...SORT_OPTIONS, { value: sort, label: myTasksSortLabel(sort) }];
 
   // Selection scoped to what's currently visible, so hidden tasks are never acted on by surprise.
   const selectedList = useMemo(() => sorted.filter((e) => selected.has(e.task.id)), [sorted, selected]);
@@ -311,7 +330,7 @@ export function MyTasksPage() {
   const clearButton = filtersActive ? (
     <button onClick={clearFilters} className={`rounded-lg px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:bg-ground hover:text-ink ${TOUCH_TALL}`}>Clear</button>
   ) : null;
-  const sortSelect = <SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={SORT_OPTIONS} />;
+  const sortSelect = <SearchableSelect ariaLabel="Sort tasks" value={sort} onChange={(v) => setSort(v as Sort)} options={sortOptions} />;
   const viewSwitch = (
     <div className="inline-flex items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
       <ViewButton active={view === 'grid'} onClick={() => setView('grid')} label="Grid view">
@@ -319,6 +338,10 @@ export function MyTasksPage() {
       </ViewButton>
       <ViewButton active={view === 'list'} onClick={() => setView('list')} label="List view">
         <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+      </ViewButton>
+      {/* 1.23.0: the table — changed in place, sorted by its headers (the Sort menu's sort). */}
+      <ViewButton active={view === 'table'} onClick={() => setView('table')} label="Table view">
+        <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M3 15h18M9 10v10" />
       </ViewButton>
     </div>
   );
@@ -438,10 +461,28 @@ export function MyTasksPage() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {sorted.map((e) => <MyTaskCard key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
             </div>
-          ) : (
+          ) : view === 'list' ? (
             <div className="card divide-y divide-line overflow-hidden">
               {sorted.map((e) => <MyTaskRow key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
             </div>
+          ) : (
+            // The page's filters, Sort menu, saved views and selection apply; a header click sets the sort.
+            <TaskTable
+              page="mytasks"
+              label="My tasks"
+              tasks={sorted.map((e) => e.task)}
+              projects={projects}
+              showProject
+              presorted
+              // Every task, as Grid and List draw them: "Select all" then acts only on what is on screen.
+              paged={false}
+              sort={myTasksSort(sort)}
+              onSortChange={(next) => setSort(myTasksSortValue(next))}
+              shown={tableMemory.shown}
+              onShownChange={tableMemory.setShown}
+              selection={{ selected, onToggle: toggleSelect }}
+              onOpen={(id, ids) => openTask(id, ids)}
+            />
           )}
         </>
       )}

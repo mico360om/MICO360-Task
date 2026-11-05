@@ -29,6 +29,8 @@ export interface AddActionItemInput {
 
 export interface UpdateActionItemInput {
   description?: string;
+  /** 1.23.0: the agenda topic it belongs to (one of its own meeting's), or null for none. */
+  agendaItemId?: string | null;
   assigneeId?: string | null;
   priority?: Priority;
   dueDate?: Date | null;
@@ -43,6 +45,11 @@ export interface ActionItemServiceDeps {
   timeZone?: string;
   /** Meeting editors may delete any of the meeting's items. Open when not wired. */
   canEditMeeting?: CanEditMeeting;
+  /**
+   * 1.23.0: the meeting an agenda topic is on (null: no such topic) — an item's topic must be one of
+   * its own meeting's. Not wired (tests that don't care): any topic is taken as given.
+   */
+  topicMeetingOf?: (agendaItemId: string) => Promise<string | null>;
 }
 
 export interface ActionItemService {
@@ -77,6 +84,14 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
   const overdue = (a: ActionItemRecord): boolean => !CLOSED.includes(a.status) && isOverdue(a.dueDate, timeZone, now());
   const view = (a: ActionItemRecord): ActionItemView => ({ ...a, overdue: overdue(a) });
 
+  const NOT_THIS_AGENDA = 'That topic is not on this meeting’s agenda.';
+  /** A topic must be on the item's own meeting's agenda (an item of no meeting has none). */
+  async function checkTopic(meetingId: string | null, agendaItemId: string | null): Promise<void> {
+    if (!agendaItemId) return;
+    if (!meetingId) throw new ValidationError(NOT_THIS_AGENDA);
+    if (deps.topicMeetingOf && (await deps.topicMeetingOf(agendaItemId)) !== meetingId) throw new ValidationError(NOT_THIS_AGENDA);
+  }
+
   async function require(id: string): Promise<ActionItemRecord> {
     const a = await actionItems.findById(id);
     if (!a) throw new NotFoundError('Action item not found.');
@@ -102,6 +117,7 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
       const description = (input.description ?? '').trim();
       if (!description) throw new ValidationError('An action item needs a description.');
       if (input.priority && !PRIORITIES.includes(input.priority)) throw new ValidationError('Invalid priority.');
+      await checkTopic(meetingId, trim(input.agendaItemId));
       const rec = await actionItems.create({
         meetingId,
         description,
@@ -123,8 +139,10 @@ export function createActionItemService(deps: ActionItemServiceDeps): ActionItem
       if (patch.priority && !PRIORITIES.includes(patch.priority)) throw new ValidationError('Invalid priority.');
       if (patch.progress !== undefined && (patch.progress < 0 || patch.progress > 100)) throw new ValidationError('Progress must be 0–100.');
       const current = await require(id);
+      if (patch.agendaItemId !== undefined) await checkTopic(current.meetingId, trim(patch.agendaItemId));
       const rec = await actionItems.update(id, {
         ...(patch.description !== undefined ? { description: patch.description.trim() } : {}),
+        ...(patch.agendaItemId !== undefined ? { agendaItemId: trim(patch.agendaItemId) } : {}),
         ...(patch.assigneeId !== undefined ? { assigneeId: trim(patch.assigneeId) } : {}),
         ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
         ...(patch.dueDate !== undefined ? { dueDate: patch.dueDate } : {}),

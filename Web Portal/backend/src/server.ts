@@ -841,10 +841,13 @@ async function main(): Promise<void> {
     onChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:notes'),
   });
   // ⭐ Create Task from Note — promotes a meeting note into a board task.
+  // 1.23.0: an action item's topic must be one of its own meeting's agenda topics.
+  const topicLookup = createPrismaAgendaRepository(prisma);
   const actionItemService = createActionItemService({
     actionItems: createPrismaActionItemRepository(prisma),
     timeZone: companyTz,
     canEditMeeting,
+    topicMeetingOf: async (agendaItemId) => (await topicLookup.findById(agendaItemId))?.meetingId ?? null,
     onChanged: (meetingId) => { if (meetingId) broadcastMeetingChange(meetingId, 'meeting:action-items'); },
   });
   const resolveMeetingProjectId = async (meetingId: string) => (await meetingRepository.accessCore(meetingId))?.projectId ?? null;

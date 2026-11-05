@@ -142,17 +142,26 @@ export function createNoteTaskService(deps: NoteTaskDeps): NoteTaskService {
       let actionItem: ActionItemRecord | undefined;
       let actionItemError: string | undefined;
       if (note.type === 'ACTION' && deps.actionItems) {
+        const item = {
+          description: title,
+          assigneeId: overrides.assigneeId ?? null,
+          priority: overrides.priority ?? 'NORMAL',
+          // The task's own date when none was picked: its project may make new tasks due today.
+          dueDate: dueDate ?? task.dueDate ?? null,
+          sourceNoteId: note.id,
+          // 1.23.0: under the note's topic, as it was written (none when the note had none).
+          agendaItemId: note.agendaItemId ?? null,
+          projectId,
+          taskId: task.id,
+        };
         try {
-          actionItem = await deps.actionItems.addItem(meetingId, createdById, {
-            description: title,
-            assigneeId: overrides.assigneeId ?? null,
-            priority: overrides.priority ?? 'NORMAL',
-            // The task's own date when none was picked: its project may make new tasks due today.
-            dueDate: dueDate ?? task.dueDate ?? null,
-            sourceNoteId: note.id,
-            projectId,
-            taskId: task.id,
-          });
+          try {
+            actionItem = await deps.actionItems.addItem(meetingId, createdById, item);
+          } catch (err) {
+            // A topic the item may not take (the note's isn't on this meeting's agenda): it goes without one.
+            if (!(err instanceof ValidationError) || !item.agendaItemId) throw err;
+            actionItem = await deps.actionItems.addItem(meetingId, createdById, { ...item, agendaItemId: null });
+          }
         } catch {
           actionItemError = 'The task was created, but it couldn’t be added to the action items.';
         }
