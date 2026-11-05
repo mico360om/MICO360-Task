@@ -137,6 +137,21 @@ describe('requestReport: the API client’s requests', () => {
     expect(requestReport({ method: 'GET', path: '/tasks', status: 500, ms: 100 }, { online: true, leaving: false })).toBeNull();
     expect(requestReport({ method: 'GET', path: '/tasks', status: 200, ms: 100 }, { online: true, leaving: false })).toBeNull();
   });
+  it('1.23.0: a request that waits on the AI is slow only after a minute; everything else after 10 s', () => {
+    const ok = { online: true, leaving: false };
+    expect(SLOW.aiApiMs).toBe(60_000);
+    // Describe the task, MICO AI, the search AI panel, Final MOM "Draft with AI", AI Management's Test.
+    for (const [method, path] of [['POST', '/ai/parse-task'], ['POST', '/mico-ai/chats/c1/messages'], ['POST', '/search/ai'], ['POST', '/meetings/m1/final-minutes/draft'], ['POST', '/ai/models/m9/test']] as const) {
+      expect(requestReport({ method, path, status: 200, ms: 45_000 }, ok), path).toBeNull();
+      expect(requestReport({ method, path, status: 200, ms: SLOW.aiApiMs + 1 }, ok), path).toEqual({ kind: 'SLOW', detail: 'api', value: SLOW.aiApiMs + 1, resource: `${method} /api/v1${path}` });
+    }
+    // The same pages' ordinary requests keep the 10 s rule.
+    for (const [method, path] of [['GET', '/ai/config'], ['GET', '/mico-ai/chats'], ['GET', '/search/all'], ['GET', '/meetings/m1/final-minutes']] as const) {
+      expect(requestReport({ method, path, status: 200, ms: SLOW.apiMs + 1 }, ok), path).toMatchObject({ kind: 'SLOW', value: SLOW.apiMs + 1 });
+    }
+    // An AI request that fails is still the server's to log (an error, not slow).
+    expect(requestReport({ method: 'POST', path: '/search/ai', status: 502, ms: 2000 }, ok)).toBeNull();
+  });
   it('never about its own reports', () => {
     expect(requestReport({ method: 'POST', path: '/client-errors', status: 0, ms: 20_000 }, { online: true, leaving: false })).toBeNull();
   });

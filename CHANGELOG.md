@@ -142,6 +142,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   Notifications have a new "Client sign-off" switch.
 - Repeating meetings: when changing, cancelling or deleting one, the choice is now "This meeting" or
   "All upcoming repeats of this meeting", so it isn't mixed up with the new named series.
+- Error log: AI answers count as slow only after a minute. Describe the task or meeting, Draft agenda,
+  Write description, the Final MOM's Draft with AI, MICO AI, the AI panel of the Search results page and
+  AI Management's Test are now in the Error log's "Slow" list only when they take over 60 seconds (an
+  AI answer can legitimately take a while); everything else still counts as slow after 10 seconds. An AI
+  request that fails is still logged as an error.
 
 ### Security
 - Client accounts can use only the Client portal: the server refuses every other page and request to

@@ -1,4 +1,5 @@
 import { isExtensionSource } from './error-redact';
+import { isAiRequest } from './ai-requests';
 import type { ErrorReport, ErrorReporter } from './error-reporter';
 
 /** When a page counts as slow (1.22.4, the Error log's Slow). */
@@ -13,6 +14,11 @@ export const SLOW = {
   cls: 0.25,
   /** An API request took this long. */
   apiMs: 10_000,
+  /**
+   * 1.23.0: a request that waits on the AI (ai-requests.ts) took this long — an AI answer legitimately
+   * takes a while (the provider is given minutes); one that fails is still logged as an error.
+   */
+  aiApiMs: 60_000,
 };
 
 /** A failed load of the site's own code — usually a page left open across a deployment. */
@@ -31,13 +37,14 @@ export function isLeaving(): boolean {
 /**
  * What the API client tells about one request: a request that never reached the server while the
  * device says it is online (blocked on the way: a firewall, a proxy, an antivirus) is a network
- * problem; one that took over 10 s is slow. The server logs its own errors, so an answer is not one.
+ * problem; one that took over 10 s is slow (one that waits on the AI: over a minute). The server logs
+ * its own errors, so an answer is not one.
  */
 export function requestReport(info: { method: string; path: string; status: number; ms: number }, ctx: { online: boolean; leaving: boolean }): ErrorReport | null {
   if (info.path.startsWith('/client-errors')) return null;
   const resource = `${info.method.toUpperCase()} /api/v1${info.path}`;
   if (info.status === 0) return ctx.online && !ctx.leaving ? { kind: 'NETWORK', detail: 'api', resource } : null;
-  if (info.ms > SLOW.apiMs) return { kind: 'SLOW', detail: 'api', value: Math.round(info.ms), resource };
+  if (info.ms > (isAiRequest(info.method, info.path) ? SLOW.aiApiMs : SLOW.apiMs)) return { kind: 'SLOW', detail: 'api', value: Math.round(info.ms), resource };
   return null;
 }
 
