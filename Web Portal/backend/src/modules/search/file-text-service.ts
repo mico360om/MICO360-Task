@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { FILE_TEXT_MAX_CHARS, type FileText } from '../../lib/file-text';
 import { readFileTextOffThread } from '../../lib/file-text-thread';
@@ -26,8 +27,31 @@ const OCR_LEASE_MS = 10 * 60_000;
 export const OCR_PER_HOUR = 30;
 /** A scanned PDF's first pages only are sent (pictures). */
 const OCR_MAX_PAGES = 5;
-/** A picture larger than this isn't sent to OCR. */
-const OCR_MAX_BYTES = 8 * 1024 * 1024;
+/** What one OCR request sends at most: a picture file, or a scanned PDF's page pictures together. */
+export const OCR_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The pictures one OCR request sends. Security review (1.23): the 8 MB cap held only for a picture file;
+ * a scanned PDF's pages had none and a page drawn several times was sent several times. Now each picture
+ * once, in page order, at most OCR_MAX_PAGES and OCR_MAX_BYTES together (one that would pass the cap is
+ * left out; a smaller later page still goes).
+ */
+export function ocrPictures(source: { picture: { data: Buffer; mimeType: string } } | { pages: Buffer[] }): { data: Buffer; mimeType: string }[] {
+  if ('picture' in source) return source.picture.data.length <= OCR_MAX_BYTES ? [source.picture] : [];
+  const out: { data: Buffer; mimeType: string }[] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  for (const page of source.pages) {
+    if (out.length >= OCR_MAX_PAGES) break;
+    const key = createHash('sha256').update(page).digest('base64');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (total + page.length > OCR_MAX_BYTES) continue;
+    total += page.length;
+    out.push({ data: page, mimeType: 'image/jpeg' });
+  }
+  return out;
+}
 
 export interface FileTextLogger {
   info?(message: string, meta?: Record<string, unknown>): void;
@@ -160,7 +184,7 @@ export function createFileTextService({ prisma, storage, index, ocr, logger, now
       const attempts = row.attempts + 1;
       try {
         const content = await storage.read(file.storageKey);
-        const images = /^image\//.test(file.mimeType) ? (content.length <= OCR_MAX_BYTES ? [{ data: content, mimeType: file.mimeType }] : []) : (await readFileTextOffThread(content, file)).images.slice(0, OCR_MAX_PAGES).map((data) => ({ data, mimeType: 'image/jpeg' }));
+        const images = /^image\//.test(file.mimeType) ? ocrPictures({ picture: { data: content, mimeType: file.mimeType } }) : ocrPictures({ pages: (await readFileTextOffThread(content, file)).images });
         if (images.length === 0) {
           // A scan whose pages aren't pictures we can send: nothing more can be read from it.
           await store(row.fileId, { status: 'EMPTY', attempts });

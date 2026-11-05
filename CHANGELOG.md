@@ -192,6 +192,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   at a time, so pressing Connect over and over never stops anyone else's.
 - A client account can't be made a meeting's organizer, not even by an administrator (the calendar
   invitation would have named the client, and everyone's calendar replies would have gone to them).
+- Reading scanned files with AI sends at most 8 MB of pictures at a time, each page picture once, so a
+  scanned PDF can't run up the AI provider's bill.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
