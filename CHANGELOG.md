@@ -25,6 +25,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Error log: a stack's lines inside a library whose folder is named "client" (such as the
   database library's node_modules/@prisma/client/…) showed as ":token"; they now keep their
   file and line. The site's own private links (/client/…, /reset/…) are still hidden.
+- Search: the top-bar search now reads at most the first 200 characters of what was typed or
+  pasted (the rest is left out, as the full task search already did), instead of searching for
+  any length of text.
 
 ## [1.22.4] - 2026-11-05
 

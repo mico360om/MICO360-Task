@@ -7,14 +7,28 @@ import { createTaskSearchScope } from './task-search-scope';
 import { parseTaskQuery } from './task-search-query';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
 
-const querySchema = z.object({ q: z.string().default('') });
+/** The longest query read (the full task search's limit too). */
+export const MAX_QUERY = 200;
+
+/**
+ * At most MAX_QUERY characters of a query (1.22.5): the website, the app and the extension send
+ * whatever was typed or pasted, so a longer text is cut, never refused — and never between the two
+ * halves of a letter written as two (an emoji).
+ */
+export function cutQuery(q: string): string {
+  if (q.length <= MAX_QUERY) return q;
+  const cut = q.slice(0, MAX_QUERY);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+const querySchema = z.object({ q: z.string().default('').transform(cutQuery) });
 
 /** Results per page of the full task search (at most 50). */
 export const TASK_PAGE_SIZE = 20;
 
 const flag = z.enum(['true', 'false']).transform((v) => v === 'true');
 const taskQuerySchema = z.object({
-  q: z.string().max(200).default(''),
+  q: z.string().max(MAX_QUERY).default(''),
   projectId: z.string().min(1).max(64).optional(),
   status: z
     .string()
