@@ -21,6 +21,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   `prisma.$queryRaw()` invocation" can be found. Two different database errors at the same place
   in the code are now two rows.
 
+### Bug fixes
+- Error log: a stack's lines inside a library whose folder is named "client" (such as the
+  database library's node_modules/@prisma/client/…) showed as ":token"; they now keep their
+  file and line. The site's own private links (/client/…, /reset/…) are still hidden.
+
 ## [1.22.4] - 2026-11-05
 
 ### New features

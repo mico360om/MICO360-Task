@@ -433,3 +433,21 @@ describe('server errors from the database keep their diagnosis', () => {
     expect(repo.eventRows[0]).toMatchObject({ job: 'search-index-heal-recent', resource: 'P2010 · code 1205 · Lock wait timeout exceeded; try restarting transaction' });
   });
 });
+
+describe('server stacks keep the paths of their frames', () => {
+  it('Prisma’s own frames keep their path (its folder named “client” is no secret)', async () => {
+    const e = new Prisma.PrismaClientKnownRequestError('\nInvalid `prisma.$queryRaw()` invocation:\n\n\nRaw query failed. Code: `1038`. Message: `Out of sort memory`', { code: 'P2010', clientVersion: '5.22.0', meta: { code: '1038', message: 'Out of sort memory' } });
+    e.stack = [
+      'PrismaClientKnownRequestError: ',
+      'Invalid `prisma.$queryRaw()` invocation:',
+      '',
+      'Raw query failed. Code: `1038`. Message: `Out of sort memory`',
+      '    at $n.handleRequestError (/home/u1/domains/task.mico360.com/nodejs/node_modules/@prisma/client/runtime/library.js:121:7315)',
+      '    at async Object.search (/home/u1/domains/task.mico360.com/nodejs/Web Portal/backend/dist/src/modules/search/task-search-engine.js:85:29)',
+    ].join('\n');
+    service.recordServer('request failed', { method: 'GET', route: '/api/v1/search', status: 500, err: e, userId: 'u1' });
+    await service.settled();
+    expect(repo.eventRows[0]!.stack).toContain('at $n.handleRequestError (node_modules/@prisma/client/runtime/library.js:121:7315)');
+    expect(repo.eventRows[0]!.stack).not.toContain(':token');
+  });
+});
