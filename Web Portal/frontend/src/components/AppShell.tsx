@@ -29,6 +29,7 @@ import { useMyCompanies } from '../hooks/useMyCompanies';
 import { CompanyPicker } from './company/CompanyPicker';
 import { CompanyNotice } from './company/CompanyNotice';
 import { ArchivedProjectNotice } from './projects/ArchivedProjectNotice';
+import { DatabaseBusyNotice } from './DatabaseBusyNotice';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 import { TaskNoticeToast } from './TaskNoticeToast';
 import { useDensitySync } from '../lib/density';
@@ -201,6 +202,8 @@ export function AppShell() {
         <CompanyNotice frameClass={frame} />
         {/* 1.22: "This project is archived — reopen it first." when the server refused a change. */}
         <ArchivedProjectNotice frameClass={frame} />
+        {/* 1.23.1: "The database is busy — please try again in a moment." when the server's database was away. */}
+        <DatabaseBusyNotice frameClass={frame} />
 
         {/* At least a window tall (less the top bar), so the footer starts below the fold and
             isn't shoved down as the page's content arrives (a layout shift on every page that

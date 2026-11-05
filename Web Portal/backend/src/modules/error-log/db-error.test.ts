@@ -98,3 +98,64 @@ describe('databaseDiagnosis: what a Prisma error says about the database, withou
     expect(performance.now() - t).toBeLessThan(50);
   });
 });
+
+// 1.23.1 — the live search error read "Unknown column '?' in '?'": MariaDB's "Unknown column '0' in
+// 'ORDER BY'", both names masked. Names of columns, tables, aliases, keys, constraints and clauses are
+// the statement's own words, never what someone typed: they stay. Values stay masked.
+describe('maskDatabaseText: schema names stay (MySQL and MariaDB wording), values never', () => {
+  const said = (code: string, message: string) => databaseDiagnosis(rawFailed(code, message))!.text;
+
+  it('1054 Unknown column: the column (even a position or an expression) and the clause, MariaDB’s and MySQL’s', () => {
+    expect(said('1054', "Unknown column '0' in 'ORDER BY'")).toBe("P2010 · code 1054 · Unknown column '0' in 'ORDER BY'");
+    expect(said('1054', "Unknown column 'si.head' in 'order clause'")).toBe("P2010 · code 1054 · Unknown column 'si.head' in 'order clause'");
+    expect(said('1054', "Unknown column 'x' in 'field list'")).toBe("P2010 · code 1054 · Unknown column 'x' in 'field list'");
+    for (const clause of ['WHERE', 'ON', 'GROUP BY', 'HAVING', 'SELECT', 'FROM', 'IN/ALL/ANY', 'IN/ALL/ANY subquery', 'checking transformed subquery', 'group statement', 'having clause', 'on clause']) {
+      expect(maskDatabaseText(`Unknown column 'lpc.projectId' in '${clause}'`)).toBe(`Unknown column 'lpc.projectId' in '${clause}'`);
+    }
+    expect(maskDatabaseText("Unknown column '<cache>(p.id)' in 'IN/ALL/ANY'")).toBe("Unknown column '<cache>(p.id)' in 'IN/ALL/ANY'");
+    expect(maskDatabaseText("Unknown column 'FALSE' in 'ORDER BY'")).toBe("Unknown column 'FALSE' in 'ORDER BY'");
+  });
+
+  it('tables, aliases and ambiguous columns', () => {
+    expect(said('1146', "Table 'u851_mico.task_search_index' doesn't exist")).toBe("P2010 · code 1146 · Table 'u851_mico.task_search_index' doesn't exist");
+    expect(maskDatabaseText("Unknown table 'lc' in field list")).toBe("Unknown table 'lc' in field list");
+    expect(maskDatabaseText("Not unique table/alias: 'lpc'")).toBe("Not unique table/alias: 'lpc'");
+    expect(maskDatabaseText("Column 'id' in where clause is ambiguous")).toBe("Column 'id' in where clause is ambiguous");
+    expect(maskDatabaseText("Column 'projectId' in WHERE is ambiguous")).toBe("Column 'projectId' in WHERE is ambiguous");
+  });
+
+  it('column and key names in duplicates, sizes, nulls and defaults; the value masked', () => {
+    expect(maskDatabaseText("Duplicate column name 'head'")).toBe("Duplicate column name 'head'");
+    expect(maskDatabaseText("Duplicate key name 'tasks_projectId_idx'")).toBe("Duplicate key name 'tasks_projectId_idx'");
+    expect(maskDatabaseText("Data too long for column 'title' at row 1")).toBe("Data too long for column 'title' at row 1");
+    expect(maskDatabaseText("Column 'projectId' cannot be null")).toBe("Column 'projectId' cannot be null");
+    expect(maskDatabaseText("Field 'stamp' doesn't have a default value")).toBe("Field 'stamp' doesn't have a default value");
+    expect(maskDatabaseText("Duplicate entry 'Pay Ahmed-p1' for key 'tasks.tasks_title_projectId_key'")).toBe("Duplicate entry '?' for key 'tasks.tasks_title_projectId_key'");
+  });
+
+  it('MariaDB’s `db`.`table`.`column` and a foreign key’s names (backticks) stay; the value doesn’t', () => {
+    expect(maskDatabaseText("Incorrect string value: '\xF0\x9F\x98\x80 Pay Ahmed' for column `u851_mico`.`tasks`.`title` at row 1")).toBe(
+      "Incorrect string value: '?' for column `u851_mico`.`tasks`.`title` at row 1",
+    );
+    expect(
+      maskDatabaseText('Cannot add or update a child row: a foreign key constraint fails (`mico`.`task_search_index`, CONSTRAINT `task_search_index_taskId_fkey` FOREIGN KEY (`taskId`) REFERENCES `tasks` (`id`) ON DELETE CASCADE ON UPDATE CASCADE)'),
+    ).toBe('Cannot add or update a child row: a foreign key constraint fails (`mico`.`task_search_index`, CONSTRAINT `task_search_index_taskId_fkey` FOREIGN KEY (`taskId`) REFERENCES `tasks` (`id`) ON DELETE CASCADE ON UPDATE CASCADE)');
+  });
+
+  it('a value in a clause’s place, or a typed value as a name, is still masked', () => {
+    expect(maskDatabaseText("Truncated incorrect INTEGER value: 'Pay Ahmed'")).toBe("Truncated incorrect INTEGER value: '?'");
+    expect(maskDatabaseText("BIGINT UNSIGNED value is out of range in '(`mico`.`t`.`n` - 99887766)'")).not.toContain('99887766');
+    expect(maskDatabaseText("Unknown column 'khurram@prolens-team.com' in 'where clause'")).not.toContain('khurram');
+  });
+
+  it('the database server’s address and a user name in a connection error are never kept', () => {
+    const p1001 = new Prisma.PrismaClientKnownRequestError("\nInvalid `prisma.task.findMany()` invocation:\n\n\nCan't reach database server at `srv123.hstgr.io`:`3306`\n\nPlease make sure your database server is running at `srv123.hstgr.io`:`3306`.", { code: 'P1001', clientVersion: CLIENT, meta: { database_host: 'srv123.hstgr.io', database_port: 3306 } });
+    const t = databaseDiagnosis(p1001)!.text;
+    expect(t.startsWith("P1001 · Can't reach database server at")).toBe(true);
+    expect(t).not.toContain('hstgr');
+    expect(t).not.toContain('3306');
+    const auth = maskDatabaseText('Authentication failed against database server at `127.0.0.1`, the provided database credentials for `u851_admin` are not valid.');
+    expect(auth).not.toContain('127.0.0.1');
+    expect(auth).not.toContain('u851_admin');
+  });
+});

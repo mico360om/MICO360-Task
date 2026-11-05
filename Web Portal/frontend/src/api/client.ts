@@ -3,6 +3,7 @@ import { COMPANY_HEADER, companyHeaders } from '../lib/companies';
 import { readStoredSession, useAuthStore, type Session } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
 import { PROJECT_ARCHIVED_CODE, useArchivedNoticeStore } from '../stores/archived-notice-store';
+import { useDatabaseBusyStore } from '../stores/database-busy-store';
 import { noteRequest } from '../lib/error-reporting';
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
@@ -140,4 +141,8 @@ export const apiClient = createApiClient({
   },
   // 1.22.4: a request blocked on the way, or a slow one, goes to the Error log.
   onRequestDone: noteRequest,
+  // 1.23.1: the server's database was away for a moment (503 DATABASE_BUSY) — said across the page in its words.
+  onDatabaseBusy: (err) => {
+    if (err.message) useDatabaseBusyStore.getState().show(err.message);
+  },
 });

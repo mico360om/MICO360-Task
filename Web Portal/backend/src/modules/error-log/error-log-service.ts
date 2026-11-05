@@ -1,5 +1,6 @@
 import { parseClientBatch, parseCspReports, type ClientReport } from './client-reports';
 import { databaseDiagnosis } from './db-error';
+import { databaseConnectionCode } from '../../lib/db-connection';
 import { redactText } from './error-redact';
 import { describeReport, isNewerVersion, isVersion, kindsFor, sinceFor, type ErrorKind, type KindFilter, type RangeFilter } from './error-log-rules';
 import type { ErrorEventRow, ErrorGroupRow, ErrorLogRepository, NewEvent } from './error-log-repository';
@@ -291,7 +292,9 @@ export function createErrorLogService(deps: ErrorLogServiceDeps) {
         // A request by its route pattern (never its address, which can carry a token).
         const page = request ? clip(`${method ?? ''} ${route ?? '(no route)'}`.trim(), 300) : null;
         const cause = db ? [db.code, db.dbCode].filter(Boolean).join('/') : '';
-        const d = describeReport({ kind: 'SERVER', message: title, job, route: page, top: resolved.top, cause: cause || null });
+        // 1.23.1: a request that met a database blip is one row per kind of blip (its pages are its occurrences').
+        const blip = request ? databaseConnectionCode(thrown) : null;
+        const d = describeReport({ kind: 'SERVER', message: title, job, route: page, top: resolved.top, cause: cause || null, blip });
         await store({
           fingerprint: d.key,
           kind: 'SERVER',

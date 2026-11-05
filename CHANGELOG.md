@@ -15,7 +15,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### New features
-- Merge tasks (1.23.1): combine two or more tasks into one without losing anything. On a task, ⋯ →
+- Merge tasks (1.23.2): combine two or more tasks into one without losing anything. On a task, ⋯ →
   "Merge with other tasks…" (or select 2 to 10 tasks in My Tasks and click "Merge…"). Find more tasks by
   title or number, choose the main task (the one that stays — the oldest unless you pick another), and
   where the tasks differ pick which value to keep: title, project, status, priority, start and due date,
@@ -33,6 +33,37 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   task (changing or deleting a merged task itself is refused). The main task's "Merged from" panel lists them (each opens
   its read-only record) and Undo gives each one back as it was; anything added since stays on the main
   task. Reports and exports show "Merged from: MICO-14, MICO-15" on the main task's row.
+
+## [1.23.1] - 2026-11-05
+
+### Improvements
+- Database check: each time the server starts, it checks that the database has every table and column
+  the app needs and that its searches and the Management page's figures run on this database server.
+  System Settings → Error log shows the result at the top — "Database check: OK (MySQL 8.0.46)" with
+  the database server's version and settings, or the list of problems with their exact names — and
+  each problem is also recorded in the Error log (job "database check"). It never delays the start.
+- Search: if the tasks can't be searched for a moment (a database problem), the top-bar search and the
+  Search page still show the projects, people, meetings, notes and files they found, with one quiet line
+  "Tasks couldn't be searched just now — try again". Before, the whole search failed. The problem is
+  still recorded in the Error log, once.
+- When the database is away for a moment (for example while the site restarts after an update), pages
+  now say "The database is busy — please try again in a moment." instead of "Something went wrong".
+  The Error log keeps one row for each kind of database outage, with its code, instead of one row per
+  page.
+- Background jobs (daily task emails, the weekly management summary, reminders, backups and the rest)
+  now start only once the database answers, try once more after a few seconds when the database
+  doesn't answer, and stop before the server does. A restart of the site no longer fills the Error log
+  with "Can't reach database server".
+
+### Bug fixes
+- Search: searching for two or more words (for example "pump repair") failed on the live site, and the
+  Error log showed "Unknown column". The site's database server reads one part of the task search's
+  sorting differently from the one we test on; the search no longer uses it, so every search works on
+  both.
+- Error log: a database error now keeps the names of the columns, tables, keys and parts of the query
+  it is about, as both kinds of database server word them ("Unknown column '0' in 'ORDER BY'" instead
+  of "Unknown column '?' in '?'"), so the cause can be read. What people typed is still hidden, and so
+  is the database server's address.
 
 ## [1.23.0] - 2026-11-05
 

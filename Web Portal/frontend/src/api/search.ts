@@ -13,6 +13,8 @@ export interface SearchResults {
   meetings: { id: string; title: string; projectId: string | null; snippet: string }[];
   /** 1.23: the best few notes, minutes, files and inspections (an older server sends none). */
   more?: SearchHit[];
+  /** 1.23.1: the server couldn't search the tasks this time (the rest is here); absent when it could. */
+  tasksUnavailable?: boolean;
 }
 
 export function searchApi(client: ApiClient) {
@@ -73,6 +75,8 @@ export interface EverythingPage {
   counts?: Record<SearchKind, number>;
   total?: number;
   totalCapped?: boolean;
+  /** 1.23.1: the tasks couldn't be searched this time (the other kinds are here); absent when they could. */
+  tasksUnavailable?: boolean;
 }
 
 /** The AI panel's answer (POST /search/ai): an answer and the best matches, or one line saying why not. */

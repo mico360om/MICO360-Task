@@ -333,3 +333,36 @@ describe('database error mapping', () => {
     expect(await status('/t/P9999')).toBe(500);
   });
 });
+
+// 1.23.1 — the live database was away for a moment at deploy restarts (and once at 14:24): two requests
+// answered 500 "Something went wrong.". A blip is not a bug: 503 and words that say to try again.
+describe('a database blip answers 503, still recorded', () => {
+  it('P1001, P1017, P2024 and the client failing to start: 503 DATABASE_BUSY, logged with the route', async () => {
+    const lines: string[] = [];
+    const logger = createLogger({ service: 'test', sink: (l) => lines.push(l) });
+    const app = await buildApp({ authService, tokenService, logger });
+    const blip = (code: string) => Object.assign(new Error(`\nInvalid \`prisma.project.findMany()\` invocation:\n\n\nCan't reach database server at \`db\`:\`3306\``), { name: 'PrismaClientKnownRequestError', code });
+    app.get('/b/:code', async (req) => {
+      throw blip((req.params as { code: string }).code);
+    });
+    app.get('/b-init', async () => {
+      throw Object.assign(new Error("Can't reach database server at `db`:`3306`"), { name: 'PrismaClientInitializationError', errorCode: 'P1001' });
+    });
+    app.get('/b-other', async () => {
+      throw Object.assign(new Error('Raw query failed.'), { name: 'PrismaClientKnownRequestError', code: 'P2010' });
+    });
+    for (const url of ['/b/P1001', '/b/P1017', '/b/P2024', '/b-init']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(503);
+      expect(res.json().error).toEqual({ code: 'DATABASE_BUSY', message: 'The database is busy — please try again in a moment.' });
+      expect(res.headers['retry-after']).toBe('5');
+      const entry = JSON.parse(lines.at(-1)!);
+      expect(entry.level).toBe('error');
+      expect(entry.msg).toBe('request failed');
+      expect(entry.status).toBe(503);
+      expect(entry.route).toBe(url === '/b-init' ? '/b-init' : '/b/:code');
+    }
+    // Anything else is still a 500.
+    expect((await app.inject({ method: 'GET', url: '/b-other' })).statusCode).toBe(500);
+  });
+});

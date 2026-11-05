@@ -7,6 +7,7 @@ import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
 import { HttpError, NotFoundError } from './lib/http-errors';
 import type { Logger } from './lib/logger';
+import { DATABASE_BUSY_MESSAGE, databaseConnectionCode } from './lib/db-connection';
 import { registerIdempotency, type IdempotencyStore } from './lib/idempotency';
 import { registerEmailWebhookRoutes } from './modules/email/email-webhook-routes';
 import type { EmailWebhookService } from './modules/email/email-webhook-service';
@@ -128,6 +129,7 @@ import type { PortalService } from './modules/clients/portal-service';
 import type { CompanyTime } from './modules/companies/company-time';
 import { registerErrorLogRoutes } from './modules/error-log/error-log-routes';
 import type { ErrorLogService } from './modules/error-log/error-log-service';
+import type { DatabaseCheckResult } from './modules/error-log/database-check';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -366,6 +368,8 @@ export interface AppDeps extends AuthRouteDeps {
    * Settings → Error log (administrators). The server's own errors reach it through the logger.
    */
   errorLog?: ErrorLogService;
+  /** 1.23.1: the database self-check's latest result (System Settings → Error log shows it). */
+  databaseCheck?: { latest(): DatabaseCheckResult | null };
   /** 1.23: Settings → Microsoft Teams (each person's own connection) and Make Teams link on a meeting. */
   microsoft?: Omit<MicrosoftRouteDeps, 'guard' | 'audit'>;
   /** 1.23: the meeting form's "Create a Teams link" (made, taken away or made plain after a save). */
@@ -489,6 +493,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     const mapped = prismaErrorResponse(err);
     if (mapped) return reply.status(mapped.status).send({ error: { code: mapped.code, message: mapped.message } });
+    // 1.23.1: the database couldn't be reached, dropped the connection or had none free — a blip (the live
+    // site's came at deploy restarts), not a bug: 503 with words that say to try again, still recorded
+    // (the Error log keeps one row per kind, with its code).
+    if (databaseConnectionCode(err)) {
+      if (deps.logger) deps.logger.error('request failed', { method: req.method, url: req.url, route: req.routeOptions?.url, status: 503, err, userId: req.user?.id });
+      else console.error(`[${req.method} ${req.url}] 503`, err);
+      return reply.status(503).header('Retry-After', '5').send({ error: { code: 'DATABASE_BUSY', message: DATABASE_BUSY_MESSAGE } });
+    }
     const status = (err as { statusCode?: number }).statusCode ?? 500;
     if (status === 429) {
       return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment and try again.' } });
@@ -900,7 +912,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, logger: deps.logger, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, {
@@ -1078,7 +1090,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       // 1.22.4: the Error log — browsers' reports (any page, signed in or not) and its admin page.
       if (deps.errorLog) {
-        await registerErrorLogRoutes(api, { service: deps.errorLog, guard, userIdOf, audit: deps.auditService });
+        await registerErrorLogRoutes(api, { service: deps.errorLog, guard, userIdOf, audit: deps.auditService, databaseCheck: deps.databaseCheck });
       }
       // companies: people for pickers inside projects — GET /people/candidates (MC1 Task 9).
       if (deps.companyAccess && deps.personOptions) {

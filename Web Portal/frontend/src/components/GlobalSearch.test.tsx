@@ -455,3 +455,43 @@ describe('GlobalSearch', () => {
   });
 });
 
+
+// 1.23.1 — the live task search failed on its database server and took the whole top bar down with it.
+// Now the server answers the other results with `tasksUnavailable`: one quiet line says so.
+describe('GlobalSearch — when tasks couldn’t be searched', () => {
+  it('shows what was found, and one quiet line with “try again” (which asks again)', async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(String(url).includes('/search?q=')
+        ? json({ data: { tasks: [], tasksUnavailable: true, projects: [{ id: 'p1', code: 'MICO', name: 'MICO Ops' }], users: [], meetings: [] } })
+        : json({ data: [] })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'mico ops');
+    expect(await screen.findByText('MICO Ops')).toBeInTheDocument();
+    const line = screen.getByText(/Tasks couldn’t be searched just now/);
+    expect(line).toHaveTextContent('Tasks couldn’t be searched just now — try again');
+    const asked = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes('/search?q=mico%20ops')).length;
+    const before = asked();
+    await userEvent.click(screen.getByRole('button', { name: 'try again' }));
+    await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it('found nothing else: never says nothing matches “in tasks”', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(String(url).includes('/search?q=')
+      ? json({ data: { tasks: [], tasksUnavailable: true, projects: [], users: [], meetings: [] } })
+      : json({ data: [] }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'pump repair');
+    expect(await screen.findByText(/Tasks couldn’t be searched just now/)).toBeInTheDocument();
+    expect(screen.queryByText(/in tasks, projects/)).toBeNull();
+  });
+
+  it('a search that worked shows no such line', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(json({ data: { tasks: [{ id: 't1', key: 'MICO-1', title: 'Prepare report', projectId: 'p1' }], projects: [], users: [] } }))));
+    setup(<GlobalSearch debounceMs={0} />);
+    await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'report');
+    expect(await screen.findByText('Prepare report')).toBeInTheDocument();
+    expect(screen.queryByText(/Tasks couldn’t be searched/)).toBeNull();
+  });
+});

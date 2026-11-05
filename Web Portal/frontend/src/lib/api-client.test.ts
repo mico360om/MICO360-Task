@@ -490,3 +490,32 @@ describe('onRequestDone', () => {
     await expect(api.get('/x')).resolves.toEqual({ data: { ok: true } });
   });
 });
+
+// 1.23.1 — the server answers 503 DATABASE_BUSY while its database is away for a moment (a deploy
+// restart): told to onDatabaseBusy for a read and a change alike, so the page can say so in its words.
+describe('onDatabaseBusy', () => {
+  const BUSY = { error: { code: 'DATABASE_BUSY', message: 'The database is busy — please try again in a moment.' } };
+
+  it('is told for a read, a change, an upload and a download; the caller still gets the error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(BUSY, 503)));
+    const told: ApiError[] = [];
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', onDatabaseBusy: (e) => told.push(e) });
+    await expect(api.get('/tasks')).rejects.toMatchObject({ status: 503, code: 'DATABASE_BUSY', message: 'The database is busy — please try again in a moment.' });
+    await api.post('/tasks', { title: 'x' }).catch(() => undefined);
+    await api.upload('/tasks/t1/attachments', new FormData()).catch(() => undefined);
+    await api.getBlob('/reports/tasks.xlsx').catch(() => undefined);
+    await api.getText('/reports/tasks.csv').catch(() => undefined);
+    expect(told.map((e) => e.code)).toEqual(['DATABASE_BUSY', 'DATABASE_BUSY', 'DATABASE_BUSY', 'DATABASE_BUSY', 'DATABASE_BUSY']);
+  });
+
+  it('is not told for any other answer (a proxy’s own 503 page, a 500), and a listener that fails changes nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Service Unavailable</html>', { status: 503 })));
+    const told: unknown[] = [];
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 't', onDatabaseBusy: (e) => { told.push(e); throw new Error('boom'); } });
+    await expect(api.get('/tasks')).rejects.toMatchObject({ status: 503 });
+    expect(told).toEqual([]);
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(BUSY, 503)));
+    await expect(api.get('/tasks')).rejects.toMatchObject({ code: 'DATABASE_BUSY' });
+    expect(told).toHaveLength(1);
+  });
+});

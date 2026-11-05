@@ -7,6 +7,11 @@ import type { PrismaClient } from '@prisma/client';
  */
 export interface JobLockStore {
   tryAcquire(name: string, leaseMs: number, now: Date): Promise<boolean>;
+  /**
+   * 1.23.1 (lib/job-gate): how a job's work is run — after the database first answered, followed so a
+   * stop waits for it, a database blip tried once more. Absent: run as it is.
+   */
+  attempt?<T>(work: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -22,8 +27,10 @@ export async function runExclusive(
   now: () => Date,
   fn: () => Promise<void>,
 ): Promise<boolean> {
-  if (!(await store.tryAcquire(name, leaseMs, now()))) return false;
-  await fn();
+  // The lease is taken (its time read) once the job may run, and the work then runs the same way.
+  const attempt = store.attempt ? <T,>(work: () => Promise<T>) => store.attempt!(work) : <T,>(work: () => Promise<T>) => work();
+  if (!(await attempt(() => store.tryAcquire(name, leaseMs, now())))) return false;
+  await attempt(fn);
   return true;
 }
 

@@ -77,6 +77,12 @@ export interface SearchAllInput {
   deletedIds?: string[];
   /** What is the person's own, read once for the search (prepare): ranking only, never visibility. */
   mine?: { tasks: string[]; projects: string[]; meetings: string[] };
+  /**
+   * 1.23.1: the task half failing (a database error) leaves the other kinds — the result says
+   * `tasksUnavailable` — and is told here, for each failing step (the caller records it once). Absent:
+   * a failure fails the search (the AI panel's candidates).
+   */
+  onTasksFailed?: (err: unknown) => void;
 }
 
 export interface SearchAllResult {
@@ -88,6 +94,8 @@ export interface SearchAllResult {
   totalCapped?: boolean;
   /** Spelling corrections that found results ("genarator" → "generator"). */
   corrected: { from: string; to: string }[];
+  /** 1.23.1: the tasks couldn't be searched this time; the other kinds are here (see onTasksFailed). */
+  tasksUnavailable?: true;
 }
 
 /** A word and the spellings it may also be found by. */
@@ -141,6 +149,17 @@ const liveSql = (input: { includeArchived?: boolean; archivedIds?: string[] }): 
   if (!input.archivedIds) return null;
   return input.archivedIds.length ? Prisma.sql`p.id NOT IN (${Prisma.join(input.archivedIds)})` : Prisma.sql`TRUE`;
 };
+/**
+ * 1.23.1: the task half's work, when the search's caller asked to be told of its failure: a failure is
+ * told and answers `none` (the other kinds are still searched); otherwise it fails the search as before.
+ */
+const tasksOf = <T>(input: SearchAllInput, work: Promise<T>, none: T): Promise<T> =>
+  input.onTasksFailed
+    ? work.catch((err: unknown) => {
+        input.onTasksFailed!(err);
+        return none;
+      })
+    : work;
 const recency = (at: Prisma.Sql) => Prisma.sql`GREATEST(0, 25 - LEAST(25, ABS(DATEDIFF(${at}, NOW())) / 7))`;
 
 export function createSearchEngine({
@@ -271,12 +290,13 @@ export function createSearchEngine({
    * only the best few), then the two merged in the same order — one order across both indexes.
    */
   async function rows(pass: Pass, input: SearchAllInput, limit: number, offset: number): Promise<{ kind: SearchKind; id: string }[]> {
-    const parts = [taskPart(pass, input, true), indexPart(pass, input, true)].filter((p): p is Prisma.Sql => !!p);
-    if (parts.length === 0) return [];
+    const task = taskPart(pass, input, true);
+    const other = indexPart(pass, input, true);
+    if (!task && !other) return [];
     const need = offset + limit;
-    const lists = await Promise.all(
-      parts.map((part) => prisma.$queryRaw<{ kind: SearchKind; id: string; score: unknown; at: Date | null }[]>`SELECT kind, id, score, at FROM (${part}) x ORDER BY score DESC, at DESC, id DESC LIMIT ${need}`),
-    );
+    type Row = { kind: SearchKind; id: string; score: unknown; at: Date | null };
+    const best = (part: Prisma.Sql) => prisma.$queryRaw<Row[]>`SELECT kind, id, score, at FROM (${part}) x ORDER BY score DESC, at DESC, id DESC LIMIT ${need}`;
+    const lists = await Promise.all([task ? tasksOf(input, best(task), [] as Row[]) : Promise.resolve([] as Row[]), other ? best(other) : Promise.resolve([] as Row[])]);
     const time = (d: Date | null) => (d ? new Date(d).getTime() : 0);
     return lists
       .flat()
@@ -311,9 +331,12 @@ export function createSearchEngine({
 
   async function counts(pass: Pass, input: SearchAllInput): Promise<Record<SearchKind, number>> {
     const out = Object.fromEntries(SEARCH_KINDS.map((k) => [k, 0])) as Record<SearchKind, number>;
-    const parts = [taskPart(pass, input, false), indexPart(pass, input, false)].filter((p): p is Prisma.Sql => !!p);
+    const task = taskPart(pass, input, false);
+    const other = indexPart(pass, input, false);
     // Each kind counted in full (review M1: one cap across kinds left some at 0), shown up to COUNT_CAP.
-    const results = await Promise.all(parts.map((part) => prisma.$queryRaw<{ kind: string; n: bigint | number }[]>`SELECT kind, COUNT(*) AS n FROM (${part}) x GROUP BY kind`));
+    type Count = { kind: string; n: bigint | number };
+    const count = (part: Prisma.Sql) => prisma.$queryRaw<Count[]>`SELECT kind, COUNT(*) AS n FROM (${part}) x GROUP BY kind`;
+    const results = await Promise.all([task ? tasksOf(input, count(task), [] as Count[]) : Promise.resolve([] as Count[]), other ? count(other) : Promise.resolve([] as Count[])]);
     for (const r of results.flat()) if ((SEARCH_KINDS as readonly string[]).includes(r.kind)) out[r.kind as SearchKind] = Math.min(Number(r.n), COUNT_CAP + 1);
     return out;
   }
@@ -323,7 +346,7 @@ export function createSearchEngine({
     const taskIds = found.filter((f) => f.kind === 'task').map((f) => f.id);
     const others = found.filter((f): f is { kind: Exclude<SearchKind, 'task'>; id: string } => f.kind !== 'task');
     const [tasks, indexed] = await Promise.all([
-      describeTaskHits(prisma, taskIds, terms, { timeZone, max: 2, ...(byNumber ? { byNumber } : {}), accept, onStale: (id) => onStale?.('task', id) }),
+      tasksOf(input, describeTaskHits(prisma, taskIds, terms, { timeZone, max: 2, ...(byNumber ? { byNumber } : {}), accept, onStale: (id) => onStale?.('task', id) }), []),
       describeIndexed(prisma, others, { terms, accept, invitee: new Set(input.scope.meetings.invitee), canSeeDraft: (m) => canSeeDraft(input.scope.meetings, m), timeZone, onStale: (kind, id) => onStale?.(kind, id) }),
     ]);
     const looks = await projectLooks(prisma, tasks.map((t) => t.projectId));
@@ -336,7 +359,22 @@ export function createSearchEngine({
     return out;
   }
 
+  /** 1.23.1: with someone to tell, a failing task half leaves the other kinds, and the result says so. */
   async function search(given: SearchAllInput): Promise<SearchAllResult> {
+    const tell = given.onTasksFailed;
+    if (!tell) return searchEverything(given);
+    let failed = false;
+    const result = await searchEverything({
+      ...given,
+      onTasksFailed: (err) => {
+        failed = true;
+        tell(err);
+      },
+    });
+    return failed ? { ...result, tasksUnavailable: true } : result;
+  }
+
+  async function searchEverything(given: SearchAllInput): Promise<SearchAllResult> {
     const { terms, whole } = parseTaskQuery(given.q);
     const input = terms.length ? await withArchived(given) : given;
     const limit = Math.max(1, Math.min(50, Math.floor(input.limit)));

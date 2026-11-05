@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { searchApi, searchEverythingApi } from '../api/search';
+import { TasksUnavailable } from './search/TasksUnavailable';
 import { projectsApi } from '../api/projects';
 import { usersApi } from '../api/users';
 import type { SearchResults } from '../api/search';
@@ -299,6 +300,8 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   const nothingFound =
     searchEnabled && q.isSuccess && !!found && !items.some((it) => it.group === 'Command') &&
     found.tasks.length === 0 && found.projects.length === 0 && found.users.length === 0 && (found.meetings ?? []).length === 0 && (found.more ?? []).length === 0;
+  // 1.23.1: the server couldn't search the tasks this time; the rest is what it found (one quiet line says so).
+  const tasksDown = searchEnabled && q.isSuccess && !!found?.tasksUnavailable;
   let idx = -1; // running index across groups for keyboard highlight
 
   return (
@@ -332,15 +335,16 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
             </p>
           ) : null}
 
+          {tasksDown ? <TasksUnavailable onRetry={() => void q.refetch()} className={`px-3 py-2 ${items.length ? 'border-b border-line' : ''}`} /> : null}
           {items.length === 0 && searchEnabled && q.isLoading ? (
             <p className="px-3 py-3 text-sm text-ink-2">Searching…</p>
           ) : items.length === 0 && searchEnabled ? (
-            <p className="px-3 py-3 text-sm text-ink-2">No matches for “{debounced}”.</p>
+            tasksDown ? null : <p className="px-3 py-3 text-sm text-ink-2">No matches for “{debounced}”.</p>
           ) : (
             <>
             {nothingFound ? (
               <p className="border-b border-line px-3 py-2 text-sm text-ink-2">
-                Nothing matches “<span dir="auto">{debounced}</span>” in tasks, projects, people, meetings or files.
+                Nothing matches “<span dir="auto">{debounced}</span>” in {tasksDown ? 'projects' : 'tasks, projects'}, people, meetings or files.
               </p>
             ) : null}
             <div ref={listRef} className="max-h-96 overflow-y-auto py-1">

@@ -108,6 +108,11 @@ import { createManagementFromPrisma, createWeeklySummaryFromPrisma } from './mod
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
+import { createJobGate } from './lib/job-gate';
+import { databaseConnectionCode } from './lib/db-connection';
+import { createShutdown } from './lib/shutdown';
+import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/database-check';
+import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
 import { filterTaskRecipients } from './modules/notifications/recipient-access';
 import { activeCompaniesOf, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
@@ -295,6 +300,10 @@ async function main(): Promise<void> {
     userNames: (ids) => resolveUserNames(ids),
   });
   const logger = withErrorLog(baseLogger, (message, ctx) => errorLog.recordServer(message, ctx));
+  // 1.23.1 (lib/job-gate): background jobs start once the database first answered (a deploy restart
+  // recorded "Can't reach database server" for the every-minute jobs), try a blip once more, and stop
+  // before the database client disconnects (the shutdown below).
+  const jobs = createJobGate({ probe: () => prisma.$queryRaw`SELECT 1`, warn: (message, meta) => baseLogger.warn(message, meta) });
   const errorReporter = createErrorReporter({
     dsn: env.SENTRY_DSN || undefined,
     // The failed request itself is already in the log and the Error log ("request failed").
@@ -1086,18 +1095,23 @@ async function main(): Promise<void> {
   }
   // One instance at a time runs each sweep (lease lock) — no duplicate notifications / double
   // carry-forward across a multi-instance deployment. The lease expires so a crash never deadlocks it.
-  const jobLock = createPrismaJobLockStore(prisma);
+  // 1.23.1 (lib/job-gate): every job asks the database through this lock — it starts once the database
+  // first answered, tries a blip once more, and starts nothing while the server stops (a deploy restart).
+  const jobLock = jobs.lock(createPrismaJobLockStore(prisma));
   const SWEEP_LEASE_MS = 10 * 60 * 1000;
   // 1.22.4: a sweep that fails says so (some were dropped without a word), in the Error log too.
   const sweepFailed = (job: string, what: string) => (err: unknown) => {
+    // 1.23.1: the database going away while the server stops is the stop, not an error.
+    if (jobs.stopping && databaseConnectionCode(err)) {
+      logger.job(job).warn(`${what} stopped with the server`, { code: databaseConnectionCode(err) });
+      return false;
+    }
     logger.job(job).error(`${what} failed`, { err });
     return false;
   };
   const runReminders = () =>
     runExclusive(jobLock, 'reminder-sweep', SWEEP_LEASE_MS, () => new Date(), runReminderSweep).catch(sweepFailed('reminder-sweep', 'deadline reminder sweep'));
-  void runReminders();
-  const reminderTimer = setInterval(() => void runReminders(), 6 * 60 * 60 * 1000);
-  reminderTimer.unref?.();
+  jobs.every(6 * 60 * 60 * 1000, runReminders);
 
   // A comment @mention notifies each mentioned user who can open the task (never the author): in
   // the app and, unless they muted mentions, by email quoting the comment (best-effort).
@@ -1259,9 +1273,7 @@ async function main(): Promise<void> {
       const { refreshed, failed } = await aiConfigService.refreshDueProviders();
       if (refreshed || failed) logger.info('AI model lists refreshed', { refreshed, failed });
     }).catch(sweepFailed('ai-model-refresh', 'AI model refresh'));
-  void runAiModelRefresh();
-  const aiModelTimer = setInterval(() => void runAiModelRefresh(), 60 * 60 * 1000);
-  aiModelTimer.unref?.();
+  jobs.every(60 * 60 * 1000, runAiModelRefresh);
   // Product-facing AI features read the same config (default chat model) and call the provider,
   // within per-user limits and each model's concurrency limit.
   const aiFeatureService = createAiFeatureService({
@@ -1366,7 +1378,8 @@ async function main(): Promise<void> {
     logger,
   });
   // Answers a restart cut off (pending past the time limit) are marked interrupted, so no chat stays blocked.
-  void micoAiService.interruptStale().catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
+  // 1.23.1: a start-up job like the others — once the database answered, a blip tried once more (lib/job-gate).
+  void jobs.attempt(() => micoAiService.interruptStale()).catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
 
   // 1.22 (§10): the Final MOM's "Draft with AI" as a background job too (the runner is above).
   const aiJobArchive = createPrismaArchiveLookup(prisma);
@@ -1389,7 +1402,10 @@ async function main(): Promise<void> {
   });
   aiJobs.register('final-minutes', finalMinutesAi.handler);
   aiJobs.register('mico-ai', micoAiService.jobHandler);
-  aiJobs.startSweeps();
+  // 1.23.1: once the database first answered (lib/job-gate), like every background job.
+  void jobs.ready.then(() => {
+    if (!jobs.stopping) aiJobs.startSweeps();
+  });
 
   // Per-date boards: each night carry still-open tasks onto today's board. Config lives in
   // system settings (admin-editable) — carryForward.enabled + carryForward.statuses — with defaults.
@@ -1403,10 +1419,8 @@ async function main(): Promise<void> {
     runExclusive(jobLock, 'carry-forward-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       await carryForwardService.run();
     }).catch(sweepFailed('carry-forward-sweep', 'carry-forward sweep'));
-  void runCarryForward();
   // Re-check hourly so the sweep fires soon after local midnight without a precise scheduler.
-  const carryTimer = setInterval(() => void runCarryForward(), 60 * 60 * 1000);
-  carryTimer.unref?.();
+  jobs.every(60 * 60 * 1000, runCarryForward);
 
   const tokenService = createTokenService({
     accessSecret: env.JWT_ACCESS_SECRET,
@@ -1504,9 +1518,7 @@ async function main(): Promise<void> {
       // 1.23: Teams meetings left behind by cancelled or deleted meetings (every delete try failed) go now.
       await teamsMeetings.sweepLeftovers().catch((err) => logger.job('meeting-series-top-up').error('Microsoft Teams: sweeping left-over Teams meetings failed', { err }));
     }).catch(sweepFailed('meeting-series-top-up', 'meeting series top-up'));
-  void runMeetingSeriesTopUp();
-  const meetingSeriesTimer = setInterval(() => void runMeetingSeriesTopUp(), 6 * 60 * 60 * 1000);
-  meetingSeriesTimer.unref?.();
+  jobs.every(6 * 60 * 60 * 1000, runMeetingSeriesTopUp);
   // Automatic meeting reminders (System Settings → Meeting reminders: by default 24 hours, 12 hours
   // and 15 minutes before): every minute, one lease-locked instance sends the ones due — the bell,
   // the phone push on its own channel, and the email for times ticked "also by email". Each send is
@@ -1528,18 +1540,14 @@ async function main(): Promise<void> {
     runExclusive(jobLock, 'meeting-reminders', MEETING_REMINDER_LEASE_MS, () => new Date(), async () => {
       await meetingReminderService.runSweep();
     }).catch(sweepFailed('meeting-reminders', 'meeting reminder sweep'));
-  void runMeetingReminders();
-  const meetingReminderTimer = setInterval(() => void runMeetingReminders(), 60 * 1000);
-  meetingReminderTimer.unref?.();
+  jobs.every(60 * 1000, runMeetingReminders);
   // A meeting that is over is Completed (unless cancelled): every 5 minutes, one lease-locked
   // instance closes the ones whose end has passed. No emails; open pages refresh.
   const runMeetingCompletion = () =>
     runExclusive(jobLock, 'meeting-completion-sweep', SWEEP_LEASE_MS, () => new Date(), async () => {
       for (const id of await meetingRepository.completeEnded(new Date())) broadcastMeetingChange(id, 'meeting:updated');
     }).catch(sweepFailed('meeting-completion-sweep', 'meeting completion sweep'));
-  void runMeetingCompletion();
-  const meetingCompletionTimer = setInterval(() => void runMeetingCompletion(), 5 * 60 * 1000);
-  meetingCompletionTimer.unref?.();
+  jobs.every(5 * 60 * 1000, runMeetingCompletion);
 
   // ── Engagement: daily digest + escalation sweeps ──────────────────────────
   // Company-local calendar day + hour, used to gate the once-a-day digest to the morning.
@@ -1615,10 +1623,10 @@ async function main(): Promise<void> {
 
   const runDigest = () => runExclusive(jobLock, 'daily-digest', SWEEP_LEASE_MS, () => new Date(), runDigestSweep).catch(sweepFailed('daily-digest', 'daily digest sweep'));
   const runEscalation = () => runExclusive(jobLock, 'escalation-sweep', SWEEP_LEASE_MS, () => new Date(), runEscalationSweep).catch(sweepFailed('escalation-sweep', 'escalation sweep'));
-  void runDigest();
-  void runEscalation();
-  const digestTimer = setInterval(() => { void runDigest(); void runEscalation(); }, 60 * 60 * 1000);
-  digestTimer.unref?.();
+  jobs.every(60 * 60 * 1000, () => {
+    void runDigest();
+    void runEscalation();
+  });
 
   // ── The daily email (1.22: one email, in parts), every morning ──
   // Each person's email goes at their time (06:00 unless they chose another, in their own time zone).
@@ -1651,9 +1659,7 @@ async function main(): Promise<void> {
     runExclusive(jobLock, 'daily-task-emails', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
       await dailyEmailService.runSweep();
     }).catch(sweepFailed('daily-task-emails', 'daily task email sweep'));
-  void runDailyEmails();
-  const dailyEmailTimer = setInterval(() => void runDailyEmails(), 60 * 1000);
-  dailyEmailTimer.unref?.();
+  jobs.every(60 * 1000, runDailyEmails);
 
   // ── The Management page, and its weekly summary email ──────────────────────
   // Admins see every project; the people who run a project see the projects they run. The summary
@@ -1679,9 +1685,7 @@ async function main(): Promise<void> {
     runExclusive(jobLock, 'weekly-management-summary', DAILY_EMAIL_LEASE_MS, () => new Date(), async () => {
       await weeklySummaryService.runSweep();
     }).catch(sweepFailed('weekly-management-summary', 'weekly management summary sweep'));
-  void runWeeklySummary();
-  const weeklySummaryTimer = setInterval(() => void runWeeklySummary(), 60 * 1000);
-  weeklySummaryTimer.unref?.();
+  jobs.every(60 * 1000, runWeeklySummary);
 
   const otpService = createOtpService({
     users: createPrismaOtpUserLookup(prisma),
@@ -1773,10 +1777,7 @@ async function main(): Promise<void> {
     runExclusive(jobLock, 'nightly-backup', 9 * 60 * 1000, () => new Date(), async () => {
       await backups.service.runNightlyIfDue();
     }).catch(sweepFailed('nightly-backup', 'nightly backup sweep'));
-  const firstBackupCheck = setTimeout(() => void runNightlyBackup(), 2 * 60 * 1000);
-  firstBackupCheck.unref?.();
-  const backupTimer = setInterval(() => void runNightlyBackup(), 10 * 60 * 1000);
-  backupTimer.unref?.();
+  jobs.every(10 * 60 * 1000, runNightlyBackup, { firstAfterMs: 2 * 60 * 1000 });
 
   // Client view: a client follows one project on a read-only page — a private link that opens only
   // with a code emailed to them; nothing in it is a staff account or session.
@@ -1803,6 +1804,25 @@ async function main(): Promise<void> {
     onStale: (kind, id) => void (kind === 'task' ? taskSearchIndex.taskChanged(id) : searchIndex.refresh(kind, [id]).catch((err) => logger.error('search: re-indexing an item failed', { err, kind, id }))),
   });
   const searchSemantic = createSemanticSearch({ prisma, ai: aiFeatureService, logger });
+
+  // 1.23.1 the database self-check (error-log/database-check): once the database answers — never holding
+  // the start up — the schema's tables and columns against the database, and each raw-SQL family once in
+  // a harmless form. Each problem goes to the Error log (job "database check") with the server's version
+  // and settings; System Settings → Error log shows the result.
+  const databaseCheck = createDatabaseCheck({
+    ...prismaDatabaseReads(prisma),
+    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz }),
+    record: ({ text, err }) => logger.job('database check').error(text, err !== undefined ? { err } : undefined),
+  });
+  void jobs.ready
+    .then(() => (jobs.stopping ? null : databaseCheck.run()))
+    .then((r) => {
+      if (r) baseLogger.info(r.summary, { problems: r.problems.length });
+    })
+    .catch(() => {
+      // The check never stops the server.
+    });
+
   const aiSearch = createAiSearch({
     ai: aiFeatureService,
     candidates: (query, viewer, scope) => searchEngine.anyWords({ q: '', scope, viewerId: viewer.id, ...query }),
@@ -1966,6 +1986,7 @@ async function main(): Promise<void> {
     logger,
     errorReporter,
     errorLog, // 1.22.4: browsers' reports and System Settings → Error log
+    databaseCheck, // 1.23.1: its latest result, on System Settings → Error log
     authService,
     tokenService,
     otpService,
@@ -2272,17 +2293,15 @@ async function main(): Promise<void> {
         }
       }
     }).catch(sweepFailed('recurrence-schedule-sweep', 'recurrence schedule sweep'));
-  void runRecurrenceSchedule();
-  const recurrenceTimer = setInterval(() => void runRecurrenceSchedule(), 60 * 60 * 1000);
-  recurrenceTimer.unref?.();
+  jobs.every(60 * 60 * 1000, runRecurrenceSchedule);
 
   // Task search heals what changed without a refresh: every minute the tasks with no entry (made in
   // bulk — a project from a template, a restored backup) or edited since they were read; at startup
   // and every six hours every task whose words changed any other way (a removed comment, a renamed
   // tag) — and an index built with an older version is rebuilt (task-search-sweeps).
-  startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
+  const taskSearchSweeps = startTaskSearchSweeps({ index: taskSearchIndex, lock: jobLock, logger });
   // 1.23: search_index's heals, files never read, files waiting for AI OCR and meaning vectors.
-  startSearchSweeps({ index: searchIndex, files: fileTexts, semantic: searchSemantic, lock: jobLock, logger });
+  const searchSweeps = startSearchSweeps({ index: searchIndex, files: fileTexts, semantic: searchSemantic, lock: jobLock, logger });
 
   // 1.22.4 the Error log keeps 30 days: once a day (and at start-up), on one instance, occurrences
   // older than that and rows not seen since go.
@@ -2291,12 +2310,37 @@ async function main(): Promise<void> {
       const gone = await errorLog.sweep();
       if (gone.groups || gone.events) logger.info('Error log: old entries removed', { ...gone });
     }).catch(sweepFailed('error-log-retention', 'error log clean-up'));
-  void runErrorLogRetention();
-  const errorLogTimer = setInterval(() => void runErrorLogRetention(), 24 * 60 * 60 * 1000);
-  errorLogTimer.unref?.();
+  jobs.every(24 * 60 * 60 * 1000, runErrorLogRetention);
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });
+
+  // 1.23.1: a deploy restart (SIGTERM) or Ctrl+C (SIGINT) stops the jobs first (the ones running finish),
+  // then the other timers, the server and the Error log's writes, and the database client last — so a
+  // restart records nothing in the Error log (lib/shutdown).
+  const shutdown = createShutdown({
+    stopJobs: () => jobs.stop(),
+    stopTimers: () => {
+      taskSearchSweeps.stop();
+      searchSweeps.stop();
+      aiJobs.stop();
+    },
+    // The live connections are closed first (an open one would hold the server's close), and the close
+    // waits at most a few seconds: the database client must still disconnect before the deadline.
+    closeServer: () =>
+      Promise.race([
+        (async () => {
+          realtime.io.disconnectSockets(true);
+          await app.close();
+        })(),
+        new Promise<void>((resolve) => setTimeout(resolve, 4000).unref()),
+      ]),
+    flush: () => errorLog.settled(),
+    disconnect: () => prisma.$disconnect(),
+    exit: (code) => process.exit(code),
+    log: (message, meta) => baseLogger.info(message, meta),
+  });
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => void shutdown(signal));
 }
 
 main().catch((err) => {
