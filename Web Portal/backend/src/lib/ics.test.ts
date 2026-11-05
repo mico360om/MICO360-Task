@@ -18,6 +18,24 @@ function unfold(ics: string): string {
   return ics.replace(/\r\n[ \t]/g, '');
 }
 
+describe('buildIcs — the meeting link (1.23)', () => {
+  it('puts the online link under the description, and a Teams link also as Outlook’s Teams property', () => {
+    const join = 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0';
+    const teams = unfold(buildIcs({ ...base, method: 'REQUEST', description: 'Agenda', onlineLink: join, onlineMeetingProvider: 'TEAMS' }));
+    expect(teams).toContain(`DESCRIPTION:Agenda\\n\\nJoin the Microsoft Teams meeting: ${join}`);
+    expect(teams).toContain(`X-MICROSOFT-SKYPETEAMSMEETINGURL:${join}`);
+    const plain = unfold(buildIcs({ ...base, method: 'REQUEST', onlineLink: 'https://meet.example.com/a,b' }));
+    expect(plain).toContain('DESCRIPTION:Join online: https://meet.example.com/a\\,b');
+    expect(plain).not.toContain('X-MICROSOFT');
+    expect(unfold(buildIcs({ ...base, method: 'REQUEST' }))).not.toContain('DESCRIPTION');
+  });
+
+  it('never writes a link that is not a web address', () => {
+    const ics = unfold(buildIcs({ ...base, method: 'REQUEST', onlineLink: 'javascript:alert(1)', onlineMeetingProvider: 'TEAMS' }));
+    expect(ics).not.toContain('javascript');
+  });
+});
+
 describe('buildIcs', () => {
   it('produces a valid VCALENDAR/VEVENT envelope with CRLF line endings', () => {
     const ics = buildIcs({ ...base, method: 'REQUEST' });

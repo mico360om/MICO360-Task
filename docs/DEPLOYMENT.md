@@ -26,6 +26,7 @@ Copy `Web Portal/backend/.env.example` to `Web Portal/backend/.env` and set real
 | `BACKUP_ENCRYPTION_KEY` | recommended: the backup key that locks the copies (production warns without it); how to make and keep it: [BACKUPS.md](BACKUPS.md) "Locking the copies" |
 | `BACKUP_NIGHTLY`, `BACKUP_WARN_GB` | the nightly copy is on by default only with `NODE_ENV=production` (`true` / `false` says otherwise); the size warning's limit in GB (blank = 5) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | optional: also send the copies to Google Drive |
+| `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, `MS_TOKEN_KEY` (+ optional `MS_ALLOWED_TENANTS`, `MS_REDIRECT_URI`) | optional: automatic Teams links; steps in [microsoft-teams-setup.md](microsoft-teams-setup.md) |
 | `UPLOAD_MAX_BYTES`, `UPLOAD_MAX_TOTAL_BYTES_PER_TASK`, `UPLOAD_ALLOWED_MIME` | upload limits |
 
 ## 2. Install & build

@@ -66,6 +66,8 @@ const createSchema = z.object({
   timeZone: timeZoneField,
   recurrenceRule: recurrenceSchema.nullable().optional(),
   templateId: z.string().nullable().optional(),
+  // 1.23: "Create a Teams link" — the organizer's own Microsoft account makes the online link.
+  teamsLink: z.boolean().optional(),
   // The new-meeting form's People and Agenda, saved with the meeting (all or nothing).
   attendees: z
     .array(
@@ -108,7 +110,24 @@ const updateSchema = z.object({
   endAt: z.coerce.date().nullable().optional(),
   timeZone: timeZoneField,
   recurrenceRule: recurrenceSchema.nullable().optional(),
+  // 1.23: the "Create a Teams link" tick (left out by apps that don't show it: the link stays as it is).
+  teamsLink: z.boolean().optional(),
 });
+
+/**
+ * 1.23 Teams links (modules/integrations/microsoft/teams-meetings.ts): after a save, make the link when
+ * it was ticked, take it away when unticked, or make it plain when another link was pasted over it.
+ */
+export interface MeetingTeamsLinks {
+  /** Teams links are set up on this server. */
+  available: boolean;
+  afterSave(input: {
+    meetingId: string;
+    actor: { id: string };
+    wanted?: boolean;
+    before?: Pick<MeetingRecord, 'onlineLink' | 'onlineMeetingProvider'> | null;
+  }): Promise<{ changed: boolean; notice: { code: string; message: string } | null }>;
+}
 
 const inviteBody = z.object({
   /** Only people who haven't had an invitation yet. */
@@ -173,6 +192,8 @@ export interface MeetingRouteDeps {
   knownIds?: (viewer: Viewer, userIds: string[]) => Promise<string[]>;
   /** 1.23 Meeting series: a new meeting joining one ("New meeting in this series"), and the list's series names. */
   namedSeries?: Pick<NamedSeriesService, 'checkJoin' | 'names'>;
+  /** 1.23: automatic Teams links (absent: the tick is accepted and does nothing). */
+  teams?: MeetingTeamsLinks;
 }
 
 /** Companies: what a meeting's working hours are asked for — its project, company or the meeting itself, and who asks. */
@@ -371,7 +392,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
   }
 
   app.post('/meetings', { preHandler: guard.authenticate }, async (req, reply) => {
-    const { attendees: sentPeople = [], agendaItems = [], ...body } = createSchema.parse(req.body);
+    const { attendees: sentPeople = [], agendaItems = [], teamsLink, ...body } = createSchema.parse(req.body);
     // Invitations go out in the organizer's name: only an admin may schedule on someone else's behalf.
     if (body.organizerId && body.organizerId !== req.user!.id && !actor(req).roles.includes('ADMIN')) {
       return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'You can only schedule meetings that you organize.' } });
@@ -383,6 +404,9 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     const organizerId = body.organizerId ?? req.user!.id;
     // companies: a meeting without a project belongs to a company (chosen, picked, or the organizer's primary).
     const { companyId: chosenCompany, seriesId: askedSeries, ...fields } = body;
+    // 1.23: with "Create a Teams link" the Teams join link fills the online link (a pasted one is ignored) —
+    // when the Teams link can be made here: the site has them and the person saving organizes it.
+    if (teamsLink && deps.teams?.available && organizerId === req.user!.id) fields.onlineLink = null;
     const companyId = deps.meetingCompany ? await deps.meetingCompany.forNew(actor(req), { projectId: body.projectId, companyId: chosenCompany, organizerId }, await pickFor(req)) : undefined;
     // 1.23: joining a series — its project (company), and the person may add the meeting to it.
     const seriesId = askedSeries && deps.namedSeries
@@ -429,8 +453,11 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       await deps.series.start(meeting);
       meeting = await meetingService.getMeeting(meeting.id);
     }
+    // 1.23: the Teams link (one for a repeating meeting's family), made as the organizer — the meeting is saved either way.
+    const teams = teamsLink && deps.teams ? await deps.teams.afterSave({ meetingId: meeting.id, actor: actor(req), wanted: true }) : null;
+    if (teams?.changed) meeting = await meetingService.getMeeting(meeting.id);
     const lists = attendeeService && agendaService ? { attendees: await attendeeService.listAttendees(meeting.id), agendaItems: await agendaService.listAgenda(meeting.id) } : {};
-    return reply.status(201).send({ data: { ...(await withSeries({ ...meeting, canEdit: true })), ...lists } });
+    return reply.status(201).send({ data: { ...(await withSeries({ ...meeting, canEdit: true })), ...lists, ...(teams?.notice ? { teamsNotice: teams.notice } : {}) } });
   });
 
   // Free times for a meeting being scheduled: three suggestions (working hours, everyone invited
@@ -518,9 +545,14 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (!(await canView(req, id))) return reply.status(403).send(forbidden);
     if (!(await canEdit(req, id))) return reply.status(403).send(cannotEdit);
     const { scope } = scopeQuery.parse(req.query);
-    const patch = updateSchema.parse(req.body);
+    const { teamsLink, ...patch } = updateSchema.parse(req.body);
     const before = await meetingService.getMeeting(id);
+    // 1.23: with "Create a Teams link" ticked the Teams link fills the online link (a pasted one is ignored)
+    // — when it can be made here: the site has Teams links and the person saving organizes the meeting.
+    if (teamsLink && deps.teams?.available && (patch.organizerId ?? before.organizerId) === req.user!.id) delete patch.onlineLink;
     const seriesId = seriesIdOf(before);
+    // 1.23: after the save — make, take away or make plain the Teams link (the meeting is saved either way).
+    const teamsAfter = (meetingId: string) => (deps.teams ? deps.teams.afterSave({ meetingId, actor: actor(req), wanted: teamsLink, before }) : Promise.resolve(null));
     if (scope === 'series' && !seriesId) return reply.status(400).send(notSeries);
     if (scope === 'series' && !(await canEditSeries(req, before))) return reply.status(403).send(cannotEditSeries);
     if (patch.recurrenceRule) {
@@ -549,7 +581,9 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
     if (scope === 'series' && deps.series) {
       const change = await deps.series.updateSeries(id, patch);
       // The edited meeting — or the series' next one when the new schedule had no place for it.
-      const meeting = change.meeting ?? before;
+      let meeting = change.meeting ?? before;
+      const teams = await teamsAfter(meeting.id);
+      if (teams?.changed) meeting = await meetingService.getMeeting(meeting.id);
       if (before.invitesSentAt && deps.notify) {
         const notify = deps.notify;
         // A series that had started was split: its calendar series ends, and the new one is sent.
@@ -567,7 +601,7 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
         }
       }
       const [data] = await withEditFlags(req, [meeting]);
-      return { data: await withSeries(data!) };
+      return { data: { ...(await withSeries(data!)), ...(teams?.notice ? { teamsNotice: teams.notice } : {}) } };
     }
     // One meeting of a series keeps the series' repeat (it changes with scope=series).
     if (seriesId) delete patch.recurrenceRule;
@@ -577,16 +611,20 @@ export async function registerMeetingRoutes(app: FastifyInstance, deps: MeetingR
       await deps.series.start(meeting);
       meeting = await meetingService.getMeeting(id);
     }
+    const teams = await teamsAfter(id);
+    if (teams?.changed) meeting = await meetingService.getMeeting(id);
     // Keep invitees' calendars in step once invitations have gone out.
     if (before.invitesSentAt && deps.notify) {
       if (meeting.status === 'CANCELLED' && before.status !== 'CANCELLED') {
         background(deps.notify.sendCancellation(id), 'meeting cancellation notice failed', id);
       } else if (meeting.status !== 'CANCELLED' && calendarChanged(before, meeting)) {
-        background(seriesId ? deps.notify.sendInvites(id, { scope: 'one' }) : deps.notify.sendInvites(id), 'meeting update notice failed', id);
+        // 1.23: a Teams link made or taken away reaches the whole repeating family (one link for all).
+        const scope = teams?.changed ? 'series' : 'one';
+        background(seriesId ? deps.notify.sendInvites(id, { scope }) : deps.notify.sendInvites(id), 'meeting update notice failed', id);
       }
     }
     const [data] = await withEditFlags(req, [meeting]);
-    return { data: await withSeries(data!) };
+    return { data: { ...(await withSeries(data!)), ...(teams?.notice ? { teamsNotice: teams.notice } : {}) } };
   });
 
   app.post('/meetings/:id/duplicate', { preHandler: guard.authenticate }, async (req, reply) => {

@@ -104,6 +104,8 @@ import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
+import { registerMicrosoftRoutes, type MicrosoftRouteDeps } from './modules/integrations/microsoft/microsoft-routes';
+import type { MeetingTeamsLinks } from './modules/meetings/meeting-routes';
 import type { CompanyAccess } from './modules/companies/company-access';
 import { createArchiveGuard, installArchiveGuard, type ArchiveLookup } from './modules/companies/archive-guard';
 import { NO_PICK, createPickResolver, type PickOf } from './modules/companies/company-pick';
@@ -152,6 +154,8 @@ export interface AppDeps extends AuthRouteDeps {
     androidAppVersion?: () => string | null;
     /** The company week start (everyone's default) and whether the weekly management summary is on. */
     company?: () => Promise<{ weekStart: 0 | 1 | 6; weeklySummaryEnabled: boolean }>;
+    /** 1.23: automatic Teams links are set up on this server (the website shows them only then). */
+    microsoftTeams?: boolean;
   };
   /**
    * Live account state for the auth guard (token version, status, current roles). When set, a
@@ -356,6 +360,10 @@ export interface AppDeps extends AuthRouteDeps {
    * Settings → Error log (administrators). The server's own errors reach it through the logger.
    */
   errorLog?: ErrorLogService;
+  /** 1.23: Settings → Microsoft Teams (each person's own connection) and Make Teams link on a meeting. */
+  microsoft?: Omit<MicrosoftRouteDeps, 'guard' | 'audit'>;
+  /** 1.23: the meeting form's "Create a Teams link" (made, taken away or made plain after a save). */
+  meetingTeams?: MeetingTeamsLinks;
 }
 
 /** Only the API is rate limited: static files (uploads, brand assets, the web app) and the liveness check are not. */
@@ -527,6 +535,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       // 1.22.4: whether the page sends its errors, blocked files and slow pages to the Error log
       // (System Settings → "Collect browser errors"; off where there is no Error log).
       collectBrowserErrors: deps.errorLog ? await deps.errorLog.collectingNow() : false,
+      // 1.23: Teams links are set up here (Settings → Microsoft Teams and the meeting form's tick show then).
+      microsoftTeams: deps.appConfig?.microsoftTeams ?? false,
       serverTime: new Date().toISOString(),
     },
   }));
@@ -873,6 +883,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           // companies (MC1 Task 10): the invitee view, a standalone meeting's company, who may be invited.
           viewOf: meetingViewOf, pickOf, meetingCompany: deps.meetingCompany, invitees: deps.meetingInvitees, knownIds, myProjectsOnly,
           namedSeries: deps.namedSeriesService, // 1.23: "New meeting in this series", the list's series names
+          teams: deps.meetingTeams, // 1.23: automatic Teams links
         });
       }
       if (deps.namedSeriesService) {
@@ -1032,6 +1043,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         });
       }
       if (deps.portal) await registerPortalRoutes(api, { service: deps.portal, guard, pdfsPerMinute: deps.portalPdfsPerMinute });
+      // 1.23: Settings → Microsoft Teams and Make Teams link (staff only; the meeting's own view and edit rules).
+      if (deps.microsoft) {
+        await registerMicrosoftRoutes(api, { ...deps.microsoft, canViewMeeting: deps.microsoft.canViewMeeting ?? canViewMeetingQuietly, guard, audit: deps.auditService });
+      }
       // companies: the Companies admin API and GET /me/companies.
       if (deps.companyService) {
         await registerCompanyRoutes(api, { service: deps.companyService, guard });

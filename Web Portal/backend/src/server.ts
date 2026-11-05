@@ -127,6 +127,12 @@ import { createPrismaInspectionScheduleSource } from './modules/inspections/pris
 import { readProjectPicture } from './lib/pdf-image';
 import { auditMinutesMovedAway } from './modules/client-view/client-view-events';
 import { createBackupsFromPrisma } from './modules/backups/backup-wiring';
+import { microsoftConfigFromEnv } from './modules/integrations/microsoft/microsoft-config';
+import { createMicrosoftClient } from './modules/integrations/microsoft/microsoft-client';
+import { createPrismaConnectionStore } from './modules/integrations/microsoft/connection-store';
+import { createMicrosoftConnections } from './modules/integrations/microsoft/microsoft-connections';
+import { createPrismaTeamsLinkStore } from './modules/integrations/microsoft/teams-link-store';
+import { createTeamsMeetings } from './modules/integrations/microsoft/teams-meetings';
 
 /** Validate an IANA time zone; fall back to Asia/Muscat (Oman) if misconfigured. */
 function resolveTimeZone(tz: string): string {
@@ -600,6 +606,26 @@ async function main(): Promise<void> {
   let issueSession: (u: { id: string; roles: string[]; tokenVersion: number }) => Promise<{ accessToken: string; refreshToken: string }> = async () => {
     throw new Error('token service not ready');
   };
+  // ── 1.23 automatic Teams links (docs/microsoft-teams-setup.md) ──────────────
+  // Each organizer's own Microsoft account makes the meeting's Teams link. Off — and hidden everywhere —
+  // without MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID and MS_TOKEN_KEY.
+  const microsoftSetup = microsoftConfigFromEnv(env);
+  for (const problem of microsoftSetup.problems) logger.warn(problem);
+  const microsoftConnectionStore = createPrismaConnectionStore(prisma);
+  const microsoftClient = microsoftSetup.config ? createMicrosoftClient(microsoftSetup.config) : null;
+  const microsoftConnections =
+    microsoftSetup.config && microsoftClient
+      ? createMicrosoftConnections({
+          config: microsoftSetup.config,
+          client: microsoftClient,
+          store: microsoftConnectionStore,
+          isActiveUser: async (userId) => (await prisma.user.count({ where: { id: userId, deletedAt: null, status: 'ACTIVE' } })) > 0,
+          logger,
+        })
+      : null;
+  const teamsMeetings = createTeamsMeetings({ connections: microsoftConnections, client: microsoftClient, store: createPrismaTeamsLinkStore(prisma), logger });
+  logger.info('Microsoft Teams links', { enabled: Boolean(microsoftConnections), tenants: microsoftSetup.config?.tenant.mode ?? null });
+
   const userMgmtRepository = createPrismaUserMgmtRepository(prisma);
   // MICO AI's chats (their service is built further down): a deleted person's chats go with them.
   const micoAiRepository = createPrismaMicoAiRepository(prisma);
@@ -611,6 +637,19 @@ async function main(): Promise<void> {
     // The device-token repository is created below; this runs only when access is revoked.
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     onDeleted: (userId) => micoAiRepository.deleteAllForUser(userId).then(() => undefined),
+    // 1.23: a stopped or deleted account's Microsoft Teams connection is deleted (even with the feature off).
+    onDeactivated: async (userId) => {
+      microsoftConnections?.forgetAccess(userId);
+      const removed = await microsoftConnectionStore.remove(userId).catch((err) => {
+        logger.error('Microsoft Teams: deleting a stopped account’s connection failed', { err, userId });
+        return false;
+      });
+      if (removed) {
+        await auditService
+          .record({ userId: null, module: 'integrations', action: 'microsoft.disconnect', entityId: userId, oldValue: null, newValue: { reason: 'account deactivated' }, ip: null })
+          .catch((err) => logger.error('audit write failed', { err }));
+      }
+    },
     // Their tasks are found by their name: re-read those tasks with the new one.
     onRenamed: (userId) => taskSearchIndex.refreshForUser(userId).then(() => undefined, (err) => logger.error('task search: indexing a renamed person’s tasks failed', { err, userId })),
   });
@@ -756,16 +795,20 @@ async function main(): Promise<void> {
     void meetingEvents.publish(meetingId, event);
     meetingSearchChanged(meetingId);
   };
-  // One broadcast per change (the routes no longer broadcast on their own).
+  // One broadcast per change (the routes no longer broadcast on their own). 1.23: a Teams link follows
+  // its meetings (new time or title, a new repeat, cancelled or deleted) — in the background — and a
+  // meeting moved to another place follows into its series there.
+  const onMeetingChanged = async (meeting: import('./modules/meetings/meeting-repository').MeetingRecord, kind: import('./modules/meetings/meeting-service').MeetingChangeKind) => {
+    await followSeriesPlace(meeting, kind);
+    broadcastMeetingChange(meeting.id, `meeting:${kind}`);
+    return teamsMeetings.onMeetingChanged(meeting, kind);
+  };
   const meetingService = createMeetingService({
     meetings: meetingRepository,
     access: meetingAccess,
     defaultTimeZone: companyTz,
     isActiveUser,
-    onChanged: async (meeting, kind) => {
-      await followSeriesPlace(meeting, kind);
-      broadcastMeetingChange(meeting.id, `meeting:${kind}`);
-    },
+    onChanged: onMeetingChanged,
   });
   // Late-bound: the notify service (email) is created further down.
   let onAttendeeRemoved: (meetingId: string, attendee: AttendeeRecord, alsoFrom: string[]) => void = () => {};
@@ -775,10 +818,7 @@ async function main(): Promise<void> {
     meetings: meetingRepository,
     attendees: attendeeRepository,
     defaultTimeZone: companyTz,
-    onChanged: async (meeting, kind) => {
-      await followSeriesPlace(meeting, kind);
-      broadcastMeetingChange(meeting.id, `meeting:${kind}`);
-    },
+    onChanged: onMeetingChanged,
     // 1.23: a repeating meeting is always in a series (its own, made automatically, unless it is in one).
     ensureSeries: (meeting) => namedSeriesService.ensureFamilySeries(meeting),
   });
@@ -1410,6 +1450,8 @@ async function main(): Promise<void> {
   const runMeetingSeriesTopUp = () =>
     runExclusive(jobLock, 'meeting-series-top-up', SWEEP_LEASE_MS, () => new Date(), async () => {
       await meetingSeriesService.extendAll((err, rootId) => logger.job('meeting-series-top-up').error('meeting series top-up failed', { err, meetingId: rootId }));
+      // 1.23: Teams meetings left behind by cancelled or deleted meetings (every delete try failed) go now.
+      await teamsMeetings.sweepLeftovers().catch((err) => logger.job('meeting-series-top-up').error('Microsoft Teams: sweeping left-over Teams meetings failed', { err }));
     }).catch(sweepFailed('meeting-series-top-up', 'meeting series top-up'));
   void runMeetingSeriesTopUp();
   const meetingSeriesTimer = setInterval(() => void runMeetingSeriesTopUp(), 6 * 60 * 60 * 1000);
@@ -2028,6 +2070,8 @@ async function main(): Promise<void> {
       productName: env.PRODUCT_NAME,
       companyName: env.COMPANY_NAME,
       emailEnabled: emailService.isConfigured(),
+      // 1.23: automatic Teams links are set up (the website shows Settings → Microsoft Teams and the tick).
+      microsoftTeams: Boolean(microsoftConnections),
       // The company week start (everyone's default) and the weekly summary switch, read on each /config.
       company: () => settingsService.companySettings(),
       // The APK this server hosts (the downloads folder, or the web root); otherwise ANDROID_APP_URL (if set).
@@ -2074,6 +2118,18 @@ async function main(): Promise<void> {
       userName: async (id) => (await resolveUserNames([id])).get(id) ?? null,
     },
     backups: backups.routes,
+    // 1.23 automatic Teams links: Settings → Microsoft Teams, the meeting form's tick and Make Teams link.
+    microsoft: {
+      connections: microsoftConnections,
+      teams: teamsMeetings,
+      appUrl: env.APP_URL,
+      secureCookies: env.NODE_ENV === 'production',
+      canEditMeeting,
+      getMeeting: (id) => meetingService.getMeeting(id).catch(() => null),
+      notify: meetingNotifyService,
+      logger,
+    },
+    meetingTeams: teamsMeetings,
   });
 
   // Serve uploaded attachment files from disk at /uploads/<key> (matches the stored url).

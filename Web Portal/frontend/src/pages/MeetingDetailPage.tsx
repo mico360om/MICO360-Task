@@ -18,6 +18,7 @@ import { MinutesEmailDialog, type MinutesPrefill } from '../components/meeting/M
 import { MinutesSentLog } from '../components/meeting/MinutesSentLog';
 import { FinalMinutesSection } from '../components/meeting/FinalMinutesSection';
 import { InviteeView } from '../components/meeting/InviteeView';
+import { TeamsLinkNotice } from '../components/meeting/TeamsLinkNotice';
 import { CancelMeetingDialog, DeleteMeetingDialog, exportMinutes, meetingFailure, useDuplicateMeeting } from '../components/meeting/meeting-actions';
 import { Section, userName, type MeetingPageUser } from '../components/meeting/kit';
 import type { ActionMenuItem } from '../components/meeting/ActionMenu';
@@ -287,6 +288,16 @@ export function MeetingDetailPage() {
         onPrimary={runPrimary}
         menu={menu}
         series={seriesContext ? <SeriesLine context={seriesContext} timeZone={timeZone} /> : null}
+      />
+
+      {/* 1.23: waiting for its Teams link — its organizer can make it now. */}
+      <TeamsLinkNotice
+        meeting={meeting}
+        onMade={() => {
+          void qc.invalidateQueries({ queryKey: ['meeting', id], exact: true });
+          void qc.invalidateQueries({ queryKey: ['meetings'] });
+          setNotice({ text: 'The Teams link is made.' });
+        }}
       />
 
       {notice ? (

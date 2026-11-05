@@ -334,6 +334,8 @@ export interface MeetingEmailParams {
   whenLabel: string;
   location?: string | null;
   onlineLink?: string | null;
+  /** 1.23: 'TEAMS' — the online link is a Microsoft Teams meeting's. */
+  onlineMeetingProvider?: 'TEAMS' | null;
   organizerName?: string | null;
   projectName?: string | null;
   description?: string | null;
@@ -346,7 +348,7 @@ export interface MeetingEmailParams {
 function meetingRows(p: MeetingEmailParams): Array<[string, string]> {
   const rows: Array<[string, string]> = [['When', p.whenLabel]];
   if (p.location) rows.push(['Where', p.location]);
-  if (p.onlineLink) rows.push(['Online', p.onlineLink]);
+  if (p.onlineLink) rows.push([p.onlineMeetingProvider === 'TEAMS' ? 'Microsoft Teams' : 'Online', p.onlineLink]);
   if (p.organizerName) rows.push(['Organizer', p.organizerName]);
   rows.push(['Project', p.projectName ?? 'Standalone meeting']);
   return rows;

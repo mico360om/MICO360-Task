@@ -42,7 +42,7 @@ export function memoryMeetings(): MemoryMeetings {
       const rec: MeetingRecord = {
         id: `m${++seq}`, title: d.title, description: d.description ?? null, category: d.category ?? null,
         status: d.status ?? 'DRAFT', projectId: d.projectId ?? null, companyId: d.companyId ?? null, organizerId: d.organizerId,
-        location: d.location ?? null, onlineLink: d.onlineLink ?? null, startAt: d.startAt, endAt: d.endAt ?? null,
+        location: d.location ?? null, onlineLink: d.onlineLink ?? null, onlineMeetingProvider: d.onlineMeetingProvider ?? null, startAt: d.startAt, endAt: d.endAt ?? null,
         timeZone: d.timeZone ?? null, recurrenceRule: d.recurrenceRule ?? null, recurrenceParentId: d.recurrenceParentId ?? null,
         recurrenceStart: d.recurrenceStart ?? null, templateId: d.templateId ?? null, transcript: null,
         invitesSentAt: d.invitesSentAt ?? null, reminderSentAt: null, createdById: d.createdById, createdAt: now, updatedAt: now,

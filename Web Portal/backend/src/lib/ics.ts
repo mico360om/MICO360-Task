@@ -45,6 +45,10 @@ export interface IcsEvent {
   description?: string | null;
   location?: string | null;
   url?: string | null;
+  /** 1.23: where to join online — written under the description (a web address only). */
+  onlineLink?: string | null;
+  /** 1.23: 'TEAMS' — the link is a Microsoft Teams meeting's (Outlook's Teams property is added). */
+  onlineMeetingProvider?: 'TEAMS' | null;
   organizer: IcsPerson;
   attendees?: IcsPerson[];
   recurrence?: IcsRecurrence | null;
@@ -256,9 +260,15 @@ function vevent(event: IcsEvent, method: IcsMethod): string[] {
   lines.push(when('DTSTART', event.start));
   if (event.end) lines.push(when('DTEND', event.end));
   lines.push(`SUMMARY:${escapeText(event.summary)}`);
-  if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
+  // 1.23: the meeting's link travels in the calendar file too (a Teams one also as Outlook's Teams property).
+  const link = event.onlineLink && /^https?:\/\/\S+$/i.test(event.onlineLink.trim()) ? event.onlineLink.trim() : null;
+  const teams = Boolean(link && event.onlineMeetingProvider === 'TEAMS');
+  const join = link ? (teams ? `Join the Microsoft Teams meeting: ${link}` : `Join online: ${link}`) : null;
+  const description = [event.description || null, join].filter(Boolean).join('\n\n');
+  if (description) lines.push(`DESCRIPTION:${escapeText(description)}`);
   if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
   if (event.url) lines.push(`URL:${event.url}`);
+  if (teams) lines.push(`X-MICROSOFT-SKYPETEAMSMEETINGURL:${escapeText(link!)}`);
   lines.push(person('ORGANIZER', event.organizer));
   for (const a of event.attendees ?? []) lines.push(person('ATTENDEE', a));
   if (event.recurrence && !event.recurrence.paused && !event.recurrenceId) lines.push(`RRULE:${recurrenceToRrule(event.recurrence, tz, event.start)}`);

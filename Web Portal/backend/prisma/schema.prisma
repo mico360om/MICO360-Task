@@ -760,6 +760,27 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+/// 1.23: a person's own Microsoft account, connected for automatic Teams links (Settings → Microsoft
+/// Teams). `userId` has no foreign key (like the minutes send log); the row is removed on Disconnect,
+/// deactivation and deletion.
+model MicrosoftConnection {
+  id              String   @id @default(cuid())
+  userId          String   @unique @db.VarChar(191)
+  /// The account's tenant (directory) id and Microsoft user id, and how it is named ("Connected as …").
+  tenantId        String   @db.VarChar(64)
+  microsoftUserId String   @db.VarChar(64)
+  email           String?  @db.VarChar(320)
+  displayName     String?  @db.VarChar(200)
+  /// The refresh token sealed with MS_TOKEN_KEY (AES-256-GCM, version byte, bound to the person); null once refused.
+  refreshTokenEnc String?  @db.Text
+  /// Why the connection stopped working (connect again), shown in Settings.
+  problem         String?  @db.VarChar(300)
+  connectedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("microsoft_connections")
+}
+
 model RefreshToken {
   id        String    @id @default(cuid())
   userId    String
@@ -1053,7 +1074,14 @@ model Meeting {
   projectId          String?
   organizerId        String
   location           String?
-  onlineLink         String?
+  /// 1.23: up to 2048 characters (a Teams join link is about 250; the API has always taken 2048).
+  onlineLink         String?       @db.VarChar(2048)
+  /// 1.23: 'TEAMS' when the online link was (or is to be) made by Microsoft Teams; null for a hand-pasted link.
+  onlineMeetingProvider String?    @db.VarChar(16)
+  /// 1.23: the Teams meeting's id in Microsoft Graph (null: none made yet). Never sent to the apps.
+  onlineMeetingId    String?       @db.VarChar(512)
+  /// 1.23: whose own Microsoft account made the Teams meeting (only theirs may change or delete it).
+  onlineMeetingOwnerId String?     @db.VarChar(191)
   startAt            DateTime
   endAt              DateTime?
   timeZone           String?
@@ -1093,6 +1121,7 @@ model Meeting {
   @@index([seriesId])
   @@index([status])
   @@index([startAt])
+  @@index([onlineMeetingId])
   // One meeting per place in a series, so a series is never filled in twice.
   @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")

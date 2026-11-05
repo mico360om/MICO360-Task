@@ -107,6 +107,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   schedule part-way) is two series; merge them on the Series page. Adding a repeating meeting to
   another series brings all its meetings; moving meetings to another project takes them out of their
   series (the form says so before saving).
+- Automatic Teams links: a meeting can get its Microsoft Teams link by itself. Connect your own
+  Microsoft account once in Settings → Microsoft Teams (Microsoft's own sign-in page; Settings then
+  says "Connected as …", with Disconnect). The meeting form then has a "Create a Teams link" tick under
+  Online link: when the meeting is saved, your Microsoft account makes the Teams meeting and its join
+  link goes into the meeting's Online link, the invitation email and the calendar file. A repeating
+  meeting gets one Teams link for all its meetings. A new time or title updates the Teams meeting, and
+  cancelling or deleting the meeting deletes it. If Microsoft can't be reached, the meeting is saved
+  anyway with "The Teams link couldn't be made — try again" and a Make Teams link button (also on the
+  meeting's page). Not connected: the form shows "Connect Microsoft Teams in Settings"; pasting a link
+  works as before. The meeting's page says "Join on Teams". It appears once your Microsoft 365
+  administrator has registered the app — the one-time steps are in docs/microsoft-teams-setup.md;
+  until then nothing changes.
 
 ### Improvements
 - Show to client: a new tick "Also show its description" — the Client portal shows a task's
@@ -140,10 +152,18 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Reading the text inside files runs apart from the rest of the server, with a time and memory limit
   and a cap on how far a Word, Excel or PowerPoint file may unpack, so a large or harmful file can't
   slow the site down or stop it.
+- Teams links: each person's Microsoft connection is made with Microsoft's sign-in (authorization
+  code with PKCE and a single-use, short-lived check that it is the same person in the same browser),
+  kept locked on the server (AES-256-GCM with its own key), never sent to the browser or written to a
+  log, checked against the allowed Microsoft tenant each time, and deleted on Disconnect or when the
+  account is deactivated. Only the organizer's own account is ever used; client accounts can't use
+  it. Connecting and disconnecting are in the audit log.
 
 ### Bug fixes
 - Task panel: a PDF's Preview shows the PDF again. The site's security policy had been refusing
   the preview, so the box stayed empty.
+- A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
+  link pasted by hand, used to be refused as "too long".
 
 ## [1.22.3] - 2026-11-05
 

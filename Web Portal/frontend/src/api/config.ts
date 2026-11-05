@@ -15,6 +15,8 @@ export interface AppConfig {
   weekStart?: 0 | 1 | 6;
   /** The weekly management summary is on for the company (an administrator can turn it off for everyone). */
   weeklySummaryEnabled?: boolean;
+  /** 1.23: automatic Teams links are set up on this server (Settings → Microsoft Teams and the meeting form's tick). */
+  microsoftTeams?: boolean;
 }
 
 export function configApi(client: ApiClient) {

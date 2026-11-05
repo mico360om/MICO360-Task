@@ -324,6 +324,7 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       whenLabel: formatWhen(m),
       location: m.location,
       onlineLink: m.onlineLink,
+      onlineMeetingProvider: m.onlineMeetingProvider ?? null,
       organizerName: organizer?.name ?? null,
       projectName,
       description: m.description,
@@ -391,6 +392,9 @@ export function createMeetingNotifyService(deps: MeetingNotifyDeps): MeetingNoti
       description: m.description,
       location: m.location,
       url: `${deps.appUrl.replace(/\/$/, '')}/meetings/${m.id}`,
+      // 1.23: where to join (a Teams link as one) — in the calendar file as in the email.
+      onlineLink: m.onlineLink,
+      onlineMeetingProvider: m.onlineMeetingProvider ?? null,
       organizer,
       attendees: icsAttendees,
       stamp: now(),

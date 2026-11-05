@@ -17,6 +17,7 @@ import {
   accountLockedEmail,
   genericNotificationEmail,
   meetingMinutesEmail,
+  meetingInviteEmail,
 } from './email-templates';
 
 describe('email templates (existing signatures preserved)', () => {
@@ -261,5 +262,17 @@ describe('minutes email — the project’s identity', () => {
     expect(e.html).toContain('&lt;b&gt;X&lt;/b&gt;');
     expect(e.html).not.toContain('javascript:');
     expect(e.html).not.toContain('url(x)');
+  });
+});
+
+describe('meeting invitation — a Teams link (1.23)', () => {
+  const base = { title: 'OXY review', whenLabel: 'Thu 3 Dec 2026, 10:00', organizerName: 'Khurram', projectName: 'OXY', link: 'https://app.test/meetings/m1' };
+  it('names a Teams link as Microsoft Teams, and a plain link as Online', () => {
+    const teams = meetingInviteEmail({ ...base, onlineLink: 'https://teams.microsoft.com/l/meetup-join/x', onlineMeetingProvider: 'TEAMS' });
+    expect(teams.text).toContain('Microsoft Teams');
+    expect(teams.text).toContain('https://teams.microsoft.com/l/meetup-join/x');
+    const plain = meetingInviteEmail({ ...base, onlineLink: 'https://meet.example.com/x' });
+    expect(plain.text).toContain('Online');
+    expect(plain.text).not.toContain('Microsoft Teams');
   });
 });
