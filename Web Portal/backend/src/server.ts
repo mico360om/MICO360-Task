@@ -1753,7 +1753,7 @@ async function main(): Promise<void> {
   const searchEngine = createSearchEngine({
     prisma,
     timeZone: companyTz,
-    suggest: (word) => searchVocabulary.suggest(word),
+    suggest: (word, opts) => searchVocabulary.suggest(word, opts),
     onStale: (kind, id) => void (kind === 'task' ? taskSearchIndex.taskChanged(id) : searchIndex.refresh(kind, [id]).catch((err) => logger.error('search: re-indexing an item failed', { err, kind, id }))),
   });
   const searchSemantic = createSemanticSearch({ prisma, ai: aiFeatureService, logger });

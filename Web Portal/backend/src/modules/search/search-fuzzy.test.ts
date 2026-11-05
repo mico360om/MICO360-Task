@@ -67,3 +67,36 @@ describe('createVocabulary', () => {
     expect(await v.has('valve')).toBe(true);
   });
 });
+
+// Security review (1.23): the spelling pass compared each word typed with every indexed word on the
+// server's one thread (0.4 s a word at 300k words, 2.5 s for six), on nearly every top-bar keystroke;
+// adding words copied a whole list per word. It now keeps to a time budget, and adding is cheap.
+describe('createVocabulary — kept to its time', () => {
+  const letters = (i: number, n: number) => Array.from({ length: n }, (_, k) => String.fromCharCode(97 + (Math.floor(i / 26 ** k) % 26))).join('');
+
+  it('stops at its deadline: past it, nothing more is compared (a word one letter off at the end isn’t reached)', async () => {
+    const words = [...Array.from({ length: 5000 }, (_, i) => `filler${letters(i, 3)}`), 'pumps'];
+    const v = createVocabulary({ load: async () => words });
+    expect(await v.suggest('pumpz')).toEqual(['pumps']);
+    expect(await v.suggest('pumpz', { deadline: 0 })).toEqual([]);
+  });
+
+  it('answers within its budget with a large vocabulary', async () => {
+    const words = Array.from({ length: 300_000 }, (_, i) => letters(i * 7919, 6 + (i % 5)));
+    const v = createVocabulary({ load: async () => words });
+    await v.has('warm');
+    const t = performance.now();
+    await v.suggest('qwertzu');
+    expect(performance.now() - t).toBeLessThan(150);
+  });
+
+  it('adds many new words one at a time without copying its lists', async () => {
+    const v = createVocabulary({ load: async () => [] });
+    await v.has('warm');
+    const fresh = Array.from({ length: 80_000 }, (_, i) => letters(i, 6));
+    const t = performance.now();
+    for (const w of fresh) await v.add([w]);
+    expect(performance.now() - t).toBeLessThan(2000);
+    expect(await v.has(fresh[79_999]!)).toBe(true);
+  });
+});

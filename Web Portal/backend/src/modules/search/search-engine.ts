@@ -31,6 +31,8 @@ export const FEW = 5;
 export const COUNT_CAP = 1000;
 /** The spelling and some-words passes add at most this many each. */
 const EXTRA = 50;
+/** One search's spelling pass, all its words together, stops after this long (security review, 1.23). */
+export const TYPO_BUDGET_MS = 60;
 
 export interface SearchAllInput {
   q: string;
@@ -55,6 +57,11 @@ export interface SearchAllInput {
   dueTo?: Date;
   includeArchived?: boolean;
   limit: number;
+  /**
+   * Security review (1.23): only items holding every word — no spelling or some-words pass, no counts
+   * (the top bar's other kinds, which show whole matches only). Absent: the full search.
+   */
+  exactOnly?: boolean;
   /** Where the page starts; `extra`: in the list of the extra passes (see the cursor). */
   offset?: number;
   extra?: boolean;
@@ -141,13 +148,16 @@ export function createSearchEngine({
   timeZone,
   suggest,
   onStale,
+  clock = () => performance.now(),
 }: {
   prisma: PrismaClient;
   timeZone: string;
-  /** Spellings a word may be a mistake for (the vocabulary); absent: no spelling pass. */
-  suggest?: (word: string) => Promise<string[]>;
+  /** Spellings a word may be a mistake for (the vocabulary), each stopping at `deadline`; absent: no spelling pass. */
+  suggest?: (word: string, opts?: { deadline?: number }) => Promise<string[]>;
   /** An item the index was behind on: re-index it. */
   onStale?: (kind: SearchKind, id: string) => void;
+  /** The clock the spelling pass's deadline is on (the vocabulary's: performance.now). */
+  clock?: () => number;
 }) {
   /** The task half of the query: tasks this person may open that hold the words, with the filters. */
   function taskPart(pass: Pass, input: SearchAllInput, scored: boolean): Prisma.Sql | null {
@@ -338,7 +348,7 @@ export function createSearchEngine({
     const all = (words: string[]) => words.length === terms.length;
 
     if (!input.extra) {
-      const wantCounts = input.withCounts || offset === 0;
+      const wantCounts = !input.exactOnly && (input.withCounts || offset === 0);
       // With a kind (or a task status) chosen, the type chips still count every kind: those counts
       // leave that choice out (every other filter holds); the total is of what is shown.
       const [page, counted, facets] = await Promise.all([
@@ -347,8 +357,8 @@ export function createSearchEngine({
         wantCounts && input.withCounts && narrowed(input) ? counts(exact, unnarrowed(input)) : Promise.resolve(null),
       ]);
       const total = counted ? Object.values(counted).reduce((a, b) => a + b, 0) : null;
-      // Plenty hold every word (or this is a later page of them): those, a page at a time.
-      if (offset > 0 || total === null || total >= FEW) {
+      // Plenty hold every word (or this is a later page of them, or only whole matches are asked for): those, a page at a time.
+      if (offset > 0 || total === null || total >= FEW || input.exactOnly) {
         const hits = await describe(page.slice(0, limit), terms, all, input, byNumber);
         return {
           hits,
@@ -380,9 +390,11 @@ export function createSearchEngine({
     exactRows?: { kind: SearchKind; id: string }[],
   ): Promise<SearchAllResult> {
     // Spelling mistakes: each word of 4 letters or more also as the indexed words it may be a mistake for.
+    // Security review (1.23): all of a search's words share one deadline (the server has one thread).
     const alternatives = new Map<string, string[]>();
+    const deadline = clock() + TYPO_BUDGET_MS;
     if (suggest) for (const t of terms.slice(0, 6)) if (allowedTypos(t) > 0) {
-      const alts = (await suggest(t)).filter((a) => a !== t);
+      const alts = (await suggest(t, { deadline })).filter((a) => a !== t);
       if (alts.length) alternatives.set(t, alts);
     }
     const closeGroups = terms.map((t) => [t, ...(alternatives.get(t) ?? [])]);

@@ -196,6 +196,21 @@ describe('search everything (database)', () => {
     expect((await run(`ganarator${L}`)).hits.map((h) => h.id)).toContain(t.typo);
   });
 
+  // Security review (1.23): the spelling pass is kept to its time — the top bar asks for whole matches
+  // only (no spelling or some-words pass), and one search's words share one deadline.
+  it('whole matches only skips the spelling and some-words passes; the words of one search share one deadline', async () => {
+    const asked: { word: string; deadline: number | undefined }[] = [];
+    const spy = createSearchEngine({ prisma, timeZone: 'Asia/Muscat', suggest: (word, o) => (asked.push({ word, deadline: o?.deadline }), vocabulary.suggest(word, o)) });
+    const r = await spy.search({ q: `genrator${L} ${w('nothingsuch')}`, scope: everyone, viewerId: owner, limit: 5, exactOnly: true });
+    expect(r.hits).toEqual([]);
+    expect(asked).toEqual([]);
+    const again = await spy.search({ q: `genrator${L} ${w('nothingsuch')}`, scope: everyone, viewerId: owner, limit: 20 });
+    expect(again.hits.map((h) => h.id)).toContain(t.typo);
+    expect(asked).toHaveLength(2);
+    expect(typeof asked[0]!.deadline).toBe('number');
+    expect(asked[1]!.deadline).toBe(asked[0]!.deadline);
+  });
+
   it('when few items hold every word, those holding some of them follow (marked)', async () => {
     const r = await run(`${w('lift')} ${w('nothingsuch')} ${w('shift')}`);
     expect(r.hits.map((h) => h.id)).toEqual([t.words]);

@@ -18,7 +18,7 @@ const tokenFor = async (id: string, roles: string[]) => (await tokenService.issu
 
 const hit = (kind: SearchHit['kind'], id: string): SearchHit => ({ kind, id, title: `${kind} ${id}`, titleRanges: [], project: null, status: null, date: null, people: null, matches: [], target: { type: 'task', taskId: id } });
 
-async function makeApp() {
+async function makeApp(opts: { searchPerMinute?: number } = {}) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -30,6 +30,7 @@ async function makeApp() {
   const app = await buildApp({
     authService,
     tokenService,
+    ...(opts.searchPerMinute ? { searchPerMinute: opts.searchPerMinute } : {}),
     searchService: createSearchService({ data: { async getSearchData() { return { tasks: [], projects: [], users: [] }; } } }),
     searchEverything: {
       engine: {
@@ -103,5 +104,33 @@ describe('GET /search/all — search everything', () => {
     expect(res.json()).toEqual({ data: { state: 'off', message: 'AI search is off.' } });
     expect(asked[0]).toMatchObject({ q: 'overdue electrical tasks', viewer: { id: 'u1' }, filters: { kinds: ['task'], personId: 'u1' } });
     expect((await app.inject({ method: 'POST', url: '/api/v1/search/ai', headers: auth, payload: { q: '' } })).statusCode).toBe(400);
+  });
+});
+
+// Security review (1.23): the spelling pass is costly. The top bar asks for whole matches only (it drops
+// the close and partial ones anyway), and each person's searches are limited per minute.
+describe('search costs', () => {
+  it('the top bar’s other kinds ask for whole matches only: no spelling or some-words passes', async () => {
+    const { app, calls } = await makeApp();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/search?q=pump', headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(calls[0]).toMatchObject({ kinds: ['note', 'minutes', 'file', 'inspection'], exactOnly: true });
+  });
+
+  it('each person’s searches are limited per minute (the top bar, the results page, tasks, the AI panel)', async () => {
+    const { app } = await makeApp({ searchPerMinute: 3 });
+    const as = async (id: string) => ({ authorization: `Bearer ${await tokenFor(id, ['EMPLOYEE'])}` });
+    for (const url of ['/api/v1/search?q=pump', '/api/v1/search/all?q=pump']) {
+      const mine = await as(`u-${url.length}`);
+      for (let i = 0; i < 3; i++) expect((await app.inject({ method: 'GET', url, headers: mine })).statusCode, `${url} ${i}`).toBe(200);
+      const over = await app.inject({ method: 'GET', url, headers: mine });
+      expect(over.statusCode, url).toBe(429);
+      expect(over.json().error.code).toBe('RATE_LIMITED');
+      // Someone else still searches.
+      expect((await app.inject({ method: 'GET', url, headers: await as(`other-${url.length}`) })).statusCode).toBe(200);
+    }
+    const ai = await as('u-ai');
+    for (let i = 0; i < 3; i++) await app.inject({ method: 'POST', url: '/api/v1/search/ai', headers: ai, payload: { q: 'pump' } });
+    expect((await app.inject({ method: 'POST', url: '/api/v1/search/ai', headers: ai, payload: { q: 'pump' } })).statusCode).toBe(429);
   });
 });

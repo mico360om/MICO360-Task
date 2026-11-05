@@ -183,6 +183,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Teams links in a repeating meeting with more than one organizer: when one of its meetings is handed
   to someone else, making or removing the Teams link there changes only the meetings that person
   organizes — their Microsoft account never hosts, or takes away, the link of the others' meetings.
+- Search can't slow the site down for everyone: checking for spelling mistakes now stops after a
+  fraction of a second, the search in the top bar no longer does it at all (it shows only results that
+  hold every word), and each person can search up to 120 times a minute on each search.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams

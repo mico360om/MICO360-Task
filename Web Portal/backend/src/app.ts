@@ -309,6 +309,8 @@ export interface AppDeps extends AuthRouteDeps {
   trustProxy?: boolean | number | string | string[];
   /** Requests per minute per signed-in user (or per IP when signed out). Default 600. */
   rateLimitMax?: number;
+  /** Security review (1.23): a person's searches a minute on each search route (default 120). */
+  searchPerMinute?: number;
   /** Requests per minute per IP for sign-in, code and password-reset endpoints. Default 20. */
   authRateLimitMax?: number;
   /** Enables `Idempotency-Key` support on POST routes (replay-safe offline queues). */
@@ -875,7 +877,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, {

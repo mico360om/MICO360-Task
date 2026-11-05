@@ -95,14 +95,24 @@ export interface SearchRouteDeps {
   myProjectsOnly?: (viewer: { id: string; roles: string[] }) => Promise<boolean>;
   /** 1.23 Search everything (GET /search/all, the AI panel; GET /search's `more`). */
   everything?: SearchEverythingDeps;
+  /**
+   * Security review (1.23): searches a person may make a minute, each route on its own (the top bar, the
+   * results page, the task search, the AI panel). Default SEARCHES_PER_MINUTE.
+   */
+  perMinute?: number;
 }
+
+/** A person's searches a minute on each search route: well above typing in the top bar (a search per 250 ms pause). */
+export const SEARCHES_PER_MINUTE = 120;
 
 export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRouteDeps): Promise<void> {
   const { searchService, guard } = deps;
   // The one place both searches' project scope comes from (task-search-scope), with the pick.
   const scopes = createTaskSearchScope({ accessibleProjectIds: deps.accessibleProjectIds });
   const pickOf = deps.pickOf ?? NO_PICK;
-  app.get('/search', { preHandler: guard.authenticate }, async (req) => {
+  // Per signed-in person (the site's own key: their user id), each route counted on its own.
+  const searchRoute = { preHandler: guard.authenticate, config: { rateLimit: { max: deps.perMinute ?? SEARCHES_PER_MINUTE, timeWindow: '1 minute' } } };
+  app.get('/search', searchRoute, async (req) => {
     const { q } = querySchema.parse(req.query);
     // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to —
     // companies: in the picked company; people they may find; an invitation shows no notes.
@@ -123,7 +133,8 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       everything && parseTaskQuery(q).terms.length
         ? everything.scope
             .forViewer(viewer, pick)
-            .then((scope) => everything.engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: GLOBAL_MORE_LIMIT }))
+            // Whole matches only: no spelling or some-words pass (security review) — they'd be dropped below anyway.
+            .then((scope) => everything.engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: GLOBAL_MORE_LIMIT, exactOnly: true }))
             // Only what holds every word (review M10): close and partial matches are for the results page, where they say so.
             .then((r) => r.hits.filter((h) => !h.match), () => [] as SearchHit[])
         : Promise.resolve(null),
@@ -141,7 +152,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
    * time: `nextCursor` asks for the next page; the first page also says how many there are
    * (`total`, counted up to 1000 — `totalCapped` beyond).
    */
-  app.get('/search/tasks', { preHandler: guard.authenticate }, async (req) => {
+  app.get('/search/tasks', searchRoute, async (req) => {
     const p = taskQuerySchema.parse(req.query);
     const offset = decodeCursor(p.cursor);
     const first = offset === 0;
@@ -196,7 +207,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
      * best first; the first page also counts each kind (`counts`, up to 1000 each) and says which
      * spelling corrections found results (`corrected`).
      */
-    app.get('/search/all', { preHandler: guard.authenticate }, async (req) => {
+    app.get('/search/all', searchRoute, async (req) => {
       const p = allQuery.parse(req.query);
       const { offset, extra } = decodeAllCursor(p.cursor);
       const first = offset === 0 && !extra;
@@ -236,7 +247,7 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
       archived: z.boolean().optional(),
     });
     /** The AI panel: an answer from the items the person may open (one AI request off their limits). */
-    app.post('/search/ai', { preHandler: guard.authenticate }, async (req) => {
+    app.post('/search/ai', searchRoute, async (req) => {
       const b = askBody.parse(req.body ?? {});
       const type = typeof b.type === 'string' ? z.array(z.enum(SEARCH_KINDS)).parse(b.type.split(',').map((s) => s.trim()).filter(Boolean)) : b.type;
       const viewer = { id: req.user!.id, roles: req.user!.roles ?? [] };

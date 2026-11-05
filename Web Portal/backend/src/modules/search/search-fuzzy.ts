@@ -48,12 +48,26 @@ export interface VocabularyDeps {
   now?: () => number;
   /** At most this many words are kept in memory. */
   maxWords?: number;
+  /** The clock a suggestion's deadline is on (milliseconds; default performance.now). */
+  clock?: () => number;
 }
 
 /** At most this many corrections are tried per word. */
 export const MAX_SUGGESTIONS = 4;
+/**
+ * Security review (1.23): one word's spelling pass stops after this long (the server has one thread), with
+ * what it found so far. A search's words share one deadline (search-engine).
+ */
+export const SUGGEST_BUDGET_MS = 25;
+/** How many words are compared between looks at the clock. */
+const CLOCK_EVERY = 256;
 
-export function createVocabulary({ load, store, ttlMs = 10 * 60_000, now = () => Date.now(), maxWords = 300_000 }: VocabularyDeps) {
+export interface SuggestOptions {
+  /** Stop comparing at this time (on the vocabulary's clock); absent: SUGGEST_BUDGET_MS from now. */
+  deadline?: number;
+}
+
+export function createVocabulary({ load, store, ttlMs = 10 * 60_000, now = () => Date.now(), maxWords = 300_000, clock = () => performance.now() }: VocabularyDeps) {
   let words = new Set<string>();
   let byLength = new Map<number, string[]>();
   let loadedAt: number | null = null;
@@ -100,26 +114,33 @@ export function createVocabulary({ load, store, ttlMs = 10 * 60_000, now = () =>
     return words.has(word);
   }
 
-  /** Words this one may be a misspelling of (closest first; the start of a longer word as that start). */
-  async function suggest(term: string): Promise<string[]> {
+  /**
+   * Words this one may be a misspelling of (closest first; the start of a longer word as that start).
+   * Kept to its time (`deadline`): what is found by then is the answer.
+   */
+  async function suggest(term: string, opts: SuggestOptions = {}): Promise<string[]> {
     const max = allowedTypos(term);
     if (max === 0) return [];
     await ready();
     if (words.has(term)) return [];
+    const deadline = opts.deadline ?? clock() + SUGGEST_BUDGET_MS;
     const n = [...term].length;
     const found = new Map<string, number>();
-    for (const [len, bucket] of byLength) {
+    let compared = 0;
+    scan: for (const [len, bucket] of byLength) {
       if (len < n - max) continue;
       for (const w of bucket) {
+        if (++compared % CLOCK_EVERY === 0 && clock() >= deadline) break scan;
         if (len <= n + max) {
           const d = editDistance(term, w, max);
           if (d <= max && d > 0) found.set(w, Math.min(found.get(w) ?? 9, d));
         }
         if (len > n) {
           // A part typed with a typo: compare with the word's starts of about the same length.
-          const letters = [...w];
+          // (A word of one-unit letters — nearly all — is cut as it is, without splitting it into letters.)
+          const letters = w.length === len ? null : [...w];
           for (let k = Math.max(1, n - max); k <= Math.min(len - 1, n + max); k++) {
-            const start = letters.slice(0, k).join('');
+            const start = letters ? letters.slice(0, k).join('') : w.slice(0, k);
             if (start === term || found.has(start)) continue;
             const d = editDistance(term, start, max);
             if (d <= max && d > 0) found.set(start, d + 0.5);
@@ -127,6 +148,7 @@ export function createVocabulary({ load, store, ttlMs = 10 * 60_000, now = () =>
         }
       }
     }
+    if (found.size === 0) return [];
     // Only the closest: a word one letter off makes those two letters off noise.
     const best = Math.min(...[...found.values()].map(Math.floor));
     return [...found.entries()]
@@ -145,7 +167,10 @@ export function createVocabulary({ load, store, ttlMs = 10 * 60_000, now = () =>
       if (words.size >= maxWords) break;
       words.add(w);
       const n = [...w].length;
-      byLength.set(n, [...(byLength.get(n) ?? []), w]);
+      // Into its length's list (never a copy of the list per word: that was quadratic).
+      const bucket = byLength.get(n);
+      if (bucket) bucket.push(w);
+      else byLength.set(n, [w]);
     }
     await store?.(fresh).catch(() => undefined);
   }
