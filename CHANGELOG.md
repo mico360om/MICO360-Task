@@ -174,6 +174,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   log, checked against the allowed Microsoft tenant each time, and deleted on Disconnect or when the
   account is deactivated. Only the organizer's own account is ever used; client accounts can't use
   it. Connecting and disconnecting are in the audit log.
+- A harmful PDF can no longer stop the server: files are read for search in a separate process of
+  their own, so a file that runs it out of memory stops only that reader, and the PDF reader now keeps
+  within a small, fixed amount of memory however a file is packed.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams

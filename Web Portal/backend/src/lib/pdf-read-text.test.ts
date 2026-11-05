@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { deflateSync } from 'node:zlib';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import PDFKit from 'pdfkit';
 import { PdfDocument } from './pdf-document';
 import { fontData } from './pdf-text';
@@ -144,6 +149,45 @@ describe('readPdfText', () => {
     const out = readPdfText(onePage('BT /F1 12 Tf (Slow) Tj ET'), { timeLimitMs: 5, now: () => (t += 10) });
     expect(out.truncated).toBe(true);
   });
+});
+
+// Security review (1.23): a 16 KB PDF whose one stream unpacks to 16 MB — ASCII85 "z"s, one long literal
+// string, one long array, an object stream's header of numbers — grew a JS array per byte and ran the
+// reader out of memory (taking its whole process down). Each is now read within a small memory: the
+// real reader, in a Node of its own with a 128 MB heap.
+describe('readPdfText within a small memory', () => {
+  const runner = join(mkdtempSync(join(tmpdir(), 'pdf-heap-')), 'run.ts');
+  writeFileSync(
+    runner,
+    [
+      `import { deflateSync } from 'node:zlib';`,
+      `import { readPdfText } from ${JSON.stringify(pathToFileURL(join(__dirname, 'pdf-read-text.ts')).href)};`,
+      `const MB = 1024 * 1024;`,
+      `const kind = process.argv[2];`,
+      `const page = (body: Buffer, filters: string) => Buffer.concat([`,
+      "  Buffer.from(`%PDF-1.4\\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\\n2 0 obj << /Type /Pages /Kids [3 0 R] >> endobj\\n3 0 obj << /Type /Page /Contents 4 0 R >> endobj\\n4 0 obj << /Filter ${filters} /Length ${body.length} >>\\nstream\\n`, 'latin1'),",
+      `  body, Buffer.from('\\nendstream\\nendobj\\n%%EOF', 'latin1')]);`,
+      `let pdf: Buffer;`,
+      `if (kind === 'a85') pdf = page(deflateSync(Buffer.alloc(16 * MB - 64, 0x7a)), '[/FlateDecode /ASCII85Decode]');`,
+      `else if (kind === 'literal') pdf = page(deflateSync(Buffer.concat([Buffer.from('BT ('), Buffer.alloc(15 * MB, 0x41), Buffer.from(') Tj ET')])), '/FlateDecode');`,
+      `else if (kind === 'array') pdf = page(deflateSync(Buffer.concat([Buffer.from('BT ['), Buffer.alloc(15 * MB, '0 '), Buffer.from('] TJ ET')])), '/FlateDecode');`,
+      `else {`,
+      `  const head = Buffer.alloc(15 * MB, '1 ');`,
+      "  const objStm = deflateSync(Buffer.concat([head, Buffer.from('<< >>')]));",
+      "  pdf = Buffer.concat([Buffer.from(`%PDF-1.5\\n1 0 obj << /Type /ObjStm /N 9999999 /First ${head.length} /Filter /FlateDecode /Length ${objStm.length} >>\\nstream\\n`, 'latin1'), objStm, Buffer.from('\\nendstream\\nendobj\\n%%EOF', 'latin1')]);",
+      `}`,
+      `const out = readPdfText(pdf, { timeLimitMs: 20_000 });`,
+      `console.log(JSON.stringify({ bytes: pdf.length, chars: out.text.length }));`,
+    ].join('\n'),
+  );
+  const backend = join(__dirname, '..', '..');
+
+  it.each(['a85', 'literal', 'array', 'objstm'])('a hostile PDF (%s) is read without running out of memory', (kind) => {
+    const r = spawnSync(process.execPath, ['--max-old-space-size=128', '--import', 'tsx', runner, kind], { cwd: backend, encoding: 'utf8', timeout: 60_000 });
+    expect(r.status, `${kind}: ${(r.stderr || '').split('\n').find((l) => /FATAL|Error/.test(l)) ?? r.stderr?.slice(0, 300)}`).toBe(0);
+    const out = JSON.parse(r.stdout.trim().split('\n').pop()!) as { bytes: number; chars: number };
+    expect(out.bytes).toBeLessThan(40_000);
+  }, 70_000);
 });
 
 /** A page whose font (object 7) is packed in an object stream (4); its ToUnicode map (6) is a plain stream. */

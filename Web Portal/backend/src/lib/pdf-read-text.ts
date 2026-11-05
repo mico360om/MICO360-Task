@@ -36,6 +36,19 @@ const MAX_STREAM_BYTES = 16 * 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_OBJECTS = 200_000;
 const MAX_DEPTH = 40;
+/** The most of one (literal string) kept — far more than any line of text (the whole text is 200k characters). */
+const MAX_STRING_BYTES = 256 * 1024;
+/** A (literal string)'s backslash escapes. */
+const LITERAL_ESCAPES = new Map<number, number>([
+  [0x6e, 10],
+  [0x72, 13],
+  [0x74, 9],
+  [0x62, 8],
+  [0x66, 12],
+  [0x28, 0x28],
+  [0x29, 0x29],
+  [0x5c, 0x5c],
+]);
 
 class PdfName {
   constructor(readonly name: string) {}
@@ -192,32 +205,47 @@ class Lexer {
     return out;
   }
 
+  /**
+   * A (literal string). Security review (1.23): its bytes went into a JS array, one element each — one
+   * 15 MB string took the reader's process down. Now at most MAX_STRING_BYTES are kept (in a buffer); the
+   * rest is read past.
+   */
   private literal(): PdfStr {
     const b = this.buf;
     this.pos++;
-    const bytes: number[] = [];
+    let bytes = Buffer.allocUnsafe(64);
+    let len = 0;
+    const keep = (v: number) => {
+      if (len >= MAX_STRING_BYTES) return;
+      if (len === bytes.length) {
+        const bigger = Buffer.allocUnsafe(Math.min(MAX_STRING_BYTES, bytes.length * 2));
+        bytes.copy(bigger, 0, 0, len);
+        bytes = bigger;
+      }
+      bytes[len++] = v;
+    };
     let nest = 1;
     while (this.pos < this.end) {
       const c = b[this.pos++]!;
       if (c === 0x5c) {
         const n = b[this.pos++];
         if (n === undefined) break;
-        const map: Record<number, number> = { 0x6e: 10, 0x72: 13, 0x74: 9, 0x62: 8, 0x66: 12, 0x28: 0x28, 0x29: 0x29, 0x5c: 0x5c };
-        if (n in map) bytes.push(map[n]!);
+        const esc = LITERAL_ESCAPES.get(n);
+        if (esc !== undefined) keep(esc);
         else if (n >= 0x30 && n <= 0x37) {
           let oct = n - 0x30;
           for (let k = 0; k < 2 && b[this.pos]! >= 0x30 && b[this.pos]! <= 0x37; k++) oct = oct * 8 + (b[this.pos++]! - 0x30);
-          bytes.push(oct & 0xff);
+          keep(oct & 0xff);
         } else if (n === 0x0d) {
           if (b[this.pos] === 0x0a) this.pos++;
-        } else if (n !== 0x0a) bytes.push(n);
+        } else if (n !== 0x0a) keep(n);
         continue;
       }
       if (c === 0x28) nest++;
       else if (c === 0x29 && --nest === 0) break;
-      bytes.push(c);
+      keep(c);
     }
-    return new PdfStr(Buffer.from(bytes));
+    return new PdfStr(Buffer.from(bytes.subarray(0, len)));
   }
 
   private hex(): PdfStr {
@@ -231,33 +259,49 @@ class Lexer {
   }
 }
 
-/** ASCII85 to bytes (a broken group ends it). */
+/** Whitespace between ASCII85 digits (what `\s` matches in Latin-1). */
+const isA85Space = (c: number) => (c >= 0x09 && c <= 0x0d) || c === 0x20 || c === 0xa0;
+
+/**
+ * ASCII85 to bytes (a broken group ends it), into one buffer of at most MAX_STREAM_BYTES. Security review
+ * (1.23): it grew a JS array per byte — 16 MB of "z"s (64 MB out) took the reader's process down.
+ */
 function ascii85(data: Buffer): Buffer {
-  const s = data.toString('latin1').replace(/\s/g, '').replace(/^<~/, '');
-  const end = s.indexOf('~>');
-  const body = end >= 0 ? s.slice(0, end) : s;
-  const out: number[] = [];
-  let group: number[] = [];
+  const out = Buffer.allocUnsafe(Math.min(MAX_STREAM_BYTES, data.length * 4 + 4));
+  let o = 0;
+  const group = [0, 0, 0, 0, 0];
+  let g = 0;
   const flush = (n: number) => {
     let v = 0;
-    for (let k = 0; k < 5; k++) v = v * 85 + (group[k] ?? 84);
-    for (let k = 0; k < n - 1; k++) out.push((v >>> (24 - 8 * k)) & 0xff);
+    for (let k = 0; k < 5; k++) v = v * 85 + (k < n ? group[k]! : 84);
+    for (let k = 0; k < n - 1 && o < out.length; k++) out[o++] = (v >>> (24 - 8 * k)) & 0xff;
   };
-  for (const ch of body) {
-    if (ch === 'z' && group.length === 0) {
-      out.push(0, 0, 0, 0);
+  let i = 0;
+  // A leading "<~" (after any whitespace) is the encoding's own start mark.
+  while (i < data.length && isA85Space(data[i]!)) i++;
+  if (data[i] === 0x3c) {
+    let j = i + 1;
+    while (j < data.length && isA85Space(data[j]!)) j++;
+    if (data[j] === 0x7e) i = j + 1;
+  }
+  for (; i < data.length && o < out.length; i++) {
+    const c = data[i]!;
+    if (isA85Space(c)) continue;
+    if (c === 0x7e) break; // "~>": the end
+    if (c === 0x7a && g === 0) {
+      for (let k = 0; k < 4 && o < out.length; k++) out[o++] = 0;
       continue;
     }
-    const d = ch.charCodeAt(0) - 33;
+    const d = c - 33;
     if (d < 0 || d > 84) break;
-    group.push(d);
-    if (group.length === 5) {
+    group[g++] = d;
+    if (g === 5) {
       flush(5);
-      group = [];
+      g = 0;
     }
   }
-  if (group.length) flush(group.length);
-  return Buffer.from(out);
+  if (g) flush(g);
+  return out.subarray(0, o);
 }
 
 /** A stream's bytes with its filters undone; null when one isn't supported (or for a picture). */
