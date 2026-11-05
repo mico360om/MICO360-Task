@@ -11,6 +11,7 @@ import { exportMinutes, meetingFailure } from './meeting-actions';
 import type { MeetingSeriesContext } from '../../api/meeting-series';
 import { SeriesLine } from './series/SeriesLine';
 import { CarryOverSection, SeriesSection } from './series/SeriesSection';
+import { carriedTableGroups } from './series/carried-groups';
 import { MeetingTable, useMeetingTableAvailable } from './MeetingTable';
 import { VIEW_ICONS, ViewSwitch } from '../data-table/ViewSwitch';
 import { useViewChoice } from '../data-table/hooks';
@@ -112,12 +113,27 @@ export function InviteeView({
     </Section>
   );
   const agendaPart = asTable ? (
-    <MeetingTable key="table" meetingId={meeting.id} directory={directory} canEdit={false} readOnly items={myActionItems} pollMs={false} timeZone={timeZone} switcher={switcher} />
+    <MeetingTable
+      key="table"
+      meetingId={meeting.id}
+      directory={directory}
+      canEdit={false}
+      readOnly
+      items={myActionItems}
+      pollMs={false}
+      timeZone={timeZone}
+      switcher={switcher}
+      // 1.23 series: their own open items from earlier meetings, the last group (to read, as their own items are).
+      extraGroups={series ? carriedTableGroups(series.openFromEarlier, { timeZone, editable: false }) : []}
+    />
   ) : (
     <AgendaSection key="agenda" meetingId={meeting.id} startAt={meeting.startAt} endAt={meeting.endAt} directory={directory} canEdit={false} ended={finished} pollMs={false} switcher={switcher} />
   );
   // Their own open items from the series' earlier meetings (read-only here, as their own items are).
   const carryPart = series ? <CarryOverSection key="carry-over" context={series} meetingId={meeting.id} timeZone={timeZone} editable={false} /> : null;
+  // In the Table view they are the table's last group instead.
+  const actionParts = asTable ? [] : [actionsPart];
+  const carryParts = asTable ? [] : [carryPart];
 
   return (
     <div>
@@ -134,7 +150,7 @@ export function InviteeView({
         series={series ? <SeriesLine context={series} timeZone={timeZone} /> : null}
       />
       <div className="grid gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">{finished ? [minutesPart, ...(asTable ? [] : [actionsPart]), carryPart, agendaPart] : [agendaPart, carryPart, ...(asTable ? [] : [actionsPart]), minutesPart]}</div>
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">{finished ? [minutesPart, ...actionParts, ...carryParts, agendaPart] : [agendaPart, ...carryParts, ...actionParts, minutesPart]}</div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
             {meeting.description ? <p dir="auto" className="whitespace-pre-wrap text-start text-sm text-ink">{meeting.description}</p> : <p className="text-sm text-ink-3">No description.</p>}

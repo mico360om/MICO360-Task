@@ -43,11 +43,14 @@ const series = (over: Record<string, unknown> = {}) => ({
 let calls: { url: string; method: string; body?: Record<string, unknown> }[];
 let meetingData: ReturnType<typeof meeting>;
 let seriesData: ReturnType<typeof series> | null;
+let agendaData: unknown[];
 
 beforeEach(() => {
   calls = [];
   meetingData = meeting();
   seriesData = series();
+  agendaData = [];
+  localStorage.clear();
   useAuthStore.getState().setSession({ user: { id: 'me', email: 'me@x', username: 'me', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
@@ -58,6 +61,7 @@ beforeEach(() => {
     if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat', productName: '', companyName: '', serverTime: new Date().toISOString() } });
     if (u.endsWith('/meetings/m3') && method === 'GET') return json({ data: meetingData });
     if (u.endsWith('/meetings/m3/series')) return json({ data: seriesData });
+    if (u.endsWith('/meetings/m3/agenda')) return json({ data: agendaData });
     if (u.endsWith('/meetings/m3/series-options')) return json({ data: { canChange: true, repeats: false, familySize: 1, current: null, series: [{ id: 's9', name: 'Board meetings' }] } });
     if (u.endsWith('/meeting-series') && method === 'POST') return json({ data: { id: 's2', name: body?.name } }, 201);
     if (u.includes('/meeting-series/') && method === 'POST') return new Response(null, { status: 204 });
@@ -216,5 +220,46 @@ describe('review fixes (5 Nov)', () => {
     renderPage();
     await screen.findByRole('heading', { name: /^Series/ });
     expect(screen.queryByRole('button', { name: /new meeting in this series/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('1.23 integration: the Table view of a meeting in a series', () => {
+  const topic = { id: 'a1', meetingId: 'm3', title: 'Site progress', ownerId: null, expectedMinutes: 15, position: 0, completed: false, linkedPrevActionId: null, createdAt: '' };
+
+  it('shows "Open from earlier meetings" as the table’s last group (not a section of its own), noted "from 1 Sep"', async () => {
+    agendaData = [topic];
+    renderPage();
+    await screen.findByRole('heading', { name: /open from earlier meetings/i });
+    await userEvent.click(await screen.findByRole('button', { name: 'Table view' }));
+    const table = await screen.findByRole('table', { name: 'Agenda and action items' });
+    expect(screen.queryByRole('heading', { name: /open from earlier meetings/i })).toBeNull();
+    const groups = within(table).getAllByRole('rowgroup').slice(1);
+    const last = groups.at(-1)!;
+    expect(last).toHaveTextContent('Open from earlier meetings');
+    expect(last).toHaveTextContent('Send the drawings');
+    expect(within(last).getByRole('link', { name: /^from 1 sep: monthly 1/i })).toHaveAttribute('href', '/meetings/m1');
+  });
+
+  it('changes a carried item’s status in the table, on the item itself — and nothing else of it', async () => {
+    agendaData = [topic];
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Table view' }));
+    const table = await screen.findByRole('table', { name: 'Agenda and action items' });
+    await waitFor(() => expect(table).toHaveTextContent('Send the drawings'));
+    await userEvent.click(within(table).getByRole('button', { name: 'Status of Send the drawings: Open' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Completed' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/action-items/ai1'))?.body).toEqual({ status: 'COMPLETED' }));
+    expect(within(table).queryByRole('button', { name: /^Owner of Send the drawings/ })).toBeNull();
+    expect(within(table).queryByRole('button', { name: /^Priority of Send the drawings/ })).toBeNull();
+  });
+
+  it('back in the List view the section is there again, after the action items', async () => {
+    agendaData = [topic];
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: 'Table view' }));
+    await screen.findByRole('table', { name: 'Agenda and action items' });
+    await userEvent.click(screen.getByRole('button', { name: 'List view' }));
+    expect(await screen.findByRole('heading', { name: /open from earlier meetings/i })).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Agenda and action items' })).toBeNull();
   });
 });

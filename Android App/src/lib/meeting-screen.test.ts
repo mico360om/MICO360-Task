@@ -258,9 +258,11 @@ describe.skipIf(!hasWeb('frontend/src/components/meeting/NotesSection.tsx', 'fro
     const page = readWeb('frontend/src/pages/MeetingDetailPage.tsx');
     // 1.23.0: the list's action items and agenda (`actionParts`, `agendaParts`) — or, in the website's
     // Table view, its one table in the agenda's place — still in this order. (1.23: the website puts
-    // "Open from earlier meetings" of a meeting series after its action items; the app shows meetings as
-    // before — the rest of the order is the same.)
-    expect(page).toMatch(/finished \? \[finalMom, \.\.\.actionParts, (?:carryOver, )?\.\.\.agendaParts, notes\]/);
+    // "Open from earlier meetings" of a meeting series after its action items — `carryParts`, which the
+    // Table view shows as its table's last group instead; the app shows meetings as before — the rest
+    // of the order is the same.)
+    expect(page).toMatch(/finished \? \[finalMom, \.\.\.actionParts, \.\.\.carryParts, \.\.\.agendaParts, notes\]/);
+    expect(page).toMatch(/const carryParts = asTable \? \[\] : \[carryOver\];/);
     expect(page).toMatch(/const agendaParts = asTable \? \[table\] : \[agenda\];/);
     expect(page).toMatch(/const actionParts = asTable \? \[\] : \[actions\];/);
     // "Ended" for the notes and agenda words is the website's `finished`: the meeting is COMPLETED.

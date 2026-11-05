@@ -105,3 +105,35 @@ describe('InviteeView', () => {
     expect(calls.some((u) => u.endsWith('/meetings/ma/notes'))).toBe(false);
   });
 });
+
+describe('1.23 integration: an invitee’s meeting in a series, in the Table view', () => {
+  const series = {
+    series: { id: 's1', name: 'Monthly review', projectId: 'pa', companyId: null, auto: false },
+    meetings: [
+      { id: 'm0', title: 'Alpha review 1', status: 'COMPLETED' as const, startAt: '2026-10-03T06:00:00.000Z', endAt: null, timeZone: null, minutesFinal: false, repeats: false },
+      { id: 'ma', title: 'Alpha review', status: 'COMPLETED' as const, startAt: '2026-10-30T06:00:00.000Z', endAt: null, timeZone: null, minutesFinal: true, repeats: false, current: true },
+    ],
+    position: 2, total: 2, previous: { id: 'm0', title: 'Alpha review 1', startAt: '2026-10-03T06:00:00.000Z' }, next: null,
+    openFromEarlier: [
+      { id: 'c1', description: 'Bring the Beta drawings', assigneeId: 'bob', assigneeName: 'Bob Beta', status: 'OPEN' as const, priority: 'NORMAL' as const, dueDate: null, overdue: false, taskId: null, taskKey: null, createdById: 'ana', meeting: { id: 'm0', title: 'Alpha review 1', startAt: '2026-10-03T06:00:00.000Z' } },
+    ],
+    canManage: false, canRemove: false, keepsRepeat: false,
+  };
+
+  it('their own carried items are the table’s last group, to read — not a section of their own', async () => {
+    localStorage.clear();
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    renderView({ series });
+    expect(screen.getByRole('heading', { name: /open from earlier meetings/i })).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Table view' }));
+    const table = await screen.findByRole('table', { name: 'Agenda and action items' });
+    expect(screen.queryByRole('heading', { name: /open from earlier meetings/i })).toBeNull();
+    const last = within(table).getAllByRole('rowgroup').at(-1)!;
+    expect(last).toHaveTextContent('Open from earlier meetings');
+    expect(last).toHaveTextContent('Bring the Beta drawings');
+    expect(within(last).getByRole('link', { name: /^from 3 oct: alpha review 1/i })).toBeInTheDocument();
+    expect(within(table).queryAllByRole('button', { name: /^Status of|^Owner of/ })).toHaveLength(0);
+  });
+});
+

@@ -33,6 +33,7 @@ import { useFoundAnchor } from '../lib/useFoundAnchor';
 import { meetingSeriesApi } from '../api/meeting-series';
 import { SeriesLine } from '../components/meeting/series/SeriesLine';
 import { CarryOverSection, SeriesSection } from '../components/meeting/series/SeriesSection';
+import { carriedTableGroups } from '../components/meeting/series/carried-groups';
 import { AddToSeriesDialog, RemoveFromSeriesDialog } from '../components/meeting/series/SeriesDialogs';
 import { MeetingTable, useMeetingTableAvailable } from '../components/meeting/MeetingTable';
 import { VIEW_ICONS, ViewSwitch } from '../components/data-table/ViewSwitch';
@@ -263,11 +264,14 @@ export function MeetingDetailPage() {
   const carryOver = seriesContext ? <CarryOverSection key="carry-over" context={seriesContext} meetingId={id} timeZone={timeZone} editable /> : null;
   // 1.23.0: the agenda and action items as one table, in the agenda's place (the add forms under it).
   // An archived project's meeting takes no changes on the server: its table is there to look at.
+  // 1.23 series: "Open from earlier meetings" is the table's last group then (the section's rules).
+  const carried = seriesContext ? carriedTableGroups(seriesContext.openFromEarlier, { timeZone, editable: true }) : [];
   const table = (
-    <MeetingTable key="table" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} switcher={switcher} locked={project && isProjectArchived(project) ? 'archived' : null} />
+    <MeetingTable key="table" meetingId={id} directory={directory} canEdit={canEdit} pollMs={pollMs} timeZone={timeZone} switcher={switcher} extraGroups={carried} locked={project && isProjectArchived(project) ? 'archived' : null} />
   );
   const agendaParts = asTable ? [table] : [agenda];
   const actionParts = asTable ? [] : [actions];
+  const carryParts = asTable ? [] : [carryOver];
   // The minutes' "Sent" log ends their card, for the people who may send (Send again: the same To and Cc).
   const sentLog = canEdit ? (
     <MinutesSentLog
@@ -338,7 +342,7 @@ export function MeetingDetailPage() {
           {/* Planned or under way: the agenda and the live notes lead. Once finished, what came of it
               leads — the Final MOM and the action items, above the agenda and notes they came from. The
               page's own order (not CSS order), so the keyboard and a screen reader follow it too. */}
-          {finished ? [finalMom, ...actionParts, carryOver, ...agendaParts, notes] : [...agendaParts, carryOver, notes, ...actionParts, finalMom]}
+          {finished ? [finalMom, ...actionParts, ...carryParts, ...agendaParts, notes] : [...agendaParts, ...carryParts, notes, ...actionParts, finalMom]}
         </div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
