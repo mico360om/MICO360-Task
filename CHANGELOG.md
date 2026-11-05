@@ -212,6 +212,23 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
   link pasted by hand, used to be refused as "too long".
 
+## [1.22.5] - 2026-11-05
+
+### Improvements
+- Error log: a server error from the database now says what the database said — its error code
+  and its message (the names of tables and columns stay; any value someone typed shows as ?) — on
+  the row's details as "Database said: …", so the cause of an error such as "Invalid
+  `prisma.$queryRaw()` invocation" can be found. Two different database errors at the same place
+  in the code are now two rows.
+
+### Bug fixes
+- Error log: a stack's lines inside a library whose folder is named "client" (such as the
+  database library's node_modules/@prisma/client/…) showed as ":token"; they now keep their
+  file and line. The site's own private links (/client/…, /reset/…) are still hidden.
+- Search: the top-bar search now reads at most the first 200 characters of what was typed or
+  pasted (the rest is left out, as the full task search already did), instead of searching for
+  any length of text.
+
 ## [1.22.4] - 2026-11-05
 
 ### New features

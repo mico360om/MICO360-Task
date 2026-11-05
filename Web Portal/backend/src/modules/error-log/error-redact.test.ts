@@ -62,6 +62,18 @@ describe('redactText: messages and stacks lose secrets', () => {
     expect(redactText('    at f (https://h/assets/a.js?v=secret:1:2)')).toBe('    at f (https://h/assets/a.js:1:2)');
   });
 
+  // 1.22.5: a secret path is one that starts there — not a folder of that name deep in a file’s path.
+  it('a library’s folder named client (or reset, welcome, login) is not a secret; the site’s own links still are', () => {
+    const prisma = '    at $n.handleRequestError (node_modules/@prisma/client/runtime/library.js:121:7315)';
+    expect(redactText(prisma)).toBe(prisma);
+    expect(redactText('    at x (/srv/app/node_modules/some-lib/login/index.js:1:2)')).toBe('    at x (/srv/app/node_modules/some-lib/login/index.js:1:2)');
+    expect(redactText('GET /api/v1/client/inspections/42 failed')).toBe('GET /api/v1/client/inspections/42 failed');
+    expect(redactText('open /client/k3J9xq2LmPz8/minutes/abc now')).toBe('open /client/:token now');
+    expect(redactText('page "/client/k3J9xq2LmPz8"')).toBe('page "/client/:token"');
+    expect(redactText('    at https://task.mico360.com/client/k3J9xq2LmPz8:1:2')).toBe('    at https://task.mico360.com/client/:token');
+    expect(redactText('    at f (http://localhost:4800/reset/9f8e7d6c5b4a:3:4)')).toBe('    at f (http://localhost:4800/reset/:token)');
+    expect(redactText('url=/welcome/abc then')).toBe('url=/welcome/:token then');  });
+
   it('caps very long text', () => {
     expect(redactText('x'.repeat(10_000), 100).length).toBe(100);
   });

@@ -33,6 +33,8 @@ export interface ErrorOccurrence {
   page: string | null;
   job: string | null;
   resource: string | null;
+  /** A server error's database diagnosis (1.22.5): Prisma's code, the database's code and its message, values masked. */
+  database?: string | null;
   value: number | null;
   count: number;
   version: string | null;

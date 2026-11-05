@@ -39,6 +39,7 @@ export interface ErrorEventRow {
   page: string | null;
   /** A background job's name (server errors). */
   job: string | null;
+  /** A blocked file or address, or a slow request; a server error's database diagnosis (1.22.5, db-error.ts). */
   resource: string | null;
   value: number | null;
   count: number;
@@ -172,7 +173,7 @@ export function createMemoryErrorLogRepository(): ErrorLogRepository & { groups:
       const s = q.search?.toLowerCase() ?? null;
       return groups
         .filter((g) => g.status === q.status && g.lastSeenAt >= q.since && (!q.kinds || q.kinds.includes(g.kind)))
-        .filter((g) => !s || [g.title, g.topFile ?? '', ...eventRows.filter((e) => e.groupId === g.id).map((e) => `${e.page ?? ''} ${e.job ?? ''}`)].some((t) => t.toLowerCase().includes(s)))
+        .filter((g) => !s || [g.title, g.topFile ?? '', ...eventRows.filter((e) => e.groupId === g.id).map((e) => `${e.page ?? ''} ${e.job ?? ''} ${e.resource ?? ''}`)].some((t) => t.toLowerCase().includes(s)))
         .filter((g) => !q.before || g.lastSeenAt < q.before.lastSeenAt || (g.lastSeenAt.getTime() === q.before.lastSeenAt.getTime() && g.id < q.before.id))
         .sort(newer)
         .slice(0, q.limit)

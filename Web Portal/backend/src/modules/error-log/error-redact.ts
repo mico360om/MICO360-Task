@@ -57,10 +57,12 @@ export function redactText(text: string, max = 4096): string {
       return address + (/(?::\d{1,9}){1,2}$/.exec(rest)?.[0] ?? '');
     });
   }
-  // The site's own secret paths, wherever they appear.
+  // The site's own secret paths, wherever they appear — where a path starts (the text's start, after a
+  // space, quote, bracket or =, or after an address's host), never a folder of that name deeper in a
+  // file's path (1.22.5: node_modules/@prisma/client/runtime/… is no secret).
   if (/\/(client|reset|welcome|login)\//i.test(out)) {
-    out = out.replace(/\/client\/[^\s/'"()<>?#]{1,2048}(?:\/[^\s'"()<>?#]{0,2048})?/gi, '/client/:token');
-    out = out.replace(/\/(reset|welcome|login)\/[^\s/'"()<>?#]{1,2048}/gi, '/$1/:token');
+    out = out.replace(/(^|[\s'"(=<>,[]|\/\/[^\s/'"()<>?#]{1,253})\/client\/[^\s/'"()<>?#]{1,2048}(?:\/[^\s'"()<>?#]{0,2048})?/gi, '$1/client/:token');
+    out = out.replace(/(^|[\s'"(=<>,[]|\/\/[^\s/'"()<>?#]{1,253})\/(reset|welcome|login)\/[^\s/'"()<>?#]{1,2048}/gi, '$1/$2/:token');
   }
   out = out.replace(LONG_RUN, (whole, before: string, run: string) => (mixed(run) ? `${before}[token]` : whole));
   if (out.includes('@')) {

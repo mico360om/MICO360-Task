@@ -18,6 +18,15 @@ const DETAIL = {
     { id: 'e2', at: '2026-11-05T09:00:00.000Z', kind: 'ERROR', detail: 'boundary', message: GROUPS[0]!.title, stack: null, page: '/projects/:id', job: null, resource: null, value: null, count: 1, version: '1.22.4', browser: 'Safari 17', system: 'iOS', screen: '390x844', signedIn: false, person: null },
   ],
 };
+// 1.22.5: a database error's occurrences carry what the database said (values masked by the server).
+const SAID = "P2010 · code 1366 · Incorrect string value: '?' for column 'doc' at row 1";
+const SERVER_DETAIL = {
+  group: { ...GROUPS[1], topFile: 'src/modules/search/task-search-engine.ts', topLine: 119, topFunction: 'Object.search' },
+  events: [
+    { id: 'e3', at: '2026-11-04T02:00:00.000Z', kind: 'SERVER', detail: 'request', message: GROUPS[1]!.title, stack: '    at Object.search (src/modules/search/task-search-engine.ts:119:29)', page: 'GET /api/v1/search', job: null, resource: null, database: SAID, value: null, count: 1, version: '1.22.4', browser: null, system: null, screen: null, signedIn: true, person: { id: 'u2', name: 'Omar Said' } },
+    { id: 'e4', at: '2026-11-04T01:00:00.000Z', kind: 'SERVER', detail: 'request', message: GROUPS[1]!.title, stack: null, page: 'GET /api/v1/search', job: null, resource: null, database: null, value: null, count: 1, version: '1.22.4', browser: null, system: null, screen: null, signedIn: true, person: { id: 'u2', name: 'Omar Said' } },
+  ],
+};
 
 let calls: { url: string; method: string }[];
 let previousVisitAt: string | null;
@@ -39,6 +48,7 @@ beforeEach(() => {
         return json({ data: { ...GROUPS[0], status: method === 'POST' ? 'FIXED' : 'OPEN' } });
       }
       if (/\/error-log\/g1$/.test(u)) return json({ data: DETAIL });
+      if (/\/error-log\/g2$/.test(u)) return json({ data: SERVER_DETAIL });
       if (u.includes('/error-log?')) {
         const params = new URL(u, 'http://x').searchParams;
         const status = params.get('status');
@@ -124,6 +134,16 @@ describe('ErrorLogPage (System Settings → Error log)', () => {
     await user.click(screen.getByRole('button', { name: 'Mark as fixed' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/error-log/g1/fixed'))).toBe(true));
     await waitFor(() => expect(screen.queryByText(/Cannot read properties of undefined/)).toBeNull());
+  });
+
+  it('a database error says what the database said: the latest one above the stack, and on each occurrence', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click((await screen.findByText('nightly backup sweep failed: ENOSPC')).closest('button')!);
+    const said = await screen.findByLabelText('What the database said (latest)');
+    expect(said).toHaveTextContent(`Database said: ${SAID}`);
+    const occurrences = screen.getByText('Latest occurrences').parentElement!;
+    expect(within(occurrences).getAllByText(`Database said: ${SAID}`)).toHaveLength(1);
   });
 
   it('“Marked fixed” lists them, with Not fixed to bring one back', async () => {
