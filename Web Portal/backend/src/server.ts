@@ -109,6 +109,8 @@ import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
 import { createJobGate } from './lib/job-gate';
 import { databaseConnectionCode } from './lib/db-connection';
 import { createShutdown } from './lib/shutdown';
+import { createDatabaseCheck, prismaDatabaseReads } from './modules/error-log/database-check';
+import { databaseProbes } from './modules/error-log/database-probes';
 import { isMuted, normalizePreferences } from './modules/notifications/notification-preferences';
 import { filterTaskRecipients } from './modules/notifications/recipient-access';
 import { activeCompaniesOf, taskAudienceSelect, toAudienceFacts } from './modules/notifications/prisma-task-audience';
@@ -1757,6 +1759,25 @@ async function main(): Promise<void> {
     onStale: (kind, id) => void (kind === 'task' ? taskSearchIndex.taskChanged(id) : searchIndex.refresh(kind, [id]).catch((err) => logger.error('search: re-indexing an item failed', { err, kind, id }))),
   });
   const searchSemantic = createSemanticSearch({ prisma, ai: aiFeatureService, logger });
+
+  // 1.23.1 the database self-check (error-log/database-check): once the database answers — never holding
+  // the start up — the schema's tables and columns against the database, and each raw-SQL family once in
+  // a harmless form. Each problem goes to the Error log (job "database check") with the server's version
+  // and settings; System Settings → Error log shows the result.
+  const databaseCheck = createDatabaseCheck({
+    ...prismaDatabaseReads(prisma),
+    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz }),
+    record: ({ text, err }) => logger.job('database check').error(text, err !== undefined ? { err } : undefined),
+  });
+  void jobs.ready
+    .then(() => (jobs.stopping ? null : databaseCheck.run()))
+    .then((r) => {
+      if (r) baseLogger.info(r.summary, { problems: r.problems.length });
+    })
+    .catch(() => {
+      // The check never stops the server.
+    });
+
   const aiSearch = createAiSearch({
     ai: aiFeatureService,
     candidates: (query, viewer, scope) => searchEngine.anyWords({ q: '', scope, viewerId: viewer.id, ...query }),
@@ -1920,6 +1941,7 @@ async function main(): Promise<void> {
     logger,
     errorReporter,
     errorLog, // 1.22.4: browsers' reports and System Settings → Error log
+    databaseCheck, // 1.23.1: its latest result, on System Settings → Error log
     authService,
     tokenService,
     otpService,

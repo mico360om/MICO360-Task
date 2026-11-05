@@ -13,6 +13,7 @@ import { dateTimeText } from '../lib/day-words';
 import { relativeTime } from '../lib/relative-time';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
+import { DatabaseCheckLine } from '../components/admin/DatabaseCheckLine';
 import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, isNewSince, peopleText, personText, placeText, timesText, topFrameText } from '../components/admin/error-log-words';
 
 const segment = (active: boolean) =>
@@ -63,6 +64,8 @@ export function ErrorLogPage() {
     return (listQ.data?.pages ?? []).flatMap((p) => p.groups).filter((g) => (seen.has(g.id) ? false : (seen.add(g.id), true)));
   }, [listQ.data]);
   const counts = listQ.data?.pages[0]?.counts;
+  // 1.23.1: the server's database self-check (null until it ran; absent from an older server).
+  const databaseCheck = listQ.data?.pages[0]?.databaseCheck ?? null;
   const newCount = groups.filter((g) => isNewSince(g, previousVisit)).length;
   const filtered = kind !== 'all' || q.trim() !== '' || range !== '7d';
 
@@ -73,6 +76,8 @@ export function ErrorLogPage() {
         title="Error Log"
         subtitle="What went wrong in people’s browsers and on the server — kept 30 days."
       />
+
+      {databaseCheck ? <DatabaseCheckLine check={databaseCheck} /> : null}
 
       <div className="card mb-4 flex flex-col gap-3 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

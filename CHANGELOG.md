@@ -15,6 +15,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### Improvements
+- Database check: each time the server starts, it checks that the database has every table and column
+  the app needs and that its searches and the Management page's figures run on this database server.
+  System Settings → Error log shows the result at the top — "Database check: OK (MySQL 8.0.46)" with
+  the database server's version and settings, or the list of problems with their exact names — and
+  each problem is also recorded in the Error log (job "database check"). It never delays the start.
 - Search: if the tasks can't be searched for a moment (a database problem), the top-bar search and the
   Search page still show the projects, people, meetings, notes and files they found, with one quiet line
   "Tasks couldn't be searched just now — try again". Before, the whole search failed. The problem is

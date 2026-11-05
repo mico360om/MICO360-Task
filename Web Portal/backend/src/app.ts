@@ -127,6 +127,7 @@ import type { PortalService } from './modules/clients/portal-service';
 import type { CompanyTime } from './modules/companies/company-time';
 import { registerErrorLogRoutes } from './modules/error-log/error-log-routes';
 import type { ErrorLogService } from './modules/error-log/error-log-service';
+import type { DatabaseCheckResult } from './modules/error-log/database-check';
 
 export interface AppDeps extends AuthRouteDeps {
   /** Each person's own date settings (week start, time zone) — GET/PUT /users/me/preferences. */
@@ -363,6 +364,8 @@ export interface AppDeps extends AuthRouteDeps {
    * Settings → Error log (administrators). The server's own errors reach it through the logger.
    */
   errorLog?: ErrorLogService;
+  /** 1.23.1: the database self-check's latest result (System Settings → Error log shows it). */
+  databaseCheck?: { latest(): DatabaseCheckResult | null };
   /** 1.23: Settings → Microsoft Teams (each person's own connection) and Make Teams link on a meeting. */
   microsoft?: Omit<MicrosoftRouteDeps, 'guard' | 'audit'>;
   /** 1.23: the meeting form's "Create a Teams link" (made, taken away or made plain after a save). */
@@ -1064,7 +1067,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       // 1.22.4: the Error log — browsers' reports (any page, signed in or not) and its admin page.
       if (deps.errorLog) {
-        await registerErrorLogRoutes(api, { service: deps.errorLog, guard, userIdOf, audit: deps.auditService });
+        await registerErrorLogRoutes(api, { service: deps.errorLog, guard, userIdOf, audit: deps.auditService, databaseCheck: deps.databaseCheck });
       }
       // companies: people for pickers inside projects — GET /people/candidates (MC1 Task 9).
       if (deps.companyAccess && deps.personOptions) {

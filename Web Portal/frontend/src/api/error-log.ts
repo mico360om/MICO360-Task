@@ -51,11 +51,26 @@ export interface ErrorGroupDetail {
   events: ErrorOccurrence[];
 }
 
+/**
+ * 1.23.1: the server's database self-check at its start — the database server and its settings, and
+ * whether the database holds every table and column the app expects and runs its queries.
+ */
+export interface DatabaseCheck {
+  checkedAt: string;
+  ok: boolean;
+  server: { product: 'MySQL' | 'MariaDB'; version: string; sqlMode: string; lowerCaseTableNames: number | null } | null;
+  problems: { kind: 'server' | 'table' | 'column' | 'query'; name: string; text: string }[];
+  /** "Database check: OK (MySQL 8.0.46)", "Database check: 2 problems (MariaDB 11.4.5)". */
+  summary: string;
+}
+
 export interface ErrorLogPage {
   groups: ErrorGroup[];
   /** The next page's cursor (null: no more). */
   next: string | null;
   counts: Record<ErrorKindFilter, number>;
+  /** 1.23.1: null until the check ran; absent from an older server. */
+  databaseCheck?: DatabaseCheck | null;
 }
 
 export interface ErrorLogQuery {

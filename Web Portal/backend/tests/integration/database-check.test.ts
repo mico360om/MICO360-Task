@@ -1,0 +1,133 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+import { createDatabaseCheck, expectedSchema, prismaDatabaseReads } from '../../src/modules/error-log/database-check';
+import { databaseProbes } from '../../src/modules/error-log/database-probes';
+import { createTaskSearchIndex } from '../../src/modules/search/task-search-index';
+import { createTaskSearchEngine } from '../../src/modules/search/task-search-engine';
+import { createSearchEngine } from '../../src/modules/search/search-engine';
+import { constantOrderTerms } from '../../src/lib/sql-portability';
+
+// Requires a running MySQL (TEST_DATABASE_URL) with migrations applied.
+// 1.23.1 — the database self-check on a real database (built by the migrations, as the live one is),
+// and the live search failure (1054) looked for under every sql_mode the live server might run with.
+const url = process.env.TEST_DATABASE_URL!;
+const prisma = new PrismaClient({ datasources: { db: { url } } });
+const CODE = 'DBCHK';
+let owner = '';
+
+const engines = (client: PrismaClient) => ({
+  taskSearch: createTaskSearchEngine({ prisma: client, index: createTaskSearchIndex({ prisma: client }), timeZone: 'Asia/Muscat' }),
+  searchEngine: createSearchEngine({ prisma: client, timeZone: 'Asia/Muscat' }),
+});
+
+async function cleanup() {
+  const ids = (await prisma.project.findMany({ where: { code: CODE }, select: { id: true } })).map((x) => x.id);
+  await prisma.task.deleteMany({ where: { projectId: { in: ids } } });
+  await prisma.kanbanColumn.deleteMany({ where: { projectId: { in: ids } } });
+  await prisma.project.deleteMany({ where: { id: { in: ids } } });
+  await prisma.user.deleteMany({ where: { email: 'dbchk-owner@mico360.test' } });
+}
+
+beforeAll(async () => {
+  await cleanup();
+  owner = (await prisma.user.create({ data: { email: 'dbchk-owner@mico360.test', username: 'dbchk-owner', passwordHash: 'x', firstName: 'Check', lastName: 'Owner' } })).id;
+  const project = await prisma.project.create({ data: { code: CODE, name: 'Database check yard', createdById: owner } });
+  const todo = await prisma.kanbanColumn.create({ data: { projectId: project.id, name: 'To do', category: 'TODO', position: 0 } });
+  await prisma.task.create({ data: { key: `${CODE}-1`, title: 'Pump repair at the yard', projectId: project.id, columnId: todo.id, createdById: owner } });
+  await prisma.task.create({ data: { key: `${CODE}-2`, title: 'Generator service', description: 'pump repair parts', projectId: project.id, columnId: todo.id, createdById: owner } });
+  await createTaskSearchIndex({ prisma }).rebuildAll();
+});
+
+afterAll(async () => {
+  await cleanup();
+  await prisma.$disconnect();
+});
+
+describe('database check on a database the migrations built', () => {
+  it('OK: every table and column of the schema is there, and every query family works', async () => {
+    const { taskSearch, searchEngine } = engines(prisma);
+    const recorded: string[] = [];
+    const check = createDatabaseCheck({ ...prismaDatabaseReads(prisma), probes: databaseProbes({ prisma, taskSearch, searchEngine, timeZone: 'Asia/Muscat' }), record: (p) => void recorded.push(p.text) });
+    const r = await check.run();
+    expect(r.problems).toEqual([]);
+    expect(recorded).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(r.server?.product).toBe('MySQL');
+    expect(r.summary).toMatch(/^Database check: OK \(MySQL \d+\.\d+\.\d+\)$/);
+    expect(r.server?.sqlMode).toBeTypeOf('string');
+    expect([0, 1, 2]).toContain(r.server?.lowerCaseTableNames);
+  });
+
+  it('a column the database lacks is named exactly', async () => {
+    const recorded: string[] = [];
+    const expected = [...expectedSchema(), { table: 'task_search_index', columns: ['taskId', 'nosuchcolumn'] }];
+    const r = await createDatabaseCheck({ ...prismaDatabaseReads(prisma), expected, probes: [], record: (p) => void recorded.push(p.text) }).run();
+    expect(r.problems.map((p) => p.text)).toEqual(['Column task_search_index.nosuchcolumn is missing']);
+    expect(recorded[0]).toMatch(/^Database check: Column task_search_index\.nosuchcolumn is missing — MySQL /);
+  });
+});
+
+/** One connection only, so a session's sql_mode holds for every query the probes send. */
+function withSqlMode(mode: string): PrismaClient {
+  const single = new URL(url);
+  single.searchParams.set('connection_limit', '1');
+  return new PrismaClient({ datasources: { db: { url: single.toString() } } });
+}
+
+// Ruling out the live server's settings (1.23.1): MySQL 8 runs every search the same under each of
+// these — the failure was MariaDB's reading of a constant sort term (`ORDER BY (FALSE)`), now gone.
+const MODES = [
+  'ANSI_QUOTES',
+  'ANSI',
+  'ONLY_FULL_GROUP_BY',
+  'NO_BACKSLASH_ESCAPES',
+  'TRADITIONAL',
+  'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+  'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION',
+  'PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ONLY_FULL_GROUP_BY,NO_BACKSLASH_ESCAPES',
+  '',
+];
+
+describe('every search query under the sql_mode the live server might have', () => {
+  for (const mode of MODES) {
+    it(`sql_mode '${mode}'`, async () => {
+      const client = withSqlMode(mode);
+      try {
+        await client.$executeRawUnsafe(`SET SESSION sql_mode = '${mode}'`);
+        const m = (await client.$queryRaw<{ m: string }[]>`SELECT @@SESSION.sql_mode AS m`)[0]?.m ?? '';
+        expect(m.split(',').filter(Boolean).sort()).toEqual(expect.arrayContaining(mode === 'ANSI' ? ['ANSI_QUOTES'] : mode.split(',').filter((x) => x && x !== 'TRADITIONAL')));
+        const { taskSearch, searchEngine } = engines(client);
+        // The words the top bar sends: two words (no number), a number, a bare number, a phrase.
+        expect((await taskSearch.search({ q: 'pump repair', scope: { projectIds: null }, limit: 5, withTotal: true })).hits.map((h) => h.key).sort()).toEqual([`${CODE}-1`, `${CODE}-2`]);
+        expect((await taskSearch.search({ q: `${CODE}-1`, scope: { projectIds: null }, limit: 5 })).hits[0]?.key).toBe(`${CODE}-1`);
+        await taskSearch.search({ q: '1', scope: { projectIds: null }, limit: 5 });
+        await taskSearch.search({ q: '"pump repair" yard', scope: { projectIds: null }, limit: 5, statuses: ['TODO'], done: false });
+        const everything = await searchEngine.search({ q: 'pump repair', scope: { projectIds: null, meetings: { full: null, invitee: [], editable: null } }, viewerId: owner, limit: 5, withCounts: true });
+        expect(everything.hits.map((h) => h.id).length).toBeGreaterThan(0);
+        const recorded: string[] = [];
+        const r = await createDatabaseCheck({ ...prismaDatabaseReads(client), probes: databaseProbes({ prisma: client, taskSearch, searchEngine, timeZone: 'Asia/Muscat' }), record: (p) => void recorded.push(p.text) }).run();
+        expect(r.problems).toEqual([]);
+      } finally {
+        await client.$disconnect();
+      }
+    });
+  }
+
+  it('the statements those searches send hold no constant sort term (MariaDB reads one as a column position)', async () => {
+    const sent: string[] = [];
+    const client = new PrismaClient({ datasources: { db: { url } }, log: [{ emit: 'event', level: 'query' }] });
+    client.$on('query', (e) => void sent.push(e.query));
+    try {
+      const { taskSearch, searchEngine } = engines(client);
+      for (const q of ['pump repair', `${CODE}-1`, '1', 'pump']) {
+        await taskSearch.search({ q, scope: { projectIds: null }, limit: 5, withTotal: true });
+        await searchEngine.search({ q, scope: { projectIds: null, meetings: { full: null, invitee: [], editable: null } }, viewerId: owner, limit: 5, withCounts: true });
+      }
+      const raw = sent.filter((s) => /task_search_index|search_index/.test(s));
+      expect(raw.length).toBeGreaterThan(8);
+      for (const sql of raw) expect(constantOrderTerms(sql), sql).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});

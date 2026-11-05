@@ -9,6 +9,7 @@ import { createMapStore } from './stack';
 import { createAuthGuard } from '../auth/auth-guard';
 import { createTokenService } from '../auth/token-service';
 import { HttpError } from '../../lib/http-errors';
+import type { DatabaseCheckResult } from './database-check';
 
 const tokenService = createTokenService({
   accessSecret: 'el-access',
@@ -23,6 +24,8 @@ let repo: ReturnType<typeof createMemoryErrorLogRepository>;
 let service: ErrorLogService;
 let collecting: boolean;
 let audited: Record<string, unknown>[];
+
+let check: DatabaseCheckResult | null = null;
 
 async function makeApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -50,6 +53,7 @@ async function makeApp(): Promise<FastifyInstance> {
         guard: createAuthGuard(tokenService),
         userIdOf,
         audit: { async record(d: Record<string, unknown>) { audited.push(d); return {} as never; } } as never,
+        databaseCheck: { latest: () => check },
       }),
     { prefix: '/api/v1' },
   );
@@ -189,5 +193,20 @@ describe('the Error log page’s routes: administrators only', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/error-log?kind=everything', headers: admin })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/v1/error-log?range=1y', headers: admin })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: `/api/v1/error-log?q=${'x'.repeat(300)}`, headers: admin })).statusCode).toBe(400);
+  });
+});
+
+// 1.23.1 — the database self-check's result on System Settings → Error log (administrators only).
+describe('GET /error-log carries the database check', () => {
+  it('null until it ran; then its summary, server and problems — for an administrator only', async () => {
+    const app = await makeApp();
+    check = null;
+    const before = await app.inject({ method: 'GET', url: '/api/v1/error-log', headers: await bearer('a1', ['ADMIN']) });
+    expect(before.json().data.databaseCheck).toBeNull();
+    check = { checkedAt: '2026-11-05T13:00:00.000Z', ok: false, server: { product: 'MariaDB', version: '11.4.5-MariaDB-log', sqlMode: 'STRICT_TRANS_TABLES', lowerCaseTableNames: 0 }, problems: [{ kind: 'column', name: 'tasks.x', text: 'Column tasks.x is missing' }], summary: 'Database check: 1 problem (MariaDB 11.4.5)' };
+    const after = await app.inject({ method: 'GET', url: '/api/v1/error-log', headers: await bearer('a1', ['ADMIN']) });
+    expect(after.json().data.databaseCheck).toEqual(check);
+    expect(after.json().data.groups).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/error-log', headers: await bearer('u1', ['EMPLOYEE']) })).statusCode).toBe(403);
   });
 });

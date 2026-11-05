@@ -30,6 +30,7 @@ const SERVER_DETAIL = {
 
 let calls: { url: string; method: string }[];
 let previousVisitAt: string | null;
+let databaseCheck: unknown = null;
 let fixed: Set<string>;
 beforeEach(() => {
   calls = [];
@@ -56,14 +57,17 @@ beforeEach(() => {
         if (params.get('kind') === 'server') groups = groups.filter((g) => g.kind === 'SERVER');
         if (params.get('q')) groups = groups.filter((g) => g.title.includes(params.get('q')!));
         const g = status === 'fixed' ? groups.map((x) => ({ ...x, status: 'FIXED', fixedInVersion: '1.22.4' })) : groups;
-        return json({ data: { groups: g, next: null, counts: { all: 2, errors: 1, blocked: 0, slow: 0, server: 1 } } });
+        return json({ data: { groups: g, next: null, counts: { all: 2, errors: 1, blocked: 0, slow: 0, server: 1 }, databaseCheck } });
       }
       if (u.endsWith('/config')) return json({ data: { timeZone: 'Asia/Muscat' } });
       return json({ data: [] });
     }),
   );
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  databaseCheck = null;
+});
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -168,5 +172,45 @@ describe('ErrorLogPage (System Settings → Error log)', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => (String(url).includes('/error-log?') ? json({ error: { code: 'INTERNAL' } }, 500) : json({ data: { previousVisitAt: null } }))));
     renderPage();
     expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load the error log.');
+  });
+});
+
+// 1.23.1 — the database self-check: what the live database is (its server, settings) and whether it
+// holds what the app expects. One line above the rows; its problems listed when there are any.
+describe('Error log — the database check', () => {
+  const server = { product: 'MySQL', version: '8.0.46', sqlMode: 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES', lowerCaseTableNames: 0 };
+
+  it('OK: one line with the server, and its settings beside it', async () => {
+    databaseCheck = { checkedAt: '2026-11-05T09:30:00.000Z', ok: true, server, problems: [], summary: 'Database check: OK (MySQL 8.0.46)' };
+    renderPage();
+    const line = await screen.findByText('Database check: OK (MySQL 8.0.46)');
+    const box = line.closest('[data-database-check]')!;
+    expect(box).toHaveTextContent('sql_mode ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES');
+    expect(box).toHaveTextContent('lower_case_table_names 0');
+    expect(within(box as HTMLElement).queryByRole('list')).toBeNull();
+  });
+
+  it('problems: the count, the server, and each problem with its exact names', async () => {
+    databaseCheck = {
+      checkedAt: '2026-11-05T09:30:00.000Z',
+      ok: false,
+      server: { product: 'MariaDB', version: '11.4.5-MariaDB-log', sqlMode: 'STRICT_TRANS_TABLES', lowerCaseTableNames: 0 },
+      problems: [
+        { kind: 'column', name: 'task_search_index.head', text: 'Column task_search_index.head is missing' },
+        { kind: 'query', name: 'the task search (two words)', text: "The task search (two words) fails: P2010 · code 1054 · Unknown column '0' in 'ORDER BY'" },
+      ],
+      summary: 'Database check: 2 problems (MariaDB 11.4.5)',
+    };
+    renderPage();
+    const box = (await screen.findByText('Database check: 2 problems (MariaDB 11.4.5)')).closest('[data-database-check]') as HTMLElement;
+    expect(box).toHaveTextContent('11.4.5-MariaDB-log');
+    const items = within(box).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual(['Column task_search_index.head is missing', "The task search (two words) fails: P2010 · code 1054 · Unknown column '0' in 'ORDER BY'"]);
+  });
+
+  it('nothing until the check ran (or an older server)', async () => {
+    renderPage();
+    expect(await screen.findByText(GROUPS[0]!.title)).toBeInTheDocument();
+    expect(screen.queryByText(/Database check/)).toBeNull();
   });
 });
