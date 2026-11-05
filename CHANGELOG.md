@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.22.5] - 2026-11-05
+
 ### Improvements
 - Error log: a server error from the database now says what the database said — its error code
   and its message (the names of tables and columns stay; any value someone typed shows as ?) — on
