@@ -6,6 +6,7 @@ import { KindIcon } from './KindIcon';
 import { STATUS_META } from '../../lib/taskStatus';
 import { isOverdue } from '../../lib/due-date';
 import { KIND_META, dateLabel, targetLink, type SearchHit } from '../../lib/search-everything';
+import { DENSE_FACE, DENSE_TEXT } from '../../lib/density-tokens';
 
 /** "Bilal Ahmed +2", or nothing. */
 function peopleLine(hit: SearchHit): string | null {
@@ -33,11 +34,11 @@ export function ResultRow({ hit, timeZone, onOpen, compact = false }: { hit: Sea
   const body = (
     <>
       <KindIcon kind={hit.kind} className="mt-0.5" />
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
+      <span className="flex min-w-0 flex-1 flex-col gap-1 compact:gap-0.5">
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{kind.label}</span>
-          {hit.key && hit.kind === 'task' ? <FoundTaskKey value={hit.key} former={hit.formerKeys} /> : null}
-          <span dir="auto" className={`min-w-0 text-sm font-semibold [overflow-wrap:anywhere] ${hit.status?.done ? 'text-ink-2' : 'text-ink'}`}>
+          {hit.key && hit.kind === 'task' ? <FoundTaskKey value={hit.key} former={hit.formerKeys} dense="compact" /> : null}
+          <span dir="auto" data-result-title className={`min-w-0 text-sm font-semibold [overflow-wrap:anywhere] ${DENSE_TEXT} ${hit.status?.done ? 'text-ink-2' : 'text-ink'}`}>
             <Highlighted text={hit.title} ranges={hit.titleRanges} />
           </span>
           {hit.match ? <span className="rounded-md bg-ground px-1.5 py-0.5 text-[11px] font-medium text-ink-2">{MATCH_WORDS[hit.match]}</span> : null}
@@ -51,7 +52,7 @@ export function ResultRow({ hit, timeZone, onOpen, compact = false }: { hit: Sea
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-ink-2">
           {hit.project ? (
             <span className="inline-flex min-w-0 items-center gap-1.5">
-              <ProjectAvatar project={{ name: hit.project.name, color: hit.project.color, icon: hit.project.icon, imageUrl: hit.project.imageUrl }} size="sm" />
+              <ProjectAvatar project={{ name: hit.project.name, color: hit.project.color, icon: hit.project.icon, imageUrl: hit.project.imageUrl }} size="sm" className={DENSE_FACE} />
               <span dir="auto" className="truncate">{hit.project.archived ? `${hit.project.name} (archived)` : hit.project.name}</span>
             </span>
           ) : null}
@@ -73,7 +74,8 @@ export function ResultRow({ hit, timeZone, onOpen, compact = false }: { hit: Sea
       </span>
     </>
   );
-  const look = `flex w-full items-start gap-3 rounded-lg border border-line bg-surface p-3 text-start transition-colors hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:!min-h-11`;
+  // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller, smaller chips and pictures.
+  const look = `flex w-full items-start gap-3 rounded-lg border border-line bg-surface p-3 text-start transition-colors compact:gap-2 compact:p-2 hover:bg-ground focus-visible:bg-ground [@media(pointer:coarse)]:!min-h-11`;
   return to ? (
     <Link to={to} data-result={`${hit.kind}:${hit.id}`} className={look}>
       {body}

@@ -96,13 +96,38 @@ describe('where compact is used', () => {
     'Approvals on My Tasks': 'components/approvals/ToApproveSection.tsx',
     'Approvals on the Dashboard': 'components/approvals/ApprovalsCard.tsx',
     'User Management': 'pages/UsersPage.tsx',
+    // 1.23 integration (density × search and series, ruling R9 of the density lane):
+    'Search results: rows, titles, number chips and project pictures': 'components/search/ResultRow.tsx',
+    'the Search page list and quick button': 'pages/SearchPage.tsx',
+    'a series’ meetings (the Series page and a meeting’s Series section)': 'components/meeting/series/SeriesSection.tsx',
+    'open items of a series (the Series page, a meeting’s carry-over)': 'components/meeting/series/CarriedItems.tsx',
+    'the Series page list: removing a meeting': 'pages/MeetingSeriesPage.tsx',
   };
   it.each(Object.entries(PLACES))('%s', (_what, file) => {
     const text = readFileSync(join(src, file), 'utf8');
     expect(/compact:|DENSE_(TEXT|FACE|STACK)|dense="compact"|\bdense\s*\/>|<DensityButton/.test(text)).toBe(true);
   });
 
+  it('1.23 integration: the Search page has the quick button', () => {
+    expect(readFileSync(join(src, 'pages/SearchPage.tsx'), 'utf8')).toMatch(/<DensityButton\b/);
+  });
+
   it('the quick button sits beside every view switch (Board page and tab, project Tasks tab, meeting page)', () => {
     expect(readFileSync(join(src, 'components/data-table/ViewSwitch.tsx'), 'utf8')).toMatch(/<DensityButton \/>/);
+  });
+});
+
+// The Client portal (1.23.0 client accounts): a client's session can't save /users/me/preferences (it is a
+// staff route for client accounts), so nothing of the portal offers the choice or reads the account's.
+describe('1.23 integration: the Client portal never offers compact rows', () => {
+  const portal = [...files(join(src, 'pages/portal')), ...files(join(src, 'components/portal'))];
+  it('no quick button, no Settings switch, no account sync in the portal', () => {
+    const offenders = portal.filter((f) => /DensityButton|DensitySetting|useDensitySync|useSetDensity/.test(readFileSync(f, 'utf8')));
+    expect(offenders.map((f) => relative(src, f))).toEqual([]);
+  });
+  it('a view switch it reuses leaves out the quick button (density={false})', () => {
+    for (const f of portal) {
+      for (const m of readFileSync(f, 'utf8').matchAll(/<ViewSwitch\b[^>]*>/g)) expect(m[0], relative(src, f)).toMatch(/density=\{false\}/);
+    }
   });
 });

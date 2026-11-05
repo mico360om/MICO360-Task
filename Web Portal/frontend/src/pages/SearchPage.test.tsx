@@ -285,6 +285,19 @@ describe('Search results page (search everything)', () => {
   });
 });
 
+describe('1.23 integration: compact rows on the Search page', () => {
+  it('offers the quick “Compact rows” button beside the type chips, and its rows take the compact steps', async () => {
+    serve();
+    open();
+    const first = await row('Check the scaffold 1');
+    expect(screen.getByRole('button', { name: 'Compact rows' })).toHaveAttribute('aria-pressed', 'false');
+    // A third less padding, the title a step smaller, the number chip and the project picture smaller.
+    expect(first.className).toContain('compact:p-2');
+    expect(first.querySelector('[data-result-title]')?.className).toContain('compact:text-row');
+    expect(first.querySelector('[data-task-key="RIG-1"]')?.className).toContain('compact:py-0');
+  });
+});
+
 describe('the AI panel', () => {
   it('AI off: one line, and the normal results', async () => {
     serve(undefined, { ready: false });

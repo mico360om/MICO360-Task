@@ -15,6 +15,7 @@ import { fieldClass } from '../components/ui/Field';
 import { ResultRow } from '../components/search/ResultRow';
 import { AiPanel } from '../components/search/AiPanel';
 import { MAX_QUERY_LETTERS } from '../lib/search-highlight';
+import { DensityButton } from '../components/DensityButton';
 import { KIND_META, SEARCH_KINDS, everythingAddress, everythingFilters, hasEverythingFilters, type EverythingFilters, type SearchHit, type SearchKind } from '../lib/search-everything';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
@@ -194,16 +195,20 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
           </p>
         </form>
 
-        <div role="group" aria-label="Type" className="flex flex-wrap gap-1.5">
-          <button type="button" aria-pressed={!filters.type} onClick={() => chooseType(undefined)} className={chip(!filters.type)}>
-            All{allCount !== null ? ` ${shown(allCount)}` : ''}
-          </button>
-          {SEARCH_KINDS.map((k) => (
-            <button key={k} type="button" aria-pressed={filters.type === k} onClick={() => chooseType(k)} className={chip(filters.type === k)}>
-              {KIND_META[k].plural}
-              {counts ? ` ${shown(counts[k] ?? 0)}` : ''}
+        <div className="flex items-start gap-2">
+          <div role="group" aria-label="Type" className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+            <button type="button" aria-pressed={!filters.type} onClick={() => chooseType(undefined)} className={chip(!filters.type)}>
+              All{allCount !== null ? ` ${shown(allCount)}` : ''}
             </button>
-          ))}
+            {SEARCH_KINDS.map((k) => (
+              <button key={k} type="button" aria-pressed={filters.type === k} onClick={() => chooseType(k)} className={chip(filters.type === k)}>
+                {KIND_META[k].plural}
+                {counts ? ` ${shown(counts[k] ?? 0)}` : ''}
+              </button>
+            ))}
+          </div>
+          {/* Compact rows (1.23.0): the quick button, as on the other lists' toolbars (hidden on phones and touch). */}
+          <DensityButton />
         </div>
 
         <div className={`grid gap-2 ${filters.type === 'task' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
@@ -308,7 +313,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
               </span>
             ) : null}
           </p>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-2 compact:gap-1">
             {hits.map((h) => (
               <li key={`${h.kind}:${h.id}`}>
                 <ResultRow hit={h} timeZone={timeZone} onOpen={open} />

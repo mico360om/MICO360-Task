@@ -57,10 +57,10 @@ export function TaskKeyButton({ value, title, onClick, className = '' }: { value
  * A found task's number (top-bar search, the Search page) and, for a task that moved project, the
  * numbers it had: the chip, then "(was RIG-4)" in quieter words — its old number still finds it.
  */
-export function FoundTaskKey({ value, former }: { value: string; former?: readonly string[] | null }) {
+export function FoundTaskKey({ value, former, dense }: { value: string; former?: readonly string[] | null; /** 1.23.0: a result row's chip (compact rows: no padding). */ dense?: 'compact' }) {
   return (
     <span className="inline-flex flex-none flex-wrap items-baseline gap-x-1">
-      <TaskKey value={value} />
+      <TaskKey value={value} dense={dense ?? false} />
       {former && former.length > 0 ? <>{' '}<span className="whitespace-nowrap text-xs text-ink-3">(was {former.join(', ')})</span></> : null}
     </span>
   );

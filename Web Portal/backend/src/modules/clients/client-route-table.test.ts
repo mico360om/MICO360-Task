@@ -110,6 +110,10 @@ describe('1.23 integration: the other lanes’ routes and client accounts', () =
     const staffOnly = scanned.filter((k) => /^\w+ \/(search|meeting-series|integrations\/microsoft)/.test(k) || /\/meetings\/:id\/(series|series-options|teams-link)$/.test(k) || k === 'PATCH /action-items/:id');
     expect(staffOnly.length).toBeGreaterThan(14);
     for (const k of staffOnly) expect(clientMayCall(k), k).toBe(false);
+    // Compact rows (1.23.0): a person's row spacing is saved on /users/me/preferences — staff only; the
+    // Client portal never offers it (website test: compact-variant.test.ts).
+    expect(clientMayCall('GET /users/me/preferences')).toBe(false);
+    expect(clientMayCall('PUT /users/me/preferences')).toBe(false);
     // Microsoft's way back carries no session (the signed state and the browser's flow cookie decide).
     expect(clientRouteClass('GET /integrations/microsoft/callback')).toBe('public');
   });

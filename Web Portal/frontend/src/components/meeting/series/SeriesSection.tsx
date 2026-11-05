@@ -10,6 +10,7 @@ import { MeetingFormModal } from '../../MeetingFormModal';
 import { meetingStatusTone } from '../../../lib/meetingFormat';
 import { seriesDay, seriesHref, splitByNow } from '../../../lib/meeting-series';
 import { TOUCH_TALL } from '../../../lib/touch';
+import { DENSE_TEXT } from '../../../lib/density-tokens';
 import { Section, SectionError } from '../kit';
 import { meetingFailure } from '../meeting-actions';
 import { CarriedItems } from './CarriedItems';
@@ -21,8 +22,8 @@ const AROUND = 3;
 export function SeriesMeetingRow({ m, timeZone, now, current = false, actions }: { m: SeriesMeeting; timeZone: string; now: Date; current?: boolean; actions?: ReactNode }) {
   const body = (
     <>
-      <span className="w-[4.75rem] flex-none text-sm tabular-nums text-ink-2">{seriesDay(m.startAt, timeZone, now)}</span>
-      <span className={`min-w-0 flex-1 text-sm [overflow-wrap:anywhere] ${m.status === 'CANCELLED' ? 'text-ink-3 line-through' : current ? 'font-semibold text-ink' : 'text-ink'}`}>
+      <span className={`w-[4.75rem] flex-none text-sm tabular-nums text-ink-2 ${DENSE_TEXT}`}>{seriesDay(m.startAt, timeZone, now)}</span>
+      <span className={`min-w-0 flex-1 text-sm [overflow-wrap:anywhere] ${DENSE_TEXT} ${m.status === 'CANCELLED' ? 'text-ink-3 line-through' : current ? 'font-semibold text-ink' : 'text-ink'}`}>
         <bdi>{m.title}</bdi>
       </span>
       <span className="flex flex-none flex-wrap items-center justify-end gap-1">
@@ -35,9 +36,10 @@ export function SeriesMeetingRow({ m, timeZone, now, current = false, actions }:
   return (
     <li className="flex items-center gap-1">
       {current ? (
-        <div aria-current="page" className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg bg-brand/[0.06] px-2 py-1.5">{body}</div>
+        // Compact rows (1.23.0, lib/density): shorter rows with a mouse (phones and touch keep 44px).
+        <div aria-current="page" className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg bg-brand/[0.06] px-2 py-1.5 compact:min-h-8 compact:py-1">{body}</div>
       ) : (
-        <Link to={`/meetings/${encodeURIComponent(m.id)}`} className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_TALL}`}>
+        <Link to={`/meetings/${encodeURIComponent(m.id)}`} className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 compact:min-h-8 compact:py-1 transition-colors hover:bg-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_TALL}`}>
           {body}
         </Link>
       )}

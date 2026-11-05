@@ -9,6 +9,7 @@ import { dayText } from '../../../lib/day-words';
 import { seriesDay } from '../../../lib/meeting-series';
 import { TOUCH_TALL } from '../../../lib/touch';
 import { Icon, TaskNumber } from '../kit';
+import { DENSE_TEXT } from '../../../lib/density-tokens';
 
 const STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium';
@@ -38,8 +39,9 @@ export function CarriedItems({
         const from = seriesDay(item.meeting.startAt, timeZone, now);
         const d = item.description;
         return (
-          <li key={item.id} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2">
-            <p className="min-w-0 flex-[1_1_14rem] text-sm text-ink [overflow-wrap:anywhere]">
+          // Compact rows (1.23.0, lib/density): less room around each item, its words a step smaller.
+          <li key={item.id} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2 compact:gap-y-1 compact:py-1">
+            <p className={`min-w-0 flex-[1_1_14rem] text-sm text-ink [overflow-wrap:anywhere] ${DENSE_TEXT}`}>
               <bdi>{d}</bdi>
             </p>
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">

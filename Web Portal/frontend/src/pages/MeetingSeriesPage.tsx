@@ -86,7 +86,7 @@ export function MeetingSeriesPage() {
             onClick={() => setDialog({ remove: m })}
             aria-label={`Remove ${m.title}, ${seriesDay(m.startAt, timeZone)}, from the series`}
             title="Remove from the series"
-            className={`grid h-9 w-9 flex-none place-items-center rounded-md text-xs text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_SQUARE}`}
+            className={`grid h-9 w-9 flex-none place-items-center rounded-md text-xs text-ink-3 transition-colors compact:h-7 compact:w-7 hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_SQUARE}`}
           >
             ✕
           </button>
