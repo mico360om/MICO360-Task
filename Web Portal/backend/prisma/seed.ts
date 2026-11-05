@@ -65,6 +65,8 @@ async function main() {
   // Roles
   const adminRole = await prisma.role.create({ data: { name: 'ADMIN', description: 'Full system access' } });
   const employeeRole = await prisma.role.create({ data: { name: 'EMPLOYEE', description: 'Assigned work only' } });
+  // 1.23 Client accounts (no demo clients: the role must exist, as the migrations make it).
+  await prisma.role.create({ data: { id: 'role_builtin_client', name: 'CLIENT', description: 'Client portal only' } });
 
   // Departments
   const deptNames = ['Engineering', 'Operations', 'Finance', 'Sales', 'Support'];

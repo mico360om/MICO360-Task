@@ -10,7 +10,7 @@ describe('the Notifications page’s type chips (1.22)', () => {
       assigned: ['TASK_ASSIGNED'],
       due: ['TASK_DUE_SOON', 'TASK_OVERDUE', 'TASK_ESCALATION'],
       comments: ['TASK_COMMENT'],
-      approvals: ['TASK_APPROVAL'],
+      approvals: ['TASK_APPROVAL', 'TASK_CLIENT_SIGN_OFF'],
       meetings: ['MEETING_REMINDER'],
     });
   });

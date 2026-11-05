@@ -3,6 +3,7 @@ import { normalizePreferences } from '../notifications/notification-preferences'
 import type { WeeklyRecipient } from './weekly-summary-service';
 import type { WeeklySummaryRecord, WeeklySummaryRepository } from './weekly-summary-repository';
 import { visibleProjectWhere } from '../companies/company-access';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 const toRecord = (r: WeeklySummaryEmail): WeeklySummaryRecord => ({
   id: r.id,
@@ -82,7 +83,8 @@ type PersonRow = Prisma.UserGetPayload<{ select: typeof personSelect }>;
 
 /** Who may get the weekly summary: active staff, with their roles and whether they run a live project. */
 export function createPrismaWeeklySummaryPeople(prisma: PrismaClient) {
-  const active = { status: 'ACTIVE', deletedAt: null } as const;
+  // 1.23: client accounts never get the weekly summary.
+  const active = { status: 'ACTIVE', deletedAt: null, ...STAFF_ONLY_WHERE } as const;
   /**
    * Of these people, those who run a live project (owner, named manager or a MANAGER member) that
    * they can see: one of its active companies is theirs (companies: the managedVisibleWhere rule).

@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { NotFoundError, ValidationError } from '../../lib/http-errors';
 import { colleagueWhere, isAdminRoles, type CompanyAccess, type Viewer } from '../companies/company-access';
 import type { PersonOption, PersonOptions } from '../companies/person-options';
+import { STAFF_ONLY_WHERE, projectMeetingClientIds } from '../clients/client-kind';
 
 /** What a meeting's people come from: its project, or (no project) its company. */
 export type InviteTarget = { projectId: string } | { companyId: string | null };
@@ -26,7 +27,7 @@ export const inviteTargetOf = (m: { projectId: string | null; companyId?: string
 export function createPrismaMeetingInvitees(prisma: PrismaClient, deps: { companyAccess: CompanyAccess; personOptions: PersonOptions }): MeetingInvitees {
   const { companyAccess } = deps;
   const activeIds = async (where: object): Promise<string[]> =>
-    (await prisma.user.findMany({ where: { deletedAt: null, status: 'ACTIVE', ...where }, select: { id: true } })).map((u) => u.id);
+    (await prisma.user.findMany({ where: { deletedAt: null, status: 'ACTIVE', ...STAFF_ONLY_WHERE, ...where }, select: { id: true } })).map((u) => u.id);
 
   async function candidateIds(viewer: Viewer, target: InviteTarget): Promise<Set<string>> {
     const admin = isAdminRoles(viewer.roles);
@@ -44,10 +45,12 @@ export function createPrismaMeetingInvitees(prisma: PrismaClient, deps: { compan
         if (!project.companies.some((c) => mine.has(c.companyId))) throw new NotFoundError('Project not found.');
       }
       const inCompanies = await companyAccess.projectCompanyPeople(project.companies.map((c) => c.companyId));
-      if (admin) return new Set(inCompanies);
+      // 1.23: the project's client accounts that have its Meetings module (marked "Client" in the picker).
+      const clients = await projectMeetingClientIds(prisma, target.projectId);
+      if (admin) return new Set([...inCompanies, ...clients]);
       const team = new Set([project.ownerId, project.managerId, ...project.members.map((m) => m.userId)].filter((id): id is string => !!id));
       const colleagues = new Set(await activeIds({ id: { in: inCompanies }, ...colleagueWhere(viewer.id) }));
-      return new Set(inCompanies.filter((id) => id === viewer.id || team.has(id) || colleagues.has(id)));
+      return new Set([...inCompanies.filter((id) => id === viewer.id || team.has(id) || colleagues.has(id)), ...clients]);
     }
     if (target.companyId) {
       if (!admin) await companyAccess.checkPick(viewer, target.companyId); // one of their own companies

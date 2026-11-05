@@ -22,6 +22,7 @@ const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
   { type: 'TASK_STATUS', label: 'Status changes', desc: 'When one of your tasks moves column' },
   { type: 'TASK_APPROVAL', label: 'Approvals', desc: 'When a task waits for your approval, or yours is approved or sent back' },
+  { type: 'TASK_CLIENT_SIGN_OFF', label: 'Client sign-off', desc: 'When a client accepts a task or sends it back' },
   { type: 'TASK_COMMENT', label: 'Comments', desc: 'New comments on tasks you’re on' },
   { type: 'MENTION', label: 'Mentions', desc: 'When someone @mentions you' },
   { type: 'TASK_DUE_SOON', label: 'Due soon', desc: 'A reminder shortly before a task is due' },

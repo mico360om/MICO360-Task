@@ -1,6 +1,9 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { TokenService } from './token-service';
 import { ForbiddenError, UnauthorizedError } from './errors';
+import { HttpError } from '../../lib/http-errors';
+import { CLIENT_WORDS, isClientRoles } from '../clients/client-kind';
+import { clientMayCall, routeKeyOf, staffMayCall } from '../clients/client-route-table';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -31,6 +34,20 @@ export interface AuthGuardOptions {
 }
 
 const MAX_CACHE_ENTRIES = 10_000;
+
+/**
+ * 1.23 Client accounts, deny by default: a client's session may be used only on the Client portal and
+ * the few reviewed routes of client-route-table.ts; a staff session never on the portal. Asked on every
+ * signed-in request from the route's own pattern, after the CURRENT roles are known.
+ */
+function assertRouteFor(req: FastifyRequest, roles: readonly string[]): void {
+  const key = routeKeyOf(req.method, req.routeOptions?.url ?? req.url);
+  if (isClientRoles(roles)) {
+    if (!clientMayCall(key)) throw new HttpError(CLIENT_WORDS.notAllowed, 'CLIENT_NOT_ALLOWED', 403);
+  } else if (!staffMayCall(key)) {
+    throw new HttpError(CLIENT_WORDS.clientsOnly, 'CLIENTS_ONLY', 403);
+  }
+}
 
 /** Route guards for JWT auth (T2.2) and role-based access control (T2.4). */
 export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptions = {}) {
@@ -63,6 +80,7 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
 
     if (!userState) {
       req.user = { id: claims.sub, roles: tokenRoles };
+      assertRouteFor(req, tokenRoles);
       return;
     }
 
@@ -75,6 +93,7 @@ export function createAuthGuard(tokenService: TokenService, opts: AuthGuardOptio
       throw new UnauthorizedError('Your session has ended. Please sign in again.');
     }
     req.user = { id: claims.sub, roles: state.roles };
+    assertRouteFor(req, state.roles);
   }
 
   function requireRoles(...roles: string[]) {

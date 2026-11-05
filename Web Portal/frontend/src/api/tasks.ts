@@ -67,8 +67,12 @@ export interface ApiTask {
   version?: number;
   /** A milestone: a key date or deliverable of its project (older servers leave it out). */
   isMilestone?: boolean;
-  /** Shown on the project's client page (its title, status and due date only). */
+  /** Shown on the project's client page and in the Client portal (its title, status and due date). */
   clientVisible?: boolean;
+  /** 1.23: its description is shown to the client too ("Also show its description"; only while shown). */
+  clientShowDescription?: boolean;
+  /** 1.23: when a client accepted it in the Client portal (only while that applies to its current finish). */
+  clientAcceptedAt?: string | null;
   /** The repeat rule — only the newest copy of a recurring series carries it. */
   recurrenceRule?: RecurrenceRule | null;
   /** Set on every copy of a recurring series: the first task's id. */

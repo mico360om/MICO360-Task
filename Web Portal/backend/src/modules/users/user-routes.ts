@@ -7,7 +7,8 @@ import type { DataExporter } from './data-export';
 import { zonedDayKey } from '../../lib/due-date';
 import type { AttachmentStorage } from '../tasks/attachment-repository';
 import { storeImageUpload } from '../../lib/image-upload';
-import { ValidationError } from '../../lib/http-errors';
+import { HttpError, ValidationError } from '../../lib/http-errors';
+import { CLIENT_ROLE, isClientRoles } from '../clients/client-kind';
 import { idString } from '../tasks/validation';
 import type { CompanyMembership } from '../companies/company-membership';
 import type { PickOf } from '../companies/company-pick';
@@ -147,6 +148,8 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     return {
       // `active`: inactive and suspended people keep their names in history, but pickers leave them out.
       data: users.flatMap((u) => {
+        // 1.23: client accounts are never in a staff picker, @mention or chat.
+        if (isClientRoles(u.roles)) return [];
         const colleague = colleagueOf(u);
         if (colleague === null) return [];
         return [{ id: u.id, username: u.username, firstName: u.firstName, lastName: u.lastName, avatarUrl: u.avatarUrl, lastActiveAt: u.lastActiveAt ?? null, active: u.status === 'ACTIVE', colleague }];
@@ -201,6 +204,8 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   app.post('/users', adminOnly, async (req, reply) => {
     const { sendWelcome, password, companyIds, primaryCompanyId, ...body } = createSchema.parse(req.body);
+    // 1.23: a client account is made with the client form (POST /clients: its projects and their access).
+    if ((body.roleNames ?? []).includes(CLIENT_ROLE)) throw new HttpError('Create client accounts with the client form (Role: Client).', 'USE_CLIENT_FORM', 400);
     // Asked for a welcome email that can't be sent: say so before making an account no one can use.
     if (sendWelcome && !deps.welcome?.isConfigured()) throw new WelcomeEmailUnavailableError();
     // companies: the ones named, else the picked company, else the site's only one; an employee

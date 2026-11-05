@@ -28,6 +28,10 @@ export interface TaskRecord {
   isMilestone?: boolean;
   /** Shown on its project's client page (title, status, due date only) — staff see a "Visible to client" mark. */
   clientVisible?: boolean;
+  /** 1.23: the Client portal shows its description too ("Also show its description"). */
+  clientShowDescription?: boolean;
+  /** 1.23: when a client accepted this finish ("Client accepted · date"); null when not (or re-opened since). */
+  clientAcceptedAt?: Date | null;
   createdById: string;
   completedAt: Date | null;
   recurrenceRule: RecurrenceRule | null;

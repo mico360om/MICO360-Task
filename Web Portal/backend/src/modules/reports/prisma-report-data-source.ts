@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ReportDataSource } from './report-service';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSource {
   return {
@@ -34,7 +35,8 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
       }));
     },
     async getUsers() {
-      const users = await prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, username: true, firstName: true, lastName: true } });
+      // 1.23: client accounts are never a row of the staff reports.
+      const users = await prisma.user.findMany({ where: { deletedAt: null, ...STAFF_ONLY_WHERE }, select: { id: true, username: true, firstName: true, lastName: true } });
       return users.map((u) => ({ id: u.id, username: u.username, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username }));
     },
   };

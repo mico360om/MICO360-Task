@@ -11,11 +11,15 @@ export function createPrismaClientFlags(prisma: PrismaClient, getTask: (taskId: 
         const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null, project: { is: { deletedAt: null } } }, select: { projectId: true } });
         return t?.projectId ?? null;
       },
-      async setClientVisible(taskId, visible) {
+      async setClientVisible(taskId, visible, showDescription) {
         // A switch, not an edit: the task's version (what edits are checked against) stays as it is.
-        const before = await prisma.task.findUniqueOrThrow({ where: { id: taskId }, select: { clientVisible: true } });
-        if (before.clientVisible !== visible) await prisma.task.updateMany({ where: { id: taskId, deletedAt: null }, data: { clientVisible: visible } });
-        return { before: before.clientVisible, task: await getTask(taskId) };
+        const before = await prisma.task.findUniqueOrThrow({ where: { id: taskId }, select: { clientVisible: true, clientShowDescription: true } });
+        // 1.23: the description's own tick (kept when not given); hiding the task turns it off.
+        const description = visible ? (showDescription ?? before.clientShowDescription) : false;
+        if (before.clientVisible !== visible || before.clientShowDescription !== description) {
+          await prisma.task.updateMany({ where: { id: taskId, deletedAt: null }, data: { clientVisible: visible, clientShowDescription: description } });
+        }
+        return { before: before.clientVisible, beforeDescription: before.clientShowDescription, task: await getTask(taskId) };
       },
     },
     minutes: {

@@ -8,7 +8,7 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import { useInviteCandidates } from '../meeting-form/invite-candidates';
+import { personHint, useInviteCandidates } from '../meeting-form/invite-candidates';
 import { colleaguesOf } from '../../lib/people';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { meetingFailure, exportMinutes } from './meeting-actions';
@@ -123,7 +123,7 @@ export function MinutesEmailDialog({ meeting, onClose, prefill }: { meeting: Mee
   const colleagues = (candidates ?? colleaguesOf(directory)).filter((u) => (u as { active?: boolean }).active !== false);
   const nameOf = (u: { firstName: string; lastName: string; username: string }) => `${u.firstName} ${u.lastName}`.trim() || u.username;
   const colleagueOptions = (taken: (key: string) => boolean) =>
-    colleagues.filter((u) => !taken(`u:${u.id}`)).map((u) => ({ value: `u:${u.id}`, label: nameOf(u), hint: `@${u.username}` }));
+    colleagues.filter((u) => !taken(`u:${u.id}`)).map((u) => ({ value: `u:${u.id}`, label: nameOf(u), hint: personHint(u) }));
   const onMeetingAsUser = new Set(roster.flatMap((r) => (r.userId ? [`u:${r.userId}`] : [])));
   const toOptions = colleagueOptions((k) => toKeys.has(k) || onMeetingAsUser.has(k));
   const suggestions = (Array.isArray(suggestionsQ.data) ? suggestionsQ.data : []).filter((s) => !toKeys.has(`e:${s.email.toLowerCase()}`) && !ccKeys.has(`e:${s.email.toLowerCase()}`));

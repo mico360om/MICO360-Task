@@ -3,9 +3,11 @@ import { toPerson } from './prisma-timeline-source';
 import type { WorkloadStore } from './workload-service';
 import { managedVisibleWhere } from '../projects/project-managers';
 import { liveProjectWhere } from '../companies/project-archive';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 const personFields = { id: true, firstName: true, lastName: true, username: true, avatarUrl: true } as const;
-const ACTIVE = { deletedAt: null, status: 'ACTIVE' as const };
+// 1.23: client accounts are never on the Workload page.
+const ACTIVE = { deletedAt: null, status: 'ACTIVE' as const, ...STAFF_ONLY_WHERE };
 /**
  * Projects the page works with: not deleted, completed or archived (as the timeline and the daily
  * emails) — companies: archived by its own status or by all its companies (liveProjectWhere).

@@ -59,6 +59,8 @@ export interface MeetingPerson {
   id: string;
   name: string;
   avatarUrl: string | null;
+  /** 1.23: a client account (the roster marks them "Client"). */
+  client?: boolean;
 }
 
 export async function registerAttendeeRoutes(app: FastifyInstance, deps: AttendeeRouteDeps): Promise<void> {

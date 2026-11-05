@@ -188,3 +188,42 @@ describe('Meeting form — companies', () => {
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ companyId: beta.id });
   });
 });
+
+// 1.23 Client accounts: a project meeting may invite the project's clients (those with its Meetings module).
+describe('Meeting form — clients (1.23)', () => {
+  const hamad = { id: 'cl1', firstName: 'Hamad', lastName: 'Al Busaidi', username: 'hamad', avatarUrl: null, client: true, organisation: 'PDO' };
+  const amyOption = { id: 'amy', firstName: 'Amy', lastName: 'Alphaonly', username: 'amy', avatarUrl: null };
+
+  it('one company: a project meeting offers the directory and the project’s clients, marked Client with their organisation', async () => {
+    mine = { companies: [alpha], primaryCompanyId: alpha.id, siteCompanyCount: 1 };
+    override = (u) => (u.includes('/meetings/invite-candidates') ? json({ data: [amyOption, hamad] }) : undefined);
+    renderModal(undefined, 'pab');
+    await waitFor(() => expect(asks('/meetings/invite-candidates').at(-1)).toBe('/meetings/invite-candidates?projectId=pab'));
+    await userEvent.click(screen.getByRole('button', { name: 'Add a team member' }));
+    const options = () => within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent);
+    await waitFor(() => expect(options()).toContainEqual(expect.stringMatching(/Hamad Al Busaidi.*Client · PDO/)));
+    // The directory's people as before, each once.
+    expect(options().filter((t) => t?.includes('Amy Alphaonly'))).toHaveLength(1);
+    expect(options()).toContainEqual(expect.stringContaining('Bob Betaonly'));
+    await userEvent.click(screen.getByRole('option', { name: /Hamad Al Busaidi/ }));
+    const invited = screen.getByRole('list', { name: 'People invited' });
+    expect(within(invited).getByText('Hamad Al Busaidi')).toBeInTheDocument();
+    expect(within(invited).getByText('Client')).toBeInTheDocument();
+    await fillAndSave();
+    await waitFor(() => expect(posted()).toBeDefined());
+    expect(posted()!.attendees).toEqual([{ userId: 'cl1' }]);
+  });
+
+  it('several companies: the server’s candidates, its clients marked Client', async () => {
+    override = (u) => (u.includes('/meetings/invite-candidates') ? json({ data: [amyOption, hamad] }) : undefined);
+    renderModal(undefined, 'pab');
+    await waitFor(() => expect(asks('/meetings/invite-candidates').at(-1)).toBe('/meetings/invite-candidates?projectId=pab'));
+    await userEvent.click(screen.getByRole('button', { name: 'Add a team member' }));
+    await waitFor(() =>
+      expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([
+        expect.stringMatching(/Amy Alphaonly.*@amy/),
+        expect.stringMatching(/Hamad Al Busaidi.*Client · PDO/),
+      ]),
+    );
+  });
+});

@@ -13,6 +13,7 @@ import type {
   MicoAiDataPort,
   Viewer,
 } from './mico-ai-data';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 /**
  * MICO AI's reads from the database. Scope comes from the app's own rules: the project-access
@@ -359,7 +360,8 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       // companies: only the people this person may know (an administrator, or no viewer: everyone).
       const known = viewer ? await companies.knownPeople({ id: viewer.userId, roles: viewer.roles }) : 'everyone';
       const ids = known === 'everyone' ? null : [viewer!.userId, ...known.keys()];
-      const rows = await prisma.user.findMany({ where: { deletedAt: null, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, firstName: true, lastName: true, username: true, status: true }, take: 5000 });
+      // 1.23: client accounts aren't staff MICO AI knows.
+      const rows = await prisma.user.findMany({ where: { deletedAt: null, ...STAFF_ONLY_WHERE, ...(ids ? { id: { in: ids } } : {}) }, select: { id: true, firstName: true, lastName: true, username: true, status: true }, take: 5000 });
       return rows.map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, username: u.username, active: u.status === 'ACTIVE' }));
     },
 

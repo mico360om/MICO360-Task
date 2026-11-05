@@ -148,6 +148,11 @@ model User {
   primaryCompanyId String?
   primaryCompany   Company?        @relation("UserPrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: SetNull)
   companies        CompanyMember[]
+  /// 1.23 Client accounts (role CLIENT only): their organisation and phone (staff leave them empty).
+  organisation     String?         @db.VarChar(160)
+  phone            String?         @db.VarChar(40)
+  /// A client's projects in the Client portal, each with its ticked modules and actions.
+  clientGrants     ClientProjectGrant[]
 
   @@index([status])
   @@index([departmentId])
@@ -289,6 +294,8 @@ model Project {
   mainCompanyId  String?
   mainCompany    Company?         @relation("ProjectMainCompany", fields: [mainCompanyId], references: [id], onDelete: SetNull)
   companies      ProjectCompany[]
+  /// 1.23: the client accounts that may open this project in the Client portal.
+  clientGrants   ClientProjectGrant[]
 
   @@index([status])
   @@index([managerId])
@@ -353,6 +360,11 @@ model Task {
   /// Shown on its project's client page (title, status and due date only). Off unless someone who runs
   /// the project turns it on; moving the task to another project turns it off.
   clientVisible  Boolean   @default(false)
+  /// 1.23: the Client portal shows its description too (a tick of its own beside "Show to client").
+  clientShowDescription Boolean @default(false)
+  /// 1.23: a client signed it off ("Client accepted · date"); cleared when it leaves Done or is sent back.
+  clientAcceptedAt   DateTime?
+  clientAcceptedById String?
   createdById    String
   completedAt    DateTime?
   boardDate       DateTime?  // per-date boards: the calendar day this task appears on (noon-UTC anchor)
@@ -513,6 +525,10 @@ model Comment {
   userId    String
   body      String    @db.Text
   parentId  String?   // set when this comment is a reply to another (threaded replies)
+  /// 1.23: written by a client account in the Client portal (shown to the team marked "Client").
+  fromClient    Boolean @default(false)
+  /// 1.23: a team reply to a client's comment the client may see ("Visible to client").
+  clientVisible Boolean @default(false)
   editedAt  DateTime?
   createdAt DateTime  @default(now())
   deletedAt DateTime?
@@ -1313,6 +1329,30 @@ model ClientSession {
 
   @@index([shareId])
   @@map("client_sessions")
+}
+
+/// 1.23 Client accounts: a project a client account may open in the Client portal, with the modules and
+/// actions an administrator ticked (all off until ticked; at least one module). No row: no access.
+model ClientProjectGrant {
+  userId      String
+  projectId   String
+  /// Modules: "Progress, milestones and tasks", "Meetings and minutes".
+  progress    Boolean  @default(false)
+  meetings    Boolean  @default(false)
+  /// Actions: comment on tasks; sign off finished tasks; reply to invites (and their own action items); download PDFs.
+  canComment  Boolean  @default(false)
+  canSignOff  Boolean  @default(false)
+  canRespond  Boolean  @default(false)
+  canDownload Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+  @@index([projectId])
+  @@map("client_project_grants")
 }
 
 model MeetingTemplate {

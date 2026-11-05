@@ -510,6 +510,8 @@ export interface MeetingPerson {
   id: string;
   name: string;
   avatarUrl: string | null;
+  /** 1.23: a client account (the roster marks them "Client"). */
+  client?: boolean;
 }
 
 export function meetingsApi(client: ApiClient) {

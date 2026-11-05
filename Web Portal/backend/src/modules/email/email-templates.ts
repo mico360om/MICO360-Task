@@ -101,6 +101,8 @@ export interface WelcomeEmailParams {
   /** The site's own download links; an app the site doesn't offer is left out. */
   androidAppUrl?: string | null;
   extensionUrl?: string | null;
+  /** 1.23: a client account — the Client portal, where they follow the projects shared with them. */
+  client?: boolean;
 }
 
 /** How to install the zipped extension (it isn't in the Chrome Web Store) — the website says the same. */
@@ -122,7 +124,12 @@ export function welcomeEmail(params: WelcomeEmailParams, opts?: TemplateOptions)
     ...(params.extensionUrl ? [{ label: 'Chrome extension', href: params.extensionUrl }] : []),
   ];
   const blocks: Block[] = [
-    { kind: 'text', text: `Hi ${name}, your ${product} account is ready. Set your password, then sign in with your username or email address.` },
+    {
+      kind: 'text',
+      text: params.client
+        ? `Hi ${name}, ${brand.companyName} has given you access to your projects in ${product}. Set your password, then sign in with your username or email address to open your Client portal.`
+        : `Hi ${name}, your ${product} account is ready. Set your password, then sign in with your username or email address.`,
+    },
     { kind: 'details', rows: [['Your username', params.username], ['Site', brand.appUrl]] },
     { kind: 'button', label: 'Set your password', href: params.setPasswordLink },
     // Setting the password ends every other sign-in (the reset page does that), so the email says so.
@@ -442,6 +449,32 @@ export function clientInvitationEmail(params: ClientInvitationParams, opts?: Tem
     { kind: 'callout', text: 'Didn’t expect this email? You can ignore it.', tone: 'info' },
   ];
   return build(title, `Follow ${params.projectName} on a private page.`, title, blocks, opts, undefined, `You’re receiving this email because ${params.sharedByName} shared a project with you on ${product}.`);
+}
+
+/** 1.23 A team reply marked "Visible to client" on a client account's comment (the Client portal). */
+export interface ClientReplyParams {
+  clientName: string;
+  projectName: string;
+  taskKey: string;
+  taskTitle: string;
+  /** The reply as written (plain text). */
+  reply: string;
+  /** The task in the Client portal. */
+  link: string;
+}
+
+/** The reply itself and a link to the task — never who on the team wrote it (the portal names no staff). */
+export function clientReplyEmail(params: ClientReplyParams, opts?: TemplateOptions): EmailContent {
+  const product = productName(opts);
+  const task = `${params.taskKey} ${params.taskTitle}`.trim();
+  const title = `A reply on ${task}`;
+  const blocks: Block[] = [
+    { kind: 'text', text: `Hi ${params.clientName}, the project team replied to your comment on “${task}” in ${params.projectName}:` },
+    { kind: 'callout', text: params.reply, tone: 'info' },
+    { kind: 'button', label: 'Open the task', href: params.link },
+    linkFallback(params.link),
+  ];
+  return build(title, `The team replied on ${task}.`, title, blocks, opts, undefined, `You’re receiving this email because you commented on a task in your ${product} Client portal.`);
 }
 
 export interface ClientCodeParams {

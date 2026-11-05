@@ -306,3 +306,15 @@ describe('WelcomeService — a database problem never loses a result', () => {
     expect(h.sent).toHaveLength(1);
   });
 });
+
+// 1.23 Client accounts: the same set-password link, without the staff apps.
+describe('WelcomeService — client accounts', () => {
+  it('a client’s welcome email has the link but no Android app or extension', async () => {
+    const h = harness();
+    const cliff = await h.mem.repo.create({ email: 'cliff@client.co', username: 'cliff', passwordHash: 'h', firstName: 'Cliff', lastName: 'C', roleNames: ['CLIENT'] });
+    const out = await h.service.send(cliff.id);
+    expect(out.sent).toBe(true);
+    expect(h.sent[0]!.params).toMatchObject({ firstName: 'Cliff', username: 'cliff', androidAppUrl: null, extensionUrl: null, client: true });
+    expect(h.sent[0]!.params.setPasswordLink).toMatch(/\/reset\?token=.+&welcome=1$/);
+  });
+});

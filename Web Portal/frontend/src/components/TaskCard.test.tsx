@@ -50,6 +50,15 @@ describe('TaskCard', () => {
     expect(screen.queryByLabelText('Visible to client')).not.toBeInTheDocument();
   });
 
+  // 1.23: a client signed it off in the Client portal.
+  it('marks a task the client accepted, with the day on hover', () => {
+    const { unmount } = render(<TaskCard task={{ ...task, done: true, clientAcceptedAt: '2026-10-30T09:00:00.000Z' }} timeZone="Asia/Muscat" />);
+    expect(screen.getByRole('img', { name: 'Client accepted · 30 Oct 2026' })).toHaveAttribute('title', 'Client accepted · 30 Oct 2026');
+    unmount();
+    render(<TaskCard task={{ ...task, clientAcceptedAt: null }} />);
+    expect(screen.queryByRole('img', { name: /Client accepted/ })).not.toBeInTheDocument();
+  });
+
   it('shows an avatar for each assignee', () => {
     render(<TaskCard task={task} />);
     expect(screen.getByTitle('Ada Lovelace')).toBeInTheDocument();

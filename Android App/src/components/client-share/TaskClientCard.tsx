@@ -49,7 +49,7 @@ export function TaskClientCard({ task, canChange }: { task: Pick<ApiTask, 'id' |
 }
 
 /** The website's hint under the switch (TaskDrawer's ClientViewSwitch), said with it by TalkBack. */
-const HINT = 'Show to client: its title, status and due date appear on the project’s client page. Never people, comments, files or the description.';
+const HINT = 'Show to client: its title, status and due date appear on the project’s client page and in the Client portal, where clients with access may comment on it or sign it off, if allowed. Its description only with “Also show its description” (on the website). Never people, files or the team’s comments, except replies marked “Visible to client”.';
 
 const makeStyles = (c: Palette) =>
   StyleSheet.create({

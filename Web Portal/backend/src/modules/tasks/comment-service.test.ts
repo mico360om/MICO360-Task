@@ -23,8 +23,8 @@ function inMemory(tasks: string[]) {
   const rows = new Map<string, CommentRecord>();
   let seq = 0;
   const repo: CommentRepository = {
-    async create(taskId, userId, body, parentId) {
-      const rec: CommentRecord = { id: `c${seq++}`, taskId, userId, body, parentId: parentId ?? null, editedAt: null, createdAt: new Date() };
+    async create(taskId, userId, body, parentId, extra) {
+      const rec: CommentRecord = { id: `c${seq++}`, taskId, userId, body, parentId: parentId ?? null, editedAt: null, createdAt: new Date(), fromClient: extra?.fromClient ?? false, clientVisible: extra?.clientVisible ?? false };
       rows.set(rec.id, rec);
       return rec;
     },
@@ -182,5 +182,25 @@ describe('CommentService — the task search index follows its comments', () => 
     await expect(svc.editComment(c.id, 'u2', 'not yours')).rejects.toBeInstanceOf(ForbiddenError);
     await expect(svc.deleteComment(c.id, 'u2', false)).rejects.toBeInstanceOf(ForbiddenError);
     expect(changed).toEqual(['t1']);
+  });
+});
+
+// 1.23 Client accounts: a team reply the client may see ("Visible to client").
+describe('CommentService — Visible to client', () => {
+  it('only a reply to a client’s comment can be shown to the client (400 otherwise)', async () => {
+    const { repo, taskLookup } = inMemory(['t1']);
+    const replies: string[] = [];
+    const svc = createCommentService({ repo, taskLookup, onClientReply: (c) => void replies.push(c.id) });
+    const fromClient = await repo.create('t1', 'client-1', 'Is the pump in?', null, { fromClient: true });
+    const staff = await svc.addComment('t1', 'omar', 'Internal note');
+    await expect(svc.addComment('t1', 'omar', 'Shown?', null, { clientVisible: true })).rejects.toMatchObject({ status: 400, code: 'VALIDATION' });
+    await expect(svc.addComment('t1', 'omar', 'Shown?', staff.id, { clientVisible: true })).rejects.toMatchObject({ status: 400 });
+    const reply = await svc.addComment('t1', 'omar', 'Yes, Monday.', fromClient.id, { clientVisible: true });
+    expect(reply).toMatchObject({ parentId: fromClient.id, clientVisible: true, fromClient: false });
+    expect(replies).toEqual([reply.id]);
+    // An unticked reply stays with the team, and nobody is emailed.
+    const internal = await svc.addComment('t1', 'omar', 'Check stock first', fromClient.id);
+    expect(internal.clientVisible).toBe(false);
+    expect(replies).toEqual([reply.id]);
   });
 });

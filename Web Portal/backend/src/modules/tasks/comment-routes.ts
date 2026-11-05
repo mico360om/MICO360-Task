@@ -7,7 +7,7 @@ import { idString, longText } from './validation';
 
 const commentBody = longText.refine((s) => s.trim().length > 0, { message: 'A comment cannot be empty.' });
 const bodySchema = z.object({ body: commentBody });
-const createSchema = z.object({ body: commentBody, parentId: idString.optional() });
+const createSchema = z.object({ body: commentBody, parentId: idString.optional(), clientVisible: z.boolean().optional() });
 
 export interface CommentRouteDeps {
   commentService: CommentService;
@@ -50,8 +50,8 @@ export async function registerCommentRoutes(app: FastifyInstance, deps: CommentR
   app.post('/tasks/:id/comments', { preHandler: guard.authenticate }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!(await canView(req, id))) return reply.status(403).send(denied);
-    const { body, parentId } = createSchema.parse(req.body);
-    const comment = await commentService.addComment(id, req.user!.id, body, parentId);
+    const { body, parentId, clientVisible } = createSchema.parse(req.body);
+    const comment = await commentService.addComment(id, req.user!.id, body, parentId, clientVisible ? { clientVisible: true } : {});
     await announce(id, 'comment:created', { taskId: id, comment });
     await noteActivity(deps.recordActivity, { taskId: id, userId: req.user!.id, action: 'COMMENTED', meta: { commentId: comment.id } });
     return reply.status(201).send({ data: comment });

@@ -13,3 +13,14 @@ describe('the AI notices’ icons', () => {
     expect(container.querySelector('[data-kind-icon="ai"] svg path')).not.toBeNull();
   });
 });
+
+// 1.23: a client accepted a task or sent it back (shown with the approvals).
+describe('the client sign-off notice’s icon', () => {
+  it('has its own name, in the approvals’ colours', () => {
+    expect(notificationKindLook('TASK_CLIENT_SIGN_OFF')).toEqual({ id: 'client-sign-off', name: 'Client sign-off' });
+    const { container } = render(<NotificationKindIcon type="TASK_CLIENT_SIGN_OFF" />);
+    const icon = container.querySelector('[data-kind-icon="client-sign-off"]');
+    expect(icon?.className).toContain('text-success');
+    expect(icon?.querySelector('svg path')).not.toBeNull();
+  });
+});

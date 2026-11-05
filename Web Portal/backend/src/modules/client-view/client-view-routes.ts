@@ -15,8 +15,12 @@ import type { FinalMinutesContent } from '../meetings/final-minutes';
 export interface ClientTaskFlags {
   /** The task's project; null when the task (or its project) is gone. */
   projectOf(taskId: string): Promise<string | null>;
-  /** Sets the flag; returns what it was and the task as it now is (for its history and open boards). */
-  setClientVisible(taskId: string, visible: boolean): Promise<{ before: boolean; task: TaskRecord }>;
+  /**
+   * Sets the flag; returns what it was and the task as it now is (for its history and open boards).
+   * 1.23 `showDescription`: the Client portal shows its description too (undefined: kept); hiding the
+   * task always turns it off.
+   */
+  setClientVisible(taskId: string, visible: boolean, showDescription?: boolean): Promise<{ before: boolean; beforeDescription?: boolean; task: TaskRecord }>;
 }
 
 /** "Show to client" on a meeting's approved final minutes. */
@@ -62,7 +66,7 @@ const shareBody = z.object({
   name: z.string().trim().min(1, 'Enter the client’s name.').max(120, 'A name has at most 120 characters.'),
   email: z.string().trim().max(254, 'An email address has at most 254 characters.').email('Enter a valid email address.'),
 });
-const visibleBody = z.object({ visible: z.boolean() });
+const visibleBody = z.object({ visible: z.boolean(), showDescription: z.boolean().optional() });
 const minutesVisibleBody = z.object({ visible: z.boolean(), includeRisks: z.boolean().optional() });
 const codeBody = z.object({ email: z.string().max(254) });
 const verifyBody = z.object({ email: z.string().max(254), code: z.string().max(12) });
@@ -200,11 +204,16 @@ export async function registerClientViewRoutes(app: FastifyInstance, deps: Clien
       const projectId = await tasks.projectOf(id);
       if (!projectId || (deps.canViewTask && !(await deps.canViewTask(user.id, user.roles, id)))) throw new NotFoundError('Task not found.');
       if (!(await deps.canManageProject(user.id, user.roles, projectId))) throw new ForbiddenError(MARK_REFUSED);
-      const { visible } = visibleBody.parse(req.body ?? {});
-      const { before, task } = await tasks.setClientVisible(id, visible);
+      const { visible, showDescription } = visibleBody.parse(req.body ?? {});
+      const { before, beforeDescription, task } = await tasks.setClientVisible(id, visible, showDescription);
       if (before !== visible) {
         await noteActivity(deps.recordActivity, { taskId: id, userId: user.id, action: 'UPDATED', meta: { changes: [{ field: 'clientVisible', from: before, to: visible }] } });
         await audit(req, visible ? 'client-view.task.shown' : 'client-view.task.hidden', id, { projectId });
+      }
+      // 1.23: its description in the Client portal (a tick of its own, only while the task is shown).
+      const afterDescription = task.clientShowDescription === true;
+      if (visible && beforeDescription !== undefined && beforeDescription !== afterDescription) {
+        await audit(req, afterDescription ? 'client-view.task.description_shown' : 'client-view.task.description_hidden', id, { projectId });
       }
       deps.broadcast?.(projectId, 'task:updated', task);
       return { data: task };

@@ -139,3 +139,33 @@ describe('Meeting page: action items, one line each', () => {
     expect(document.querySelector('input[type="date"], select')).toBeNull();
   });
 });
+
+// 1.23 Client accounts: the team may give one of the meeting's clients an action item.
+describe('Meeting page: action items for a client (1.23)', () => {
+  it('the owner picker offers the meeting’s clients (named from its roster), marked Client', async () => {
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <ActionItemsSection
+            meetingId="m1"
+            directory={[
+              { id: 'u1', username: 'aisha', firstName: 'Aisha', lastName: 'Khan', avatarUrl: null },
+              { id: 'cl1', username: '', firstName: 'Hamad Al Busaidi', lastName: '', avatarUrl: null, colleague: false, client: true } as never,
+            ]}
+            canEdit
+            pollMs={false}
+            timeZone="Asia/Muscat"
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText('Book the conference room');
+    await userEvent.click(screen.getByRole('button', { name: 'Owner of the new item' }));
+    const options = within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent);
+    expect(options).toEqual(['Unassigned', expect.stringMatching(/Aisha Khan.*@aisha/), 'Hamad Al BusaidiClient']);
+    await userEvent.click(screen.getByRole('option', { name: /Hamad Al Busaidi/ }));
+    await userEvent.type(screen.getByLabelText(/new action item|describe/i), 'Send the site photos');
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toMatchObject({ description: 'Send the site photos', assigneeId: 'cl1' }));
+  });
+});

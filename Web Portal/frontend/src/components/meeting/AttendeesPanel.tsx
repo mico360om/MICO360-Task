@@ -22,10 +22,10 @@ import { Button } from '../ui/Button';
 import { fieldClass } from '../ui/Field';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { ActionMenu } from './ActionMenu';
-import { ConfirmRemoveButton, LoadError, Section, SectionError, userName } from './kit';
+import { ConfirmRemoveButton, LoadError, Section, SectionError, isClientUser, userName } from './kit';
 import { meetingFailure } from './meeting-actions';
 import { responseSummary } from '../../lib/meeting-flow';
-import { useInviteCandidates } from '../meeting-form/invite-candidates';
+import { invitablePeople, personHint, useClientInvitees, useInviteCandidates } from '../meeting-form/invite-candidates';
 import { colleaguesOf } from '../../lib/people';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -125,10 +125,12 @@ export function AttendeesPanel({
 
   // companies: with two or more on the site, the people the server says can be invited to this meeting.
   const candidates = useInviteCandidates({ projectId: meeting.projectId, companyId: meeting.companyId }, canEdit);
+  // 1.23: a project meeting may also invite the project's clients (with its Meetings module), marked "Client".
+  const clients = useClientInvitees(meeting.projectId, canEdit);
   const onList = new Set(attendees.map((a) => a.userId).filter(Boolean));
-  const memberOptions = (candidates ?? colleaguesOf(directory))
+  const memberOptions = invitablePeople(candidates, colleaguesOf(directory), clients)
     .filter((u) => !onList.has(u.id))
-    .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: `@${u.username}` }));
+    .map((u) => ({ value: u.id, label: `${u.firstName} ${u.lastName}`.trim() || u.username, hint: personHint(u) }));
 
   function submitAdd(e: FormEvent) {
     e.preventDefault();
@@ -207,6 +209,7 @@ export function AttendeesPanel({
                   </span>
                   <Badge tone={RESPONSE_TONE[response]}>{RESPONSE_LABELS[response]}</Badge>
                   {!a.userId ? <Badge tone="neutral">Guest</Badge> : null}
+                  {isClientUser(directory, a.userId) ? <Badge tone="info">Client</Badge> : null}
                   {someOptional ? <Badge tone={a.role === 'OPTIONAL' ? 'neutral' : 'info'}>{a.role === 'OPTIONAL' ? 'Optional' : 'Required'}</Badge> : null}
                   {notInvited ? <span className="text-[11px] font-medium text-warning">Not invited yet</span> : null}
                   {noEmail ? (

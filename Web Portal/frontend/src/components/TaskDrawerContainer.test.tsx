@@ -549,3 +549,85 @@ describe('TaskDrawerContainer — Previous / Next (1.22)', () => {
     expect(screen.getByRole('button', { name: 'Previous task' })).toHaveFocus();
   });
 });
+
+// 1.23 Client accounts: a client's comments and sign-off, as the team sees them in a task.
+describe('TaskDrawerContainer — clients (1.23)', () => {
+  const clientRow = {
+    id: 'c5', taskId: 't1', userId: 'client-1', body: 'Is the valve fitted?', parentId: null, createdAt: new Date().toISOString(), editedAt: null,
+    fromClient: true, clientVisible: false, clientAuthor: { name: 'Hamad Al Busaidi', organisation: 'Petroleum Development Oman' },
+  };
+  const replyRow = { id: 'c6', taskId: 't1', userId: 'u1', body: 'Yes, this morning.', parentId: 'c5', createdAt: new Date().toISOString(), editedAt: null, fromClient: false, clientVisible: true };
+  let posted: { url: string; method: string; body: unknown }[];
+  const withClients = (task: Record<string, unknown> = {}) => {
+    posted = [];
+    let showDescription = false;
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (method !== 'GET') posted.push({ url: u, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (u.endsWith('/tasks/t1/comments') && method === 'POST') return json({ data: { ...replyRow, id: 'c7' } }, 201);
+      if (u.endsWith('/tasks/t1/comments')) return json({ data: [clientRow, replyRow] });
+      if (u.endsWith('/tasks/t1/client-visible')) {
+        showDescription = (JSON.parse(String(init?.body)) as { showDescription?: boolean }).showDescription === true;
+        return json({ data: { id: 't1', clientVisible: true, clientShowDescription: showDescription } });
+      }
+      if (u.endsWith('/tasks/t1')) {
+        return json({ data: { id: 't1', key: 'MICO-1', title: 'Prepare report', description: 'Do it', projectId: 'p1', columnId: 'c9', columnCategory: 'DONE', position: 0, priority: 'HIGH', startDate: null, dueDate: null, progress: 100, completedAt: '2026-10-29T08:00:00.000Z', createdAt: '', updatedAt: '', clientVisible: true, clientShowDescription: showDescription, clientAcceptedAt: '2026-10-30T09:00:00.000Z', ...task } });
+      }
+      return base(url, init);
+    }));
+  };
+  const open = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+  };
+
+  it('names a client’s comment from the comment itself (clients aren’t in the people directory), marked Client', async () => {
+    withClients();
+    open();
+    const item = (await screen.findByText('Is the valve fitted?')).closest('li')!;
+    expect(within(item).getByText('Hamad Al Busaidi')).toBeInTheDocument();
+    expect(within(item).getByText('Client')).toBeInTheDocument();
+    expect(within(item).getByText('Petroleum Development Oman')).toBeInTheDocument();
+    // The team's reply sits under it, marked as one the client sees.
+    const reply = within(screen.getByRole('list', { name: 'Replies to Hamad Al Busaidi' })).getByText('Yes, this morning.').closest('li')!;
+    expect(within(reply).getByText('Visible to client')).toBeInTheDocument();
+  });
+
+  it('a reply marked “Visible to client” is sent with its comment and the tick', async () => {
+    withClients();
+    open();
+    await userEvent.click(await screen.findByRole('button', { name: 'Reply to Hamad Al Busaidi' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Reply to Hamad Al Busaidi' }), 'Fitted at 9');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Visible to client' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    await waitFor(() => expect(posted.find((p) => p.url.endsWith('/tasks/t1/comments'))?.body).toEqual({ body: 'Fitted at 9', parentId: 'c5', clientVisible: true }));
+  });
+
+  it('a reply for the team only is sent without the tick', async () => {
+    withClients();
+    open();
+    await userEvent.click(await screen.findByRole('button', { name: 'Reply to Hamad Al Busaidi' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Reply to Hamad Al Busaidi' }), 'Ask the crew');
+    await userEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    await waitFor(() => expect(posted.find((p) => p.url.endsWith('/tasks/t1/comments'))?.body).toEqual({ body: 'Ask the crew', parentId: 'c5' }));
+  });
+
+  it('shows “Client accepted · date”, and saves “Also show its description” for whoever runs the project', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'u1', email: 'a@b.c', username: 'ada', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+    withClients();
+    open();
+    expect(await screen.findByText('Client accepted · 30 Oct 2026')).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Also show its description' }));
+    await waitFor(() => {
+      const put = posted.find((p) => p.url.endsWith('/tasks/t1/client-visible'));
+      expect(put).toMatchObject({ method: 'PUT', body: { visible: true, showDescription: true } });
+    });
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Also show its description' })).toBeChecked());
+  });
+});

@@ -222,6 +222,31 @@ describe('realtime', () => {
     httpServer.close();
   }, 15000);
 
+  // 1.23: a client account has no live connection (the Client portal doesn't use one).
+  it('refuses a client account, by its token and by its live roles', async () => {
+    const httpServer = createServer();
+    const rt = createRealtime(httpServer, { accessSecret: SECRET, checkSession: async (userId) => (userId === 'c2' ? { roles: ['CLIENT'] } : { roles: ['EMPLOYEE'] }) });
+    const port = await listen(httpServer);
+    const tryWith = (sub: string, roles: string[]) =>
+      new Promise<string>((resolve) => {
+        const c = ioClient(`http://localhost:${port}`, { auth: { token: signToken({ sub, type: 'access', roles, ver: 0 }, SECRET, 60) }, transports: ['websocket'] });
+        c.on('connect_error', (e: Error) => { c.close(); resolve(e.message); });
+        c.on('connect', () => { c.close(); resolve('CONNECTED'); });
+      });
+    expect(await tryWith('c2', ['EMPLOYEE'])).toBe('unauthorized'); // the live roles say client
+    expect(await tryWith('u9', ['EMPLOYEE'])).toBe('CONNECTED');
+    await rt.io.close();
+    httpServer.close();
+    const plain = createServer();
+    const rt2 = createRealtime(plain, { accessSecret: SECRET });
+    const port2 = await listen(plain);
+    const c = ioClient(`http://localhost:${port2}`, { auth: { token: signToken({ sub: 'c1', type: 'access', roles: ['CLIENT'], ver: 0 }, SECRET, 60) }, transports: ['websocket'] });
+    expect(await new Promise<string>((resolve) => { c.on('connect_error', (e: Error) => resolve(e.message)); c.on('connect', () => resolve('CONNECTED')); })).toBe('unauthorized');
+    c.close();
+    await rt2.io.close();
+    plain.close();
+  }, 15000);
+
   it('rejects a connection without a valid token', async () => {
     const httpServer = createServer();
     const rt = createRealtime(httpServer, { accessSecret: SECRET });

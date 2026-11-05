@@ -7,6 +7,10 @@ import { uploadResponseHeaders } from './lib/upload-safety';
 import { corsOrigin, parseCorsOrigins } from './lib/cors-origins';
 import { registerWebApp, androidAppLink, downloadsDirFor, emailDownloadLinks } from './lib/web-app';
 import { createWelcomeService } from './modules/users/welcome-service';
+import { STAFF_ONLY_WHERE, createIsClient } from './modules/clients/client-kind';
+import { createClientAccounts } from './modules/clients/client-accounts';
+import { createPortalService } from './modules/clients/portal-service';
+import { createClientMeetingRules } from './modules/clients/client-meeting-rules';
 import { createPrismaWelcomeTokenStore } from './modules/users/prisma-welcome-store';
 import { createHostedApkVersion } from './lib/apk-version';
 import { loadReleaseFile } from './modules/about/build-info';
@@ -486,6 +490,8 @@ async function main(): Promise<void> {
   let onCommentMention: (taskId: string, authorId: string, usernames: string[], body?: string) => Promise<void> = async () => {};
   // Late-bound so any comment notifies the task's assignees once notifications exist (below).
   let onComment: (taskId: string, authorId: string, commentId: string) => Promise<void> = async () => {};
+  // 1.23: a reply marked "Visible to client" emails the client whose comment it answers (late-bound: email is made below).
+  let onClientReply: (reply: import('./modules/tasks/comment-repository').CommentRecord) => Promise<void> = async () => {};
 
   const commentService = createCommentService({
     repo: createPrismaCommentRepository(prisma),
@@ -493,6 +499,7 @@ async function main(): Promise<void> {
     onMention: (taskId, authorId, usernames, body) => onCommentMention(taskId, authorId, usernames, body),
     onComment: (taskId, authorId, commentId) => onComment(taskId, authorId, commentId),
     onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    onClientReply: (reply) => onClientReply(reply),
   });
 
   // Late-bound chat notification hooks (wired once notifications exist, below).
@@ -613,6 +620,8 @@ async function main(): Promise<void> {
     push: pushSender,
     logger,
     onDelivered: (record) => onNotificationDelivered(record),
+    // 1.23: client accounts never get a notification (no bell, no phone push).
+    isClient: createIsClient(prisma),
   });
   const deviceTokenService = createDeviceTokenService({ deviceTokens: deviceTokenRepository });
 
@@ -855,7 +864,8 @@ async function main(): Promise<void> {
   // Active users and admins, for the sweeps' recipient filtering (one query per sweep).
   const sweepAudience = async () => {
     const users = await prisma.user.findMany({
-      where: { deletedAt: null },
+      // 1.23: client accounts get no reminders, digests or escalations.
+      where: { deletedAt: null, ...STAFF_ONLY_WHERE },
       select: {
         id: true,
         email: true,
@@ -1081,7 +1091,7 @@ async function main(): Promise<void> {
     // companies: only the people the requester knows (MC1 Task 9).
     listPeople: async (requester) => {
       const people = await prisma.user.findMany({
-        where: { deletedAt: null, status: 'ACTIVE' },
+        where: { deletedAt: null, status: 'ACTIVE', ...STAFF_ONLY_WHERE }, // 1.23: never a client account
         select: { id: true, firstName: true, lastName: true, username: true },
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
         take: 1000,
@@ -1267,7 +1277,11 @@ async function main(): Promise<void> {
     if (!u || !u.email) return null;
     return { name: `${u.firstName} ${u.lastName}`.trim() || u.username, email: u.email };
   };
+  // 1.23 (security review): a client attendee hears of a meeting only while they may see it in the
+  // portal, and gets its minutes only as the client copy of minutes shown to them.
+  const clientMeetingRules = createClientMeetingRules(prisma, { clientMinutesPdf: (projectId, meetingId) => clientAccessService.projectMinutesPdf(projectId, meetingId) });
   const meetingNotifyService = createMeetingNotifyService({
+    reach: (meetingId, userId) => clientMeetingRules.reach(meetingId, userId),
     meetings: meetingRepository,
     attendees: {
       listByMeeting: (id) => attendeeService.listAttendees(id),
@@ -1643,6 +1657,64 @@ async function main(): Promise<void> {
   const clientFlags = createPrismaClientFlags(prisma, (taskId) => taskService.getTask(taskId));
   pruneClientAccess = () => clientAccessService.prune();
 
+  // 1.23 Client accounts (administrators) and the Client portal (client accounts only).
+  const clientAccounts = createClientAccounts({ prisma, userService, audit: auditService });
+  const portal = createPortalService({
+    prisma,
+    timeZone: companyTz,
+    moveTask: (taskId, columnId, actorId) => taskService.moveTask(taskId, columnId, undefined, actorId),
+    getTask: (taskId) => taskService.getTask(taskId),
+    // A client's comment or sign-off reaches the task's assignees, watchers and whoever runs its project,
+    // each only while they can open the task.
+    teamOf: async (taskId, actorId) => {
+      const t = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true, assignees: { select: { userId: true } } } });
+      if (!t) return [];
+      const [watchers, runners] = await Promise.all([watcherRepo.listWatcherIds(taskId), projectRunnerIds(prisma, [t.projectId])]);
+      return visibleTaskRecipients(taskId, [...t.assignees.map((a) => a.userId), ...watchers, ...(runners.get(t.projectId) ?? [])], actorId);
+    },
+    notify: async (n) => {
+      for (const userId of n.userIds) await notificationService.notify({ userId, type: n.type, title: n.title, body: n.body, entityType: 'task', entityId: n.taskId });
+    },
+    recordActivity: recordTaskActivity,
+    broadcast: (projectId, event, payload) => broadcast(projectId, event, payload),
+    onTaskChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
+    audit: auditService,
+    setResponse: (meetingId, attendeeId, response) => attendeeService.setResponse(meetingId, attendeeId, response),
+    completeActionItem: (itemId) => actionItemService.setStatus(itemId, 'COMPLETED'),
+    minutesPdf: (projectId, meetingId) => clientAccessService.projectMinutesPdf(projectId, meetingId),
+    taskListPdf: (input) => clientAccessService.projectTaskListPdf(input.projectId, input),
+    logger,
+  });
+  // A team reply marked "Visible to client": an email to the client whose comment it answers — only while
+  // they are an active client with the Comment action on this project and the task is still shown to them.
+  onClientReply = async (reply) => {
+    try {
+      if (!emailService.isConfigured() || !reply.parentId) return;
+      const parent = await prisma.comment.findFirst({ where: { id: reply.parentId, fromClient: true, deletedAt: null }, select: { userId: true } });
+      const task = await prisma.task.findFirst({ where: { id: reply.taskId, deletedAt: null, clientVisible: true }, select: { key: true, title: true, projectId: true, project: { select: { name: true } } } });
+      if (!parent || !task) return;
+      const client = await prisma.user.findFirst({
+        where: { id: parent.userId, deletedAt: null, status: 'ACTIVE', roles: { some: { role: { name: 'CLIENT' } } }, clientGrants: { some: { projectId: task.projectId, progress: true, canComment: true } } },
+        select: { email: true, firstName: true, username: true },
+      });
+      if (!client?.email) return;
+      await emailService.sendClientReply(
+        client.email,
+        {
+          clientName: client.firstName || client.username,
+          projectName: task.project.name,
+          taskKey: task.key,
+          taskTitle: task.title,
+          reply: reply.body,
+          link: `${env.APP_URL.replace(/\/+$/, '')}/portal/projects/${task.projectId}/tasks/${reply.taskId}`,
+        },
+        await documentBrands.email.project(task.projectId).catch(() => undefined),
+      );
+    } catch (err) {
+      logger.error('client reply email failed', { err, commentId: reply.id });
+    }
+  };
+
   const app = await buildApp({
     about: { release },
     seriesInstanceCount: (seriesId) => recurrencePort.countInstances(seriesId),
@@ -1657,6 +1729,9 @@ async function main(): Promise<void> {
     userPreferences: createPrismaPreferences(prisma),
     recordTaskActivity,
     userState: userStateLookup,
+    clientAccounts,
+    portal,
+    clientMinutes: clientMeetingRules.minutes,
     onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
     chatService,

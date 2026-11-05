@@ -109,6 +109,7 @@ export function composeBoard(columns: ApiColumn[], tasks: ApiTask[]): KanbanColu
           recurring: Boolean(t.recurrenceRule),
           milestone: !!t.isMilestone,
           clientVisible: !!t.clientVisible,
+          clientAcceptedAt: t.clientAcceptedAt ?? null,
           inspection: !!t.inspectionFormId,
           awaitingApproval: !!t.approvalRequestedAt,
           // A finished task (DONE column, or completed) is never shown as overdue.
@@ -175,6 +176,7 @@ export function composeAllProjectsBoard(tasks: ApiTask[], projects: ApiProject[]
           recurring: Boolean(t.recurrenceRule),
           milestone: !!t.isMilestone,
           clientVisible: !!t.clientVisible,
+          clientAcceptedAt: t.clientAcceptedAt ?? null,
           inspection: !!t.inspectionFormId,
           awaitingApproval: !!t.approvalRequestedAt,
           done: status === 'DONE' || !!t.completedAt,

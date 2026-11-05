@@ -3,6 +3,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { hashPassword, verifyPassword } from '../../lib/password';
 import { isStrongPassword } from '../../lib/password-policy';
 import { WeakPasswordError } from '../auth/errors';
+import { assertRoleSet, assertSameKind } from '../clients/client-kind';
 import type { NewUser, UpdateUserData, UserListFilter, UserRepository, UserStatus, UserSummary } from './user-repository';
 import { MY_PROJECTS_ONLY_REFUSED } from './user-preferences';
 
@@ -50,6 +51,8 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
   function requireRoles(roleNames: string[] | undefined): string[] {
     const roles = [...new Set((roleNames ?? []).map((r) => r.trim()).filter(Boolean))];
     if (roles.length === 0) throw new ValidationError('At least one role is required.');
+    // 1.23: the Client role is never mixed with a staff role.
+    assertRoleSet(roles);
     return roles;
   }
 
@@ -123,6 +126,8 @@ export function createUserService({ users, revokeSessions, onSessionsRevoked, is
     const next: UpdateUserData = { ...patch };
     if (patch.roleNames !== undefined) {
       next.roleNames = requireRoles(patch.roleNames);
+      // 1.23: staff stay staff and clients stay clients (make a new account instead).
+      assertSameKind(current.roles, next.roleNames);
       if (isActiveAdmin(current) && !next.roleNames.includes(ADMIN)) await ensureAnotherActiveAdmin(id);
     }
     // 1.22.3 "Show my projects only" (User Management): an administrator's setting — judged by the

@@ -3,7 +3,7 @@ import type { ActivityRecord, ActivityRepository, ActivityScope, CreateActivityD
 
 // Join the actor + task + project so the feed reads as "who did what to which task" (no N+1).
 const withContext = {
-  user: { select: { id: true, username: true, firstName: true, lastName: true } },
+  user: { select: { id: true, username: true, firstName: true, lastName: true, roles: { select: { role: { select: { name: true } } } } } },
   task: { select: { id: true, key: true, title: true } },
   project: { select: { id: true, name: true } },
 } as const;
@@ -21,7 +21,8 @@ function toRecord(a: Row): ActivityRecord {
     action: a.action,
     meta: a.meta,
     createdAt: a.createdAt,
-    actor: a.user ? { id: a.user.id, name: displayName(a.user) } : null,
+    // 1.23: a client account's line reads "Fatma Al Harthy (client)" in the team's history.
+    actor: a.user ? { id: a.user.id, name: a.user.roles.some((r) => r.role.name === 'CLIENT') ? `${displayName(a.user)} (client)` : displayName(a.user) } : null,
     task: a.task ? { id: a.task.id, key: a.task.key, title: a.task.title } : null,
     project: a.project ? { id: a.project.id, name: a.project.name } : null,
   };

@@ -235,6 +235,38 @@ describe('Minutes email route', () => {
     expect(notify.sendMinutes).toHaveBeenLastCalledWith(id, expect.any(Buffer), { attachmentFor: expect.any(Function) });
   });
 
+  // 1.23 security review: a client attendee never gets the team's minutes. Only the client copy of
+  // approved minutes shown to them (with the Meetings module), in an email of its own — else nothing.
+  it('a client gets the client copy of shown minutes in their own email, otherwise nothing', async () => {
+    const notify = notifyFake();
+    const clientPdf = Buffer.from('%PDF-client-copy');
+    const allowed = new Set<string>(['c-ok']);
+    const app = await makeApp({}, undefined, notify, {
+      userState: async (u: string) => ({ tokenVersion: 0, active: true, roles: u.startsWith('c-') ? ['CLIENT'] : ['EMPLOYEE'] }),
+      clientMinutes: { mayHave: async (_m: string, u: string) => allowed.has(u), pdf: async (_m: string, u: string) => (allowed.has(u) ? clientPdf : null) },
+    });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth } })).statusCode).toBe(200);
+    const { attachmentFor } = (notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer, { attachmentFor: (u: string) => Promise<unknown> }])[2];
+    expect(await attachmentFor('u1')).toBeUndefined(); // staff: the shared email, as before
+    expect(await attachmentFor('c-no')).toBeNull(); // no access: nothing at all
+    expect(await attachmentFor('c-ok')).toEqual(clientPdf); // the client copy, in an email of their own
+    await app.inject({ method: 'GET', url: `/api/v1/meetings/${id}/minutes/preview`, headers: { authorization: auth } });
+    const { copyOf } = (notify.previewMinutes.mock.calls[0] as unknown as [string, { copyOf: (u: string) => Promise<string> }])[1];
+    expect([await copyOf('u1'), await copyOf('c-no'), await copyOf('c-ok')]).toEqual(['shared', 'none', 'own']);
+  });
+
+  it('without the companies rules a client still never gets the shared minutes', async () => {
+    const notify = notifyFake();
+    const app = await makeApp({}, undefined, notify, { userState: async (u: string) => ({ tokenVersion: 0, active: true, roles: u.startsWith('c-') ? ['CLIENT'] : ['EMPLOYEE'] }) });
+    const auth = `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}`;
+    const id = (await app.inject({ method: 'POST', url: '/api/v1/meetings', headers: { authorization: auth }, payload: { title: 'Board sync', startAt: '2026-10-01T09:00:00Z' } })).json().data.id;
+    await app.inject({ method: 'POST', url: `/api/v1/meetings/${id}/minutes/send`, headers: { authorization: auth } });
+    const { attachmentFor } = (notify.sendMinutes.mock.calls[0] as unknown as [string, Buffer, { attachmentFor: (u: string) => Promise<unknown> }])[2];
+    expect(await attachmentFor('c-x')).toBeNull();
+  });
+
   it('previews the minutes email for a meeting editor only', async () => {
     const attendeesOf: Record<string, string[]> = {};
     const notify = notifyFake();

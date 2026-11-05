@@ -24,8 +24,10 @@ import {
   genericNotificationEmail,
   clientInvitationEmail,
   clientCodeEmail,
+  clientReplyEmail,
   type ClientInvitationParams,
   type ClientCodeParams,
+  type ClientReplyParams,
   type EmailContent,
   type TemplateOptions,
   type LoginCodeOptions,
@@ -285,6 +287,9 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
       deliverResult('client-invitation', email, clientInvitationEmail(params, opts), { ...sender(opts), secretLinks: true }),
     sendClientCode: (email: string, params: ClientCodeParams, opts?: TemplateOptions) =>
       deliver('client-code', email, clientCodeEmail(params, opts), { ...sender(opts), essential: true, secretLinks: true }),
+    // 1.23 Client portal: a team reply marked "Visible to client" on a client account's comment.
+    sendClientReply: (email: string, params: ClientReplyParams, opts?: TemplateOptions): Promise<DeliveryResult> =>
+      deliverResult('client-reply', email, clientReplyEmail(params, opts), sender(opts)),
   };
 }
 

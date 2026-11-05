@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { SearchDataSource, SearchableMeeting } from './search-service';
 import { noteText } from '../../lib/rich-text';
+import { STAFF_ONLY_WHERE } from '../clients/client-kind';
 
 export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSource {
   return {
@@ -8,7 +9,8 @@ export function createPrismaSearchDataSource(prisma: PrismaClient): SearchDataSo
       const [projects, users, meetings, agenda, notes, decisions, attendees] = await Promise.all([
         prisma.project.findMany({ where: { deletedAt: null }, select: { id: true, code: true, name: true } }),
         // Email is deliberately not selected — it must never reach search clients.
-        prisma.user.findMany({ where: { deletedAt: null }, select: { id: true, username: true, firstName: true, lastName: true } }),
+        // 1.23: client accounts are never found as people.
+        prisma.user.findMany({ where: { deletedAt: null, ...STAFF_ONLY_WHERE }, select: { id: true, username: true, firstName: true, lastName: true } }),
         // Meeting Knowledge Base: meetings + their agenda / notes / decisions, indexed for search.
         prisma.meeting.findMany({ where: { deletedAt: null }, select: { id: true, title: true, projectId: true, organizerId: true, description: true, companyId: true }, take: 500 }),
         prisma.agendaItem.findMany({ select: { meetingId: true, title: true }, take: 4000 }),

@@ -126,3 +126,21 @@ describe('The companies a new person gets', () => {
     expect(() => membership.primaryFor(['A'], 'B')).toThrow('The primary company must be one of this person’s companies.');
   });
 });
+
+// 1.23 Client accounts: a client never belongs to a company (and doesn't need one).
+describe('A client account’s companies', () => {
+  it('a client can’t be given a company (409 NOT_STAFF), alone or in a bulk change', async () => {
+    const client = await person('Cliff', [], null, ['CLIENT']);
+    await expect(membership.set(client, ['A'], undefined, admin)).rejects.toMatchObject({ status: 409, code: 'NOT_STAFF' });
+    await expect(membership.check(client, ['A'], undefined)).rejects.toMatchObject({ code: 'NOT_STAFF' });
+    const out = await membership.change([client, ana], { add: ['B'], remove: [] }, admin);
+    expect(out.changed).toBe(1);
+    expect(out.refused).toEqual([expect.objectContaining({ userId: client, reason: expect.stringContaining('client account') })]);
+    expect(await companiesOf(client)).toEqual([]);
+  });
+
+  it('a client with no company is fine (they must not keep one)', async () => {
+    const client = await person('Cleo', [], null, ['CLIENT']);
+    await expect(membership.check(client, [], undefined)).resolves.toBeUndefined();
+  });
+});

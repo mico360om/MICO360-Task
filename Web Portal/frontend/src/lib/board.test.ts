@@ -51,6 +51,16 @@ describe('composeBoard', () => {
     expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.clientVisible).toBe(true);
   });
 
+  it('carries a client’s sign-off onto the cards (the combined board too; 1.23)', () => {
+    const at = '2026-10-30T09:00:00.000Z';
+    const signed = tasks.map((t, i) => ({ ...t, clientAcceptedAt: i === 0 ? at : null }));
+    expect(composeBoard(columns, signed)[0]!.tasks[0]!.clientAcceptedAt).toBe(at);
+    expect(composeBoard(columns, signed)[1]!.tasks[0]!.clientAcceptedAt).toBeNull();
+    const project = { id: 'p1', code: 'MICO', name: 'MICO', status: 'ACTIVE', color: '#8B1E1E', imageUrl: null } as unknown as ApiProject;
+    const all = composeAllProjectsBoard(signed.map((t) => ({ ...t, columnCategory: t.columnId === 'c1' ? 'TODO' : 'DONE' })), [project]);
+    expect(all.flatMap((c) => c.tasks).find((t) => t.key === 'MICO-1')!.clientAcceptedAt).toBe(at);
+  });
+
   it('produces empty task lists for columns with no tasks', () => {
     const board = composeBoard(columns, []);
     expect(board[0]!.tasks).toHaveLength(0);

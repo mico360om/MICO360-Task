@@ -317,3 +317,26 @@ describe('external contacts in a task’s history', () => {
     expect(items.map((i) => i.text)).toEqual(['removed an external contact: Ahmed Al Said (OXY)', 'added an external contact: Ahmed Al Said (OXY)']);
   });
 });
+
+// 1.23: a client's sign-off in a task's history ("… (client)" is in the actor's name from the server).
+describe('a client’s sign-off in a task’s history', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Hamad Al Busaidi (client)', 1, meta)])[0]!;
+  it('accepted, or sent back with the reason', () => {
+    expect(line('CLIENT_ACCEPTED', { client: true })).toMatchObject({ kind: 'other', actorName: 'Hamad Al Busaidi (client)', text: 'accepted this task (client sign-off)' });
+    expect(line('CLIENT_SENT_BACK', { client: true, reason: 'The gauge photo is missing', commentId: 'c9' })).toMatchObject({
+      kind: 'other',
+      text: 'sent this task back: “The gauge photo is missing”',
+    });
+    expect(line('CLIENT_SENT_BACK', { client: true }).text).toBe('sent this task back');
+  });
+  it('a client’s comment reads as any comment', () => {
+    expect(line('COMMENTED', { commentId: 'c1', client: true })).toMatchObject({ kind: 'comment', text: 'commented' });
+  });
+  it('each sign-off is a line of its own', () => {
+    const items = buildTimeline([
+      e('a2', 'CLIENT_ACCEPTED', 'Hamad Al Busaidi (client)', 1, { client: true }),
+      e('a1', 'CLIENT_SENT_BACK', 'Hamad Al Busaidi (client)', 2, { client: true, reason: 'Redo' }),
+    ]);
+    expect(items.map((i) => i.text)).toEqual(['accepted this task (client sign-off)', 'sent this task back: “Redo”']);
+  });
+});

@@ -3,6 +3,7 @@ import type { Server as HttpServer } from 'node:http';
 import { verifyToken } from '../lib/tokens';
 import { createPresenceTracker } from './presence-tracker';
 import type { CorsOriginMatcher } from '../lib/cors-origins';
+import { isClientRoles } from '../modules/clients/client-kind';
 
 export interface RealtimeOptions {
   accessSecret: string;
@@ -73,11 +74,13 @@ export function createRealtime(httpServer: HttpServer, opts: RealtimeOptions) {
     socket.data.userId = userId;
     socket.data.roles = Array.isArray(claims.roles) ? claims.roles : [];
     socket.data.expiresAt = typeof claims.exp === 'number' ? claims.exp * 1000 : null;
+    // 1.23: client accounts have no live connection (the Client portal doesn't use one).
+    if (isClientRoles(socket.data.roles as string[])) return next(new Error('unauthorized'));
     if (!opts.checkSession) return next();
     const ver = typeof claims.ver === 'number' ? claims.ver : 0;
     opts.checkSession(userId, ver).then(
       (session) => {
-        if (!session) return next(new Error('unauthorized'));
+        if (!session || isClientRoles(session.roles)) return next(new Error('unauthorized'));
         socket.data.roles = session.roles;
         next();
       },

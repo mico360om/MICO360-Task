@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CreateUserModal } from './CreateUserModal';
 import { useAuthStore } from '../stores/auth-store';
 import { useCompanyStore } from '../stores/company-store';
 import { apiCompany, companyServer } from '../test/company-server';
 import { windowWidth } from '../test/window-width';
+import { clientServer } from './clients/test-server';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -363,5 +364,167 @@ describe('CreateUserModal: a big form (1.22)', () => {
     expect(dialog.className).toMatch(/sm:max-w-\[45rem\]/);
     expect(dialog.className).not.toMatch(/lg:max-w-\[60rem\]/);
     expect(dialog.querySelector('[data-form-column]')).toBeNull();
+  });
+});
+
+describe('CreateUserModal: Role "Client" (1.23)', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'a@b.c', username: 'admin', roles: ['ADMIN'] }, accessToken: 'at', refreshToken: 'rt' });
+  });
+  afterEach(() => useAuthStore.getState().logout());
+
+  const person = async () => {
+    await userEvent.type(screen.getByLabelText(/first name/i), 'Huda');
+    await userEvent.type(screen.getByLabelText(/last name/i), 'Saleh');
+    await userEvent.type(screen.getByLabelText(/username/i), 'huda');
+    await userEvent.type(screen.getByLabelText(/^email/i), 'huda@owner.test');
+  };
+  const addProject = async (name: RegExp) => {
+    await userEvent.click(await screen.findByRole('button', { name: 'Add a project' }));
+    await userEvent.click(await screen.findByRole('option', { name }));
+  };
+  const tick = (project: string, box: string) => userEvent.click(within(screen.getByRole('group', { name: project })).getByRole('checkbox', { name: box }));
+  const create = () => userEvent.click(screen.getByRole('button', { name: /create/i }));
+
+  it('offers Employee, Administrator and Client', async () => {
+    clientServer();
+    renderModal();
+    const role = screen.getByLabelText('Role');
+    expect(within(role).getAllByRole('option').map((o) => o.textContent)).toEqual(['Employee', 'Administrator', 'Client']);
+  });
+
+  it('choosing Client asks for the organisation and phone, and shows project access instead of companies', async () => {
+    clientServer();
+    renderModal();
+    expect(screen.queryByLabelText(/organisation/i)).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    expect(screen.getByLabelText(/organisation/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/phone/i)).toHaveAttribute('type', 'tel');
+    expect(screen.getByRole('group', { name: 'Project access' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Companies' })).toBeNull();
+    // The welcome email is the same as for staff: on, and the temporary password optional.
+    expect(await screen.findByRole('checkbox', { name: 'Send a welcome email' })).toBeChecked();
+    expect(screen.getByLabelText(/temp password/i)).not.toBeRequired();
+    expect(screen.getByRole('button', { name: /create client/i })).toBeInTheDocument();
+  });
+
+  it('creates the client with POST /clients (never /users): two projects with their own ticks, and says whether the welcome went', async () => {
+    const server = clientServer();
+    const onClose = vi.fn();
+    const onCreated = vi.fn();
+    renderModal(onClose, onCreated);
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    await person();
+    await userEvent.type(screen.getByLabelText(/organisation/i), 'Owner Group');
+    await userEvent.type(screen.getByLabelText(/phone/i), '+968 9000 0000');
+    await addProject(/MICO Tower/);
+    await tick('MICO Tower', 'Progress, milestones and tasks');
+    await tick('MICO Tower', 'Comment on tasks');
+    await tick('MICO Tower', 'Sign off finished tasks');
+    await addProject(/Rig Refit/);
+    await tick('Rig Refit', 'Meetings and minutes');
+    await tick('Rig Refit', 'Reply to meeting invites (and their own action items)');
+    await tick('Rig Refit', 'Download PDFs');
+    await create();
+    await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
+    expect(server.requests('POST', '/users')).toHaveLength(0);
+    expect(server.lastBody('POST', '/clients')).toEqual({
+      firstName: 'Huda',
+      lastName: 'Saleh',
+      username: 'huda',
+      email: 'huda@owner.test',
+      organisation: 'Owner Group',
+      phone: '+968 9000 0000',
+      sendWelcome: true,
+      projects: [
+        { projectId: 'p-mico', modules: { progress: true, meetings: false }, actions: { comment: true, signOff: true, respond: false, download: false } },
+        { projectId: 'p-rig', modules: { progress: false, meetings: true }, actions: { comment: false, signOff: false, respond: true, download: true } },
+      ],
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const result = onCreated.mock.calls[0]![0] as { user: { username: string; roles: string[]; email: string }; welcome: { sent: boolean; email: string } };
+    expect(result.user).toMatchObject({ username: 'huda', roles: ['CLIENT'], email: 'huda@owner.test' });
+    expect(result.welcome).toMatchObject({ sent: true, email: 'huda@owner.test' });
+  });
+
+  it('a project with no module ticked is said inline, and nothing is sent', async () => {
+    const server = clientServer();
+    renderModal();
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    await person();
+    await addProject(/Finance Office/);
+    expect(within(screen.getByRole('group', { name: 'Finance Office' })).getByText('Tick at least one module.')).toBeInTheDocument();
+    await create();
+    expect(screen.getByRole('alert')).toHaveTextContent('Tick at least one module for Finance Office: Progress, milestones and tasks, or Meetings and minutes.');
+    expect(within(screen.getByRole('group', { name: 'Finance Office' })).getByRole('checkbox', { name: 'Progress, milestones and tasks' })).toHaveAttribute('aria-invalid', 'true');
+    expect(server.requests('POST', '/clients')).toHaveLength(0);
+  });
+
+  it('without a welcome email a temporary password is needed, as for staff, and it is sent along', async () => {
+    const server = clientServer();
+    renderModal();
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Send a welcome email' }));
+    await person();
+    await create();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a temporary password, or turn on “Send a welcome email” so they can set their own.');
+    await userEvent.type(screen.getByLabelText(/temp password/i), 'Client123');
+    await create();
+    await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
+    expect(server.lastBody('POST', '/clients')).toMatchObject({ password: 'Client123', sendWelcome: false, projects: [] });
+  });
+
+  it('shows the server’s words when it refuses (a username already in use)', async () => {
+    const server = clientServer();
+    server.refuseNext(409, 'DUPLICATE_USER', 'A user with this email or username already exists.', { method: 'POST', path: /^\/clients$/ });
+    const onClose = vi.fn();
+    renderModal(onClose);
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    await person();
+    await create();
+    expect(await screen.findByRole('alert')).toHaveTextContent('That email or username is already in use. Choose a different one.');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('from 1024px: two columns, the person on the left and their project access on the right', async () => {
+    windowWidth(1280);
+    clientServer();
+    renderModal();
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    const dialog = screen.getByRole('dialog', { name: 'New user' });
+    expect(dialog.className).toMatch(/lg:max-w-\[60rem\]/);
+    const left = dialog.querySelector<HTMLElement>('[data-form-column="person"]')!;
+    const right = dialog.querySelector<HTMLElement>('[data-form-column="access"]')!;
+    expect(left).toContainElement(screen.getByLabelText(/organisation/i));
+    expect(left).toContainElement(screen.getByLabelText('Role'));
+    expect(right).toContainElement(screen.getByRole('group', { name: 'Project access' }));
+  });
+
+  it('on a phone: one column, project access under the person', async () => {
+    windowWidth(375);
+    clientServer();
+    renderModal();
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'CLIENT');
+    const dialog = screen.getByRole('dialog', { name: 'New user' });
+    expect(dialog.querySelector('[data-form-column]')).toBeNull();
+    expect(screen.getByLabelText('Role').compareDocumentPosition(screen.getByRole('group', { name: 'Project access' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('as “New client” (the Clients page): no role to choose, and it makes a client', async () => {
+    const server = clientServer();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <CreateUserModal clientOnly onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole('dialog', { name: 'New client' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Role')).toBeNull();
+    await person();
+    await addProject(/MICO Tower/);
+    await tick('MICO Tower', 'Meetings and minutes');
+    await userEvent.click(screen.getByRole('button', { name: /create client/i }));
+    await waitFor(() => expect(server.requests('POST', '/clients')).toHaveLength(1));
+    expect(server.lastBody('POST', '/clients')).toMatchObject({ username: 'huda', projects: [{ projectId: 'p-mico', modules: { progress: false, meetings: true } }] });
   });
 });

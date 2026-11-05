@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AttendeesPanel } from './AttendeesPanel';
 import type { Attendee, Meeting } from '../../api/meetings';
+import { useAuthStore } from '../../stores/auth-store';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -99,5 +100,38 @@ describe('People: one compact row each', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add email for Walk-in' }));
     await userEvent.type(screen.getByRole('textbox', { name: 'Email address for Walk-in' }), 'g@ext.co{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('That address is already on the list.');
+  });
+});
+
+// 1.23 Client accounts: a client invited to a project's meeting is marked "Client" on its People list.
+describe('People: clients (1.23)', () => {
+  // A client isn't in the people directory: the meeting page names them from the roster (client: true).
+  const withClient = [...directory, { id: 'cl1', username: '', firstName: 'Hamad Al Busaidi', lastName: '', avatarUrl: null, colleague: false, client: true }];
+  const renderWith = (attendees: Attendee[], over: Partial<Meeting> = {}) =>
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AttendeesPanel meeting={meeting(over)} attendees={attendees} directory={withClient} loading={false} loadError={false} onRetry={() => {}} canEdit />
+      </QueryClientProvider>,
+    );
+
+  it('marks a client on the roster, and no one else', () => {
+    renderWith([person({}), person({ id: 'a2', userId: 'cl1', response: 'PENDING' })]);
+    expect(within(rowOf('Hamad Al Busaidi')).getByText('Client')).toBeInTheDocument();
+    expect(within(rowOf('Aisha Khan')).queryByText('Client')).toBeNull();
+  });
+
+  it('a project meeting on a one-company site offers the project’s clients to add, marked Client', async () => {
+    useAuthStore.getState().setSession({ user: { id: 'me', email: 'm@x', username: 'mona', roles: ['EMPLOYEE'] }, accessToken: 'at', refreshToken: 'rt' });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/me/companies')) return json({ data: { companies: [], primaryCompanyId: null, allArchived: false, siteCompanyCount: 1 } });
+      if (u.includes('/meetings/invite-candidates?projectId=p1')) {
+        return json({ data: [{ id: 'cl2', firstName: 'Noor', lastName: 'Said', username: 'noor', avatarUrl: null, client: true, organisation: 'OXY' }, { id: 'u1', firstName: 'Aisha', lastName: 'Khan', username: 'aisha', avatarUrl: null }] });
+      }
+      return json({ data: [] });
+    }));
+    renderWith([], { projectId: 'p1' });
+    await userEvent.click(screen.getByRole('button', { name: 'Team member to add' }));
+    await waitFor(() => expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Aisha Khan'), expect.stringMatching(/Noor Said.*Client · OXY/)]));
   });
 });

@@ -20,6 +20,7 @@ import { MAX_MINUTES_ADDRESSES, type MinutesCopy, type MinutesSendOptions, type 
 import type { MinutesSendAddress, MinutesSendRepository } from './minutes-send-repository';
 import type { InviteTarget, MeetingInvitees } from './meeting-invitees';
 import type { FinalMinutesAi } from './final-minutes-ai';
+import { isClientRoles } from '../clients/client-kind';
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft', SCHEDULED: 'Scheduled', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
@@ -132,6 +133,13 @@ export interface MinutesRouteDeps {
    */
   isColleague?: (viewer: { id: string; roles: string[] }, otherId: string) => Promise<boolean>;
   inviteTargetOf?: (meetingId: string) => Promise<InviteTarget | null>;
+  /**
+   * 1.23 Client accounts: a client attendee (or typed address that is a client's) never gets the team's
+   * minutes. `mayHave`: an active client with the Meetings module on the meeting's project, and its
+   * approved minutes are shown to clients there; then `pdf` is their client copy, in an email of its
+   * own. Otherwise they get nothing.
+   */
+  clientMinutes?: { mayHave(meetingId: string, userId: string): Promise<boolean>; pdf(meetingId: string, userId: string): Promise<Buffer | null> };
 }
 
 /** Someone the minutes go to: a colleague picked by name, or an email address (checked as one). */
@@ -383,6 +391,8 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
           const copy = await copyOf(userId);
           if (copy === 'shared') return undefined;
           if (copy !== 'own') return null;
+          // 1.23: a client's own copy is the client copy of the shown minutes (never the team's PDF).
+          if (deps.rolesOf && isClientRoles(await deps.rolesOf(userId))) return deps.clientMinutes ? deps.clientMinutes.pdf(id, userId) : null;
           return (await buildPdf(req, id, { invitee: true, inviteeId: userId })).pdf;
         }
       : undefined;
@@ -403,9 +413,13 @@ export async function registerMinutesRoutes(app: FastifyInstance, deps: MinutesR
    */
   function copyRule(meetingId: string, final: boolean): ((userId: string) => Promise<MinutesCopy>) | undefined {
     const viewOfMeeting = deps.recipientViewOf ?? deps.viewOf;
-    if (!viewOfMeeting) return undefined;
+    if (!viewOfMeeting && !deps.rolesOf) return undefined;
     return async (userId) => {
-      const view = await viewOfMeeting(userId, deps.rolesOf ? await deps.rolesOf(userId) : [], meetingId);
+      const roles = deps.rolesOf ? await deps.rolesOf(userId) : [];
+      // 1.23 (security review): a client gets only the client copy of minutes shown to them, else nothing.
+      if (isClientRoles(roles)) return deps.clientMinutes && (await deps.clientMinutes.mayHave(meetingId, userId)) ? 'own' : 'none';
+      if (!viewOfMeeting) return 'shared';
+      const view = await viewOfMeeting(userId, roles, meetingId);
       if (view === 'full') return 'shared';
       if (view === 'invitee') return final ? 'own' : 'later';
       return 'none';
