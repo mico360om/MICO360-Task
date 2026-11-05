@@ -26,7 +26,8 @@ const DOT: Record<TimelineKind, string> = {
 };
 
 /** A compact timeline of what happened to the task, newest first, repetitive runs collapsed. */
-export function ActivityTimeline({ activity }: { activity: DrawerActivity[] }) {
+/** `fromKeys` (1.23.1): history lines that came with a task merged into this one, by id — labelled "from MICO-14". */
+export function ActivityTimeline({ activity, fromKeys }: { activity: DrawerActivity[]; fromKeys?: Record<string, string> }) {
   const items = useMemo(() => buildTimeline(activity), [activity]);
   const [shown, setShown] = useState(FIRST);
   if (items.length === 0) return null;
@@ -63,6 +64,11 @@ export function ActivityTimeline({ activity }: { activity: DrawerActivity[] }) {
               <time dateTime={item.createdAt} title={dateTimeText(item.createdAt)} className="ms-1.5 whitespace-nowrap text-[11px] text-ink-3">
                 · {relativeTime(item.createdAt)}
               </time>
+            ) : null}
+            {fromKeys?.[item.id] ? (
+              <span className="ms-1.5 whitespace-nowrap text-[11px] text-ink-3">
+                · from <span dir="ltr" translate="no" className="font-mono">{fromKeys[item.id]}</span>
+              </span>
             ) : null}
           </li>
         ))}

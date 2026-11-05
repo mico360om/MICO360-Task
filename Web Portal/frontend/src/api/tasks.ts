@@ -120,6 +120,10 @@ export interface ApiTask {
   externalSummary?: ExternalContactSummary | null;
   /** Its external contacts in full, in order (single-task responses). */
   externalContacts?: ApiExternalContact[];
+  /** 1.23.1: the tasks merged into it (single-task responses): its "Merged from" panel opens from them. */
+  mergedFrom?: { id: string; key: string; mergeId: string }[];
+  /** 1.23.1: opened by a merged task's id (an old link or notice): which one, when and by whom. */
+  mergeNotice?: { key: string; mergedAt: string | null; mergedByName: string | null };
 }
 
 export interface NewTaskInput {

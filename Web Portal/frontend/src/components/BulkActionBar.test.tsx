@@ -104,3 +104,20 @@ describe('BulkActionBar: moving the selection to another project', () => {
     expect(screen.queryByRole('button', { name: 'Move to project…' })).not.toBeInTheDocument();
   });
 });
+
+describe('BulkActionBar: merging the selection (1.23.1)', () => {
+  it('offers "Merge…" only when allowed, and says why when it can’t be used', async () => {
+    const { rerender } = render(<BulkActionBar {...baseProps} />);
+    expect(screen.queryByRole('button', { name: 'Merge…' })).not.toBeInTheDocument();
+    const onMerge = vi.fn();
+    rerender(<BulkActionBar {...baseProps} onMerge={onMerge} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Merge…' }));
+    expect(onMerge).toHaveBeenCalledTimes(1);
+    rerender(<BulkActionBar {...baseProps} onMerge={onMerge} mergeUnavailable="Merge at most 10 tasks at a time." />);
+    const button = screen.getByRole('button', { name: 'Merge…' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveAccessibleDescription('Merge at most 10 tasks at a time.');
+    await userEvent.click(button);
+    expect(onMerge).toHaveBeenCalledTimes(1);
+  });
+});

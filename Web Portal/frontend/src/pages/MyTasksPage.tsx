@@ -29,6 +29,11 @@ import { useCompanyTimeZone } from '../lib/company-clock';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { approvalNotice } from '../lib/approvals';
 import { MoveTaskDialog, useMoveTargets } from '../components/MoveTaskDialog';
+import { MergeTasksDialog, type MergeTaskRef } from '../components/MergeTasksDialog';
+import { MergedToast } from '../components/task-merge/MergedToast';
+import { UndoMergeDialog } from '../components/task-merge/UndoMergeDialog';
+import type { MergeResult } from '../api/task-merge';
+import { bulkMergeAvailability, invalidateMergeQueries } from '../lib/task-merge';
 import { bulkMoveAvailability, bulkMovedText, movedText } from '../lib/task-move';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
@@ -302,6 +307,11 @@ export function MyTasksPage() {
   const [moving, setMoving] = useState<{ id: string; key: string; title: string; projectId: string }[] | null>(null);
   const moveTargets = useMoveTargets(selected.size > 0);
   const moveUnavailable = bulkMoveAvailability(moveTargets).reason;
+  // 1.23.1 "Merge…": 2–10 selected tasks, each in a project the person manages (administrators: any).
+  const mergeAvail = bulkMergeAvailability(selectedList.map((e) => e.task), moveTargets);
+  const [merging, setMerging] = useState<MergeTaskRef[] | null>(null);
+  const [merged, setMerged] = useState<MergeResult | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
 
   // Assignable people (directory) + move targets (only when a single project is pinned).
   const directory = Array.isArray(directoryQ.data) ? directoryQ.data : [];
@@ -508,6 +518,8 @@ export function MyTasksPage() {
           onSetPriority={(p) => runBulkAction({ type: 'setPriority', priority: p }, 'Set priority on')}
           onMoveToProject={() => setMoving(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId })))}
           moveUnavailable={moveUnavailable}
+          onMerge={mergeAvail.show ? () => setMerging(selectedList.map((e) => ({ id: e.task.id, key: e.task.key, title: e.task.title, projectId: e.task.projectId }))) : undefined}
+          mergeUnavailable={mergeAvail.reason}
           onAssign={(userId) => runBulkAction({ type: 'assign', userId }, 'Assigned')}
           onMove={moveColumns ? (columnId) => runBulkAction({ type: 'move', columnId }, 'Moved') : undefined}
           onClear={clearSelection}
@@ -535,6 +547,31 @@ export function MyTasksPage() {
         />
       ) : null}
 
+      {merging ? (
+        <MergeTasksDialog
+          tasks={merging}
+          onClose={() => setMerging(null)}
+          onMerged={(result) => {
+            setMerging(null);
+            setSelected(new Set());
+            setMerged(result);
+            void invalidateMergeQueries(qc);
+          }}
+        />
+      ) : null}
+      {undoing ? (
+        <UndoMergeDialog
+          mergeId={undoing}
+          onClose={() => setUndoing(null)}
+          onUndone={(result) => {
+            setUndoing(null);
+            setMerged(null);
+            setToast(result.text);
+            void invalidateMergeQueries(qc);
+          }}
+        />
+      ) : null}
+      {merged ? <MergedToast text={merged.text} onOpen={() => openTask(merged.mainTaskId)} onUndo={() => setUndoing(merged.mergeId)} onDismiss={() => setMerged(null)} /> : null}
     </div>
   );
 }

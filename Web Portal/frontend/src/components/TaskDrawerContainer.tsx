@@ -32,7 +32,14 @@ import { TaskApproval } from './approvals/TaskApproval';
 import { TaskExternalContacts } from './task-drawer/TaskExternalContacts';
 import { approvalNotice } from '../lib/approvals';
 import { DELETE_NOT_ALLOWED, DELETE_NOT_ALLOWED_CODE, DELETE_SERIES_NOT_ALLOWED, mayDeleteSeries, mayDeleteTask } from '../lib/task-delete-rule';
-import { isProjectArchived } from '../lib/project-archive';
+import { isProjectArchived, projectReadOnly } from '../lib/project-archive';
+import { taskMergeApi, type MergeResult } from '../api/task-merge';
+import { invalidateMergeQueries, mergeAvailability, mergeNoticeText } from '../lib/task-merge';
+import { todayKey } from '../lib/due-date';
+import { MergeTasksDialog } from './MergeTasksDialog';
+import { MergedFromPanel } from './task-merge/MergedFromPanel';
+import { MergedToast } from './task-merge/MergedToast';
+import { UndoMergeDialog } from './task-merge/UndoMergeDialog';
 
 export interface TaskDrawerContainerProps {
   taskId: string;
@@ -67,7 +74,20 @@ async function attempt<T>(action: () => Promise<T>, fallback: string): Promise<T
 const fullName = (u: { firstName: string | null; lastName: string | null; username: string }) =>
   [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username;
 
-export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerContainerProps) {
+/**
+ * The task panel for one task. 1.23.1: a merged task's id (an old link, a notice) opens its main task —
+ * the server answers with the main task, and the panel shows that one (every read and change by its own
+ * id), with a line saying which task was asked for.
+ */
+export function TaskDrawerContainer(props: TaskDrawerContainerProps) {
+  const asked = useQuery({ queryKey: ['task', props.taskId], queryFn: () => tasksApi(apiClient).get(props.taskId) });
+  const mainId = asked.data && asked.data.id && asked.data.id !== props.taskId ? asked.data.id : null;
+  const timeZone = useCompanyTimeZone();
+  const notice = mainId && asked.data?.mergeNotice ? mergeNoticeText(asked.data.mergeNotice, timeZone, todayKey(timeZone)) : null;
+  return <TaskDrawerPanel key={mainId ?? props.taskId} {...props} taskId={mainId ?? props.taskId} mergeNotice={notice} />;
+}
+
+function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice }: TaskDrawerContainerProps & { mergeNotice: string | null }) {
   const queryClient = useQueryClient();
   const timeZone = useCompanyTimeZone();
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -80,6 +100,10 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
   const [moving, setMoving] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // 1.23.1: the merge dialog, the notice after a merge (with Undo), and the Undo question.
+  const [merging, setMerging] = useState(false);
+  const [merged, setMerged] = useState<MergeResult | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 6000);
@@ -95,6 +119,8 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
     setMoving(false);
     setSavingTemplate(false);
     setToast(null);
+    setMerging(false);
+    setUndoing(null);
   }
 
   const taskQ = useQuery({ queryKey: ['task', taskId], queryFn: () => tasksApi(apiClient).get(taskId) });
@@ -135,6 +161,19 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
   const runsProject = isAdmin || (project?.canManage ?? members.some((m) => m.id === myId && m.role === 'MANAGER'));
   const moveTargets = useMoveTargets(Boolean(projectId));
   const canMove = projectId ? moveAvailability(projectId, moveTargets, project?.name) : null;
+  // 1.23.1 Merge tasks: administrators and whoever manages the task's project (the server checks every project).
+  const readOnly = project ? projectReadOnly(project) : null;
+  const canMerge = projectId ? mergeAvailability(projectId, moveTargets, { readOnly: readOnly ? `${project!.name} is ${readOnly} — reopen it first.` : null }) : null;
+  const mergesQ = useQuery({
+    queryKey: ['task-merges', taskId],
+    queryFn: () => taskMergeApi(apiClient).mergedFrom(taskId),
+    enabled: Boolean(taskQ.data?.mergedFrom?.length),
+  });
+  const labels = taskQ.data?.mergedFrom?.length ? mergesQ.data?.labels : undefined;
+  const afterMerge = () => {
+    setActionError(null);
+    void invalidateMergeQueries(queryClient);
+  };
 
   const activityQ = useQuery({ queryKey: ['task-activity', taskId], queryFn: () => activityApi(apiClient).forTask(taskId) });
   const watchStatusQ = useQuery({ queryKey: ['task-watch', taskId], queryFn: () => watchersApi(apiClient).status(taskId) });
@@ -388,6 +427,7 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
               fromClient: c.fromClient === true,
               organisation: c.fromClient ? (c.clientAuthor?.organisation ?? null) : null,
               clientVisible: c.clientVisible === true,
+              fromKey: labels?.comments[c.id] ?? null,
               // The server allows the author to edit, and the author or an admin to delete.
               canEdit: c.userId === myId,
               canDelete: c.userId === myId || isAdmin,
@@ -503,6 +543,16 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
                 />
               ) : undefined
             }
+            onMerge={canMerge?.show ? () => setMerging(true) : undefined}
+            mergeUnavailable={canMerge?.reason}
+            mergeNotice={mergeNotice}
+            checklistFromKeys={labels?.checklist}
+            activityFromKeys={labels?.activity}
+            mergedFrom={
+              mergesQ.data && mergesQ.data.merges.length > 0 ? (
+                <MergedFromPanel panel={mergesQ.data} timeZone={timeZone} today={todayKey(timeZone)} onUndo={(mergeId) => setUndoing(mergeId)} />
+              ) : undefined
+            }
             onClose={onClose}
           />
         ) : taskQ.isError ? (
@@ -549,6 +599,36 @@ export function TaskDrawerContainer({ taskId, onClose, stepper }: TaskDrawerCont
           />
         </div>
       ) : null}
+      {merging && taskQ.data ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MergeTasksDialog
+            onTop
+            tasks={[{ id: taskQ.data.id, key: taskQ.data.key, title: taskQ.data.title, projectId: taskQ.data.projectId }]}
+            onClose={() => setMerging(false)}
+            onMerged={(result) => {
+              setMerging(false);
+              setMerged(result);
+              // This task is the main one, or now part of it (the panel then shows the main task).
+              afterMerge();
+            }}
+          />
+        </div>
+      ) : null}
+      {undoing ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <UndoMergeDialog
+            mergeId={undoing}
+            onClose={() => setUndoing(null)}
+            onUndone={(result) => {
+              setUndoing(null);
+              setMerged(null);
+              setToast(result.text);
+              afterMerge();
+            }}
+          />
+        </div>
+      ) : null}
+      {merged ? <MergedToast text={merged.text} onUndo={() => setUndoing(merged.mergeId)} onDismiss={() => setMerged(null)} /> : null}
       {savingTemplate && taskQ.data ? (
         <div onClick={(e) => e.stopPropagation()}>
           <SaveTaskTemplateDialog taskId={taskQ.data.id} taskTitle={taskQ.data.title} checklistCount={checklistQ.data?.items?.length} hasDescription={!!taskQ.data.description?.trim()} onClose={() => setSavingTemplate(false)} />

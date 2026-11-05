@@ -28,6 +28,8 @@ export interface DrawerComment {
   organisation?: string | null;
   /** 1.23: a reply to a client's comment that the client sees (and was emailed). */
   clientVisible?: boolean;
+  /** 1.23.1: it came with a task merged into this one ("from MICO-14"). */
+  fromKey?: string | null;
 }
 
 /** Send a reply to a comment; `clientVisible`: the client sees it and gets it by email (a client's comment only). */
@@ -223,6 +225,11 @@ function CommentItem({
             </time>
           ) : null}
           {c.edited ? <span className="text-xs text-ink-3">(edited)</span> : null}
+          {c.fromKey ? (
+            <span className="text-xs text-ink-3" title={`Written on ${c.fromKey}, merged into this task`}>
+              from <span dir="ltr" translate="no" className="font-mono">{c.fromKey}</span>
+            </span>
+          ) : null}
           {draft === null && (canEdit || canDelete) ? (
             <span className="ms-auto flex items-center gap-0.5 text-xs">
               {confirming ? (

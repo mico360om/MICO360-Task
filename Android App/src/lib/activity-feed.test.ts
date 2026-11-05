@@ -340,3 +340,18 @@ describe('a client’s sign-off in a task’s history', () => {
     expect(items.map((i) => i.text)).toEqual(['accepted this task (client sign-off)', 'sent this task back: “Redo”']);
   });
 });
+
+describe('merging tasks in a task’s history (1.23.1)', () => {
+  const line = (action: string, meta?: Record<string, unknown>) => buildTimeline([e('a1', action, 'Aisha Khan', 1, meta)])[0]!;
+  it('the main task: what was merged into it, and who was left off', () => {
+    expect(line('TASKS_MERGED', { keys: ['MICO-14', 'MICO-15'], mainKey: 'MICO-12' })).toMatchObject({ kind: 'other', text: 'merged MICO-14 and MICO-15 into this task' });
+    expect(line('TASKS_MERGED', { keys: ['MICO-14'], mainKey: 'OPS-3', fromKey: 'MICO-12', toProject: 'Operations', leftOff: ['Sara Al Balushi'] }).text).toBe(
+      'merged MICO-14 into this task, moving it to Operations as OPS-3; left Sara Al Balushi off (not on the team)',
+    );
+  });
+  it('a merged task, and an undone merge', () => {
+    expect(line('MERGED_INTO', { key: 'MICO-14', intoKey: 'MICO-12' }).text).toBe('merged this task into MICO-12');
+    expect(line('MERGE_UNDONE', { keys: ['MICO-14', 'MICO-15'], mainKey: 'MICO-12' }).text).toBe('undid the merge of MICO-14 and MICO-15');
+    expect(line('MERGE_UNDONE', { keys: ['MICO-14'], mainKey: 'MICO-12', fromMain: true }).text).toBe('undid its merge into MICO-12: this is a separate task again');
+  });
+});

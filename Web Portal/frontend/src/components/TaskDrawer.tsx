@@ -27,6 +27,7 @@ import { ShortcutHint, useShortcut, useShortcutHint } from './shortcuts/Shortcut
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import type { StepDirection, TaskStepper } from '../lib/task-steps';
 import { TaskKey } from './TaskKey';
+import { mergedFromKeys } from '../lib/task-merge';
 
 /** A carried-forward day ('YYYY-MM-DD') in words — "20 Oct 2026" — as the rest of the panel writes days. */
 const carriedDay = (key: string) => dayText(key) || key;
@@ -136,6 +137,17 @@ export interface TaskDrawerProps {
   externalContacts?: ReactNode;
   /** Previous / Next through the list the task was opened from (none: no steps shown). */
   stepper?: TaskStepper;
+  /** 1.23.1: merge it with other tasks (in “More actions”; administrators and its project's managers). */
+  onMerge?: () => void;
+  /** Why it can't be merged now: the item is shown, unavailable, saying so. */
+  mergeUnavailable?: string | null;
+  /** The "Merged from" panel (the tasks merged into this one), beside its details. */
+  mergedFrom?: ReactNode;
+  /** Opened by a merged task's number or link: "MICO-14 was merged into this task on 5 Nov by Khurram." */
+  mergeNotice?: string | null;
+  /** Checklist items and history lines that came with a merged task, by id ("From MICO-14"). */
+  checklistFromKeys?: Record<string, string>;
+  activityFromKeys?: Record<string, string>;
   onClose: () => void;
 }
 
@@ -339,6 +351,12 @@ export function TaskDrawer({
   approval,
   externalContacts,
   stepper,
+  onMerge,
+  mergeUnavailable,
+  mergedFrom,
+  mergeNotice,
+  checklistFromKeys,
+  activityFromKeys,
   onClose,
 }: TaskDrawerProps) {
   // Escape / focus trapping live in TaskDrawerContainer, so they also work while loading or on errors.
@@ -395,8 +413,10 @@ export function TaskDrawer({
   // blockers: beside the work on a wide screen and under the details on a tablet; on a phone after
   // the checklist and comments, which come first.
   const phone = useMediaQuery(PHONE_QUERY);
+  const former = mergedFromKeys(task).former;
   const sideParts = (
     <>
+      {mergedFrom}
       {onSetClientVisible ? (
         <ClientViewSwitch on={!!task.clientVisible} onChange={onSetClientVisible} description={!!task.clientShowDescription} onDescription={onSetClientDescription} />
       ) : null}
@@ -424,10 +444,10 @@ export function TaskDrawer({
               </span>
             ) : null}
             <TaskKey value={task.key} size="lg" />
-            {task.formerKeys && task.formerKeys.length > 0 ? (
-              // Its old numbers still find it (search, "open RIG-4").
+            {former.length > 0 ? (
+              // Its old numbers still find it (search, "open RIG-4"). 1.23.1: merged tasks' numbers are in "Merged from".
               <span className="text-xs text-ink-3" title="Its old number still finds it in search">
-                Formerly {task.formerKeys.join(', ')}
+                Formerly {former.join(', ')}
               </span>
             ) : null}
             <StatusPill category={task.columnCategory} />
@@ -521,7 +541,9 @@ export function TaskDrawer({
               onMoveToProject={onMoveToProject}
               moveUnavailable={moveUnavailable}
               onSaveAsTemplate={onSaveAsTemplate}
-              className={onMoveToProject || onSaveAsTemplate ? '' : 'sm:hidden'}
+              onMerge={onMerge}
+              mergeUnavailable={mergeUnavailable}
+              className={onMoveToProject || onSaveAsTemplate || onMerge ? '' : 'sm:hidden'}
             />
             <button
               type="button"
@@ -557,6 +579,11 @@ export function TaskDrawer({
       </div>
 
       <div className="keyboard-flow-body flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
+        {mergeNotice ? (
+          <p role="status" className="mb-4 rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
+            {mergeNotice}
+          </p>
+        ) : null}
         {actionError ? (
           <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
             <span>{actionError}</span>
@@ -614,6 +641,7 @@ export function TaskDrawer({
               onRemove={onRemoveChecklistItem}
               onReorder={onReorderChecklist}
               onSuggest={onSuggestChecklist}
+              fromKeys={checklistFromKeys}
             />
           </div>
           <div className="min-w-0 lg:col-start-1 lg:row-start-3">
@@ -622,7 +650,7 @@ export function TaskDrawer({
           {phone ? <div className="flex min-w-0 flex-col gap-5">{sideParts}</div> : null}
           {activity.length > 0 ? (
             <div className="min-w-0 lg:col-start-1 lg:row-start-4">
-              <ActivityTimeline activity={activity} />
+              <ActivityTimeline activity={activity} fromKeys={activityFromKeys} />
             </div>
           ) : null}
         </div>

@@ -18,6 +18,10 @@ export interface BulkActionBarProps {
   onMoveToProject?: () => void;
   /** Why the selection can't be moved now (the button is shown, unavailable, saying so). */
   moveUnavailable?: string | null;
+  /** 1.23.1: merge the selection into one task (2–10 tasks; administrators and their projects' managers). */
+  onMerge?: () => void;
+  /** Why the selection can't be merged now (the button is shown, unavailable, saying so). */
+  mergeUnavailable?: string | null;
   onClear: () => void;
 }
 
@@ -35,10 +39,11 @@ const selectClass =
 /** A complete, plausible calendar date — never a half-typed year like 0002. */
 const isCompleteDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 2000 && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 
-export function BulkActionBar({ count, busy = false, assignees, columns, onComplete, onSetDueDate, onSetPriority, onAssign, onMove, onMoveToProject, moveUnavailable, onClear }: BulkActionBarProps) {
+export function BulkActionBar({ count, busy = false, assignees, columns, onComplete, onSetDueDate, onSetPriority, onAssign, onMove, onMoveToProject, moveUnavailable, onMerge, mergeUnavailable, onClear }: BulkActionBarProps) {
   const [due, setDue] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const moveWhyId = useId();
+  const mergeWhyId = useId();
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
@@ -128,6 +133,29 @@ export function BulkActionBar({ count, busy = false, assignees, columns, onCompl
             {moveUnavailable ? (
               <span id={moveWhyId} className="sr-only">
                 {moveUnavailable}
+              </span>
+            ) : null}
+          </>
+        ) : null}
+
+        {onMerge ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                if (!mergeUnavailable && !busy) onMerge();
+              }}
+              disabled={busy}
+              aria-disabled={mergeUnavailable ? 'true' : undefined}
+              aria-describedby={mergeUnavailable ? mergeWhyId : undefined}
+              title={mergeUnavailable ?? 'Merge the selected tasks into one task'}
+              className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink transition-colors hover:border-brand hover:text-brand disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:border-line aria-disabled:hover:text-ink [@media(pointer:coarse)]:!min-h-11"
+            >
+              Merge…
+            </button>
+            {mergeUnavailable ? (
+              <span id={mergeWhyId} className="sr-only">
+                {mergeUnavailable}
               </span>
             ) : null}
           </>

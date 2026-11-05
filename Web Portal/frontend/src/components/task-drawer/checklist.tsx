@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { moveItem } from '../../lib/list-order';
 import { Sparkle } from './properties';
 import { PencilIcon } from './inline-text';
@@ -153,8 +153,11 @@ export function ChecklistSection({
   onRemove,
   onReorder,
   onSuggest,
+  fromKeys,
 }: {
   items: DrawerChecklistItem[];
+  /** 1.23.1: items that came with a task merged into this one, by id: a run of them is headed "From MICO-14". */
+  fromKeys?: Record<string, string>;
   onToggle?: (id: string, done: boolean) => Promise<void> | void;
   onAdd?: (text: string) => Promise<void> | void;
   onRename?: (id: string, text: string) => Promise<void> | void;
@@ -291,9 +294,16 @@ export function ChecklistSection({
         <p className="py-1 text-sm text-ink-3">{onAdd ? 'No steps yet — break the work down below.' : 'No checklist items.'}</p>
       ) : (
         <ul className="flex flex-col">
-          {shown.map((c) => (
+          {shown.map((c, index) => (
+            <Fragment key={c.id}>
+            {/* 1.23.1: a run of items that came with a merged task is headed by its number. */}
+            {fromKeys?.[c.id] && fromKeys[c.id] !== (index > 0 ? fromKeys[shown[index - 1]!.id] : undefined) ? (
+              <li data-testid="checklist-from" className="mt-2 px-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+                From <span dir="ltr" translate="no" className="font-mono normal-case">{fromKeys[c.id]}</span>
+              </li>
+            ) : null}
             <li
-              key={c.id}
+              data-from-key={fromKeys?.[c.id] ?? undefined}
               data-testid="checklist-item"
               draggable={Boolean(onReorder)}
               onDragStart={(e) => {
@@ -380,6 +390,7 @@ export function ChecklistSection({
                 </button>
               ) : null}
             </li>
+            </Fragment>
           ))}
         </ul>
       )}

@@ -117,6 +117,12 @@ export const MoveIcon = () => (
   </svg>
 );
 
+export const MergeIcon = () => (
+  <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true">
+    <path d="M6 3v4a5 5 0 0 0 5 5h2a5 5 0 0 1 5 5v4M18 3v4a5 5 0 0 1-3 4.6M6 21v-4" />
+  </svg>
+);
+
 export const TemplateIcon = () => (
   <svg viewBox="0 0 24 24" {...ICON} aria-hidden="true">
     <rect x="6" y="3" width="15" height="14" rx="2" />
@@ -138,6 +144,8 @@ export function MoreActionsMenu({
   onMoveToProject,
   moveUnavailable,
   onSaveAsTemplate,
+  onMerge,
+  mergeUnavailable,
   className = '',
 }: {
   watching?: boolean;
@@ -149,12 +157,16 @@ export function MoreActionsMenu({
   moveUnavailable?: string | null;
   /** Save the task as a task template ("Save as template…": whoever runs its project). */
   onSaveAsTemplate?: () => void;
+  /** 1.23.1: merge it with other tasks ("Merge with other tasks…": administrators and its project's managers). */
+  onMerge?: () => void;
+  /** Why it can't be merged now (the item is shown, unavailable, with this reason). */
+  mergeUnavailable?: string | null;
   className?: string;
 }) {
   const { open, setOpen, wrap, trigger } = useMenu();
-  if (!onToggleWatch && !onExport && !onMoveToProject && !onSaveAsTemplate) return null;
-  // With the move or the template in it, the menu shows everywhere and these repeat header buttons on wider screens.
-  const headerToo = onMoveToProject || onSaveAsTemplate ? 'sm:hidden' : '';
+  if (!onToggleWatch && !onExport && !onMoveToProject && !onSaveAsTemplate && !onMerge) return null;
+  // With the move, the template or the merge in it, the menu shows everywhere and these repeat header buttons on wider screens.
+  const headerToo = onMoveToProject || onSaveAsTemplate || onMerge ? 'sm:hidden' : '';
   const choose = (act: () => void) => {
     setOpen(false);
     trigger.current?.focus();
@@ -202,6 +214,21 @@ export function MoreActionsMenu({
               </button>
             ) : (
               item('Move to another project…', onMoveToProject, <MoveIcon />)
+            )
+          ) : null}
+          {onMerge ? (
+            mergeUnavailable ? (
+              <button role="menuitem" type="button" aria-disabled="true" className={`${menuItemClass} cursor-default items-start text-ink-3 hover:bg-transparent`}>
+                <span className="mt-0.5 flex-none">
+                  <MergeIcon />
+                </span>
+                <span className="min-w-0">
+                  <span className="block">Merge with other tasks…</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-ink-3">{mergeUnavailable}</span>
+                </span>
+              </button>
+            ) : (
+              item('Merge with other tasks…', onMerge, <MergeIcon />)
             )
           ) : null}
           {onSaveAsTemplate ? item('Save as template…', onSaveAsTemplate, <TemplateIcon />) : null}

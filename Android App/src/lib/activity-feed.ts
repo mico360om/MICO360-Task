@@ -149,6 +149,27 @@ function projectMoveText(e: FeedEntry): string {
   if (from && to) return `moved this task from ${from} to ${to}`;
   return to ? `moved this task to ${to}` : 'moved this task to another project';
 }
+/** 1.23.1: the numbers named on a merge line ("MICO-14 and MICO-15"). */
+function keysOf(e: FeedEntry): string[] {
+  const keys = e.meta?.keys;
+  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === 'string' && k !== '') : [];
+}
+/** "merged MICO-14 and MICO-15 into this task" (moving it, and the people left off, when that happened). */
+function mergedText(e: FeedEntry): string {
+  const keys = keysOf(e);
+  const what = keys.length ? someOf(keys) : 'other tasks';
+  const toProject = str(e.meta?.toProject);
+  const moved = toProject && str(e.meta?.fromKey) ? `, moving it to ${toProject} as ${str(e.meta?.mainKey) ?? 'a new number'}` : '';
+  const leftOff = Array.isArray(e.meta?.leftOff) ? (e.meta!.leftOff as unknown[]).filter((n): n is string => typeof n === 'string') : [];
+  return `merged ${what} into this task${moved}${leftOff.length ? `; left ${someOf(leftOff)} off (not on the team)` : ''}`;
+}
+/** An undone merge, on the main task ("undid the merge of MICO-14") or on a task it gave back. */
+function mergeUndoneText(e: FeedEntry): string {
+  const main = str(e.meta?.mainKey);
+  if (e.meta?.fromMain) return `undid its merge into ${main ?? 'another task'}: this is a separate task again`;
+  const keys = keysOf(e);
+  return keys.length ? `undid the merge of ${someOf(keys)}` : 'undid a merge';
+}
 /** An inspection named in a task's history: "the inspection “Rig daily check”", or "an inspection". */
 function inspectionName(e: FeedEntry): string {
   const name = str(e.meta?.inspection);
@@ -346,6 +367,10 @@ function lineOf(kind: TimelineKind, entries: FeedEntry[]): TimelineItem | null {
       if (newest.action === 'PROJECT_CHANGED') return { ...base, text: projectMoveText(newest) };
       if (newest.action === 'PROJECT_MOVED_OUT') return { ...base, text: movedOutText(newest) };
       if (newest.action === 'PROJECT_COMPANIES_CHANGED') return { ...base, text: companiesChangedText(newest) };
+      // 1.23.1 Merge tasks: on the main task, on each merged one, and an undo on both.
+      if (newest.action === 'TASKS_MERGED') return { ...base, text: mergedText(newest) };
+      if (newest.action === 'MERGED_INTO') return { ...base, text: `merged this task into ${str(newest.meta?.intoKey) ?? 'another task'}` };
+      if (newest.action === 'MERGE_UNDONE') return { ...base, text: mergeUndoneText(newest) };
       // Inspections: one carried out for this task, or the one whose failed item this task follows up.
       if (newest.action === 'INSPECTION_ATTACHED') return { ...base, text: `attached ${inspectionName(newest)}` };
       if (newest.action === 'INSPECTION_FINISHED') return { ...base, text: inspectionFinishedText(newest) };
