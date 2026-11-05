@@ -14,6 +14,7 @@ import { Toggle } from '../components/ui/Toggle';
 import { fieldClass } from '../components/ui/Field';
 import { ResultRow } from '../components/search/ResultRow';
 import { AiPanel } from '../components/search/AiPanel';
+import { TasksUnavailable } from '../components/search/TasksUnavailable';
 import { MAX_QUERY_LETTERS } from '../lib/search-highlight';
 import { DensityButton } from '../components/DensityButton';
 import { KIND_META, SEARCH_KINDS, everythingAddress, everythingFilters, hasEverythingFilters, type EverythingFilters, type SearchHit, type SearchKind } from '../lib/search-everything';
@@ -285,6 +286,8 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
 
       {searching ? <AiPanel filters={filters} asked={Boolean(filters.ai)} onAsk={() => update({ ai: true })} onOpen={open} timeZone={timeZone} /> : null}
 
+      {/* 1.23.1: the server couldn't search the tasks this time; what else it found is below. */}
+      {searching && results.isSuccess && results.data.pages.some((p) => p.tasksUnavailable) ? <TasksUnavailable className="mb-2" onRetry={() => void results.refetch()} /> : null}
       {!searching ? (
         <p className="text-sm text-ink-2">Type 2 or more letters to search everything you can open.</p>
       ) : results.isLoading || (hits.length === 0 && (hasNextPage || isFetchingNextPage)) ? (

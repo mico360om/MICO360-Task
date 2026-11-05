@@ -61,6 +61,11 @@ export interface SearchResults {
   projects: SearchableProject[];
   users: SearchableUser[];
   meetings: SearchMeetingResult[];
+  /**
+   * 1.23.1: the task search failed this time (a database error); the other results are still here and
+   * the website says "Tasks couldn't be searched just now". Absent when it worked.
+   */
+  tasksUnavailable?: true;
 }
 
 export interface SearchScope {
@@ -202,14 +207,27 @@ export function createCachedSearchDataSource(inner: SearchDataSource, opts: { tt
   };
 }
 
+export interface SearchOptions {
+  /** 1.23.1: the task search failed (the results say `tasksUnavailable`): told the error, once, to record it. */
+  onTasksFailed?: (err: unknown) => void;
+}
+
 export function createSearchService({ data, tasks }: { data: SearchDataSource; tasks?: GlobalTaskSearch }) {
-  async function search(query: string, scope: SearchScope = {}): Promise<SearchResults> {
+  async function search(query: string, scope: SearchScope = {}, opts: SearchOptions = {}): Promise<SearchResults> {
     const [snapshot, projectCompanies] = await Promise.all([data.getSearchData(), data.projectCompanies ? data.projectCompanies() : Promise.resolve(null)]);
     const results = searchAll(query, snapshot, scope, projectCompanies);
     if (tasks) {
-      results.tasks = normalizeForSearch(query)
-        ? (await tasks.search({ q: query, scope: { projectIds: scope.allowedProjectIds ?? null }, limit: GLOBAL_TASK_LIMIT })).hits
-        : [];
+      // 1.23.1: a task search that fails (the live one did, on its database server) never takes the
+      // projects, people and meetings found with it down too.
+      try {
+        results.tasks = normalizeForSearch(query)
+          ? (await tasks.search({ q: query, scope: { projectIds: scope.allowedProjectIds ?? null }, limit: GLOBAL_TASK_LIMIT })).hits
+          : [];
+      } catch (err) {
+        results.tasks = [];
+        results.tasksUnavailable = true;
+        opts.onTasksFailed?.(err);
+      }
     }
     return results;
   }

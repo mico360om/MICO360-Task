@@ -358,3 +358,29 @@ describe('the AI panel', () => {
     expect(await screen.findByRole('button', { name: 'Ask AI' })).toBeInTheDocument();
   });
 });
+
+// 1.23.1 — the task half failing on the server leaves the other kinds (`tasksUnavailable`): one quiet line.
+describe('Search page — when tasks couldn’t be searched', () => {
+  it('shows the other results and one quiet line with “try again”', async () => {
+    const s = serve([{ data: [note, file], nextCursor: null, total: 2, totalCapped: false, counts: { ...COUNTS, task: 0 }, corrected: [], tasksUnavailable: true }]);
+    open('/search?q=scaff');
+    expect(await row('Weekly scaffold review')).toBeInTheDocument();
+    expect(screen.getByText(/Tasks couldn’t be searched just now/)).toHaveTextContent('Tasks couldn’t be searched just now — try again');
+    const before = s.asked.length;
+    await userEvent.click(screen.getByRole('button', { name: 'try again' }));
+    await waitFor(() => expect(s.asked.length).toBeGreaterThan(before));
+  });
+
+  it('with nothing else found, the line still says why tasks are missing', async () => {
+    serve([{ data: [], nextCursor: null, total: 0, totalCapped: false, counts: { ...COUNTS, task: 0, note: 0, file: 0 }, tasksUnavailable: true }]);
+    open('/search?q=zebra');
+    expect(await screen.findByText(/Tasks couldn’t be searched just now/)).toBeInTheDocument();
+  });
+
+  it('no line when the search worked', async () => {
+    serve();
+    open('/search?q=scaff');
+    expect(await row('Weekly scaffold review')).toBeInTheDocument();
+    expect(screen.queryByText(/Tasks couldn’t be searched/)).toBeNull();
+  });
+});

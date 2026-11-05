@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SearchService } from './search-service';
 import type { AuthGuard } from '../auth/auth-guard';
 import { TASK_STATUSES, type TaskSearchEngine } from './task-search-engine';
@@ -118,6 +118,8 @@ export interface SearchRouteDeps {
    * results page, the task search, the AI panel). Default SEARCHES_PER_MINUTE.
    */
   perMinute?: number;
+  /** 1.23.1: a part of a search that failed while the rest was shown is recorded here (the Error log). */
+  logger?: { error(message: string, ctx?: Record<string, unknown>): void };
 }
 
 /** A person's searches a minute on each search route: well above typing in the top bar (a search per 250 ms pause). */
@@ -130,6 +132,19 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
   const pickOf = deps.pickOf ?? NO_PICK;
   // Per signed-in person (the site's own key: their user id), each route counted on its own.
   const searchRoute = { preHandler: guard.authenticate, config: { rateLimit: { max: deps.perMinute ?? SEARCHES_PER_MINUTE, timeWindow: '1 minute' } } };
+  /**
+   * 1.23.1: a part of a search that failed while the rest was shown (the live task search did, on its
+   * database server) — recorded as a failed request is: its route pattern and the person, never the
+   * address (it holds the words). Once per part and request, however many of its passes failed.
+   */
+  const partFailed = (req: FastifyRequest, part: 'tasks' | 'more') => {
+    let told = false;
+    return (err: unknown): void => {
+      if (told) return;
+      told = true;
+      deps.logger?.error('search: a part of the search failed', { method: req.method, route: req.routeOptions?.url, part, err, userId: req.user?.id });
+    };
+  };
   app.get('/search', searchRoute, async (req) => {
     const { q } = querySchema.parse(req.query);
     // Object-level scope: a non-admin only ever finds tasks/projects in projects they belong to —
@@ -147,14 +162,22 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const everything = deps.everything;
     // 1.23: the top bar also shows the best few notes, minutes, files and inspections (never holding it up on a failure).
     const [found, more] = await Promise.all([
-      searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin: admin && !mineOnly, people, companyIds }),
+      // 1.23.1: the task search failing leaves the rest (`tasksUnavailable`, recorded once).
+      searchService.search(q, { allowedProjectIds, userId: viewer.id, pick, admin: admin && !mineOnly, people, companyIds }, { onTasksFailed: partFailed(req, 'tasks') }),
       everything && parseTaskQuery(q).terms.length
         ? everything.scope
             .forViewer(viewer, pick)
             // Whole matches only: no spelling or some-words pass (security review) — they'd be dropped below anyway.
             .then((scope) => everything.engine.search({ q, scope, viewerId: viewer.id, kinds: ['note', 'minutes', 'file', 'inspection'], limit: GLOBAL_MORE_LIMIT, exactOnly: true }))
             // Only what holds every word (review M10): close and partial matches are for the results page, where they say so.
-            .then((r) => r.hits.filter((h) => !h.match), () => [] as SearchHit[])
+            .then(
+              (r) => r.hits.filter((h) => !h.match),
+              // 1.23.1: still never holding the rest up — but recorded, not dropped without a word.
+              (err: unknown) => {
+                partFailed(req, 'more')(err);
+                return [] as SearchHit[];
+              },
+            )
         : Promise.resolve(null),
     ]);
     return { data: more ? { ...found, more } : found };
@@ -240,12 +263,15 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
         offset,
         extra,
         withCounts: first,
+        // 1.23.1: the task half failing leaves the other kinds (`tasksUnavailable`, recorded once).
+        onTasksFailed: partFailed(req, 'tasks'),
       });
       return {
         data: result.hits,
         nextCursor: result.next ? encodeAllCursor(result.next) : null,
         corrected: result.corrected,
         ...(result.counts ? { counts: result.counts, total: result.total ?? result.hits.length, totalCapped: result.totalCapped ?? false } : {}),
+        ...(result.tasksUnavailable ? { tasksUnavailable: true } : {}),
       };
     });
 

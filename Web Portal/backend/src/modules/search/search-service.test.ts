@@ -128,3 +128,30 @@ describe('SearchService', () => {
     expect(calls).toHaveLength(2);
   });
 });
+
+// 1.23.1 — the live task search failed (a database error) and took every top-bar search down with it.
+describe('SearchService — the task search failing never hides the other results', () => {
+  const failing = (err: unknown) => ({ async search(): Promise<never> { throw err; } });
+
+  it('projects, people and meetings still come back, with a flag; the error is handed over once', async () => {
+    const boom = new Error('Unknown column');
+    const told: unknown[] = [];
+    const svc = createSearchService({ data: { async getSearchData() { return { ...data, meetings: [{ id: 'm1', title: 'MICO weekly', projectId: 'p1', organizerId: 'u1', attendeeUserIds: [], content: '' }] }; } }, tasks: failing(boom) });
+    const r = await svc.search('mico', {}, { onTasksFailed: (err) => told.push(err) });
+    expect(r.tasks).toEqual([]);
+    expect(r.tasksUnavailable).toBe(true);
+    expect(r.projects.map((p) => p.code)).toEqual(['MICO']);
+    expect(r.meetings.map((m) => m.id)).toEqual(['m1']);
+    expect(told).toEqual([boom]);
+  });
+
+  it('a search that worked says nothing about it', async () => {
+    const svc = createSearchService({ data: { async getSearchData() { return data; } }, tasks: { async search() { return { hits: [], nextOffset: null }; } } });
+    expect(await svc.search('mico')).not.toHaveProperty('tasksUnavailable');
+  });
+
+  it('the rest failing still fails the search (nothing to show)', async () => {
+    const svc = createSearchService({ data: { async getSearchData() { throw new Error('down'); } }, tasks: failing(new Error('x')) });
+    await expect(svc.search('mico')).rejects.toThrow('down');
+  });
+});

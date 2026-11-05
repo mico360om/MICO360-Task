@@ -877,7 +877,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       if (deps.searchService) {
         // companies: both searches follow the pick; people are colleagues (with a pick, that company's).
-        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
+        await registerSearchRoutes(api, { searchService: deps.searchService, guard, accessibleProjectIds, taskSearch: deps.taskSearch, pickOf, peopleFor: searchPeople, companiesOf, myProjectsOnly, everything: deps.searchEverything, logger: deps.logger, ...(deps.searchPerMinute ? { perMinute: deps.searchPerMinute } : {}) });
       }
       if (deps.meetingService) {
         await registerMeetingRoutes(api, {

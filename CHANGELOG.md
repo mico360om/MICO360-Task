@@ -14,6 +14,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Search: if the tasks can't be searched for a moment (a database problem), the top-bar search and the
+  Search page still show the projects, people, meetings, notes and files they found, with one quiet line
+  "Tasks couldn't be searched just now — try again". Before, the whole search failed. The problem is
+  still recorded in the Error log, once.
+
 ### Bug fixes
 - Search: searching for two or more words (for example "pump repair") failed on the live site, and the
   Error log showed "Unknown column". The site's database server reads one part of the task search's
