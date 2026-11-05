@@ -68,7 +68,7 @@ describe('database check on a database the migrations built', () => {
 });
 
 /** One connection only, so a session's sql_mode holds for every query the probes send. */
-function withSqlMode(mode: string): PrismaClient {
+function singleConnection(): PrismaClient {
   const single = new URL(url);
   single.searchParams.set('connection_limit', '1');
   return new PrismaClient({ datasources: { db: { url: single.toString() } } });
@@ -91,7 +91,7 @@ const MODES = [
 describe('every search query under the sql_mode the live server might have', () => {
   for (const mode of MODES) {
     it(`sql_mode '${mode}'`, async () => {
-      const client = withSqlMode(mode);
+      const client = singleConnection();
       try {
         await client.$executeRawUnsafe(`SET SESSION sql_mode = '${mode}'`);
         const m = (await client.$queryRaw<{ m: string }[]>`SELECT @@SESSION.sql_mode AS m`)[0]?.m ?? '';

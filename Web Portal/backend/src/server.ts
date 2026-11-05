@@ -1334,7 +1334,8 @@ async function main(): Promise<void> {
     logger,
   });
   // Answers a restart cut off (pending past the time limit) are marked interrupted, so no chat stays blocked.
-  void micoAiService.interruptStale().catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
+  // 1.23.1: a start-up job like the others — once the database answered, a blip tried once more (lib/job-gate).
+  void jobs.attempt(() => micoAiService.interruptStale()).catch((err) => logger.error('MICO AI: marking interrupted answers failed', { err }));
 
   // 1.22 (§10): the Final MOM's "Draft with AI" as a background job too (the runner is above).
   const aiJobArchive = createPrismaArchiveLookup(prisma);

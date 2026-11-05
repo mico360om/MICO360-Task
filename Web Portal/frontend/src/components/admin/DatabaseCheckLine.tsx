@@ -20,7 +20,7 @@ export function DatabaseCheckLine({ check }: { check: DatabaseCheck }) {
         <span className={`font-semibold ${check.ok ? 'text-success' : 'text-danger'}`}>{check.summary}</span>
         <span className="text-xs text-ink-3">checked {relativeTime(check.checkedAt)}</span>
       </p>
-      {settings ? <p className="mt-0.5 break-all font-mono text-xs text-ink-2">{settings}</p> : null}
+      {settings ? <p className="mt-0.5 font-mono text-xs text-ink-2 [overflow-wrap:anywhere]">{settings}</p> : null}
       {check.problems.length ? (
         <ul className="mt-2 list-disc space-y-1 pl-5 text-ink">
           {check.problems.map((p) => (
