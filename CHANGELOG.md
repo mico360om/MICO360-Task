@@ -186,6 +186,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Search can't slow the site down for everyone: checking for spelling mistakes now stops after a
   fraction of a second, the search in the top bar no longer does it at all (it shows only results that
   hold every word), and each person can search up to 120 times a minute on each search.
+- Connecting Microsoft Teams: the browser's check for the connection is a cookie only this site can
+  set (another site on the same domain can't slip one in), and each person has one connection waiting
+  at a time, so pressing Connect over and over never stops anyone else's.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams

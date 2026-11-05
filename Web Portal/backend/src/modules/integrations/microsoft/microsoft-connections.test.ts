@@ -288,3 +288,22 @@ describe('review fixes: which refusals end a connection', () => {
     }
   });
 });
+
+// Security review (1.23): Connect flows waiting for Microsoft's answer were kept for everyone together,
+// the oldest dropped at 1000 — one person pressing Connect a thousand times broke everyone else's.
+describe('waiting Connect flows', () => {
+  it('each person has one: a new Connect replaces their earlier one, and never drops someone else’s', async () => {
+    const victim = svc.begin('u1');
+    for (let i = 0; i < 1100; i++) svc.begin('u2');
+    const res = await fetch(victim.authorizeUrl, { redirect: 'manual' });
+    const back = new URL(res.headers.get('location')!);
+    expect((await svc.complete({ code: back.searchParams.get('code')!, state: back.searchParams.get('state')! }, victim.cookie.value)).result).toBe('connected');
+    // Their own earlier Connect no longer completes once they pressed it again.
+    const first = svc.begin('u3');
+    svc.begin('u3');
+    const r1 = await fetch(first.authorizeUrl, { redirect: 'manual' });
+    const b1 = new URL(r1.headers.get('location')!);
+    expect((await svc.complete({ code: b1.searchParams.get('code')!, state: b1.searchParams.get('state')! }, first.cookie.value)).result).toBe('failed');
+  });
+});
+

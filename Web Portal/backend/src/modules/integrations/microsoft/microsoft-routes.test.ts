@@ -34,7 +34,7 @@ let meetings: MemoryMeetings;
 let invites: string[];
 
 let activeCheck: (id: string) => Promise<boolean> = async () => true;
-async function build(enabled = true) {
+async function build(enabled = true, opts: { secure?: boolean } = {}) {
   const cfg: MicrosoftConfig = {
     clientId: ms.clientId, clientSecret: ms.clientSecret, tenant: { mode: 'single', tenantId: ms.tenantId }, authority: ms.tenantId,
     tokenKey: randomBytes(32), redirectUri: 'http://localhost:4780/api/v1/integrations/microsoft/callback', loginBase: ms.loginBase, graphBase: ms.graphBase,
@@ -58,6 +58,7 @@ async function build(enabled = true) {
         teams,
         audit: { async record(d: Record<string, unknown>) { audited.push(d); return {} as never; } } as unknown as AuditService,
         appUrl: 'http://localhost:4780',
+        ...(opts.secure ? { secureCookies: true } : {}),
         canViewMeeting: async (userId, _r, id) => id !== 'hidden' && userId !== 'stranger',
         canEditMeeting: async (userId) => userId === 'org' || userId === 'manager',
         getMeeting: async (id) => (await meetings.findById(id))!,
@@ -222,5 +223,40 @@ describe('Make Teams link (a meeting waiting for its link)', () => {
     expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${m.id}/teams-link`, headers: await bearer('viewer') })).statusCode).toBe(403);
     expect((await app.inject({ method: 'POST', url: `/api/v1/meetings/${m.id}/teams-link`, headers: await bearer('stranger') })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: '/api/v1/meetings/nope/teams-link', headers: await bearer('org') })).statusCode).toBe(404);
+  });
+});
+
+// Security review (1.23): a site on a sibling subdomain could plant a flow cookie of its own (the first
+// one sent was read) and tie someone's Microsoft account to the planter's MICO360 account. Over https the
+// cookie is a __Host- one (only this host can set it); over plain http a second flow cookie is refused.
+describe('the flow cookie can’t be planted', () => {
+  /** Connect as `userId`: the cookie this browser got, and the address Microsoft sends it back to. */
+  async function begin(userId: string) {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/integrations/microsoft/connect', headers: await bearer(userId) });
+    const setCookie = String(res.headers['set-cookie']);
+    const atMicrosoft = await fetch(res.json().data.url as string, { redirect: 'manual' });
+    const back = new URL(atMicrosoft.headers.get('location')!);
+    return { setCookie, value: setCookie.split(';')[0]!.split('=')[1]!, back: `${back.pathname}${back.search}` };
+  }
+
+  it('over https it is a __Host- cookie (Secure, the whole site’s path), and only that one is read back', async () => {
+    await build(true, { secure: true });
+    const planted = await begin('attacker');
+    expect(planted.setCookie).toMatch(/^__Host-mico_ms_flow=[^;]+; Path=\/; Max-Age=600; HttpOnly; SameSite=Lax; Secure$/);
+    // The attacker's cookie planted under the old name (a sibling site can set that one) is not read.
+    const refused = await app.inject({ method: 'GET', url: planted.back, headers: { cookie: `${FLOW_COOKIE}=${planted.value}` } });
+    expect(refused.headers.location).toBe('http://localhost:4780/settings?teams=failed#microsoft-teams');
+    expect(await store.get('attacker')).toBeNull();
+    const mine = await begin('u1');
+    const back = await app.inject({ method: 'GET', url: mine.back, headers: { cookie: `__Host-${FLOW_COOKIE}=${mine.value}` } });
+    expect(back.headers.location).toBe('http://localhost:4780/settings?teams=connected#microsoft-teams');
+    expect(String(back.headers['set-cookie'])).toMatch(/^__Host-mico_ms_flow=; Path=\/; Max-Age=0/);
+  });
+
+  it('over plain http, a browser sending two flow cookies connects nothing', async () => {
+    const planted = await begin('attacker');
+    const back = await app.inject({ method: 'GET', url: planted.back, headers: { cookie: `${FLOW_COOKIE}=${planted.value}; ${FLOW_COOKIE}=someone-elses` } });
+    expect(back.headers.location).toBe('http://localhost:4780/settings?teams=failed#microsoft-teams');
+    expect(await store.get('attacker')).toBeNull();
   });
 });

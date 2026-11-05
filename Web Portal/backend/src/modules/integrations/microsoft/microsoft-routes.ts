@@ -5,7 +5,6 @@ import type { AuditService } from '../../audit/audit-service';
 import { ConflictError } from '../../../lib/http-errors';
 import type { MeetingRecord } from '../../meetings/meeting-repository';
 import type { MeetingNotifyService } from '../../meetings/meeting-notify-service';
-import { readCookie } from '../../client-view/client-tokens';
 import { isClientRoles } from '../../clients/client-kind';
 import { FLOW_COOKIE, type MicrosoftConnections } from './microsoft-connections';
 import type { TeamsMeetings } from './teams-meetings';
@@ -30,6 +29,23 @@ export interface MicrosoftRouteDeps {
 }
 
 const COOKIE_PATH = '/api/v1/integrations/microsoft';
+/**
+ * Security review (1.23): over https the flow cookie is a __Host- cookie — Secure, Path=/, no Domain — so
+ * a site on a sibling subdomain can't plant one (that would tie someone's Microsoft account to the
+ * planter's MICO360 account). Over plain http (development, a server on the office network) that isn't
+ * possible: there a browser sending two flow cookies is refused instead.
+ */
+const HOST_FLOW_COOKIE = `__Host-${FLOW_COOKIE}`;
+
+/** Every value of this cookie in a Cookie header. */
+function cookieValues(header: string | undefined, name: string): string[] {
+  const out: string[] = [];
+  for (const part of (header ?? '').split(';')) {
+    const at = part.indexOf('=');
+    if (at >= 0 && part.slice(0, at).trim() === name) out.push(part.slice(at + 1).trim());
+  }
+  return out;
+}
 const callbackQuery = z.object({ code: z.string().max(4000).optional(), state: z.string().max(2000).optional(), error: z.string().max(200).optional() });
 const NOT_SET_UP = 'Teams links aren’t set up on this site yet.';
 
@@ -50,7 +66,14 @@ export async function registerMicrosoftRoutes(app: FastifyInstance, deps: Micros
   };
   const secure = (req: FastifyRequest) => Boolean(deps.secureCookies) || req.protocol === 'https';
   const cookie = (req: FastifyRequest, value: string, maxAge: number) =>
-    `${FLOW_COOKIE}=${value}; Path=${COOKIE_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure(req) ? '; Secure' : ''}`;
+    secure(req)
+      ? `${HOST_FLOW_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax; Secure`
+      : `${FLOW_COOKIE}=${value}; Path=${COOKIE_PATH}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`;
+  /** This browser's flow cookie: exactly one, of the name this connection uses (a second one is planted). */
+  const flowCookie = (req: FastifyRequest): string | null => {
+    const all = cookieValues(req.headers.cookie, secure(req) ? HOST_FLOW_COOKIE : FLOW_COOKIE);
+    return all.length === 1 && all[0] ? all[0] : null;
+  };
   const record = (entry: { userId: string | null; ip: string | null; action: string; oldValue?: unknown; newValue?: unknown }) =>
     deps.audit?.record({ module: 'integrations', entityId: entry.userId, oldValue: null, newValue: null, ...entry });
   const settingsUrl = (result: string) => `${deps.appUrl.replace(/\/+$/, '')}/settings?teams=${encodeURIComponent(result)}#microsoft-teams`;
@@ -77,7 +100,7 @@ export async function registerMicrosoftRoutes(app: FastifyInstance, deps: Micros
     let result: 'connected' | 'denied' | 'failed' = 'failed';
     try {
       const answer = callbackQuery.safeParse(req.query);
-      const done = answer.success ? await deps.connections.complete(answer.data, readCookie(req.headers.cookie, FLOW_COOKIE)) : { result: 'failed' as const, userId: null, email: null };
+      const done = answer.success ? await deps.connections.complete(answer.data, flowCookie(req)) : { result: 'failed' as const, userId: null, email: null };
       result = done.result;
       if (done.result === 'connected') await record({ userId: done.userId, ip: req.ip ?? null, action: 'microsoft.connect', newValue: { email: done.email } });
       else if (done.userId && 'reason' in done && (done.reason === 'tenant' || done.reason === 'browser')) {

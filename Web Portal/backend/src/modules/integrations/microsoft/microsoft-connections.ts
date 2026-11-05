@@ -130,6 +130,9 @@ export function createMicrosoftConnections(deps: MicrosoftConnectionsDeps) {
    * the answer sets in that browser (the callback needs both).
    */
   function begin(userId: string): { authorizeUrl: string; cookie: { name: string; value: string; maxAgeSeconds: number } } {
+    // Security review (1.23): one waiting flow per person — a new Connect replaces their earlier one, so
+    // pressing it again and again never pushes anyone else's out.
+    for (const [n, p] of pending) if (p.userId === userId) pending.delete(n);
     prune();
     const verifier = randomBytes(32).toString('base64url');
     const browser = randomBytes(24).toString('base64url');
