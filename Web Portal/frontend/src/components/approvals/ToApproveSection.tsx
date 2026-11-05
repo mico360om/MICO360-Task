@@ -6,6 +6,7 @@ import { invalidateTaskQueries } from '../../lib/task-cache';
 import { relativeTime } from '../../lib/relative-time';
 import { ProjectAvatar } from '../ProjectAvatar';
 import { TaskKey } from '../TaskKey';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 import { Button } from '../ui/Button';
 import { SendBackDialog } from './SendBackDialog';
 import { WaitingIcon } from './ApprovalChip';
@@ -79,7 +80,8 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
           <p className="mt-0.5 text-xs text-ink-2">Tasks others have finished, waiting for your OK. They don’t count as done until you approve them.</p>
           <ul className="mt-3 divide-y divide-line">
             {tasks.map((t) => (
-              <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 first:pt-0 last:pb-0">
+              // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
+              <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 first:pt-0 last:pb-0 compact:py-1.5 compact:first:pt-0 compact:last:pb-0">
                 <div className="min-w-0 flex-[1_1_16rem]">
                   <button
                     type="button"
@@ -87,8 +89,8 @@ export function ToApproveSection({ onOpen }: { onOpen: (taskId: string) => void 
                     aria-label={`Open ${t.key}: ${t.title}`}
                     className="flex min-w-0 max-w-full items-center gap-2 text-start [@media(pointer:coarse)]:!min-h-11"
                   >
-                    <TaskKey value={t.key} />
-                    <bdi className="truncate text-sm font-medium text-ink hover:text-brand">{t.title}</bdi>
+                    <TaskKey value={t.key} dense="compact" />
+                    <bdi className={`truncate text-sm font-medium text-ink hover:text-brand ${DENSE_TEXT}`}>{t.title}</bdi>
                   </button>
                   <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-ink-2">
                     <span className="inline-flex min-w-0 items-center gap-1">

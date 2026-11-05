@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { Avatar } from '../ui/Avatar';
 import { TOUCH_TALL } from '../../lib/touch';
+import { DENSE_FACE, DENSE_STACK } from '../../lib/density-tokens';
 
 /**
  * The Table view's quick-edit cells (1.23.0). A cell the person may change is a quiet control — words
@@ -249,7 +250,7 @@ function Faces({ chosen }: { chosen: CellPerson[] }) {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <span aria-hidden="true" className="flex">
-          <Avatar name={p.name} src={p.avatarUrl} size="sm" />
+          <Avatar name={p.name} src={p.avatarUrl} size="sm" dense />
         </span>
         <span dir="auto" className="truncate text-ink">{p.name}</span>
       </span>
@@ -258,9 +259,9 @@ function Faces({ chosen }: { chosen: CellPerson[] }) {
   const shown = chosen.slice(0, 3);
   return (
     <span className="flex items-center" title={names}>
-      <span aria-hidden="true" className="flex -space-x-1.5">
-        {shown.map((p) => <Avatar key={p.id} name={p.name} src={p.avatarUrl} size="sm" />)}
-        {chosen.length > 3 ? <span className="grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2">+{chosen.length - 3}</span> : null}
+      <span aria-hidden="true" className={`flex -space-x-1.5 ${DENSE_STACK}`}>
+        {shown.map((p) => <Avatar key={p.id} name={p.name} src={p.avatarUrl} size="sm" dense />)}
+        {chosen.length > 3 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{chosen.length - 3}</span> : null}
       </span>
       <span className="sr-only">{names}</span>
     </span>

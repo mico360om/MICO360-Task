@@ -18,6 +18,7 @@ import { useScrollToHash } from '../lib/useScrollToHash';
 import { WeeklySummarySettings } from '../components/settings/WeeklySummarySettings';
 import { MyProjectsSettings } from '../components/settings/MyProjectsSettings';
 import { MicrosoftTeamsSettings } from '../components/settings/MicrosoftTeamsSettings';
+import { DensitySetting } from '../components/settings/DensitySetting';
 
 const NOTIF_TYPES: { type: string; label: string; desc: string }[] = [
   { type: 'TASK_ASSIGNED', label: 'Task assignments', desc: 'When a task is assigned to you' },
@@ -275,6 +276,10 @@ export function SettingsPage() {
                 </button>
               ))}
             </div>
+          </div>
+          {/* 1.23.0: Comfortable | Compact rows, under Theme. */}
+          <div className="mt-4">
+            <DensitySetting />
           </div>
         </section>
 

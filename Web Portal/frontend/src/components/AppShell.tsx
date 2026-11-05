@@ -31,6 +31,7 @@ import { CompanyNotice } from './company/CompanyNotice';
 import { ArchivedProjectNotice } from './projects/ArchivedProjectNotice';
 import { ArchivedCompanyState } from './company/ArchivedCompanyState';
 import { TaskNoticeToast } from './TaskNoticeToast';
+import { useDensitySync } from '../lib/density';
 
 /** The pages that still open when all of someone's companies are archived. */
 const OPEN_WHEN_ARCHIVED = ['/settings', '/profile', '/about'];
@@ -83,6 +84,8 @@ export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Unread chat messages, live: on the sidebar's Chat icon and, on a phone, the menu button.
   const chatUnread = useChatBadge();
+  // Compact / comfortable rows (1.23.0): the account's choice, put on <html> once it arrives.
+  useDensitySync();
   // How wide this page is (capped at 1680px unless it is built around a wide grid — the list is in
   // lib/page-layout.ts) and whether it sizes itself to the window. The top bar, the page and the
   // footer share one frame, so their edges line up on any screen.

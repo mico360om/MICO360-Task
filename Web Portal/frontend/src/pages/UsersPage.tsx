@@ -34,6 +34,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { BulkCompanyDialog } from '../components/company/BulkCompanyDialog';
 import { peopleChangeText, useCompanyChoices } from '../components/company/company-admin';
 import { useMyCompanies } from '../hooks/useMyCompanies';
+import { DENSE_TEXT } from '../lib/density-tokens';
 
 const STATUS_TONE: Record<UserStatus, string> = {
   ACTIVE: 'bg-success-soft text-success',
@@ -590,7 +591,8 @@ export function UsersPage() {
             </ul>
           </>
         ) : (
-          <table className="w-full text-sm">
+          // Compact rows (1.23.0, lib/density): a third less padding in each row, the words a step smaller.
+          <table className={`w-full text-sm ${DENSE_TEXT}`}>
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
                 {selectable ? (
@@ -611,7 +613,7 @@ export function UsersPage() {
             </thead>
             <tbody>
               {shown.map((u) => (
-                <tr key={u.id} className="border-b border-line last:border-0">
+                <tr key={u.id} className="border-b border-line last:border-0 compact:[&>td]:py-2">
                   {selectable ? (
                     <td className={`p-3 ${sticky.tick}`}>{tickBox(u)}</td>
                   ) : null}

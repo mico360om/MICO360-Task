@@ -13,6 +13,7 @@ import { agendaTiming } from '../../lib/meeting-flow';
 import { aiApi, type AiAgendaItem } from '../../api/ai';
 import { AgendaDraftReview } from '../meeting-form/AgendaDraftReview';
 import { aiMessage } from '../meeting-form/ai-message';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 
 const minutesValue = (v: string): number | null => (v.trim() === '' ? null : Math.max(0, Math.round(Number(v))));
 
@@ -168,10 +169,12 @@ export function AgendaSection({
               </li>
             ) : (
               // The topic wraps (never cut short); on a narrow screen the buttons move under it, to the end.
-              <li key={item.id} className="flex items-start gap-1.5 py-2">
-                <span className="mt-2.5 w-5 shrink-0 text-right text-xs tabular-nums text-ink-3">{index + 1}</span>
+              // Compact rows (1.23.0, lib/density): less padding, the words a step smaller, the presenter
+              // and minutes on the topic's line where they fit.
+              <li key={item.id} className="flex items-start gap-1.5 py-2 compact:py-1">
+                <span className="mt-2.5 w-5 shrink-0 text-right text-xs tabular-nums text-ink-3 compact:mt-1.5">{index + 1}</span>
                 {/* The tick box's label is the finger-sized target around it (the box itself stays 16px). */}
-                <label className={`-my-0.5 grid h-10 w-8 shrink-0 place-items-center ${canEdit ? 'cursor-pointer' : ''} [@media(pointer:coarse)]:w-11`}>
+                <label className={`-my-0.5 grid h-10 w-8 shrink-0 place-items-center compact:h-8 ${canEdit ? 'cursor-pointer' : ''} [@media(pointer:coarse)]:w-11`}>
                   <input
                     type="checkbox"
                     checked={item.completed}
@@ -182,20 +185,20 @@ export function AgendaSection({
                   />
                 </label>
                 <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-0.5">
-                <div className="min-w-0 flex-[1_1_12rem] pt-2">
-                  <span className={`block text-sm font-medium leading-snug [overflow-wrap:anywhere] ${item.completed ? 'text-ink-3 line-through' : 'text-ink'}`}>
+                <div className="min-w-0 flex-[1_1_12rem] pt-2 compact:flex compact:flex-wrap compact:items-baseline compact:gap-x-3 compact:pt-1.5">
+                  <span className={`block text-sm font-medium leading-snug [overflow-wrap:anywhere] ${DENSE_TEXT} ${item.completed ? 'text-ink-3 line-through' : 'text-ink'}`}>
                     <bdi>{item.title}</bdi>
                   </span>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-3 compact:mt-0">
                     <span>{userName(directory, item.ownerId) ? <bdi>{userName(directory, item.ownerId)}</bdi> : 'No presenter'}</span>
                     <span>· {item.expectedMinutes != null ? `${item.expectedMinutes} min` : 'no time set'}</span>
                   </div>
                 </div>
                 {canEdit ? (
                   <div className="ms-auto flex shrink-0 items-center">
-                    <button type="button" onClick={() => move(index, -1)} disabled={index === 0 || reorderMut.isPending} aria-label={`Move "${item.title}" up`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink disabled:opacity-30 sm:h-8 sm:w-8">{Icon.up}</button>
-                    <button type="button" onClick={() => move(index, 1)} disabled={index === items.length - 1 || reorderMut.isPending} aria-label={`Move "${item.title}" down`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink disabled:opacity-30 sm:h-8 sm:w-8">{Icon.down}</button>
-                    <button type="button" onClick={() => setEditing(item.id)} aria-label={`Edit "${item.title}"`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink sm:h-8 sm:w-8">{Icon.edit}</button>
+                    <button type="button" onClick={() => move(index, -1)} disabled={index === 0 || reorderMut.isPending} aria-label={`Move "${item.title}" up`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink disabled:opacity-30 sm:h-8 sm:w-8 compact:h-7 compact:w-7">{Icon.up}</button>
+                    <button type="button" onClick={() => move(index, 1)} disabled={index === items.length - 1 || reorderMut.isPending} aria-label={`Move "${item.title}" down`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink disabled:opacity-30 sm:h-8 sm:w-8 compact:h-7 compact:w-7">{Icon.down}</button>
+                    <button type="button" onClick={() => setEditing(item.id)} aria-label={`Edit "${item.title}"`} className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink sm:h-8 sm:w-8 compact:h-7 compact:w-7">{Icon.edit}</button>
                     <ConfirmRemoveButton label={`Remove "${item.title}"`} onConfirm={() => removeMut.mutate(item.id)} disabled={removeMut.isPending} />
                   </div>
                 ) : null}

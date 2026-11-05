@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { DensityButton } from '../DensityButton';
 
 /** The view icons: a list, a table, a board. */
 export const VIEW_ICONS: Record<'list' | 'table' | 'board', ReactNode> = {
@@ -21,41 +22,48 @@ export const VIEW_ICONS: Record<'list' | 'table' | 'board', ReactNode> = {
 /**
  * "List | Table", "Board | Table" (1.23.0): one choice of how a page shows its items — each a button
  * that says which it is and whether it is the one shown (aria-pressed). From a small tablet the words
- * are shown beside the icons; on a phone, the icons (with their names).
+ * are shown beside the icons; on a phone, the icons (with their names). Beside it, the quick
+ * "Compact rows" button (1.23.0, components/DensityButton; only where compact can apply).
  */
 export function ViewSwitch<V extends string>({
   value,
   onChange,
   options,
   label,
+  density = true,
 }: {
   value: V;
   onChange: (v: V) => void;
   options: { value: V; label: string; icon: ReactNode }[];
   /** The group's name ("Show tasks as"). */
   label: string;
+  /** The quick "Compact rows" button beside it (default on). */
+  density?: boolean;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex flex-none items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
-      {options.map((o) => {
-        const on = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={on}
-            aria-label={`${o.label} view`}
-            title={`${o.label} view`}
-            onClick={() => onChange(o.value)}
-            className={`inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 ${on ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {o.icon}
-            </svg>
-            <span aria-hidden="true" className="max-sm:hidden">{o.label}</span>
-          </button>
-        );
-      })}
+    <div className="inline-flex flex-none items-center gap-2">
+      <div role="group" aria-label={label} className="inline-flex flex-none items-center rounded-xl border border-line bg-surface p-0.5 [@media(pointer:coarse)]:p-0">
+        {options.map((o) => {
+          const on = o.value === value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              aria-label={`${o.label} view`}
+              title={`${o.label} view`}
+              onClick={() => onChange(o.value)}
+              className={`inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 ${on ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-ground hover:text-ink'}`}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {o.icon}
+              </svg>
+              <span aria-hidden="true" className="max-sm:hidden">{o.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {density ? <DensityButton /> : null}
     </div>
   );
 }

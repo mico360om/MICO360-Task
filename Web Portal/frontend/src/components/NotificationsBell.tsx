@@ -5,6 +5,7 @@ import { notificationsApi, NOTIFICATIONS_KEY, UNREAD_COUNT_KEY } from '../api/no
 import { notificationTarget, useOpenNotification } from '../lib/notification-links';
 import { relativeTime } from '../lib/relative-time';
 import { TaskKey, bodyWithoutKey } from './TaskKey';
+import { DENSE_TEXT } from '../lib/density-tokens';
 
 /**
  * Header notifications bell: unread badge + dropdown list + mark-all-read (T6.3). Clicking a
@@ -87,7 +88,8 @@ export function NotificationsBell() {
               <li className="px-3 py-4 text-center text-sm text-ink-2">{listQ.isLoading ? 'Loading…' : 'You’re all caught up.'}</li>
             ) : (
               items.map((n) => (
-                <li key={n.id} className="border-b border-line px-3 py-2 last:border-0">
+                // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
+                <li key={n.id} className="border-b border-line px-3 py-2 last:border-0 compact:py-1.5">
                   <button
                     onClick={() => {
                       openNotification(n);
@@ -96,14 +98,14 @@ export function NotificationsBell() {
                     className="w-full text-start [@media(pointer:coarse)]:!min-h-11"
                   >
                     {/* Read = a quieter tone and weight. (Fading the row with opacity dropped it below 4.5:1.) */}
-                    <p dir="auto" className={`text-sm ${n.readAt ? 'text-ink-2' : 'font-medium text-ink'}`}>
+                    <p dir="auto" className={`text-sm ${DENSE_TEXT} ${n.readAt ? 'text-ink-2' : 'font-medium text-ink'}`}>
                       {n.readAt ? null : <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle" aria-hidden="true" />}
                       {n.title}
                     </p>
                     {/* 1.22.3: the task's number now, as the chip; the words then skip the number they start with. */}
                     {n.taskKey ? (
                       <p className="flex min-w-0 items-baseline gap-1.5">
-                        <TaskKey value={n.taskKey} />
+                        <TaskKey value={n.taskKey} dense="compact" />
                         {bodyWithoutKey(n.body, n.taskKey) ? <span dir="auto" className="line-clamp-2 min-w-0 text-xs text-ink-2">{bodyWithoutKey(n.body, n.taskKey)}</span> : null}
                       </p>
                     ) : n.body ? (

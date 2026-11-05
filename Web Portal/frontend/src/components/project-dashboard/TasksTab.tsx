@@ -14,6 +14,7 @@ import { ApprovalChip } from '../approvals/ApprovalChip';
 import { ExternalContactsLine } from '../ExternalContactsLine';
 import { matchesExternalContact } from '../../lib/external-contacts';
 import { TaskKey } from '../TaskKey';
+import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../../lib/density-tokens';
 import type { ApiProject } from '../../api/projects';
 import type { ApiColumn } from '../../api/columns';
 import { READ_ONLY_NOTICE, type ProjectReadOnly } from '../../lib/project-archive';
@@ -44,14 +45,15 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
   const overdue = phase === 'overdue';
   const progress = phase === 'completed' ? 100 : Math.max(0, Math.min(100, task.progress ?? 0));
   return (
-    <button type="button" onClick={onOpen} className="flex w-full flex-col gap-1.5 px-4 py-2.5 text-start transition-colors hover:bg-ground/60 sm:flex-row sm:items-center sm:gap-3">
+    // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
+    <button type="button" onClick={onOpen} className="flex w-full flex-col gap-1.5 px-4 py-2.5 text-start transition-colors compact:py-1.5 hover:bg-ground/60 sm:flex-row sm:items-center sm:gap-3">
       <span className="flex min-w-0 flex-1 items-center gap-2">
         {/* At least 4rem so the titles line up; a longer number (MICO360-10) widens it, never breaks. */}
-        <span className="flex min-w-16 flex-none"><TaskKey value={task.key} /></span>
+        <span className="flex min-w-16 flex-none"><TaskKey value={task.key} dense="compact" /></span>
         {task.isMilestone ? <span className="text-brand" role="img" aria-label="Milestone" title="Milestone"><FlagIcon /></span> : null}
         {task.clientVisible ? <span className="text-info" role="img" aria-label="Visible to client" title="Visible to client"><ClientEyeIcon size={13} /></span> : null}
         <span className="flex min-w-0 flex-1 flex-col">
-          <span dir="auto" className={`min-w-0 truncate text-start text-sm font-medium ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
+          <span dir="auto" className={`min-w-0 truncate text-start text-sm font-medium ${DENSE_TEXT} ${phase === 'completed' ? 'text-ink-2' : 'text-ink'}`}>{task.title}</span>
           <ExternalContactsLine summary={task.externalSummary} />
         </span>
       </span>
@@ -69,9 +71,9 @@ function TaskRow({ task, statusName, statusColor, phase, dueText, onOpen }: { ta
           <span className="w-8 text-end text-[11px] tabular-nums text-ink-2">{progress}%</span>
         </span>
         {assignees.length ? (
-          <span className="flex items-center -space-x-1.5" title={assignees.map((a) => a.name).join(', ')}>
-            {assignees.slice(0, 3).map((a) => <Avatar key={a.id} name={a.name} size="sm" />)}
-            {assignees.length > 3 ? <span className="grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2">+{assignees.length - 3}</span> : null}
+          <span className={`flex items-center -space-x-1.5 ${DENSE_STACK}`} title={assignees.map((a) => a.name).join(', ')}>
+            {assignees.slice(0, 3).map((a) => <Avatar key={a.id} name={a.name} size="sm" dense />)}
+            {assignees.length > 3 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{assignees.length - 3}</span> : null}
           </span>
         ) : (
           <span className="text-xs text-ink-3">Unassigned</span>

@@ -15,6 +15,7 @@ import { ConfirmRemoveButton, Icon, LoadError, Section, SectionError, ShrunkSect
 import { meetingFailure } from './meeting-actions';
 import { formatClockTime } from '../../lib/meetingFormat';
 import { TOUCH_TALL } from '../../lib/touch';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 
 const NOTE_TYPES: MeetingNoteType[] = ['DISCUSSION', 'DECISION', 'ACTION', 'ISSUE', 'QUESTION', 'INFORMATION'];
 
@@ -222,9 +223,10 @@ export function NotesSection({
               : 'No notes yet. Capture discussion, decisions and actions as the meeting unfolds.'
             : 'No notes in this category.'}</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        // Compact rows (1.23.0, lib/density): less padding and room between notes, the words a step smaller.
+        <ul className="flex flex-col gap-2 compact:gap-1">
           {shown.map((note) => (
-            <li key={note.id} id={`note-${note.id}`} className={`relative scroll-mt-24 overflow-hidden rounded-xl border pl-4 pr-3 py-2.5 ${note.highlighted ? 'border-warning/50 bg-warning-soft/30' : 'border-line bg-surface'}`}>
+            <li key={note.id} id={`note-${note.id}`} className={`relative scroll-mt-24 overflow-hidden rounded-xl border pl-4 pr-3 py-2.5 compact:py-1.5 ${note.highlighted ? 'border-warning/50 bg-warning-soft/30' : 'border-line bg-surface'}`}>
               <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${TYPE_STYLE[note.type].stripe}`} />
               {editingId === note.id ? (
                 <NoteEditor
@@ -239,32 +241,32 @@ export function NotesSection({
                 />
               ) : (
                 <>
-                  <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs compact:mb-0.5">
                     <span className={`font-semibold uppercase tracking-wide ${TYPE_STYLE[note.type].text}`}>{NOTE_TYPE_LABELS[note.type]}</span>
                     {note.highlighted ? <span className="inline-flex items-center gap-0.5 font-medium text-warning">{Icon.star(true)} Key point</span> : null}
                     <span className="text-ink-2"><bdi>{userName(directory, note.authorId) ?? 'Someone'}</bdi></span>
                     <span className="text-ink-3">· {formatClockTime(note.createdAt, timeZone)}{note.editedAt ? editedMark(note, directory) : ''}</span>
                     {note.taskId ? (
-                      <button type="button" onClick={() => openTask(note.taskId!)} className={`group inline-flex min-h-7 items-center gap-1 rounded-md px-1 font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>
+                      <button type="button" onClick={() => openTask(note.taskId!)} className={`group inline-flex min-h-7 items-center compact:min-h-6 gap-1 rounded-md px-1 font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>
                         <span className="text-success">{Icon.task}</span>
                         <TaskNumber value={taskKeyOf(note)} /> <span className="sr-only">— open the task made from this note</span>
                       </button>
                     ) : null}
                   </div>
                   {note.bodyFormat === 'RICH' ? (
-                    <RichNoteView html={note.body} className="text-sm text-ink" />
+                    <RichNoteView html={note.body} className={`text-sm text-ink ${DENSE_TEXT}`} />
                   ) : (
-                    <p dir="auto" className="whitespace-pre-wrap text-start text-sm text-ink">{note.body}</p>
+                    <p dir="auto" className={`whitespace-pre-wrap text-start text-sm text-ink ${DENSE_TEXT}`}>{note.body}</p>
                   )}
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1 compact:mt-1">
                     {!note.taskId && note.type === 'ACTION' ? (
-                      <button type="button" onClick={() => setTaskForNote(note)} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-brand/30 px-2 text-xs font-medium text-brand hover:bg-brand/10">
+                      <button type="button" onClick={() => setTaskForNote(note)} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-brand/30 px-2 text-xs font-medium text-brand hover:bg-brand/10 compact:min-h-7">
                         {Icon.task} Make it a task
                       </button>
                     ) : null}
                     <div className="ml-auto flex items-center">
                       {!note.taskId && note.type !== 'ACTION' ? (
-                        <button type="button" onClick={() => setTaskForNote(note)} aria-label="Create task from note" title="Create task from note" className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-brand sm:h-8 sm:w-8">{Icon.task}</button>
+                        <button type="button" onClick={() => setTaskForNote(note)} aria-label="Create task from note" title="Create task from note" className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-brand sm:h-8 sm:w-8 compact:h-7 compact:w-7">{Icon.task}</button>
                       ) : null}
                       {canManage(note) ? (
                         <>
@@ -274,11 +276,11 @@ export function NotesSection({
                             aria-pressed={note.highlighted}
                             aria-label={note.highlighted ? 'Unmark key point' : 'Mark as key point'}
                             title={note.highlighted ? 'Unmark key point' : 'Mark as key point'}
-                            className={`grid h-9 w-9 place-items-center rounded-md hover:bg-ground sm:h-8 sm:w-8 ${note.highlighted ? 'text-warning' : 'text-ink-3'}`}
+                            className={`grid h-9 w-9 place-items-center rounded-md hover:bg-ground sm:h-8 sm:w-8 compact:h-7 compact:w-7 ${note.highlighted ? 'text-warning' : 'text-ink-3'}`}
                           >
                             {Icon.star(note.highlighted)}
                           </button>
-                          <button type="button" onClick={() => setEditingId(note.id)} aria-label="Edit note" title="Edit note" className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink sm:h-8 sm:w-8">{Icon.edit}</button>
+                          <button type="button" onClick={() => setEditingId(note.id)} aria-label="Edit note" title="Edit note" className="grid h-9 w-9 place-items-center rounded-md text-ink-3 hover:bg-ground hover:text-ink sm:h-8 sm:w-8 compact:h-7 compact:w-7">{Icon.edit}</button>
                           <ConfirmRemoveButton label="Delete note" onConfirm={() => removeMut.mutate(note.id)} disabled={removeMut.isPending} />
                         </>
                       ) : null}

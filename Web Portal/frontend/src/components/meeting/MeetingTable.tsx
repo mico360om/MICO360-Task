@@ -19,6 +19,7 @@ import { SearchableSelect } from '../ui/SearchableSelect';
 import { DayPickerButton } from '../ui/DateTimeField';
 import { badgeToneClass, type BadgeTone } from '../ui/Badge';
 import { TaskKey } from '../TaskKey';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 import { LoadError, Section, peopleOptions, userName } from './kit';
 import { AgendaAddForm } from './AgendaSection';
 import { ActionItemAddForm } from './ActionItemsSection';
@@ -72,7 +73,7 @@ export interface MeetingTableProps {
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 const PRIORITY_TONE: Record<Priority, BadgeTone> = { LOW: 'neutral', NORMAL: 'info', HIGH: 'warning', URGENT: 'danger' };
-const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium';
+const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium compact:min-h-6';
 const COVERED = [
   { value: 'yes', label: 'Covered ✓' },
   { value: 'no', label: 'Not covered' },
@@ -225,7 +226,7 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
             />
             {i.taskKey || note ? (
               <span className="flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
-                {i.taskKey ? <TaskKey value={i.taskKey} /> : null}
+                {i.taskKey ? <TaskKey value={i.taskKey} dense="compact" /> : null}
                 {note ? <span>{note}</span> : null}
               </span>
             ) : null}
@@ -362,7 +363,7 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
             onClick={() => openTask(i.taskId!)}
             aria-label={`Open ${i.taskKey}: ${i.description}`}
             title="Open its task"
-            className={`inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`}
+            className={`inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`}
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M7 17 17 7M9 7h8v8" />
@@ -403,8 +404,8 @@ export function MeetingTable({ meetingId, directory, canEdit, pollMs, timeZone, 
                     <path d="m6 9 6 6 6-6" />
                   </svg>
                 </button>
-                <span className="mt-0.5 flex-none text-sm font-semibold tabular-nums text-ink-2">{n}.</span>
-                <span className="min-w-0 flex-1 text-sm font-semibold">
+                <span className={`mt-0.5 flex-none text-sm font-semibold tabular-nums text-ink-2 ${DENSE_TEXT}`}>{n}.</span>
+                <span className={`min-w-0 flex-1 text-sm font-semibold ${DENSE_TEXT}`}>
                   <TitleCell value={t.title} what={`the title of topic ${n}`} editable={agendaEditable} onSave={(next) => saveTopic(t, { title: next })} emptyMessage="An agenda item needs a title." />
                 </span>
                 {isFolded && count ? (

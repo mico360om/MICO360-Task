@@ -5,8 +5,11 @@ export interface TaskKeyProps {
   value: string | null | undefined;
   /** `lg`: the task panel header, the height of the pills beside it. */
   size?: 'sm' | 'lg';
-  /** No vertical padding, so a one-line row keeps its height (the calendar month grid). */
-  dense?: boolean;
+  /**
+   * No vertical padding, so a one-line row keeps its height (the calendar month grid). `'compact'`:
+   * a row of a list, table or board — no vertical padding only in compact rows (1.23.0, lib/density).
+   */
+  dense?: boolean | 'compact';
   className?: string;
 }
 
@@ -25,7 +28,7 @@ export function TaskKey({ value, size = 'sm', dense = false, className = '' }: T
       data-task-key={value}
       dir="ltr"
       translate="no"
-      className={`inline-block shrink-0 whitespace-nowrap bg-ground font-mono leading-4 text-ink-2 ${look} ${dense ? 'py-0' : 'py-0.5'} ${className}`}
+      className={`inline-block shrink-0 whitespace-nowrap bg-ground font-mono leading-4 text-ink-2 ${look} ${dense === true ? 'py-0' : dense === 'compact' ? 'py-0.5 compact:py-0' : 'py-0.5'} ${className}`}
     >
       {value}
     </span>
@@ -45,7 +48,7 @@ export function TaskKeyButton({ value, title, onClick, className = '' }: { value
       aria-label={title ? `Open ${value}: ${title}` : undefined}
       className={`group inline-flex flex-none items-center rounded ${TOUCH_TALL} ${className}`}
     >
-      <TaskKey value={value} className="transition-colors group-hover:text-brand group-hover:underline group-focus-visible:text-brand" />
+      <TaskKey value={value} dense="compact" className="transition-colors group-hover:text-brand group-hover:underline group-focus-visible:text-brand" />
     </button>
   );
 }

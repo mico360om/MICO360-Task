@@ -190,7 +190,7 @@ export function ActivityCalendar({
           </p>
         ) : (
           <>
-            <ol className="ml-2 flex flex-col gap-1.5 border-l border-line pl-5">
+            <ol className="ml-2 flex flex-col gap-1.5 border-l border-line pl-5 compact:gap-1">
               {rows.map((a) => renderRow(a, timeZone))}
             </ol>
             {dayQ.hasNextPage ? (

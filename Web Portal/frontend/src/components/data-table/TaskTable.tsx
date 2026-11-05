@@ -244,14 +244,14 @@ export function TaskTable({
             pin: true,
             className: 'w-11 !px-0 text-center',
             cell: (t: ApiTask) => (
-              <label className="mx-auto grid h-8 w-8 cursor-pointer place-items-center [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+              <label className="mx-auto grid h-8 w-8 cursor-pointer place-items-center compact:h-7 compact:w-7 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
                 <input type="checkbox" aria-label={`Select ${t.key}`} checked={selection.selected.has(t.id)} onChange={() => selection.onToggle(t.id)} className="h-4 w-4 cursor-pointer accent-brand" />
               </label>
             ),
           },
         ]
       : []),
-    { id: 'key', label: 'No.', sortable: true, phoneHidden: true, className: 'w-px whitespace-nowrap', cell: (t) => <TaskKey value={t.key} /> },
+    { id: 'key', label: 'No.', sortable: true, phoneHidden: true, className: 'w-px whitespace-nowrap', cell: (t) => <TaskKey value={t.key} dense="compact" /> },
     {
       id: 'title',
       label: 'Title',
@@ -270,7 +270,7 @@ export function TaskTable({
         return (
           <span className="flex min-w-0 flex-col gap-1">
             {/* On a phone the No. column steps aside: the number sits on the title. */}
-            <span className="md:hidden"><TaskKey value={t.key} /></span>
+            <span className="md:hidden"><TaskKey value={t.key} dense="compact" /></span>
             <TitleCell
               value={t.title}
               what={`the title of ${t.key}`}
@@ -430,7 +430,7 @@ export function TaskTable({
           onClick={() => open(t)}
           aria-label={`Open ${t.key}: ${t.title}`}
           title="Open"
-          className={`inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`}
+          className={`inline-grid h-8 w-8 place-items-center rounded-lg text-ink-2 transition-colors compact:h-7 compact:w-7 hover:bg-ground hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${TOUCH_SQUARE}`}
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M7 17 17 7M9 7h8v8" />
@@ -526,7 +526,7 @@ function DueCell({ task, timeZone, today, weekStart, editable, onPick }: { task:
       onPick={(next) => {
         if ((next ?? null) !== (day ?? null)) onPick(next);
       }}
-      className={`inline-flex min-h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium outline-none transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40 ${late ? 'bg-danger-soft' : 'bg-ground'} ${tone}`}
+      className={`inline-flex min-h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium outline-none compact:min-h-6 transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40 ${late ? 'bg-danger-soft' : 'bg-ground'} ${tone}`}
     >
       {text}
     </DayPickerButton>

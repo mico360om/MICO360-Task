@@ -19,13 +19,14 @@ import { TOUCH_TALL } from '../../lib/touch';
 import type { WeekStart } from '../../lib/calendar';
 import { badgeToneClass, type BadgeTone } from '../ui/Badge';
 import { DayPickerButton } from '../ui/DateTimeField';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 
 const STATUSES: ActionItemStatus[] = ['OPEN', 'IN_PROGRESS', 'PENDING', 'COMPLETED', 'CANCELLED'];
 const PRIORITIES: Priority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 const PRIORITY_LABEL: Record<Priority, string> = { LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent' };
 const PRIORITY_TONE: Record<Priority, BadgeTone> = { LOW: 'neutral', NORMAL: 'info', HIGH: 'warning', URGENT: 'danger' };
 /** A row's other chips (the due date, From a note, the task): the select chips' look. */
-const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium';
+const CHIP = 'inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium compact:min-h-6';
 
 // An item's controls wrap by the room the section really has (beside the side column on a laptop,
 // full width on a tablet): owner + due date, then priority + status, side by side when both pairs fit.
@@ -269,10 +270,11 @@ function ActionItemRow({
   // One line: the item, then a chip for each of its facts; a chip is clicked to change it (the same
   // rules and saving as before). Done items are struck through and quieter.
   return (
-    <li className={`flex items-start gap-2 py-2 ${done ? 'opacity-70' : ''}`}>
+    // Compact rows (1.23.0, lib/density): a third less padding, the words a step smaller.
+    <li className={`flex items-start gap-2 py-2 compact:py-1 ${done ? 'opacity-70' : ''}`}>
       {/* The item and its chips wrap together; the ✕ stays at the end of the first line. */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
-      <p className={`min-w-0 flex-[1_1_14rem] text-sm [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{d}</bdi></p>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 compact:gap-y-1">
+      <p className={`min-w-0 flex-[1_1_14rem] text-sm [overflow-wrap:anywhere] ${DENSE_TEXT} ${done ? 'text-ink-3 line-through' : 'text-ink'}`}><bdi>{d}</bdi></p>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <SearchableSelect
           size="chip"
@@ -320,7 +322,7 @@ function ActionItemRow({
         ) : null}
         {item.sourceNoteId ? <span className={`${CHIP} bg-ground text-ink-2`}>From a note</span> : null}
         {item.taskId ? (
-          <Link to={`?task=${encodeURIComponent(item.taskId)}`} className={`group inline-flex min-h-7 items-center gap-1 rounded-md px-1 text-xs font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>
+          <Link to={`?task=${encodeURIComponent(item.taskId)}`} className={`group inline-flex min-h-7 items-center compact:min-h-6 gap-1 rounded-md px-1 text-xs font-medium text-ink-2 hover:text-brand ${TOUCH_TALL}`}>
             <span className="text-success">{Icon.task}</span>
             <TaskNumber value={item.taskKey} />
             <span className="sr-only"> — open the linked task</span>

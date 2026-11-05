@@ -39,6 +39,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
+import { DensityButton } from '../components/DensityButton';
 
 const BellIcon = (
   <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -284,6 +285,8 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
                 {unreadShown === null ? 'Unread' : `Unread (${unreadShown})`}
               </button>
             </div>
+            {/* 1.23.0: Compact rows (from 768px with a mouse; Settings otherwise). */}
+            <DensityButton className="ms-auto" size="sm" />
             {/* Phones: the tick boxes come with "Select" (a wide screen always shows them). */}
             {!wide && hasRows ? (
               <Button
@@ -387,7 +390,7 @@ export function NotificationsPage({ undoMs = 5000 }: { undoMs?: number }) {
                 <h2 id={`notif-day-${g.key}`} className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-2">
                   {g.label}
                 </h2>
-                <ul className="flex flex-col gap-2">
+                <ul className="flex flex-col gap-2 compact:gap-1">
                   {g.rows.map((n) => (
                     <NotificationRow
                       key={n.id}

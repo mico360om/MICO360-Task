@@ -203,7 +203,7 @@ export function SearchableSelect({
         onClick={() => !disabled && toggle()}
         className={
           chip
-            ? `inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium outline-none transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 ${chipClassName} ${TOUCH_TALL}`
+            ? `inline-flex min-h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium outline-none compact:min-h-6 transition-[filter] hover:brightness-95 focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 ${chipClassName} ${TOUCH_TALL}`
             : `flex w-full items-center justify-between gap-2 border bg-surface text-left text-sm text-ink ${size === 'lg' ? '!min-h-[44px] rounded-xl px-3.5 py-2' : `rounded-lg px-3 py-2 ${TOUCH_TALL}`} outline-none transition-colors focus:ring-2 disabled:opacity-50 ${invalid ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-line focus:border-brand focus:ring-brand/20'}`
         }
       >

@@ -13,6 +13,7 @@ import { Icon } from '../components/meeting/kit';
 import { TOUCH_TALL } from '../lib/touch';
 import { TaskKeyButton } from '../components/TaskKey';
 import { useOpenTask } from '../lib/useOpenTask';
+import { DENSE_TEXT } from '../lib/density-tokens';
 
 /**
  * A row: one column on a phone (the words, where it came from, the status picker under them); the
@@ -152,10 +153,11 @@ function ActionRow({
 }) {
   const done = item.status === 'COMPLETED' || item.status === 'CANCELLED';
   return (
-    <li className={ROW}>
+    // Compact rows (1.23.0, lib/density): a third less padding, the words a step smaller.
+    <li className={`${ROW} compact:gap-y-1 compact:py-2`}>
       {/* bdi: an Arabic description reads right-to-left but stays on the row's side. 1.22.3: the linked
           task's number first, as the chip that opens the task in the panel. */}
-      <p className={`min-w-0 text-sm font-medium [overflow-wrap:anywhere] ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>
+      <p className={`min-w-0 text-sm font-medium [overflow-wrap:anywhere] ${DENSE_TEXT} ${done ? 'text-ink-3 line-through' : 'text-ink'}`}>
         {item.taskId && item.taskKey ? <TaskKeyButton value={item.taskKey} title={item.description} onClick={() => onOpenTask(item.taskId!)} className="me-1.5 align-middle" /> : null}
         <bdi>{item.description}</bdi>
       </p>
