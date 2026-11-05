@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-11-05
+
 ### Improvements
 - Database check: each time the server starts, it checks that the database has every table and column
   the app needs and that its searches and the Management page's figures run on this database server.
