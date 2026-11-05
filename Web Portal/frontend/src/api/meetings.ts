@@ -118,6 +118,10 @@ export interface Meeting {
    * the meeting, its people and agenda, the approved minutes and their own action items; else 'full'.
    */
   view?: 'full' | 'invitee';
+  /** 1.23: the named series it is in (api/meeting-series.ts), or null — not its repeat (`series`). */
+  seriesId?: string | null;
+  /** 1.23, list only: that series' name (the cards' Series chip). */
+  seriesName?: string | null;
 }
 
 export interface Attendee {
@@ -295,9 +299,11 @@ export interface NewMeetingInput {
   attendees?: Array<{ userId?: string; externalName?: string; externalEmail?: string; role?: AttendeeRole }>;
   /** The new-meeting form's agenda, saved with the meeting. */
   agendaItems?: Array<{ title: string; ownerId?: string | null; expectedMinutes?: number | null }>;
+  /** 1.23 "New meeting in this series": the named series it joins (same project or company). */
+  seriesId?: string;
 }
 
-export type MeetingPatch = Partial<Omit<NewMeetingInput, 'startAt' | 'attendees' | 'agendaItems'>> & { startAt?: string };
+export type MeetingPatch = Partial<Omit<NewMeetingInput, 'startAt' | 'attendees' | 'agendaItems' | 'seriesId'>> & { startAt?: string };
 
 export interface FreeTimesInput {
   /** The invited portal users, the organizer included. */

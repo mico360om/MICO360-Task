@@ -21,6 +21,7 @@ export function FiltersButton({
   sort,
   count,
   projects,
+  series = [],
   onChange,
   onClearAll,
 }: {
@@ -29,6 +30,8 @@ export function FiltersButton({
   /** Filters in use (not counting the search or the sort). */
   count: number;
   projects: Array<{ id: string; name: string }>;
+  /** 1.23: the series of the meetings listed (the Series filter shows with one or more). */
+  series?: Array<{ id: string; name: string }>;
   onChange: (changes: Record<string, string | undefined>) => void;
   onClearAll: () => void;
 }) {
@@ -71,6 +74,17 @@ export function FiltersButton({
                 ))}
               </select>
             </div>
+            {series.length || filters.seriesId ? (
+              <div className="col-span-2 flex flex-col gap-1">
+                <label htmlFor="ml-series" className="text-xs font-medium text-ink-2">Series</label>
+                <select id="ml-series" value={filters.seriesId ?? ''} onChange={(e) => onChange({ series: e.target.value || undefined })} className={fieldClass(false)}>
+                  <option value="">All series</option>
+                  {series.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-1">
               <label htmlFor="ml-date" className="text-xs font-medium text-ink-2">Date</label>
               <select id="ml-date" value={filters.range} onChange={(e) => onChange({ date: e.target.value })} className={fieldClass(false)}>

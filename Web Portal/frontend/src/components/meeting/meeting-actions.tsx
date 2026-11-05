@@ -41,6 +41,7 @@ export function useInvalidateMeetings() {
     void qc.invalidateQueries({ queryKey: ['meetings'] });
     void qc.invalidateQueries({ queryKey: ['meeting'] });
     void qc.invalidateQueries({ queryKey: ['meeting', id] });
+    void qc.invalidateQueries({ queryKey: ['meeting-series'] }); // 1.23: its Series page
   };
 }
 
@@ -79,8 +80,8 @@ export function CancelMeetingDialog({ meeting, onClose, onDone }: { meeting: Mee
           <SeriesScopeChoice
             value={scope}
             onChange={setScope}
-            one={{ label: 'This meeting only', hint: 'It stays in the list, marked Cancelled; the others go ahead.' }}
-            series={{ label: 'All upcoming meetings in the series', hint: 'Each is marked Cancelled and no more are created. Meetings already held stay as they were.' }}
+            one={{ label: 'This meeting', hint: 'It stays in the list, marked Cancelled; its other repeats go ahead.' }}
+            series={{ label: 'All upcoming repeats of this meeting', hint: 'Each is marked Cancelled and no more are created. Meetings already held stay as they were.' }}
           />
         </>
       ) : (
@@ -126,8 +127,8 @@ export function DeleteMeetingDialog({ meeting, onClose, onDone }: { meeting: Mee
         <SeriesScopeChoice
           value={scope}
           onChange={setScope}
-          one={{ label: 'This meeting only', hint: 'The rest of the series goes ahead.' }}
-          series={{ label: 'All upcoming meetings in the series', hint: 'No more are created. Meetings already held stay, with their minutes.' }}
+          one={{ label: 'This meeting', hint: 'Its other repeats go ahead.' }}
+          series={{ label: 'All upcoming repeats of this meeting', hint: 'No more are created. Meetings already held stay, with their minutes.' }}
         />
       ) : null}
       <p className="mt-2">To keep the record but call it off, cancel the meeting instead.</p>

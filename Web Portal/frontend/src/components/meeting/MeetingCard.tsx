@@ -8,6 +8,8 @@ import { Icon } from './kit';
 import { formatMeetingDay, formatMeetingTimes, meetingStatusTone } from '../../lib/meetingFormat';
 import { isUnderWay } from '../../lib/meeting-list';
 import { todayKey, zonedDayKey } from '../../lib/due-date';
+import { seriesHref } from '../../lib/meeting-series';
+import { SeriesIcon } from './series/SeriesLine';
 
 /** Where it happens: the place, else "Online". */
 export function meetingPlace(m: Pick<Meeting, 'location' | 'onlineLink'>) {
@@ -118,8 +120,20 @@ export function MeetingCard({
             {minutes ? <Badge tone={minutes.tone}>{minutes.label}</Badge> : null}
             {decisions ? <span className="whitespace-nowrap text-ink-2">{decisions} {decisions === 1 ? 'decision' : 'decisions'}</span> : null}
             {open ? <Badge tone="warning">{open} open</Badge> : null}
+            {/* 1.23: its series — the name opens the Series page (above the card's own link). */}
+            {m.seriesId && m.seriesName ? (
+              <Link
+                to={seriesHref(m.seriesId)}
+                title={`Series: ${m.seriesName}`}
+                className="relative z-10 inline-flex min-h-6 max-w-[14rem] items-center gap-1 rounded-md bg-ground px-1.5 text-ink-2 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 [@media(pointer:coarse)]:!min-h-11"
+              >
+                <span className="flex-none text-ink-3"><SeriesIcon /></span>
+                <span className="sr-only">Series: </span>
+                <bdi className="truncate">{m.seriesName}</bdi>
+              </Link>
+            ) : null}
             {seriesIdOf(m) ? (
-              <span className="text-ink-3" title="Part of a repeating series">
+              <span className="text-ink-3" title="A repeating meeting">
                 {Icon.repeat}
                 <span className="sr-only">Repeats</span>
               </span>

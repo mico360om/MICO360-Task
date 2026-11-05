@@ -45,6 +45,7 @@ const WorkloadPage = lazyPage(() => import('./pages/WorkloadPage'), 'WorkloadPag
 const ManagementRoute = lazyPage(() => import('./pages/ManagementPage'), 'ManagementRoute');
 const MeetingsPage = lazyPage(() => import('./pages/MeetingsPage'), 'MeetingsPage');
 const MeetingDetailPage = lazyPage(() => import('./pages/MeetingDetailPage'), 'MeetingDetailPage');
+const MeetingSeriesPage = lazyPage(() => import('./pages/MeetingSeriesPage'), 'MeetingSeriesPage');
 const MyActionItemsPage = lazyPage(() => import('./pages/MyActionItemsPage'), 'MyActionItemsPage');
 // Takes props (see ChatRoute), so it is loaded with its own type rather than through lazyPage.
 const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })));
@@ -153,6 +154,7 @@ export function App() {
             <Route path="/workload" element={<WorkloadPage />} />
             <Route path="/management" element={<ManagementRoute />} />
             <Route path="/meetings" element={<MeetingsPage />} />
+            <Route path="/meetings/series/:id" element={<MeetingSeriesPage />} />
             <Route path="/meetings/:id" element={<MeetingDetailPage />} />
             <Route path="/my-action-items" element={<MyActionItemsPage />} />
             <Route path="/templates" element={<TemplatesPage />} />

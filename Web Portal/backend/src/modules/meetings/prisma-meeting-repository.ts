@@ -42,6 +42,7 @@ function toRecord(r: Row): MeetingRecord {
     createdById: r.createdById,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    seriesId: r.seriesId,
   };
 }
 
@@ -149,6 +150,7 @@ export function createPrismaMeetingRepository(
           templateId: data.templateId ?? null,
           invitesSentAt: data.invitesSentAt ?? null,
           createdById: data.createdById,
+          seriesId: data.seriesId ?? null,
         },
       });
       return toRecord(row);

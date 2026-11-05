@@ -47,12 +47,15 @@ import { createPrismaFinalMinutesRepository } from '../../src/modules/meetings/f
 import { createPrismaProjectMeetingsSource } from '../../src/modules/meetings/prisma-project-meetings';
 import { createPrismaMeetingInvitees } from '../../src/modules/meetings/meeting-invitees';
 import { createMeetingCompanyRule } from '../../src/modules/meetings/meeting-company';
+import { createNamedSeriesService } from '../../src/modules/meetings/named-series-service';
+import { createPrismaNamedSeriesStore } from '../../src/modules/meetings/prisma-named-series-store';
+import type { MeetingRecord } from '../../src/modules/meetings/meeting-repository';
 
 /**
  * The people and meetings parts of the server, wired from real Prisma services as server.ts wires
  * them (companies: MC1 Tasks 9–10), behind buildApp — so the DB tests ask over HTTP, as a browser does.
  */
-export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
+export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parameters<typeof buildApp>[0]> = {}, opts: { namedSeries?: boolean } = {}) {
   const tokenService = createTokenService({
     accessSecret: 'people-access',
     refreshSecret: 'people-refresh',
@@ -105,11 +108,38 @@ export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parame
     meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);
-  const meetingService = createMeetingService({ meetings: meetingRepository, access: meetingAccess, defaultTimeZone: tz, isActiveUser });
   const attendeeRepository = createPrismaAttendeeRepository(prisma);
-  const meetingSeriesService = createMeetingSeriesService({ meetings: meetingRepository, attendees: attendeeRepository, defaultTimeZone: tz });
+  const agendaRepository = createPrismaAgendaRepository(prisma);
+  const personOptions = createPrismaPersonOptions(prisma);
+  const meetingInvitees = createPrismaMeetingInvitees(prisma, { companyAccess, personOptions });
+  // 1.23 Meeting series (opts.namedSeries), wired as server.ts wires it: the change and repeat hooks too.
+  const namedSeriesService = opts.namedSeries
+    ? createNamedSeriesService({
+        store: createPrismaNamedSeriesStore(prisma),
+        meetings: meetingRepository,
+        canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+        canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
+        meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
+        userNames: (ids) => resolveUserNames(ids),
+        rolesOf: async (userId) => ((await prisma.userRole.findMany({ where: { userId }, select: { role: { select: { name: true } } } })).map((r) => r.role.name)),
+        attendeesOf: (meetingId) => attendeeRepository.listByMeeting(meetingId),
+        agendaOf: (meetingId) => agendaRepository.listByMeeting(meetingId),
+        inviteCandidates: async (viewer, target) => (await meetingInvitees.candidates(viewer, target)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim() || p.username })),
+        timeZone: tz,
+      })
+    : undefined;
+  const follow = async (m: MeetingRecord, kind: string) => {
+    if (!namedSeriesService) return;
+    if (kind === 'deleted') await namedSeriesService.afterDeleted(m);
+    else await namedSeriesService.followPlace(m);
+  };
+  const meetingService = createMeetingService({ meetings: meetingRepository, access: meetingAccess, defaultTimeZone: tz, isActiveUser, onChanged: follow });
+  const meetingSeriesService = createMeetingSeriesService({
+    meetings: meetingRepository, attendees: attendeeRepository, defaultTimeZone: tz, onChanged: follow,
+    ...(namedSeriesService ? { ensureSeries: (m: MeetingRecord) => namedSeriesService.ensureFamilySeries(m) } : {}),
+  });
   const attendeeService = createAttendeeService({ attendees: attendeeRepository, canEditMeeting });
-  const agendaService = createAgendaService({ agenda: createPrismaAgendaRepository(prisma), canEditMeeting });
+  const agendaService = createAgendaService({ agenda: agendaRepository, canEditMeeting });
   const noteService = createNoteService({ notes: createPrismaNoteRepository(prisma), canEditMeeting });
   const actionItemService = createActionItemService({ actionItems: createPrismaActionItemRepository(prisma), timeZone: tz, canEditMeeting });
   const resolveUserNames = async (ids: string[]) => {
@@ -120,7 +150,6 @@ export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parame
     const p = await projectRepository.findById(projectId).catch(() => null);
     return p ? { name: p.name, code: p.code, number: p.number, color: p.color, icon: p.icon, imageUrl: p.imageUrl, clientName: p.clientName, status: p.status, ownerId: p.ownerId, startDate: p.startDate ? p.startDate.toISOString() : null, targetDate: p.targetDate ? p.targetDate.toISOString() : null } : null;
   };
-  const personOptions = createPrismaPersonOptions(prisma);
   const app: FastifyInstance = await buildApp({
     authService,
     tokenService,
@@ -149,7 +178,8 @@ export async function buildPeopleApp(prisma: PrismaClient, extra: Partial<Parame
     projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: tz },
     meetingFreeTimes: { busy: meetingRepository, workingHours: async () => ({ days: [0, 1, 2, 3, 4], start: '08:00', end: '17:00' }), userNames: resolveUserNames, timeZone: tz },
     isActiveUser,
-    meetingInvitees: createPrismaMeetingInvitees(prisma, { companyAccess, personOptions }),
+    meetingInvitees,
+    namedSeriesService,
     meetingCompany: createMeetingCompanyRule({ checkPick: (viewer, id) => companyAccess.checkPick(viewer, id), fallbackCompanyId: (organizerId) => fallbackProjectCompanyId(prisma, organizerId) }),
     ...extra,
   });

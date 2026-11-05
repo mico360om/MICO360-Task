@@ -69,6 +69,8 @@ import { registerMinutesRoutes, type MinutesProjectSource } from './modules/meet
 import type { FinalMinutesRepository } from './modules/meetings/final-minutes-repository';
 import type { MeetingNotifyService } from './modules/meetings/meeting-notify-service';
 import { registerActionItemRoutes } from './modules/meetings/action-item-routes';
+import { registerNamedSeriesRoutes } from './modules/meetings/named-series-routes';
+import type { NamedSeriesService } from './modules/meetings/named-series-service';
 import type { ActionItemService } from './modules/meetings/action-item-service';
 import { registerColumnRoutes } from './modules/projects/column-routes';
 import type { ColumnService } from './modules/projects/column-service';
@@ -238,6 +240,8 @@ export interface AppDeps extends AuthRouteDeps {
   meetingService?: MeetingService;
   /** Repeating meetings: creates a series' meetings and changes all its upcoming ones. */
   meetingSeriesService?: MeetingSeriesService;
+  /** 1.23 Meeting series (named series of related meetings): their routes, the list's chips, the minutes' carry-over. */
+  namedSeriesService?: NamedSeriesService;
   /** A project's meetings, decisions and action items for its dashboard. */
   projectMeetings?: import('./modules/meetings/meeting-routes').ProjectMeetingsDeps;
   meetingAccess?: MeetingAccess;
@@ -868,7 +872,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           meetingService: deps.meetingService, guard, broadcast: deps.onTaskEvent, canViewMeeting, accessibleProjectIds: meetingAccessibleProjectIds, notify: deps.meetingNotifyService, logger: deps.logger, listCounts: deps.meetingListCounts, series: deps.meetingSeriesService, projectMeetings: deps.projectMeetings, freeTimes: deps.meetingFreeTimes, attendeeService: deps.attendeeService, agendaService: deps.agendaService, isActiveUser: deps.isActiveUser,
           // companies (MC1 Task 10): the invitee view, a standalone meeting's company, who may be invited.
           viewOf: meetingViewOf, pickOf, meetingCompany: deps.meetingCompany, invitees: deps.meetingInvitees, knownIds, myProjectsOnly,
+          namedSeries: deps.namedSeriesService, // 1.23: "New meeting in this series", the list's series names
         });
+      }
+      if (deps.namedSeriesService) {
+        await registerNamedSeriesRoutes(api, { service: deps.namedSeriesService, guard });
       }
       if (deps.attendeeService) {
         // companies: the roster names the meeting's people (organizer first) for whoever may see it.
@@ -960,6 +968,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           inviteTargetOf: meetingTargetOf,
           // 1.22 review: a typed address shows its owner's name only to a colleague of theirs.
           isColleague: companies ? (viewer, otherId) => companies.isColleague(viewer, otherId) : undefined,
+          // 1.23: "Series: …" and "Open from earlier meetings" in the minutes.
+          seriesFacts: deps.namedSeriesService ? (meeting, who) => deps.namedSeriesService!.minutesSeries(meeting, who) : undefined,
         });
       }
       if (deps.activityService) {

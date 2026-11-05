@@ -183,6 +183,8 @@ import { createMeetingService } from './modules/meetings/meeting-service';
 import { createMeetingSeriesService } from './modules/meetings/meeting-series-service';
 import { createPrismaMeetingListCounts, createPrismaProjectMeetingsSource } from './modules/meetings/prisma-project-meetings';
 import { createMeetingAccess } from './modules/meetings/meeting-access';
+import { createNamedSeriesService } from './modules/meetings/named-series-service';
+import { createPrismaNamedSeriesStore } from './modules/meetings/prisma-named-series-store';
 import { gatherAgendaSources } from './modules/meetings/agenda-sources';
 import { createPrismaAgendaSources } from './modules/meetings/prisma-agenda-sources';
 import { createPrismaAttendeeRepository } from './modules/meetings/prisma-attendee-repository';
@@ -696,6 +698,33 @@ async function main(): Promise<void> {
     meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
   });
   const canEditMeeting = (userId: string, roles: string[], meetingId: string) => meetingAccess.canEditMeeting(userId, roles, meetingId);
+  // 1.23 Meeting series: named series of related meetings (repeat families are in one each). Its
+  // people, agenda, roles and task numbers are read through arrows: those are set up further down.
+  const namedSeriesService = createNamedSeriesService({
+    store: createPrismaNamedSeriesStore(prisma),
+    meetings: meetingRepository,
+    canViewProject: (userId, roles, projectId) => projectAccess.canViewProject(userId, roles, projectId),
+    canManageProject: (userId, roles, projectId) => projectAuthz.canManageProject(userId, roles, projectId),
+    meetingView: (viewer, m) => companyAccess.meetingView(viewer, m),
+    userNames: (ids) => resolveUserNames(ids),
+    taskKeys: (ids) => resolveTaskKeys(ids),
+    rolesOf: async (userId) => (await userStateLookup(userId))?.roles ?? [],
+    attendeesOf: (meetingId) => attendeeRepository.listByMeeting(meetingId),
+    agendaOf: (meetingId) => agendaService.listAgenda(meetingId),
+    inviteCandidates: async (viewer, target) =>
+      (await meetingInvitees.candidates(viewer, target)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}`.trim() || p.username })),
+    onMeetingsChanged: (ids) => {
+      for (const id of ids) broadcastMeetingChange(id, 'meeting:updated');
+    },
+    timeZone: companyTz,
+  });
+  // After every meeting change (made, changed, cancelled — a repeat made by the daily job too): a meeting
+  // moved to another project (company) leaves its series there (a repeat: into one in its new place), and a
+  // repeat in no series gets one. A deleted meeting's automatic series, left empty, goes.
+  const followSeriesPlace = async (meeting: import('./modules/meetings/meeting-repository').MeetingRecord, kind: string) => {
+    const work = kind === 'deleted' ? namedSeriesService.afterDeleted(meeting) : namedSeriesService.followPlace(meeting);
+    await work.catch((err) => logger.error('meeting series: following a meeting change failed', { err, meetingId: meeting.id, kind }));
+  };
   // Live meeting events reach the project's room AND the organizer, creator and internal attendees
   // (standalone meetings have no room), once per socket. The audience is read without the
   // deleted filter so a deletion is announced too.
@@ -733,7 +762,10 @@ async function main(): Promise<void> {
     access: meetingAccess,
     defaultTimeZone: companyTz,
     isActiveUser,
-    onChanged: (meeting, kind) => broadcastMeetingChange(meeting.id, `meeting:${kind}`),
+    onChanged: async (meeting, kind) => {
+      await followSeriesPlace(meeting, kind);
+      broadcastMeetingChange(meeting.id, `meeting:${kind}`);
+    },
   });
   // Late-bound: the notify service (email) is created further down.
   let onAttendeeRemoved: (meetingId: string, attendee: AttendeeRecord, alsoFrom: string[]) => void = () => {};
@@ -743,7 +775,12 @@ async function main(): Promise<void> {
     meetings: meetingRepository,
     attendees: attendeeRepository,
     defaultTimeZone: companyTz,
-    onChanged: (meeting, kind) => broadcastMeetingChange(meeting.id, `meeting:${kind}`),
+    onChanged: async (meeting, kind) => {
+      await followSeriesPlace(meeting, kind);
+      broadcastMeetingChange(meeting.id, `meeting:${kind}`);
+    },
+    // 1.23: a repeating meeting is always in a series (its own, made automatically, unless it is in one).
+    ensureSeries: (meeting) => namedSeriesService.ensureFamilySeries(meeting),
   });
   const attendeeService = createAttendeeService({
     attendees: attendeeRepository,
@@ -1170,7 +1207,10 @@ async function main(): Promise<void> {
   // The changes it proposes are made only once the person confirms them, through the app's own
   // services as that person (with the usual checks, notifications and live updates). The meeting
   // emails and live updates are set up further down, so they are reached through these arrows.
-  const gatherMinutes = createMinutesData({ meetingService, attendeeService, agendaService, noteService, actionItemService, resolveUserNames, resolveProject, resolveTaskKeys });
+  const gatherMinutes = createMinutesData({
+    meetingService, attendeeService, agendaService, noteService, actionItemService, resolveUserNames, resolveProject, resolveTaskKeys,
+    seriesFacts: (meeting, who) => namedSeriesService.minutesSeries(meeting, who),
+  });
   const micoAiActions = createMicoAiActions({
     data: micoAiData,
     timeZone: companyTz,
@@ -1188,7 +1228,8 @@ async function main(): Promise<void> {
         sendCancellation: (meetingId, opts) => meetingNotifyService.sendCancellation(meetingId, opts),
       },
       finalMinutes: createPrismaFinalMinutesRepository(prisma),
-      minutesFacts: async (viewer, meetingId) => minutesFacts((await gatherMinutes(viewer.userId, meetingId)).data),
+      // 1.23: the series' carry-over as the organizer sees it, as for the meeting page's Draft with AI.
+      minutesFacts: async (viewer, meetingId) => minutesFacts((await gatherMinutes(viewer.userId, meetingId, [], { seriesFor: 'organizer' })).data), // (kept to what the asker may see too)
       draftMinutesWithAi: (facts, requester, opts) => aiFeatureService.draftMinutes(facts, requester, opts),
       onFinalMinutesChanged: (meetingId) => broadcastMeetingChange(meetingId, 'meeting:updated'),
       workingDays: async () => (await settingsService.workingHours()).days,
@@ -1911,6 +1952,7 @@ async function main(): Promise<void> {
     searchEverything,
     meetingService,
     meetingSeriesService,
+    namedSeriesService,
     projectMeetings: { load: createPrismaProjectMeetingsSource(prisma).load, timeZone: companyTz },
     isActiveUser,
     // Draft agenda: the project's open tasks and the last meeting's leftovers, as far as the person may see.

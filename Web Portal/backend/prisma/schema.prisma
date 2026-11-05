@@ -1083,15 +1083,41 @@ model Meeting {
   /// A meeting without a project belongs to a company (null for project meetings: theirs is the project's).
   companyId     String?
   company       Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  /// 1.23: the named series it is in ("Monthly OXY review"), if any — not its repeat (recurrenceParentId).
+  seriesId      String?
+  namedSeries   MeetingSeries?      @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([organizerId])
   @@index([companyId])
+  @@index([seriesId])
   @@index([status])
   @@index([startAt])
   // One meeting per place in a series, so a series is never filled in twice.
   @@unique([recurrenceParentId, recurrenceStart])
   @@map("meetings")
+}
+
+/// 1.23: a named series of related meetings ("Monthly OXY review"): meetings made one by one, repeating
+/// meetings (each repeat family is in one), or both. It belongs to a project — or, for meetings without a
+/// project, to a company — and only that project's (company's) meetings can be in it. Deleting it unlinks
+/// its meetings (never deletes them).
+model MeetingSeries {
+  id          String    @id @default(cuid())
+  name        String    @db.VarChar(200)
+  projectId   String?
+  /// The company of a series of meetings without a project (null for a project's series).
+  companyId   String?
+  /// Made automatically for a repeating meeting: removed when it is left empty.
+  auto        Boolean   @default(false)
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  meetings    Meeting[]
+
+  @@index([projectId])
+  @@index([companyId])
+  @@map("meeting_series")
 }
 
 /// One emailing of a meeting's minutes (1.22): who sent it and when, the draft or the final minutes, the

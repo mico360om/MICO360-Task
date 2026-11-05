@@ -115,6 +115,8 @@ function ask(key: string, side: 'arch' | 'live', opts: { user?: string; body?: R
 /** The new-meeting route's body names a project only when the meeting has one. */
 const BODY: Partial<Record<ArchiveTarget, (side: 'arch' | 'live') => Record<string, unknown>>> = {
   meeting: () => ({}),
+  // 1.23: "New series…" names its meeting in the body.
+  seriesMeeting: (side) => ({ name: 'Monthly', meetingId: `${side}-meeting` }),
 };
 
 describe.each(Object.entries(ARCHIVE_REFUSED))('%s (an archived project refuses it)', (key, target) => {
@@ -211,5 +213,19 @@ describe('1.22 lanes M, B and N: their write routes are said for', () => {
 describe.each(Object.keys(ARCHIVE_ALLOWED))('%s (allowed on an archived project)', (key) => {
   it('goes through', async () => {
     expect((await ask(key, 'arch')).statusCode).toBe(200);
+  });
+});
+
+// 1.23 Meeting series: changing a series of an archived project's meetings is a change to the project.
+describe('1.23 meeting series: their write routes are said for', () => {
+  it('making, renaming, adding, taking out and merging are refused in an archived project; deleting the series is not', async () => {
+    expect(ARCHIVE_REFUSED['POST /meeting-series']).toBe('seriesMeeting');
+    for (const key of ['PATCH /meeting-series/:id', 'POST /meeting-series/:id/meetings', 'DELETE /meeting-series/:id/meetings/:meetingId', 'POST /meeting-series/:id/merge']) {
+      expect(ARCHIVE_REFUSED[key], key).toBe('series');
+      expect((await ask(key, 'arch')).statusCode, key).toBe(409);
+      expect((await ask(key, 'live')).statusCode, key).toBe(200);
+    }
+    expect(ARCHIVE_ALLOWED['DELETE /meeting-series/:id']).toMatch(/deleting/);
+    expect((await ask('DELETE /meeting-series/:id', 'arch')).statusCode).toBe(200);
   });
 });

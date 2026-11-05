@@ -410,4 +410,17 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /portal/projects/:projectId/meetings/:meetingId/minutes.pdf': 'client',
   'POST /portal/projects/:projectId/action-items/:itemId/done': 'client',
   'GET /portal/meetings/:meetingId': 'client',
+  // 1.23 Meeting series: one meeting's series, or one series — each checked by the meeting rule
+  // (only the meetings a person may open count; a series they can't see answers 404).
+  'GET /meetings/:id/series': 'object',
+  'GET /meetings/:id/series-options': 'object',
+  'POST /meeting-series': 'object',
+  'GET /meeting-series/:id': 'object',
+  'PATCH /meeting-series/:id': 'object',
+  'DELETE /meeting-series/:id': 'object',
+  'POST /meeting-series/:id/meetings': 'object',
+  'DELETE /meeting-series/:id/meetings/:meetingId': 'object',
+  'POST /meeting-series/:id/merge': 'object',
+  'GET /meeting-series/:id/candidates': 'object',
+  'GET /meeting-series/:id/prefill': 'object',
 };

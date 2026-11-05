@@ -50,7 +50,11 @@ export type ArchiveTarget =
   /** Moving `:id` (a task) to another project: out of its own and INTO `body.projectId`. */
   | 'taskToProject'
   /** Moving `body.taskIds` INTO `body.projectId`. */
-  | 'tasksToProject';
+  | 'tasksToProject'
+  /** 1.23: `:id` is a meeting series (its project's). */
+  | 'series'
+  /** 1.23: "New series…": `body.meetingId`, the meeting it is made with. */
+  | 'seriesMeeting';
 
 /** Write routes an archived project refuses. Keys as in route-classes.ts. */
 export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
@@ -106,6 +110,12 @@ export const ARCHIVE_REFUSED: Readonly<Record<string, ArchiveTarget>> = {
   'PUT /meetings/:id/client-visibility': 'meeting',
   // 1.22 Lane AI (§10): using the AI's offered draft writes the minutes.
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/use': 'meeting',
+  // 1.23 Meeting series: which of the project's meetings go together is a change to the project.
+  'POST /meeting-series': 'seriesMeeting',
+  'PATCH /meeting-series/:id': 'series',
+  'POST /meeting-series/:id/meetings': 'series',
+  'DELETE /meeting-series/:id/meetings/:meetingId': 'series',
+  'POST /meeting-series/:id/merge': 'series',
 };
 
 /** Write routes (one project's, task's or meeting's) an archived project does not refuse, and why. */
@@ -174,6 +184,8 @@ export const ARCHIVE_ALLOWED: Readonly<Record<string, string>> = {
   'POST /notifications/bulk': 'the person’s own notifications, not a change to any project',
   // 1.22 Lane AI (§10): putting the AI's offer (or a failure's notice) away changes nothing in the minutes.
   'POST /meetings/:id/final-minutes/ai-draft/:jobId/discard': 'putting away the AI’s offered draft: the minutes don’t change',
+  // 1.23: deleting a series (its meetings stay).
+  'DELETE /meeting-series/:id': 'deleting, as today (its meetings stay)',
 };
 
 /** What a refused write is about: a project, and the meeting when it is one (its people may see it without the project). */
@@ -187,7 +199,7 @@ export interface ArchiveSubject {
 /** At most this many tasks are looked at in one bulk move (the route itself takes at most 500). */
 export const MAX_GUARDED_TASKS = 1000;
 
-export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'externalContact' | 'column' | 'meeting' | 'actionItem';
+export type ArchiveKind = 'task' | 'comment' | 'checklistItem' | 'externalContact' | 'column' | 'meeting' | 'actionItem' | 'series';
 
 /** The facts the guard reads (Prisma: createPrismaArchiveLookup). */
 export interface ArchiveLookup {
@@ -243,6 +255,10 @@ export function createArchiveGuard(deps: ArchiveGuardDeps) {
         return [...project(b.projectId), ...(await of('column', b.columnId))];
       case 'newMeeting':
         return project(b.projectId);
+      case 'series':
+        return of('series', p.id);
+      case 'seriesMeeting':
+        return of('meeting', b.meetingId);
       case 'taskToProject':
         return [...(await of('task', p.id)), ...project(b.projectId)];
       case 'tasksToProject': {
@@ -321,6 +337,10 @@ export function createPrismaArchiveLookup(prisma: PrismaClient): ArchiveLookup {
         case 'meeting': {
           const m = await prisma.meeting.findFirst({ where: { id, deletedAt: null }, select: { projectId: true } });
           return m ? { projectId: m.projectId, meetingId: id } : null;
+        }
+        case 'series': {
+          const s = await prisma.meetingSeries.findUnique({ where: { id }, select: { projectId: true } });
+          return s ? { projectId: s.projectId } : null;
         }
         case 'actionItem': {
           const a = await prisma.actionItem.findUnique({ where: { id }, select: { projectId: true, meetingId: true, assigneeId: true, createdById: true, meeting: { select: { projectId: true } } } });

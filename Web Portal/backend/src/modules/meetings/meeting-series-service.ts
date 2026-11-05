@@ -20,6 +20,11 @@ export interface MeetingSeriesDeps {
   defaultTimeZone?: string;
   /** Fired for each meeting a series operation created, changed, cancelled or deleted. */
   onChanged?: (meeting: MeetingRecord, kind: MeetingChangeKind) => void | Promise<void>;
+  /**
+   * 1.23 Meeting series: a repeating meeting is always in a (named) series — its own, its family's,
+   * or a new one named after it. Returns the series' id (null: none could be given). Absent: none.
+   */
+  ensureSeries?: (meeting: MeetingRecord) => Promise<string | null>;
   now?: () => Date;
 }
 
@@ -145,6 +150,8 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
         // An invited series is in attendees' calendars already (the invitation carried the repeat).
         invitesSentAt: template.invitesSentAt,
         createdById: template.createdById,
+        // 1.23: in the named series of the meetings it repeats.
+        seriesId: template.seriesId ?? null,
       });
     } catch (err) {
       if (isUniqueClash(err)) return null; // another server instance created it a moment ago
@@ -188,7 +195,9 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
       .filter((s) => s.getTime() > last && s.getTime() >= at.getTime())
       .slice(0, room);
     if (due.length === 0) return [];
-    const template = templateOf(alive, root);
+    let template = templateOf(alive, root);
+    // 1.23: a family still in no series (made before 1.23) gets one before it grows.
+    if (!template.seriesId && deps.ensureSeries) template = { ...template, seriesId: await deps.ensureSeries(template) };
     const created: MeetingRecord[] = [];
     for (const start of due) {
       const m = await createAt(rootId, template, start, durationOf(template), tz);
@@ -232,6 +241,8 @@ export function createMeetingSeriesService(deps: MeetingSeriesDeps) {
       if (m.reminderSentAt) await meetings.markReminderSent(m.id, null);
       await changed([await load(m.id)], 'updated');
     }
+    // 1.23: a repeating meeting is in a series (the one it is in, else a new one named after it); its repeats join it.
+    if (deps.ensureSeries) await deps.ensureSeries(await load(m.id));
     return extend(m.id);
   }
 

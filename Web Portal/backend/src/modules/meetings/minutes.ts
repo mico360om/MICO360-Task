@@ -66,6 +66,18 @@ export interface MinutesActionItem {
   open?: boolean;
 }
 
+/** 1.23: an open action item of an earlier meeting of the series ("Open from earlier meetings"). */
+export interface MinutesCarriedItem extends MinutesActionItem {
+  /** When the meeting it came from started (ISO). */
+  meetingStartAt: string;
+}
+
+/** 1.23: the meeting's series — its name, and the open items of its earlier meetings as the copy's reader sees them. */
+export interface MinutesSeries {
+  name: string;
+  openFromEarlier: MinutesCarriedItem[];
+}
+
 export interface MinutesBrand {
   productName: string;
   companyName: string;
@@ -128,6 +140,8 @@ export interface MinutesData {
   companyTimeZone?: string | null;
   /** Companies: the meeting's company logo (printable), on the right of the header; null = none, as before. */
   logo?: Buffer | null;
+  /** 1.23: the series the meeting is in (null: none) — "Series: …" and "Open from earlier meetings". */
+  series?: MinutesSeries | null;
 }
 
 /**
@@ -372,6 +386,8 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
     ['Time zone', tz],
   ];
   const how: KeyValueRow[] = [
+    // 1.23: the series by name only — no meeting number (that would count earlier meetings).
+    ...(data.series ? [['Series', data.series.name] as const] : []),
     ['Organizer', meeting.organizerName ?? '—'],
     ...(meeting.location ? [['Location', meeting.location] as const] : []),
     ...(online ? [online.href ? (['Online', online.text, online.href] as const) : (['Online', online.text] as const)] : []),
@@ -411,6 +427,13 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   const isLate = (i: MinutesActionItem) => isOpen(i) && !!i.dueDate && !!today && i.dueDate < today;
   const lateItems = items.filter(isLate).length;
   const dueText = (i: MinutesActionItem) => `${fmtDay(i.dueDate, 'UTC')}${isLate(i) ? ' · Overdue' : ''}`;
+  // 1.23: still-open action items of the series' earlier meetings, as of when this PDF is made.
+  const carried = data.series?.openFromEarlier ?? [];
+  const carryOver = () => {
+    if (carried.length === 0) return;
+    doc.heading('Open from earlier meetings', { keepWith: 40, aside: `${carried.length} open` });
+    carriedTable(doc, carried, dueText, tz);
+  };
 
   // At a glance: four slim tiles.
   doc.spacer(6);
@@ -526,6 +549,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       doc.heading('Action Items', { keepWith: 40 });
       actionItemsTable(doc, items, dueText);
     }
+    carryOver();
     doc.heading('Notes taken during the meeting', { keepWith: 30 });
     if (data.notes.length === 0) {
       doc.text('No notes were taken.', { color: MUTED });
@@ -567,6 +591,7 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
       for (const n of actionNotes) noteItem(n);
     }
   }
+  carryOver();
 
   // Risks & open issues: what could go wrong, and what is still unanswered.
   if (issues.length + questions.length > 0) {
@@ -596,6 +621,22 @@ export function buildMinutesPdf(data: MinutesData): Buffer {
   }
 
   return doc.build();
+}
+
+/** 1.23: the series' earlier open items — what, from which meeting, who, when it is due, where it stands, its task. */
+function carriedTable(doc: PdfDocument, items: MinutesCarriedItem[], dueText: (i: MinutesActionItem) => string, tz: string): void {
+  const withTask = items.some((i) => i.taskKey);
+  doc.table(
+    [{ header: 'Action' }, { header: 'From' }, { header: 'Owner' }, { header: 'Due' }, { header: 'Status' }, ...(withTask ? [{ header: 'Task' }] : [])],
+    items.map((i) => [
+      i.description,
+      fmtDay(i.meetingStartAt, tz),
+      i.ownerName || 'Unassigned',
+      i.dueDate ? dueText(i) : '—',
+      i.statusLabel,
+      ...(withTask ? [i.taskKey ?? '—'] : []),
+    ]),
+  );
 }
 
 /** The meeting's tracked action items: what, who, when it is due (and whether that has passed), how urgent, where it stands, its task. */

@@ -8,6 +8,9 @@ import { FinalView } from './FinalMinutesSection';
 import { MeetingHeader } from './MeetingHeader';
 import { Section, SectionError, userName } from './kit';
 import { exportMinutes, meetingFailure } from './meeting-actions';
+import type { MeetingSeriesContext } from '../../api/meeting-series';
+import { SeriesLine } from './series/SeriesLine';
+import { CarryOverSection, SeriesSection } from './series/SeriesSection';
 
 /** The words under the title: why this person sees only part of the meeting. */
 export const INVITEE_NOTE = 'You can see this meeting because you were invited.';
@@ -29,6 +32,7 @@ export function InviteeView({
   attendeesLoading = false,
   attendeesError = false,
   onRetryAttendees = () => {},
+  series = null,
 }: {
   meeting: Meeting;
   /** The approved minutes, or null while they aren't (the server answers 404 until then). */
@@ -42,6 +46,8 @@ export function InviteeView({
   attendeesLoading?: boolean;
   attendeesError?: boolean;
   onRetryAttendees?: () => void;
+  /** 1.23: its series as they see it — the meetings of it they may open, and their own open items from earlier ones. */
+  series?: MeetingSeriesContext | null;
 }) {
   const pdf = useMutation({ mutationFn: () => exportMinutes(meeting, 'final') });
   const finished = meeting.status === 'COMPLETED';
@@ -93,6 +99,8 @@ export function InviteeView({
     </Section>
   );
   const agendaPart = <AgendaSection key="agenda" meetingId={meeting.id} startAt={meeting.startAt} endAt={meeting.endAt} directory={directory} canEdit={false} ended={finished} pollMs={false} />;
+  // Their own open items from the series' earlier meetings (read-only here, as their own items are).
+  const carryPart = series ? <CarryOverSection key="carry-over" context={series} meetingId={meeting.id} timeZone={timeZone} editable={false} /> : null;
 
   return (
     <div>
@@ -106,14 +114,16 @@ export function InviteeView({
         onPrimary={() => {}}
         menu={[]}
         note={INVITEE_NOTE}
+        series={series ? <SeriesLine context={series} timeZone={timeZone} /> : null}
       />
       <div className="grid gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">{finished ? [minutesPart, actionsPart, agendaPart] : [agendaPart, actionsPart, minutesPart]}</div>
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-5">{finished ? [minutesPart, actionsPart, carryPart, agendaPart] : [agendaPart, carryPart, actionsPart, minutesPart]}</div>
         <aside className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-5 xl:flex xl:items-stretch" aria-label="Meeting information">
           <Section id="about" title="About">
             {meeting.description ? <p dir="auto" className="whitespace-pre-wrap text-start text-sm text-ink">{meeting.description}</p> : <p className="text-sm text-ink-3">No description.</p>}
           </Section>
           <AttendeesPanel meeting={meeting} attendees={attendees} directory={directory} loading={attendeesLoading} loadError={attendeesError} onRetry={onRetryAttendees} canEdit={false} />
+          {series ? <SeriesSection context={series} meetingId={meeting.id} timeZone={timeZone} canAddNew={false} /> : null}
         </aside>
       </div>
     </div>

@@ -82,6 +82,7 @@ export function minutesFacts(data: MinutesData): string {
     const ids = [data.project.code, data.project.number].filter(Boolean).join(', ');
     lines.push(`Project: ${data.project.name}${ids ? ` (${ids})` : ''}`);
   }
+  if (data.series) lines.push(`Series: ${data.series.name}`);
   if (m.organizerName) lines.push(`Organizer: ${m.organizerName}`);
   if (m.description?.trim()) lines.push(`Purpose: ${m.description.trim()}`);
   const here = names(present);
@@ -105,6 +106,12 @@ export function minutesFacts(data: MinutesData): string {
   if (open.length) {
     lines.push('Open action items:');
     for (const i of open) lines.push(`- ${i.description} — owner ${i.ownerName || 'unassigned'}, due ${i.dueDate ?? 'none'}, ${i.statusLabel}`);
+  }
+  // 1.23: the series' earlier meetings' open items (the organizer's view), so the draft can follow them up.
+  const carried = data.series?.openFromEarlier ?? [];
+  if (carried.length) {
+    lines.push('Open action items from earlier meetings of the series:');
+    for (const i of carried) lines.push(`- ${i.description} — owner ${i.ownerName || 'unassigned'}, due ${i.dueDate ?? 'none'}, ${i.statusLabel} (from the meeting of ${fmtDay(i.meetingStartAt, tz)})`);
   }
   const facts = lines.join('\n');
   return facts.length > FACTS_MAX ? `${facts.slice(0, FACTS_MAX)}\n(… the rest of the notes are left out)` : facts;
