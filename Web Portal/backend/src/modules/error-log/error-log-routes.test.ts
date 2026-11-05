@@ -203,7 +203,7 @@ describe('GET /error-log carries the database check', () => {
     check = null;
     const before = await app.inject({ method: 'GET', url: '/api/v1/error-log', headers: await bearer('a1', ['ADMIN']) });
     expect(before.json().data.databaseCheck).toBeNull();
-    check = { checkedAt: '2026-11-05T13:00:00.000Z', ok: false, server: { product: 'MariaDB', version: '11.4.5-MariaDB-log', sqlMode: 'STRICT_TRANS_TABLES', lowerCaseTableNames: 0 }, problems: [{ kind: 'column', name: 'tasks.x', text: 'Column tasks.x is missing' }], summary: 'Database check: 1 problem (MariaDB 11.4.5)', strict: true };
+    check = { checkedAt: '2026-11-05T13:00:00.000Z', ok: false, server: { product: 'MariaDB', version: '11.4.5-MariaDB-log', sqlMode: 'STRICT_TRANS_TABLES', lowerCaseTableNames: 0 }, problems: [{ kind: 'column', name: 'tasks.x', text: 'Column tasks.x is missing' }], summary: 'Database check: 1 problem (MariaDB 11.4.5)', strict: true, pool: 10 };
     const after = await app.inject({ method: 'GET', url: '/api/v1/error-log', headers: await bearer('a1', ['ADMIN']) });
     expect(after.json().data.databaseCheck).toEqual(check);
     expect(after.json().data.groups).toEqual([]);
@@ -213,7 +213,7 @@ describe('GET /error-log carries the database check', () => {
 
 // 1.23.2 — "Check again" beside the result (administrators only; a client's session is refused).
 let runs = 0;
-const FRESH = { checkedAt: '', ok: true, server: null, problems: [], summary: 'Database check: OK (MySQL 8.0.46)', strict: true };
+const FRESH = { checkedAt: '', ok: true, server: null, problems: [], summary: 'Database check: OK (MySQL 8.0.46)', strict: true, pool: 10 };
 describe('POST /error-log/database-check runs the check again', () => {
   it('for an administrator: runs it and answers the new result', async () => {
     const app = await makeApp();
@@ -222,7 +222,7 @@ describe('POST /error-log/database-check runs the check again', () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/error-log/database-check', headers: await bearer('a1', ['ADMIN']) });
     expect(res.statusCode).toBe(200);
     expect(runs).toBe(1);
-    expect(res.json().data).toMatchObject({ summary: 'Database check: OK (MySQL 8.0.46)', checkedAt: '2026-11-05T14:00:00.000Z', strict: true });
+    expect(res.json().data).toMatchObject({ summary: 'Database check: OK (MySQL 8.0.46)', checkedAt: '2026-11-05T14:00:00.000Z', strict: true, pool: 10 });
   });
 
   it('anyone else is refused — an employee, a client account, nobody signed in', async () => {

@@ -22,7 +22,13 @@ export function DatabaseCheckLine({
   checkFailed?: boolean;
 }) {
   const settings = check.server
-    ? [check.server.version, `sql_mode ${check.server.sqlMode || '(none)'}`, ...(check.server.lowerCaseTableNames !== null ? [`lower_case_table_names ${check.server.lowerCaseTableNames}`] : [])].join(' · ')
+    ? [
+        check.server.version,
+        `sql_mode ${check.server.sqlMode || '(none)'}`,
+        ...(check.server.lowerCaseTableNames !== null ? [`lower_case_table_names ${check.server.lowerCaseTableNames}`] : []),
+        // 1.23.2: the server's connection pool (lib/db-pool on the server).
+        ...(typeof check.pool === 'number' ? [`pool ${check.pool}`] : []),
+      ].join(' · ')
     : null;
   const state = check.ok ? 'ok' : check.problems.length > 0 && check.problems.every((p) => p.kind === 'busy') ? 'busy' : 'problems';
   const tone = state === 'ok' ? 'text-success' : state === 'busy' ? 'text-warning' : 'text-danger';

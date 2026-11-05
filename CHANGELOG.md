@@ -50,6 +50,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   is cut short instead of refused". The check now also runs every kind of query the Management page can
   send (a person's late tasks, late milestones, overdue action items, one form's failures), one after
   another.
+- A steady database connection pool: the server now keeps at most 10 connections to the database (and
+  waits up to 20 seconds for a free one) unless the database address already sets its own limit. Before,
+  the number grew with the hosting server's processors and could pass the host's connection limit — a
+  likely cause of the short "Can't reach database server" moments on the live site. The database check
+  line shows the pool size ("pool 10"); the database address itself is never shown or logged.
 
 ## [1.23.1] - 2026-11-05
 

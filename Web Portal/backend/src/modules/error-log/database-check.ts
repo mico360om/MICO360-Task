@@ -45,6 +45,8 @@ export interface DatabaseCheckResult {
   summary: string;
   /** 1.23.2: the server refuses text too long for its column (strict mode), or cuts it short (false); null: unknown. */
   strict: boolean | null;
+  /** 1.23.2: the server's connection pool size (DATABASE_URL's connection_limit, lib/db-pool), when known. */
+  pool: number | null;
 }
 
 export interface ExpectedTable {
@@ -63,6 +65,8 @@ export interface DatabaseCheckDeps {
   /** Into the Error log (the server: logger.job('database check').error). */
   record: (problem: { text: string; err?: unknown }) => void;
   now?: () => Date;
+  /** 1.23.2: the connection pool's size, shown with the result ("pool 10"). */
+  poolSize?: number | null;
   /** Waiting between tries after a connection blip (tests pass a quick one). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -216,6 +220,7 @@ export function createDatabaseCheck(deps: DatabaseCheckDeps) {
       problems: problems.map(({ kind, name, text }) => ({ kind, name, text })),
       summary: strict === false ? `${result} · ${NOT_STRICT}` : result,
       strict,
+      pool: deps.poolSize ?? null,
     };
     return latest;
   }

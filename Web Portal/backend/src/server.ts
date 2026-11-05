@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { aiJobRetryDelays, getEnv, parseTrustProxy } from './config/env';
 import { prisma } from './lib/prisma';
+import { poolSizeOf, withPoolDefaults } from './lib/db-pool';
 import { buildApp } from './app';
 import { createPrismaIdempotencyStore } from './lib/idempotency';
 import { uploadResponseHeaders } from './lib/upload-safety';
@@ -1812,6 +1813,8 @@ async function main(): Promise<void> {
   const databaseCheck = createDatabaseCheck({
     ...prismaDatabaseReads(prisma),
     probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz, taskMerge: taskMergeService }),
+    // 1.23.2: "pool 10" with the result (the URL itself is never shown or logged).
+    poolSize: poolSizeOf(withPoolDefaults(process.env.DATABASE_URL)),
     record: ({ text, err }) => logger.job('database check').error(text, err !== undefined ? { err } : undefined),
   });
   void jobs.ready

@@ -68,6 +68,8 @@ export interface DatabaseCheck {
   summary: string;
   /** 1.23.2: the server refuses text too long for its column (strict mode); null: unknown. Absent from an older server. */
   strict?: boolean | null;
+  /** 1.23.2: the server's connection pool size ("pool 10"); null: unknown. Absent from an older server. */
+  pool?: number | null;
 }
 
 export interface ErrorLogPage {

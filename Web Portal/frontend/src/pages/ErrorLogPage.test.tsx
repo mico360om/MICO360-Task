@@ -192,6 +192,16 @@ describe('Error log — the database check', () => {
     expect(box).toHaveTextContent('sql_mode ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES');
     expect(box).toHaveTextContent('lower_case_table_names 0');
     expect(within(box as HTMLElement).queryByRole('list')).toBeNull();
+    // An older server sends no pool size: nothing about it.
+    expect(box).not.toHaveTextContent(/pool/);
+  });
+
+  it('1.23.2: the connection pool’s size with the settings (“pool 10”), and a server not in strict mode said', async () => {
+    const live = { product: 'MariaDB', version: '11.8.9-MariaDB-log', sqlMode: 'NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION', lowerCaseTableNames: 0 };
+    databaseCheck = { checkedAt: '2026-11-05T09:30:00.000Z', ok: true, server: live, problems: [], summary: 'Database check: OK (MariaDB 11.8.9) · not in strict mode: text that’s too long is cut short instead of refused', strict: false, pool: 10 };
+    renderPage();
+    const box = (await screen.findByText(/not in strict mode/)).closest('[data-database-check]') as HTMLElement;
+    expect(box).toHaveTextContent('11.8.9-MariaDB-log · sql_mode NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION · lower_case_table_names 0 · pool 10');
   });
 
   it('problems: the count, the server, and each problem with its exact names', async () => {

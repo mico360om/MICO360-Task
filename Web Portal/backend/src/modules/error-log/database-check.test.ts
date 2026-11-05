@@ -231,3 +231,11 @@ describe('database check — connection blips and strict mode (1.23.2)', () => {
     expect(runs).toBe(2);
   });
 });
+
+// 1.23.2 — a steady connection pool (lib/db-pool): its size is shown with the result ("pool 10").
+describe('database check — the connection pool', () => {
+  it('carries the pool size it was given; unknown is null', async () => {
+    expect((await check({ poolSize: 10 }).c.run()).pool).toBe(10);
+    expect((await check().c.run()).pool).toBeNull();
+  });
+});
