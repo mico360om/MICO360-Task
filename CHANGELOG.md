@@ -14,6 +14,16 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Search: searching for two or more words (for example "pump repair") failed on the live site, and the
+  Error log showed "Unknown column". The site's database server reads one part of the task search's
+  sorting differently from the one we test on; the search no longer uses it, so every search works on
+  both.
+- Error log: a database error now keeps the names of the columns, tables, keys and parts of the query
+  it is about, as both kinds of database server word them ("Unknown column '0' in 'ORDER BY'" instead
+  of "Unknown column '?' in '?'"), so the cause can be read. What people typed is still hidden, and so
+  is the database server's address.
+
 ## [1.23.0] - 2026-11-05
 
 ### New features

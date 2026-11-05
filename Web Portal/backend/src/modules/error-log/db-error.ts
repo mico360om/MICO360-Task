@@ -28,16 +28,38 @@ const PRISMA_ERRORS = new Set(['PrismaClientKnownRequestError', 'PrismaClientUnk
 const NAME_WORDS = new Set([
   'column', 'columns', 'field', 'fields', 'key', 'table', 'tables', 'database', 'schema', 'index', 'constraint',
   'function', 'procedure', 'operation', 'argument', 'model', 'relation', 'view', 'trigger', 'mean', 'variable', 'engine',
+  // 1.23.1: "Duplicate column name 'head'", "Duplicate key name '…'", "Not unique table/alias: 'lpc'".
+  'name', 'alias',
 ]);
 const NAME = /^[A-Za-z_][A-Za-z0-9_$.-]{0,127}$/;
-/** MySQL's names for the parts of a statement ("in 'where clause'", "in 'field list'"). */
-const CLAUSE = /^[a-z]{2,10} (?:clause|list|statement)$/i;
+/**
+ * 1.23.1: after "column" or "field" the database names what it read in the statement there — a column,
+ * or a position or an expression of the statement's own text (MariaDB: "Unknown column '0' in 'ORDER
+ * BY'") — never a value someone typed (values are always sent apart from the statement's text).
+ */
+const COLUMN_WORDS = new Set(['column', 'columns', 'field', 'fields']);
+const STATEMENT_TEXT = /^[^'"`\n]{1,192}$/;
+/** MySQL's names for the parts of a statement ("in 'where clause'", "in 'field list'", "in 'IN/ALL/ANY subquery'"). */
+const CLAUSE = /^[a-z]{2,10} (?:clause|list|statement|subquery)$/i;
+/** …and MariaDB's (10.6 and later name them as SQL: "in 'ORDER BY'", "in 'WHERE'", "in 'IN/ALL/ANY'"). */
+const WHERE_WORDS = new Set([
+  'select', 'from', 'on', 'where', 'set', 'insert into', 'returning', 'update', 'values', 'for system_time', 'order by', 'having',
+  'group by', 'procedure', 'check option', 'do', 'handler ... read', 'partition by', 'in/all/any', 'in/all/any subquery', 'json_table',
+  'json_table argument', 'checking transformed subquery', 'partition function', 'convert character set partition constant', 'unknown',
+]);
+/** A `backticked` part is an identifier in the database's words (`db`.`table`.`column`, a foreign key's names)… */
+const BACKTICKED = /^[^`\n]{1,64}$/;
+/** …except the server's address and a user name in a connection error ("server at `host`:`3306`", "credentials for `user`"). */
+const ADDRESS_BEFORE = /(?:\b(?:at|for|user)|`:)\s*$/i;
 const isWordChar = (c: string | undefined) => !!c && /[A-Za-z0-9_]/.test(c);
 
 /** May this quoted text stay? A name after a word that says it is one; everything else is a value. */
 function isName(content: string, before: string, quote: string): boolean {
-  const word = /([A-Za-z_]+)[\s:]*$/.exec(before.slice(-40))?.[1]?.toLowerCase() ?? '';
-  if (word === 'in' && quote === "'") return CLAUSE.test(content);
+  const tail = before.slice(-40);
+  if (quote === '`') return BACKTICKED.test(content) && !ADDRESS_BEFORE.test(tail);
+  const word = /([A-Za-z_]+)[\s:]*$/.exec(tail)?.[1]?.toLowerCase() ?? '';
+  if (word === 'in' && quote === "'") return CLAUSE.test(content) || WHERE_WORDS.has(content.toLowerCase());
+  if (COLUMN_WORDS.has(word)) return STATEMENT_TEXT.test(content);
   return NAME.test(content) && NAME_WORDS.has(word);
 }
 
