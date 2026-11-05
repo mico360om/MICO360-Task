@@ -26,6 +26,7 @@ export function UndoMergeDialog({ mergeId, onClose, onUndone }: { mergeId: strin
       tone="primary"
       busy={undo.isPending}
       error={problem}
+      confirmDisabled={!p?.canUndo}
       onConfirm={() => {
         if (p?.canUndo && !undo.isPending) undo.mutate();
       }}

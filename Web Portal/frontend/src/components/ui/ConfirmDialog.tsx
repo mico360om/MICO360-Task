@@ -15,6 +15,8 @@ export interface ConfirmDialogProps {
   busy?: boolean;
   /** Why the action failed (shown in the dialog, which stays open). */
   error?: string | null;
+  /** The action can't be taken now (the reason is shown as `error`). */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -23,7 +25,7 @@ export interface ConfirmDialogProps {
  * Asks before something hard to undo. Focus starts on the safe button, Escape and the backdrop
  * keep things as they are, and a failure is shown here instead of closing silently.
  */
-export function ConfirmDialog({ title, children, confirmLabel, keepLabel = 'Keep it', tone = 'danger', busy = false, error, onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, children, confirmLabel, keepLabel = 'Keep it', tone = 'danger', busy = false, error, confirmDisabled = false, onConfirm, onClose }: ConfirmDialogProps) {
   const dialogRef = useDialog(busy ? () => {} : onClose);
   return (
     <ModalPortal>
@@ -42,7 +44,7 @@ export function ConfirmDialog({ title, children, confirmLabel, keepLabel = 'Keep
           {error ? <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p> : null}
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="secondary" onClick={onClose} disabled={busy} shortcut="cancel">{keepLabel}</Button>
-            <Button variant={tone} onClick={onConfirm} loading={busy}>{confirmLabel}</Button>
+            <Button variant={tone} onClick={onConfirm} loading={busy} disabled={confirmDisabled}>{confirmLabel}</Button>
           </div>
         </div>
       </div>

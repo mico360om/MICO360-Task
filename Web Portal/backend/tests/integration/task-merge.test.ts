@@ -505,3 +505,118 @@ describe('Merging tasks (integration)', () => {
     await expect(merges.merge(manager, { taskIds: [a.id, b.id], mainTaskId: a.id, versions: { [a.id]: a.version, [b.id]: b.version + 1 } })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
   });
 });
+
+// ---- Review round (1.23.1): the reviewer's Important findings, each first as a failing test. ----
+describe('Merging tasks — review round (integration)', () => {
+  it('two Undos at once: one undoes, the other is refused; the history says it once', async () => {
+    const a = await fullTask('Alpha', {}, 1);
+    const b = await fullTask('Bravo', {}, 2);
+    const r = await merges.merge(manager, { taskIds: [a.id, b.id], mainTaskId: a.id });
+    const [one, two] = await Promise.allSettled([merges.undo(manager, r.mergeId), merges.undo(manager, r.mergeId)]);
+    const statuses = [one, two].map((x) => x.status).sort();
+    expect(statuses).toEqual(['fulfilled', 'rejected']);
+    const refused = [one, two].find((x) => x.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason).toMatchObject({ code: 'MERGE_UNDONE' });
+    expect(await prisma.activity.count({ where: { taskId: { in: [a.id, b.id] }, action: 'MERGE_UNDONE' } })).toBe(2);
+  });
+
+  it('Undo keeps the main task’s status whole: a merge that moved it into another project’s Done column leaves it done', async () => {
+    const main = await newTask('Rig pump', { columnId: rig.doing });
+    const other = await newTask('Ops pump', { projectId: ops.id, columnId: ops.done });
+    await prisma.task.update({ where: { id: other.id }, data: { completedAt: new Date('2026-11-04T08:00:00Z') } });
+    const r = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id, choices: { project: other.id, status: other.id } });
+    expect((await holdings(main.id)).fields).toMatchObject({ columnId: ops.done });
+    await merges.undo(manager, r.mergeId);
+    const after = await prisma.task.findUniqueOrThrow({ where: { id: main.id }, select: { columnId: true, completedAt: true, progress: true } });
+    // It stays in Operations (Undo never moves it back), and stays done there — never in Done but open.
+    expect(after.columnId).toBe(ops.done);
+    expect(after.completedAt).not.toBeNull();
+    expect(after.progress).toBe(100);
+  });
+
+  it('a write that arrives just after the merge (a slow upload, a comment) is moved to the main task, and back on Undo', async () => {
+    const a = await newTask('Alpha');
+    const b = await newTask('Bravo');
+    const r = await merges.merge(manager, { taskIds: [a.id, b.id], mainTaskId: a.id });
+    const late = new Date(NOW.getTime() + 5_000);
+    const comment = await prisma.comment.create({ data: { taskId: b.id, userId: manager.id, body: 'Posted as the merge finished', createdAt: late } });
+    const file = await prisma.attachment.create({ data: { taskId: b.id, uploadedById: manager.id, filename: 'slow.pdf', mimeType: 'application/pdf', sizeBytes: 5, storageKey: 'slow.pdf', url: '/uploads/slow.pdf', createdAt: late } });
+    const item = await prisma.checklistItem.create({ data: { taskId: b.id, text: 'Late step', createdAt: late } });
+    const line = await prisma.activity.create({ data: { taskId: b.id, projectId: rig.id, userId: manager.id, action: 'COMMENTED', createdAt: late } });
+    // Opening the main task's "Merged from" panel gathers them (the merge itself tries again after it is saved).
+    await merges.mergedFrom(manager, a.id);
+    expect(await prisma.comment.findUniqueOrThrow({ where: { id: comment.id } })).toMatchObject({ taskId: a.id });
+    expect(await prisma.attachment.findUniqueOrThrow({ where: { id: file.id } })).toMatchObject({ taskId: a.id });
+    expect(await prisma.checklistItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ taskId: a.id });
+    expect(await prisma.activity.findUniqueOrThrow({ where: { id: line.id } })).toMatchObject({ taskId: a.id });
+    await merges.undo(manager, r.mergeId);
+    expect(await prisma.comment.findUniqueOrThrow({ where: { id: comment.id } })).toMatchObject({ taskId: b.id });
+    expect(await prisma.attachment.findUniqueOrThrow({ where: { id: file.id } })).toMatchObject({ taskId: b.id });
+  });
+
+  it('the preview never names a blocker the person can’t open, nor counts it', async () => {
+    const main = await newTask('Main');
+    const other = await newTask('Other');
+    const hidden = await newTask('Pay rises', { projectId: arc.id, columnId: arc.todo });
+    // Main blocked by the hidden task; the hidden task blocked by Other → a loop through a task they can't open.
+    await prisma.taskDependency.createMany({ data: [{ taskId: main.id, dependsOnTaskId: hidden.id }, { taskId: hidden.id, dependsOnTaskId: other.id }] });
+    const seeing = createTaskMergeService({ prisma, timeZone: TZ, now: () => NOW, canViewTask: async (_u, _r, id) => id !== hidden.id });
+    const p = await seeing.preview(manager, { taskIds: [main.id, other.id] });
+    expect(p.droppedLinks).toEqual([{ key: other.key, otherKey: '', otherTitle: '', reason: 'loop' }]);
+    expect(p.tasks.map((t) => t.counts.blockers)).toEqual([0, 0]);
+  });
+
+  it('Show to client: another project’s switch doesn’t follow a project change; joined descriptions stop showing to the client', async () => {
+    const main = await newTask('Rig pump', { description: 'Main' });
+    await prisma.task.update({ where: { id: main.id }, data: { clientVisible: true, clientShowDescription: true } });
+    const other = await newTask('Ops pump', { projectId: ops.id, columnId: ops.todo, description: 'Private notes' });
+    const p = await merges.preview(manager, { taskIds: [main.id, other.id] });
+    expect(p.clientDescriptionOff).toBe(true);
+    await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id });
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: main.id }, select: { clientVisible: true, clientShowDescription: true } })).toEqual({ clientVisible: true, clientShowDescription: false });
+
+    const a = await newTask('Rig valve');
+    await prisma.task.update({ where: { id: a.id }, data: { clientVisible: true } });
+    const b = await newTask('Ops valve', { projectId: ops.id, columnId: ops.todo });
+    await merges.merge(manager, { taskIds: [a.id, b.id], mainTaskId: a.id, choices: { project: b.id } });
+    // Rig's client page asked for it, not Operations': it leaves the client page, as with Move.
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: a.id }, select: { clientVisible: true, projectId: true } })).toEqual({ clientVisible: false, projectId: ops.id });
+  });
+
+  it('repeats: the rule taken from another task leaves it; if the main task’s series went on, Undo doesn’t start a second series on it', async () => {
+    const monthly = { freq: 'MONTHLY' as const, interval: 1, dayOfMonth: 5 };
+    const main = await newTask('Pump check');
+    const other = await newTask('Monthly check', { recurrenceRule: monthly });
+    const r = await merges.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id, choices: { repeat: other.id } });
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: other.id } })).recurrenceRule).toBeNull();
+    // The main task's series goes on: its next copy carries the rule now (as completing it does).
+    await prisma.task.update({ where: { id: main.id }, data: { recurrenceRule: Prisma.DbNull } });
+    await prisma.task.create({ data: { key: 'MGRIG-90', title: 'Pump check', projectId: rig.id, columnId: rig.todo, createdById: manager.id, recurrenceParentId: main.id, recurrenceSourceId: main.id, recurrenceRule: monthly } });
+    const ask = await merges.undoPreview(manager, r.mergeId);
+    expect(ask.deletedSince).toContain(`${other.key} doesn’t repeat any more: its repeat went on with ${main.key}’s series.`);
+    await merges.undo(manager, r.mergeId);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: other.id } })).recurrenceRule).toBeNull();
+  });
+
+  it('approvals: a waiting main task keeps waiting when the merge moves it; "doesn’t need approval" for a waiting task completes it', async () => {
+    const review = await prisma.kanbanColumn.create({ data: { projectId: ops.id, name: 'Review', category: 'REVIEW', position: 3 } });
+    const rigReview = await prisma.kanbanColumn.create({ data: { projectId: rig.id, name: 'Check', category: 'REVIEW', position: 3 } });
+    const main = await newTask('Waiting one', { columnId: rigReview.id, needsApproval: true });
+    await prisma.task.update({ where: { id: main.id }, data: { approvalRequestedAt: NOW, approvalRequestedById: mateId } });
+    const other = await newTask('Ops one', { projectId: ops.id, columnId: ops.todo, needsApproval: true });
+    const changed: string[] = [];
+    const tracked = createTaskMergeService({ prisma, timeZone: TZ, now: () => NOW, onStatusChanged: async (taskId, prev) => void changed.push(`${taskId}:${prev}`) });
+    await tracked.merge(manager, { taskIds: [main.id, other.id], mainTaskId: main.id, choices: { project: other.id } });
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: main.id }, select: { columnId: true, approvalRequestedAt: true, completedAt: true } })).toEqual({ columnId: review.id, approvalRequestedAt: NOW, completedAt: null });
+    // The column changed: what a status change does (its history line, a repeat's next copy) follows.
+    expect(changed).toEqual([`${main.id}:${rigReview.id}`]);
+
+    const w = await newTask('Waiting two', { columnId: rigReview.id, needsApproval: true });
+    await prisma.task.update({ where: { id: w.id }, data: { approvalRequestedAt: NOW, approvalRequestedById: mateId } });
+    const plain = await newTask('Plain one');
+    await merges.merge(manager, { taskIds: [w.id, plain.id], mainTaskId: w.id, choices: { needsApproval: plain.id } });
+    const done = await prisma.task.findUniqueOrThrow({ where: { id: w.id }, select: { columnId: true, approvalRequestedAt: true, completedAt: true, needsApproval: true } });
+    expect(done).toMatchObject({ columnId: rig.done, approvalRequestedAt: null, needsApproval: false });
+    expect(done.completedAt).not.toBeNull();
+  });
+});

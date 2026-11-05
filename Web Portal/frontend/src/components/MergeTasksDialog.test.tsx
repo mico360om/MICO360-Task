@@ -123,6 +123,17 @@ describe('Merge tasks', () => {
     expect(merges()[0]!.body).toMatchObject({ people: { sara: 'LEAVE_OFF' } });
   });
 
+  it('never names a blocker the person can’t open; says the joined description stops showing to the client', async () => {
+    preview = (b) => ({ ...basePreview(b.taskIds, b.mainTaskId), droppedLinks: [{ key: 'MICO-14', otherKey: '', otherTitle: '', reason: 'loop' }], clientDescriptionOff: true });
+    open([
+      { id: 't12', key: 'MICO-12', title: 'Service the pump', projectId: 'rig' },
+      { id: 't14', key: 'MICO-14', title: 'Pump check', projectId: 'rig' },
+    ]);
+    const dialog = screen.getByRole('dialog', { name: 'Merge tasks' });
+    expect(await within(dialog).findByText('The blocker link between MICO-14 and a task you can’t open would make a loop, so it isn’t carried over.')).toBeInTheDocument();
+    expect(within(dialog).getByText(/the client no longer sees it/)).toBeInTheDocument();
+  });
+
   it('says why it couldn’t merge, and reads the preview again', async () => {
     mergeReply = () => json({ error: { code: 'VERSION_CONFLICT', message: 'MICO-14 changed while you were merging. Look again and try once more.' } }, 409);
     open([

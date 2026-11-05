@@ -749,6 +749,13 @@ async function main(): Promise<void> {
     readFile: async (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey).catch(() => null) : null),
     checklistPercent: async (taskId, db) => progressFromItems(await db.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
     canViewMeeting: (userId, roles, meetingId) => meetingAccess.canViewMeeting(userId, roles, meetingId),
+    // A blocker link to a task the person can't open is never named or counted in the preview.
+    canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
+    // What a status change does (history line, a repeating task's next copy, action items), quietly:
+    // the merge's own notice says it.
+    onStatusChanged: async (taskId, prevColumnId, actorId, extra) => statusChanged(await taskService.getTask(taskId), prevColumnId, actorId, { notify: false, ...(extra ?? {}) }),
+    // A write already on its way to a merged task (a slow upload) is moved to the main task: looked for again later.
+    lateWriteChecksMs: [30_000, 120_000],
     onMerged: (result) => onTasksMerged(result),
     onUndone: (result) => onMergeUndone(result),
     onError: (err, what) => logger.error(`merging tasks: a step ${what} failed`, { err }),

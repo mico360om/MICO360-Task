@@ -242,11 +242,16 @@ export const checklistKey = (item: { text: string; done: boolean }) => `${sameTe
 /** Digits only ("+968 9123-4567" → "96891234567"). */
 const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '');
 
+/** A name's first word, as compared ("Ahmed" in "Ahmed Al Said"). */
+const firstName = (name: string | null | undefined) => sameText(name).split(' ')[0] ?? '';
+
 /**
- * The same person: the same email (letter case aside), or the same phone number — digits only, the
- * shorter at least 8 digits and the end of the longer (a country code written on one copy only).
+ * The same person: the same first name, and the same email (letter case aside) or the same phone number
+ * — digits only, the shorter at least 8 digits and the end of the longer (a country code written on one
+ * copy only). Two people sharing a mailbox or a switchboard are two contacts: both are kept.
  */
-export function sameContact(a: { email: string | null; phone: string | null }, b: { email: string | null; phone: string | null }): boolean {
+export function sameContact(a: { name?: string | null; email: string | null; phone: string | null }, b: { name?: string | null; email: string | null; phone: string | null }): boolean {
+  if (firstName(a.name) !== firstName(b.name)) return false;
   if (a.email && b.email && a.email.trim().toLowerCase() === b.email.trim().toLowerCase()) return true;
   const pa = digits(a.phone);
   const pb = digits(b.phone);

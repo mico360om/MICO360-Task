@@ -543,7 +543,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         },
       });
       if (!t) return null;
-      const merged = await prisma.task.findMany({ where: { mergedIntoId: t.id }, select: { key: true }, orderBy: { key: 'asc' } });
+      const merged = await prisma.task.findMany({ where: { mergedIntoId: t.id }, select: { key: true }, orderBy: [{ mergedAt: 'asc' }, { key: 'asc' }] });
       const rule = t.recurrenceRule as unknown as RecurrenceRule | null;
       const done = isTaskDone({ columnCategory: t.column.category, completedAt: t.completedAt });
       // Who can be @mentioned: the people who can open the task (as when the comment was written).

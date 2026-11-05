@@ -13,6 +13,9 @@ ALTER TABLE `tasks` ADD COLUMN `mergedIntoId` VARCHAR(191) NULL,
 -- CreateIndex
 CREATE INDEX `tasks_mergedIntoId_idx` ON `tasks`(`mergedIntoId`);
 
+-- CreateIndex (the notices about one task: a merge re-points them to the main task, Undo back)
+CREATE INDEX `notifications_entityId_idx` ON `notifications`(`entityId`);
+
 -- CreateTable
 CREATE TABLE `task_merges` (
     `id` VARCHAR(191) NOT NULL,

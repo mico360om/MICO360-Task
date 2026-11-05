@@ -6,6 +6,7 @@ import { firstFreeKey, highestKeyNumber, isTaskKeyConflict } from '../tasks/pris
 import { matchingColumn } from '../tasks/task-move';
 import { boardDateFromKey, boardDateKey } from '../tasks/board-date';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
+import type { ApprovalEvent } from '../tasks/task-approval';
 import {
   checklistKey,
   combineDescriptions,
@@ -118,6 +119,8 @@ export interface MergePreview {
   /** Watchers who can't open the main task's project: they keep following their own task only. */
   watchersLeftOff: number;
   descriptionTooLong: boolean;
+  /** The joined description would no longer be shown to the client ("Also show its description" is turned off). */
+  clientDescriptionOff: boolean;
 }
 
 export interface MergeResult {
@@ -210,15 +213,31 @@ export interface MergeServiceDeps {
   checklistPercent?: (taskId: string, db: Db) => Promise<number>;
   /** May this person see this meeting? (A linked meeting's title is shown only to them.) */
   canViewMeeting?: (userId: string, roles: string[], meetingId: string) => Promise<boolean>;
+  /** May this person open this task? A blocker link to one they can't is never named or counted in the preview. */
+  canViewTask?: (userId: string, roles: string[], taskId: string) => Promise<boolean>;
   /** After a merge is saved: search, notices (never turns the merge into a failure). */
   onMerged?: (result: MergeResult & { actorId: string }) => void | Promise<void>;
   onUndone?: (result: UndoResult & { actorId: string }) => void | Promise<void>;
+  /**
+   * The merge or its undo changed the main task's column: what a status change does follows (its history
+   * line, a repeating task's next copy when it completes, action items) — quietly, the merge's own notice says it.
+   */
+  onStatusChanged?: (taskId: string, prevColumnId: string, actorId: string, extra?: { approval: ApprovalEvent; requestedById: string | null }) => void | Promise<void>;
+  /**
+   * After a merge, look again this long after (ms) for a write that was already on its way to a merged task
+   * (a slow upload): it is moved to the main task. Opening the main task's "Merged from" looks too.
+   */
+  lateWriteChecksMs?: number[];
   onError?: (err: unknown, what: string) => void;
 }
 
+/** The main task's column changed: from where, and the approval step it was (if any). */
+type StatusChange = { prevColumnId: string; approval: ApprovalEvent | null; requestedById: string | null };
+
 /** How many tries when another task takes the main task's new number at the same moment. */
 const KEY_ATTEMPTS = 5;
-const TX = { timeout: 60_000, maxWait: 15_000 } as const;
+// Read committed: every read after the locks sees what is committed now (never a snapshot from before them).
+const TX = { timeout: 60_000, maxWait: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted } as const;
 const TASK_ENTITIES = ['task', 'TASK'];
 
 /** The refusal of one task (or the whole merge), with the preview's short words. */
@@ -235,10 +254,12 @@ const unique = <T>(xs: T[]) => [...new Set(xs)];
 const UNDO_FIELDS = [
   'title', 'description', 'columnId', 'priority', 'startDate', 'dueDate', 'isMilestone', 'clientVisible', 'clientShowDescription', 'recurrenceRule',
   'inspectionFormId', 'inspectionPlace', 'meetingId', 'needsApproval', 'completedAt', 'progress', 'approvalRequestedAt', 'approvalRequestedById',
-  'approvedAt', 'approvedById', 'clientAcceptedAt', 'clientAcceptedById',
+  'approvedAt', 'approvedById', 'clientAcceptedAt', 'clientAcceptedById', 'boardDate',
 ] as const;
 type UndoField = (typeof UNDO_FIELDS)[number];
-const DATE_FIELDS = new Set<UndoField>(['startDate', 'dueDate', 'completedAt', 'approvalRequestedAt', 'approvedAt', 'clientAcceptedAt']);
+const DATE_FIELDS = new Set<UndoField>(['startDate', 'dueDate', 'completedAt', 'approvalRequestedAt', 'approvedAt', 'clientAcceptedAt', 'boardDate']);
+/** The status fields: they go back together or not at all (a Done column never open, an open one never done). */
+const STATUS_FIELDS = new Set<UndoField>(['columnId', 'completedAt', 'progress', 'approvalRequestedAt', 'approvalRequestedById', 'approvedAt', 'approvedById', 'clientAcceptedAt', 'clientAcceptedById', 'boardDate']);
 
 type StoredFields = Record<UndoField, unknown>;
 function storedFields(t: Record<string, unknown>): StoredFields {
@@ -479,6 +500,16 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     return new Set(rows.map((r) => r.id));
   }
   const manages = (scope: Set<string> | null, projectId: string) => scope === null || scope.has(projectId);
+  /** May the actor open this task? Asked once per task per request. */
+  const opener = (actor: MergeActor) => {
+    const seen = new Map<string, Promise<boolean>>();
+    return (taskId: string) => {
+      if (!deps.canViewTask) return Promise.resolve(true);
+      let p = seen.get(taskId);
+      if (!p) seen.set(taskId, (p = deps.canViewTask(actor.id, actor.roles ?? [], taskId).catch(() => false)));
+      return p;
+    };
+  };
 
   /** The tasks among `ids` that hold merged tasks (an active merge into them). */
   async function holders(db: Db, ids: string[]): Promise<Set<string>> {
@@ -532,6 +563,23 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const found = await withMeetingTitles(actor, await loadMergeTasks(prisma, ids));
     const holding = await holders(prisma, found.map((t) => t.id));
     const counts = await loadCounts(prisma, found.map((t) => t.id));
+    // Blocker links count (and are named) only when the person may open the other end.
+    const opens = opener(actor);
+    const foundIds = new Set(found.map((t) => t.id));
+    const links = await prisma.taskDependency.findMany({
+      where: { OR: [{ taskId: { in: [...foundIds] } }, { dependsOnTaskId: { in: [...foundIds] } }], task: { deletedAt: null }, dependsOn: { deletedAt: null } },
+      select: { taskId: true, dependsOnTaskId: true },
+    });
+    for (const t of found) {
+      const c = counts.get(t.id);
+      if (!c) continue;
+      let n = 0;
+      for (const l of links) {
+        const other = l.taskId === t.id ? l.dependsOnTaskId : l.dependsOnTaskId === t.id ? l.taskId : null;
+        if (other && (foundIds.has(other) || (await opens(other)))) n++;
+      }
+      c.blockers = n;
+    }
     const byId = new Map(found.map((t) => [t.id, t]));
     const askedMain = input.mainTaskId && byId.has(input.mainTaskId) ? input.mainTaskId : null;
     const tasks: MergePreviewTask[] = [];
@@ -566,7 +614,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const usable = mergeable.filter((t) => tasks.find((p) => p.id === t.id)?.canMerge);
     const empty: MergePreview = {
       tasks, mainTaskId: mainId, canMerge: false, reason: null, differences: [], project: null,
-      duplicates: { checklist: 0, files: 0, contacts: 0, assignees: 0, watchers: 0, tags: 0, blockers: 0 }, duplicatesText: null, droppedLinks: [], outsiders: [], watchersLeftOff: 0, descriptionTooLong: false,
+      duplicates: { checklist: 0, files: 0, contacts: 0, assignees: 0, watchers: 0, tags: 0, blockers: 0 }, duplicatesText: null, droppedLinks: [], outsiders: [], watchersLeftOff: 0, descriptionTooLong: false, clientDescriptionOff: false,
     };
     if (!mainId || usable.length < MIN_MERGE_TASKS) return { ...empty, reason: 'Choose at least 2 tasks you can merge.' };
     const main = byId.get(mainId)!;
@@ -588,17 +636,21 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       assignees: plan.assigneeDupes,
       watchers: plan.watcherDupes,
       tags: plan.tagDupes,
-      blockers: plan.links.dropped.filter((d) => d.reason === 'duplicate').length,
+      blockers: 0,
     };
     const keyOf = (id: string) => byId.get(id)?.key;
-    const otherEnds = unique(plan.links.dropped.map((d) => (d.edge.taskId === d.fromTaskId ? d.edge.dependsOnTaskId : d.edge.taskId)));
+    const otherEnd = (d: (typeof plan.links.dropped)[number]) => (d.edge.taskId === d.fromTaskId ? d.edge.dependsOnTaskId : d.edge.taskId);
+    for (const d of plan.links.dropped) if (d.reason === 'duplicate' && (byId.has(otherEnd(d)) || (await opens(otherEnd(d))))) duplicates.blockers++;
+    const otherEnds = unique(plan.links.dropped.map(otherEnd));
     const ends = new Map((await prisma.task.findMany({ where: { id: { in: otherEnds } }, select: { id: true, key: true, title: true } })).map((t) => [t.id, t]));
-    const droppedLinks: DroppedLink[] = plan.links.dropped
-      .filter((d) => d.reason !== 'duplicate')
-      .map((d) => {
-        const other = d.edge.taskId === d.fromTaskId ? d.edge.dependsOnTaskId : d.edge.taskId;
-        return { key: keyOf(d.fromTaskId) ?? '', otherKey: ends.get(other)?.key ?? keyOf(other) ?? '', otherTitle: ends.get(other)?.title ?? '', reason: d.reason as 'between' | 'loop' };
-      });
+    const droppedLinks: DroppedLink[] = [];
+    for (const d of plan.links.dropped) {
+      if (d.reason === 'duplicate') continue;
+      const other = otherEnd(d);
+      // A task the person can't open is never named: "a task you can't open".
+      const seen = byId.has(other) || (await opens(other));
+      droppedLinks.push({ key: keyOf(d.fromTaskId) ?? '', otherKey: seen ? (ends.get(other)?.key ?? keyOf(other) ?? '') : '', otherTitle: seen ? (ends.get(other)?.title ?? '') : '', reason: d.reason as 'between' | 'loop' });
+    }
     const combined = combineDescriptions(main, others);
     const tooLong = utf8Bytes(combined.text) > DESCRIPTION_MAX_BYTES;
     return {
@@ -614,6 +666,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       outsiders: [...plan.outsiders.entries()].map(([id, o]) => ({ id, name: o.name, canJoin: joinable.has(id), keys: o.keys })),
       watchersLeftOff: plan.watchersLeftOff,
       descriptionTooLong: tooLong,
+      clientDescriptionOff: combined.parts.length > 0 && usable.some((t) => t.clientVisible && t.clientShowDescription),
     };
   }
 
@@ -621,16 +674,26 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const ids = check(input.taskIds);
     if (ids.length < MIN_MERGE_TASKS) throw new ValidationError('Choose at least 2 tasks to merge.');
     if (!ids.includes(input.mainTaskId)) throw new ValidationError('The main task must be one of the tasks being merged.');
-    let result: MergeResult | null = null;
-    for (let attempt = 0; !result; attempt++) {
+    let saved: { result: MergeResult; statusChange: StatusChange | null } | null = null;
+    for (let attempt = 0; !saved; attempt++) {
       try {
-        result = await prisma.$transaction((tx) => mergeIn(tx, actor, ids, input), TX);
+        saved = await prisma.$transaction((tx) => mergeIn(tx, actor, ids, input), TX);
       } catch (err) {
         if (!isTaskKeyConflict(err)) throw err;
         if (attempt >= KEY_ATTEMPTS - 1) throw new ConflictError('Another task took that number at the same moment. Please try again.', 'TASK_KEY_CONFLICT');
       }
     }
+    const { result, statusChange } = saved;
+    // The merge is saved: what follows it never turns it into a failure.
     try {
+      // A write already on its way to a merged task (it passed its checks before the merge) lands on it
+      // after the merge: it is moved to the main task now, and again a little later (a slow upload).
+      await adoptLate(result.mergeId);
+      for (const ms of deps.lateWriteChecksMs ?? []) {
+        const t = setTimeout(() => void adoptLate(result.mergeId).catch((err) => deps.onError?.(err, 'gathering late writes')), ms);
+        (t as { unref?: () => void }).unref?.();
+      }
+      if (statusChange) await deps.onStatusChanged?.(result.mainTaskId, statusChange.prevColumnId, actor.id, statusChange.approval ? { approval: statusChange.approval, requestedById: statusChange.requestedById } : undefined);
       await deps.onMerged?.({ ...result, actorId: actor.id });
     } catch (err) {
       deps.onError?.(err, 'after a merge');
@@ -639,10 +702,11 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
   }
 
   /** The merge itself, in one transaction: any failure rolls every change back. */
-  async function mergeIn(tx: Prisma.TransactionClient, actor: MergeActor, ids: string[], input: MergeInput): Promise<MergeResult> {
-    const at = now();
-    // Hold the tasks: nothing else changes them (or adds to them) until the merge is saved.
+  async function mergeIn(tx: Prisma.TransactionClient, actor: MergeActor, ids: string[], input: MergeInput): Promise<{ result: MergeResult; statusChange: StatusChange | null }> {
+    // Hold the tasks: nothing else changes them (or adds to them) until the merge is saved. The merge's
+    // time is taken once they are held: anything a merged task gets after it came later (adoptLate).
     await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
+    const at = now();
     const scope = await managedBy(actor, tx);
     const tasks = await loadMergeTasks(tx, ids);
     if (tasks.length !== ids.length) throw new NotFoundError('Task not found.');
@@ -688,13 +752,16 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     if (utf8Bytes(combined.text) > DESCRIPTION_MAX_BYTES) throw new MergeRefusal('The descriptions together are too long for one task. Shorten one of them first.', 'DESCRIPTION_TOO_LONG');
     const columns = await tx.kanbanColumn.findMany({ where: { projectId }, select: { id: true, name: true, category: true, position: true, enabled: true } });
     const statusTask = src('status')!;
-    const column = statusTask.projectId === projectId ? columns.find((c) => c.id === statusTask.columnId) : matchingColumn(columns, statusTask.columnCategory);
+    const approval = src('needsApproval')!;
+    const needsApproval = approval.needsApproval;
+    // "Doesn't need approval" chosen for a task that waits for it: it completes, as switching approval off does.
+    const switchedOff = !needsApproval && statusTask.approvalRequestedAt !== null;
+    const doneColumn = columns.filter((c) => c.category === 'DONE').sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.position - b.position)[0];
+    const column = switchedOff && doneColumn ? doneColumn : statusTask.projectId === projectId ? columns.find((c) => c.id === statusTask.columnId) : matchingColumn(columns, statusTask.columnCategory);
     if (!column) throw new MergeRefusal(`${targetTask.projectName} has no columns to put the task in.`, 'NO_COLUMNS', 400);
     const repeat = resolved.sources.repeat === 'none' ? null : src('repeat');
     const form = src('inspectionForm')!;
     const client = src('clientVisible')!;
-    const approval = src('needsApproval')!;
-    const needsApproval = approval.needsApproval;
     const before = storedFields(main as unknown as Record<string, unknown>);
     const after: StoredFields = { ...before };
     const set = <F extends UndoField>(f: F, v: unknown) => {
@@ -706,8 +773,12 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     set('startDate', src('startDate')!.startDate);
     set('dueDate', src('dueDate')!.dueDate);
     set('isMilestone', src('milestone')!.isMilestone);
-    set('clientVisible', client.clientVisible);
-    set('clientShowDescription', client.clientVisible && client.clientShowDescription);
+    // "Show to client" belongs to a project's client page: only a task of the project the main task ends
+    // in brings it (a project change otherwise takes it off, as Move does). Joined descriptions hold the
+    // other tasks' own words: they are no longer shown to the client until someone ticks it again.
+    const shown = client.clientVisible && client.projectId === projectId;
+    set('clientVisible', shown);
+    set('clientShowDescription', shown && client.clientShowDescription && combined.parts.length === 0);
     set('recurrenceRule', repeat ? repeat.recurrenceRule : null);
     set('inspectionFormId', form.inspectionFormId);
     set('inspectionPlace', form.inspectionPlace);
@@ -715,38 +786,45 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     set('needsApproval', needsApproval);
     // The status: the chosen task's column (or the same kind of column in the main task's project), and
     // its completion and approval with it — completion always follows the column.
-    let boardDate: Date | undefined;
+    let approvalEvent: ApprovalEvent | null = null;
     if (column.id !== main.columnId) {
       set('columnId', column.id);
       const done = column.category === 'DONE';
-      const statusSame = statusTask.id === main.id;
       if (done) {
         set('completedAt', statusTask.completedAt ?? (main.completedAt ?? at));
         set('progress', 100);
-        if (!main.completedAt && !statusTask.completedAt) boardDate = boardDateFromKey(boardDateKey(at, timeZone));
+        if (!main.completedAt && !statusTask.completedAt) set('boardDate', boardDateFromKey(boardDateKey(at, timeZone)));
       } else {
         set('completedAt', null);
         if (main.completedAt) set('progress', deps.checklistPercent ? await deps.checklistPercent(main.id, tx) : 0);
       }
-      const waits = !statusSame && statusTask.approvalRequestedAt && needsApproval;
+      // A task waiting for approval keeps waiting in an open column (as Move keeps it), whichever task it is.
+      const waits = !done && needsApproval && statusTask.approvalRequestedAt !== null;
       set('approvalRequestedAt', waits ? statusTask.approvalRequestedAt : null);
       set('approvalRequestedById', waits ? statusTask.approvalRequestedById : null);
-      if (done) {
+      if (done && switchedOff) {
+        approvalEvent = 'SWITCHED_OFF';
+      } else if (done) {
         // Into Done: approved by the person merging (they run every project involved) when it needs approval.
-        set('approvedAt', statusTask.approvedAt ?? (needsApproval && !main.approvedAt ? at : main.approvedAt));
-        set('approvedById', statusTask.approvedAt ? statusTask.approvedById : needsApproval && !main.approvedAt ? actor.id : main.approvedById);
+        const approves = needsApproval && !main.approvedAt && !statusTask.approvedAt && !statusTask.completedAt;
+        set('approvedAt', statusTask.approvedAt ?? (approves ? at : main.approvedAt));
+        set('approvedById', statusTask.approvedAt ? statusTask.approvedById : approves ? actor.id : main.approvedById);
+        if (approves) approvalEvent = statusTask.approvalRequestedAt ? 'APPROVED' : 'APPROVED_ON_FINISH';
       } else {
         set('approvedAt', null);
         set('approvedById', null);
       }
-      // A client's sign-off is of a finish: it stays only with a Done column (from the task it came with).
-      set('clientAcceptedAt', done ? (statusTask.clientAcceptedAt ?? null) : null);
-      set('clientAcceptedById', done ? (statusTask.clientAcceptedById ?? null) : null);
+      // A client's sign-off is of a finish on that project's client page: it stays only with a Done column,
+      // from a task of the project the main task ends in.
+      const signedOff = done && statusTask.projectId === projectId;
+      set('clientAcceptedAt', signedOff ? (statusTask.clientAcceptedAt ?? null) : null);
+      set('clientAcceptedById', signedOff ? (statusTask.clientAcceptedById ?? null) : null);
     }
-    if (!needsApproval && main.approvalRequestedAt && after.approvalRequestedAt) {
+    if (!needsApproval && after.approvalRequestedAt) {
       set('approvalRequestedAt', null);
       set('approvalRequestedById', null);
     }
+    const statusChange = column.id !== main.columnId ? { prevColumnId: main.columnId, approval: approvalEvent, requestedById: statusTask.approvalRequestedById ?? main.approvalRequestedById } : null;
     const changes: Record<string, FieldChange> = {};
     for (const f of UNDO_FIELDS) if (JSON.stringify(before[f]) !== JSON.stringify(after[f])) changes[f] = { before: before[f], after: after[f] };
 
@@ -784,11 +862,12 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     // ---- The main task ---------------------------------------------------------------------------
     const patch: Prisma.TaskUncheckedUpdateManyInput = { version: { increment: 1 } };
     for (const f of Object.keys(changes) as UndoField[]) (patch as Record<string, unknown>)[f] = columnValue(f, after[f]);
-    if (boardDate) patch.boardDate = boardDate;
-    if (projectChanges) {
+    // In another column: at the bottom of it (as a card moved there).
+    if (column.id !== main.columnId) {
       const last = await tx.task.aggregate({ where: { columnId: column.id, deletedAt: null }, _max: { position: true } });
-      Object.assign(patch, { key: mainKey, projectId, position: (last._max.position ?? -1) + 1 });
+      patch.position = (last._max.position ?? -1) + 1;
     }
+    if (projectChanges) Object.assign(patch, { key: mainKey, projectId });
     const { count } = await tx.task.updateMany({ where: { id: main.id, version: main.version, deletedAt: null }, data: patch });
     if (count === 0) throw new ConflictError(`${main.key} changed while you were merging. Look again and try once more.`, 'VERSION_CONFLICT');
     if (projectChanges) {
@@ -801,10 +880,14 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     if (addedToTeam.length > 0) await tx.projectMember.createMany({ data: addedToTeam.map((p) => ({ projectId, userId: p.id })), skipDuplicates: true });
 
     // ---- The merged tasks: read-only records, hidden, their numbers the main task's -------------------
+    // The repeat taken from another task goes on with the main task alone: that task no longer carries it
+    // (Undo gives it back unless the main task's series went on with it — never two series on one rule).
+    const takesRepeat = repeat && repeat.id !== main.id && repeat.recurrenceRule ? repeat : null;
+    if (takesRepeat) item('repeatTaken', takesRepeat.id, takesRepeat.id, { rule: takesRepeat.recurrenceRule });
     for (const t of others) {
       const done = await tx.task.updateMany({
         where: { id: t.id, version: t.version, deletedAt: null, mergedIntoId: null },
-        data: { mergedIntoId: main.id, mergedAt: at, mergedById: actor.id, mergeId, deletedAt: at, version: { increment: 1 } },
+        data: { mergedIntoId: main.id, mergedAt: at, mergedById: actor.id, mergeId, deletedAt: at, version: { increment: 1 }, ...(takesRepeat?.id === t.id ? { recurrenceRule: Prisma.DbNull } : {}) },
       });
       if (done.count === 0) throw new ConflictError(`${t.key} changed while you were merging. Look again and try once more.`, 'VERSION_CONFLICT');
       const alias = await tx.taskKeyAlias.create({ data: { key: t.key, taskId: main.id, projectId: t.projectId } });
@@ -889,6 +972,17 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       item('followUp', f.id, f.fromTaskId);
       await tx.inspectionFollowUp.update({ where: { id: f.id }, data: { taskId: main.id } });
     }
+    // What stays on each merged task (kept once, or left off): anything else found on one later is a
+    // write that reached it after the merge (adoptLate) — no clock is trusted for that.
+    for (const d of plan.fileDupes) item('keepAttachment', d.id, d.fromTaskId);
+    for (const d of plan.checklistDupes) item('keepChecklist', d.id, d.fromTaskId);
+    for (const d of plan.contactDupes) item('keepContact', d.id, d.fromTaskId);
+    const moved = (list: { userId?: string; tagId?: string; fromTaskId: string }[], t: string, id: string) => list.some((x) => x.fromTaskId === t && (x.userId ?? x.tagId) === id);
+    for (const t of others) {
+      for (const a of rows.assignees.filter((x) => x.taskId === t.id)) if (!moved(plan.assignees, t.id, a.userId)) item('keepAssignee', a.userId, t.id);
+      for (const w of rows.watchers.filter((x) => x.taskId === t.id)) if (!moved(plan.watchers, t.id, w.userId)) item('keepWatcher', w.userId, t.id);
+      for (const g of rows.tags.filter((x) => x.taskId === t.id)) if (!moved(plan.tags, t.id, g.tagId)) item('keepTag', g.tagId, t.id);
+    }
 
     // ---- History ---------------------------------------------------------------------------------
     const mergedKeys = others.map((t) => t.key);
@@ -920,16 +1014,118 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       for (let i = 0; i < items.length; i += 500) await tx.taskMergeItem.createMany({ data: items.slice(i, i + 500) });
     }
     return {
-      mergeId,
-      mainTaskId: main.id,
-      mainKey,
-      mainProjectId: projectId,
-      mainProjectBefore: main.projectId,
-      merged: others.map((t) => ({ id: t.id, key: t.key, projectId: t.projectId })),
-      addedToTeam,
-      leftOff,
-      text: mergedText(mergedKeys, mainKey),
+      result: {
+        mergeId,
+        mainTaskId: main.id,
+        mainKey,
+        mainProjectId: projectId,
+        mainProjectBefore: main.projectId,
+        merged: others.map((t) => ({ id: t.id, key: t.key, projectId: t.projectId })),
+        addedToTeam,
+        leftOff,
+        text: mergedText(mergedKeys, mainKey),
+      },
+      statusChange,
     };
+  }
+
+  // ---- Late writes: what reached a merged task after its merge ------------------------------------
+
+  /** Did any merged task of this merge get something after the merge? (A cheap look before taking locks.) */
+  async function hasLate(mergeId: string): Promise<boolean> {
+    // A row on a merged task the merge didn't keep there arrived after it (rows of these kinds it moved all).
+    const unkept = (table: Prisma.Sql, keep: string | null, rowId: Prisma.Sql = Prisma.sql`x.id`, column: Prisma.Sql = Prisma.sql`taskId`, extra: Prisma.Sql = Prisma.empty) =>
+      Prisma.sql`EXISTS (SELECT 1 FROM ${table} x JOIN tasks t ON t.id = x.${column} WHERE t.mergeId = ${mergeId} ${extra}
+        ${keep ? Prisma.sql`AND NOT EXISTS (SELECT 1 FROM task_merge_items k WHERE k.mergeId = ${mergeId} AND k.kind = ${keep} AND k.rowId = ${rowId} AND k.fromTaskId = t.id)` : Prisma.empty})`;
+    const rows = await prisma.$queryRaw<{ late: number | bigint }[]>`SELECT (
+      ${unkept(Prisma.sql`task_comments`, null)} OR ${unkept(Prisma.sql`task_attachments`, 'keepAttachment')} OR ${unkept(Prisma.sql`task_checklists`, 'keepChecklist')}
+      OR ${unkept(Prisma.sql`task_external_contacts`, 'keepContact')}
+      OR ${unkept(Prisma.sql`task_activity`, null, Prisma.sql`x.id`, Prisma.sql`taskId`, Prisma.sql`AND x.action NOT IN ('TASKS_MERGED', 'MERGED_INTO', 'MERGE_UNDONE')`)}
+      OR ${unkept(Prisma.sql`action_items`, null)} OR ${unkept(Prisma.sql`inspections`, null)}
+      OR ${unkept(Prisma.sql`notifications`, null, Prisma.sql`x.id`, Prisma.sql`entityId`, Prisma.sql`AND x.entityType IN ('task', 'TASK')`)}
+      OR ${unkept(Prisma.sql`task_assignees`, 'keepAssignee', Prisma.sql`x.userId`)} OR ${unkept(Prisma.sql`task_watchers`, 'keepWatcher', Prisma.sql`x.userId`)}
+      OR ${unkept(Prisma.sql`task_tags`, 'keepTag', Prisma.sql`x.tagId`)}
+    ) AS late`;
+    return Number(rows[0]?.late ?? 0) === 1;
+  }
+
+  /**
+   * A write already on its way to a merged task when the merge was saved (it passed its checks before:
+   * a comment waiting for the lock, a slow upload) lands on the hidden merged task. It is moved to the
+   * main task like the rest, remembered for Undo (a person, watcher or tag the main task already has is
+   * kept once). Run after each merge, a little later again, and when the main task's "Merged from" is
+   * opened. Returns how many rows it looked after.
+   */
+  async function adoptLate(mergeId: string): Promise<number> {
+    if (!(await hasLate(mergeId))) return 0;
+    return prisma.$transaction(async (tx) => {
+      const [head] = await tx.$queryRaw<{ mainTaskId: string; undoneAt: Date | null }[]>`SELECT mainTaskId, undoneAt FROM task_merges WHERE id = ${mergeId} FOR UPDATE`;
+      if (!head || head.undoneAt) return 0;
+      const merged = await tx.task.findMany({ where: { mergeId, mergedIntoId: head.mainTaskId }, select: { id: true } });
+      if (merged.length === 0) return 0;
+      await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join([head.mainTaskId, ...merged.map((t) => t.id)])}) FOR UPDATE`;
+      const main = await tx.task.findUnique({ where: { id: head.mainTaskId }, select: { id: true, projectId: true } });
+      if (!main) return 0;
+      const kept = await tx.taskMergeItem.findMany({ where: { mergeId, kind: { startsWith: 'keep' } }, select: { kind: true, rowId: true, fromTaskId: true } });
+      const isKept = (kind: string, rowId: string, from: string) => kept.some((k) => k.kind === kind && k.rowId === rowId && k.fromTaskId === from);
+      const items: Prisma.TaskMergeItemCreateManyInput[] = [];
+      const item = (kind: string, rowId: string, fromTaskId: string, data?: unknown) =>
+        items.push({ mergeId, kind, rowId, fromTaskId, ...(data !== undefined ? { data: data as Prisma.InputJsonValue } : {}) });
+      let checklistAt = (await tx.checklistItem.aggregate({ where: { taskId: main.id }, _max: { position: true } }))._max.position ?? -1;
+      let contactAt = (await tx.taskExternalContact.aggregate({ where: { taskId: main.id }, _max: { position: true } }))._max.position ?? -1;
+      for (const { id: t } of merged) {
+        const comments = await tx.comment.findMany({ where: { taskId: t }, select: { id: true } });
+        for (const c of comments) item('comment', c.id, t);
+        if (comments.length) await tx.comment.updateMany({ where: { id: { in: comments.map((c) => c.id) } }, data: { taskId: main.id } });
+        const files = (await tx.attachment.findMany({ where: { taskId: t }, select: { id: true } })).filter((f) => !isKept('keepAttachment', f.id, t));
+        for (const f of files) item('attachment', f.id, t);
+        if (files.length) await tx.attachment.updateMany({ where: { id: { in: files.map((f) => f.id) } }, data: { taskId: main.id } });
+        for (const c of (await tx.checklistItem.findMany({ where: { taskId: t }, select: { id: true, position: true }, orderBy: { position: 'asc' } })).filter((c) => !isKept('keepChecklist', c.id, t))) {
+          item('checklist', c.id, t, { position: c.position });
+          await tx.checklistItem.update({ where: { id: c.id }, data: { taskId: main.id, position: ++checklistAt } });
+        }
+        for (const c of (await tx.taskExternalContact.findMany({ where: { taskId: t }, select: { id: true, position: true }, orderBy: { position: 'asc' } })).filter((c) => !isKept('keepContact', c.id, t))) {
+          item('contact', c.id, t, { position: c.position });
+          await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: ++contactAt } });
+        }
+        const lines = await tx.activity.findMany({ where: { taskId: t, action: { notIn: ['TASKS_MERGED', 'MERGED_INTO', 'MERGE_UNDONE'] } }, select: { id: true, projectId: true } });
+        for (const a of lines) item('activity', a.id, t, { projectId: a.projectId });
+        if (lines.length) await tx.activity.updateMany({ where: { id: { in: lines.map((a) => a.id) } }, data: { taskId: main.id, projectId: main.projectId } });
+        const actions = await tx.actionItem.findMany({ where: { taskId: t }, select: { id: true } });
+        for (const a of actions) item('actionItem', a.id, t);
+        if (actions.length) await tx.actionItem.updateMany({ where: { id: { in: actions.map((a) => a.id) } }, data: { taskId: main.id } });
+        const checks = await tx.inspection.findMany({ where: { taskId: t }, select: { id: true } });
+        for (const i of checks) item('inspection', i.id, t);
+        if (checks.length) await tx.inspection.updateMany({ where: { id: { in: checks.map((i) => i.id) } }, data: { taskId: main.id } });
+        const notices = await tx.notification.findMany({ where: { entityType: { in: TASK_ENTITIES }, entityId: t }, select: { id: true, projectId: true } });
+        for (const n of notices) item('notification', n.id, t, { projectId: n.projectId });
+        if (notices.length) await tx.notification.updateMany({ where: { id: { in: notices.map((n) => n.id) } }, data: { entityId: main.id, projectId: main.projectId } });
+        // Links: moved when the main task hasn't the same one, else kept once on the merged task.
+        for (const a of (await tx.taskAssignee.findMany({ where: { taskId: t }, select: { userId: true } })).filter((a) => !isKept('keepAssignee', a.userId, t))) {
+          if (await tx.taskAssignee.findUnique({ where: { taskId_userId: { taskId: main.id, userId: a.userId } } })) item('keepAssignee', a.userId, t);
+          else {
+            item('assignee', a.userId, t);
+            await tx.taskAssignee.update({ where: { taskId_userId: { taskId: t, userId: a.userId } }, data: { taskId: main.id } });
+          }
+        }
+        for (const w of (await tx.taskWatcher.findMany({ where: { taskId: t }, select: { userId: true } })).filter((w) => !isKept('keepWatcher', w.userId, t))) {
+          if (await tx.taskWatcher.findUnique({ where: { taskId_userId: { taskId: main.id, userId: w.userId } } })) item('keepWatcher', w.userId, t);
+          else {
+            item('watcher', w.userId, t);
+            await tx.taskWatcher.update({ where: { taskId_userId: { taskId: t, userId: w.userId } }, data: { taskId: main.id } });
+          }
+        }
+        for (const g of (await tx.taskTag.findMany({ where: { taskId: t }, select: { tagId: true } })).filter((g) => !isKept('keepTag', g.tagId, t))) {
+          if (await tx.taskTag.findUnique({ where: { taskId_tagId: { taskId: main.id, tagId: g.tagId } } })) item('keepTag', g.tagId, t);
+          else {
+            item('tag', g.tagId, t);
+            await tx.taskTag.update({ where: { taskId_tagId: { taskId: t, tagId: g.tagId } }, data: { taskId: main.id } });
+          }
+        }
+      }
+      if (items.length) await tx.taskMergeItem.createMany({ data: items });
+      return items.length;
+    }, TX);
   }
 
   // ---- The main task's "Merged from" panel, a merged record, redirects -----------------------------
@@ -938,6 +1134,8 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const merges = await prisma.taskMerge.findMany({ where: { mainTaskId, undoneAt: null }, orderBy: { mergedAt: 'asc' }, select: { id: true, mergedAt: true, mergedById: true } });
     const panel: MergedFromPanel = { merges: [], labels: { comments: {}, checklist: {}, activity: {}, files: {} } };
     if (merges.length === 0) return panel;
+    // Opening the main task gathers anything that reached a merged task after its merge.
+    for (const m of merges) await adoptLate(m.id).catch((err) => deps.onError?.(err, 'gathering late writes'));
     const scope = await managedBy(viewer);
     const mergedTasks = await prisma.task.findMany({
       where: { mergeId: { in: merges.map((m) => m.id) }, mergedIntoId: mainTaskId },
@@ -1030,6 +1228,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     if (gone.length) return { reason: 'A merged task was deleted for good, so the merge can’t be undone.', status: 409, code: 'CANT_UNDO', main, tasks };
     for (const t of [main, ...tasks]) {
       if (t.projectArchived) return { reason: `${t.projectName} is archived now — reopen it first.`, status: 409, code: 'PROJECT_ARCHIVED', main, tasks };
+      if (t.projectStatus === 'COMPLETED') return { reason: `${t.projectName} is completed now — reopen it first.`, status: 409, code: 'PROJECT_COMPLETED', main, tasks };
       if (t.projectDeleted) return { reason: `${t.projectName} was deleted, so the merge can’t be undone.`, status: 409, code: 'CANT_UNDO', main, tasks };
     }
     for (const t of tasks) if (t.mergedIntoId !== m.mainTaskId) return { reason: `${t.key} is no longer merged into ${main.key}.`, status: 409, code: 'CANT_UNDO', main, tasks };
@@ -1055,7 +1254,21 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       for (const i of of) if (!there.has(i.rowId)) missing.set(i.fromTaskId, (missing.get(i.fromTaskId) ?? 0) + 1);
       for (const [taskId, n] of missing) perTask.set(taskId, [...(perTask.get(taskId) ?? []), countWords(n, k.one, k.many)]);
     }
-    return [...perTask.entries()].map(([taskId, words]) => `${capital(listWords(words))} from ${keys.get(taskId) ?? 'a merged task'} ${words.length === 1 && words[0]!.startsWith('1 ') ? 'was' : 'were'} deleted after the merge.`);
+    const lines = [...perTask.entries()].map(([taskId, words]) => `${capital(listWords(words))} from ${keys.get(taskId) ?? 'a merged task'} ${words.length === 1 && words[0]!.startsWith('1 ') ? 'was' : 'were'} deleted after the merge.`);
+    const [main] = await loadMergeTasks(db, [m.mainTaskId]);
+    if (main) {
+      const taken = m.items.find((i) => i.kind === 'repeatTaken');
+      if (taken && !(await repeatGoesBack(db, m, main, storedFields(main as unknown as Record<string, unknown>)))) {
+        lines.push(`${keys.get(taken.rowId) ?? 'The merged task'} doesn’t repeat any more: its repeat went on with ${main.key}’s series.`);
+      }
+      // People the merge took off the main task when it moved project stay off it (it stays in its new project).
+      const leftOff = ((m.summary as unknown as { mainLeftOff?: string[] }).mainLeftOff ?? []);
+      if (leftOff.length) {
+        const people = await db.user.findMany({ where: { id: { in: leftOff } }, select: { username: true, firstName: true, lastName: true } });
+        if (people.length) lines.push(`${listWords(people.map(displayName))} ${people.length === 1 ? 'stays' : 'stay'} off ${main.key} (left off when the merge moved it).`);
+      }
+    }
+    return lines;
   }
 
   async function undoPreview(actor: MergeActor, mergeId: string): Promise<UndoPreview> {
@@ -1078,8 +1291,9 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
   }
 
   async function undo(actor: MergeActor, mergeId: string): Promise<UndoResult> {
-    const result = await prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX);
+    const { result, statusChange } = await prisma.$transaction((tx) => undoIn(tx, actor, mergeId), TX);
     try {
+      if (statusChange) await deps.onStatusChanged?.(result.mainTaskId, statusChange.prevColumnId, actor.id);
       await deps.onUndone?.({ ...result, actorId: actor.id });
     } catch (err) {
       deps.onError?.(err, 'after an undo');
@@ -1087,13 +1301,15 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     return result;
   }
 
-  async function undoIn(tx: Prisma.TransactionClient, actor: MergeActor, mergeId: string): Promise<UndoResult> {
-    const at = now();
-    const head = await tx.taskMerge.findUnique({ where: { id: mergeId }, select: { mainTaskId: true, taskIds: true } });
-    if (!head) throw new NotFoundError('Merge not found.');
+  async function undoIn(tx: Prisma.TransactionClient, actor: MergeActor, mergeId: string): Promise<{ result: UndoResult; statusChange: StatusChange | null }> {
+    // Hold the merge first, then its tasks — before anything is read, so two Undos (or an edit and an
+    // Undo) never act on what was there before the other: the second sees the first's result.
+    const [held] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM task_merges WHERE id = ${mergeId} FOR UPDATE`;
+    if (!held) throw new NotFoundError('Merge not found.');
+    const head = (await tx.taskMerge.findUnique({ where: { id: mergeId }, select: { mainTaskId: true, taskIds: true } }))!;
     const listed = head.taskIds as unknown as { id: string; key: string }[];
     await tx.$queryRaw`SELECT id FROM tasks WHERE id IN (${Prisma.join([head.mainTaskId, ...listed.map((t) => t.id)])}) FOR UPDATE`;
-    await tx.$queryRaw`SELECT id FROM task_merges WHERE id = ${mergeId} FOR UPDATE`;
+    const at = now();
     const m = (await loadMerge(tx, mergeId))!;
     const r = await undoRefusal(tx, actor, m);
     if (r.reason) throw r.status === 403 ? new ForbiddenError(r.reason) : new MergeRefusal(r.reason, r.code, r.status);
@@ -1182,21 +1398,18 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
 
     // The main task: each field the merge changed and nobody changed since goes back (call 2). It stays in
     // its project; a column of its earlier project isn't one it can go back to.
-    const changes = m.changes as unknown as Record<string, FieldChange>;
     const current = storedFields(main as unknown as Record<string, unknown>);
-    const summary = m.summary as unknown as { descriptionParts?: string[] };
-    const patch: Record<string, unknown> = {};
-    for (const [field, change] of Object.entries(changes) as [UndoField, FieldChange][]) {
-      if (field === 'description') {
-        const text = undoDescription((current.description as string | null) ?? null, (change.after as string | null) ?? null, (change.before as string | null) ?? null, summary.descriptionParts ?? []);
-        if (text !== current.description) patch.description = text;
-        continue;
-      }
-      if (field === 'columnId' && m.mainProjectBefore !== main.projectId) continue;
-      const u = undoValue(change, current[field]);
-      if (u.restore) patch[field] = columnValue(field, u.value);
+    const patch = restorePatch(m, main, current);
+    if (Object.keys(patch).length) {
+      const { count } = await tx.task.updateMany({ where: { id: main.id, version: main.version }, data: { ...patch, version: { increment: 1 } } as Prisma.TaskUncheckedUpdateManyInput });
+      if (count === 0) throw new ConflictError(`${main.key} changed while the merge was being undone. Try again.`, 'VERSION_CONFLICT');
     }
-    if (Object.keys(patch).length) await tx.task.update({ where: { id: main.id }, data: { ...patch, version: { increment: 1 } } as Prisma.TaskUncheckedUpdateInput });
+    // The repeat the main task took: back to its task unless the main task's series went on with it.
+    const taken = of('repeatTaken')[0];
+    if (taken && (await repeatGoesBack(tx, m, main, current))) {
+      await tx.task.update({ where: { id: taken.rowId }, data: { recurrenceRule: ((taken.data as { rule?: unknown } | null)?.rule ?? Prisma.DbNull) as Prisma.InputJsonValue } });
+    }
+    const statusChange: StatusChange | null = typeof patch.columnId === 'string' && patch.columnId !== main.columnId ? { prevColumnId: main.columnId, approval: null, requestedById: null } : null;
 
     await tx.taskMerge.update({ where: { id: mergeId }, data: { undoneAt: at, undoneById: actor.id } });
     const keys = tasks.map((t) => t.key);
@@ -1205,13 +1418,66 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     await tx.activity.create({ data: { taskId: main.id, projectId: main.projectId, userId: actor.id, action: 'MERGE_UNDONE', meta: { mergeId, keys, mainKey: main.key }, createdAt: stamp() } });
     for (const t of tasks) await tx.activity.create({ data: { taskId: t.id, projectId: t.projectId, userId: actor.id, action: 'MERGE_UNDONE', meta: { mergeId, keys: [t.key], mainKey: main.key, fromMain: true }, createdAt: stamp() } });
     return {
-      mergeId,
-      mainTaskId: main.id,
-      mainKey: main.key,
-      mainProjectId: main.projectId,
-      restored: tasks.map((t) => ({ id: t.id, key: t.key, projectId: t.projectId })),
-      text: `Undid the merge: ${listWords(keys)} ${keys.length === 1 ? 'is a separate task' : 'are separate tasks'} again`,
+      result: {
+        mergeId,
+        mainTaskId: main.id,
+        mainKey: main.key,
+        mainProjectId: main.projectId,
+        restored: tasks.map((t) => ({ id: t.id, key: t.key, projectId: t.projectId })),
+        text: `Undid the merge: ${listWords(keys)} ${keys.length === 1 ? 'is a separate task' : 'are separate tasks'} again`,
+      },
+      statusChange,
     };
+  }
+
+  /**
+   * Undo's changes to the main task (call 2): each field the merge changed and nobody changed since goes
+   * back. The status fields (column, completion, approval, client sign-off, board day) go back together or
+   * not at all — never a Done column with an open task — and only in the project the main task was in
+   * before (Undo never moves it, so a column of another project is never one to go back to).
+   */
+  function restorePatch(m: MergeRow, main: MergeTask, current: StoredFields): Record<string, unknown> {
+    const changes = m.changes as unknown as Record<string, FieldChange>;
+    const summary = m.summary as unknown as { descriptionParts?: string[] };
+    const patch: Record<string, unknown> = {};
+    const entries = Object.entries(changes) as [UndoField, FieldChange][];
+    const status = entries.filter(([f]) => STATUS_FIELDS.has(f));
+    const statusBack = status.length > 0 && m.mainProjectBefore === main.projectId && status.every(([f, c]) => undoValue(c, current[f]).restore);
+    for (const [field, change] of entries) {
+      if (field === 'description') {
+        const text = undoDescription((current.description as string | null) ?? null, (change.after as string | null) ?? null, (change.before as string | null) ?? null, summary.descriptionParts ?? []);
+        if (text !== current.description) patch.description = text;
+        continue;
+      }
+      if (STATUS_FIELDS.has(field)) {
+        if (statusBack) patch[field] = columnValue(field, change.before);
+        continue;
+      }
+      const u = undoValue(change, current[field]);
+      if (u.restore) patch[field] = columnValue(field, u.value);
+    }
+    return patch;
+  }
+
+  /**
+   * Does the repeat the main task took go back to its task on Undo? Not when a live task of the main
+   * task's series carries it now (its series went on with it): two series never repeat on one rule.
+   * The main task itself counts only when Undo leaves it the taken rule (nobody changed it since: it gets
+   * its own earlier rule back instead).
+   */
+  async function repeatGoesBack(db: Db, m: MergeRow, main: MergeTask, current: StoredFields): Promise<boolean> {
+    const taken = m.items.find((i) => i.kind === 'repeatTaken');
+    if (!taken) return false;
+    const rule = JSON.stringify((taken.data as { rule?: unknown } | null)?.rule ?? null);
+    const change = (m.changes as unknown as Record<string, FieldChange>).recurrenceRule;
+    const mainKeepsIt = JSON.stringify(current.recurrenceRule ?? null) === rule && !(change && undoValue(change, current.recurrenceRule).restore);
+    if (mainKeepsIt) return false;
+    const seriesId = main.recurrenceParentId ?? main.id;
+    const carriers = await db.task.findMany({
+      where: { deletedAt: null, id: { not: main.id }, OR: [{ id: seriesId }, { recurrenceParentId: seriesId }], recurrenceRule: { not: Prisma.DbNull } },
+      select: { recurrenceRule: true },
+    });
+    return !carriers.some((c) => JSON.stringify(c.recurrenceRule) === rule);
   }
 
   /** A merge's main task (whoever may open it may read the merge), or null when there is no such merge. */

@@ -132,11 +132,13 @@ describe('merge rules — duplicates', () => {
     expect(checklistKey({ text: 'Check pump', done: true })).not.toBe(checklistKey({ text: 'Check pump', done: false }));
   });
 
-  it('contacts: the same email, or the same phone number (a country code on one copy only)', () => {
-    expect(sameContact({ email: 'A@x.com ', phone: null }, { email: 'a@x.com', phone: null })).toBe(true);
-    expect(sameContact({ email: null, phone: '+968 9123 4567' }, { email: null, phone: '91234567' })).toBe(true);
-    expect(sameContact({ email: null, phone: '1234' }, { email: null, phone: '1234' })).toBe(false);
-    expect(sameContact({ email: 'a@x.com', phone: '91234567' }, { email: 'b@x.com', phone: '92223333' })).toBe(false);
+  it('contacts: the same email, or the same phone number (a country code on one copy only), and the same first name', () => {
+    expect(sameContact({ name: 'Ahmed', email: 'A@x.com ', phone: null }, { name: 'Ahmed Al Said', email: 'a@x.com', phone: null })).toBe(true);
+    expect(sameContact({ name: 'ahmed', email: null, phone: '+968 9123 4567' }, { name: 'Ahmed', email: null, phone: '91234567' })).toBe(true);
+    expect(sameContact({ name: 'Ahmed', email: null, phone: '1234' }, { name: 'Ahmed', email: null, phone: '1234' })).toBe(false);
+    expect(sameContact({ name: 'Ahmed', email: 'a@x.com', phone: '91234567' }, { name: 'Ahmed', email: 'b@x.com', phone: '92223333' })).toBe(false);
+    // Review: a shared switchboard or mailbox is two people when the names differ — both are kept.
+    expect(sameContact({ name: 'Ahmed', email: 'office@oxy.test', phone: null }, { name: 'Fatima', email: 'office@oxy.test', phone: null })).toBe(false);
   });
 
   it('a kept contact gets the fields it is missing from the other copy, never loses its own', () => {

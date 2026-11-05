@@ -70,6 +70,8 @@ export interface MergePreview {
   outsiders: MergeOutsider[];
   watchersLeftOff: number;
   descriptionTooLong: boolean;
+  /** The joined description won't be shown to the client ("Also show its description" goes off). */
+  clientDescriptionOff?: boolean;
 }
 
 export type MergeChoices = Partial<Record<MergeField, string>>;

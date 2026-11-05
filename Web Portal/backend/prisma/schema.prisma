@@ -798,6 +798,8 @@ model Notification {
 
   @@index([userId, readAt])
   @@index([userId, projectId])
+  /// 1.23.1: the notices about one task (a merge re-points them to the main task, Undo back).
+  @@index([entityId])
   @@map("notifications")
 }
 

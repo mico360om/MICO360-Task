@@ -34,7 +34,8 @@ export interface MergeTasksDialogProps {
 
 const failureText = (e: unknown, fallback: string) => (e instanceof ApiError && e.message ? e.message : `${fallback} Check your connection and try again.`);
 const radioClass = 'h-4 w-4 flex-none accent-brand';
-const optionRow = 'flex min-h-[44px] cursor-pointer items-start gap-2.5 rounded-md px-1 py-1.5 text-sm text-ink hover:bg-ground sm:min-h-0';
+// 44px rows on a touch screen (a tablet too); the dense rows only with a mouse.
+const optionRow = 'flex min-h-[44px] cursor-pointer items-start gap-2.5 rounded-md px-1 py-1.5 text-sm text-ink hover:bg-ground [@media(pointer:fine)]:sm:min-h-0';
 
 /**
  * "Merge tasks": choose the tasks (this one, plus any found by title or number), which one stays (the
@@ -358,11 +359,16 @@ export function MergeTasksDialog({ tasks: initial, onClose, onMerged, onTop = fa
                       ))}
                     </ul>
                     {preview.duplicatesText ? <p className="text-sm text-ink-2">{preview.duplicatesText}</p> : null}
-                    {preview.droppedLinks.filter((l) => l.reason === 'loop').map((l) => (
-                      <p key={`${l.key}-${l.otherKey}`} className="text-sm text-warning">
-                        The blocker link between {l.key} and {l.otherKey} would make a loop, so it isn’t carried over.
+                    {preview.droppedLinks.filter((l) => l.reason === 'loop').map((l, i) => (
+                      <p key={`${l.key}-${l.otherKey}-${i}`} className="text-sm text-warning">
+                        The blocker link between {l.key} and {l.otherKey || 'a task you can’t open'} would make a loop, so it isn’t carried over.
                       </p>
                     ))}
+                    {preview.clientDescriptionOff ? (
+                      <p className="text-sm text-ink-2">
+                        The joined description holds the other tasks’ own words, so the client no longer sees it. Tick “Also show its description” again afterwards if they should.
+                      </p>
+                    ) : null}
                     {preview.watchersLeftOff > 0 ? (
                       <p className="text-sm text-ink-2">
                         {preview.watchersLeftOff === 1 ? '1 watcher isn’t' : `${preview.watchersLeftOff} watchers aren’t`} on the {projectName} team and won’t follow the merged task.
