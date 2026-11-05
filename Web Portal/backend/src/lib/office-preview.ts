@@ -92,20 +92,123 @@ function decode(s: string): string {
   });
 }
 
+/*
+ * Security review (1.23): reading the XML with patterns like /<w:p>([\s\S]*?)<\/w:p>/g took time growing
+ * with the square of the text when a tag was never closed (each start searched to the end again) — a
+ * 30 KB .docx held the server for over an hour. These read each kind of tag in one pass, the same way:
+ * an element is its start tag up to the first end tag after it; once an end tag isn't found, no later
+ * start can have one either, so the reading stops there.
+ */
+
+const isWordChar = (c: number) => (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+const isSpace = (c: number) => c === 32 || c === 9 || c === 10 || c === 13;
+/** Does the tag name end here (so "<w:p" isn't "<w:pPr")? */
+const nameEnds = (xml: string, at: number) => {
+  const c = xml.charCodeAt(at);
+  return c === 62 /* > */ || c === 47 /* / */ || isSpace(c);
+};
+
+/** Each <tag …> start tag in order: its attributes' text and whether it closes itself. */
+function* startTags(xml: string, tag: string): Generator<{ head: string; selfClosed: boolean; end: number }> {
+  const open = `<${tag}`;
+  let i = 0;
+  for (;;) {
+    const s = xml.indexOf(open, i);
+    if (s < 0) return;
+    const after = s + open.length;
+    if (!nameEnds(xml, after)) {
+      i = after;
+      continue;
+    }
+    const gt = xml.indexOf('>', after);
+    if (gt < 0) return;
+    const selfClosed = xml.charCodeAt(gt - 1) === 47;
+    yield { head: xml.slice(after, selfClosed ? gt - 1 : gt), selfClosed, end: gt + 1 };
+    i = gt + 1;
+  }
+}
+
+/** Each <tag …>inner</tag> in order (a self-closed one: inner null). */
+function* elements(xml: string, tag: string): Generator<{ head: string; inner: string | null }> {
+  const open = `<${tag}`;
+  const close = `</${tag}>`;
+  let i = 0;
+  for (;;) {
+    const s = xml.indexOf(open, i);
+    if (s < 0) return;
+    const after = s + open.length;
+    if (!nameEnds(xml, after)) {
+      i = after;
+      continue;
+    }
+    const gt = xml.indexOf('>', after);
+    if (gt < 0) return;
+    if (xml.charCodeAt(gt - 1) === 47) {
+      yield { head: xml.slice(after, gt - 1), inner: null };
+      i = gt + 1;
+      continue;
+    }
+    const end = xml.indexOf(close, gt + 1);
+    if (end < 0) return;
+    yield { head: xml.slice(after, gt), inner: xml.slice(gt + 1, end) };
+    i = end + close.length;
+  }
+}
+
+/** The inner text of each <tag>…</tag>. */
+const innerTexts = (xml: string, tag: string): string[] => [...elements(xml, tag)].map((e) => e.inner ?? '');
+
+/** A tag's name="value" attributes (in one pass). */
 function attrs(tag: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const m of tag.matchAll(/([\w:]+)="([^"]*)"/g)) out[m[1]!] = decode(m[2]!);
+  let i = 0;
+  for (;;) {
+    const q = tag.indexOf('="', i);
+    if (q < 0) break;
+    let s = q;
+    while (s > i && (isWordChar(tag.charCodeAt(s - 1)) || tag.charCodeAt(s - 1) === 58 /* : */)) s--;
+    const end = tag.indexOf('"', q + 2);
+    if (end < 0) break;
+    if (s < q) out[tag.slice(s, q)] = decode(tag.slice(q + 2, end));
+    i = end + 1;
+  }
   return out;
 }
 
-/** The text of the <x:t> runs in a fragment, with Word tabs and breaks. */
+/** The text of the <x:t> runs in a fragment, with Word tabs and breaks (in one pass). */
 function runsText(xml: string, prefix: 'w' | 'a'): string {
+  const lead = `<${prefix}:`;
+  const t = `${lead}t`;
+  const close = `</${prefix}:t>`;
+  const marks: Array<[string, string]> = prefix === 'w' ? [['<w:tab/>', '\t'], ['<w:br/>', '\n'], ['<w:cr/>', '\n']] : [['<a:br/>', '\n']];
   let text = '';
-  const re = prefix === 'w' ? /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:(?:br|cr)\/>/g : /<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>|<a:br\/>/g;
-  for (const m of xml.matchAll(re)) {
-    if (m[1] !== undefined) text += decode(m[1]);
-    else if (m[0].includes('tab')) text += '\t';
-    else text += '\n';
+  let runs = true; // false once a run's end is missing (no later run can have one)
+  let i = 0;
+  for (;;) {
+    const s = xml.indexOf(lead, i);
+    if (s < 0) break;
+    const mark = marks.find(([m]) => xml.startsWith(m, s));
+    if (mark) {
+      text += mark[1];
+      i = s + mark[0].length;
+      continue;
+    }
+    i = s + lead.length;
+    if (!runs || !xml.startsWith(t, s) || !nameEnds(xml, s + t.length)) continue;
+    const gt = xml.indexOf('>', s + t.length);
+    if (gt < 0) break;
+    if (xml.charCodeAt(gt - 1) === 47) {
+      i = gt + 1;
+      continue;
+    }
+    const end = xml.indexOf(close, gt + 1);
+    if (end < 0) {
+      runs = false;
+      i = gt + 1;
+      continue;
+    }
+    text += decode(xml.slice(gt + 1, end));
+    i = end + close.length;
   }
   return text;
 }
@@ -113,8 +216,9 @@ function runsText(xml: string, prefix: 'w' | 'a'): string {
 function documentPreview(xml: string, limits: OfficeLimits): OfficePreview {
   const paragraphs: string[] = [];
   let truncated = false;
-  for (const m of xml.matchAll(/<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/g)) {
-    const text = runsText(m[1]!, 'w');
+  for (const p of elements(xml, 'w:p')) {
+    if (p.inner === null) continue;
+    const text = runsText(p.inner, 'w');
     if (!text.trim()) continue;
     if (paragraphs.length >= limits.paragraphs) {
       truncated = true;
@@ -131,7 +235,7 @@ function slidesPreview(parts: Map<string, string>, limits: OfficeLimits): Office
     .sort((a, b) => a.number - b.number);
   const slides = numbered.slice(0, limits.slides).map(({ name, number }) => ({
     number,
-    lines: [...parts.get(name)!.matchAll(/<a:p(?:\s[^>]*)?>([\s\S]*?)<\/a:p>/g)].map((m) => runsText(m[1]!, 'a')).filter((l) => l.trim()),
+    lines: [...elements(parts.get(name)!, 'a:p')].map((p) => runsText(p.inner ?? '', 'a')).filter((l) => l.trim()),
   }));
   return { kind: 'slides', slides, truncated: numbered.length > limits.slides };
 }
@@ -144,15 +248,14 @@ function columnIndex(ref: string): number {
 }
 
 function sheetPreview(parts: Map<string, string>, limits: OfficeLimits): OfficePreview {
-  const shared = [...(parts.get('xl/sharedStrings.xml') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) =>
-    [...m[1]!.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((t) => decode(t[1]!)).join(''),
-  );
+  const textOf = (xml: string) => innerTexts(xml, 't').map(decode).join('');
+  const shared = innerTexts(parts.get('xl/sharedStrings.xml') ?? '', 'si').map(textOf);
   const rels = new Map<string, string>();
-  for (const m of (parts.get('xl/_rels/workbook.xml.rels') ?? '').matchAll(/<Relationship\b[^>]*>/g)) {
-    const a = attrs(m[0]);
+  for (const r of startTags(parts.get('xl/_rels/workbook.xml.rels') ?? '', 'Relationship')) {
+    const a = attrs(r.head);
     if (a.Id && a.Target) rels.set(a.Id, a.Target.replace(/^\/?xl\//, '').replace(/^\//, ''));
   }
-  const declared = [...(parts.get('xl/workbook.xml') ?? '').matchAll(/<sheet\b[^>]*>/g)].map((m) => attrs(m[0]));
+  const declared = [...startTags(parts.get('xl/workbook.xml') ?? '', 'sheet')].map((s) => attrs(s.head));
   const sheets: Array<{ name: string; rows: string[][]; truncated: boolean }> = [];
   for (const [i, s] of declared.slice(0, limits.sheets).entries()) {
     const target = rels.get(s['r:id'] ?? '') ?? `worksheets/sheet${i + 1}.xml`;
@@ -161,24 +264,24 @@ function sheetPreview(parts: Map<string, string>, limits: OfficeLimits): OfficeP
     const rows: string[][] = [];
     let truncated = false;
     let width = 0;
-    for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>|<row\b[^>]*\/>/g)) {
+    for (const row of elements(xml, 'row')) {
       if (rows.length >= limits.rows) {
         truncated = true;
         break;
       }
       const cells: string[] = [];
-      for (const c of (row[1] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-        const a = attrs(c[1]!);
+      for (const c of elements(row.inner ?? '', 'c')) {
+        const a = attrs(c.head);
         const col = a.r ? columnIndex(a.r) : cells.length;
         if (col >= limits.cols) {
           truncated = true;
           continue;
         }
-        const body = c[2] ?? '';
-        const v = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1];
+        const body = c.inner ?? '';
+        const v = elements(body, 'v').next().value?.inner ?? undefined;
         let value = '';
         if (a.t === 's') value = shared[Number(v)] ?? '';
-        else if (a.t === 'inlineStr') value = [...body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((t) => decode(t[1]!)).join('');
+        else if (a.t === 'inlineStr') value = textOf(body);
         else if (a.t === 'b') value = v === '1' ? 'TRUE' : v === '0' ? 'FALSE' : '';
         else value = v !== undefined ? decode(v) : '';
         while (cells.length < col) cells.push('');

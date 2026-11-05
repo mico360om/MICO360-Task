@@ -105,3 +105,49 @@ describe('officePreview — what it won’t do', () => {
     if (p?.kind === 'document') expect(p.paragraphs.length).toBeLessThan(5000);
   });
 });
+
+// Security review (1.23): the preview's patterns took time growing with the square of the text when a
+// tag was never closed — a 30 KB .docx (16 MB of "<w:p>" unpacked) held the server for about an hour and
+// a half. Each kind of tag is now read in one pass: these files preview at once.
+describe('officePreview — tags that are never closed', () => {
+  const KB = 1024;
+  const fast = (name: string, files: Record<string, string>) => {
+    const file = pkg(files);
+    const t = Date.now();
+    expect(() => officePreview(file, name)).not.toThrow();
+    expect(Date.now() - t, `${name} took too long`).toBeLessThan(1000);
+  };
+  const xlsx = (parts: Partial<Record<'workbook' | 'rels' | 'shared' | 'sheet', string>>) => ({
+    'xl/workbook.xml': parts.workbook ?? '<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': parts.rels ?? '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/sharedStrings.xml': parts.shared ?? '<sst><si><t>x</t></si></sst>',
+    'xl/worksheets/sheet1.xml': parts.sheet ?? '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>',
+  });
+
+  it('Word: paragraphs and text runs that never end', () => {
+    fast('p.docx', { 'word/document.xml': '<w:p>'.repeat((600 * KB) / 5) });
+    fast('t.docx', { 'word/document.xml': `<w:p>${'<w:t>'.repeat((600 * KB) / 5)}</w:p>` });
+  }, 120_000);
+
+  it('PowerPoint: paragraphs that never end', () => {
+    fast('s.pptx', { 'ppt/slides/slide1.xml': '<a:p>'.repeat((600 * KB) / 5) });
+  }, 120_000);
+
+  it('Excel: shared strings, rows, cells, values, sheets and links that never end, and a tag with one endless name', () => {
+    fast('si.xlsx', xlsx({ shared: `<sst>${'<si>'.repeat((600 * KB) / 4)}</sst>` }));
+    fast('row.xlsx', xlsx({ sheet: `<sheetData>${'<row>'.repeat((600 * KB) / 5)}</sheetData>` }));
+    fast('c.xlsx', xlsx({ sheet: `<sheetData><row>${'<c>'.repeat((600 * KB) / 3)}</row></sheetData>` }));
+    fast('v.xlsx', xlsx({ sheet: `<sheetData><row><c>${'<v>'.repeat((600 * KB) / 3)}</c></row></sheetData>` }));
+    fast('sheet.xlsx', xlsx({ workbook: `<workbook><sheets>${'<sheet '.repeat((600 * KB) / 7)}` }));
+    fast('rel.xlsx', xlsx({ rels: `<Relationships>${'<Relationship '.repeat((600 * KB) / 14)}` }));
+    fast('attr.xlsx', xlsx({ sheet: `<sheetData><row><c ${'a'.repeat(100 * KB)}><v>1</v></c></row></sheetData>` }));
+  }, 300_000);
+
+  it('reads rows as they are: a self-closed row is empty, and the row after it keeps its own cells', () => {
+    const p = officePreview(
+      pkg(xlsx({ sheet: '<sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2" spans="1:2"/><row r="3"><c r="B3"><v>7</v></c></row></sheetData>' })),
+      'gaps.xlsx',
+    );
+    expect(p).toMatchObject({ kind: 'sheet', sheets: [{ name: 'S', rows: [['x', ''], ['', ''], ['', '7']] }] });
+  });
+});

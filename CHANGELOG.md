@@ -177,6 +177,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - A harmful PDF can no longer stop the server: files are read for search in a separate process of
   their own, so a file that runs it out of memory stops only that reader, and the PDF reader now keeps
   within a small, fixed amount of memory however a file is packed.
+- Opening the preview of a Word, Excel or PowerPoint file (or reading one for search) can no longer
+  hold up the server, however oddly the file is written: a small file made to do that once froze the
+  site for over an hour.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams

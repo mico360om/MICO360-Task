@@ -24,7 +24,6 @@ export async function readFileTextOffThread(
   const failed = (error: string): FileText => ({ status: 'FAILED', method: null, text: '', truncated: false, images: [], error: error.slice(0, 200) });
   return new Promise<FileText>((resolve) => {
     let done = false;
-    let timer: NodeJS.Timeout | undefined;
     let child: ReturnType<typeof fork> | undefined;
     const finish = (out: FileText) => {
       if (done) return;
@@ -37,6 +36,7 @@ export async function readFileTextOffThread(
       }
       resolve(out);
     };
+    const timer = setTimeout(() => finish(failed('Reading the file took too long.')), opts.timeoutMs ?? 20_000);
     try {
       child = fork(script, [], {
         // Its own heap limit (never the server's own flags: a development loader isn't wanted there).
@@ -49,7 +49,6 @@ export async function readFileTextOffThread(
       finish(failed(err instanceof Error ? `The reader could not start: ${err.message}` : 'The reader could not start.'));
       return;
     }
-    timer = setTimeout(() => finish(failed('Reading the file took too long.')), opts.timeoutMs ?? 20_000);
     child.once('message', (r: FileText) => finish({ ...r, images: (r.images ?? []).map((b) => Buffer.from(b)) }));
     child.once('error', (err) => finish(failed(err instanceof Error ? err.message : 'The file could not be read.')));
     child.once('exit', (code, signal) => finish(failed(`The reader stopped (${signal ?? code}).`)));
