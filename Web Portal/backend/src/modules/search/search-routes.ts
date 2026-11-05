@@ -48,7 +48,13 @@ const allFilters = {
   to: day,
 };
 
-const querySchema = z.object({ q: z.string().default('') });
+/**
+ * The top bar's words. Security review (1.23): only the first 200 characters are searched (the other
+ * searches refuse more than 200) — never a pattern as long as an address can be. Longer text is cut,
+ * not refused: the apps send whatever was typed or pasted.
+ */
+export const TOP_BAR_MAX_CHARS = 200;
+const querySchema = z.object({ q: z.string().default('').transform((q) => q.slice(0, TOP_BAR_MAX_CHARS)) });
 
 /** Results per page of the full task search (at most 50). */
 export const TASK_PAGE_SIZE = 20;

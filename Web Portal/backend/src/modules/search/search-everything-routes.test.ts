@@ -117,6 +117,14 @@ describe('search costs', () => {
     expect(calls[0]).toMatchObject({ kinds: ['note', 'minutes', 'file', 'inspection'], exactOnly: true });
   });
 
+  it('the top bar reads at most the first 200 characters of what was typed (never a 16 KB pattern)', async () => {
+    const { app, calls } = await makeApp();
+    const long = `pump ${'valve'.repeat(2000)}`;
+    const res = await app.inject({ method: 'GET', url: `/api/v1/search?q=${encodeURIComponent(long)}`, headers: { authorization: `Bearer ${await tokenFor('u1', ['EMPLOYEE'])}` } });
+    expect(res.statusCode).toBe(200);
+    expect(calls[0]!.q).toBe(long.slice(0, 200));
+  });
+
   it('each person’s searches are limited per minute (the top bar, the results page, tasks, the AI panel)', async () => {
     const { app } = await makeApp({ searchPerMinute: 3 });
     const as = async (id: string) => ({ authorization: `Bearer ${await tokenFor(id, ['EMPLOYEE'])}` });
