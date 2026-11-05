@@ -99,13 +99,17 @@ export function createTeamsMeetings(deps: TeamsMeetingsDeps) {
 
   /**
    * The meetings a new link is for: this one, and a repeating family's upcoming meetings that have no
-   * Teams meeting and the same link as this one (a repeat given its own link keeps it).
+   * Teams meeting and the same link as this one (a repeat given its own link keeps it). Security review
+   * (1.23): only those with the same organizer — a repeat handed over to someone else is theirs, and
+   * their Microsoft account never hosts (or takes away) the rest of the family's link.
    */
   async function targetsOf(row: TeamsLinkRow): Promise<TeamsLinkRow[]> {
     if (!row.rootId) return [row];
     const t = now().getTime();
     const rows = (await store.family(row.rootId)).filter(
-      (r) => r.id === row.id || (!r.teamsId && isOpen(r) && endOf(r).getTime() > t && (r.onlineLink ?? null) === (row.onlineLink ?? null)),
+      (r) =>
+        r.id === row.id ||
+        (r.organizerId === row.organizerId && !r.teamsId && isOpen(r) && endOf(r).getTime() > t && (r.onlineLink ?? null) === (row.onlineLink ?? null)),
     );
     return rows.some((r) => r.id === row.id) ? rows : [row, ...rows];
   }
@@ -280,7 +284,9 @@ export function createTeamsMeetings(deps: TeamsMeetingsDeps) {
     if (!row || row.provider !== 'TEAMS') return;
     const t = now().getTime();
     const targets = row.rootId
-      ? (await store.family(row.rootId)).filter((r) => r.provider === 'TEAMS' && (r.id === row.id || (isOpen(r) && endOf(r).getTime() > t)) && (r.teamsId === row.teamsId || !r.teamsId))
+      ? (await store.family(row.rootId)).filter(
+          (r) => r.provider === 'TEAMS' && (r.id === row.id || (r.organizerId === row.organizerId && isOpen(r) && endOf(r).getTime() > t)) && (r.teamsId === row.teamsId || !r.teamsId),
+        )
       : [row];
     if (!targets.some((r) => r.id === row.id)) targets.push(row);
     const url = row.teamsId ? joinUrl : null;

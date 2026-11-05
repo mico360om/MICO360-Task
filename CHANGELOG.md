@@ -180,6 +180,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Opening the preview of a Word, Excel or PowerPoint file (or reading one for search) can no longer
   hold up the server, however oddly the file is written: a small file made to do that once froze the
   site for over an hour.
+- Teams links in a repeating meeting with more than one organizer: when one of its meetings is handed
+  to someone else, making or removing the Teams link there changes only the meetings that person
+  organizes — their Microsoft account never hosts, or takes away, the link of the others' meetings.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams

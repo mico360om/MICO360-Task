@@ -369,3 +369,40 @@ describe('review fixes', () => {
     expect(out.notice?.code).toBe('TEAMS_FAILED');
   });
 });
+
+// Security review (1.23): a repeat handed over to someone else is theirs — but making (or taking away)
+// a Teams link on it reached the whole family, so their Microsoft account hosted, or stripped, the
+// links of meetings someone else organizes. Only the organizer's own meetings of the family follow.
+describe('a family with more than one organizer', () => {
+  async function handedOver() {
+    const root = await weekly();
+    const list = family(root.id);
+    await meetingService.updateMeeting(list[2]!.id, { organizerId: 'bea' });
+    return { root, list, theirs: list[2]!, mine: [list[0]!, list[1]!, list[3]!] };
+  }
+
+  it('the new organizer’s Teams link is only on the meetings they organize', async () => {
+    await connect('bea');
+    const { theirs, mine } = await handedOver();
+    expect((await teams.makeLink(theirs.id, { id: 'bea' })).made).toBe(true);
+    await teams.idle();
+    expect(row(theirs.id).onlineMeetingProvider).toBe('TEAMS');
+    for (const m of mine) expect(row(m.id), m.id).toMatchObject({ onlineLink: null, onlineMeetingProvider: null });
+    const [made] = [...ms.meetings.values()];
+    expect(made!.startDateTime).toBe(theirs.startAt.toISOString());
+  });
+
+  it('unticking on the handed-over repeat takes the link off that one only; the family’s Teams meeting stays', async () => {
+    const { root, theirs, mine } = await handedOver();
+    // The family's link was made by its organizer before the handover.
+    await meetingService.updateMeeting(theirs.id, { organizerId: 'org' });
+    await teams.makeLink(root.id, { id: 'org' });
+    await meetingService.updateMeeting(theirs.id, { organizerId: 'bea' });
+    const join = row(root.id).onlineLink;
+    await teams.removeLink(theirs.id, join);
+    await teams.idle();
+    expect(row(theirs.id)).toMatchObject({ onlineLink: null, onlineMeetingProvider: null });
+    for (const m of mine) expect(row(m.id), m.id).toMatchObject({ onlineLink: join, onlineMeetingProvider: 'TEAMS' });
+    expect(ms.meetings.size).toBe(1);
+  });
+});
