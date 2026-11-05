@@ -194,6 +194,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   invitation would have named the client, and everyone's calendar replies would have gone to them).
 - Reading scanned files with AI sends at most 8 MB of pictures at a time, each page picture once, so a
   scanned PDF can't run up the AI provider's bill.
+- The AI answer in search is told that what people wrote in tasks, comments and files (clients'
+  comments too) is only text to search, never instructions, so a planted message can't steer it.
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams
