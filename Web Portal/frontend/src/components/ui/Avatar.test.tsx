@@ -26,4 +26,17 @@ describe('Avatar', () => {
     expect(face.className).toMatch(/linear-gradient\(rgb\(var\(--c-brand\)\/0\.1\)/);
     expect(face.className).not.toMatch(/(^|\s)bg-brand\/10(\s|$)/);
   });
+
+  it('a face in a row is 24px, and 20px in compact (1.23.0); elsewhere it never changes', () => {
+    render(
+      <>
+        <Avatar name="Ada Lovelace" size="sm" dense />
+        <Avatar name="Bo Diddley" size="sm" />
+        <Avatar name="Cy Twombly" size="sm" dense src="/uploads/cy.png" />
+      </>,
+    );
+    expect(screen.getByLabelText('Ada Lovelace')).toHaveClass('h-6', 'w-6', 'compact:h-5', 'compact:w-5');
+    expect(screen.getByLabelText('Bo Diddley').className).not.toMatch(/compact:/);
+    expect(screen.getByAltText('Cy Twombly')).toHaveClass('h-6', 'w-6', 'compact:h-5', 'compact:w-5');
+  });
 });

@@ -1,11 +1,14 @@
 import { assetUrl } from '../../api/client';
 import { personInitials } from '../../lib/initials';
+import { DENSE_FACE } from '../../lib/density-tokens';
 
 export interface AvatarProps {
   name: string;
   size?: 'sm' | 'md' | 'lg';
   /** Profile image path (server-relative like /uploads/<key>, or an absolute URL). Falls back to initials. */
   src?: string | null;
+  /** A face in a row of a list, table or board: 20px in compact rows (1.23.0, lib/density). */
+  dense?: boolean;
 }
 
 const SIZE: Record<NonNullable<AvatarProps['size']>, string> = {
@@ -14,7 +17,8 @@ const SIZE: Record<NonNullable<AvatarProps['size']>, string> = {
   lg: 'h-16 w-16 text-lg',
 };
 
-export function Avatar({ name, size = 'md', src }: AvatarProps) {
+export function Avatar({ name, size = 'md', src, dense = false }: AvatarProps) {
+  const sizing = dense ? `${SIZE[size]} ${DENSE_FACE}` : SIZE[size];
   const resolved = src && src.startsWith('/') ? assetUrl(src) : src ?? undefined;
   if (resolved) {
     return (
@@ -22,7 +26,7 @@ export function Avatar({ name, size = 'md', src }: AvatarProps) {
         src={resolved}
         alt={name}
         title={name}
-        className={`inline-block flex-none rounded-full border border-surface object-cover ${SIZE[size]}`}
+        className={`inline-block flex-none rounded-full border border-surface object-cover ${sizing}`}
       />
     );
   }
@@ -36,7 +40,7 @@ export function Avatar({ name, size = 'md', src }: AvatarProps) {
       aria-label={name}
       // The brand tint over a solid card-coloured backing: it looks the same on a card, but avatars
       // stacked over each other no longer show the letters behind through the tint.
-      className={`inline-flex flex-none items-center justify-center rounded-full border border-surface bg-surface bg-[linear-gradient(rgb(var(--c-brand)/0.1),rgb(var(--c-brand)/0.1))] font-semibold text-brand ${SIZE[size]}`}
+      className={`inline-flex flex-none items-center justify-center rounded-full border border-surface bg-surface bg-[linear-gradient(rgb(var(--c-brand)/0.1),rgb(var(--c-brand)/0.1))] font-semibold text-brand ${sizing}`}
     >
       {initials}
     </span>

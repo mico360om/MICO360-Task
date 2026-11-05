@@ -42,6 +42,17 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Action items under topics: the "add an action item" form has a Topic choice (none at first), each
   item in the list names its topic, and an action note made into a task puts its action item under the
   note's topic. Older items made from a note are shown under that note's topic.
+- Compact rows: for people who live in lists and tables, Settings → Appearance now has Row spacing —
+  Comfortable (today's look, everyone's to start with) or Compact — and the tables and lists have a
+  small "Compact rows" button beside their view choice (the Board page and a project's Board and Tasks
+  tabs, a meeting's agenda, My Tasks and the Notifications page). Compact fits more on screen: tighter
+  rows and cards, text a step smaller (never below 12 px), smaller faces, the cards closer together —
+  in every task and meeting table, My Tasks' grid and list, a project's task list, the Kanban cards, a
+  meeting's agenda, action items and notes, the bell and the Notifications page, the Activity page, My
+  Action Items, the approvals lists and User Management. Page headers, forms and dialogs stay as they
+  are. The choice is saved to your account, so it follows you to every computer, and this computer
+  remembers it so a page never loads comfortable first. Phones and touch screens always keep the
+  comfortable spacing and their finger-sized buttons; Settings says so there.
 
 ### Improvements
 - User Management → Manage account: an administrator's account has a "Show my projects only" switch.

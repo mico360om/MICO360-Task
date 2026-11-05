@@ -43,7 +43,8 @@ export function notificationKindLook(type: string): Pick<KindLook, 'id' | 'name'
 export function NotificationKindIcon({ type }: { type: string }) {
   const look = LOOKS[type] ?? OTHER;
   return (
-    <span data-kind-icon={look.id} aria-hidden="true" className={`grid h-8 w-8 flex-none place-items-center rounded-full ${look.tone}`}>
+    // 28px in compact rows (1.23.0, lib/density), as the faces in rows shrink.
+    <span data-kind-icon={look.id} aria-hidden="true" className={`grid h-8 w-8 flex-none place-items-center rounded-full compact:h-7 compact:w-7 ${look.tone}`}>
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
         {look.paths}
       </svg>

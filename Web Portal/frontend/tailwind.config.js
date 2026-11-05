@@ -1,3 +1,5 @@
+import plugin from 'tailwindcss/plugin';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -60,6 +62,8 @@ export default {
         warning: { DEFAULT: 'rgb(var(--c-warning-text) / <alpha-value>)', soft: 'rgb(var(--c-warning-soft) / <alpha-value>)' },
         info: { DEFAULT: 'rgb(var(--c-info-text) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
       },
+      // A row's text in compact (lib/density.ts): one step under text-sm, on a tighter line.
+      fontSize: { row: ['13px', '18px'] },
       fontFamily: {
         sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
         display: ['Archivo', 'system-ui', 'sans-serif'],
@@ -113,5 +117,13 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // `compact:` — Compact rows (1.23.0, lib/density.ts): only when the person chose compact
+    // (<html data-density="compact">) AND from the md width with a mouse or trackpad, so phones and
+    // touch screens always keep the comfortable sizes. Comfortable is untouched: without the attribute
+    // these rules match nothing. (COMPACT_MEDIA in lib/density.ts is the same media.)
+    plugin(({ addVariant }) => {
+      addVariant('compact', '@media (min-width: 48em) and (pointer: fine) { :root[data-density="compact"] & }');
+    }),
+  ],
 };

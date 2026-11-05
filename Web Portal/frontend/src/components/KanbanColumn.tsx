@@ -104,7 +104,8 @@ export function KanbanColumn({ column, onTaskClick, onAddTask, timeZone, cardMen
       {/* Fitted to the window, the cards scroll here (the header above stays); the padding keeps a
           card's ring and lift inside the scroll area's edges. data-column-scroll: see board-collision. */}
       <div
-        className={fit ? '-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-1 pt-0.5' : 'flex min-h-[80px] flex-col gap-2.5'}
+        // Compact rows (1.23.0, lib/density): the cards closer together.
+        className={fit ? '-mx-1 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-1 pb-1 pt-0.5 compact:gap-1.5' : 'flex min-h-[80px] flex-col gap-2.5 compact:gap-1.5'}
         {...(fit ? { 'data-column-scroll': '' } : {})}
       >
         <SortableContext items={column.tasks.map((t) => t.key)} strategy={verticalListSortingStrategy}>

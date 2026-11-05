@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { initTheme } from './lib/theme';
+import { initDensity } from './lib/density';
 import { createAppQueryClient } from './lib/query-client';
 import { bindQueryCacheToSession } from './lib/session-lifecycle';
 import { bindQueryCacheToCompanyPick } from './lib/company-scope';
@@ -15,6 +16,7 @@ import { browserServiceWorkerWorld, setUpServiceWorker } from './lib/service-wor
 import './index.css';
 
 initTheme(); // apply the persisted light/dark/system choice before first paint
+initDensity(); // and the person's compact / comfortable rows (their last on this device; the account's follows)
 installKeyboardAwareness(); // keep the field being typed in (and its buttons) above a phone keyboard
 
 const queryClient = createAppQueryClient();

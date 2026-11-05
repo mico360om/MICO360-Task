@@ -9,7 +9,7 @@ import { TaskKey } from '../TaskKey';
  * Inside a link or button with `group`, it lights up with it.
  */
 export function TaskNumber({ value }: { value: string | null | undefined }) {
-  return value ? <TaskKey value={value} className="transition-colors group-hover:text-brand group-hover:underline" /> : <span>Task</span>;
+  return value ? <TaskKey value={value} dense="compact" className="transition-colors group-hover:text-brand group-hover:underline" /> : <span>Task</span>;
 }
 
 /** A titled card section of the meeting page. `compact`: one line, the title and its aside side by side. */
@@ -107,7 +107,7 @@ export function ConfirmRemoveButton({ label, onConfirm, disabled }: { label: str
         disabled={disabled}
         aria-label={label}
         title={label}
-        className="grid h-9 w-9 place-items-center rounded-md text-xs text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-40 sm:h-8 sm:w-8"
+        className="grid h-9 w-9 place-items-center rounded-md text-xs text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-40 sm:h-8 sm:w-8 compact:h-7 compact:w-7"
       >
         ✕
       </button>

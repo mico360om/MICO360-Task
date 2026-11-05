@@ -6,6 +6,8 @@ export interface DatePreferences {
   weekStart: 0 | 1 | 6 | null;
   /** "Show my projects only" (1.22, an administrator's own; off by default) — lib/useMyProjectsOnly.ts. */
   myProjectsOnly?: boolean;
+  /** Compact / comfortable rows (1.23.0, anyone's own; comfortable by default) — lib/density.ts. */
+  density?: 'comfortable' | 'compact';
 }
 
 export function preferencesApi(client: ApiClient) {

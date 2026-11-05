@@ -3,6 +3,7 @@ import { Reveal } from '../ui/Reveal';
 import { relativeTime } from '../../lib/relative-time';
 import { useApprovals } from './ToApproveSection';
 import { TaskKey } from '../TaskKey';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 
 /** How many waiting tasks the card lists (the rest are on My Tasks). */
 const SHOWN = 5;
@@ -39,10 +40,11 @@ export function ApprovalsCard({ onOpenTask }: { onOpenTask: (taskId: string) => 
                 <button
                   type="button"
                   onClick={() => onOpenTask(t.id)}
-                  className="flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-2 py-2 text-start transition-colors hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
+                  // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
+                  className="flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-2 py-2 text-start transition-colors compact:py-1 hover:bg-ground [@media(pointer:coarse)]:!min-h-11"
                 >
-                  <span className="flex min-w-0 items-center gap-2 text-sm">
-                    <TaskKey value={t.key} />
+                  <span className={`flex min-w-0 items-center gap-2 text-sm ${DENSE_TEXT}`}>
+                    <TaskKey value={t.key} dense="compact" />
                     <bdi title={t.title} className="truncate text-ink">
                       {t.title}
                     </bdi>

@@ -41,6 +41,8 @@ import { TaskKey } from '../components/TaskKey';
 import { projectOption } from '../components/project-option';
 import { useCurrentProject } from '../components/CurrentProject';
 import { TOUCH_TALL } from '../lib/touch';
+import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../lib/density-tokens';
+import { DensityButton } from '../components/DensityButton';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { TaskTable } from '../components/data-table/TaskTable';
 import { useTableMemory } from '../components/data-table/hooks';
@@ -411,6 +413,8 @@ export function MyTasksPage() {
                 <div className="w-32">{sortSelect}</div>
               </div>
               {viewSwitch}
+              {/* 1.23.0: Compact rows for all three views (from 768px with a mouse; Settings otherwise). */}
+              <DensityButton />
             </div>
           </div>
         )
@@ -458,7 +462,7 @@ export function MyTasksPage() {
             </p>
           </div>
           {view === 'grid' ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid gap-3 compact:gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {sorted.map((e) => <MyTaskCard key={e.task.id} e={e} onOpen={() => openTask(e.task.id, sortedIds)} selected={selected.has(e.task.id)} onToggleSelect={() => toggleSelect(e.task.id)} />)}
             </div>
           ) : view === 'list' ? (
@@ -589,9 +593,9 @@ function Assignees({ list }: { list: { id: string; name: string }[] }) {
   const shown = list.slice(0, 3);
   const extra = list.length - shown.length;
   return (
-    <div className="flex flex-none -space-x-1.5">
-      {shown.map((a) => <Avatar key={a.id} name={a.name} size="sm" />)}
-      {extra > 0 ? <span className="grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2">+{extra}</span> : null}
+    <div className={`flex flex-none -space-x-1.5 ${DENSE_STACK}`}>
+      {shown.map((a) => <Avatar key={a.id} name={a.name} size="sm" dense />)}
+      {extra > 0 ? <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>+{extra}</span> : null}
     </div>
   );
 }
@@ -615,7 +619,8 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
     // the select checkbox sits above it as a separate control (never one control inside another).
     <div
       data-task-key={t.key}
-      className={`card card-hover group relative flex flex-col gap-2.5 p-3.5 focus-within:border-brand/40 ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
+      // Compact rows (1.23.0, lib/density): a third less padding and room inside, the title a step smaller.
+      className={`card card-hover group relative flex flex-col gap-2.5 p-3.5 compact:gap-1.5 compact:p-2.5 focus-within:border-brand/40 ${selected ? 'ring-2 ring-brand/50' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : ''}`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -630,7 +635,7 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         <PriorityBadge priority={t.priority} />
       </div>
       <div className="flex items-center gap-2">
-        <TaskKey value={t.key} />
+        <TaskKey value={t.key} dense="compact" />
         <StatusPill category={e.cat} />
         {t.approvalRequestedAt ? <ApprovalChip /> : null}
         {t.inspectionFormId ? <InspectionChip /> : null}
@@ -639,13 +644,13 @@ function MyTaskCard({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOp
         type="button"
         onClick={onOpen}
         dir="auto"
-        className={`line-clamp-2 cursor-pointer text-start text-sm font-medium leading-snug text-ink outline-none transition-colors after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-brand/60 group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}
+        className={`line-clamp-2 cursor-pointer text-start text-sm font-medium leading-snug text-ink outline-none transition-colors ${DENSE_TEXT} after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-brand/60 group-hover:text-brand ${e.done ? 'line-through opacity-70' : ''}`}
       >
         {t.title}
       </button>
       <ExternalContactsLine summary={t.externalSummary} />
 
-      <div className="mt-auto flex flex-col gap-2 pt-1">
+      <div className="mt-auto flex flex-col gap-2 pt-1 compact:gap-1.5 compact:pt-0">
         <div className="flex items-center gap-1.5 text-[11px]">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none text-ink-3"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
           <DueLabel e={e} />
@@ -668,13 +673,14 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
   return (
     <div
       data-task-key={t.key}
-      className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
+      // Compact rows (1.23.0, lib/density): a third less padding, the title a step smaller.
+      className={`relative flex items-center gap-3 px-4 py-2.5 transition-colors compact:py-1.5 hover:bg-ground/60 ${selected ? 'bg-brand/5' : ''} ${e.overdue ? 'border-l-2 border-l-danger' : 'border-l-2 border-l-transparent'}`}
     >
       {onToggleSelect ? <SelectBox taskKey={t.key} checked={!!selected} onChange={onToggleSelect} /> : null}
       {/* The status: a named dot (its word on the phone line below, and in a column on a wide screen). */}
       <span role="img" aria-label={m.label} title={m.label} className="hidden h-2.5 w-2.5 flex-none rounded-full sm:block 2xl:hidden" style={{ background: m.color }} />
       {/* At least the usual width, so the titles line up; a longer number widens its row's column, never cut. */}
-      <span className="hidden min-w-[5.5rem] flex-none sm:block"><TaskKey value={t.key} /></span>
+      <span className="hidden min-w-[5.5rem] flex-none sm:block"><TaskKey value={t.key} dense="compact" /></span>
       {/* The title takes the room left; a check's Inspection chip sits at its end, so the columns
           after it line up from row to row. */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
@@ -683,7 +689,7 @@ function MyTaskRow({ e, onOpen, selected, onToggleSelect }: { e: Enriched; onOpe
           onClick={onOpen}
           dir="auto"
           title={t.title}
-          className={`min-w-0 flex-1 basis-0 cursor-pointer truncate text-start text-sm font-medium text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
+          className={`min-w-0 flex-1 basis-0 cursor-pointer truncate text-start text-sm font-medium text-ink outline-none ${DENSE_TEXT} after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand/60 ${e.done ? 'line-through opacity-70' : ''}`}
         >
           {t.title}
         </button>

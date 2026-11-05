@@ -2,6 +2,7 @@ import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { PAGE_SIZE, nextSort, sortRows, type SortDir, type SortState, type SortValue } from '../../lib/data-table';
 import { AnchoredPopover } from '../ui/AnchoredPopover';
 import { TOUCH_TALL } from '../../lib/touch';
+import { DENSE_TEXT } from '../../lib/density-tokens';
 
 /**
  * The shared table of the Table view (1.23.0) — tasks on the project page, My Tasks and the Board,
@@ -95,8 +96,8 @@ const PIN_SECOND = `sticky start-11 z-[2] bg-surface ${PIN_TINTS}`;
 const PIN_EDGE = 'max-md:shadow-[1px_0_0_rgb(var(--c-line))]';
 /** A group heading row's first cell, pinned like the title column (its background is the caller's). */
 export const PINNED_HEAD_CELL = `sticky start-0 z-[2] ${PIN_EDGE}`;
-/** A cell's usual padding and line (for a group heading row's own cells). */
-export const CELL = 'border-b border-line px-3 py-1.5 align-middle';
+/** A cell's usual padding and line (for a group heading row's own cells); less in compact rows (1.23.0). */
+export const CELL = 'border-b border-line px-3 py-1.5 align-middle compact:py-1';
 
 export function DataTable<Row>({
   label,
@@ -170,7 +171,7 @@ export function DataTable<Row>({
           {/* `relative`: words for screen readers (absolutely placed) are held inside the box; else,
               far along a scrolled row, they reached past it and widened the page on a phone. */}
           <div role="region" aria-label={label} tabIndex={0} className="card relative overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-brand/40 md:max-h-[calc(100dvh-7.5rem)] md:overflow-y-auto">
-            <table className="w-full border-separate border-spacing-0 text-sm">
+            <table className={`w-full border-separate border-spacing-0 text-sm ${DENSE_TEXT}`}>
               <caption className="sr-only">{label}</caption>
               <thead>
                 <tr>
@@ -213,11 +214,12 @@ export function DataTable<Row>({
                     <tr key={rowKey(row)} {...(rowProps?.(row) ?? {})} className={`group/row transition-colors hover:bg-ground/50 ${rowClassName?.(row) ?? ''}`}>
                       {visible.map((c) =>
                         c.rowHeader ? (
-                          <th key={c.id} scope="row" className={`border-b border-line text-start font-normal ${cellClass(c)}`}>
+                          // Compact rows (1.23.0, lib/density): a third less padding (the header row keeps its own).
+                          <th key={c.id} scope="row" className={`border-b border-line text-start font-normal compact:py-1 ${cellClass(c)}`}>
                             {c.cell(row)}
                           </th>
                         ) : (
-                          <td key={c.id} className={`border-b border-line ${cellClass(c)}`}>
+                          <td key={c.id} className={`border-b border-line compact:py-1 ${cellClass(c)}`}>
                             {c.cell(row)}
                           </td>
                         ),

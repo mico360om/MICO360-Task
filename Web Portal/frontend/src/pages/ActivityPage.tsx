@@ -16,6 +16,7 @@ import { ActivityCalendar } from '../components/activity/ActivityCalendar';
 import { ACTIVITY_VIEW_PREF } from '../lib/activity-calendar';
 import { readUserValue, writeUserValue } from '../lib/user-storage';
 import { useAuthStore } from '../stores/auth-store';
+import { DENSE_TEXT } from '../lib/density-tokens';
 
 const ACTION_VERB: Record<string, string> = {
   CREATED: 'created',
@@ -228,7 +229,7 @@ export function ActivityPage() {
           {groups.map(([header, items]) => (
             <section key={header}>
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-2">{header}</h2>
-              <ol className="ml-2 flex flex-col gap-1.5 border-l border-line pl-5">
+              <ol className="ml-2 flex flex-col gap-1.5 border-l border-line pl-5 compact:gap-1">
                 {items.map((a) => <ActivityRow key={a.id} a={a} onOpenTask={setOpenTaskId} />)}
               </ol>
             </section>
@@ -249,13 +250,14 @@ function ActivityRow({ a, onOpenTask, clockIn }: { a: ApiActivity; onOpenTask: (
   return (
     <li className="relative">
       <span
-        className={`absolute -left-[26px] top-3 h-2.5 w-2.5 rounded-full ring-4 ring-ground ${ACTION_DOT[a.action] ?? 'bg-ink-3'}`}
+        className={`absolute -left-[26px] top-3 h-2.5 w-2.5 rounded-full ring-4 ring-ground compact:top-2.5 ${ACTION_DOT[a.action] ?? 'bg-ink-3'}`}
         aria-hidden="true"
       />
-      <div className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-2.5">
-        <Avatar name={a.actor?.name ?? '?'} size="sm" />
+      {/* Compact rows (1.23.0, lib/density): less padding, the face and the words a step smaller. */}
+      <div className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-2.5 compact:gap-2 compact:p-2">
+        <Avatar name={a.actor?.name ?? '?'} size="sm" dense />
         <div className="min-w-0 flex-1">
-          <p className="text-sm leading-snug text-ink">
+          <p className={`text-sm leading-snug text-ink ${DENSE_TEXT}`}>
             <bdi className="font-semibold">{a.actor?.name ?? 'Someone'}</bdi>{' '}
             <span className={ACTION_TONE[a.action] ?? 'text-ink-2'}>{ACTION_VERB[a.action] ?? a.action.toLowerCase().replace(/_/g, ' ')}</span>{' '}
             {a.task ? (

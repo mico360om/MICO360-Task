@@ -10,6 +10,7 @@ import { ApprovalChip } from './approvals/ApprovalChip';
 import type { ExternalContactSummary } from '../lib/external-contacts';
 import { ExternalContactsLine } from './ExternalContactsLine';
 import { TaskKey } from './TaskKey';
+import { DENSE_FACE, DENSE_STACK, DENSE_TEXT } from '../lib/density-tokens';
 
 export interface TaskCardTask {
   key: string;
@@ -119,7 +120,8 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
           } satisfies HTMLAttributes<HTMLDivElement>)
         : {})}
       onClick={onClick}
-      className={`group relative flex cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border bg-surface p-3 pl-3.5 text-left shadow-soft outline-none transition-all duration-200 ease-emphasized hover:-translate-y-0.5 hover:shadow-card ${stateCls}`}
+      // Compact rows (1.23.0, lib/density): a third less padding and room inside, the title a step smaller.
+      className={`group relative flex cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border bg-surface p-3 pl-3.5 text-left shadow-soft compact:gap-1.5 compact:p-2 compact:pl-2.5 outline-none transition-all duration-200 ease-emphasized hover:-translate-y-0.5 hover:shadow-card ${stateCls}`}
     >
       {/* Status stripe in the column colour, so a card always reads as belonging to its stage. */}
       <span className="absolute inset-y-0 left-0 w-1" style={{ background: task.accentColor ?? 'transparent' }} aria-hidden="true" />
@@ -134,7 +136,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
       {/* The number never shrinks under the flags (a long one, e.g. TN2FF00336-2, once ran under the
           milestone flag): in a narrow column the flags and the priority wrap to the next line instead. */}
       <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 ${menuSpace && !task.project ? 'pr-7 [@media(pointer:coarse)]:pr-11' : ''}`}>
-        <TaskKey value={task.key} />
+        <TaskKey value={task.key} dense="compact" />
         <div className="flex flex-none items-center gap-1.5">
           {task.blocked ? (
             <span className="inline-flex items-center gap-1 rounded bg-danger-soft px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-danger">
@@ -161,7 +163,7 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
         </div>
       </div>
 
-      <div dir="auto" className="line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand">{task.title}</div>
+      <div dir="auto" className={`line-clamp-2 text-start text-sm font-medium leading-snug text-ink transition-colors group-hover:text-brand ${DENSE_TEXT}`}>{task.title}</div>
       <ExternalContactsLine summary={task.external} />
 
       {/* A check's chip leads the line of facts (it wraps there; beside the key, with the priority and
@@ -210,12 +212,12 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
             {task.assignees.length === 1 ? (
               <span dir="auto" className="max-w-[6rem] truncate text-[11px] text-ink-2">{task.assignees[0]!.name}</span>
             ) : null}
-            <div className="flex -space-x-1.5">
+            <div className={`flex -space-x-1.5 ${DENSE_STACK}`}>
               {shownAssignees.map((a) => (
-                <Avatar key={a.id} name={a.name} size="sm" />
+                <Avatar key={a.id} name={a.name} size="sm" dense />
               ))}
               {extra > 0 ? (
-                <span className="grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2">
+                <span className={`grid h-6 w-6 place-items-center rounded-full border border-line bg-ground text-[10px] font-semibold text-ink-2 ${DENSE_FACE}`}>
                   +{extra}
                 </span>
               ) : null}

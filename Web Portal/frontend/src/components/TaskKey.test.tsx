@@ -41,6 +41,13 @@ describe('TaskKey (1.22.3: one look for a task number)', () => {
     expect(chip).not.toHaveClass('py-0.5');
   });
 
+  it('in a row of a list, table or board: its own padding goes only in compact (1.23.0)', () => {
+    render(<TaskKey value="MICO-1" dense="compact" />);
+    const chip = screen.getByText('MICO-1');
+    // Comfortable: as before. Compact (desktop only, the compact: variant): no vertical padding.
+    expect(chip).toHaveClass('py-0.5', 'compact:py-0');
+  });
+
   it('shows nothing without a number', () => {
     const { container } = render(<TaskKey value={null} />);
     expect(container).toBeEmptyDOMElement();
