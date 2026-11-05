@@ -61,9 +61,12 @@ export function MergeTasksDialog({ tasks: initial, onClose, onMerged, onTop = fa
   });
 
   const ids = useMemo(() => chosen.map((t) => t.id), [chosen]);
+  // The project choice decides who isn't on the team and the new number: the preview is asked with it
+  // (only while that task is still in the merge).
+  const projectChoice = choices.project && ids.includes(choices.project) ? choices.project : undefined;
   const previewQ = useQuery({
-    queryKey: ['merge-preview', ids, mainId ?? null, choices.project ?? null],
-    queryFn: () => taskMergeApi(apiClient).preview({ taskIds: ids, ...(mainId ? { mainTaskId: mainId } : {}), ...(choices.project ? { choices: { project: choices.project } } : {}) }),
+    queryKey: ['merge-preview', ids, mainId ?? null, projectChoice ?? null],
+    queryFn: () => taskMergeApi(apiClient).preview({ taskIds: ids, ...(mainId ? { mainTaskId: mainId } : {}), ...(projectChoice ? { choices: { project: projectChoice } } : {}) }),
     enabled: ids.length > 0,
     staleTime: 0,
     placeholderData: keepPreviousData,
