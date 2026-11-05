@@ -189,6 +189,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Connecting Microsoft Teams: the browser's check for the connection is a cookie only this site can
   set (another site on the same domain can't slip one in), and each person has one connection waiting
   at a time, so pressing Connect over and over never stops anyone else's.
+- A client account can't be made a meeting's organizer, not even by an administrator (the calendar
+  invitation would have named the client, and everyone's calendar replies would have gone to them).
 
 ### Bug fixes
 - A meeting's online link can be as long as 2048 characters — a long link, such as a Microsoft Teams

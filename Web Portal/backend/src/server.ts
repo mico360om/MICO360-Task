@@ -810,6 +810,8 @@ async function main(): Promise<void> {
     access: meetingAccess,
     defaultTimeZone: companyTz,
     isActiveUser,
+    // 1.23 (security review): a client account is never a meeting's organizer.
+    isClientAccount: createIsClient(prisma),
     onChanged: onMeetingChanged,
   });
   // Late-bound: the notify service (email) is created further down.

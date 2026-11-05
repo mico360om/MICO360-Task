@@ -130,6 +130,16 @@ describe('MeetingService', () => {
     await expect(svc.updateMeeting(m.id, { organizerId: 'ghost' })).rejects.toThrow(/organizer/i);
   });
 
+  // Security review (1.23): an administrator could hand a meeting to a client account; its calendar file
+  // then named the client as organizer, so everyone's calendar replies went to the client's mailbox.
+  it('never accepts a client account as organizer (409 NOT_STAFF), made or handed over', async () => {
+    const svc = createMeetingService({ meetings: inMemory(), isActiveUser: async () => true, isClientAccount: async (id) => id === 'client-1' });
+    await expect(svc.createMeeting({ ...base, title: 'x', organizerId: 'client-1' })).rejects.toMatchObject({ status: 409, code: 'NOT_STAFF' });
+    const m = await svc.createMeeting({ ...base, title: 'x' });
+    await expect(svc.updateMeeting(m.id, { organizerId: 'client-1' })).rejects.toMatchObject({ status: 409, code: 'NOT_STAFF' });
+    expect((await svc.updateMeeting(m.id, { organizerId: 'staff-2' })).organizerId).toBe('staff-2');
+  });
+
   it('lets only the organizer, creator or an admin edit by default', async () => {
     const svc = createMeetingService({ meetings: inMemory() });
     const m = await svc.createMeeting({ ...base, organizerId: 'org', createdById: 'maker', title: 'x' });

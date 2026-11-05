@@ -1,5 +1,5 @@
 import { meetingHasEnded } from './meeting-end';
-import { NotFoundError, ValidationError } from '../../lib/http-errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { createMeetingAccess, type MeetingEditFacts } from './meeting-access';
 import type {
   MeetingRecord,
@@ -28,12 +28,17 @@ export interface MeetingServiceDeps {
   defaultTimeZone?: string;
   /** Is this an existing, active user? Guards the organizer field (no organizer can be invented). */
   isActiveUser?: (userId: string) => Promise<boolean>;
+  /**
+   * Security review (1.23): is this a client account? A client is never a meeting's organizer (its
+   * calendar file would name them, and everyone's calendar replies would go to them). Absent: never.
+   */
+  isClientAccount?: (userId: string) => Promise<boolean>;
   now?: () => Date;
 }
 
 const VALID_STATUS: MeetingStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 
-export function createMeetingService({ meetings, onChanged, access, defaultTimeZone, isActiveUser, now = () => new Date() }: MeetingServiceDeps) {
+export function createMeetingService({ meetings, onChanged, access, defaultTimeZone, isActiveUser, isClientAccount, now = () => new Date() }: MeetingServiceDeps) {
   const permissions = access ?? createMeetingAccess({ meetings });
   const withZone = (m: MeetingRecord): MeetingRecord => (m.timeZone || !defaultTimeZone ? m : { ...m, timeZone: defaultTimeZone });
 
@@ -51,6 +56,7 @@ export function createMeetingService({ meetings, onChanged, access, defaultTimeZ
     if (isActiveUser && !(await isActiveUser(organizerId))) {
       throw new ValidationError('The organizer must be an active user.');
     }
+    if (isClientAccount && (await isClientAccount(organizerId))) throw new ConflictError('A client account can’t organize a meeting. Choose someone on the team.', 'NOT_STAFF');
   }
 
   async function createMeeting(input: CreateMeetingData): Promise<MeetingRecord> {
