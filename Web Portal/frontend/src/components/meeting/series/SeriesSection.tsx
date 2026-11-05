@@ -60,10 +60,14 @@ export function useNewMeetingInSeries(seriesId: string | null) {
   };
 }
 
-/** The pre-filled form, once "New meeting in this series" has its starting values. */
+/**
+ * The pre-filled form, once "New meeting in this series" has its starting values. After a meeting whose
+ * link Teams made, the link isn't copied: "Create a Teams link" starts ticked (it counts only for someone
+ * who can make one — the form's rule), so the new meeting gets its own Teams meeting.
+ */
 export function NewMeetingInSeriesForm({ prefill, onClose }: { prefill: SeriesPrefill; onClose: () => void }) {
   const navigate = useNavigate();
-  return <MeetingFormModal prefill={prefill} onClose={onClose} onSaved={(id) => navigate(`/meetings/${encodeURIComponent(id)}`)} />;
+  return <MeetingFormModal prefill={prefill} defaultTeamsLink={prefill.teamsLink === true} onClose={onClose} onSaved={(id) => navigate(`/meetings/${encodeURIComponent(id)}`)} />;
 }
 
 /**

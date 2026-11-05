@@ -101,6 +101,8 @@ export interface SeriesPrefill {
   companyId: string | null;
   location: string | null;
   onlineLink: string | null;
+  /** 1.23: the latest meeting's link was made by Teams — not copied; the form starts with "Create a Teams link" ticked. Older servers leave it out. */
+  teamsLink?: boolean;
   durationMinutes: number | null;
   description: string | null;
   people: PrefillPerson[];

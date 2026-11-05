@@ -144,6 +144,8 @@ export interface SeriesPrefill {
   companyId: string | null;
   location: string | null;
   onlineLink: string | null;
+  /** 1.23: the latest meeting's link was made by Teams — not copied; the form starts with "Create a Teams link" ticked. */
+  teamsLink: boolean;
   /** The latest meeting's length (null: it had no end). */
   durationMinutes: number | null;
   description: string | null;
@@ -568,7 +570,7 @@ export function createNamedSeriesService(deps: NamedSeriesDeps) {
     const { series, visible, views } = await seen(viewer, seriesId);
     const base: SeriesPrefill = {
       seriesId: series.id, seriesName: series.name, title: series.name, projectId: series.projectId, companyId: series.companyId,
-      location: null, onlineLink: null, durationMinutes: null, description: null, people: [], agendaItems: [],
+      location: null, onlineLink: null, teamsLink: false, durationMinutes: null, description: null, people: [], agendaItems: [],
     };
     const latestRow = latestOf(visible.filter((r) => views.get(r.id) === 'full'));
     const latest = latestRow ? await deps.meetings.findById(latestRow.id) : null;

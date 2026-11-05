@@ -60,6 +60,13 @@ describe('meeting series: creating the meetings', () => {
     for (const m of plain.alive((await plain.begin()).id)) expect(m.onlineMeetingProvider ?? null).toBeNull();
   });
 
+  it('1.23 integration: a Teams family in a named series — each repeat keeps both the series and the Teams link', async () => {
+    const t = setup(WEEKLY, { onlineLink: 'https://teams.microsoft.com/l/meetup-join/abc', onlineMeetingProvider: 'TEAMS', seriesId: 'ms_monthly' });
+    const list = t.alive((await t.begin()).id);
+    expect(list.length).toBeGreaterThan(2);
+    for (const m of list) expect(m).toMatchObject({ seriesId: 'ms_monthly', onlineMeetingProvider: 'TEAMS', onlineLink: 'https://teams.microsoft.com/l/meetup-join/abc' });
+  });
+
   it('keeps at most 26 upcoming meetings of a daily series', async () => {
     const t = setup({ freq: 'DAILY', interval: 1 });
     const root = await t.begin();

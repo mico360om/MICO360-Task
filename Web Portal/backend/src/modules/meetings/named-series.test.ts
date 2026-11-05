@@ -64,4 +64,12 @@ describe('New meeting in this series', () => {
     expect(prefillLink({ onlineLink: 'https://meet.example.com/x' })).toEqual({ onlineLink: 'https://meet.example.com/x' });
     expect(prefillLink({ onlineLink: null })).toEqual({ onlineLink: null });
   });
+
+  it('1.23 integration: a link Teams made is not copied — the form starts with "Create a Teams link" ticked', () => {
+    const join = 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0';
+    expect(prefillLink({ onlineLink: join, onlineMeetingProvider: 'TEAMS' })).toEqual({ onlineLink: null, teamsLink: true });
+    // A Teams link asked for but not made yet (pending) is the same: the new meeting asks for its own.
+    expect(prefillLink({ onlineLink: null, onlineMeetingProvider: 'TEAMS' })).toEqual({ onlineLink: null, teamsLink: true });
+    expect(prefillLink({ onlineLink: 'https://meet.example.com/x', onlineMeetingProvider: null })).toEqual({ onlineLink: 'https://meet.example.com/x' });
+  });
 });

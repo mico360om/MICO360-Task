@@ -451,6 +451,18 @@ describe('New meeting in this series', () => {
     expect(pre.agendaItems).toEqual([{ title: 'Progress', ownerId: 'ana', expectedMinutes: 15 }, { title: 'Safety', ownerId: null, expectedMinutes: null }]);
   });
 
+  it('1.23 integration: from a meeting whose link Teams made — no link copied, the Teams tick instead', async () => {
+    const t = setup();
+    const a = await t.meeting('Monthly 1', 3, { onlineLink: 'https://teams.microsoft.com/l/meetup-join/x', onlineMeetingProvider: 'TEAMS' });
+    const s = await t.series('Monthly OXY review', [a.id]);
+    const pre = await t.service.prefill(t.as('ben'), s.id);
+    expect(pre.onlineLink).toBeNull();
+    expect(pre.teamsLink).toBe(true);
+    const b = await t.meeting('Monthly 2', 10, { onlineLink: 'https://meet.example.com/abc' });
+    const plain = await t.series('Plain', [b.id]);
+    expect(await t.service.prefill(t.as('ben'), plain.id)).toMatchObject({ onlineLink: 'https://meet.example.com/abc', teamsLink: false });
+  });
+
   it('checks a new meeting may join: the series’ project, and the person may add it', async () => {
     const t = setup();
     const a = await t.meeting('One', 3);

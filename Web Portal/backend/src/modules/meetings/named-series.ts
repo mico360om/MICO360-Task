@@ -151,10 +151,12 @@ export function latestOf<T extends { startAt: Date; id: string; status: MeetingS
 }
 
 /**
- * The online link "New meeting in this series" starts with: the latest meeting's. (Teams lane: a
- * link Teams made is not copied — the "Create a Teams link" tick is pre-ticked instead; that change
- * belongs here, in this one function.)
+ * The online link "New meeting in this series" starts with: the latest meeting's. A link Teams made
+ * (or was asked to make) is not copied — each meeting made "in this series" gets its own Teams meeting
+ * (design B) — so the form starts with no link and "Create a Teams link" ticked (`teamsLink`); the tick
+ * counts only for someone who can make one (the form's rule).
  */
-export function prefillLink(latest: { onlineLink: string | null }): { onlineLink: string | null } {
+export function prefillLink(latest: { onlineLink: string | null; onlineMeetingProvider?: 'TEAMS' | null }): { onlineLink: string | null; teamsLink?: true } {
+  if (latest.onlineMeetingProvider === 'TEAMS') return { onlineLink: null, teamsLink: true };
   return { onlineLink: latest.onlineLink };
 }
