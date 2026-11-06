@@ -624,7 +624,7 @@ function ChecklistCard({
         {renaming ? (
           <ListTitleEditor id={titleId} title={title} onDone={onRenamed} onSave={(next) => c.run(listId, 'Couldn’t rename the checklist.', () => c.actions.renameList?.(listId, next))} />
         ) : (
-          <Heading id={titleId} dir="auto" className="min-w-0 flex-1 break-words text-sm font-semibold text-ink">
+          <Heading id={titleId} dir="auto" className="min-w-0 flex-1 text-sm font-semibold text-ink [overflow-wrap:anywhere]">
             {title}
           </Heading>
         )}
@@ -645,7 +645,7 @@ function ChecklistCard({
       {card.roots.length === 0 && c.panel ? (
         <p className="py-1 text-sm text-ink-3">{c.actions.addItem || c.actions.addItems ? 'No steps yet — break the work down below.' : 'No checklist items.'}</p>
       ) : null}
-      <ItemList nodes={card.roots} parent={null} listId={listId} />
+      <ItemList nodes={card.roots} parent={null} listId={listId} listTitle={title} />
       {c.actions.addItem || c.actions.addItems ? <EndBox card={card} /> : null}
     </div>
   );
@@ -693,7 +693,7 @@ function ListTitleEditor({ id, title, onSave, onDone }: { id: string; title: str
 }
 
 /** Items at one level, with a "From MICO-14" heading over a run of a merged task's items, and an add box where one is open. */
-function ItemList({ nodes, parent, listId, id }: { nodes: CLNode[]; parent: CLNode | null; listId: string; id?: string }) {
+function ItemList({ nodes, parent, listId, listTitle = '', id }: { nodes: CLNode[]; parent: CLNode | null; listId: string; listTitle?: string; id?: string }) {
   const c = useCtx();
   const parentId = parent?.item.id ?? null;
   const here = (at: ChecklistAt | null, afterId: string | null) => at && at.listId === listId && at.parentId === parentId && at.afterId === afterId;
@@ -703,7 +703,8 @@ function ItemList({ nodes, parent, listId, id }: { nodes: CLNode[]; parent: CLNo
   return (
     <ul id={id} className="flex flex-col">
       {nodes.map((node, index) => {
-        const fromKey = parent === null ? c.fromKeys?.[node.item.id] : undefined;
+        // 1.23.3: a merged task's checklists come whole, titled "From MICO-14 · …" — no heading repeats it.
+        const fromKey = parent === null && !listTitle.startsWith('From ') ? c.fromKeys?.[node.item.id] : undefined;
         const before = parent === null && index > 0 ? c.fromKeys?.[nodes[index - 1]!.item.id] : undefined;
         return (
           <Fragment key={node.item.id}>
@@ -830,7 +831,7 @@ function ItemText({ node }: { node: CLNode }) {
   const tone = `${node.done && c.panel ? 'text-ink-3 line-through' : 'text-ink'} ${node.children.length ? 'font-medium' : ''}`;
   if (!c.actions.rename) {
     return (
-      <span dir="auto" className={`min-w-0 flex-[1_1_7rem] break-words text-start text-sm ${tone}`}>
+      <span dir="auto" className={`min-w-0 flex-[1_1_7rem] text-start text-sm [overflow-wrap:anywhere] ${tone}`}>
         {it.text}
       </span>
     );
@@ -843,7 +844,7 @@ function ItemText({ node }: { node: CLNode }) {
       aria-label={`Edit ${quote(it.text)}`}
       title="Edit"
       dir="auto"
-      className={`min-w-0 flex-[1_1_7rem] cursor-text break-words rounded px-0.5 text-start text-sm hover:bg-surface ${tone}`}
+      className={`min-w-0 flex-[1_1_7rem] cursor-text rounded [overflow-wrap:anywhere] px-0.5 text-start text-sm hover:bg-surface ${tone}`}
     >
       {it.text}
     </button>
@@ -859,7 +860,7 @@ function ItemFacts({ node, late, countId }: { node: CLNode; late: boolean; count
   const due = dueWords(it.dueDate, c.today);
   const canAssign = Boolean(c.actions.assign && c.people.length);
   return (
-    <span className="ms-auto flex flex-none flex-wrap items-center gap-1.5">
+    <span className="ms-auto flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
       {who ? (
         canAssign ? (
           <button type="button" onClick={() => c.setStrip({ id: it.id, kind: 'assign' })} aria-label={`For ${who.name} — change who it’s for`} title={who.name} className="grid h-7 w-7 place-items-center rounded-full hover:ring-2 hover:ring-brand/30 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">

@@ -355,3 +355,18 @@ describe('NestedChecklists: as an editor (the New task form, templates)', () => 
     expect(onTypedChange).toHaveBeenLastCalledWith({ 'L2||': 'D' });
   });
 });
+
+describe('NestedChecklists: merged tasks (1.23.1 → 1.23.3)', () => {
+  it('a merged task’s whole checklist is titled "From MICO-14 · …"; its items don’t repeat it, while an older item-level label still shows', () => {
+    const lists = [
+      { id: 'L1', title: 'Checklist' },
+      { id: 'L9', title: 'From MICO-14 · Checklist' },
+    ];
+    const items = [item('own', 'L1', null, 'Own step'), item('old', 'L1', null, 'Their old step'), item('m1', 'L9', null, 'Their step')];
+    render(<NestedChecklists lists={lists} items={items} actions={{}} mode="panel" today="2026-11-06" fromKeys={{ old: 'MICO-14', m1: 'MICO-14' }} />);
+    const headings = screen.getAllByTestId('checklist-from');
+    expect(headings).toHaveLength(1);
+    expect(within(card('Checklist')).getByTestId('checklist-from')).toHaveTextContent('From MICO-14');
+    expect(within(card('From MICO-14 · Checklist')).queryByTestId('checklist-from')).toBeNull();
+  });
+});
