@@ -9,6 +9,9 @@ const PATHS: Record<SearchKind, JSX.Element> = {
   minutes: <><path d="M7 3.5h7l4 4v13H7z" /><path d="M14 3.5v4h4M10 12h5M10 15.5h5" /></>,
   file: <path d="m19 11.5-6.8 6.8a4.2 4.2 0 0 1-6-6l7.1-7.1a2.8 2.8 0 0 1 4 4l-7 7a1.4 1.4 0 0 1-2-2l6.4-6.4" />,
   inspection: <><rect x="5.5" y="4.5" width="13" height="16" rx="2" /><path d="M9 4.5V3.5h6v1M9 12l2 2 4-4.5" /></>,
+  // 1.23.6: a checklist item (a ticked line), clients & contacts (a person's card).
+  checklist: <><path d="m4.5 7 1.8 1.8L9.5 5.5M4.5 15.5l1.8 1.8 3.2-3.3" /><path d="M12.5 7.5h7M12.5 16h7" /></>,
+  contact: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><circle cx="9" cy="11" r="2.2" /><path d="M5.8 16.5a3.4 3.4 0 0 1 6.4 0M14.5 10h3.5M14.5 13.5h3.5" /></>,
 };
 
 /** The kind's icon in a small tinted square (decorative: the kind is also written next to it). */

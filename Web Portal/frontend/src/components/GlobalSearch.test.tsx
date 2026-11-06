@@ -78,7 +78,8 @@ describe('GlobalSearch', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'a');
     // give any debounce a chance
     await new Promise((r) => setTimeout(r, 20));
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/search'))).toBe(false);
+    // (1.23.6: the saved searches the box offers when empty are no search.)
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/search') && !String(c[0]).includes('/search/saved'))).toBe(false);
   });
 
   it('people results are colleagues only: a teammate from another company is not offered (spec §3 directory search)', async () => {

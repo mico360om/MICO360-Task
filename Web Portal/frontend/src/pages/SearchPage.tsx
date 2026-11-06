@@ -15,9 +15,11 @@ import { fieldClass } from '../components/ui/Field';
 import { ResultRow } from '../components/search/ResultRow';
 import { AiPanel } from '../components/search/AiPanel';
 import { TasksUnavailable } from '../components/search/TasksUnavailable';
+import { Understood } from '../components/search/Understood';
+import { SaveSearch, SavedSearchesPanel } from '../components/search/SavedSearches';
 import { MAX_QUERY_LETTERS } from '../lib/search-highlight';
 import { DensityButton } from '../components/DensityButton';
-import { KIND_META, SEARCH_KINDS, everythingAddress, everythingFilters, hasEverythingFilters, type EverythingFilters, type SearchHit, type SearchKind } from '../lib/search-everything';
+import { KIND_META, SEARCH_KINDS, everythingAddress, everythingFilters, hasEverythingFilters, taskPanelOf, type EverythingFilters, type ReaderChipKey, type SearchHit, type SearchKind } from '../lib/search-everything';
 import { STATUS_META, STATUS_ORDER } from '../lib/taskStatus';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { useAuthStore } from '../stores/auth-store';
@@ -41,8 +43,11 @@ function countText(n: number, capped: boolean): string {
 
 /**
  * Search results (1.23 Search everything): every item the person can open — tasks, projects, meetings,
- * meeting notes, minutes, files (their text too) and inspections — that holds the words, best first, a
- * page at a time, each with its kind, the words marked, its project, state and date, and a direct link.
+ * meeting notes, minutes, files (their text too), inspections and (1.23.6) checklist items and clients &
+ * contacts — that holds the words, best first, a page at a time, each with its kind, the words marked,
+ * its project, state and date, and a direct link. 1.23.6: plain English is read on the server ("overdue
+ * MICO tasks assigned to me" → chips, each removable, or "Search the words instead"); filters work
+ * without words; a search can be saved, pinned and shared with a team.
  * The AI panel above answers the question from those same items when AI is on (asked with Enter, "Ask
  * AI", or from the top bar); the normal results never wait for it. The words and the filters (kind,
  * project, task status, person or "Only mine", dates, open or done, archived projects) live in the
@@ -87,20 +92,22 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     if (typed === pushed.current) return;
     const t = setTimeout(() => {
       pushed.current = typed;
-      // New words: the AI answers them when asked again.
-      update({ q: typed, ai: undefined });
+      // New words: the AI answers them when asked again, and they are read afresh (1.23.6).
+      update({ q: typed, ai: undefined, off: undefined, plain: undefined });
     }, debounceMs);
     return () => clearTimeout(t);
     // `update` reads the address when it runs, so it is not a dependency.
   }, [term, debounceMs]);
   const submit = () => {
     const typed = term.trim().slice(0, MAX_QUERY_LETTERS);
+    const fresh = typed !== filters.q;
     pushed.current = typed;
-    update({ q: typed, ai: typed.length >= MIN_LETTERS ? true : undefined });
+    update({ q: typed, ai: typed.length >= MIN_LETTERS ? true : undefined, ...(fresh ? { off: undefined, plain: undefined } : {}) });
   };
 
   const words = filters.q.trim();
-  const searching = words.length >= MIN_LETTERS;
+  // 1.23.6: filters alone search too (the server lists every item they hold).
+  const searching = words.length >= MIN_LETTERS || hasEverythingFilters(filters);
   const { ai: _asked, ...ask } = filters;
   void _asked;
   const results = useInfiniteQuery({
@@ -126,6 +133,15 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   const first = results.data?.pages[0];
   const counts = first?.counts;
   const corrected = first?.corrected ?? [];
+  // 1.23.6: what the reader understood (kept while the next search loads, so the chips don't jump).
+  const [understood, setUnderstood] = useState(first?.understood);
+  useEffect(() => {
+    if (results.data) setUnderstood(results.data.pages[0]?.understood);
+    else if (!searching) setUnderstood(undefined);
+  }, [results.data, searching]);
+  // The type the reader read ("tasks") shows as the chosen type until one is chosen.
+  const activeType = filters.type ?? (understood?.kinds?.length === 1 ? understood.kinds[0] : undefined);
+  const withOff = (key: ReaderChipKey) => [...new Set([...(filters.off ?? []), key])];
 
   const projects = (Array.isArray(projectsQ.data) ? projectsQ.data : [])
     .filter((p) => filters.archived || !isProjectArchived(p) || p.id === filters.projectId)
@@ -141,13 +157,16 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
   const open = (hit: SearchHit) => {
     const taskIds = hits.filter((h) => h.kind === 'task').map((h) => h.id);
     if (hit.target.type === 'task') return showTask(hit.target.taskId, taskIds);
-    if (hit.target.type === 'file') {
-      const { taskId, fileId } = hit.target;
+    // A file, a checklist item (1.23.6) or an external contact (1.23.6): its task, with it marked.
+    const panel = taskPanelOf(hit);
+    if (panel?.mark) {
+      const [param, value] = panel.mark;
       useTaskSteps.getState().open(null, '/search');
       setParams((prev) => {
         const next = new URLSearchParams(prev);
-        next.set('task', taskId);
-        next.set('file', fileId);
+        next.set('task', panel.task);
+        for (const other of ['file', 'item', 'contact']) next.delete(other);
+        next.set(param, value);
         return next;
       });
     }
@@ -158,7 +177,8 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
     const chosen = projectsQ.data?.find?.((p) => p.id === filters.projectId);
     update({ archived: on || undefined, ...(!on && chosen && isProjectArchived(chosen) ? { projectId: undefined } : {}) });
   };
-  const chooseType = (type: SearchKind | undefined) => update({ type, ...(type !== 'task' ? { status: undefined } : {}) });
+  // "All" with a type the reader read takes its chip off; a type chosen wins over it (the server leaves its chip out).
+  const chooseType = (type: SearchKind | undefined) => update({ type, ...(type !== 'task' ? { status: undefined } : {}), ...(!type && understood?.kinds?.length ? { off: withOff('kind') } : {}) });
 
   const chip = (active: boolean) =>
     `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
@@ -169,7 +189,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader eyebrow="Workspace" title="Search results" subtitle="Everything you can open — tasks, projects, meetings, notes, minutes, files and inspections — that holds the words." />
+      <PageHeader eyebrow="Workspace" title="Search results" subtitle="Everything you can open — tasks, projects, meetings, notes, minutes, files, inspections, checklist items, clients and contacts — that holds the words or matches the filters." />
 
       <div className="card mb-4 flex flex-col gap-3 p-3">
         <form
@@ -192,17 +212,27 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
             className={fieldClass(false, 'w-full')}
           />
           <p id="search-tips" className="mt-1 text-xs text-ink-3">
-            Part of a word is enough, and a small spelling mistake is forgiven. Put a phrase in quotes (“hot work”) to find it as written. Press Enter to ask AI too.
+            Part of a word is enough, and a small spelling mistake is forgiven. Plain English works too: “overdue tasks assigned to me”, “high priority in MICO”, “meetings last week”. Put a phrase in quotes (“hot work”) to find it as written. Press Enter to ask AI too.
           </p>
         </form>
 
+        {/* 1.23.6: what the words were read as — each chip removable, or every word as typed. */}
+        <Understood
+          understood={searching ? understood : null}
+          plain={Boolean(filters.plain) && words.length >= MIN_LETTERS}
+          onRemove={(key) => update({ off: withOff(key) })}
+          onPlain={() => update({ plain: true, off: undefined })}
+          onRead={() => update({ plain: undefined })}
+          onRestore={() => update({ off: undefined })}
+        />
+
         <div className="flex items-start gap-2">
           <div role="group" aria-label="Type" className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-            <button type="button" aria-pressed={!filters.type} onClick={() => chooseType(undefined)} className={chip(!filters.type)}>
+            <button type="button" aria-pressed={!activeType} onClick={() => chooseType(undefined)} className={chip(!activeType)}>
               All{allCount !== null ? ` ${shown(allCount)}` : ''}
             </button>
             {SEARCH_KINDS.map((k) => (
-              <button key={k} type="button" aria-pressed={filters.type === k} onClick={() => chooseType(k)} className={chip(filters.type === k)}>
+              <button key={k} type="button" aria-pressed={activeType === k} onClick={() => chooseType(k)} className={chip(activeType === k)}>
                 {KIND_META[k].plural}
                 {counts ? ` ${shown(counts[k] ?? 0)}` : ''}
               </button>
@@ -212,7 +242,7 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
           <DensityButton />
         </div>
 
-        <div className={`grid gap-2 ${filters.type === 'task' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+        <div className={`grid gap-2 ${activeType === 'task' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
           <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
             Project
             <select value={filters.projectId ?? ''} onChange={(e) => update({ projectId: e.target.value || undefined })} className={select}>
@@ -224,10 +254,10 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
               ))}
             </select>
           </label>
-          {filters.type === 'task' ? (
+          {activeType === 'task' ? (
             <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
               Status
-              <select value={filters.status ?? ''} onChange={(e) => update({ status: e.target.value || undefined })} className={select}>
+              <select value={filters.status ?? ''} onChange={(e) => update({ status: e.target.value || undefined, ...(filters.type ? {} : { type: 'task' as const }) })} className={select}>
                 <option value="">Any status</option>
                 {STATUS_ORDER.map((s) => (
                   <option key={s} value={s}>
@@ -282,14 +312,22 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
             </Button>
           ) : null}
         </div>
+        {/* 1.23.6: the words and filters under a name (the side menu shows the pinned ones). */}
+        {searching ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+            <SaveSearch filters={filters} suggested={understood?.chips.length ? [...understood.chips.map((c) => c.label), ...(understood.words ? [understood.words] : [])].join(' · ') : words || 'My search'} />
+          </div>
+        ) : null}
       </div>
 
-      {searching ? <AiPanel filters={filters} asked={Boolean(filters.ai)} onAsk={() => update({ ai: true })} onOpen={open} timeZone={timeZone} /> : null}
+      <SavedSearchesPanel filters={filters} searching={searching} />
+
+      {words.length >= MIN_LETTERS ? <AiPanel filters={filters} asked={Boolean(filters.ai)} onAsk={() => update({ ai: true })} onOpen={open} timeZone={timeZone} /> : null}
 
       {/* 1.23.1: the server couldn't search the tasks this time; what else it found is below. */}
       {searching && results.isSuccess && results.data.pages.some((p) => p.tasksUnavailable) ? <TasksUnavailable className="mb-2" onRetry={() => void results.refetch()} /> : null}
       {!searching ? (
-        <p className="text-sm text-ink-2">Type 2 or more letters to search everything you can open.</p>
+        <p className="text-sm text-ink-2">Type 2 or more letters to search everything you can open — or write what you need, like “overdue tasks assigned to me”.</p>
       ) : results.isLoading || (hits.length === 0 && (hasNextPage || isFetchingNextPage)) ? (
         <div className="flex flex-col gap-2" aria-label="Searching…">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -299,7 +337,10 @@ export function SearchPage({ debounceMs = 300 }: { debounceMs?: number }) {
       ) : results.isError && hits.length === 0 ? (
         <LoadError what="the search results" onRetry={() => void results.refetch()} />
       ) : hits.length === 0 ? (
-        <EmptyState title={`Nothing matches “${words}”.`} description={hasEverythingFilters(filters) ? 'Try fewer words, or clear the filters.' : 'Try fewer words, or part of a word.'} />
+        <EmptyState
+          title={words ? `Nothing matches “${words}”.` : 'Nothing matches these filters.'}
+          description={understood?.chips.length ? 'Remove a filter above, or search the words instead.' : hasEverythingFilters(filters) ? 'Try fewer words, or clear the filters.' : 'Try fewer words, or part of a word.'}
+        />
       ) : (
         <>
           <p className="mb-2 text-sm text-ink-2" aria-live="polite">

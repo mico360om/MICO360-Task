@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ProjectOverview, ProjectStats } from '../api/projects';
 import {
+  DEFAULT_LIST_STATE,
   countLine,
   filterProjects,
   headerSummary,
@@ -48,7 +49,7 @@ function project(extra: Partial<Omit<ProjectOverview, 'stats'>> & { stats?: Part
 
 describe('the list’s state in the address', () => {
   it('starts on All, unsearched, anyone’s, needing attention first', () => {
-    expect(readListState(new URLSearchParams())).toEqual({ status: 'all', q: '', owner: '', sort: 'attention', mine: false });
+    expect(readListState(new URLSearchParams())).toEqual({ status: 'all', q: '', owner: '', sort: 'attention', mine: false, client: '' });
   });
 
   it('reads the tab, search, owner, sort and “only mine” back', () => {
@@ -58,6 +59,7 @@ describe('the list’s state in the address', () => {
       owner: 'u1',
       sort: 'name',
       mine: true,
+      client: '',
     });
   });
 
@@ -142,10 +144,21 @@ describe('owner and “only my projects”', () => {
     const b = project({ name: 'Rig Mobile', ownerId: 'u2' });
     const c = project({ name: 'Falcon', ownerId: 'u1', mine: true });
     const list = [a, b, c];
-    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: false })).toEqual([a, b]);
-    expect(filterProjects(list, { status: 'all', q: '', owner: 'u1', sort: 'attention', mine: false })).toEqual([a, c]);
-    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: true })).toEqual([a]);
-    expect(filterProjects(list, { status: 'all', q: '', owner: '', sort: 'attention', mine: true })).toEqual([a, c]);
+    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: false, client: '' })).toEqual([a, b]);
+    expect(filterProjects(list, { status: 'all', q: '', owner: 'u1', sort: 'attention', mine: false, client: '' })).toEqual([a, c]);
+    expect(filterProjects(list, { status: 'all', q: 'rig', owner: '', sort: 'attention', mine: true, client: '' })).toEqual([a]);
+    expect(filterProjects(list, { status: 'all', q: '', owner: '', sort: 'attention', mine: true, client: '' })).toEqual([a, c]);
+  });
+
+  it('1.23.6: the projects of one client — case and spaces don’t matter; read from the address', () => {
+    const a = project({ name: 'Rig Portal', clientName: 'Petroleum Development Oman' });
+    const b = project({ name: 'Rig Mobile', clientName: '  petroleum   development oman ' });
+    const c = project({ name: 'Falcon', clientName: 'OQ' });
+    const d = project({ name: 'Nobody', clientName: null });
+    expect(filterProjects([a, b, c, d], { ...DEFAULT_LIST_STATE, client: 'Petroleum Development Oman' })).toEqual([a, b]);
+    expect(filterProjects([a, b, c, d], { ...DEFAULT_LIST_STATE, client: 'OQ', q: 'falcon' })).toEqual([c]);
+    expect(readListState(new URLSearchParams('client=OQ'))).toMatchObject({ client: 'OQ' });
+    expect(writeListState(new URLSearchParams('client=OQ'), { client: '' }).toString()).toBe('');
   });
 
   it('offers the people who own projects, by name, once each', () => {

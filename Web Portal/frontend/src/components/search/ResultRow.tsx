@@ -5,7 +5,7 @@ import { FoundTaskKey } from '../TaskKey';
 import { KindIcon } from './KindIcon';
 import { STATUS_META } from '../../lib/taskStatus';
 import { isOverdue } from '../../lib/due-date';
-import { KIND_META, dateLabel, targetLink, type SearchHit } from '../../lib/search-everything';
+import { CONTACT_SUB_LABEL, KIND_META, dateLabel, targetLink, type SearchHit } from '../../lib/search-everything';
 import { DENSE_FACE, DENSE_TEXT } from '../../lib/density-tokens';
 
 /** "Bilal Ahmed +2", or nothing. */
@@ -26,17 +26,18 @@ const MATCH_WORDS = { close: 'Close match', some: 'Some of the words' } as const
  */
 export function ResultRow({ hit, timeZone, onOpen, compact = false }: { hit: SearchHit; timeZone: string; onOpen: (hit: SearchHit) => void; compact?: boolean }) {
   const to = targetLink(hit);
-  const kind = KIND_META[hit.kind];
+  // 1.23.6: a "Clients & contacts" result says which of the three it is.
+  const kindLabel = hit.kind === 'contact' && hit.sub ? CONTACT_SUB_LABEL[hit.sub] : KIND_META[hit.kind].label;
   const date = dateLabel(hit, timeZone);
-  const late = hit.kind === 'task' && hit.date?.kind === 'due' && !hit.status?.done && isOverdue(hit.date.at, timeZone);
-  const dot = hit.kind === 'task' || hit.kind === 'file' ? STATUS_META[hit.status?.category ?? '']?.color : undefined;
+  const late = (hit.kind === 'task' || hit.kind === 'checklist') && hit.date?.kind === 'due' && !hit.status?.done && isOverdue(hit.date.at, timeZone);
+  const dot = hit.kind === 'task' || hit.kind === 'file' || (hit.kind === 'contact' && hit.sub === 'external') ? STATUS_META[hit.status?.category ?? '']?.color : undefined;
   const people = peopleLine(hit);
   const body = (
     <>
       <KindIcon kind={hit.kind} className="mt-0.5" />
       <span className="flex min-w-0 flex-1 flex-col gap-1 compact:gap-0.5">
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{kind.label}</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{kindLabel}</span>
           {hit.key && hit.kind === 'task' ? <FoundTaskKey value={hit.key} former={hit.formerKeys} dense="compact" /> : null}
           <span dir="auto" data-result-title className={`min-w-0 text-sm font-semibold [overflow-wrap:anywhere] ${DENSE_TEXT} ${hit.status?.done ? 'text-ink-2' : 'text-ink'}`}>
             <Highlighted text={hit.title} ranges={hit.titleRanges} />
@@ -47,6 +48,12 @@ export function ResultRow({ hit, timeZone, onOpen, compact = false }: { hit: Sea
         {hit.context && (hit.kind === 'file' || hit.kind === 'inspection') ? (
           <span dir="auto" className="block text-xs text-ink-2 [overflow-wrap:anywhere]">
             Task {hit.context}
+          </span>
+        ) : null}
+        {/* 1.23.6: a checklist item's task and checklist; a contact's task; how many projects name a client. */}
+        {hit.context && (hit.kind === 'checklist' || hit.kind === 'contact') ? (
+          <span dir="auto" className="block text-xs text-ink-2 [overflow-wrap:anywhere]">
+            {hit.kind === 'checklist' ? `Task ${hit.context}` : hit.context}
           </span>
         ) : null}
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-ink-2">

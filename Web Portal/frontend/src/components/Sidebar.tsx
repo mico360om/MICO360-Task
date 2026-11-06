@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
+import { QueryClientContext } from '@tanstack/react-query';
+import { everythingFilters, isSavedSearch, savedAddress } from '../lib/search-everything';
+import { countLabel, useSavedCounts, useSavedSearches } from '../lib/useSavedSearches';
 import { chatBadgeText, chatNavLabel } from '../lib/chat-badge';
 import { RUNNING_BUILD } from '../lib/release';
 import { BrandLogo } from './ui/BrandLogo';
@@ -311,6 +314,53 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, rail, first = fals
   );
 }
 
+/**
+ * 1.23.6 "Saved": the searches the person pinned (up to 5, their own or shared with them), each with how
+ * many items it finds now — asked for again every minute. The one shown on the Search page is marked.
+ */
+function SavedNav({ onNavigate, rail }: { onNavigate?: () => void; rail: boolean }) {
+  const { pinned } = useSavedSearches();
+  const counts = useSavedCounts(pinned.map((s) => s.id));
+  const { pathname, search } = useLocation();
+  if (pinned.length === 0) return null;
+  const here = pathname === '/search' ? everythingFilters(new URLSearchParams(search)) : null;
+  return (
+    <>
+      {rail ? <div data-rail-divider aria-hidden="true" className="mx-1.5 my-2 hidden border-t border-line md:max-lg:block" /> : null}
+      <SectionLabel rail={rail}>Saved</SectionLabel>
+      <div className="flex flex-col gap-0.5" data-saved-nav>
+        {pinned.map((s) => {
+          const active = here ? isSavedSearch(here, s) : false;
+          const count = countLabel(counts.data?.[s.id]);
+          return (
+            <Link
+              key={s.id}
+              to={`/search?${savedAddress(s)}`}
+              className={linkClass(rail)({ isActive: active })}
+              aria-current={active ? 'page' : undefined}
+              aria-label={count ? `${s.name}, ${count} ${count === '1' ? 'result' : 'results'}` : s.name}
+              onClick={onNavigate}
+              data-rail-label={s.name}
+            >
+              <NavIcon>
+                <path d="M6.5 4h11v16l-5.5-3.8L6.5 20z" />
+              </NavIcon>
+              <span dir="auto" className={`${labelClass(rail)} min-w-0 flex-1`}>
+                {s.name}
+              </span>
+              {count ? (
+                <span aria-hidden="true" className={`flex-none rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-white/20 text-white' : 'bg-ground text-ink-2'} ${rail ? 'md:max-lg:hidden' : ''}`}>
+                  {count}
+                </span>
+              ) : null}
+            </Link>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 /** The window width at which the menu is the slim rail (the `md:max-lg:` classes). */
 const RAIL_WIDTHS = '(min-width: 48em) and (max-width: 63.99em)';
 
@@ -410,6 +460,8 @@ export function Sidebar({ isAdmin, chatUnread = 0, canLead = false }: SidebarPro
 export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = false, rail = false }: SidebarProps & { onNavigate?: () => void; rail?: boolean }) {
   const { pathname } = useLocation();
   const list = useRef<HTMLDivElement>(null);
+  // 1.23.6: the pinned saved searches need the app's data layer (absent in a bare test render).
+  const withData = useContext(QueryClientContext) !== undefined;
   // On a short window the list scrolls: never leave the link of the current page below the fold.
   // The list is scrolled directly — scrollIntoView() also moves the point Tab starts from in
   // Chrome, which made the first Tab skip "Skip to content".
@@ -445,6 +497,7 @@ export function SidebarBody({ isAdmin, onNavigate, chatUnread = 0, canLead = fal
           there is more, and the current page's link is scrolled into view (above). */}
       <div ref={list} className={`scroll-shadows flex-1 overflow-y-auto px-3 py-3 ${rail ? 'md:max-lg:px-2.5 md:max-lg:[scrollbar-width:none] md:max-lg:[&::-webkit-scrollbar]:hidden' : ''}`}>
         <NavGroup label="Workspace" items={WORKSPACE.filter((i) => (isAdmin || !i.adminOnly) && (isAdmin || canLead || !i.leadsOnly))} onNavigate={onNavigate} rail={rail} first />
+        {withData ? <SavedNav onNavigate={onNavigate} rail={rail} /> : null}
         <NavGroup label="Communication" items={COMMUNICATION} onNavigate={onNavigate} chatUnread={chatUnread} rail={rail} />
         {isAdmin ? <NavGroup label="Admin" items={ADMIN} onNavigate={onNavigate} rail={rail} /> : null}
       </div>

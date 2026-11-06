@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -8,7 +9,7 @@ import { EditUserModal } from '../components/EditUserModal';
 import { apiClient } from '../api/client';
 import { configApi } from '../api/config';
 import { usersApi, type ApiUser, type CreatedUser, type UserStatus } from '../api/users';
-import { CLIENTS_KEY, clientsApi, isClientRoles } from '../api/clients';
+import { CLIENTS_KEY, clientAsUser, clientsApi, isClientRoles } from '../api/clients';
 import { Badge } from '../components/ui/Badge';
 import { ApiError } from '../lib/api-client';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
@@ -171,6 +172,38 @@ export function UsersPage() {
   });
   const phone = useMediaQuery(PHONE_QUERY);
   const users = Array.isArray(q.data) ? q.data : [];
+  // 1.23.6: /admin/users?open=<id> (a client account found by search) opens that person's Manage account
+  // — a client account from the clients list when a company filter leaves it out — then leaves the address.
+  const [params, setParams] = useSearchParams();
+  const openId = params.get('open');
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!openId || !q.isSuccess) return;
+    const shown = users.find((u) => u.id === openId);
+    if (shown) setEditing(shown);
+    else
+      void clientsApi(apiClient)
+        .list()
+        .then((list) => (Array.isArray(list) ? list.find((c) => c.id === openId) : undefined))
+        .then((c) => {
+          if (c && mounted.current) setEditing(clientAsUser(c));
+        })
+        .catch(() => undefined);
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('open');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [openId, q.isSuccess]);
   // 1.23: client accounts' organisations (the people list doesn't carry them), once any client is listed.
   const anyClient = users.some((u) => isClientRoles(u.roles));
   const clientsQ = useQuery({ queryKey: CLIENTS_KEY, queryFn: () => clientsApi(apiClient).list(), enabled: anyClient });

@@ -101,13 +101,13 @@ export function ProjectsPage() {
   // An owner (from a shared link) who owns none of the projects this person can see is ignored.
   const unknownOwner = query.isSuccess && state.owner !== '' && !owners.some((o) => o.id === state.owner);
   const owner = unknownOwner ? '' : state.owner;
-  const { q } = state;
-  const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner }), [all, q, owner]);
+  const { q, client } = state;
+  const filtered = useMemo(() => filterProjects(all, { ...DEFAULT_LIST_STATE, q, owner, client }), [all, q, owner, client]);
   const counts = tabCounts(filtered);
   const visible = sortProjects(filtered.filter((p) => inTab(p, state.status)), state.sort, today, timeZone);
   // The order as shown, handed on to the project opened (its Previous / Next project, 1.22).
   const order = visible.map((p) => p.id);
-  const filtersOn = Boolean(q.trim() || owner);
+  const filtersOn = Boolean(q.trim() || owner || client);
 
   // …and taken out of the address, in place.
   useEffect(() => {
@@ -315,6 +315,19 @@ export function ProjectsPage() {
           </label>
         ) : null}
       </div>
+      {/* 1.23.6: a client found by search — its projects only, until taken off. */}
+      {client ? (
+        <p className="-mt-1 mb-3 flex flex-wrap items-center gap-2 text-sm text-ink-2" data-client-filter>
+          <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 py-0.5 pe-1 ps-3 text-brand">
+            <span>
+              Client: <bdi className="font-semibold">{client}</bdi>
+            </span>
+            <button type="button" onClick={() => update({ client: '' })} aria-label={`Show every client’s projects (not only ${client})`} className="grid h-6 w-6 place-items-center rounded-full hover:bg-brand/15 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          </span>
+        </p>
+      ) : null}
       {saveMyOnly.isError ? <p role="alert" className="-mt-1 mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{MY_PROJECTS_WORDS.failed}</p> : null}
       {myOnly ? <MyProjectsLine className="-mt-1 mb-3" /> : null}
 

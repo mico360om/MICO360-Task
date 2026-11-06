@@ -24,7 +24,8 @@ import type { TaskSearchHit } from '../lib/search-highlight';
 import { Highlighted } from './ui/Highlighted';
 import { FoundTaskKey } from './TaskKey';
 import { KindIcon } from './search/KindIcon';
-import { KIND_META, everythingAddress, targetLink, type SearchHit } from '../lib/search-everything';
+import { KIND_META, everythingAddress, savedAddress, targetLink, type SearchHit } from '../lib/search-everything';
+import { countLabel, useSavedCounts, useSavedSearches } from '../lib/useSavedSearches';
 
 /** "open …" typed (the open command, or a page: "open calendar"). */
 const OPEN_VERB = /^open\s/i;
@@ -40,6 +41,8 @@ interface PaletteItem {
   icon?: React.ReactNode;
   /** Optional muted second line (a meeting's snippet, where a task matched). */
   secondary?: React.ReactNode;
+  /** 1.23.6: how many it finds, at the end of the row ("→ 7"). */
+  count?: string;
   run: () => void | Promise<void>;
 }
 
@@ -112,6 +115,9 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // 1.23: with AI set up, "See all results" also asks the AI panel on the Search results page.
   const aiQ = useQuery({ queryKey: ['search-ai-status'], queryFn: () => searchEverythingApi(apiClient).aiStatus(), enabled: searchEnabled, staleTime: 60_000, retry: false });
   const aiReady = aiQ.data?.ready === true;
+  // 1.23.6: the person's saved searches (pinned first) when the box is empty, with the pinned ones' counts.
+  const savedQ = useSavedSearches(open);
+  const savedCounts = useSavedCounts(open && !raw ? savedQ.pinned.map((s) => s.id) : []);
 
   // ── Action executors ──
   // Commands act only on the task whose key matches exactly — search is a substring match, so
@@ -209,6 +215,19 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
   // ── Assemble the flat item list (command → navigation → search results) ──
   const items = useMemo<PaletteItem[]>(() => {
     const out: PaletteItem[] = [];
+    // 1.23.6: an empty box offers the saved searches — the pinned ones first (with their counts), then the rest.
+    if (!raw) {
+      const rest = savedQ.all.filter((s) => !savedQ.pinned.includes(s));
+      for (const s of [...savedQ.pinned, ...rest].slice(0, 8)) {
+        const c = countLabel(savedCounts.data?.[s.id]);
+        out.push({
+          id: `saved-${s.id}`, group: 'Saved searches', primary: s.name,
+          ...(s.mine ? {} : { secondary: `Shared by ${s.owner.name}${s.shared ? ` · ${s.shared.code}` : ''}` }),
+          ...(c ? { count: c } : {}),
+          run: () => { navigate(`/search?${savedAddress(s)}`); reset(); },
+        });
+      }
+    }
     const parsed = raw ? parseCommand(raw, isAdmin, canLead) : null;
     // 1.22.3: a number typed loosely ("mico 142", "MICO142", "open mico 142") is offered once the search
     // finds that task, now or by an old number (null: not found — "phase 2" stays a plain search). Of a
@@ -222,6 +241,17 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       else if (parsed.type === 'complete') out.push({ id: 'cmd-complete', group: 'Command', primary: `Complete ${parsed.taskKey}`, run: () => completeCmd(parsed.taskKey) });
       else if (parsed.type === 'assign') out.push({ id: 'cmd-assign', group: 'Command', primary: `Assign ${parsed.taskKey} to ${parsed.assignee}`, run: () => assignCmd(parsed.taskKey, parsed.assignee) });
       else if (parsed.type === 'move') out.push({ id: 'cmd-move', group: 'Command', primary: `Move ${parsed.taskKey} to ${parsed.status}`, run: () => moveCmd(parsed.taskKey, parsed.status) });
+    }
+
+    // 1.23.6: what the words were read as, and how many items that finds — first, so Enter opens it.
+    const read = searchEnabled ? q.data?.understood : undefined;
+    if (read && read.chips.length && !out.some((it) => it.group === 'Command')) {
+      out.push({
+        id: 'understood', group: 'Search with filters',
+        primary: <span dir="auto">{[...read.chips.map((c) => c.label), ...(read.words ? [`“${read.words}”`] : [])].join(' · ')}</span>,
+        count: read.capped ? '1000+' : String(read.total),
+        run: () => { navigate(`/search?${everythingAddress({ q: debounced })}`); reset(); },
+      });
     }
 
     for (const nav of matchNavCommands(raw, isAdmin, canLead).slice(0, raw ? 6 : 5)) {
@@ -262,7 +292,7 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
       out.push({ id: 'ask-mico-ai', group: 'MICO AI', primary: <>Ask MICO AI: “<span dir="auto">{raw}</span>”</>, run: () => { navigate('/mico-ai', { state: { ask: raw } }); reset(); } });
     }
     return out;
-  }, [raw, isAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data, aiReady, debounced]);
+  }, [raw, isAdmin, canLead, myId, q.data, lookupQ.data, searchEnabled, projectsQ.data, aiReady, debounced, savedQ.all, savedQ.pinned, savedCounts.data]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 
@@ -374,6 +404,13 @@ export function GlobalSearch({ debounceMs = 250 }: { debounceMs?: number }) {
                           <span dir="auto" className="block truncate text-start">{it.primary}</span>
                           {it.secondary ? <span dir="auto" className="block text-start text-xs text-ink-3 line-clamp-2 [overflow-wrap:anywhere]">{it.secondary}</span> : null}
                         </span>
+                        {it.count !== undefined ? (
+                          <span className="flex-none rounded-full bg-ground px-2 py-0.5 text-xs font-semibold text-ink-2" data-count>
+                            <span aria-hidden="true">→ </span>
+                            {it.count}
+                            <span className="sr-only"> {it.count === '1' ? 'result' : 'results'}</span>
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}

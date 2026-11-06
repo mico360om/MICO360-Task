@@ -1,6 +1,6 @@
 import type { ApiClient } from '../lib/api-client';
 import type { TaskSearchHit } from '../lib/search-highlight';
-import { allQuery, type EverythingFilters, type SearchHit, type SearchKind } from '../lib/search-everything';
+import { allQuery, type EverythingFilters, type SavedFilters, type SearchHit, type SearchKind, type Understood } from '../lib/search-everything';
 
 export interface SearchResults {
   /**
@@ -15,6 +15,8 @@ export interface SearchResults {
   more?: SearchHit[];
   /** 1.23.1: the server couldn't search the tasks this time (the rest is here); absent when it could. */
   tasksUnavailable?: boolean;
+  /** 1.23.6: what the reader understood ("Tasks · Overdue · MICO · Assigned to me") and how many it finds; absent when nothing was read. */
+  understood?: Understood & { total: number; capped: boolean };
 }
 
 export function searchApi(client: ApiClient) {
@@ -77,6 +79,8 @@ export interface EverythingPage {
   totalCapped?: boolean;
   /** 1.23.1: the tasks couldn't be searched this time (the other kinds are here); absent when they could. */
   tasksUnavailable?: boolean;
+  /** 1.23.6 (first page): what the reader understood; null when the words were searched as typed (plain). */
+  understood?: Understood | null;
 }
 
 /** The AI panel's answer (POST /search/ai): an answer and the best matches, or one line saying why not. */
@@ -99,7 +103,48 @@ export function searchEverythingApi(client: ApiClient) {
           ...(f.to ? { to: f.to } : {}),
           ...(f.done !== undefined ? { done: f.done } : {}),
           ...(f.archived ? { archived: true } : {}),
+          // 1.23.6: the question read as the page reads it.
+          ...(f.off?.length ? { off: f.off } : {}),
+          ...(f.plain ? { plain: true } : {}),
         })
         .then((r) => r.data),
+  };
+}
+
+// ── 1.23.6 Saved searches ────────────────────────────────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  q: string;
+  filters: SavedFilters;
+  owner: { id: string; name: string };
+  /** The person's own (theirs to change); else shared with a team they are on (use and pin only). */
+  mine: boolean;
+  shared: { projectId: string; code: string; name: string } | null;
+  pinned: boolean;
+  updatedAt: string;
+}
+export interface SavedSearchList {
+  mine: SavedSearch[];
+  shared: SavedSearch[];
+  /** The pinned ones' ids, in the side menu's order (up to 5). */
+  pinned: string[];
+}
+export const SAVED_SEARCHES_KEY = ['saved-searches'] as const;
+export const MAX_PINS = 5;
+
+export function savedSearchesApi(client: ApiClient) {
+  const one = (id: string) => `/search/saved/${encodeURIComponent(id)}`;
+  return {
+    list: () => client.get<{ data: SavedSearchList }>('/search/saved').then((r) => r.data),
+    create: (body: { name: string; q: string; filters: SavedFilters }) => client.post<{ data: SavedSearch }>('/search/saved', body).then((r) => r.data),
+    update: (id: string, body: { name?: string; q?: string; filters?: SavedFilters }) => client.patch<{ data: SavedSearch }>(one(id), body).then((r) => r.data),
+    remove: (id: string) => client.del(one(id)),
+    share: (id: string, projectId: string | null) => client.put<{ data: SavedSearch }>(`${one(id)}/share`, { projectId }).then((r) => r.data),
+    pin: (id: string, pinned: boolean) => client.put<{ data: SavedSearchList }>(`${one(id)}/pin`, { pinned }).then((r) => r.data),
+    shareOptions: () => client.get<{ data: { id: string; code: string; name: string }[] }>('/search/saved/share-options').then((r) => r.data),
+    /** How many items each finds now (for the person; kept a minute on the server). */
+    counts: (ids: string[]) => client.get<{ data: Record<string, { total: number; capped: boolean }> }>(`/search/saved/counts?ids=${encodeURIComponent(ids.join(','))}`).then((r) => r.data),
   };
 }

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { markFound } from '../../lib/useFoundAnchor';
 import { ApiError } from '../../lib/api-client';
 import {
   EXTERNAL_CONTACT_LIMITS,
@@ -527,6 +528,18 @@ export function ExternalContactsSection({
   const addRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const full = contacts.length >= MAX_EXTERNAL_CONTACTS;
+  // 1.23.6: a search result opened this contact's task (…&contact=<id>): the contact comes into view, marked (once).
+  const listRef = useRef<HTMLUListElement>(null);
+  const marked = useRef<string | null>(null);
+  useEffect(() => {
+    const named = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('contact');
+    if (!named || marked.current === named) return;
+    const row = listRef.current?.querySelector(`[data-contact-id="${CSS.escape(named)}"]`);
+    if (row) {
+      marked.current = named;
+      markFound(row);
+    }
+  }, [contacts]);
   /** Focus Add (or the heading, when the task is full), once the change has shown. */
   const focusAdd = () => setTimeout(() => (addRef.current ?? headingRef.current)?.focus(), 0);
   const closeAdd = () => {
@@ -548,9 +561,9 @@ export function ExternalContactsSection({
       <p className="mt-1 text-xs leading-relaxed text-ink-2">{W.hint}</p>
       {contacts.length === 0 && !adding ? <p className="mt-2 text-sm text-ink-3">{W.none}</p> : null}
       {contacts.length > 0 ? (
-        <ul className="mt-2 flex flex-col divide-y divide-line">
+        <ul ref={listRef} className="mt-2 flex flex-col divide-y divide-line">
           {contacts.map((c) => (
-            <li key={c.id} className="py-2 first:pt-0 last:pb-0">
+            <li key={c.id} id={`contact-${c.id}`} data-contact-id={c.id} className="scroll-mt-24 py-2 first:pt-0 last:pb-0">
               {editing === c.id && onSave ? (
                 <ContactEditor
                   title={W.editTitle}

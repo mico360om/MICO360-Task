@@ -113,6 +113,8 @@ export function AppShell() {
         // 1.23: the file a search result marked goes with the task (review M8); 1.23.3: the checklist item too.
         next.delete('file');
         next.delete('item');
+        // 1.23.6: and the external contact.
+        next.delete('contact');
         return next;
       },
       { replace: true },

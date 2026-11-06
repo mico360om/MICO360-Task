@@ -16,12 +16,12 @@ const omar = apiUser({ id: 'u-omar', username: 'omar', firstName: 'Omar', lastNa
 const ada = apiUser({ id: 'u-ada', username: 'ada', firstName: 'Ada', lastName: 'Admin', roles: ['ADMIN'] });
 const huda = apiClientAccount({ id: 'c-huda', username: 'huda', firstName: 'Huda', lastName: 'Saleh', organisation: 'Owner Group', projects: [access(MICO, { modules: { progress: true } })] });
 
-function renderPage(world: ClientServerWorld = {}) {
+function renderPage(world: ClientServerWorld = {}, at = '/admin/users') {
   const server = clientServer({ staff: [omar, ada], clients: [huda], ...world });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/admin/users']}>
+      <MemoryRouter initialEntries={[at]}>
         <UsersPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -82,6 +82,12 @@ describe('UsersPage: client accounts (1.23)', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Edit huda' });
     expect(await within(dialog).findByRole('group', { name: 'MICO Tower' })).toBeInTheDocument();
     expect(server.requests('GET', '/clients/c-huda')).toHaveLength(1);
+  });
+
+  it('1.23.6: a client account found by search (?open=<id>) opens in Manage account', async () => {
+    renderPage({}, '/admin/users?open=c-huda');
+    const dialog = await screen.findByRole('dialog', { name: 'Edit huda' });
+    expect(await within(dialog).findByRole('group', { name: 'MICO Tower' })).toBeInTheDocument();
   });
 
   it('a client made with New user (Role “Client”) is said the same way as staff: welcome sent', async () => {

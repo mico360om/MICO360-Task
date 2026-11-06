@@ -295,7 +295,11 @@ export async function registerSearchRoutes(app: FastifyInstance, deps: SearchRou
     const ctx = await everything.reader(viewer, pick, scope, () => (deps.peopleFor ? deps.peopleFor(viewer, pick) : Promise.resolve(null)));
     const all = readQuery(q, ctx);
     const read = off.length ? readQuery(q, ctx, { off }) : all;
-    return { ctx, read, understood: { chips: read.chips, words: read.words, removed: all.chips.filter((c) => off.includes(c.key)).map((c) => ({ key: c.key, label: c.label })) } };
+    return {
+      ctx,
+      read,
+      understood: { chips: read.chips, words: read.words, removed: all.chips.filter((c) => off.includes(c.key)).map((c) => ({ key: c.key, label: c.label })), ...(read.filters.kinds?.length ? { kinds: read.filters.kinds } : {}) },
+    };
   }
 
   const taskSearch = deps.taskSearch;
@@ -426,6 +430,8 @@ export interface Understood {
   chips: ReaderChip[];
   words: string;
   removed: { key: ReaderChipKey; label: string }[];
+  /** The kinds the kind chip reads as (the page shows that type chip pressed). */
+  kinds?: SearchKind[];
 }
 interface Reading {
   ctx: ReaderContext;
@@ -467,6 +473,7 @@ export function engineInput(timeZone: string, ctx: ReaderContext | null, viewerI
       ...(p.from || p.to ? (['when'] as const) : []),
     ]);
     reading.understood.chips = reading.understood.chips.filter((c) => !overridden.has(c.key));
+    if (overridden.has('kind')) delete reading.understood.kinds;
   }
   const from = p.from || p.to ? p.from : f.from;
   const to = p.from || p.to ? p.to : f.to;

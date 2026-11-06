@@ -20,6 +20,24 @@ const blank: ExternalContactFields = { name: '', company: null, designation: nul
 const section = () => screen.getByRole('region', { name: 'External contacts' });
 
 describe('External contacts in the task panel', () => {
+  it('1.23.6: a search result’s contact (…&contact=<id>) comes into view, marked', () => {
+    const scroll = vi.fn();
+    const before = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    window.history.replaceState(null, '', '/board?task=t1&contact=x2');
+    try {
+      render(<ExternalContactsSection contacts={[ahmed, sara]} />);
+      const rows = within(section()).getAllByRole('listitem');
+      expect(rows[1]).toHaveAttribute('data-found', 'true');
+      expect(rows[1]).toHaveFocus();
+      expect(rows[0]).not.toHaveAttribute('data-found');
+      expect(scroll).toHaveBeenCalled();
+    } finally {
+      window.history.replaceState(null, '', '/');
+      Element.prototype.scrollIntoView = before;
+    }
+  });
+
   it('shows each contact: name, company · designation, email and phone as links, and remarks', () => {
     render(<ExternalContactsSection contacts={[ahmed, sara]} />);
     const s = section();

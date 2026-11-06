@@ -19,6 +19,8 @@ export interface ProjectListState {
   sort: ProjectSort;
   /** Only projects I own, manage or am on the team of. */
   mine: boolean;
+  /** 1.23.6: the projects of one client (as a search result named it; case and spaces don't matter); '' = any. */
+  client: string;
 }
 
 /** The tabs in order. "All" is every project except the archived ones, which only show under their own tab. */
@@ -39,7 +41,7 @@ export const PROJECT_SORTS: { value: ProjectSort; label: string; phrase: string 
   { value: 'progress', label: 'Progress', phrase: 'least done first' },
 ];
 
-export const DEFAULT_LIST_STATE: ProjectListState = { status: 'all', q: '', owner: '', sort: 'attention', mine: false };
+export const DEFAULT_LIST_STATE: ProjectListState = { status: 'all', q: '', owner: '', sort: 'attention', mine: false, client: '' };
 
 const isTab = (v: string | null): v is StatusTab => STATUS_TABS.some((t) => t.value === v);
 const isSort = (v: string | null): v is ProjectSort => PROJECT_SORTS.some((s) => s.value === v);
@@ -54,6 +56,7 @@ export function readListState(params: URLSearchParams): ProjectListState {
     owner: params.get('owner') ?? '',
     sort: isSort(sort) ? sort : 'attention',
     mine: params.get('mine') === '1',
+    client: (params.get('client') ?? '').slice(0, 200),
   };
 }
 
@@ -92,7 +95,13 @@ export function tabCounts(projects: Pick<ProjectOverview, 'status'>[]): Record<S
  * (I own it, manage it or am on its team; having created it is not enough) comes from the server.
  */
 export function filterProjects(projects: ProjectOverview[], state: ProjectListState): ProjectOverview[] {
-  return projects.filter((p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || p.mine));
+  return projects.filter((p) => matchesSearch(p, state.q) && (!state.owner || p.ownerId === state.owner) && (!state.mine || p.mine) && (!state.client || sameClient(p.clientName, state.client)));
+}
+
+/** 1.23.6: the same client, whatever its case and spaces ("PDO " is "pdo"). */
+export function sameClient(a: string | null | undefined, b: string): boolean {
+  const norm = (v: string) => v.replace(/\s+/g, ' ').trim().toLocaleLowerCase('en');
+  return !!a && norm(a) === norm(b);
 }
 
 export function ownerOptions(projects: ProjectOverview[]): { id: string; name: string }[] {

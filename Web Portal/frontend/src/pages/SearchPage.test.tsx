@@ -43,7 +43,7 @@ const file = {
   matches: [{ field: 'file-text', label: 'Text in the file', snippet: 'scaffold tags', ranges: [{ start: 0, end: 5 }] }],
   target: { type: 'file', taskId: 't7', fileId: 'f1' },
 };
-const COUNTS = { task: 2, project: 0, meeting: 0, note: 1, minutes: 0, file: 1, inspection: 0 };
+const COUNTS = { task: 2, project: 0, meeting: 0, note: 1, minutes: 0, file: 1, inspection: 0, checklist: 0, contact: 0 };
 const PROJECTS = [
   { id: 'p1', code: 'RIG', name: 'Rig Inspection', status: 'ACTIVE' },
   { id: 'p9', code: 'OLD', name: 'Old works', status: 'ARCHIVED' },
@@ -189,7 +189,7 @@ describe('Search results page (search everything)', () => {
     open();
     await row('Check the scaffold 1');
     const types = within(screen.getByRole('group', { name: 'Type' }));
-    expect(types.getAllByRole('button').map((b) => b.textContent)).toEqual(['All 4', 'Tasks 2', 'Projects 0', 'Meetings 0', 'Notes 1', 'Minutes 0', 'Files 1', 'Inspections 0']);
+    expect(types.getAllByRole('button').map((b) => b.textContent)).toEqual(['All 4', 'Tasks 2', 'Projects 0', 'Meetings 0', 'Notes 1', 'Minutes 0', 'Files 1', 'Inspections 0', 'Checklist items 0', 'Clients & contacts 0']);
     expect(screen.queryByLabelText('Status')).toBeNull();
     await userEvent.click(types.getByRole('button', { name: 'Tasks 2' }));
     await waitFor(() => expect(lastAsked(s)).toEqual({ q: 'scaff', type: 'task' }));

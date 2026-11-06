@@ -76,6 +76,7 @@ describe('GET /search/all — the reader', () => {
     const body = res.json();
     expect(body.understood.chips.map((c: { label: string }) => c.label)).toEqual(['Tasks', 'Overdue', 'MICO', 'Assigned to me']);
     expect(body.understood.words).toBe('');
+    expect(body.understood.kinds).toEqual(['task']);
     expect(readFor).toEqual([{ viewer: 'u1', pick: null }]);
     expect(calls[0]).toMatchObject({
       q: '',
@@ -112,6 +113,7 @@ describe('GET /search/all — the reader', () => {
     const { app, calls } = await makeApp();
     const body = (await app.inject({ method: 'GET', url: `/api/v1/search/all?q=${encodeURIComponent('MICO tasks due today')}&type=meeting&projectId=p-other`, headers: await auth() })).json();
     expect(body.understood.chips.map((c: { label: string }) => c.label)).toEqual(['Due today']);
+    expect(body.understood.kinds).toBeUndefined();
     expect(calls[0]).toMatchObject({ kinds: ['meeting'], projectId: 'p-other', due: { from: new Date('2026-11-07T00:00:00Z'), before: new Date('2026-11-08T00:00:00Z') } });
   });
 
