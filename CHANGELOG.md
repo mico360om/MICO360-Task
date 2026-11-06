@@ -14,9 +14,6 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
-### Improvements
-- Notifications page: uses the full width of the screen, like My Tasks and the other lists.
-
 ### New features
 - Smarter Dashboard (1.23.4): "My Priorities Today" at the top of the Dashboard tells you what needs you
   first, in one list, most urgent first, each row saying why — "Overdue 2 days", "Waiting for your
@@ -41,9 +38,54 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   the two charts for administrators, Approvals for the people who can approve. New widgets in later
   releases appear in everyone's Dashboard at the default's place.
 
-### Bug fixes
-- My Tasks and board tables: the "Overdue" filter judged lateness by the computer's clock instead of the
-  table's own day, so it could disagree with the rest of the table for a moment around midnight.
+### Improvements
+- Notifications page: uses the full width of the screen, like My Tasks and the other lists.
+
+## [1.23.3] - 2026-11-07
+
+### New features
+- Nested checklists: a task can have several checklists, each with its own title (for example
+  "Electrical" and "Plumbing"), and any item can have sub-items, as many levels deep as you need. In the
+  task panel the checklists show "Checklists 8/12 completed" overall and "5/8" with a bar on each; the
+  counts are of the real to-do items (the ones without sub-items), so nothing is counted twice. Rename,
+  duplicate (a copy with its sub-items, ticks cleared) or delete a checklist, and collapse or expand all
+  of it, from its ⋯ menu; "Add checklist" adds another.
+- Checklist items: tick them off, change their words in place, and from an item's ⋯ menu add a
+  sub-item, give it to someone on the task's team (their face shows on the item, and they are told),
+  set a due date ("3 Nov"), duplicate it, indent or outdent it, or move it up or down. With the
+  keyboard, Enter starts the next item at the same level and Tab / Shift+Tab indent / outdent the item
+  you are writing. A parent ticks itself when all its sub-items are done; ticking it by hand while
+  sub-items are open says "2 sub-items still open" and changes nothing. A parent shows "1/3" even when
+  collapsed, and what you collapse is remembered for you on that device.
+- Nothing is lost by a misclick: deleting an item with sub-items, or a whole checklist, asks first, and
+  every delete has Undo. Deleted items can be restored for 30 days with Restore in the task's history,
+  which now says in plain words who added, ticked, renamed, assigned, dated, moved, duplicated, deleted
+  or restored which item ("Khurram ticked “Label circuits”", "added 3 items to Electrical").
+- My Tasks has "Checklist items for me": the open checklist items given to you on other tasks, with the
+  task number, checklist, due date (late in red) and a tick box; click one to open its task at that
+  item. The Calendar shows dated items on their day ("☐ Label circuits · MICO-142") — yours across all
+  projects, and all of a project's on that project's calendar — and they open the task at the item too.
+- The New task form, task templates and project templates use the same checklist editor, so a
+  template keeps its checklists' titles and nesting, and a new task starts with them.
+- Checklist items given to someone with a due date get the usual "due soon" and "overdue" reminders (to
+  that person; an item given to no one reminds the task's people), at the same times as task reminders
+  and never twice a day. Items of a finished task, or one waiting for approval, send none.
+
+### Improvements
+- Existing tasks keep their checklist, now titled "Checklist", with every item in its order; task cards
+  still show "8/12". A repeating task's next copy brings its checklists back with the ticks cleared, each
+  item's person kept and its due date moved on as far as the task's.
+- Merging tasks moves each merged task's checklists whole, titled "From MICO-14 · Electrical"; Undo
+  moves them back. Search finds a task by its checklists' titles as well as their items, and the task's
+  PDF and spreadsheet list each checklist with its count ("Electrical · 5/8") and sub-items indented.
+- The Android app and the Chrome extension keep working as they are: they see every checklist item in
+  one list and can tick items without sub-items (ticking a parent there says which sub-items are open).
+  Deleting an item with sub-items there deletes its sub-items too; it can be restored on the website
+  for 30 days.
+- Error log: a slow request says where the time went — the server, the database or the network (for
+  example "server 9.9 s · in the database 9.7 s", or "server 0.1 s · the rest was the network"). Every
+  answer from the server now carries its own time and its time in the database; the row shows the last
+  time's, and each occurrence its own. Rows from before the update look as they did.
 
 ## [1.23.2] - 2026-11-06
 

@@ -1,6 +1,7 @@
 import type { ApiClient } from '../lib/api-client';
 import type { ApiTask } from './tasks';
 import type { CalendarOccurrence } from '../lib/calendar-model';
+import type { CalendarChecklistItem } from '../lib/calendar-checklist';
 
 export interface CalendarRange {
   from: string;
@@ -12,6 +13,8 @@ export interface CalendarRange {
   occurrences: CalendarOccurrence[];
   /** The newest copy of each series the occurrences come from. */
   series: ApiTask[];
+  /** 1.23.3: checklist items due in the range (mine, and those of projects I can see); an older server sends none. */
+  checklistItems?: CalendarChecklistItem[];
 }
 
 export function calendarApi(client: ApiClient) {

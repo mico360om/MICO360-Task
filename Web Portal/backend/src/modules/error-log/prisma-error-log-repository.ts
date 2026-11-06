@@ -151,6 +151,15 @@ export function createPrismaErrorLogRepository(prisma: PrismaClient): ErrorLogRe
       return out;
     },
 
+    async newest(ids) {
+      const out = new Map<string, { value: number | null; stack: string | null }>();
+      if (!ids.length) return out;
+      // At most EVENTS_KEPT a group, newest first: the first of each group is its newest.
+      const rows = await prisma.errorEvent.findMany({ where: { groupId: { in: ids } }, orderBy: [{ at: 'desc' }, { id: 'desc' }], select: { groupId: true, value: true, stack: true } });
+      for (const r of rows) if (!out.has(r.groupId)) out.set(r.groupId, { value: r.value, stack: r.stack });
+      return out;
+    },
+
     get,
 
     async events(groupId) {

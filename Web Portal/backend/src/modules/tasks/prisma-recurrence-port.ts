@@ -1,3 +1,5 @@
+import { copyRowsForRepeat } from './checklist-service';
+import type { ItemRow, ListRow } from './checklist-tree';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { NotFoundError } from '../../lib/http-errors';
 import type { RecurrenceTaskPort } from './recurrence-service';
@@ -43,7 +45,9 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
           assignees: { select: { userId: true } },
           watchers: { select: { userId: true } },
           tags: { select: { tagId: true } },
-          checklist: { select: { text: true, position: true }, orderBy: { position: 'asc' } },
+          // 1.23.3: its live checklists (titles, nesting, people, due days).
+          checklistLists: { where: { deletedAt: null } },
+          checklist: { where: { deletedAt: null } },
           externalContacts: { orderBy: { position: 'asc' } },
           inspectionForm: { select: { deletedAt: true } },
         },
@@ -59,7 +63,8 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
       });
       const parentId = source.recurrenceParentId ?? source.id;
       // People who have since lost access to the project don't follow the series forward.
-      const people = [...new Set([...source.assignees, ...source.watchers].map((r) => r.userId))];
+      const itemPeople = source.checklist.map((c) => c.assigneeId).filter((id): id is string => !!id);
+      const people = [...new Set([...source.assignees, ...source.watchers].map((r) => r.userId).concat(itemPeople))];
       const allowed = new Set(people.length ? await projectAudienceIds(prisma, source.projectId, people) : []);
       const assigneeIds = source.assignees.map((a) => a.userId).filter((id) => allowed.has(id));
       const watcherIds = source.watchers.map((w) => w.userId).filter((id) => allowed.has(id));
@@ -111,7 +116,6 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
                 assignees: { create: assigneeIds.map((userId) => ({ userId })) },
                 watchers: { create: watcherIds.map((userId) => ({ userId })) },
                 tags: { create: source.tags.map((t) => ({ tagId: t.tagId })) },
-                checklist: { create: source.checklist.map((c) => ({ text: c.text, position: c.position })) },
                 // Its external contacts: copies, so a change on one copy leaves the others as they are.
                 externalContacts: {
                   create: (source.externalContacts ?? []).map((c) => ({
@@ -128,6 +132,14 @@ export function createPrismaRecurrencePort(prisma: PrismaClient, opts: PrismaRec
               },
               select: { id: true, projectId: true, title: true },
             });
+            // 1.23.3 (design call 2): the checklists, ticks cleared; each item keeps its person (while they
+            // may still open the project) and its due day moves as far as the task's did — none when either
+            // task has no due day. No "assigned" notices: the reminders cover them when they're due.
+            const shift = source.dueDate && nextDueDate ? nextDueDate.getTime() - source.dueDate.getTime() : null;
+            const copy = copyRowsForRepeat({ lists: source.checklistLists as ListRow[], items: source.checklist as ItemRow[] }, task.id, shift, at);
+            for (const i of copy.items) if (i.assigneeId && !allowed.has(i.assigneeId)) i.assigneeId = null;
+            if (copy.lists.length) await tx.checklistList.createMany({ data: copy.lists });
+            if (copy.items.length) await tx.checklistItem.createMany({ data: copy.items });
             // The rule now lives on the new instance only. The first task of a series marks itself as
             // its start, so every app keeps showing it as part of the series once the rule moves on.
             // Its version is left alone: the client that just completed it holds that version (a

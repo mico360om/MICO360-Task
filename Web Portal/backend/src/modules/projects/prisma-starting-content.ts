@@ -1,3 +1,4 @@
+import { rowsFromTree } from '../tasks/checklist-service';
 import type { Prisma } from '@prisma/client';
 import { newRowId } from '../../lib/row-id';
 import { inChunks } from '../../lib/chunks';
@@ -48,10 +49,10 @@ export async function writeStartingTasks(
     ...done,
   } }));
   await inChunks(tasks, (chunk) => tx.task.createMany({ data: chunk.map((t) => ({ id: t.id, ...t.row })) }));
-  await inChunks(
-    tasks.flatMap((t) => t.plan.checklist.map((text, position) => ({ id: newRowId(), taskId: t.id, text, position }))),
-    (data) => tx.checklistItem.createMany({ data }),
-  );
+  // 1.23.3: each task's checklists with their titles and nesting (lists first: items point at them).
+  const checklists = tasks.map((t) => rowsFromTree(t.id, t.plan.checklists, project.createdById, at));
+  await inChunks(checklists.flatMap((c) => c.lists), (data) => tx.checklistList.createMany({ data }));
+  await inChunks(checklists.flatMap((c) => c.items), (data) => tx.checklistItem.createMany({ data }));
   const assignments = tasks.flatMap((t) => [...new Set(t.plan.assigneeIds ?? (project.ownerId ? [project.ownerId] : []))].map((userId) => ({ taskId: t.id, userId })));
   await inChunks(assignments, (data) => tx.taskAssignee.createMany({ data }));
   const people = new Map(

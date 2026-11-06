@@ -3,10 +3,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // 1.23.2 — the server's one Prisma client opens a steady pool: DATABASE_URL with connection_limit=10 and
 // pool_timeout=20 added when it sets none (lib/db-pool); a value in the URL is kept.
 const made: unknown[] = [];
+// 1.23.3 — and it tells each request's timing about its database calls (lib/request-timing).
+const middlewares: unknown[] = [];
 vi.mock('@prisma/client', () => ({
   PrismaClient: class {
     constructor(opts?: unknown) {
       made.push(opts);
+    }
+    $use(mw: unknown) {
+      middlewares.push(mw);
+    }
+    async $transaction() {
+      return null;
     }
   },
 }));
@@ -33,5 +41,15 @@ describe('the server’s Prisma client', () => {
     process.env.DATABASE_URL = 'mysql://u:p@db.example:3306/mico?connection_limit=4';
     await import('./prisma');
     expect(made).toEqual([{ datasources: { db: { url: 'mysql://u:p@db.example:3306/mico?connection_limit=4' } } }]);
+  });
+
+  it('measures each request’s time in the database (once, even when the module loads again)', async () => {
+    middlewares.length = 0;
+    process.env.DATABASE_URL = 'mysql://u:p@db.example:3306/mico';
+    const first = await import('./prisma');
+    vi.resetModules();
+    const again = await import('./prisma'); // the same client, kept on globalThis outside production
+    expect(again.prisma).toBe(first.prisma);
+    expect(middlewares).toHaveLength(1);
   });
 });

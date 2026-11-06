@@ -1,3 +1,4 @@
+import { treeItemCount, type ChecklistTree } from '../tasks/checklist-tree';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { dueDayKey, todayKey, zonedDayKey } from '../../lib/due-date';
 import { boardDateFromKey } from '../tasks/board-date';
@@ -87,8 +88,8 @@ export function checkProjectTemplate(input: ProjectTemplateInput): void {
   }
 }
 
-/** Checklist items across a template's tasks. */
-const checklistTotal = (tasks: { checklist: unknown[] }[]) => tasks.reduce((n, t) => n + t.checklist.length, 0);
+/** Checklist items across a template's tasks (every level). */
+const checklistTotal = (tasks: { checklists: ChecklistTree }[]) => tasks.reduce((n, t) => n + treeItemCount(t.checklists), 0);
 
 /** The message when a template changed after its preview was shown. */
 export const TEMPLATE_CHANGED_MESSAGE = 'This template was changed while you were looking at it — check the preview again.';
@@ -192,10 +193,10 @@ export function createTemplateService(deps: TemplateServiceDeps) {
       columnCount: usableColumns(snap.columns).length,
       columnsTotal: snap.columns.length,
       maxTasks: TEMPLATE_LIMITS.tasks,
-      // Checklist items kept (the first 100 of each task's), and how many tasks have more than that.
-      checklistItems: checklistTotal(snap.tasks.map((t) => ({ checklist: t.checklist.slice(0, TEMPLATE_LIMITS.checklistItems) }))),
+      // Checklist items kept (every one, with their checklists' titles and nesting — 1.23.3), of the most a template holds.
+      checklistItems: checklistTotal(snap.tasks),
       maxChecklistItems: TEMPLATE_LIMITS.checklistTotal,
-      checklistTrimmed: snap.tasks.filter((t) => t.checklist.length > TEMPLATE_LIMITS.checklistItems).length,
+      checklistTrimmed: 0,
       // Each task's people in the order they were assigned: what each role gets follows from it (see saveProjectAsTemplate).
       assignments: snap.tasks.map((t) => [...new Set(t.assigneeIds)]),
       people: [...counts].map(([id, taskCount]) => ({ id, name: names.get(id) ?? null, taskCount })).sort((a, b) => b.taskCount - a.taskCount || (a.name ?? '').localeCompare(b.name ?? '')),
@@ -250,7 +251,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
           dueOffsetDays: offset === null ? null : Math.max(TEMPLATE_LIMITS.minOffset, Math.min(TEMPLATE_LIMITS.maxOffset, offset)),
           // The first of its people (in the order they were assigned) who was given a role.
           roleKey: t.assigneeIds.map((id) => roleOfUser.get(id)).find((k): k is string => !!k) ?? null,
-          checklist: t.checklist.slice(0, TEMPLATE_LIMITS.checklistItems),
+          checklists: t.checklists,
         };
       }),
     };
@@ -281,7 +282,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
         movedFrom: p.movedFrom,
         offset: p.offset,
         roleId: p.roleId,
-        checklistCount: p.checklist.length,
+        checklistCount: treeItemCount(p.checklists),
         hasDescription: !!p.description,
       })),
       overdue: tasks.filter((p) => p.dueDay !== null && p.dueDay < today).length,
@@ -342,7 +343,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
         // A task is under way from the project's start (or its due day, when that comes first).
         const startDate = day(p.dueDay && p.dueDay < startKey ? p.dueDay : startKey);
         const dueDate = dueDateOnEntry({ dueDate: p.dueDay ? day(p.dueDay) : null, startDate, boardDate }, { defaultDueToday }, timeZone, at) ?? null;
-        return { title: p.title, description: p.description, priority: p.priority, startDate, dueDate, assigneeIds: p.assigneeId ? [p.assigneeId] : null, checklist: p.checklist };
+        return { title: p.title, description: p.description, priority: p.priority, startDate, dueDate, assigneeIds: p.assigneeId ? [p.assigneeId] : null, checklists: p.checklists };
       }),
     };
     return { template, startWith, fillerIds, filledRoles: filled };
@@ -390,7 +391,7 @@ export function createTemplateService(deps: TemplateServiceDeps) {
         title: task.title,
         description: input.includeDescription === false ? null : task.description,
         priority: task.priority,
-        checklist: task.checklist.slice(0, TEMPLATE_LIMITS.checklistItems),
+        checklists: task.checklists,
       },
       actor.id,
     );

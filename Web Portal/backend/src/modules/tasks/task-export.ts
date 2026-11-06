@@ -1,3 +1,4 @@
+import { arrange, type ItemRow, type ListRow } from './checklist-tree';
 /**
  * One task as a document: an Excel workbook (details, external contacts, checklist, comments,
  * attachments, dependencies and activity, one sheet each) or a PDF of the whole task under its project's badge.
@@ -95,7 +96,11 @@ export interface TaskExportData {
   meeting: { id: string; title: string | null; startAt: Date | null } | null;
   /** The people outside the company responsible for it (all six fields), in order. */
   externalContacts: ExternalContactFields[];
-  checklist: { text: string; done: boolean }[];
+  /**
+   * Its checklist items in order. 1.23.3: each with its checklist's title (`list`), its level (`depth`, 0 =
+   * top) and whether it is a real to-do item (`leaf`: no sub-items) — counts use those only.
+   */
+  checklist: TaskExportChecklistItem[];
   /** The tasks this one waits for, and those waiting for it (the export route keeps only those the reader may open). */
   blockedBy: TaskExportLink[];
   blocks: TaskExportLink[];
@@ -204,7 +209,7 @@ export function taskSheets(t: TaskExportData, ctx: TaskExportContext): XlsxSheet
       columns: [{ header: 'Name' }, { header: 'Company' }, { header: 'Designation' }, { header: 'Email' }, { header: 'Phone' }, { header: 'Remarks', wrap: true }],
       rows: t.externalContacts.map((c) => [c.name, c.company ?? '', c.designation ?? '', c.email ?? '', c.phone ?? '', c.remarks ?? '']),
     },
-    { name: 'Checklist', title, notes, columns: [{ header: 'Done' }, { header: 'Item', wrap: true }], rows: t.checklist.map((c) => [c.done ? 'Done' : '', c.text]) },
+    checklistSheet(t.checklist, title, notes),
     { name: 'Comments', title, notes, columns: [{ header: 'When', kind: 'datetime' }, { header: 'Author' }, { header: 'Comment', wrap: true }], rows: t.comments.map((c) => [at(c.at), c.author, c.body]) },
     {
       name: 'Attachments',
@@ -424,13 +429,18 @@ export function taskPdf(t: TaskExportData, ctx: TaskExportContext): Buffer {
   if (paragraphs.length) for (const para of paragraphs) doc.text(para, { size: 10 });
   else none('No description.');
 
-  // Checklist: drawn boxes, ticked when done; long items wrap in full.
-  const checked = `${t.checklist.filter((c) => c.done).length} of ${t.checklist.length} done`;
+  // Checklist: drawn boxes, ticked when done; long items wrap in full. 1.23.3: the real to-do items are
+  // counted (no parents), each checklist named with its own count, sub-items a step further in.
+  const leaves = t.checklist.filter(isLeaf);
+  const checked = `${leaves.filter((c) => c.done).length} of ${leaves.length} done`;
   doc.heading('Checklist', { keepWith: t.checklist.length ? noteHeight(checked) + opening(t.checklist[0]!.text, 10) : 0 });
   if (t.checklist.length === 0) none('No checklist items.');
   else {
     note(checked);
-    for (const c of t.checklist) doc.checkItem(c.text, c.done, { size: 10 });
+    for (const group of checklistGroups(t.checklist)) {
+      if (group.title !== null) doc.keepTogether(noteHeight(group.label) + opening(group.items[0]?.text ?? '', 10)).text(group.label, { size: 9.5, bold: true, gap: 2 });
+      for (const c of group.items) doc.checkItem(c.text, c.done, { size: 10, indent: Math.min(c.depth ?? 0, CHECKLIST_PDF_LEVELS) * 14 });
+    }
   }
 
   // Comments: each reply under the comment it answers, a step further in; @mentions in bold. A
@@ -530,7 +540,9 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
           assignees: { include: { user: person } },
           watchers: { include: { user: person } },
           tags: { include: { tag: { select: { name: true } } } },
-          checklist: { orderBy: { position: 'asc' }, select: { text: true, done: true } },
+          // 1.23.3: the live checklists and items, arranged (titles, levels, the real to-do items).
+          checklistLists: { where: { deletedAt: null } },
+          checklist: { where: { deletedAt: null } },
           externalContacts: { orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } },
           // Linked tasks that are deleted, or in a deleted project, are left out.
           dependencies: { where: { dependsOn: live }, include: { dependsOn: { select: link } } },
@@ -581,7 +593,7 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
         isMilestone: t.isMilestone,
         meeting: t.meeting && !t.meeting.deletedAt ? { id: t.meeting.id, title: t.meeting.title, startAt: t.meeting.startAt } : null,
         externalContacts: t.externalContacts,
-        checklist: t.checklist,
+        checklist: exportChecklist(t.checklistLists as ListRow[], t.checklist as ItemRow[]),
         blockedBy: t.dependencies.map((d) => linked(d.dependsOn)),
         blocks: t.dependedOnBy.map((d) => linked(d.task)),
         attachments: t.attachments.map((a) => ({
@@ -600,4 +612,56 @@ export function createPrismaTaskExportSource(prisma: PrismaClient, timeZone: str
       };
     },
   };
+}
+
+/** 1.23.3: one checklist item as the export reads it. */
+export interface TaskExportChecklistItem {
+  text: string;
+  done: boolean;
+  /** Its checklist's title (absent: one untitled list, as before 1.23.3). */
+  list?: string;
+  /** Its checklist (two checklists may share a title). */
+  listId?: string;
+  /** 0 = top level. */
+  depth?: number;
+  /** A real to-do item (no sub-items); absent = yes. */
+  leaf?: boolean;
+}
+
+/** Levels the PDF steps in (deeper items keep the last step, as on the website). */
+const CHECKLIST_PDF_LEVELS = 6;
+const isLeaf = (c: TaskExportChecklistItem) => c.leaf !== false;
+
+/** The items grouped by checklist, in order, each with its "Electrical · 5/8" label. */
+function checklistGroups(items: TaskExportChecklistItem[]): { title: string | null; label: string; items: TaskExportChecklistItem[] }[] {
+  const groups: { title: string | null; label: string; items: TaskExportChecklistItem[] }[] = [];
+  let lastKey: string | null | undefined;
+  for (const c of items) {
+    const title = c.list ?? null;
+    const key = c.listId ?? title;
+    const last = groups[groups.length - 1];
+    if (last && key === lastKey) last.items.push(c);
+    else groups.push({ title, label: '', items: [c] });
+    lastKey = key;
+  }
+  for (const g of groups) {
+    const leaves = g.items.filter(isLeaf);
+    g.label = `${g.title ?? 'Checklist'} · ${leaves.filter((c) => c.done).length}/${leaves.length}`;
+  }
+  return groups;
+}
+
+/** The workbook's Checklist sheet: each item with its checklist (and its count), sub-items indented. */
+function checklistSheet(items: TaskExportChecklistItem[], title: string, notes: string[]) {
+  const nested = items.some((c) => c.list !== undefined);
+  if (!nested) return { name: 'Checklist', title, notes, columns: [{ header: 'Done' }, { header: 'Item', wrap: true }], rows: items.map((c) => [c.done ? 'Done' : '', c.text]) };
+  const rows = checklistGroups(items).flatMap((g) => g.items.map((c) => [g.label, c.done ? 'Done' : '', `${'\u00a0'.repeat(4 * Math.min(c.depth ?? 0, CHECKLIST_PDF_LEVELS))}${c.text}`]));
+  return { name: 'Checklist', title, notes, columns: [{ header: 'Checklist' }, { header: 'Done' }, { header: 'Item', wrap: true }], rows };
+}
+
+/** A task's live checklists as the export lists them (in order, with titles, levels and leaves). */
+export function exportChecklist(lists: ListRow[], items: ItemRow[]): TaskExportChecklistItem[] {
+  const a = arrange(lists, items);
+  const titles = new Map(a.lists.map((l) => [l.id, l.title]));
+  return a.items.map((i) => ({ text: i.text, done: i.done, list: titles.get(i.listId) ?? 'Checklist', listId: i.listId, depth: i.depth, leaf: i.childCount === 0 }));
 }

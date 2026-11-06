@@ -22,6 +22,12 @@ export interface ClientReport {
   count: number;
   version: string | null;
   screen: string | null;
+  /**
+   * 1.23.3, a slow request only: where its time went, from the answer's Server-Timing — the server's own
+   * time (ms) and the part of it in the database (null: not said). Absent when the page didn't say.
+   */
+  serverMs?: number;
+  dbMs?: number | null;
 }
 
 /** Reports a batch may carry, and the most the CSP endpoint takes from one body. */
@@ -37,6 +43,7 @@ const DETAILS: Record<ClientReport['kind'], readonly string[]> = {
 };
 
 const text = (max: number) => z.string().max(max * 4).optional().nullable();
+const ms = z.number().finite().min(0).max(1e9).optional().nullable();
 const reportSchema = z.object({
   kind: z.enum(['ERROR', 'NETWORK', 'BLOCKED', 'SLOW']),
   detail: z.string().max(32),
@@ -50,7 +57,15 @@ const reportSchema = z.object({
   count: z.number().int().min(1).max(1000).optional(),
   version: z.string().max(64).optional().nullable(),
   screen: z.string().max(40).optional().nullable(),
+  serverMs: ms,
+  dbMs: ms,
 });
+
+/** A slow request's server and database times (1.23.3): only with the server's, the database's never more. */
+function timingOf(r: { kind: string; detail: string; serverMs?: number | null; dbMs?: number | null }): Pick<ClientReport, 'serverMs' | 'dbMs'> {
+  if (r.kind !== 'SLOW' || r.detail !== 'api' || r.serverMs == null) return {};
+  return { serverMs: r.serverMs, dbMs: r.dbMs == null ? null : Math.min(r.dbMs, r.serverMs) };
+}
 
 /** Messages that say nothing about the site: ResizeObserver notices, and a cross-origin script's empty error. */
 const NOISE = /ResizeObserver loop|^Script error\.?$/i;
@@ -95,6 +110,7 @@ function reduce(raw: unknown): ClientReport | null {
     count: r.count ?? 1,
     version: r.version && VERSION.test(r.version) ? r.version : null,
     screen: r.screen && SCREEN.test(r.screen) ? r.screen : null,
+    ...timingOf(r),
   };
 }
 

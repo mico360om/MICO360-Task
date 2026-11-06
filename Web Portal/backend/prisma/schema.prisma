@@ -417,6 +417,8 @@ model Task {
   tags         TaskTag[]
   comments     Comment[]
   checklist    ChecklistItem[]
+  /// 1.23.3: its checklists (each item is in one).
+  checklistLists ChecklistList[]
   /// People outside the company responsible for this task (kept apart from its assignees).
   externalContacts TaskExternalContact[]
   attachments  Attachment[]
@@ -691,17 +693,62 @@ model Comment {
   @@map("task_comments")
 }
 
-model ChecklistItem {
-  id        String   @id @default(cuid())
-  taskId    String
-  text      String
-  done      Boolean  @default(false)
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+/// 1.23.3 Nested checklists: one of a task's checklists ("Electrical"), each with its own title. Every
+/// item belongs to one (`listId`); a task's items from before 1.23.3 were put in one titled "Checklist".
+/// Deleted ones are kept 30 days (deletedAt; the items deleted with it share `deletedBatchId`) so Undo
+/// and the task's history can restore them; a daily sweep removes them for good after that.
+model ChecklistList {
+  id             String          @id @default(cuid())
+  taskId         String
+  title          String          @db.VarChar(191)
+  position       Int             @default(0)
+  /// Who made it (no foreign key, like the other "by" columns of history).
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+  deletedById    String?
+  deletedBatchId String?
+  task           Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  items          ChecklistItem[]
 
   @@index([taskId])
+  @@index([deletedAt])
+  @@map("task_checklist_lists")
+}
+
+/// A checklist item. 1.23.3: items nest — `parentId` is the item it sits under (no foreign key: the
+/// server keeps the tree, and a deep tree must never hit the database's cascade depth). A parent's
+/// `done` is kept in step with its sub-items by the server (done when they all are); a leaf's is set
+/// by people. Counts use the leaves only. An item may be for one person (`assigneeId`) by a day
+/// (`dueDate`, UTC midnight like a task's). Deleted items are kept 30 days (see ChecklistList).
+model ChecklistItem {
+  id             String         @id @default(cuid())
+  taskId         String
+  text           String
+  done           Boolean        @default(false)
+  position       Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  listId         String?
+  parentId       String?
+  assigneeId     String?
+  dueDate        DateTime?
+  completedAt    DateTime?
+  completedById  String?
+  deletedAt      DateTime?
+  deletedById    String?
+  deletedBatchId String?
+  task           Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  list           ChecklistList? @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([listId])
+  @@index([parentId])
+  /// "Checklist items for me", reminders and the calendar.
+  @@index([assigneeId])
+  @@index([dueDate])
+  @@index([deletedAt])
   @@map("task_checklists")
 }
 

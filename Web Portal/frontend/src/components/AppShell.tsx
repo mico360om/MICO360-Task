@@ -110,8 +110,9 @@ export function AppShell() {
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete('task');
-        // 1.23: the file a search result marked goes with the task (review M8).
+        // 1.23: the file a search result marked goes with the task (review M8); 1.23.3: the checklist item too.
         next.delete('file');
+        next.delete('item');
         return next;
       },
       { replace: true },
@@ -226,7 +227,7 @@ export function AppShell() {
       </div>
 
       {/* Global task drawer — opened from search/command palette or any ?task= link */}
-      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={closeTask} stepper={stepper} /> : null}
+      {openTaskId ? <TaskDrawerContainer taskId={openTaskId} onClose={closeTask} stepper={stepper} focusItemId={searchParams.get('item')} /> : null}
 
       {/* A meeting reminder pops up in the corner of every page (after the page in reading order, so
           "Skip to content" stays first); every new notification refreshes the bell. */}

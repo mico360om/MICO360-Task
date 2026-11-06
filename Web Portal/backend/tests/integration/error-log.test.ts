@@ -125,6 +125,22 @@ describe('error_groups / error_events (integration)', () => {
     expect(pages.get(all[1]!.id)).toBe('nightly-backup');
   });
 
+  // 1.23.3: a slow row shows where its latest request's time went (kept in the occurrence's stack).
+  it('a slow request’s timing: kept with each occurrence, the row shows the newest', async () => {
+    service.acceptClientBatch({ body: JSON.stringify({ reports: [{ kind: 'SLOW', detail: 'api', value: 10_200, page: '/board', resource: 'GET /api/v1/tasks', serverMs: 9912.3, dbMs: 9700.1 }] }), ip: '1.1.1.1', userAgent: undefined, userId: null });
+    await service.settled();
+    clock = new Date(clock.getTime() + 60_000);
+    service.acceptClientBatch({ body: JSON.stringify({ reports: [{ kind: 'SLOW', detail: 'api', value: 12_000, page: '/board', resource: 'GET /api/v1/tasks', serverMs: 80, dbMs: 30 }] }), ip: '1.1.1.2', userAgent: undefined, userId: null });
+    await service.settled();
+    const [row] = (await service.list({ kind: 'slow', range: '30d', q: null, status: 'open', before: null })).groups;
+    expect(row!.timing).toEqual({ totalMs: 12_000, serverMs: 80, dbMs: 30 });
+    expect((await service.detail(row!.id))!.events.map((e) => e.timing)).toEqual([
+      { totalMs: 12_000, serverMs: 80, dbMs: 30 },
+      { totalMs: 10_200, serverMs: 9912.3, dbMs: 9700.1 },
+    ]);
+    expect((await repo.newest([row!.id, 'nope'])).size).toBe(1);
+  });
+
   it('mark as fixed, back from a newer version, and “Not fixed” — through the service', async () => {
     const { groupId } = (await repo.record(occurrence()))!;
     expect(await service.markFixed(groupId, 'admin1')).toMatchObject({ status: 'FIXED', fixedInVersion: '1.22.4', fixedById: 'admin1' });

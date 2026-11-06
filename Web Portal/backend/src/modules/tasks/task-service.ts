@@ -1,3 +1,4 @@
+import type { ChecklistTree } from './checklist-tree';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../lib/http-errors';
 import { dueDayKey } from '../../lib/due-date';
 import { isValidRule, withAnchorDay, type RecurrenceRule } from './recurrence';
@@ -57,6 +58,8 @@ export interface NewTask {
   assigneeIds?: string[];
   /** Checklist items' text, in order, written in the same write as the task. */
   checklist?: string[];
+  /** 1.23.3: its checklists with titles and nesting (wins over `checklist`). */
+  checklists?: ChecklistTree;
   /** External contacts (already checked), in order, written in the same write as the task. */
   externalContacts?: ExternalContactFields[];
   /** Needs approval before it counts as done; left out, the project's "New tasks need approval" decides. */

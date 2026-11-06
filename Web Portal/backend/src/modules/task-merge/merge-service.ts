@@ -8,7 +8,6 @@ import { boardDateFromKey, boardDateKey } from '../tasks/board-date';
 import { defaultCompanyTimeZone } from '../tasks/task-status';
 import type { ApprovalEvent } from '../tasks/task-approval';
 import {
-  checklistKey,
   combineDescriptions,
   contactFill,
   countWords,
@@ -34,7 +33,14 @@ import {
   type MergeDifference,
   type MergeField,
 } from './merge-rules';
+import { TEXT_MAX } from '../tasks/checklist-tree';
 import { displayName, joinableOf, loadCounts, loadMergeTasks, teamOf, type Db, type MergeCounts, type MergeTask } from './merge-facts';
+
+/** 1.23.3: a merged task's checklist on the main task: "From MICO-14 · Electrical" (fits the title's 191 characters). */
+export function mergedListTitle(key: string, title: string): string {
+  const head = key ? `From ${key} · ` : '';
+  return `${head}${title}`.slice(0, TEXT_MAX);
+}
 
 /** Who is merging (or undoing). */
 export interface MergeActor {
@@ -282,7 +288,9 @@ function columnValue(field: UndoField, v: unknown): unknown {
 
 /** Everything a merge reads about the rows around its tasks, once. */
 interface RowsAround {
-  checklist: { id: string; taskId: string; text: string; done: boolean; position: number }[];
+  checklist: { id: string; taskId: string; text: string; done: boolean; position: number; deletedAt: Date | null }[];
+  /** 1.23.3: the tasks' checklists (deleted ones too: they move with their items, still restorable). */
+  lists: { id: string; taskId: string; title: string; position: number; deletedAt: Date | null }[];
   files: { id: string; taskId: string; filename: string; sizeBytes: number; storageKey: string }[];
   contacts: ({ id: string; taskId: string; position: number } & ContactValues)[];
   assignees: { taskId: string; userId: string; name: string }[];
@@ -294,8 +302,9 @@ interface RowsAround {
 }
 
 async function rowsAround(db: Db, ids: string[]): Promise<RowsAround> {
-  const [checklist, files, contacts, assignees, watchers, tags, edges, followUps] = await Promise.all([
-    db.checklistItem.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, text: true, done: true, position: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }),
+  const [checklist, lists, files, contacts, assignees, watchers, tags, edges, followUps] = await Promise.all([
+    db.checklistItem.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, text: true, done: true, position: true, deletedAt: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }),
+    db.checklistList.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, title: true, position: true, deletedAt: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }),
     db.attachment.findMany({ where: { taskId: { in: ids } }, select: { id: true, taskId: true, filename: true, sizeBytes: true, storageKey: true }, orderBy: { createdAt: 'asc' } }),
     db.taskExternalContact.findMany({
       where: { taskId: { in: ids } },
@@ -316,6 +325,7 @@ async function rowsAround(db: Db, ids: string[]): Promise<RowsAround> {
   const graph = await db.taskDependency.findMany({ where: { task: { deletedAt: null }, dependsOn: { deletedAt: null } }, select: { id: true, taskId: true, dependsOnTaskId: true } });
   return {
     checklist,
+    lists,
     files,
     contacts,
     assignees: assignees.map((a) => ({ taskId: a.taskId, userId: a.userId, name: displayName({ username: a.user.username, firstName: a.user.firstName, lastName: a.user.lastName }) })),
@@ -329,7 +339,9 @@ async function rowsAround(db: Db, ids: string[]): Promise<RowsAround> {
 
 /** What the merge does with the rows around its tasks: what moves, what is kept once, what is left off. */
 interface RowPlan {
-  checklist: { id: string; fromTaskId: string; position: number; newPosition: number }[];
+  checklist: { id: string; fromTaskId: string; position: number; newPosition: number; live: boolean }[];
+  /** 1.23.3: each merged task's checklists, moved whole and titled "From MICO-14 · <title>". */
+  lists: { id: string; fromTaskId: string; position: number; newPosition: number; title: string; newTitle: string }[];
   checklistDupes: { id: string; fromTaskId: string }[];
   files: { id: string; fromTaskId: string }[];
   fileDupes: { id: string; fromTaskId: string }[];
@@ -362,21 +374,20 @@ async function planRows(
   hashOf: (storageKey: string) => Promise<string | null>,
 ): Promise<RowPlan> {
   const plan: RowPlan = {
-    checklist: [], checklistDupes: [], files: [], fileDupes: [], contacts: [], contactDupes: [], fills: [], assignees: [], assigneeDupes: 0,
+    checklist: [], lists: [], checklistDupes: [], files: [], fileDupes: [], contacts: [], contactDupes: [], fills: [], assignees: [], assigneeDupes: 0,
     watchers: [], watcherDupes: 0, watchersLeftOff: 0, tags: [], tagDupes: 0, links: { move: [], dropped: [] }, followUps: [], outsiders: new Map(),
   };
   const ofTask = <T extends { taskId: string }>(list: T[], id: string) => list.filter((r) => r.taskId === id);
 
-  // Checklist: after the main task's items, each task's in its own order.
-  const keys = new Set(ofTask(rows.checklist, main.id).map(checklistKey));
-  let nextPos = Math.max(-1, ...ofTask(rows.checklist, main.id).map((c) => c.position)) + 1;
+  // Checklists (1.23.3, design): each merged task's checklists move whole — titles, nesting, people, dates
+  // and ticks — after the main task's, titled "From MICO-14 · <title>"; Undo moves them back. A checklist
+  // keeps its shape, so no item in it is treated as a duplicate.
+  let nextList = Math.max(-1, ...ofTask(rows.lists, main.id).filter((l) => !l.deletedAt).map((l) => l.position)) + 1;
   for (const t of others) {
-    const mine = ofTask(rows.checklist, t.id);
-    for (const c of mine) {
-      if (keys.has(checklistKey(c))) plan.checklistDupes.push({ id: c.id, fromTaskId: t.id });
-      else plan.checklist.push({ id: c.id, fromTaskId: t.id, position: c.position, newPosition: nextPos++ });
+    for (const l of ofTask(rows.lists, t.id)) {
+      plan.lists.push({ id: l.id, fromTaskId: t.id, position: l.position, newPosition: l.deletedAt ? l.position : nextList++, title: l.title, newTitle: mergedListTitle(t.key, l.title) });
     }
-    for (const c of mine) keys.add(checklistKey(c));
+    for (const c of ofTask(rows.checklist, t.id)) plan.checklist.push({ id: c.id, fromTaskId: t.id, position: c.position, newPosition: c.position, live: !c.deletedAt });
   }
 
   // Files: the same name and size, then the same content.
@@ -943,10 +954,12 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     );
     for (const f of plan.files) item('attachment', f.id, f.fromTaskId);
     if (plan.files.length) await tx.attachment.updateMany({ where: { id: { in: plan.files.map((f) => f.id) } }, data: { taskId: main.id } });
-    for (const c of plan.checklist) {
-      item('checklist', c.id, c.fromTaskId, { position: c.position });
-      await tx.checklistItem.update({ where: { id: c.id }, data: { taskId: main.id, position: c.newPosition } });
+    for (const l of plan.lists) {
+      item('checklistList', l.id, l.fromTaskId, { position: l.position, title: l.title });
+      await tx.checklistList.update({ where: { id: l.id }, data: { taskId: main.id, position: l.newPosition, title: l.newTitle } });
     }
+    for (const c of plan.checklist) item('checklist', c.id, c.fromTaskId, { position: c.position });
+    if (plan.checklist.length) await tx.checklistItem.updateMany({ where: { id: { in: plan.checklist.map((c) => c.id) } }, data: { taskId: main.id } });
     for (const c of plan.contacts) {
       item('contact', c.id, c.fromTaskId, { position: c.position });
       await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: c.newPosition } });
@@ -1042,7 +1055,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
         ${keep ? Prisma.sql`AND NOT EXISTS (SELECT 1 FROM task_merge_items k WHERE k.mergeId = ${mergeId} AND k.kind = ${keep} AND k.rowId = ${rowId} AND k.fromTaskId = t.id)` : Prisma.empty})`;
     const rows = await prisma.$queryRaw<{ late: number | bigint }[]>`SELECT (
       ${unkept(Prisma.sql`task_comments`, null)} OR ${unkept(Prisma.sql`task_attachments`, 'keepAttachment')} OR ${unkept(Prisma.sql`task_checklists`, 'keepChecklist')}
-      OR ${unkept(Prisma.sql`task_external_contacts`, 'keepContact')}
+      OR ${unkept(Prisma.sql`task_external_contacts`, 'keepContact')} OR ${unkept(Prisma.sql`task_checklist_lists`, null)}
       OR ${unkept(Prisma.sql`task_activity`, null, Prisma.sql`x.id`, Prisma.sql`taskId`, Prisma.sql`AND x.action NOT IN ('TASKS_MERGED', 'MERGED_INTO', 'MERGE_UNDONE')`)}
       OR ${unkept(Prisma.sql`action_items`, null)} OR ${unkept(Prisma.sql`inspections`, null)}
       OR ${unkept(Prisma.sql`notifications`, null, Prisma.sql`x.id`, Prisma.sql`entityId`, Prisma.sql`AND x.entityType IN ('task', 'TASK')`)}
@@ -1074,7 +1087,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       const items: Prisma.TaskMergeItemCreateManyInput[] = [];
       const item = (kind: string, rowId: string, fromTaskId: string, data?: unknown) =>
         items.push({ mergeId, kind, rowId, fromTaskId, ...(data !== undefined ? { data: data as Prisma.InputJsonValue } : {}) });
-      let checklistAt = (await tx.checklistItem.aggregate({ where: { taskId: main.id }, _max: { position: true } }))._max.position ?? -1;
+      let listAt = (await tx.checklistList.aggregate({ where: { taskId: main.id, deletedAt: null }, _max: { position: true } }))._max.position ?? -1;
       let contactAt = (await tx.taskExternalContact.aggregate({ where: { taskId: main.id }, _max: { position: true } }))._max.position ?? -1;
       for (const { id: t } of merged) {
         const comments = await tx.comment.findMany({ where: { taskId: t }, select: { id: true } });
@@ -1083,10 +1096,16 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
         const files = (await tx.attachment.findMany({ where: { taskId: t }, select: { id: true } })).filter((f) => !isKept('keepAttachment', f.id, t));
         for (const f of files) item('attachment', f.id, t);
         if (files.length) await tx.attachment.updateMany({ where: { id: { in: files.map((f) => f.id) } }, data: { taskId: main.id } });
-        for (const c of (await tx.checklistItem.findMany({ where: { taskId: t }, select: { id: true, position: true }, orderBy: { position: 'asc' } })).filter((c) => !isKept('keepChecklist', c.id, t))) {
-          item('checklist', c.id, t, { position: c.position });
-          await tx.checklistItem.update({ where: { id: c.id }, data: { taskId: main.id, position: ++checklistAt } });
+        // 1.23.3: a checklist made late moves whole, as at the merge; a late item keeps its checklist (moved
+        // now or at the merge), and one in none is given the main task's first by the checklist service.
+        const lateKey = (await tx.task.findUnique({ where: { id: t }, select: { key: true } }))?.key ?? '';
+        for (const l of await tx.checklistList.findMany({ where: { taskId: t }, select: { id: true, position: true, title: true, deletedAt: true }, orderBy: { position: 'asc' } })) {
+          item('checklistList', l.id, t, { position: l.position, title: l.title });
+          await tx.checklistList.update({ where: { id: l.id }, data: { taskId: main.id, position: l.deletedAt ? l.position : ++listAt, title: mergedListTitle(lateKey, l.title) } });
         }
+        const lateItems = await tx.checklistItem.findMany({ where: { taskId: t }, select: { id: true, position: true } });
+        for (const c of lateItems) item('checklist', c.id, t, { position: c.position });
+        if (lateItems.length) await tx.checklistItem.updateMany({ where: { id: { in: lateItems.map((c) => c.id) } }, data: { taskId: main.id } });
         for (const c of (await tx.taskExternalContact.findMany({ where: { taskId: t }, select: { id: true, position: true }, orderBy: { position: 'asc' } })).filter((c) => !isKept('keepContact', c.id, t))) {
           item('contact', c.id, t, { position: c.position });
           await tx.taskExternalContact.update({ where: { id: c.id }, data: { taskId: main.id, position: ++contactAt } });
@@ -1183,7 +1202,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const [main, by, kept] = await Promise.all([
       prisma.task.findUnique({ where: { id: merge.mainTaskId }, select: { id: true, key: true } }),
       t.mergedById ? prisma.user.findUnique({ where: { id: t.mergedById }, select: { username: true, firstName: true, lastName: true } }) : null,
-      Promise.all([prisma.checklistItem.count({ where: { taskId } }), prisma.attachment.count({ where: { taskId } }), prisma.taskExternalContact.count({ where: { taskId } })]),
+      Promise.all([prisma.checklistItem.count({ where: { taskId, deletedAt: null } }), prisma.attachment.count({ where: { taskId } }), prisma.taskExternalContact.count({ where: { taskId } })]),
     ]);
     return {
       id: t.id, key: t.key, title: t.title, description: t.description, project: t.project, status: { name: t.column.name, category: t.column.category }, priority: t.priority,
@@ -1243,7 +1262,7 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
     const keys = new Map((m.taskIds as unknown as { id: string; key: string }[]).map((t) => [t.id, t.key]));
     const kinds: { kind: string; one: string; many?: string; exists: (ids: string[]) => Promise<string[]> }[] = [
       { kind: 'attachment', one: 'file', exists: async (ids) => (await db.attachment.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((r) => r.id) },
-      { kind: 'checklist', one: 'checklist item', exists: async (ids) => (await db.checklistItem.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((r) => r.id) },
+      { kind: 'checklist', one: 'checklist item', exists: async (ids) => (await db.checklistItem.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true } })).map((r) => r.id) },
       { kind: 'contact', one: 'external contact', exists: async (ids) => (await db.taskExternalContact.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((r) => r.id) },
       { kind: 'dependency', one: 'blocker link', exists: async (ids) => (await db.taskDependency.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((r) => r.id) },
       { kind: 'actionItem', one: 'action item', exists: async (ids) => (await db.actionItem.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((r) => r.id) },
@@ -1342,9 +1361,24 @@ export function createTaskMergeService(deps: MergeServiceDeps) {
       const projectId = (i.data as { projectId?: string | null } | null)?.projectId ?? null;
       await tx.notification.updateMany({ where: { id: i.rowId, entityId: main.id }, data: { entityId: i.fromTaskId, projectId } });
     }
+    for (const i of of('checklistList')) {
+      const was = (i.data as { position?: number; title?: string } | null) ?? {};
+      await tx.checklistList.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position: was.position ?? 0, ...(was.title ? { title: was.title } : {}) } });
+    }
     for (const i of of('checklist')) {
       const position = (i.data as { position?: number } | null)?.position ?? 0;
       await tx.checklistItem.updateMany({ where: { id: i.rowId, taskId: main.id }, data: { taskId: i.fromTaskId, position } });
+    }
+    // 1.23.3: an item given back whose checklist stayed on the main task (moved there since, or a merge
+    // made before 1.23.3) goes to the top of its own task's first checklist — never left pointing at
+    // another task's.
+    const givenBack = ids('checklist');
+    if (givenBack.length) {
+      const stray = (await tx.checklistItem.findMany({ where: { id: { in: givenBack } }, select: { id: true, taskId: true, list: { select: { taskId: true } } } })).filter((x) => x.list && x.list.taskId !== x.taskId);
+      for (const x of stray) {
+        const first = await tx.checklistList.findFirst({ where: { taskId: x.taskId, deletedAt: null }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true } });
+        await tx.checklistItem.update({ where: { id: x.id }, data: { listId: first?.id ?? null, parentId: null } });
+      }
     }
     // A contact the merge filled in loses what it was given — unless that was changed since.
     for (const i of of('contactFill')) {

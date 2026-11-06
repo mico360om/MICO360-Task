@@ -1,3 +1,4 @@
+import { checklistTreeOf as tree } from '../../src/modules/tasks/checklist-tree';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';
@@ -138,7 +139,7 @@ describe('Task approvals on MySQL (integration)', () => {
       startWith: {
         columns: [{ name: 'To do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }],
         startColumn: 0,
-        tasks: [{ title: 'Kick-off', description: null, priority: 'NORMAL', startDate: null, dueDate: null, assigneeIds: [], checklist: [] }],
+        tasks: [{ title: 'Kick-off', description: null, priority: 'NORMAL', startDate: null, dueDate: null, assigneeIds: [], checklists: tree([]) }],
         boardDate: NOW,
         templateName: 'Rig job',
       },

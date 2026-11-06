@@ -67,11 +67,12 @@ import { updateActivity } from './modules/tasks/task-changes';
 import type { RecordTaskActivity } from './modules/activity/task-activity';
 import { createWatcherService } from './modules/tasks/watcher-service';
 import { createPrismaWatcherRepository } from './modules/tasks/prisma-watcher-repository';
-import { createPrismaAssigneeRepository, createPrismaTaskLookup } from './modules/tasks/prisma-assignee-repository';
+import { createPrismaAssigneeRepository, createPrismaTaskLookup, projectAudienceIds } from './modules/tasks/prisma-assignee-repository';
 import { createTagService } from './modules/tasks/tag-service';
 import { createPrismaTagRepository } from './modules/tasks/prisma-tag-repository';
-import { createChecklistService, progressFromItems } from './modules/tasks/checklist-service';
-import { createPrismaChecklistRepository } from './modules/tasks/prisma-checklist-repository';
+import { createChecklistService } from './modules/tasks/checklist-service';
+import { createPrismaChecklistStore, checklistPercentOf } from './modules/tasks/prisma-checklist-store';
+import { createPrismaChecklistQueries } from './modules/tasks/prisma-checklist-queries';
 import { createExternalContactService } from './modules/tasks/external-contact-service';
 import { createPrismaExternalContactRepository } from './modules/tasks/prisma-external-contact-repository';
 import { createCommentService } from './modules/tasks/comment-service';
@@ -99,7 +100,7 @@ import { createPrismaUserRepository as createPrismaUserMgmtRepository } from './
 import { createNotificationService } from './modules/notifications/notification-service';
 import { createPrismaNotificationRepository, createPrismaPreferenceStore, createPrismaReminderLogStore, pruneReminderLog } from './modules/notifications/prisma-notification-repository';
 import type { NotificationRecord } from './modules/notifications/notification-repository';
-import { planReminders } from './modules/notifications/reminder';
+import { planChecklistReminders, planReminders } from './modules/notifications/reminder';
 import { dispatchReminders } from './modules/notifications/reminder-dispatch';
 import { buildDigests } from './modules/notifications/notification-digest';
 import { createDailyEmailService } from './modules/daily-emails/daily-email-service';
@@ -438,7 +439,7 @@ async function main(): Promise<void> {
     // An approval or send-back is saved: a step after it that fails (a notice, the comment) is logged.
     onError: (err, taskId) => logger.error('task approvals: a step after the decision failed', { err, taskId }),
     // A re-opened task goes back to what its checklist says (it was forced to 100% when completed).
-    checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
+    checklistPercent: (taskId) => checklistPercentOf(prisma, taskId),
     onCreated: (task) => onTaskCreated(task),
     onUpdated: (before, after, actorId) => onTaskUpdated(before, after, actorId),
     onDeleting: (task) => onTaskDeleting(task),
@@ -464,7 +465,7 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     // 1.22: the move dialog lists an administrator's own projects with "Show my projects only" (a list call).
     pickerProjectIds: (actor) => projectAccess.accessibleProjectIds(actor.id, actor.roles ?? [], null),
-    checklistPercent: async (taskId) => progressFromItems(await prisma.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
+    checklistPercent: (taskId) => checklistPercentOf(prisma, taskId),
     // A move into or out of a Done column is a status change too: the next repeat copy, meeting
     // action items and the timeline line, as for a card moved on the board. Quietly: the move's own
     // notice says it was completed or re-opened (one notice, not a second "moved to Done").
@@ -524,9 +525,22 @@ async function main(): Promise<void> {
     onChanged: (taskId) => taskSearchIndex.taskChanged(taskId),
   });
 
+  // 1.23.3 nested checklists: several per task, sub-items, people and due days, 30-day Undo/Restore.
+  const checklistStore = createPrismaChecklistStore(prisma);
+  const checklistQueries = createPrismaChecklistQueries(prisma);
+  const namesOfUsers = async (ids: string[]): Promise<Map<string, string>> => {
+    const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, username: true, firstName: true, lastName: true } }) : [];
+    return new Map(users.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username]));
+  };
   const checklistService = createChecklistService({
-    repo: createPrismaChecklistRepository(prisma),
+    store: checklistStore,
     taskLookup: createPrismaTaskLookup(prisma),
+    // An item is given to someone who may be given the task itself (its project's team; never clients).
+    eligibleAssignees: async (taskId, ids) => {
+      const t = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, select: { projectId: true } });
+      return t ? projectAudienceIds(prisma, t.projectId, ids) : [];
+    },
+    namesOf: namesOfUsers,
     // The task's own progress (what the board card shows) follows its checklist while it is open;
     // a completed task stays at 100%.
     onProgress: async (taskId, percent) => {
@@ -761,7 +775,7 @@ async function main(): Promise<void> {
     timeZone: companyTz,
     // Duplicate files are compared by content (the same name and size first).
     readFile: async (storageKey) => (attachmentStorage.read ? attachmentStorage.read(storageKey).catch(() => null) : null),
-    checklistPercent: async (taskId, db) => progressFromItems(await db.checklistItem.findMany({ where: { taskId }, select: { done: true } })),
+    checklistPercent: (taskId, db) => checklistPercentOf(db, taskId),
     canViewMeeting: (userId, roles, meetingId) => meetingAccess.canViewMeeting(userId, roles, meetingId),
     // A blocker link to a task the person can't open is never named or counted in the preview.
     canViewTask: (userId, roles, taskId) => projectAccess.canViewTask(userId, roles, taskId),
@@ -1121,6 +1135,23 @@ async function main(): Promise<void> {
       store: reminderLogStore,
       notify: (n) => notificationService.notify(n),
     });
+    // 1.23.3 (design call 4): dated checklist items of open tasks — an item's person, else the task's
+    // assignees (those who may still open it); de-duplicated by item, person and day.
+    const items = await checklistQueries.forReminders();
+    const itemTaskIds = [...new Set(items.map((i) => i.taskId))];
+    const audience = new Map(
+      (itemTaskIds.length ? await prisma.task.findMany({ where: { id: { in: itemTaskIds } }, select: { id: true, ...taskAudienceSelect } }) : []).map((t) => [t.id, t]),
+    );
+    const plannedItems = planChecklistReminders(
+      items.flatMap((i) => {
+        const t = audience.get(i.taskId);
+        if (!t) return [];
+        const people = i.assigneeId ? [i.assigneeId] : i.taskAssigneeIds;
+        return [{ ...i, assigneeId: null, taskAssigneeIds: filterTaskRecipients(people, toAudienceFacts(t), { activeIds, adminIds, companiesOf }) }];
+      }),
+      { leadMinutesFor: (id) => leadByUser.get(id), timeZone: companyTz },
+    );
+    await dispatchReminders(plannedItems, { period, store: reminderLogStore, notify: (n) => notificationService.notify(n) });
   }
   // One instance at a time runs each sweep (lease lock) — no duplicate notifications / double
   // carry-forward across a multi-instance deployment. The lease expires so a crash never deadlocks it.
@@ -1840,7 +1871,7 @@ async function main(): Promise<void> {
   // and settings; System Settings → Error log shows the result.
   const databaseCheck = createDatabaseCheck({
     ...prismaDatabaseReads(prisma),
-    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz, taskMerge: taskMergeService }),
+    probes: databaseProbes({ prisma, taskSearch: taskSearchEngine, searchEngine, timeZone: companyTz, taskMerge: taskMergeService, checklists: checklistStore }),
     // 1.23.2: "pool 10" with the result (the URL itself is never shown or logged).
     poolSize: poolSizeOf(withPoolDefaults(process.env.DATABASE_URL)),
     record: ({ text, err }) => logger.job('database check').error(text, err !== undefined ? { err } : undefined),
@@ -2069,6 +2100,25 @@ async function main(): Promise<void> {
     watcherService,
     tagService,
     checklistService,
+    // 1.23.3: "Khurram assigned you 'Label circuits' on MICO-142" — while they may open the task.
+    onChecklistItemAssigned: async ({ taskId, text, assigneeId, actorId }) => {
+      if (!(await visibleTaskRecipients(taskId, [assigneeId], actorId)).length) return;
+      const [task, actorName] = await Promise.all([
+        prisma.task.findUnique({ where: { id: taskId }, select: { key: true } }),
+        namesOfUsers([actorId]).then((m) => m.get(actorId) ?? 'Someone'),
+      ]);
+      await notificationService.notify({
+        userId: assigneeId,
+        type: 'TASK_ASSIGNED',
+        title: 'You were assigned a checklist item',
+        body: `${actorName} assigned you ‘${text}’${task ? ` on ${task.key}` : ''}`,
+        entityType: 'task',
+        entityId: taskId,
+      });
+    },
+    checklistMine: (userId, projectIds) => checklistQueries.mine(userId, projectIds),
+    checklistDue: (opts) => checklistQueries.due(opts),
+    namesOfUsers,
     externalContactService,
     commentService,
     attachmentService,
@@ -2355,6 +2405,15 @@ async function main(): Promise<void> {
       if (gone.groups || gone.events) logger.info('Error log: old entries removed', { ...gone });
     }).catch(sweepFailed('error-log-retention', 'error log clean-up'));
   jobs.every(24 * 60 * 60 * 1000, runErrorLogRetention);
+
+  // 1.23.3 nested checklists: a deleted checklist or item can be restored for 30 days; once a day (and at
+  // start-up), on one instance, what was deleted before that goes for good.
+  const runChecklistPurge = () =>
+    runExclusive(jobLock, 'checklist-purge', SWEEP_LEASE_MS, () => new Date(), async () => {
+      const gone = await checklistService.purge();
+      if (gone) logger.info('Checklists: deleted items older than 30 days removed', { rows: gone });
+    }).catch(sweepFailed('checklist-purge', 'checklist clean-up'));
+  jobs.every(24 * 60 * 60 * 1000, runChecklistPurge);
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });

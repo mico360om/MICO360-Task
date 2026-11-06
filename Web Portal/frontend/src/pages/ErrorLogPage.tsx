@@ -14,7 +14,7 @@ import { relativeTime } from '../lib/relative-time';
 import { useCompanyTimeZone } from '../lib/useCompanyTimeZone';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
 import { DatabaseCheckLine } from '../components/admin/DatabaseCheckLine';
-import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, isNewSince, peopleText, personText, placeText, timesText, topFrameText } from '../components/admin/error-log-words';
+import { KIND_FILTERS, KIND_WORDS, RANGES, browserText, databaseText, detailText, isNewSince, lastTimeText, peopleText, personText, placeText, slowTimingText, timesText, topFrameText } from '../components/admin/error-log-words';
 
 const segment = (active: boolean) =>
   `rounded-lg px-3 py-1 text-sm font-medium transition-colors ${TOUCH_SQUARE} ${active ? 'bg-brand text-white shadow-brand' : 'text-ink-2 hover:bg-ground hover:text-ink'}`;
@@ -211,6 +211,8 @@ function ErrorRow({ group: g, open, isNew, timeZone, onToggle, onChanged }: { gr
           </span>
         </span>
         <span dir="auto" className="line-clamp-2 break-words font-medium text-ink">{g.title}</span>
+        {/* 1.23.3: a slow request — where the last time's wait went (the server, the database or the network). */}
+        {g.timing ? <span className="break-words text-xs text-ink-2">{lastTimeText(g.timing)}</span> : null}
         <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-2">
           <span>{timesText(g.count)}</span>
           <span>{peopleText(g)}</span>
@@ -304,6 +306,7 @@ function Occurrence({ e, timeZone }: { e: ErrorOccurrence; timeZone: string }) {
         <span dir="auto" className="text-ink-2">{personText(e)}</span>
       </span>
       {e.kind !== 'ERROR' && e.kind !== 'SERVER' ? <span dir="auto" className="break-words text-ink-2">{e.message}</span> : null}
+      {e.timing ? <span className="break-words text-ink-2">{slowTimingText(e.timing)}</span> : null}
       {e.resource ? <span className="break-all font-mono text-[11px] text-ink-3">{e.resource}</span> : null}
       {e.database ? <span className="break-all font-mono text-[11px] text-ink-3">{databaseText(e)}</span> : null}
       <span className="break-words text-ink-3">{facts.join(' · ')}</span>
