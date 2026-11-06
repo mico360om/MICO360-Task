@@ -40,6 +40,7 @@ export function createMemoryUserRepository() {
     return { ...r.user, locked, lockedUntil: locked ? r.lockedUntil : null, companies: companiesOf(r), primaryCompanyId: r.user.primaryCompanyId ?? null };
   };
   const live = () => [...rows.values()].filter((r) => !r.deleted);
+  const same = (a: string, b: string) => a.trimEnd().toLowerCase() === b.trimEnd().toLowerCase();
   const row = (id: string) => {
     const r = rows.get(id);
     if (!r || r.deleted) throw new Error(`no user ${id}`);
@@ -60,10 +61,14 @@ export function createMemoryUserRepository() {
         departmentId: data.departmentId ?? null,
         lastLoginAt: null,
         welcomeSentAt: null,
+        invitedAt: null,
+        activatedAt: null,
+        emailVerifiedAt: null,
+        inviteExpiresAt: null,
         roles: data.roleNames,
         myProjectsOnly: false,
       };
-      if ([...rows.values()].some((r) => r.user.email === data.email || r.user.username === data.username)) {
+      if ([...rows.values()].some((r) => same(r.user.email, data.email) || same(r.user.username, data.username))) {
         throw new Error('unique constraint'); // like the database, deleted rows still hold their identity
       }
       user.primaryCompanyId = data.primaryCompanyId ?? null;
@@ -75,7 +80,8 @@ export function createMemoryUserRepository() {
       return r && !r.deleted ? summary(r) : null;
     },
     async findByEmailOrUsername(email, username) {
-      const r = live().find((x) => x.user.email === email || x.user.username === username);
+      // As the database's collation compares: case-insensitive, trailing spaces ignored.
+      const r = live().find((x) => same(x.user.email, email) || same(x.user.username, username));
       return r ? summary(r) : null;
     },
     async list(filter) {
@@ -109,7 +115,7 @@ export function createMemoryUserRepository() {
     },
     async markWelcomeSent(id, at) {
       const r = row(id);
-      r.user = { ...r.user, welcomeSentAt: at };
+      r.user = { ...r.user, welcomeSentAt: at, invitedAt: r.user.invitedAt ?? at };
     },
     async getPasswordHash(id) {
       const r = rows.get(id);
@@ -135,7 +141,7 @@ export function createMemoryUserRepository() {
     },
     async releaseDeletedIdentity(email, username) {
       for (const r of rows.values()) {
-        if (r.deleted && (r.user.email === email || r.user.username === username)) {
+        if (r.deleted && (same(r.user.email, email) || same(r.user.username, username))) {
           r.user = { ...r.user, email: `${r.user.email}~released`, username: `${r.user.username}~released` };
         }
       }

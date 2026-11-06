@@ -85,5 +85,16 @@ export function databaseProbes({
     },
   });
   if (taskMerge) probes.push({ name: 'merging tasks (locks, late writes, undo)', run: () => taskMerge.selfCheck(NOWHERE) });
+  // Onboarding: the sign-in codes' table and the new account columns (no raw SQL: Prisma's own, checked
+  // here so a missed migration shows at start-up, not at someone's sign-in).
+  probes.push({
+    name: 'sign-in codes and invitations',
+    run: async () => {
+      const since = new Date(0);
+      await prisma.signInChallenge.aggregate({ where: { userId: NOWHERE, lastSentAt: { gte: since } }, _sum: { sends: true } });
+      await prisma.signInChallenge.aggregate({ where: { userId: NOWHERE, createdAt: { gte: since } }, _sum: { attempts: true } });
+      await prisma.user.findFirst({ where: { id: NOWHERE }, select: { emailVerifiedAt: true, invitedAt: true, activatedAt: true, loginOtps: { where: { purpose: 'WELCOME', consumedAt: null, expiresAt: { gt: since } }, select: { expiresAt: true }, take: 1 } } });
+    },
+  });
   return probes;
 }

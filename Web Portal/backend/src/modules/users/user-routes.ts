@@ -13,6 +13,11 @@ import { idString } from '../tasks/validation';
 import type { CompanyMembership } from '../companies/company-membership';
 import type { PickOf } from '../companies/company-pick';
 import { WELCOME_REFUSAL_WHY, WelcomeEmailUnavailableError, type WelcomeOutcome, type WelcomeRefusal, type WelcomeService } from './welcome-service';
+import { accountProblems, EMAIL_MAX, NAME_MAX, ORGANISATION_MAX } from '../../lib/account-rules';
+import { fieldProblem } from './user-service';
+import { checkIdentity, type IdentityLookup } from './identity-check';
+import type { AdminResetOutcome, AdminResetRefusal } from '../auth/password-reset-service';
+import type { EmailVerification } from '../auth/email-verification';
 
 // Password strength (8+ chars, a letter and a digit) is enforced by the service for every endpoint.
 const password = z.string().min(1).max(200);
@@ -77,7 +82,29 @@ const bulkCompaniesSchema = z
   })
   .refine((b) => (b.addCompanyIds?.length ?? 0) + (b.removeCompanyIds?.length ?? 0) > 0, { message: 'Choose a company to add or remove.', path: ['addCompanyIds'] });
 const listQuery = z.object({ companyId: idString.optional() });
-const statusSchema = z.object({ status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']) });
+// Onboarding: a deactivation (or reactivation) may say why — audited with it.
+const statusSchema = z.object({ status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']), reason: z.string().trim().max(300).optional() });
+/** Onboarding: "Mark email as verified" says why (audited). */
+const markVerifiedSchema = z.object({ reason: z.string().trim().min(1).max(300) });
+/** Onboarding: the forms' duplicate check while typing. */
+const identitySchema = z.object({
+  email: z.string().trim().max(EMAIL_MAX).optional(),
+  username: z.string().trim().max(NAME_MAX).optional(),
+  firstName: z.string().trim().max(NAME_MAX).optional(),
+  lastName: z.string().trim().max(NAME_MAX).optional(),
+  organisation: z.string().trim().max(ORGANISATION_MAX).nullable().optional(),
+  client: z.boolean().optional(),
+  excludeId: z.string().max(64).optional(),
+});
+/** An administrator's refused "Send password reset": its HTTP status (the words come from the outcome). */
+const RESET_REFUSAL_STATUS: Record<AdminResetRefusal, number> = {
+  NOT_FOUND: 404,
+  ACCOUNT_INACTIVE: 409,
+  ACCOUNT_SUSPENDED: 409,
+  NO_EMAIL: 409,
+  TOO_SOON: 429,
+  DELIVERY_FAILED: 502,
+};
 const adminPasswordSchema = z.object({ password });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: password });
 
@@ -104,6 +131,12 @@ export interface UserRouteDeps {
    * 'everyone' for admins. When absent (one company, no companies module) everyone is a colleague.
    */
   knownPeople?: (viewer: { id: string; roles: string[] }) => Promise<Map<string, { colleague: boolean }> | 'everyone'>;
+  /** Onboarding: the forms' duplicate check while typing; when absent, it isn't offered. */
+  identityLookup?: IdentityLookup;
+  /** Onboarding: an administrator's "Send password reset" (a link valid 1 hour). */
+  adminPasswordReset?: { isConfigured(): boolean; sendForAdministrator(userId: string): Promise<AdminResetOutcome> };
+  /** Onboarding: "Mark email as verified" by hand. */
+  verification?: EmailVerification;
 }
 
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
@@ -199,13 +232,16 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
    * leaves every entry); a problem writing it is logged there and doesn't turn the send into an error.
    */
   const auditWelcome = (req: FastifyRequest, bulk: boolean) => async (out: WelcomeOutcome) => {
-    await logAudit(req, 'user.welcome_email', out.userId, { to: out.email, username: out.username, bulk });
+    await logAudit(req, 'user.welcome_email', out.userId, { to: out.email, username: out.username, bulk, resent: out.resent === true });
   };
 
   app.post('/users', adminOnly, async (req, reply) => {
     const { sendWelcome, password, companyIds, primaryCompanyId, ...body } = createSchema.parse(req.body);
     // 1.23: a client account is made with the client form (POST /clients: its projects and their access).
     if ((body.roleNames ?? []).includes(CLIENT_ROLE)) throw new HttpError('Create client accounts with the client form (Role: Client).', 'USE_CLIENT_FORM', 400);
+    // Onboarding: the detail rules the form shows (the server never trusts the form).
+    const [badField, problem] = Object.entries(accountProblems({ firstName: body.firstName, lastName: body.lastName, email: body.email, username: body.username }))[0] ?? [];
+    if (badField && problem) throw fieldProblem(badField, problem);
     // Asked for a welcome email that can't be sent: say so before making an account no one can use.
     if (sendWelcome && !deps.welcome?.isConfigured()) throw new WelcomeEmailUnavailableError();
     // companies: the ones named, else the picked company, else the site's only one; an employee
@@ -278,12 +314,17 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     const membership = deps.membership;
     const companiesChange = companyIds !== undefined || primaryCompanyId !== undefined;
     if (membership && (companiesChange || body.roleNames !== undefined)) await membership.check(id, companyIds, primaryCompanyId, { roles: body.roleNames });
-    let updated = await userService.updateUser(id, body);
+    const before = await userService.getUser(id);
+    let updated = await userService.updateUser(id, body, { id: req.user!.id, ip: req.ip ?? null });
     if (membership && companiesChange) {
       await membership.set(id, companyIds, primaryCompanyId, { id: req.user!.id, roles: req.user!.roles ?? [] }, req.ip ?? null);
       updated = await userService.getUser(id);
     }
-    await logAudit(req, 'user.update', id, companiesChange ? { ...body, companyIds, primaryCompanyId } : body);
+    // Onboarding: which details really changed, by name.
+    const changed = (['firstName', 'lastName', 'username', 'email', 'departmentId', 'myProjectsOnly'] as const).filter((k) => before[k] !== updated[k]);
+    if (before.roles.slice().sort().join() !== updated.roles.slice().sort().join()) changed.push('roles' as never);
+    if (JSON.stringify((before.companies ?? []).map((c) => c.id).sort()) !== JSON.stringify((updated.companies ?? []).map((c) => c.id).sort()) || before.primaryCompanyId !== updated.primaryCompanyId) changed.push('companies' as never);
+    await logAudit(req, 'user.update', id, { ...(companiesChange ? { ...body, companyIds, primaryCompanyId } : body), changed });
     return { data: updated };
   });
 
@@ -319,11 +360,54 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
 
   app.patch('/users/:id/status', adminOnly, async (req) => {
     const { id } = req.params as { id: string };
-    const { status } = statusSchema.parse(req.body);
+    const { status, reason } = statusSchema.parse(req.body);
+    const previous = (await userService.getUser(id)).status;
     const updated = await userService.setUserStatus(id, status);
-    await logAudit(req, 'user.status', id, { status });
+    await logAudit(req, 'user.status', id, { status, previous, ...(reason ? { reason } : {}) });
     return { data: updated };
   });
+
+  // Onboarding: "Send password reset" — a link valid 1 hour to the person's address. Their sessions stay
+  // until they set the new password (then every sign-in ends). The link is never in the answer or a log.
+  const adminReset = deps.adminPasswordReset;
+  if (adminReset) {
+    app.post('/users/:id/password-reset-email', adminOnly, async (req, reply) => {
+      const { id } = req.params as { id: string };
+      if (!adminReset.isConfigured()) {
+        throw new HttpError('Email isn’t set up on this server, so no reset link can be sent. Set a temporary password instead.', 'EMAIL_NOT_CONFIGURED', 503);
+      }
+      const out = await adminReset.sendForAdministrator(id);
+      if (!out.sent) {
+        const why = out.reason ?? 'DELIVERY_FAILED';
+        return reply.status(RESET_REFUSAL_STATUS[why]).send({ error: { code: why, message: `No reset link was sent: ${out.why}.` } });
+      }
+      await logAudit(req, 'user.password.reset_sent', id, { to: out.email });
+      return { data: out };
+    });
+  }
+
+  // Onboarding: "Mark email as verified" — for when a code can't arrive (a wrong address, a mail outage).
+  // Audited with who and why; never your own (another administrator vouches for you).
+  const verification = deps.verification;
+  if (verification) {
+    app.post('/users/:id/email-verified', adminOnly, async (req) => {
+      const { id } = req.params as { id: string };
+      const { reason } = markVerifiedSchema.parse(req.body ?? {});
+      if (id === req.user!.id) throw new HttpError('You can’t confirm your own email address. Ask another administrator.', 'NOT_YOUR_OWN', 403);
+      await userService.getUser(id);
+      await verification.confirm(id, 'administrator', { actorId: req.user!.id, ip: req.ip ?? null, reason });
+      return { data: await userService.getUser(id) };
+    });
+  }
+
+  // Onboarding: the forms' duplicate check while typing (the save still refuses a real duplicate).
+  const identityLookup = deps.identityLookup;
+  if (identityLookup) {
+    app.post('/users/identity-check', adminOnly, async (req) => {
+      const q = identitySchema.parse(req.body ?? {});
+      return { data: await checkIdentity(identityLookup, q) };
+    });
+  }
 
   app.delete('/users/:id', adminOnly, async (req, reply) => {
     const { id } = req.params as { id: string };

@@ -4,36 +4,85 @@ import { toPublicUser, type AuthService } from './auth-service';
 import type { TokenService } from './token-service';
 import type { OtpService } from './otp-service';
 import type { PasswordResetService } from './password-reset-service';
+import type { SignInChallenges } from './sign-in-challenge';
+import type { EmailVerification } from './email-verification';
+import { EmailNotVerifiedError, SignInExpiredError } from './errors';
 
 export interface AuthRouteDeps {
   authService: AuthService;
   tokenService: TokenService;
   otpService?: OtpService;
   passwordResetService?: PasswordResetService;
+  /**
+   * Onboarding: an account whose email address isn't confirmed enters an emailed code before a session
+   * (the website asks for it with `acceptChallenge`; other callers are refused with plain words).
+   */
+  signInChallenges?: SignInChallenges;
+  emailVerification?: EmailVerification;
 }
 
 const identifier = z.string().trim().min(1).max(191);
 const loginSchema = z.object({
   identifier,
   password: z.string().min(1).max(200),
+  // Onboarding: the website can take the emailed-code step (the app and the extension can't, yet).
+  acceptChallenge: z.boolean().optional(),
 });
+const challengeToken = z.string().trim().min(1).max(200);
+const challengeVerifySchema = z.object({ challenge: challengeToken, code: z.string().trim().min(1).max(20) });
+const challengeResendSchema = z.object({ challenge: challengeToken });
 const otpRequestSchema = z.object({ identifier });
 const otpVerifySchema = z.object({ identifier, code: z.string().trim().min(1).max(20) });
 const forgotSchema = z.object({ identifier });
 const resetSchema = z.object({ token: z.string().min(1).max(200), password: z.string().min(1).max(200) });
+const linkStatusSchema = z.object({ token: z.string().min(1).max(200) });
 const refreshSchema = z.object({ refreshToken: z.string().min(1).max(2000) });
 const biometricSignInSchema = z.object({ credential: z.string().min(1).max(2000) });
 const biometricRevokeSchema = z.object({ refreshToken: z.string().min(1).max(2000), keyId: z.string().regex(/^[0-9a-f]{64}$/) });
 const SESSION_EXPIRED = { code: 'INVALID_REFRESH_TOKEN', message: 'Session expired. Please sign in again.' };
 
 export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): Promise<void> {
+  const challenges = deps.signInChallenges;
+  const verification = deps.emailVerification;
+
   app.post('/auth/login', async (req, reply) => {
-    const { identifier, password } = loginSchema.parse(req.body);
+    const { identifier, password, acceptChallenge } = loginSchema.parse(req.body);
     const user = await deps.authService.login(identifier, password);
+    // Onboarding: the right password, but the address isn't confirmed yet (and email works): the code
+    // step first. Said only now, after the password, like an inactive account.
+    if (verification && (await verification.needsCode(user.id))) {
+      if (!acceptChallenge || !challenges) throw new EmailNotVerifiedError();
+      const challenge = await challenges.start({ id: user.id, email: user.email }, 'VERIFY_EMAIL');
+      return reply.send({ data: { challenge } });
+    }
     const tokens = await deps.tokenService.issueTokens(user);
     await deps.authService.recordSignIn(user.id);
     return reply.send({ data: { user: toPublicUser(user), ...tokens } });
   });
+
+  if (challenges) {
+    // The code from the email: the session (the same answer as a password sign-in). A VERIFY_EMAIL
+    // challenge confirms the address it went to — only while the account still has that address.
+    app.post('/auth/challenge/verify', async (req, reply) => {
+      const { challenge, code } = challengeVerifySchema.parse(req.body);
+      const done = await challenges.verify(challenge, code);
+      const user = await deps.authService.getUserForSession(done.userId);
+      if (done.kind === 'VERIFY_EMAIL') {
+        if (user.email.trim().toLowerCase() !== done.sentTo.trim().toLowerCase()) throw new SignInExpiredError();
+        const outcome = await verification?.confirm(user.id, 'code', { email: done.sentTo, actorId: user.id, ip: req.ip ?? null });
+        if (outcome === 'address-changed' || outcome === 'not-found') throw new SignInExpiredError();
+      }
+      const tokens = await deps.tokenService.issueTokens(user);
+      await deps.authService.recordSignIn(user.id);
+      return reply.send({ data: { user: toPublicUser(user), ...tokens } });
+    });
+
+    // "Send another code": one a minute (else the seconds to wait), five an hour.
+    app.post('/auth/challenge/resend', async (req, reply) => {
+      const { challenge } = challengeResendSchema.parse(req.body);
+      return reply.send({ data: await challenges.resend(challenge) });
+    });
+  }
 
   // Exchange a valid refresh token for a fresh access+refresh pair (A2.1 mobile refresh).
   // The presented token is spent atomically, so of two concurrent refreshes only one wins; the
@@ -116,6 +165,9 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     app.post('/auth/otp/verify', async (req, reply) => {
       const { identifier, code } = otpVerifySchema.parse(req.body);
       const user = await otp.verifyLoginOtp(identifier, code);
+      // Onboarding: a code that reached the mailbox proves it — the email-code sign-in (here and on the
+      // app) confirms the address. Bookkeeping: a failure never fails the sign-in.
+      await verification?.confirm(user.id, 'sign-in code', { email: user.email, actorId: user.id, ip: req.ip ?? null }).catch(() => undefined);
       const tokens = await deps.tokenService.issueTokens(user);
       await deps.authService.recordSignIn(user.id);
       // Same user shape as password sign-in (username + avatar for the header straight away).
@@ -135,6 +187,14 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       const { token, password } = resetSchema.parse(req.body);
       const result = await reset.resetPassword(token, password);
       return reply.send({ data: result });
+    });
+
+    // Onboarding: what a set-password link is, asked by its page before a password is typed — "This
+    // invitation has expired — ask <company> to send a new one". The token comes in the body (never an
+    // address that a log could keep); only its state and the company's name come back.
+    app.post('/auth/password/link-status', async (req, reply) => {
+      const { token } = linkStatusSchema.parse(req.body);
+      return reply.send({ data: await reset.linkStatus(token) });
     });
   }
 }

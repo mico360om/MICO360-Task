@@ -61,16 +61,78 @@ export function otpCodeEmail(code: string, opts?: LoginCodeOptions): EmailConten
   );
 }
 
-export function passwordResetEmail(link: string, opts?: TemplateOptions): EmailContent {
+export interface PasswordResetEmailOptions extends TemplateOptions {
+  /** Onboarding: an administrator sent it (User Management's "Send password reset"), not a "Forgot password?". */
+  byAdministrator?: boolean;
+  /** How long the link works, in minutes (an administrator's: 60). */
+  expiresInMinutes?: number;
+}
+
+export function passwordResetEmail(link: string, opts?: PasswordResetEmailOptions): EmailContent {
+  const minutes = Math.max(1, Math.round(opts?.expiresInMinutes ?? 60));
+  const intro = opts?.byAdministrator
+    ? [
+        { kind: 'text', text: `Your administrator sent you this link to choose a new password. It works once and expires in ${minutes} minutes.` },
+        { kind: 'text', text: 'Until you use it, your current password keeps working. Setting a new one signs you out on your other devices.' },
+      ]
+    : [{ kind: 'text', text: 'We received a request to reset your password. Click the button below to choose a new one. This link expires in 60 minutes.' }];
   return build(
     `Reset your ${productName(opts)} password`,
     'Reset your password to regain access to your account',
     'Reset your password',
     [
-      { kind: 'text', text: 'We received a request to reset your password. Click the button below to choose a new one. This link expires in 60 minutes.' },
+      ...(intro as Block[]),
       { kind: 'button', label: 'Reset password', href: link },
       linkFallback(link),
       { kind: 'callout', text: 'Didn’t request this? You can ignore this email and your password will stay the same.', tone: 'warning' },
+    ],
+    opts,
+  );
+}
+
+export interface SignInCodeOptions extends TemplateOptions {
+  /** What the code is for: VERIFY_EMAIL (confirm the address at sign-in); two-step sign-in adds its own. */
+  kind: 'VERIFY_EMAIL';
+  expiresInMinutes: number;
+}
+
+/**
+ * Onboarding: the code that finishes a sign-in by confirming the email address. The code is in the body
+ * only, never the subject (the email log keeps subjects).
+ */
+export function signInCodeEmail(code: string, opts: SignInCodeOptions): EmailContent {
+  const product = productName(opts);
+  const minutes = Math.max(1, Math.round(opts.expiresInMinutes));
+  return build(
+    `Confirm your email address for ${product}`,
+    'Enter this code to confirm your email address and finish signing in',
+    'Confirm your email address',
+    [
+      { kind: 'text', text: `Enter this code on the sign-in page to confirm this is your email address and finish signing in to ${product}. It expires in ${minutes} minutes and works once.` },
+      { kind: 'code', code, note: 'Never share this code with anyone.' },
+      { kind: 'callout', text: 'If you didn’t just sign in, someone may know your password: change it, or tell your administrator.', tone: 'warning' },
+    ],
+    opts,
+  );
+}
+
+export interface EmailChangedParams {
+  /** Greeting name (their first name or username). */
+  firstName: string;
+  /** The new address, masked ("s•••@new.com"). */
+  newEmailMasked: string;
+}
+
+/** Onboarding: to the OLD address when an administrator changes a person's email address. */
+export function emailChangedEmail(params: EmailChangedParams, opts?: TemplateOptions): EmailContent {
+  const product = productName(opts);
+  return build(
+    `Your ${product} email address was changed`,
+    'Security notice: the email address on your account was changed',
+    'Your email address was changed',
+    [
+      { kind: 'text', text: `Hi ${params.firstName}, an administrator changed the email address on your ${product} account to ${params.newEmailMasked}. Emails from ${product} go there from now on, and the next time you sign in we’ll ask you to confirm it with a code.` },
+      { kind: 'callout', text: 'If you didn’t expect this, contact your administrator.', tone: 'warning' },
     ],
     opts,
   );

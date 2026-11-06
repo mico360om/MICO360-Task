@@ -5,6 +5,9 @@ import type { UserService } from '../users/user-service';
 import { ARCHIVE_SELECT, archivedOf } from '../companies/project-archive';
 import { CLIENT_ONLY_WHERE, CLIENT_ROLE } from './client-kind';
 import { GRANT_WORDS, grantOf, grantRows, grantWords, type ClientGrant, type GrantRow } from './client-grants';
+import { accountProblems, organisationProblem, phoneProblem } from '../../lib/account-rules';
+import { fieldProblem } from '../users/user-service';
+import { liveInvitation, onboardingStatus, type OnboardingStatus } from '../users/onboarding-status';
 
 /**
  * 1.23 Client accounts, for administrators: the Clients page and User Management's Role "Client" (one
@@ -33,6 +36,13 @@ export interface ClientAccountView {
   locked: boolean;
   lastLoginAt: Date | null;
   welcomeSentAt: Date | null;
+  /** Onboarding: first invitation, the account became theirs, the address confirmed, the live invitation's end. */
+  invitedAt: Date | null;
+  activatedAt: Date | null;
+  emailVerifiedAt: Date | null;
+  inviteExpiresAt: Date | null;
+  /** Onboarding: Invited / Invite expired / Active / Locked / Deactivated. */
+  onboarding: OnboardingStatus;
   createdAt: Date;
   roles: string[];
   projects: ClientProjectAccess[];
@@ -79,6 +89,10 @@ const accountSelect = {
   lockedUntil: true,
   lastLoginAt: true,
   welcomeSentAt: true,
+  invitedAt: true,
+  activatedAt: true,
+  emailVerifiedAt: true,
+  loginOtps: liveInvitation(new Date(0)),
   createdAt: true,
   roles: { select: { role: { select: { name: true } } } },
   clientGrants: {
@@ -95,6 +109,8 @@ const accountSelect = {
   },
 } as const satisfies Prisma.UserSelect;
 type AccountRow = Prisma.UserGetPayload<{ select: typeof accountSelect }>;
+/** The select, with "the invitation still works" judged now. */
+const selectNow = () => ({ ...accountSelect, loginOtps: liveInvitation(new Date()) });
 
 const blank = (v: string | null | undefined) => {
   const t = (v ?? '').trim();
@@ -107,6 +123,8 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
 
   function view(u: AccountRow): ClientAccountView {
     const at = now().getTime();
+    const locked = !!u.lockedUntil && u.lockedUntil.getTime() > at;
+    const inviteExpiresAt = u.loginOtps[0]?.expiresAt ?? null;
     return {
       id: u.id,
       firstName: u.firstName,
@@ -116,9 +134,14 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
       organisation: u.organisation ?? null,
       phone: u.phone ?? null,
       status: u.status,
-      locked: !!u.lockedUntil && u.lockedUntil.getTime() > at,
+      locked,
       lastLoginAt: u.lastLoginAt ?? null,
       welcomeSentAt: u.welcomeSentAt ?? null,
+      invitedAt: u.invitedAt ?? null,
+      activatedAt: u.activatedAt ?? null,
+      emailVerifiedAt: u.emailVerifiedAt ?? null,
+      inviteExpiresAt,
+      onboarding: onboardingStatus({ status: u.status, locked, activatedAt: u.activatedAt, lastLoginAt: u.lastLoginAt, invitedAt: u.invitedAt, welcomeSentAt: u.welcomeSentAt, inviteExpiresAt }),
       createdAt: u.createdAt,
       roles: u.roles.map((r) => r.role.name),
       projects: u.clientGrants
@@ -136,7 +159,7 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
 
   /** A client account (404 for anyone else, or a deleted one). */
   async function get(id: string): Promise<ClientAccountView> {
-    const u = await prisma.user.findFirst({ where: { id, deletedAt: null, ...CLIENT_ONLY_WHERE }, select: accountSelect });
+    const u = await prisma.user.findFirst({ where: { id, deletedAt: null, ...CLIENT_ONLY_WHERE }, select: selectNow() });
     if (!u) throw new NotFoundError('Client not found.');
     return view(u);
   }
@@ -175,7 +198,7 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
     get,
 
     async list(): Promise<ClientAccountView[]> {
-      const rows = await prisma.user.findMany({ where: { deletedAt: null, ...CLIENT_ONLY_WHERE }, select: accountSelect, orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }] });
+      const rows = await prisma.user.findMany({ where: { deletedAt: null, ...CLIENT_ONLY_WHERE }, select: selectNow(), orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }] });
       return rows.map(view);
     },
 
@@ -192,6 +215,13 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
 
     /** Make a client account (no companies, the Client role only) with its projects. */
     async create(input: NewClientInput, actor: { id: string; ip?: string | null }): Promise<ClientAccountView> {
+      // Onboarding: the detail rules the form shows (an organisation is required for a client).
+      const problems = accountProblems(
+        { firstName: input.firstName, lastName: input.lastName, email: input.email, username: input.username, phone: input.phone ?? null, organisation: input.organisation ?? null },
+        { client: true },
+      );
+      const [badField, problem] = Object.entries(problems)[0] ?? [];
+      if (badField && problem) throw fieldProblem(badField, problem);
       const rows = grantRows(input.projects ?? []);
       await checkProjects(rows);
       const user = await deps.userService.createUser({
@@ -218,6 +248,16 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
     /** Change a client's details and (when given) exactly which projects they have, with what. */
     async update(id: string, patch: ClientPatch, actor: { id: string; ip?: string | null }): Promise<ClientAccountView> {
       const before = await get(id);
+      // Onboarding: the rules bite on what changes (an older phone still saves); an organisation once set
+      // can't be emptied.
+      if (patch.phone !== undefined && (blank(patch.phone) ?? null) !== before.phone) {
+        const problem = phoneProblem(patch.phone);
+        if (problem) throw fieldProblem('phone', problem);
+      }
+      if (patch.organisation !== undefined && (blank(patch.organisation) ?? null) !== before.organisation) {
+        const problem = organisationProblem(patch.organisation, before.organisation !== null);
+        if (problem) throw fieldProblem('organisation', problem);
+      }
       const rows = patch.projects !== undefined ? grantRows(patch.projects) : null;
       if (rows) await checkProjects(rows);
       const details = {
@@ -227,7 +267,7 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
         ...(patch.email !== undefined ? { email: patch.email } : {}),
       };
       // Through User Management's own rules (unique email and username, links ended on an email change).
-      if (Object.keys(details).length) await deps.userService.updateUser(id, details);
+      if (Object.keys(details).length) await deps.userService.updateUser(id, details, { id: actor.id, ip: actor.ip ?? null });
       if (patch.organisation !== undefined || patch.phone !== undefined) {
         await prisma.user.update({
           where: { id },
@@ -237,7 +277,9 @@ export function createClientAccounts(deps: ClientAccountsDeps) {
       if (rows) await writeGrants(id, rows, actor.id);
       const after = await get(id);
       const changedDetails = { ...details, ...(patch.organisation !== undefined ? { organisation: after.organisation } : {}), ...(patch.phone !== undefined ? { phone: after.phone } : {}) };
-      if (Object.keys(changedDetails).length) await audit({ userId: actor.id, ip: actor.ip ?? null, action: 'client.update', entityId: id, newValue: changedDetails });
+      // Onboarding: which details really changed, by name.
+      const changed = (['firstName', 'lastName', 'username', 'email', 'organisation', 'phone'] as const).filter((k) => before[k] !== after[k]);
+      if (Object.keys(changedDetails).length) await audit({ userId: actor.id, ip: actor.ip ?? null, action: 'client.update', entityId: id, newValue: { ...changedDetails, changed } });
       if (rows && JSON.stringify(grantsForLog(before.projects)) !== JSON.stringify(grantsForLog(after.projects))) {
         await audit({ userId: actor.id, ip: actor.ip ?? null, action: 'client.projects', entityId: id, oldValue: grantsForLog(before.projects), newValue: grantsForLog(after.projects) });
       }

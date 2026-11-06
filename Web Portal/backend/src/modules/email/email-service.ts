@@ -25,6 +25,11 @@ import {
   clientInvitationEmail,
   clientCodeEmail,
   clientReplyEmail,
+  signInCodeEmail,
+  emailChangedEmail,
+  type EmailChangedParams,
+  type PasswordResetEmailOptions,
+  type SignInCodeOptions,
   type ClientInvitationParams,
   type ClientCodeParams,
   type ClientReplyParams,
@@ -225,8 +230,14 @@ export function createEmailService({ transport, isSuppressed, log, logger }: Ema
     // Auth & account
     // Secret links and codes are never click-tracked (secretLinks).
     sendLoginCode: (email: string, code: string, opts?: LoginCodeOptions) => deliver('otp', email, otpCodeEmail(code, opts), { ...sender(opts), essential: true, secretLinks: true }),
-    sendPasswordReset: (email: string, link: string, opts?: TemplateOptions) =>
+    sendPasswordReset: (email: string, link: string, opts?: PasswordResetEmailOptions) =>
       deliver('password-reset', email, passwordResetEmail(link, opts), { ...sender(opts), essential: true, secretLinks: true }),
+    /** Onboarding: the code that finishes a sign-in (confirming the email address). */
+    sendSignInCode: (email: string, code: string, opts: SignInCodeOptions) =>
+      deliver('sign-in-code', email, signInCodeEmail(code, opts), { ...sender(opts), essential: true, secretLinks: true }),
+    /** Onboarding: to the old address when an administrator changes it. */
+    sendEmailChanged: (email: string, params: EmailChangedParams, opts?: TemplateOptions) =>
+      deliver('email-changed', email, emailChangedEmail(params, opts), { ...sender(opts), essential: true }),
     sendActivation: (email: string, username: string, link: string, opts?: TemplateOptions) =>
       deliver('activation', email, accountActivationEmail(username, link, opts), { ...sender(opts), essential: true, secretLinks: true }),
     /**

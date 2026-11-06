@@ -256,6 +256,15 @@ import { withErrorLog } from './lib/error-log-logger';
 import { createErrorLogService } from './modules/error-log/error-log-service';
 import { createPrismaErrorLogRepository } from './modules/error-log/prisma-error-log-repository';
 import { createMapStore } from './modules/error-log/stack';
+// Onboarding: the sign-in challenge (password → emailed code), email verification, invitations' expiry,
+// an administrator's "Send password reset", the forms' duplicate check.
+import { hkdfSync } from 'node:crypto';
+import { createSignInChallenges } from './modules/auth/sign-in-challenge';
+import { createPrismaSignInChallengeStore } from './modules/auth/prisma-sign-in-challenge-store';
+import { createEmailVerification, createPrismaVerificationRepo } from './modules/auth/email-verification';
+import { createOnboardingEvents, type OnboardingEvents } from './modules/users/onboarding-events';
+import { createInvitationSweep, createPrismaExpiredInvitationStore } from './modules/users/invitation-sweep';
+import { createPrismaIdentityLookup } from './modules/users/identity-check';
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -664,7 +673,11 @@ async function main(): Promise<void> {
     },
     // Their tasks are found by their name: re-read those tasks with the new one.
     onRenamed: (userId) => taskSearchIndex.refreshForUser(userId).then(() => undefined, (err) => logger.error('task search: indexing a renamed person’s tasks failed', { err, userId })),
+    // Onboarding: an email change ends open codes, is audited and tells the old address (bound below,
+    // once the email service exists).
+    onEmailChanged: (userId, from, to, actor) => onboardingEvents?.emailChanged(userId, from, to, actor) ?? Promise.resolve(),
   });
+  let onboardingEvents: OnboardingEvents | null = null;
   // Resolve user/project ids → display names for server-rendered documents (meeting minutes).
   const resolveUserNames = async (ids: string[]): Promise<Map<string, string>> => {
     const map = new Map<string, string>();
@@ -1699,6 +1712,49 @@ async function main(): Promise<void> {
     emailOptions: documentBrands.email.person, // companies: the person's primary company
   });
 
+  // Onboarding: the sign-in challenge's codes are keyed with a secret of their own, derived from the
+  // server's (SECRETS_ENCRYPTION_KEY, else the JWT secret) — never a code itself.
+  const signInCodeKey = Buffer.from(hkdfSync('sha256', env.SECRETS_ENCRYPTION_KEY || env.JWT_ACCESS_SECRET, 'mico360-sign-in-codes', 'sign-in-codes', 32)).toString('hex');
+  const signInChallenges = createSignInChallenges({
+    store: createPrismaSignInChallengeStore(prisma),
+    mailer: emailService,
+    key: signInCodeKey,
+    logger,
+    emailOptions: documentBrands.email.person, // companies: the person's primary company
+  });
+  const emailVerification = createEmailVerification({
+    repo: createPrismaVerificationRepo(prisma),
+    mailConfigured: () => emailService.isConfigured(),
+    audit: auditService,
+  });
+  onboardingEvents = createOnboardingEvents({
+    verification: emailVerification,
+    activate: async (userId) => {
+      await prisma.user.updateMany({ where: { id: userId, activatedAt: null }, data: { activatedAt: new Date() } });
+    },
+    endChallenges: (userId) => signInChallenges.endAll(userId),
+    audit: auditService,
+    mailer: emailService,
+    firstNameOf: async (userId) => {
+      const u = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, username: true } });
+      return u?.firstName.trim() || u?.username || '';
+    },
+    emailOptions: documentBrands.email.person,
+    logger,
+  });
+  const boundEvents = onboardingEvents;
+  // A password change, an administrator's reset, a deactivation or a deletion ends every sign-in — the
+  // ones half-way through the emailed-code step too.
+  const revokeTokens = revokeSessions;
+  const endChallenges = (userId: string) => signInChallenges.endAll(userId).catch((err) => logger.warn('could not end sign-in codes', { userId, error: err instanceof Error ? err.message : String(err) }));
+  revokeSessions = async (userId) => {
+    await revokeTokens(userId);
+    await endChallenges(userId);
+  };
+  // Invitations past their 7 days: ended and audited once each, every hour.
+  const invitationSweep = createInvitationSweep({ store: createPrismaExpiredInvitationStore(prisma), audit: auditService });
+  jobs.every(60 * 60 * 1000, () => invitationSweep.run().catch(sweepFailed('invitation-expiry', 'invitation expiry sweep')));
+
   const passwordResetService = createPasswordResetService({
     store: createPrismaPasswordResetStore(prisma),
     users: createPrismaResetUserRepo(prisma),
@@ -1706,11 +1762,18 @@ async function main(): Promise<void> {
     ttlSeconds: env.PASSWORD_RESET_TTL_SECONDS,
     appUrl: env.APP_URL,
     hashPassword,
-    revokeSessions: (userId) => tokenService.revokeAllForUser(userId),
+    revokeSessions: async (userId) => {
+      await tokenService.revokeAllForUser(userId);
+      await endChallenges(userId);
+    },
     onSessionsRevoked: (userId) => onSessionsRevoked(userId),
     forgetDevices: (userId) => deviceTokenRepository.deleteForUser(userId).then(() => undefined),
     logger,
     emailOptions: documentBrands.email.person, // companies: the person's primary company
+    // Onboarding: a used link confirms the address (an invitation makes the account theirs); the link
+    // page names the person's company.
+    onLinkUsed: (userId, purpose) => boundEvents.linkUsed(userId, purpose),
+    companyName: async (userId) => (await documentBrands.email.person(userId).catch(() => undefined))?.brand?.companyName ?? null,
   });
 
   // Realtime broadcasters are wired after the HTTP server exists (below).
@@ -1994,6 +2057,12 @@ async function main(): Promise<void> {
     tokenService,
     otpService,
     passwordResetService,
+    // Onboarding: the emailed-code step of a sign-in, "Mark email as verified", "Send password reset",
+    // and the forms' duplicate check.
+    signInChallenges,
+    emailVerification,
+    adminPasswordReset: passwordResetService,
+    identityLookup: createPrismaIdentityLookup(prisma),
     projectService,
     projectOverview: createPrismaProjectOverviewSource(prisma),
     timelineSource: createPrismaTimelineSource(prisma),

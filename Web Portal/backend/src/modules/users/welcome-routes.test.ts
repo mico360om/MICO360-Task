@@ -96,7 +96,7 @@ describe('POST /users/:id/welcome-email — one person', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().data).toMatchObject({ userId: sara.id, username: 'sara', name: 'Sara K', email: 'sara@x.co', sent: true });
     expect(sent.map((s) => s.email)).toEqual(['sara@x.co']);
-    expect(audited).toContainEqual({ userId: 'admin', action: 'user.welcome_email', entityId: sara.id, newValue: { to: 'sara@x.co', username: 'sara', bulk: false } });
+    expect(audited).toContainEqual({ userId: 'admin', action: 'user.welcome_email', entityId: sara.id, newValue: { to: 'sara@x.co', username: 'sara', bulk: false, resent: false } });
     expect(JSON.stringify(audited)).not.toContain(tokenIn());
     expect(JSON.stringify(res.json())).not.toContain(tokenIn());
   });
@@ -132,8 +132,8 @@ describe('POST /users/welcome-emails — several people', () => {
   it('sends to the chosen people and says per person why not; each send is audited', async () => {
     app = await makeApp({ blocked: ['bo@x.co'] });
     const ada = (await create({ ...newUser, email: 'ada@x.co', username: 'ada', firstName: 'Ada' })).json().data;
-    const bo = (await create({ ...newUser, email: 'bo@x.co', username: 'bo', firstName: 'Bo' })).json().data;
-    const cy = (await create({ ...newUser, email: 'cy@x.co', username: 'cy', firstName: 'Cy' })).json().data;
+    const bo = (await create({ ...newUser, email: 'bo@x.co', username: 'bob', firstName: 'Bo' })).json().data;
+    const cy = (await create({ ...newUser, email: 'cy@x.co', username: 'cyd', firstName: 'Cy' })).json().data;
     await app.inject({ method: 'PATCH', url: `/api/v1/users/${cy.id}/status`, headers: admin, payload: { status: 'INACTIVE' } });
     const res = await app.inject({ method: 'POST', url: '/api/v1/users/welcome-emails', headers: admin, payload: { userIds: [ada.id, bo.id, cy.id] } });
     expect(res.statusCode).toBe(200);
@@ -141,11 +141,11 @@ describe('POST /users/welcome-emails — several people', () => {
     expect({ sent: data.sent, notSent: data.notSent }).toEqual({ sent: 1, notSent: 2 });
     expect(data.results.map((r: { username: string; sent: boolean; reason?: string; why?: string }) => [r.username, r.sent, r.reason ?? null, r.why ?? null])).toEqual([
       ['ada', true, null, null],
-      ['bo', false, 'EMAIL_BLOCKED', 'emails to this address are blocked (it bounced or was marked as spam)'],
-      ['cy', false, 'ACCOUNT_INACTIVE', 'the account is inactive'],
+      ['bob', false, 'EMAIL_BLOCKED', 'emails to this address are blocked (it bounced or was marked as spam)'],
+      ['cyd', false, 'ACCOUNT_INACTIVE', 'the account is inactive'],
     ]);
     expect(audited.filter((a) => a.action === 'user.welcome_email')).toEqual([
-      { userId: 'admin', action: 'user.welcome_email', entityId: ada.id, newValue: { to: 'ada@x.co', username: 'ada', bulk: true } },
+      { userId: 'admin', action: 'user.welcome_email', entityId: ada.id, newValue: { to: 'ada@x.co', username: 'ada', bulk: true, resent: false } },
     ]);
   });
 
@@ -176,7 +176,7 @@ describe('Welcome emails are for administrators, and need email set up', () => {
     expect((await app.inject({ method: 'POST', url: `/api/v1/users/${sara.id}/welcome-email`, headers: employee })).statusCode).toBe(403);
     expect((await app.inject({ method: 'POST', url: '/api/v1/users/welcome-emails', headers: employee, payload: { userIds: [sara.id] } })).statusCode).toBe(403);
     expect((await app.inject({ method: 'POST', url: `/api/v1/users/${sara.id}/welcome-email` })).statusCode).toBe(401);
-    expect((await create({ ...newUser, email: 'x@x.co', username: 'x', sendWelcome: true }, employee)).statusCode).toBe(403);
+    expect((await create({ ...newUser, email: 'x@x.co', username: 'xav', sendWelcome: true }, employee)).statusCode).toBe(403);
     expect(sent).toEqual([]);
   });
 
@@ -253,7 +253,7 @@ describe('A server error during a send never loses the account, the results or t
 
   it('several people: the one the server failed on is “not sent”, the others go and are audited one by one', async () => {
     const ada = (await create({ ...newUser, email: 'ada@x.co', username: 'ada' })).json().data;
-    const bo = (await create({ ...newUser, email: 'bo@x.co', username: 'bo' })).json().data;
+    const bo = (await create({ ...newUser, email: 'bo@x.co', username: 'bob' })).json().data;
     brokenIds.add(bo.id);
     const res = await app.inject({ method: 'POST', url: '/api/v1/users/welcome-emails', headers: admin, payload: { userIds: [ada.id, bo.id] } });
     expect(res.statusCode).toBe(200);
