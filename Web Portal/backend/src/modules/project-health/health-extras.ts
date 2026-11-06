@@ -144,6 +144,7 @@ export function buildHealthExtras(input: ExtrasInput, ctx: { today: string; time
   const busy = workloadOf(load.open, load.people);
   const nameOf = (id: string) => input.names.get(id) ?? 'Someone';
   const riskFacts: RiskFacts = {
+    status: p.archived ? 'ARCHIVED' : p.status,
     ownerId: p.ownerId,
     managerId: p.managerId,
     managerMemberIds: p.managerMemberIds,

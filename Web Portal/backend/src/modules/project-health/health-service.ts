@@ -123,8 +123,9 @@ export function createProjectHealthService(deps: ProjectHealthDeps) {
       for (const row of rows) {
         const entry: Entry = { at, row, extras: extras.get(row.id) ?? null };
         out.set(row.id, entry);
-        // Something changed in this project while it was read: answer with it, but don't keep it.
-        if (Math.max(changedAt.get(row.id) ?? -1, everythingChangedAt) < started) cache.set(row.id, entry);
+        // Something changed in this project while it was read (the generation moved past `started`): answer
+        // with it, but don't keep it. A change logged before the read began (at `started` or earlier) is in it.
+        if (Math.max(changedAt.get(row.id) ?? -1, everythingChangedAt) <= started) cache.set(row.id, entry);
       }
       while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
     }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { accountableManagerId, projectRisks, RISK_IDLE_DAYS, type RiskFacts } from './risks';
 
 const facts = (over: Partial<RiskFacts> = {}): RiskFacts => ({
+  status: 'ACTIVE',
   ownerId: 'owner',
   managerId: 'boss',
   managerMemberIds: ['mm1'],
@@ -96,6 +97,8 @@ describe('automatic risks, each with an explanation and who is accountable (owne
     const [r] = projectRisks(facts({ idleDays: 12, lastActivityDay: '2026-11-08' }));
     expect(r).toEqual({ code: 'NO_ACTIVITY', level: 'AMBER', title: 'No activity for 12 days', detail: 'Nothing in the project has changed since 8 Nov.', accountable: ['owner'], taskIds: [] });
     expect(projectRisks(facts({ idleDays: 12, ownerId: null }))[0]!.accountable).toEqual(['boss']);
+    // Review I2: only an ACTIVE project is expected to move (as the health rule judges it).
+    for (const status of ['PLANNING', 'ON_HOLD', 'COMPLETED', 'ARCHIVED'] as const) expect(projectRisks(facts({ idleDays: 30, status }))).toEqual([]);
   });
 
   it('worst first: the red risks, then the amber ones, each in the rule’s order', () => {

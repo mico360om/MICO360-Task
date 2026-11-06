@@ -119,6 +119,19 @@ describe('the Projects page cards', () => {
     expect(asked.at(-1)).toEqual(['p1', 'p2']);
   });
 
+  it('review I1: the answer read after a change is kept again (one read, then the cache)', async () => {
+    const { svc, asked } = setup({ p1: {}, p2: {} });
+    await svc.cards(['p1']);
+    svc.changed('p1');
+    await svc.cards(['p1']);
+    await svc.cards(['p1']);
+    expect(asked).toEqual([['p1'], ['p1']]);
+    svc.changed();
+    await svc.cards(['p1', 'p2']);
+    await svc.cards(['p1', 'p2']);
+    expect(asked).toEqual([['p1'], ['p1'], ['p1', 'p2']]);
+  });
+
   it('an answer read while its project changed is used but not kept', async () => {
     const { svc, asked, holdWith } = setup({ p1: {} });
     let release!: () => void;

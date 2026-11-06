@@ -15,6 +15,7 @@
  */
 import { formatDay } from '../../lib/export-format';
 import { BLOCKED_RED } from './health-facts';
+import type { ProjectStatus } from '../management/management-rules';
 
 /** No activity for this many days is a risk (the health rule's amber mark waits 14 days, ACTIVE projects only). */
 export const RISK_IDLE_DAYS = 10;
@@ -37,6 +38,8 @@ export interface RiskTask {
 }
 
 export interface RiskFacts {
+  /** Its status (archived when it or all its companies are): only an ACTIVE project is expected to move. */
+  status: ProjectStatus;
   ownerId: string | null;
   /** The named manager. */
   managerId: string | null;
@@ -156,7 +159,8 @@ export function projectRisks(f: RiskFacts, nameOf: (userId: string) => string = 
       taskIds: tasks.map((t) => t.id),
     });
   }
-  if (f.idleDays >= RISK_IDLE_DAYS) {
+  // Review I2: as the health rule's own "No activity", for ACTIVE projects only (a finished one is quiet by design).
+  if (f.status === 'ACTIVE' && f.idleDays >= RISK_IDLE_DAYS) {
     risks.push({
       code: 'NO_ACTIVITY',
       level: 'AMBER',
