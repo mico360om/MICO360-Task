@@ -41,6 +41,33 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 - Checklist items given to someone with a due date get the usual "due soon" and "overdue" reminders (to
   that person; an item given to no one reminds the task's people), at the same times as task reminders
   and never twice a day. Items of a finished task, or one waiting for approval, send none.
+- Search understands plain English. Type "Show overdue MICO tasks assigned to me" and the Search page
+  shows "Understood as: Tasks · Overdue · MICO · Assigned to me" and lists exactly those. It reads kinds
+  ("tasks", "meeting notes", "checklist items", "clients"), due dates ("overdue", "due this week", "no due
+  date"), dates ("since 1 Nov", "before 15 Nov", "last week", "this month"), state ("open tasks",
+  "blocked tasks", "in progress", "in review", "waiting for approval"), priority ("high priority",
+  "urgent"), people ("assigned to me", "assigned to Sara", "unassigned", "created by me", "organised by
+  me", "my meetings") and projects ("MICO tasks", "in RIG", "project MICO"). Each chip has an ✕ to take
+  it off, and "Search the words instead" searches every word as typed. It only reads clear wording, so
+  everyday words in titles still work: "high pressure test", "open hole log", "blocked drain" and "rig 3
+  inspection" are searched as words. Put a word in quotes to keep it a word.
+- The top bar's first row says what it understood and how many items that finds ("Tasks · Overdue ·
+  MICO · Assigned to me → 7"); Enter opens them on the Search page. When AI is set up, the AI panel is
+  given the same filters.
+- Filters work without words: choose a type, a person or dates on the Search page (or write only
+  "overdue checklist items assigned to me") and everything that matches is listed.
+- Saved searches: "★ Save this search" keeps the words and filters under a name. Pin up to 5 to the side
+  menu under "Saved", each with a live count of what it finds now; an empty top-bar box offers your
+  saved searches too. Rename one, replace it with the search on screen, or delete it. If you run a
+  project you can share a saved search with its team: they find it under "Shared with you" and can use
+  and pin it, but not change it. A saved search always shows each person only what they may open, and
+  "me" means whoever uses it.
+- Two new kinds of search result. "Checklist items" (with their own person and due date) open their
+  task at the item. "Clients & contacts" finds the clients named on your projects ("Client of 3
+  projects", counting only projects you can see; it opens the Projects page filtered to that client),
+  external contacts on tasks you can open (the task opens with the contact shown) and, for
+  administrators, client portal accounts (opened in User Management). A task found by a checklist item
+  now says which checklist: "Checklist ‘Electrical’: Label circuits".
 
 ### Improvements
 - Existing tasks keep their checklist, now titled "Checklist", with every item in its order; task cards
@@ -57,6 +84,12 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   example "server 9.9 s · in the database 9.7 s", or "server 0.1 s · the rest was the network"). Every
   answer from the server now carries its own time and its time in the database; the row shows the last
   time's, and each occurrence its own. Rows from before the update look as they did.
+
+### Security
+- Search's new results follow each person's access: checklist items and external contacts only on
+  tasks they can open, a client only through projects they can see (and counted over those only), client
+  portal accounts for administrators only. A saved search shared with a team runs with each person's own
+  access, and only someone who runs a project may share with its team.
 
 ## [1.23.2] - 2026-11-06
 
