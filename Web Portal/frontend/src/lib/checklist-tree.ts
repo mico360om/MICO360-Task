@@ -218,6 +218,16 @@ export function treeTexts(tree: ChecklistTree | null | undefined): string[] {
   for (const l of tree ?? []) walk(l.items);
   return out;
 }
+/** The old flat list kept up to this many items per task. */
+export const FLAT_CHECKLIST_MAX = 100;
+/**
+ * What a template saves (1.23.3): `checklists` (titles and nesting) — the server's — and beside it the
+ * old flat `checklist` of every item's text (the first 100, as it always held) for anything older.
+ */
+export function templateChecklists(d: ChecklistDraft): { checklist: string[]; checklists: ChecklistTree } {
+  const checklists = draftToTree(d);
+  return { checklist: treeTexts(checklists).slice(0, FLAT_CHECKLIST_MAX), checklists };
+}
 /** A template's or form's checklists from what the server sent: the tree, else the old plain list as one "Checklist". */
 export function treeOf(checklists: ChecklistTree | null | undefined, checklist?: string[] | null): ChecklistTree {
   if (Array.isArray(checklists)) return checklists;

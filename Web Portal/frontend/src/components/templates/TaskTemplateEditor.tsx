@@ -9,7 +9,8 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import { ChecklistField, checklistRows, checklistTexts } from '../task-form/ChecklistField';
+import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
+import { draftFromTree, templateChecklists, treeOf } from '../../lib/checklist-tree';
 import { stayOnEnter } from '../../lib/enter-key';
 import { priorityOptions } from '../priority-option';
 import { TemplateGlyph } from './TemplateCard';
@@ -32,9 +33,8 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
     title: template?.title ?? '',
     description: template?.description ?? '',
     priority: (template?.priority ?? 'NORMAL') as Priority,
-    checklist: checklistRows(template?.checklist ?? []),
-    // Checklist text typed and not added yet: saved with the rest, and a change.
-    checklistPending: '',
+    // 1.23.3: its checklists, nested (text typed and not added yet is part of them: saved with the rest, and a change).
+    checklists: draftFromTree(treeOf(template?.checklists, template?.checklist)),
   }));
   const [draft, setDraft] = useState(start);
   const [errors, setErrors] = useState<{ name?: string; title?: string }>({});
@@ -65,7 +65,7 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
     setSaving(true);
     setBanner(null);
     try {
-      const input = { name: draft.name.trim(), title: draft.title.trim(), description: draft.description.trim() || null, priority: draft.priority, checklist: checklistTexts(draft.checklist, draft.checklistPending) };
+      const input = { name: draft.name.trim(), title: draft.title.trim(), description: draft.description.trim() || null, priority: draft.priority, ...templateChecklists(draft.checklists) };
       if (editing) await templatesApi(apiClient).updateTaskTemplate(template!.id, input);
       else await templatesApi(apiClient).createTaskTemplate(input);
       void qc.invalidateQueries({ queryKey: TASK_TEMPLATES_KEY });
@@ -118,8 +118,8 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
                 <SearchableSelect size="lg" ariaLabel="Priority" options={priorityOptions()} value={draft.priority} onChange={(v) => set({ priority: v as Priority })} />
               </div>
               <div>
-                <span className="mb-1.5 block text-sm font-semibold text-ink">Checklist <span className="text-xs font-normal text-ink-2">(optional)</span></span>
-                <ChecklistField rows={draft.checklist} onChange={(checklist) => set({ checklist })} pending={draft.checklistPending} onPendingChange={(checklistPending) => set({ checklistPending })} />
+                <span className="mb-1.5 block text-sm font-semibold text-ink">Checklists <span className="text-xs font-normal text-ink-2">(optional)</span></span>
+                <ChecklistDraftEditor draft={draft.checklists} onChange={(checklists) => set({ checklists })} />
               </div>
             </div>
             <div className="flex flex-none items-center gap-2 border-t border-line bg-surface px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:justify-end">

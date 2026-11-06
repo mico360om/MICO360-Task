@@ -14,6 +14,10 @@ import { PriorityBadge } from '../ui/PriorityBadge';
 import { TaskFormDialog } from '../task-form/TaskFormDialog';
 import { TaskTemplateEditor } from './TaskTemplateEditor';
 import { Chip, count, TemplateCard, TemplateGlyph } from './TemplateCard';
+import { treeLeafCount, treeOf } from '../../lib/checklist-tree';
+
+/** 1.23.3: a template's real to-do items (the ones without sub-items), as a task's "8/12" counts them. */
+const checklistCount = (t: TaskTemplate) => treeLeafCount(treeOf(t.checklists, t.checklist));
 
 const failure = (err: unknown) => (err instanceof ApiError && err.message && !/^Request failed/.test(err.message) ? err.message : 'Please try again.');
 
@@ -80,7 +84,7 @@ export function TaskTemplatesTab() {
                 description={t.title !== t.name ? <>Task: <bdi>{t.title}</bdi></> : t.description}
                 chips={[
                   <PriorityBadge key="priority" priority={t.priority} />,
-                  <Chip key="checklist">{t.checklist.length ? count(t.checklist.length, 'checklist item') : 'No checklist'}</Chip>,
+                  <Chip key="checklist">{checklistCount(t) ? count(checklistCount(t), 'checklist item') : 'No checklist'}</Chip>,
                 ]}
                 meta={
                   <>

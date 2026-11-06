@@ -20,7 +20,8 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PriorityBadge } from '../ui/PriorityBadge';
-import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from '../task-form/ChecklistField';
+import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
+import { draftFromTree, draftToTree, templateChecklists, treeItemCount, treeLeafCount, treeOf, type ChecklistDraft } from '../../lib/checklist-tree';
 import { PRIORITIES, priorityLabel } from '../priority-option';
 import { count, TemplateGlyph } from './TemplateCard';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
@@ -46,9 +47,8 @@ interface DraftTask {
   /** Kept as typed, even out of range (the form says so rather than changing it). */
   dueOffsetDays: number | null;
   roleKey: string | null;
-  checklist: ChecklistRow[];
-  /** Checklist text typed and not added yet: saved with the rest. */
-  checklistPending: string;
+  /** 1.23.3: its checklists, nested (text typed and not added yet is part of them: saved with the rest). */
+  checklists: ChecklistDraft;
 }
 
 /** A board column with this editor's own (stable) key. */
@@ -74,7 +74,7 @@ const draftOf = (t?: ProjectTemplate | null): Draft =>
         description: t.description ?? '',
         columns: columnsOf(t.columns),
         roles: t.roles.map((r) => ({ key: r.id, name: r.name })),
-        tasks: t.tasks.map((x) => ({ id: x.id, title: x.title, description: x.description ?? '', priority: x.priority, dueOffsetDays: x.dueOffsetDays, roleKey: x.roleId, checklist: checklistRows(x.checklist), checklistPending: '' })),
+        tasks: t.tasks.map((x) => ({ id: x.id, title: x.title, description: x.description ?? '', priority: x.priority, dueOffsetDays: x.dueOffsetDays, roleKey: x.roleId, checklists: draftFromTree(treeOf(x.checklists, x.checklist)) })),
       }
     : { name: '', description: '', columns: columnsOf(DEFAULT_BOARD), roles: [], tasks: [] };
 
@@ -102,7 +102,7 @@ export function draftProblems(d: Draft): string[] {
       out.push(`Task ${i + 1}: the due day must be from ${Math.abs(LIMITS.minOffset)} days before the start to ${LIMITS.maxOffset} days after it.`);
     }
   });
-  const items = d.tasks.reduce((n, t) => n + checklistTexts(t.checklist, t.checklistPending).length, 0);
+  const items = d.tasks.reduce((n, t) => n + treeItemCount(draftToTree(t.checklists)), 0);
   if (items > LIMITS.checklistTotal) {
     out.push(`A template holds at most ${LIMITS.checklistTotal.toLocaleString('en-US')} checklist items in all; this one has ${items.toLocaleString('en-US')}.`);
   }
@@ -122,8 +122,8 @@ function toInput(d: Draft): ProjectTemplateInput {
       priority: t.priority,
       dueOffsetDays: t.dueOffsetDays,
       roleKey: t.roleKey && roleKeys.has(t.roleKey) ? t.roleKey : null,
-      // With anything typed in "Add an item" and not added yet.
-      checklist: checklistTexts(t.checklist, t.checklistPending),
+      // With anything typed in an add box and not added yet; titles and nesting kept (1.23.3).
+      ...templateChecklists(t.checklists),
     })),
   };
 }
@@ -251,7 +251,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
 
   function addTask() {
     const id = newKey('task');
-    setDraft((d) => ({ ...d, tasks: [...d.tasks, { id, title: '', description: '', priority: 'NORMAL', dueOffsetDays: null, roleKey: null, checklist: [], checklistPending: '' }] }));
+    setDraft((d) => ({ ...d, tasks: [...d.tasks, { id, title: '', description: '', priority: 'NORMAL', dueOffsetDays: null, roleKey: null, checklists: draftFromTree([]) }] }));
     setOpen(id);
     focusTask.current = id;
   }
@@ -403,7 +403,7 @@ export function ProjectTemplateEditor({ templateId, onClose, onSaved }: { templa
                           const n = i + 1;
                           const label = t.title.trim() || 'Untitled';
                           const expanded = open === t.id;
-                          const items = checklistTexts(t.checklist, t.checklistPending).length;
+                          const items = treeLeafCount(draftToTree(t.checklists));
                           const summary = [offsetShort(t.dueOffsetDays), roleName(t.roleKey), items ? count(items, 'checklist item') : null].filter(Boolean).join(' · ');
                           return (
                             <li key={t.id} className="p-2">
@@ -557,8 +557,8 @@ function TaskFields({ n, task, roles, onChange, titleRef }: { n: number; task: D
         <textarea id={ids.desc} value={task.description} onChange={(e) => onChange({ description: e.target.value })} dir="auto" rows={3} maxLength={LIMITS.description} className={`${field} resize-y`} />
       </div>
       <div className="sm:col-span-2">
-        <span className="mb-1 block text-xs font-semibold text-ink">Checklist <span className="font-normal text-ink-2">(optional)</span></span>
-        <ChecklistField rows={task.checklist} onChange={(checklist) => onChange({ checklist })} pending={task.checklistPending} onPendingChange={(checklistPending) => onChange({ checklistPending })} />
+        <span className="mb-1 block text-xs font-semibold text-ink">Checklists <span className="font-normal text-ink-2">(optional)</span></span>
+        <ChecklistDraftEditor draft={task.checklists} onChange={(checklists) => onChange({ checklists })} />
       </div>
     </fieldset>
   );

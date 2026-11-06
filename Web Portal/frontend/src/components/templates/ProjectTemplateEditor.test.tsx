@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectTemplateEditor, draftProblems } from './ProjectTemplateEditor';
 import { useAuthStore } from '../../stores/auth-store';
+import { draftFromTexts } from '../../lib/checklist-tree';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -67,7 +68,7 @@ describe('Project template editor', () => {
     await userEvent.type(within(task).getByRole('textbox', { name: 'Days after the start' }), '3');
     expect(within(task).getByRole('checkbox', { name: 'No due date' })).not.toBeChecked();
     await userEvent.selectOptions(within(task).getByRole('combobox', { name: 'Who does it' }), 'Driver');
-    await userEvent.type(within(task).getByRole('textbox', { name: 'Add a checklist item' }), 'Call the company{Enter}');
+    await userEvent.type(within(task).getByRole('textbox', { name: 'Add an item to “Checklist”' }), 'Call the company{Enter}');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create template' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     const post = requests.find((r) => r.method === 'POST')!;
@@ -75,7 +76,7 @@ describe('Project template editor', () => {
       name: 'Office move',
       columns: [{ name: 'Backlog' }, { name: 'To Do' }, { name: 'In Progress' }, { name: 'Review' }, { name: 'Done' }],
       roles: [{ name: 'Driver' }],
-      tasks: [{ title: 'Book the van', priority: 'NORMAL', dueOffsetDays: 3, checklist: ['Call the company'] }],
+      tasks: [{ title: 'Book the van', priority: 'NORMAL', dueOffsetDays: 3, checklist: ['Call the company'], checklists: [{ title: 'Checklist', items: [{ text: 'Call the company' }] }] }],
     });
     const body = post.body as { roles: { key: string }[]; tasks: { roleKey: string }[] };
     expect(body.tasks[0]!.roleKey).toBe(body.roles[0]!.key);
@@ -195,17 +196,19 @@ describe('Project template editor', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Edit project template' });
     await waitFor(() => expect(within(dialog).getByText('Inspect')).toBeInTheDocument());
     await userEvent.click(within(dialog).getByRole('button', { name: 'Edit task 1: Inspect' }));
-    await userEvent.type(within(within(dialog).getByRole('group', { name: 'Task 1' })).getByRole('textbox', { name: 'Add a checklist item' }), 'Pumps');
+    await userEvent.type(within(within(dialog).getByRole('group', { name: 'Task 1' })).getByRole('textbox', { name: 'Add an item to “Checklist”' }), 'Pumps');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('alertdialog', { name: 'Discard your changes?' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save template' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(requests.find((r) => r.method === 'PUT')!.body).toMatchObject({ tasks: [{ title: 'Inspect', checklist: ['Valves', 'Pumps'] }, { title: 'Report' }] });
+    expect(requests.find((r) => r.method === 'PUT')!.body).toMatchObject({
+      tasks: [{ title: 'Inspect', checklist: ['Valves', 'Pumps'], checklists: [{ title: 'Checklist', items: [{ text: 'Valves' }, { text: 'Pumps' }] }] }, { title: 'Report', checklists: [] }],
+    });
   });
 
   it('a template holds at most 5,000 checklist items in all', () => {
-    const task = (i: number) => ({ id: `t${i}`, title: `T${i}`, description: '', priority: 'NORMAL' as const, dueOffsetDays: null, roleKey: null, checklist: Array.from({ length: 100 }, (_, j) => ({ id: `${i}-${j}`, text: `x${j}` })), checklistPending: '' });
+    const task = (i: number) => ({ id: `t${i}`, title: `T${i}`, description: '', priority: 'NORMAL' as const, dueOffsetDays: null, roleKey: null, checklists: draftFromTexts(Array.from({ length: 100 }, (_, j) => `x${j}`)) });
     const draft = { name: 'Big', description: '', columns: [{ key: 'c', name: 'To Do', category: 'TODO' as const, color: '#000000' }], roles: [], tasks: Array.from({ length: 51 }, (_, i) => task(i)) };
     expect(draftProblems(draft)).toContain('A template holds at most 5,000 checklist items in all; this one has 5,100.');
     expect(draftProblems({ ...draft, tasks: draft.tasks.slice(0, 50) })).toEqual([]);

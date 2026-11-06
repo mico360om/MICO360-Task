@@ -1,6 +1,7 @@
 import type { ApiClient } from '../lib/api-client';
 import type { ApiProject, NewProjectInput } from './projects';
 import type { Priority } from './tasks';
+import type { ChecklistTree } from '../lib/checklist-tree';
 
 export type ColumnCategory = 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'REVIEW' | 'DONE';
 
@@ -24,7 +25,10 @@ export interface ProjectTemplateTask {
   dueOffsetDays: number | null;
   /** The role whose person does it; null = the project's usual default (its owner). */
   roleId: string | null;
+  /** Every item's text, in order (the older flat form). */
   checklist: string[];
+  /** 1.23.3: its checklists with titles and nesting (an old flat list comes as one "Checklist"). */
+  checklists?: ChecklistTree;
 }
 
 /** A project template as the Templates page lists it. */
@@ -55,7 +59,7 @@ export interface ProjectTemplateInput {
   description: string | null;
   columns: TemplateColumn[];
   roles: { key: string; name: string }[];
-  tasks: { title: string; description: string | null; priority: Priority; dueOffsetDays: number | null; roleKey: string | null; checklist: string[] }[];
+  tasks: { title: string; description: string | null; priority: Priority; dueOffsetDays: number | null; roleKey: string | null; checklist: string[]; checklists?: ChecklistTree }[];
 }
 
 /** A template's tasks for one start day (the New project form's preview). */
@@ -112,7 +116,10 @@ export interface TaskTemplate {
   title: string;
   description: string | null;
   priority: Priority;
+  /** Every item's text, in order (the older flat form). */
   checklist: string[];
+  /** 1.23.3: its checklists with titles and nesting (an old flat list comes as one "Checklist"). */
+  checklists?: ChecklistTree;
   createdById: string | null;
   createdByName: string | null;
   canManage: boolean;
@@ -125,7 +132,10 @@ export interface TaskTemplateInput {
   title: string;
   description: string | null;
   priority: Priority;
+  /** Every item's text (the older flat form, for an older server). */
   checklist: string[];
+  /** 1.23.3: the checklists with titles and nesting. */
+  checklists?: ChecklistTree;
 }
 
 /** A new project from a template: the New project form's fields, its start day and who fills each role (role id → person). */

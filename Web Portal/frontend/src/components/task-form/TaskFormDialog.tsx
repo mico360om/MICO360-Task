@@ -41,7 +41,8 @@ import { useAuthStore } from '../../stores/auth-store';
 import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
 import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
-import { ChecklistField, checklistRows, checklistTexts, type ChecklistRow } from './ChecklistField';
+import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
+import { draftFromTree, draftToTree, emptyDraft, treeLeafCount, treeOf, type ChecklistDraft } from '../../lib/checklist-tree';
 import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
 import { externalContactsApi } from '../../api/external-contacts';
 import { isProjectArchived } from '../../lib/project-archive';
@@ -82,10 +83,12 @@ interface Draft {
   rule: RecurrenceRule | null;
   assigneeIds: string[];
   milestone: boolean;
-  /** A new task's checklist (a task template fills it in); an existing task's is edited in its panel. */
-  checklist: ChecklistRow[];
-  /** Checklist text typed in "Add an item" and not added yet: saved with the rest, and a change. */
-  checklistPending: string;
+  /**
+   * 1.23.3: a new task's checklists — several, nested (a task template fills them in); an existing
+   * task's are edited in its panel. Text typed in an add box and not added yet is part of it: saved
+   * with the rest, and a change.
+   */
+  checklists: ChecklistDraft;
   /** The inspection form the task is carried out with ('' = none), and where. */
   formId: string;
   place: string;
@@ -164,6 +167,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const timeZone = useCompanyTimeZone();
   const ids = { title: useId(), desc: useId(), due: useId(), dueNote: useId(), titleErr: useId(), untilErr: useId(), owner: useId(), place: useId(), formNote: useId(), approvalHint: useId(), approvalLocked: useId() };
 
+  // One empty checklist draft for how the form opened and the form itself (so an untouched form isn't "changed").
+  const [blankChecklists] = useState(emptyDraft);
   const start = (): Draft =>
     task
       ? {
@@ -176,14 +181,13 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
           rule: task.recurrenceRule ?? null,
           assigneeIds: [],
           milestone: !!task.isMilestone,
-          checklist: [],
-          checklistPending: '',
+          checklists: blankChecklists,
           formId: task.inspectionFormId ?? '',
           place: task.inspectionPlace ?? '',
           approval: !!task.needsApproval,
           contacts: (task.externalContacts ?? []).map((c) => formContact(c, c.id)),
         }
-      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklist: [], checklistPending: '', formId: '', place: '', approval: false, contacts: [] };
+      : { projectId: fixedProjectId ?? '', columnId: defaultColumnId ?? '', title: '', description: '', priority: 'NORMAL', dueDate: defaultDueDate ?? '', rule: null, assigneeIds: [], milestone: false, checklists: blankChecklists, formId: '', place: '', approval: false, contacts: [] };
   // `saved` is what the server has (or, for a new task, how the form opened); `draft` is the form.
   const [saved, setSaved] = useState<Draft>(start);
   const [draft, setDraft] = useState<Draft>(start);
@@ -240,11 +244,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const templatesQ = useQuery({ queryKey: TASK_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listTasks(), enabled: !editing, staleTime: 30_000 });
   // Only well-formed templates (a server without templates answers something else, or nothing).
   const taskTemplates = useMemo(
-    () => (Array.isArray(templatesQ.data) ? templatesQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.title === 'string' && Array.isArray(t.checklist)) : []),
+    () => (Array.isArray(templatesQ.data) ? templatesQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.title === 'string' && (Array.isArray(t.checklists) || Array.isArray(t.checklist))) : []),
     [templatesQ.data],
   );
   const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
-  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklist: checklistRows(t.checklist), checklistPending: '' });
+  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklists: draftFromTree(treeOf(t.checklists, t.checklist)) });
   function applyTemplate(id: string) {
     const t = taskTemplates.find((x) => x.id === id);
     if (!t) return;
@@ -427,6 +431,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   }
 
   async function create() {
+    // With anything typed in an add box and not added yet, where it was typed.
+    const checklists = draftToTree(draft.checklists);
     const input: NewTaskInput & { recurrenceRule?: RecurrenceRule } = {
       projectId: draft.projectId,
       columnId: draft.columnId,
@@ -438,8 +444,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
       ...(draft.milestone ? { isMilestone: true } : {}),
       // Ticked: needs approval. Unticked where the project ticks new tasks: says it doesn't.
       ...(draft.approval ? { needsApproval: true } : projectWantsApproval ? { needsApproval: false } : {}),
-      // With anything typed in "Add an item" and not added yet.
-      ...(checklistTexts(draft.checklist, draft.checklistPending).length ? { checklist: checklistTexts(draft.checklist, draft.checklistPending) } : {}),
+      // 1.23.3: the checklists, with their titles and nesting.
+      ...(checklists.length ? { checklists } : {}),
       // Only when someone was picked — otherwise the project's default (its owner) applies.
       ...(draft.assigneeIds.length ? { assigneeIds: draft.assigneeIds } : {}),
       ...(draft.contacts.length ? { externalContacts: draft.contacts.map(fieldsOnly) } : {}),
@@ -626,7 +632,10 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         size="lg"
         ariaLabel="Task template"
         placeholder="Choose a task template"
-        options={taskTemplates.map((t) => ({ value: t.id, label: t.name, hint: t.checklist.length ? `${t.checklist.length} checklist item${t.checklist.length === 1 ? '' : 's'}` : undefined }))}
+        options={taskTemplates.map((t) => {
+          const n = treeLeafCount(treeOf(t.checklists, t.checklist));
+          return { value: t.id, label: t.name, hint: n ? `${n} checklist item${n === 1 ? '' : 's'}` : undefined };
+        })}
         value={usedTemplate?.id ?? ''}
         onChange={applyTemplate}
       />
@@ -712,14 +721,8 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   );
   const checklistField = !editing ? (
     <div>
-      <Label optional>Checklist</Label>
-      <ChecklistField
-        rows={draft.checklist}
-        onChange={(checklist) => set({ checklist })}
-        pending={draft.checklistPending}
-        onPendingChange={(checklistPending) => set({ checklistPending })}
-        disabled={saving || !!created}
-      />
+      <Label optional>Checklists</Label>
+      <ChecklistDraftEditor draft={draft.checklists} onChange={(checklists) => set({ checklists })} />
     </div>
   ) : null;
   const formFields = (
