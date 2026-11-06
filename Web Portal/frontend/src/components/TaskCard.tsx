@@ -204,8 +204,15 @@ export function TaskCard({ task, onClick, timeZone = DEFAULT_TIME_ZONE, interact
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
               </svg>
-              {line ? line.text : overdue ? `Overdue · ${dueText}` : dueText}
-              {line?.title ? <span className="sr-only"> ({line.title})</span> : null}
+              {line ? (
+                // The month view's line; a carried card's due day is read out too (on hover it's the title).
+                <>
+                  {line.text}
+                  {line.title ? <span className="sr-only"> ({line.title})</span> : null}
+                </>
+              ) : (
+                <>{overdue ? `Overdue · ${dueText}` : dueText}</>
+              )}
             </span>
           ) : null}
           {c && c.checklistTotal > 0 ? (
