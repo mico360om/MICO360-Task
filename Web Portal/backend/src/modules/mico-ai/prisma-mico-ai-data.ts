@@ -1,3 +1,5 @@
+import { exportChecklist } from '../tasks/task-export';
+import type { ItemRow, ListRow } from '../tasks/checklist-tree';
 import type { PrismaClient } from '@prisma/client';
 import { noteText } from '../../lib/rich-text';
 import { pickByTaskNumber, taskNumberKeys } from '../../lib/task-number';
@@ -206,7 +208,10 @@ export function createPrismaMicoAiData({ prisma, projectAccess, meetingAccess, c
       const linkSelect = { id: true, key: true, title: true, projectId: true, deletedAt: true, column: { select: { category: true, name: true } } } as const;
       const [task, checklist, externalContacts, comments, activity, blockedBy, blocks] = await Promise.all([
         prisma.task.findUnique({ where: { id: taskId }, select: { description: true, meetingId: true } }),
-        prisma.checklistItem.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { text: true, done: true } }),
+        // 1.23.3: the live checklists in order (titles, levels); the AI reads each item's text and tick.
+        Promise.all([prisma.checklistList.findMany({ where: { taskId, deletedAt: null } }), prisma.checklistItem.findMany({ where: { taskId, deletedAt: null } })]).then(([lists, items]) =>
+          exportChecklist(lists as ListRow[], items as ItemRow[]),
+        ),
         prisma.taskExternalContact.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { name: true, company: true, designation: true, email: true, phone: true, remarks: true } }),
         prisma.comment.findMany({ where: { taskId, deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { userId: true, body: true, createdAt: true }, take: 200 }),
         prisma.activity.findMany({ where: { taskId }, orderBy: { createdAt: 'desc' }, take: 60, include: { task: { select: { id: true, key: true, title: true } } } }),

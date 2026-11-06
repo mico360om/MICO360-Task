@@ -131,7 +131,7 @@ export async function loadCounts(db: Db, ids: string[]): Promise<Map<string, Mer
       _count: {
         select: {
           comments: { where: { deletedAt: null } },
-          checklist: true,
+          checklist: { where: { deletedAt: null } },
           attachments: true,
           assignees: true,
           watchers: true,

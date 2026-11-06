@@ -63,6 +63,7 @@ export function describeMatches(
       label: `${c.parentId ? 'Reply' : 'Comment'} by ${personLabel(c.author)} · ${day(c.createdAt)}`,
       text: displayText(c.body),
     })),
+    ...(task.lists ?? []).map((l) => ({ field: 'checklist' as const, label: 'Checklist', text: displayText(l.title) })),
     ...task.checklist.map((i) => ({ field: 'checklist' as const, label: 'Checklist item', text: displayText(i.text) })),
     ...task.assignees.map((a) => ({ field: 'assignee' as const, label: 'Assigned to', text: [personLabel(a), a.username].filter(Boolean).join(' · ') })),
     ...task.contacts.map((c) => ({ field: 'contact' as const, label: 'External contact', text: contactLine(c) })),

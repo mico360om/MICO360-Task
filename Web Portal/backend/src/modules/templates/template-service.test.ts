@@ -1,4 +1,4 @@
-import { checklistTreeOf as tree, flatTexts } from '../tasks/checklist-tree';
+import { checklistTreeOf as tree } from '../tasks/checklist-tree';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTemplateService, checkProjectTemplate, TEMPLATE_LIMITS, type TemplateActor } from './template-service';
 import { createMemoryTemplateRepository } from './memory-template-repository';

@@ -1,4 +1,4 @@
-import { checklistTreeOf as tree, flatTexts } from '../../src/modules/tasks/checklist-tree';
+import { checklistTreeOf as tree } from '../../src/modules/tasks/checklist-tree';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createPrismaProjectRepository } from '../../src/modules/projects/prisma-project-repository';

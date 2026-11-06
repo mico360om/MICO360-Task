@@ -1,3 +1,4 @@
+import { leafCounts } from '../tasks/checklist-tree';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizePreferences } from '../notifications/notification-preferences';
 import type { DailyMeeting, DailyTask } from './daily-email-content';
@@ -50,7 +51,8 @@ const taskSelect = {
   // 1.22: the card's details.
   description: true,
   startDate: true,
-  checklist: { select: { done: true } },
+  // 1.23.3: the live items; the count is of the real to-do items (no sub-items).
+  checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
   comments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1, select: { body: true, createdAt: true, user: { select: nameSelect } } },
   activities: { where: { action: { notIn: NOT_AN_UPDATE } }, orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, action: true, meta: true, createdAt: true, user: { select: nameSelect } } },
   dependencies: { select: { dependsOn: { select: { completedAt: true, deletedAt: true, column: { select: { category: true } } } } } },
@@ -111,7 +113,7 @@ const toTask = (t: TaskRow): DailyTask => ({
   waitingSince: t.approvalRequestedAt,
   description: t.description,
   startDate: t.startDate,
-  checklist: t.checklist.length ? { done: t.checklist.filter((i) => i.done).length, total: t.checklist.length } : null,
+  checklist: t.checklist.length ? leafCounts(t.checklist) : null,
   latest: latestOf(t),
   // Blocked: a task it depends on isn't done yet.
   blocked: t.dependencies.some((d) => !d.dependsOn.deletedAt && !d.dependsOn.completedAt && d.dependsOn.column.category !== 'DONE'),
