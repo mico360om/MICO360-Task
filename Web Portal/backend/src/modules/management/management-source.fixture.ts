@@ -90,6 +90,10 @@ export function fakeManagementSource(d: FakeManagementData): ManagementSource & 
       // (1.22 teamOf: here the people who run a project stand for its team.)
       return live.filter((p) => (runBy === null || runs(p, runBy)) && (!opts?.teamOf || runs(p, opts.teamOf))).map(toProject);
     },
+    async projectsByIds(ids) {
+      calls.push('projectsByIds');
+      return live.filter((p) => ids.includes(p.id)).map(toProject);
+    },
     async runCount(userId) {
       return live.filter((p) => runs(p, userId)).length;
     },

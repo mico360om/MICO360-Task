@@ -171,8 +171,11 @@ const prio = (c: Candidate) => PRIORITY_RANK[c.priority] ?? 0;
 const dueTime = (c: Candidate) => (c.dueDate ? c.dueDate.getTime() : Number.POSITIVE_INFINITY);
 const reasonNumber = (r: Reason): number => (r.code === 'overdue' || r.code === 'team-overdue' ? r.days : r.code === 'blocking' ? r.count : 0);
 
-/** Most urgent first: by group, then the group's own measure, then priority, the earlier due date, the oldest. */
-function compare(a: Ranked, b: Ranked): number {
+/**
+ * Most urgent first: by group, then the group's own measure, then priority, the earlier due date, the oldest.
+ * 1.23.5: the project page's Next actions sort with it too.
+ */
+export function compare(a: Ranked, b: Ranked): number {
   if (a.group !== b.group) return a.group - b.group;
   if (a.reason.code === 'approval' && b.reason.code === 'approval') {
     const at = (r: Ranked) => (r.reason.code === 'approval' && r.reason.since ? Date.parse(r.reason.since) : Number.POSITIVE_INFINITY);

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { HttpError } from '../../lib/http-errors';
 import { createManagementService, shortDay, type ManagementFilters } from './management-service';
 import { fakeManagementSource, fakeWorkloadFor, type FakeManagementData } from './management-source.fixture';
+import type { HealthExtras } from '../project-health/health-extras';
 
 const TZ = 'Asia/Muscat';
 // Tuesday 27 October 2026, 10:00 in Muscat. The company week starts on Sunday (25 October).
@@ -530,5 +531,62 @@ describe('1.22 “Show my projects only”', () => {
     source.calls.length = 0;
     await svc.overview(SARA, filters());
     expect(source.calls).toContain('projects:sara');
+  });
+});
+
+describe('1.23.5 the one health rule with the project health extras', () => {
+  const extras = (over: Record<string, { pct: number; mode: 'COUNT' | 'WEIGHT'; ragFacts: Record<string, unknown> }>) => {
+    const asked: string[][] = [];
+    const loader = async (ids: string[]) => {
+      asked.push(ids);
+      return new Map(
+        ids
+          .filter((id) => over[id])
+          .map((id) => [id, { projectId: id, completion: { mode: over[id]!.mode, pct: over[id]!.pct, countPct: 0, weightPct: over[id]!.pct, total: 0, done: 0, weightTotal: 0, weightDone: 0 }, ragFacts: over[id]!.ragFacts } as unknown as HealthExtras]),
+      );
+    };
+    return { loader, asked };
+  };
+  function withExtras(over: Parameters<typeof extras>[0]) {
+    const source = fakeManagementSource(DATA);
+    const x = extras(over);
+    const svc = createManagementService({
+      source,
+      workload: fakeWorkloadFor(DATA),
+      settings: { companyWeekStart: async () => 0, workingHours: async () => ({ days: [0, 1, 2, 3, 4] }), dailyLimit: async () => 2 },
+      timeZone: TZ,
+      now: () => NOW,
+      healthExtras: x.loader,
+    });
+    return { svc, asked: x.asked };
+  }
+  const MICO = { mode: 'WEIGHT' as const, pct: 60, ragFacts: { blockedLong: 2, progress: { donePct: 60, timeUsedPct: 85 }, milestonesAtRisk: [], workload: null } };
+
+  it('the page’s marks and reasons take the new facts; completion is the project’s own (by weight)', async () => {
+    const { svc } = withExtras({ mico: MICO });
+    const o = await svc.overview(ADMIN, filters());
+    const mico = o.projects.find((p) => p.id === 'mico')!;
+    expect(mico).toMatchObject({ rag: 'AMBER', completionPct: 60, completionBy: 'WEIGHT' });
+    expect(mico.reasons.map((r) => r.code)).toEqual(['BEHIND', 'LATE_TASKS', 'BLOCKED']);
+    // Without extras a project counts by number, as before.
+    expect(o.projects.find((p) => p.id === 'rig')).toMatchObject({ completionPct: 38, completionBy: 'COUNT' });
+  });
+
+  it('the weekly summary and the “projects by mark” list follow the same rule', async () => {
+    const { svc } = withExtras({ fin: { mode: 'COUNT', pct: 0, ragFacts: { blockedLong: 5 } } });
+    const digest = await svc.digest(ADMIN);
+    expect(digest!.worst.find((w) => w.id === 'fin')).toMatchObject({ rag: 'RED', reasons: [{ code: 'MANY_BLOCKED', text: '5 tasks blocked for over 7 days' }] });
+    const red = await svc.items(ADMIN, filters(), { metric: 'projects', rag: 'RED' });
+    expect(red.rows.map((r) => r.id)).toContain('fin');
+  });
+
+  it('healthFor: any projects by id (the caller has checked who may see them), with the extras it used', async () => {
+    const { svc, asked } = withExtras({ mico: MICO });
+    const { rows, extras: got } = await svc.healthFor(['mico', 'rig', 'gone']);
+    expect(rows.map((r) => r.id).sort()).toEqual(['mico', 'rig']);
+    expect(rows.find((r) => r.id === 'mico')!.reasons.map((r) => r.code)).toEqual(['BEHIND', 'LATE_TASKS', 'BLOCKED']);
+    expect(got.get('mico')!.completion.pct).toBe(60);
+    expect(asked.at(-1)!.sort()).toEqual(['mico', 'rig']);
+    expect((await svc.healthFor([])).rows).toEqual([]);
   });
 });

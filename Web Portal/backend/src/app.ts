@@ -131,6 +131,8 @@ import { registerErrorLogRoutes } from './modules/error-log/error-log-routes';
 import type { ErrorLogService } from './modules/error-log/error-log-service';
 import type { DatabaseCheckResult } from './modules/error-log/database-check';
 import { registerDashboardRoutes } from './modules/dashboard/dashboard-routes';
+import { registerHealthRoutes } from './modules/project-health/health-routes';
+import type { ProjectHealthService } from './modules/project-health/health-service';
 import type { PrioritiesService } from './modules/dashboard/priorities-service';
 import type { DashboardLayoutStore } from './modules/dashboard/dashboard-layout-store';
 
@@ -151,6 +153,11 @@ export interface AppDeps extends AuthRouteDeps {
   dashboardPriorities?: Pick<PrioritiesService, 'get'>;
   /** 1.23.4 Smarter Dashboard: each person's widget arrangement and the administrators' two defaults. */
   dashboardLayouts?: DashboardLayoutStore;
+  /**
+   * 1.23.5 Project overview & health: the cards' marks and risks (GET /projects/overview), the Overview
+   * tab's health, risks and owners (GET /projects/:id/health) and Next actions (GET /projects/:id/next-actions).
+   */
+  projectHealth?: Pick<ProjectHealthService, 'cards' | 'detail' | 'nextActions' | 'changed'>;
   /** Write a line to a task's activity timeline — checklist, comment, file and blocker changes. */
   recordTaskActivity?: RecordTaskActivity;
   corsOrigins?: string[] | boolean | CorsOriginMatcher;
@@ -695,6 +702,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           pickOf,
           activity: deps.activityService,
           onAudienceChanged: deps.onProjectAudienceChanged,
+          // 1.23.5: the cards' health; a project edit (its completion mode, dates, owner) reads it again.
+          health: deps.projectHealth,
+        });
+      }
+      if (deps.projectHealth && canViewProject) {
+        // 1.23.5 Project overview & health: staff only (client sessions are refused by the guard's route table).
+        const activity = deps.activityService;
+        await registerHealthRoutes(api, {
+          guard,
+          health: deps.projectHealth,
+          canViewProject,
+          recentActivity: activity ? (projectId, limit) => activity.listRecent(limit, [projectId]) : undefined,
+          canViewTask,
         });
       }
       if (deps.projectService && (deps.timelineSource || deps.workloadStore)) {

@@ -59,6 +59,7 @@ async function recurringTask(rule: RecurrenceRule, dueDate: string, key = 'RECUR
       description: 'Walk the site',
       priority: 'HIGH',
       estimatedHours: 1.5,
+      weight: 7, // 1.23.5: the next copy weighs the same
       projectId,
       columnId: todoId,
       createdById: userId,
@@ -83,7 +84,7 @@ describe('Recurring tasks on MySQL (integration)', () => {
     const copy = copies[0]!;
     // Next week's date, with the details and people carried over and the checklist unticked.
     expect(copy.dueDate?.toISOString()).toBe('2026-10-05T00:00:00.000Z');
-    expect(copy).toMatchObject({ title: source.title, description: 'Walk the site', priority: 'HIGH', estimatedHours: 1.5, recurrenceSourceId: source.id, columnId: todoId });
+    expect(copy).toMatchObject({ title: source.title, description: 'Walk the site', priority: 'HIGH', estimatedHours: 1.5, weight: 7, recurrenceSourceId: source.id, columnId: todoId });
     expect(copy.assignees.map((a) => a.userId).sort()).toEqual((await prisma.taskAssignee.findMany({ where: { taskId: source.id } })).map((a) => a.userId).sort());
     expect(copy.tags.map((t) => t.tag.name)).toEqual(['recur-test']);
     expect(copy.checklist.map((c) => ({ text: c.text, done: c.done }))).toEqual([{ text: 'Fire exits', done: false }]);

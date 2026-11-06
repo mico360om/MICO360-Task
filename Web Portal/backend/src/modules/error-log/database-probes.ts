@@ -5,6 +5,7 @@ import type { SearchScopeAll } from '../search/search-scope';
 import { createPrismaManagementSource } from '../management/prisma-management-source';
 import type { TaskMergeService } from '../task-merge/merge-service';
 import { priorityProbe } from '../dashboard/prisma-priority-sources';
+import { healthProbe } from '../project-health/prisma-health-source';
 
 /** An id no row has: every probe below looks only there (nothing found, nothing written). */
 export const NOWHERE = '~database-check~';
@@ -56,6 +57,7 @@ export function databaseProbes({
       // can send — a person's late tasks, late milestones, overdue action items, one form's failures.
       const reads: (() => Promise<unknown>)[] = [
         () => source.projects(NOWHERE),
+        () => source.projectsByIds(ids),
         () => source.runCount(NOWHERE),
         () => source.people(ids),
         () => source.taskFigures(ids, day),
@@ -88,5 +90,7 @@ export function databaseProbes({
   if (taskMerge) probes.push({ name: 'merging tasks (locks, late writes, undo)', run: () => taskMerge.selfCheck(NOWHERE) });
   // 1.23.4 Smarter Dashboard: every statement "My Priorities Today" sends (its own tasks, team rows, dependencies, Done columns, approvals' and action items' projects, meetings).
   probes.push({ name: 'the Dashboard priorities', run: () => priorityProbe(prisma, NOWHERE, timeZone) });
+  // 1.23.5 Project overview & health: weighted completion, each person's open tasks, attention tasks, links, Blocked moves, due-date groups.
+  probes.push({ name: 'the project health', run: () => healthProbe(prisma, NOWHERE) });
   return probes;
 }

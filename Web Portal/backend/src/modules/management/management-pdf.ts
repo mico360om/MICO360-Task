@@ -46,6 +46,11 @@ export function managementPdfFileName(o: ManagementOverview): string {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** 1.23.5: the Done column — "62%", or "62% by weight" for a project that counts by weight. */
+export function doneCell(p: { completionPct: number; completionBy?: 'COUNT' | 'WEIGHT' }): string {
+  return `${p.completionPct}%${p.completionBy === 'WEIGHT' ? ' by weight' : ''}`;
+}
+
 /** A project's next milestone in the health table: "RIG-1 · Handover · 24 Oct 2026 (3 days late)" — its number first (1.22.3). */
 export function milestoneCell(m: ManagementOverview['projects'][number]['nextMilestone']): string {
   if (!m) return '—';
@@ -95,7 +100,7 @@ export function buildManagementPdf(o: ManagementOverview, meta: { generatedBy: s
     `•\u00A0${RAG_WORD[p.rag]}`, // a no-break space: the dot never parts from its word
     `${p.name} (${p.code})`,
     p.owner?.name ?? '—',
-    `${p.completionPct}%`,
+    doneCell(p),
     String(p.late),
     milestoneCell(p.nextMilestone),
     formatDay(zonedDayKey(new Date(p.lastActivityAt), o.timeZone)),

@@ -40,6 +40,8 @@ export interface NewTask {
   estimatedHours?: number | null;
   progress?: number;
   isMilestone?: boolean;
+  /** 1.23.5: 1–10 points; null/absent = the project's default for its priority. */
+  weight?: number | null;
   createdById: string;
   recurrenceRule?: RecurrenceRule | null;
   /** Links a generated instance back to its recurring series (the origin task's id). */

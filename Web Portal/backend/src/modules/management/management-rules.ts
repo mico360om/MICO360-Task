@@ -9,6 +9,7 @@
 import { shiftDayKey, todayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
 import { formatDay } from '../../lib/export-format';
 import { daysBetween, weekOf, type WeekStart } from '../planning/timeline';
+import { BLOCKED_RED } from '../project-health/health-facts';
 
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
 export const PROJECT_STATUSES: ProjectStatus[] = ['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED'];
@@ -29,7 +30,25 @@ export const RED_LATE_SHARE = 0.25;
 export const RED_LATE_MIN = 3;
 
 export type Rag = 'RED' | 'AMBER' | 'GREEN';
-export type RagCode = 'MILESTONE_LATE' | 'MANY_LATE' | 'LATE_TASKS' | 'MANY_MISSING_CHECKS' | 'MISSING_CHECKS' | 'NO_ACTIVITY' | 'ON_TRACK';
+/** 1.23.5 progress against time: amber this many points behind the time used, red from the second. */
+export const BEHIND_POINTS = 20;
+export const FAR_BEHIND_POINTS = 40;
+
+export type RagCode =
+  | 'MILESTONE_LATE'
+  | 'MANY_LATE'
+  | 'LATE_TASKS'
+  | 'MANY_MISSING_CHECKS'
+  | 'MISSING_CHECKS'
+  | 'NO_ACTIVITY'
+  | 'ON_TRACK'
+  // 1.23.5 Project overview & health.
+  | 'FAR_BEHIND'
+  | 'BEHIND'
+  | 'MANY_BLOCKED'
+  | 'BLOCKED'
+  | 'MILESTONE_AT_RISK'
+  | 'WORKLOAD';
 export interface RagReason {
   code: RagCode;
   level: Rag;
@@ -50,15 +69,31 @@ export interface HealthFacts {
   missingChecks: number;
   /** The later of the project's own last change and its latest task change. */
   lastActivityAt: Date;
+  // ── 1.23.5 Project overview & health (absent: not judged) ──
+  /** Completion (in the project's own mode) against the share of its planned time used; null without dates. */
+  progress?: { donePct: number; timeUsedPct: number } | null;
+  /** Tasks held up over 7 days (a Blocked column, or waiting on a blocker once that is a real hold-up). */
+  blockedLong?: number;
+  /** Open milestones due within 7 days with half or more of their linked work open. */
+  milestonesAtRisk?: { title: string; daysLeft: number; open: number; total: number }[];
+  /** One person holding 8+ open tasks and 40%+ of the project's open tasks. */
+  workload?: { name: string; count: number; openTotal: number; pct: number } | null;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const RANK: Record<Rag, number> = { RED: 0, AMBER: 1, GREEN: 2 };
 
+const dueWords = (daysLeft: number) => (daysLeft <= 0 ? 'due today' : daysLeft === 1 ? 'due tomorrow' : `due in ${daysLeft} days`);
+
 /**
- * Red: a milestone overdue and not done; late tasks ≥ 25% of the open ones with at least 3 late; or
- * 3+ missing checks. Amber, otherwise: any late task, any missing check, or (ACTIVE projects) no
- * activity for 14 days. Green: none of these. Every reason that applies is listed, red ones first.
+ * The one health rule (owner, 6 Nov: fixed, shown openly) — the Management page, its PDF and weekly email,
+ * the Projects page cards and the project page all use it.
+ *
+ * Red: a milestone overdue and not done; completion 40+ points behind the time used; late tasks ≥ 25% of
+ * the open ones with at least 3 late; 5+ tasks blocked over 7 days; or 3+ missing checks. Amber,
+ * otherwise: 20+ points behind; any late task; any task blocked over 7 days; a milestone at risk; one
+ * person holding too much of the open work; any missing check; or (ACTIVE projects) no activity for 14
+ * days. Green: none of these. Every reason that applies is listed, worst first (red, then amber).
  */
 export function projectRag(f: HealthFacts, ctx: { now: Date; timeZone: string }): { rag: Rag; reasons: RagReason[] } {
   const reasons: RagReason[] = [];
@@ -68,17 +103,41 @@ export function projectRag(f: HealthFacts, ctx: { now: Date; timeZone: string })
   } else if (f.lateMilestones.length > 1) {
     reasons.push({ code: 'MILESTONE_LATE', level: 'RED', text: `${f.lateMilestones.length} milestones are late` });
   }
+  if (f.progress) {
+    const gap = f.progress.timeUsedPct - f.progress.donePct;
+    const text = `${f.progress.donePct}% done, ${f.progress.timeUsedPct}% of the time used`;
+    if (gap >= FAR_BEHIND_POINTS) reasons.push({ code: 'FAR_BEHIND', level: 'RED', text });
+    else if (gap >= BEHIND_POINTS) reasons.push({ code: 'BEHIND', level: 'AMBER', text });
+  }
   const manyLate = f.late >= RED_LATE_MIN && f.late >= f.open * RED_LATE_SHARE;
   if (manyLate) reasons.push({ code: 'MANY_LATE', level: 'RED', text: `${f.late} of ${f.open} open tasks are late` });
+  else if (f.late > 0) reasons.push({ code: 'LATE_TASKS', level: 'AMBER', text: plural(f.late, 'late task') });
+  const blocked = f.blockedLong ?? 0;
+  if (blocked > 0) {
+    const text = `${plural(blocked, 'task')} blocked for over 7 days`;
+    reasons.push(blocked >= BLOCKED_RED ? { code: 'MANY_BLOCKED', level: 'RED', text } : { code: 'BLOCKED', level: 'AMBER', text });
+  }
+  const atRisk = f.milestonesAtRisk ?? [];
+  if (atRisk.length === 1) {
+    const m = atRisk[0]!;
+    reasons.push({ code: 'MILESTONE_AT_RISK', level: 'AMBER', text: `Milestone “${m.title}” is at risk: ${m.open} of ${plural(m.total, 'linked task')} open, ${dueWords(m.daysLeft)}` });
+  } else if (atRisk.length > 1) {
+    reasons.push({ code: 'MILESTONE_AT_RISK', level: 'AMBER', text: `${atRisk.length} milestones are at risk` });
+  }
+  if (f.workload) {
+    const w = f.workload;
+    reasons.push({ code: 'WORKLOAD', level: 'AMBER', text: `${w.name} holds ${w.count} of ${w.openTotal} open tasks (${w.pct}%)` });
+  }
   if (f.missingChecks >= RED_MISSING_CHECKS) reasons.push({ code: 'MANY_MISSING_CHECKS', level: 'RED', text: plural(f.missingChecks, 'missing check') });
-  if (f.late > 0 && !manyLate) reasons.push({ code: 'LATE_TASKS', level: 'AMBER', text: plural(f.late, 'late task') });
-  if (f.missingChecks > 0 && f.missingChecks < RED_MISSING_CHECKS) reasons.push({ code: 'MISSING_CHECKS', level: 'AMBER', text: plural(f.missingChecks, 'missing check') });
+  else if (f.missingChecks > 0) reasons.push({ code: 'MISSING_CHECKS', level: 'AMBER', text: plural(f.missingChecks, 'missing check') });
   if (f.status === 'ACTIVE') {
     const idle = daysBetween(zonedDayKey(f.lastActivityAt, ctx.timeZone), todayKey(ctx.timeZone, ctx.now));
     if (idle >= NO_ACTIVITY_DAYS) reasons.push({ code: 'NO_ACTIVITY', level: 'AMBER', text: `No activity for ${idle} days` });
   }
   if (reasons.length === 0) return { rag: 'GREEN', reasons: [{ code: 'ON_TRACK', level: 'GREEN', text: 'On track' }] };
-  return { rag: reasons.some((r) => r.level === 'RED') ? 'RED' : 'AMBER', reasons };
+  // Worst first: red, then amber (a stable sort keeps each level in the rule's order).
+  const sorted = reasons.map((r, i) => ({ r, i })).sort((a, b) => RANK[a.r.level] - RANK[b.r.level] || a.i - b.i).map((x) => x.r);
+  return { rag: sorted.some((r) => r.level === 'RED') ? 'RED' : 'AMBER', reasons: sorted };
 }
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });

@@ -35,6 +35,11 @@ function toRecord(p: ProjectRow): ProjectRecord {
     carryForward: p.carryForward,
     defaultDueToday: p.defaultDueToday,
     newTasksNeedApproval: p.newTasksNeedApproval,
+    completionMode: p.completionMode,
+    weightUrgent: p.weightUrgent,
+    weightHigh: p.weightHigh,
+    weightNormal: p.weightNormal,
+    weightLow: p.weightLow,
     createdById: p.createdById,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -73,6 +78,11 @@ function projectFields(data: CreateProjectData) {
     carryForward: data.carryForward ?? undefined,
     defaultDueToday: data.defaultDueToday ?? undefined,
     newTasksNeedApproval: data.newTasksNeedApproval ?? undefined,
+    completionMode: data.completionMode ?? undefined,
+    weightUrgent: data.weightUrgent ?? undefined,
+    weightHigh: data.weightHigh ?? undefined,
+    weightNormal: data.weightNormal ?? undefined,
+    weightLow: data.weightLow ?? undefined,
   };
 }
 

@@ -215,9 +215,10 @@ export function createPrismaTaskPrioritySource(prisma: PrismaClient, scopes: Pri
 
 /**
  * A task as its row shows it. Complete needs the project's Done column; a task waiting on another (open)
- * task offers Open and Reschedule only (design call 2: no Complete, no Assign).
+ * task offers Open and Reschedule only (design call 2: no Complete, no Assign). 1.23.5: the project page's
+ * Next actions build their rows with it too.
  */
-function taskRow(
+export function taskRow(
   t: { id: string; key: string; title: string; priority: string; dueDate: Date | null; startDate: Date | null; version: number; columnId: string; recurrenceRule: unknown; project: ProjectBadge },
   timeZone: string,
   extra: { assignees: PersonName[]; blockers: { id: string; key: string }[]; doneColumnId: string | null },

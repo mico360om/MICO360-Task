@@ -36,6 +36,27 @@ describe('projectPerformance', () => {
   });
 });
 
+describe('projectPerformance — 1.23.5 completion by weight', () => {
+  const t = (id: string, done: boolean, weight: number, byWeight: boolean): ReportTask => ({
+    id,
+    projectId: byWeight ? 'pw' : 'pc',
+    projectName: byWeight ? 'Weighed' : 'Counted',
+    columnCategory: done ? 'DONE' : 'TODO',
+    createdAt: new Date('2000-01-01'),
+    dueDate: null,
+    completedAt: done ? new Date('2000-01-02') : null,
+    assigneeIds: [],
+    weight,
+    byWeight,
+  });
+
+  it('a project counting by weight: finished weight ÷ total weight; counted projects as before', () => {
+    const perf = projectPerformance([t('a', true, 8, true), t('b', false, 2, true), t('c', false, 10, true), t('d', true, 8, false), t('e', false, 1, false)]);
+    expect(perf.find((p) => p.projectId === 'pw')).toMatchObject({ total: 3, completed: 1, completionPct: 40, completionBy: 'WEIGHT' });
+    expect(perf.find((p) => p.projectId === 'pc')).toMatchObject({ total: 2, completed: 1, completionPct: 50, completionBy: 'COUNT' });
+  });
+});
+
 describe('userWorkload', () => {
   it('counts assigned/completed/overdue per user', () => {
     const wl = userWorkload(tasks, [{ id: 'u1', username: 'ada' }, { id: 'u2', username: 'omar' }]);

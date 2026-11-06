@@ -3,6 +3,8 @@ import { buildApp } from '../../app';
 import { createTokenService } from '../auth/token-service';
 import { createAuthService } from '../auth/auth-service';
 import { inspectPdf } from '../../lib/pdf-inspect';
+import type { HealthExtras } from '../project-health/health-extras';
+import type { HealthExtrasLoader } from '../project-health/health-extras-loader';
 import { solidPng } from '../../lib/test-images';
 import { createManagementService } from './management-service';
 import { parseManagementFilters } from './management-routes';
@@ -52,7 +54,7 @@ const tokenService = createTokenService({
 });
 const auth = async (id: string, roles: string[]) => ({ authorization: `Bearer ${(await tokenService.issueTokens({ id, roles })).accessToken}` });
 
-async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}, data: FakeManagementData = DATA, extra: Record<string, unknown> = {}) {
+async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number } = {}, data: FakeManagementData = DATA, extra: Record<string, unknown> = {}, healthExtras?: HealthExtrasLoader) {
   const authService = createAuthService({
     users: { async findByIdentifier() { return null; }, async findById() { return null; }, async applyFailedAttempt() {}, async resetFailedAttempts() {} },
     maxAttempts: 5,
@@ -63,6 +65,7 @@ async function makeApp(opts: { pdfsPerMinute?: number; readsPerMinute?: number }
     settings: { companyWeekStart: async () => 0, workingHours: async () => ({ days: [0, 1, 2, 3, 4] }), dailyLimit: async () => 5 },
     timeZone: 'Asia/Muscat',
     now: () => NOW,
+    ...(healthExtras ? { healthExtras } : {}),
   });
   return buildApp({
     authService,
@@ -165,6 +168,19 @@ describe('Management routes', () => {
     ]) {
       expect(text, s).toContain(s);
     }
+  });
+
+  it('1.23.5 PDF: the one rule’s new reasons, and completion “by weight” for a project that counts so', async () => {
+    const extras: HealthExtrasLoader = async (ids) =>
+      new Map(
+        ids
+          .filter((id) => id === 'rig')
+          .map((id) => [id, { projectId: id, completion: { mode: 'WEIGHT', pct: 44, countPct: 38, weightPct: 44 }, ragFacts: { blockedLong: 2, workload: { name: 'Bilal Ahmed', count: 9, openTotal: 12, pct: 75 } } } as unknown as HealthExtras]),
+      );
+    const app = await makeApp({}, DATA, {}, extras);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/management/overview.pdf', headers: await auth('admin', ['ADMIN']) });
+    const text = inspectPdf(res.rawPayload).pages.flat().join(' ');
+    for (const s of ['44% by weight', '2 tasks blocked for over 7 days', 'Bilal Ahmed holds 9 of 12 open tasks (75%)']) expect(text, s).toContain(s);
   });
 
   it('PDF: tasks waiting for approval, in all and per project, as on the page (owner, 30 Oct)', async () => {

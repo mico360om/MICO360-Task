@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { ReportDataSource } from './report-service';
 import { STAFF_ONLY_WHERE } from '../clients/client-kind';
+import { effectiveWeight, weightDefaultsOf } from '../project-health/completion';
 
 export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSource {
   return {
@@ -10,7 +11,8 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         // inflating the dashboard totals/overdue and add an orphan bar to project completion.
         where: { deletedAt: null, project: { is: { deletedAt: null } } },
         include: {
-          project: { select: { name: true } },
+          // 1.23.5: how the project counts completion, and its default weights.
+          project: { select: { name: true, completionMode: true, weightUrgent: true, weightHigh: true, weightNormal: true, weightLow: true } },
           column: { select: { category: true, name: true } },
           assignees: { select: { userId: true } },
         },
@@ -37,6 +39,8 @@ export function createPrismaReportDataSource(prisma: PrismaClient): ReportDataSo
         priority: t.priority,
         columnName: t.column.name,
         approvalRequestedAt: t.approvalRequestedAt,
+        weight: effectiveWeight(t, weightDefaultsOf(t.project)),
+        byWeight: t.project.completionMode === 'WEIGHT',
         ...(mergedFrom.has(t.id) ? { mergedFrom: mergedFrom.get(t.id) } : {}),
       }));
     },

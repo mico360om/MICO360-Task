@@ -1,3 +1,4 @@
+import type { CompletionMode } from '../project-health/completion';
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -32,6 +33,12 @@ export interface ProjectRecord {
   defaultDueToday: boolean;
   /** "New tasks in this project need approval" (see ProjectTaskSettings); absent = off. */
   newTasksNeedApproval?: boolean;
+  /** 1.23.5: how its completion is counted, and a task's weight by priority when it has none of its own. */
+  completionMode?: CompletionMode;
+  weightUrgent?: number;
+  weightHigh?: number;
+  weightNormal?: number;
+  weightLow?: number;
   createdById: string;
   createdAt: Date;
   updatedAt: Date;
@@ -55,6 +62,11 @@ export interface CreateProjectData {
   carryForward?: boolean;
   defaultDueToday?: boolean;
   newTasksNeedApproval?: boolean;
+  completionMode?: CompletionMode;
+  weightUrgent?: number;
+  weightHigh?: number;
+  weightNormal?: number;
+  weightLow?: number;
   createdById: string;
   /** Its team from the start, written with the project in one go (one row per person). */
   members?: NewProjectMember[];
@@ -114,6 +126,12 @@ export interface UpdateProjectData {
   carryForward?: boolean;
   defaultDueToday?: boolean;
   newTasksNeedApproval?: boolean;
+  /** 1.23.5: absent = unchanged. */
+  completionMode?: CompletionMode;
+  weightUrgent?: number;
+  weightHigh?: number;
+  weightNormal?: number;
+  weightLow?: number;
 }
 
 /** The board every new project starts with (positions 0..n, in this order). */

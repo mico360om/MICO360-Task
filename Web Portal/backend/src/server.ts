@@ -106,6 +106,8 @@ import { createDailyEmailService } from './modules/daily-emails/daily-email-serv
 import { createPrismaDailyEmailCheckStore, createPrismaDailyEmailRepository } from './modules/daily-emails/prisma-daily-email-repository';
 import { createPrismaDailyEmailSources } from './modules/daily-emails/prisma-daily-email-sources';
 import { createManagementFromPrisma, createWeeklySummaryFromPrisma } from './modules/management/management-wiring';
+import { createProjectHealthService, NEXT_ACTION_ITEMS_STUB, type ProjectHealthService } from './modules/project-health/health-service';
+import { createPrismaHealthSource } from './modules/project-health/prisma-health-source';
 import { createMentionNotifier } from './modules/tasks/mention-notifier';
 import { planEscalations } from './modules/notifications/escalation';
 import { runExclusive, createPrismaJobLockStore } from './lib/job-lock';
@@ -364,6 +366,8 @@ async function main(): Promise<void> {
   // Late-bound (chat + realtime are created further down): a removed member leaves the project's
   // chat channel and live room at once instead of when their tab closes.
   let onMemberRemoved: (projectId: string, userId: string) => Promise<void> = async () => {};
+  // 1.23.5 Project overview & health (made with the Management service below; read again after changes).
+  let projectHealth: ProjectHealthService | null = null;
   const memberService = createMemberService({
     repo: createPrismaMemberRepository(prisma),
     projects: createPrismaProjectExistsLookup(prisma),
@@ -933,6 +937,8 @@ async function main(): Promise<void> {
     // 1.23.4 review I3: a blocker added or removed (its routes send no live event) changes priorities.
     if (action === 'BLOCKER_ADDED' || action === 'BLOCKER_REMOVED') dashboardPriorities.changed();
     const task = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
+    // 1.23.5: …and its project's health (hold-ups, milestones' linked work).
+    if (action === 'BLOCKER_ADDED' || action === 'BLOCKER_REMOVED') projectHealth?.changed(task?.projectId ?? null);
     let details = meta ?? {};
     if (typeof details.dependsOnTaskId === 'string') {
       const blocker = await prisma.task.findUnique({ where: { id: details.dependsOnTaskId }, select: { key: true, title: true } });
@@ -1696,6 +1702,18 @@ async function main(): Promise<void> {
   // everyone who can see the page (their own projects only), once a week — the same lease-locked,
   // every-minute sweep and retries as the daily task emails, with a company-wide switch.
   const managementService = createManagementFromPrisma(prisma, { settings: managementSettings, timeZone: companyTz }); // companies: the reader's week
+  // 1.23.5 Project overview & health: the cards, the project page's Overview and its Next actions — the
+  // Management page's one rule, kept per project for 60 s and read again after any change there (below).
+  // Checklist items join Next actions once 1.23.3 is merged (NEXT_ACTION_ITEMS_STUB until then).
+  const healthPeople = createPrismaHealthSource(prisma);
+  projectHealth = createProjectHealthService({
+    health: (ids) => managementService.healthFor(ids),
+    people: (ids) => healthPeople.people(ids),
+    doneColumns: (projectId) =>
+      prisma.kanbanColumn.findMany({ where: { projectId, category: 'DONE' }, select: { id: true, enabled: true }, orderBy: [{ position: 'asc' }, { id: 'asc' }] }),
+    checklistItems: NEXT_ACTION_ITEMS_STUB,
+    timeZone: companyTz,
+  });
   const weeklySummaryService = createWeeklySummaryFromPrisma(prisma, {
     management: managementService,
     settings: managementSettings,
@@ -2018,6 +2036,7 @@ async function main(): Promise<void> {
     onTaskEvent: (projectId, event, payload) => broadcast(projectId, event, payload),
     dashboardPriorities,
     dashboardLayouts: createPrismaDashboardLayoutStore(prisma),
+    projectHealth: projectHealth ?? undefined,
     onChatUserEvent: (userId, event, payload) => broadcastToUser(userId, event, payload),
     chatService,
     logger,
@@ -2292,7 +2311,10 @@ async function main(): Promise<void> {
   // 1.23.4 (review I3): every task, meeting, project or inspection event — from the routes, MICO AI,
   // inspections, the repeat sweeps — means everyone's "My Priorities Today" is read again; chat isn't.
   broadcast = (projectId, event, payload) => {
-    if (changesPriorities(event)) dashboardPriorities.changed();
+    if (changesPriorities(event)) {
+      dashboardPriorities.changed();
+      projectHealth?.changed(projectId); // 1.23.5: that project's health is read again
+    }
     realtime.broadcast(projectId, event, payload);
   };
   broadcastToUser = realtime.broadcastToUser;
@@ -2307,6 +2329,7 @@ async function main(): Promise<void> {
   onSessionsRevoked = (userId) => realtime.disconnectUser(userId);
   onMemberRemoved = async (projectId, userId) => {
     dashboardPriorities.changedFor(userId); // 1.23.4: nothing of the project stays on their priorities
+    projectHealth?.changed(projectId); // 1.23.5: its managers and workload may have changed
     realtime.leaveProject(userId, projectId);
     await chatService.removeProjectParticipant(projectId, userId).catch((err) => logger.error('chat participant cleanup failed', { err, projectId, userId }));
   };
@@ -2317,6 +2340,7 @@ async function main(): Promise<void> {
   // (a project's companies changed) call it through these hooks.
   const refreshCompanyAccess = (userIds: string[], projectIds: string[] = []): void => {
     dashboardPriorities.changed(); // 1.23.4: whose projects these are changed — priorities are read again
+    projectHealth?.changed(); // 1.23.5: an archived company archives its projects
     if (userIds.length) void realtime.refreshAccess(userIds).catch((err) => logger.error('realtime: refreshing company access failed', { err, userIds }));
     for (const projectId of projectIds) void realtime.refreshProjectAudience(projectId).catch((err) => logger.error('realtime: refreshing a project’s audience failed', { err, projectId }));
   };

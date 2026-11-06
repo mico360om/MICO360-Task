@@ -17,6 +17,8 @@ import { defaultCompanyTimeZone } from '../tasks/task-status';
 import { idString, longText, requiredText, shortText } from '../tasks/validation';
 import { CODE_PATTERN, CODE_RULE, HEX_COLOR, PROJECT_ICONS, normalizeCode } from './project-icons';
 import { NO_PICK, type PickOf } from '../companies/company-pick';
+import type { ProjectHealthService } from '../project-health/health-service';
+import { WEIGHT_MAX, WEIGHT_MIN } from '../project-health/completion';
 
 /** Project pictures: what the web app's cropper sends, with room for a logo uploaded as is. */
 export const PROJECT_IMAGE_RULES = {
@@ -33,6 +35,9 @@ const storedKey = (url: string | null | undefined) => (url && url.startsWith('/u
 
 const statusEnum = z.enum(['PLANNING', 'ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED']);
 const priorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
+
+const WEIGHT_RULE = `A default weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`;
+const projectWeight = z.number().int(WEIGHT_RULE).min(WEIGHT_MIN, WEIGHT_RULE).max(WEIGHT_MAX, WEIGHT_RULE);
 
 /** A new project as asked for (also the project part of "make a project from a template"). */
 export const createSchema = z.object({
@@ -56,6 +61,13 @@ export const createSchema = z.object({
   defaultDueToday: z.boolean().optional(),
   /** "New tasks in this project need approval": ticks the box on its new tasks. */
   newTasksNeedApproval: z.boolean().optional(),
+  // 1.23.5: "Count completion by: Number of tasks | Weight", and a task's weight by priority when it has
+  // none of its own (1–10 points; the live database keeps anything, so the server checks).
+  completionMode: z.enum(['COUNT', 'WEIGHT']).optional(),
+  weightUrgent: projectWeight.optional(),
+  weightHigh: projectWeight.optional(),
+  weightNormal: projectWeight.optional(),
+  weightLow: projectWeight.optional(),
   // New projects only: the people put on its team at once (the creator and the owner join anyway).
   memberIds: z.array(idString).max(500).optional(),
   // companies: its companies, the first its main company (absent on create: the picked company, else
@@ -96,6 +108,11 @@ export interface ProjectRouteDeps {
   activity?: Pick<ActivityService, 'record'>;
   /** companies: a project's companies changed, so who may see it may have (the realtime server re-checks). */
   onAudienceChanged?: OnProjectAudienceChanged;
+  /**
+   * 1.23.5 Project overview & health: each card's mark, reasons, completion, worst risk and accountable
+   * person; a project edit or archive reads its health again.
+   */
+  health?: Pick<ProjectHealthService, 'cards' | 'changed'>;
 }
 
 export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectRouteDeps): Promise<void> {
@@ -137,6 +154,17 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     return { data: await withCompanies(projects.map((p) => ({ ...p, canManage: can.has(p.id) }))) };
   });
 
+  /** 1.23.5: the cards' health in one batch; a failure leaves the cards without it (logged), never the page without its projects. */
+  async function cardHealth(req: FastifyRequest, ids: string[]) {
+    if (!deps.health || ids.length === 0) return null;
+    try {
+      return await deps.health.cards(ids);
+    } catch (err) {
+      req.log.error({ err }, 'project health for the Projects page failed');
+      return null;
+    }
+  }
+
   // The Projects page: every project the caller may see, with only what its card shows — figures
   // (tasks done, open and overdue, the next due day, its last update), owner, up to four team faces
   // and the team's size, and whether it is the caller's — one request for the whole list, answered
@@ -150,8 +178,10 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
       const projects = await projectService.listVisibleProjects(user, await pickOf(req), { everyProject });
       const ownerIds = [...new Set(projects.map((p) => p.ownerId).filter((id): id is string => !!id))];
       const ids = projects.map((p) => p.id);
-      const [rows, can] = await Promise.all([deps.overview!.load(ids, ownerIds), manageable(user, ids)]);
-      return { data: buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone(), viewerId: user.id, manageable: can }) };
+      const [rows, can, health] = await Promise.all([deps.overview!.load(ids, ownerIds), manageable(user, ids), cardHealth(req, ids)]);
+      const items = buildProjectOverview(projects, rows, { timeZone: deps.timeZone ?? defaultCompanyTimeZone(), viewerId: user.id, manageable: can });
+      // 1.23.5: each card's health (absent when it couldn't be worked out: never a mark that isn't true).
+      return { data: health ? items.map((p) => (health.has(p.id) ? { ...p, health: health.get(p.id) } : p)) : items };
     });
   }
 
@@ -196,6 +226,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     await projectToChange(req, id);
     const body = updateSchema.parse(req.body);
     const { project, keptAsManagers, companies } = await projectService.editProject(id, body, user);
+    deps.health?.changed(id); // 1.23.5: its completion mode, dates or people may have changed
     await logAudit(req, 'project.update', id, keptAsManagers.length ? { ...body, keptAsManagers } : body);
     // companies: a change of its companies is in the audit log and the project's history, and its audience is re-checked.
     if (companies) {
@@ -264,6 +295,7 @@ export async function registerProjectRoutes(app: FastifyInstance, deps: ProjectR
     const { id } = req.params as { id: string };
     await projectToChange(req, id);
     const archived = await projectService.archiveProject(id);
+    deps.health?.changed(id);
     await logAudit(req, 'project.archive', id);
     return { data: await withCanManage(viewer(req), archived) };
   });

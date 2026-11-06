@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WEIGHT_MAX, WEIGHT_MIN } from '../project-health/completion';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
@@ -68,6 +69,9 @@ const recurrenceSchema = z.object({
 const MAX_CALENDAR_DAYS = 100;
 const calendarQuerySchema = z.object({ from: calendarDay, to: calendarDay });
 
+/** 1.23.5: a task's weight — whole points, 1–10 (the live database would keep anything: the server checks). */
+const taskWeight = z.number().int().min(WEIGHT_MIN, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`).max(WEIGHT_MAX, `A weight is ${WEIGHT_MIN} to ${WEIGHT_MAX} points.`);
+
 const createSchema = z.object({
   title: requiredText,
   description: longText.optional(),
@@ -81,6 +85,8 @@ const createSchema = z.object({
   progress: z.number().int().min(0).max(100).optional(),
   /** A key date or deliverable of the project (shown as a milestone on its dashboard). */
   isMilestone: z.boolean().optional(),
+  /** 1.23.5: its weight in its project's completion, 1–10 points; null or absent = the project's default for its priority. */
+  weight: taskWeight.nullable().optional(),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   /** Optional board day (YYYY-MM-DD) for per-date boards; defaults to today. */
   boardDate: calendarDay.optional(),
@@ -112,6 +118,8 @@ const updateSchema = z.object({
   actualHours: hours.nullable().optional(),
   progress: z.number().int().min(0).max(100).optional(),
   isMilestone: z.boolean().optional(),
+  /** 1.23.5: 1–10 points; null = the project's default for its priority. */
+  weight: taskWeight.nullable().optional(),
   recurrenceRule: recurrenceSchema.nullable().optional(),
   expectedVersion: z.number().int().optional(),
   /** 'series' applies the edit to every occurrence of a recurring task. */

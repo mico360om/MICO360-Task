@@ -56,6 +56,7 @@ function toRecord(t: EnrichedTask): TaskRecord {
     actualHours: t.actualHours,
     progress: t.progress,
     isMilestone: t.isMilestone ?? false,
+    weight: t.weight ?? null,
     clientVisible: t.clientVisible ?? false,
     // 1.23: its description shows in the Client portal too; a client's sign-off of this finish.
     clientShowDescription: t.clientShowDescription ?? false,
@@ -143,7 +144,7 @@ export function isRecurrenceCopyConflict(err: unknown): boolean {
 // Every scalar except the carry-forward history, which can grow long and is left out of lists.
 const listScalars = {
   id: true, key: true, title: true, description: true, projectId: true, columnId: true, position: true,
-  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true,
+  priority: true, startDate: true, dueDate: true, estimatedHours: true, actualHours: true, progress: true, isMilestone: true, weight: true,
   clientVisible: true, createdById: true, completedAt: true, boardDate: true, recurrenceRule: true, recurrenceParentId: true, recurrenceSourceId: true,
   meetingId: true, inspectionFormId: true, inspectionPlace: true, version: true, createdAt: true, updatedAt: true, deletedAt: true,
   needsApproval: true, approvalRequestedAt: true, approvalRequestedById: true, approvedAt: true, approvedById: true,
@@ -185,6 +186,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
             estimatedHours: data.estimatedHours ?? undefined,
             progress: data.progress ?? undefined,
             isMilestone: data.isMilestone ?? undefined,
+            weight: data.weight ?? undefined,
             completedAt: data.completedAt ?? undefined,
             boardDate: data.boardDate ?? undefined,
             recurrenceRule: (data.recurrenceRule ?? undefined) as unknown as Prisma.InputJsonValue | undefined,

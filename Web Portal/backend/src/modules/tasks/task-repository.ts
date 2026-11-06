@@ -26,6 +26,8 @@ export interface TaskRecord {
   progress: number;
   /** A milestone: a key date or deliverable of its project (the project dashboard lists them). */
   isMilestone?: boolean;
+  /** 1.23.5: its weight in its project's completion (1–10 points); null = the project's default for its priority. */
+  weight?: number | null;
   /** Shown on its project's client page (title, status, due date only) — staff see a "Visible to client" mark. */
   clientVisible?: boolean;
   /** 1.23: the Client portal shows its description too ("Also show its description"). */
@@ -95,6 +97,7 @@ export interface CreateTaskData {
   estimatedHours?: number | null;
   progress?: number;
   isMilestone?: boolean;
+  weight?: number | null;
   createdById: string;
   recurrenceRule?: RecurrenceRule | null;
   recurrenceParentId?: string | null;
@@ -157,6 +160,7 @@ export interface UpdateTaskData {
   actualHours?: number | null;
   progress?: number;
   isMilestone?: boolean;
+  weight?: number | null;
   completedAt?: Date | null;
   recurrenceRule?: RecurrenceRule | null;
   recurrenceParentId?: string | null;

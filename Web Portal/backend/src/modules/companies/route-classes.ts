@@ -450,4 +450,9 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   'GET /task-merges/:mergeId/tasks/:taskId': 'object',
   'GET /task-merges/:mergeId/undo-preview': 'object',
   'POST /task-merges/:mergeId/undo': 'object',
+  // 1.23.5 Project overview & health: one project's health, risks and owners, Next actions and Recent
+  // activity (the project view rule; staff only — a client account is refused).
+  'GET /projects/:id/health': 'object',
+  'GET /projects/:id/next-actions': 'object',
+  'GET /projects/:id/activity': 'object',
 };
