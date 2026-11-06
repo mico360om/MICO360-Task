@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.3] - 2026-11-07
+
 ### New features
 - Nested checklists: a task can have several checklists, each with its own title (for example
   "Electrical" and "Plumbing"), and any item can have sub-items, as many levels deep as you need. In the
