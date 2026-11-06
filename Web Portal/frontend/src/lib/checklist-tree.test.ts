@@ -192,8 +192,13 @@ describe('local drafts (the New task form and the template editors)', () => {
     expect(draftToTree(d)[1]!.items[0]!.children!.length).toBe(2);
     d = draftRemoveList(d, d.lists[0]!.id);
     expect(d.lists.map((l) => l.title)).toEqual(['Electrical (copy)', 'Hand-over', 'Plumbing']);
-    // An empty checklist isn't sent.
-    expect(draftToTree(d).map((l) => l.title)).toEqual(['Electrical (copy)', 'Plumbing']);
+    // A checklist with a title of its own is sent even with no items yet (1.23.3 review); the form's
+    // untouched "Checklist" isn't.
+    expect(draftToTree(d).map((l) => [l.title, l.items.length])).toEqual([
+      ['Electrical (copy)', 2],
+      ['Hand-over', 0],
+      ['Plumbing', 1],
+    ]);
     // Removing the last one leaves an empty "Checklist" to add to.
     let one = draftFromTexts(['Gate']);
     one = draftRemoveList(one, one.lists[0]!.id);

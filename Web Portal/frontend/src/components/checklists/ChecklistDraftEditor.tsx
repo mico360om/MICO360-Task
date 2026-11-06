@@ -20,7 +20,7 @@ import {
  * draft the caller keeps and sends (`draftToTree`) with the rest. No ticks, people or dates here: those
  * are set once the task exists.
  */
-export function ChecklistDraftEditor({ draft, onChange }: { draft: ChecklistDraft; onChange: (draft: ChecklistDraft) => void }) {
+export function ChecklistDraftEditor({ draft, onChange, disabled = false }: { draft: ChecklistDraft; onChange: (draft: ChecklistDraft) => void; disabled?: boolean }) {
   const view = useMemo(() => draftView(draft), [draft]);
   // Several changes can follow each other before the caller's state comes back: each builds on the last.
   const latest = useRef(draft);
@@ -35,7 +35,11 @@ export function ChecklistDraftEditor({ draft, onChange }: { draft: ChecklistDraf
       apply(r.draft);
       return r.ids[0];
     },
-    addItems: (at, texts) => apply(draftAdd(latest.current, at, texts).draft),
+    addItems: (at, texts) => {
+      const r = draftAdd(latest.current, at, texts);
+      apply(r.draft);
+      return r.ids;
+    },
     rename: (id, text) => apply(draftRename(latest.current, id, text)),
     remove: (id) => apply(draftRemove(latest.current, id)),
     duplicate: (id) => apply(draftDuplicate(latest.current, id)),
@@ -49,5 +53,5 @@ export function ChecklistDraftEditor({ draft, onChange }: { draft: ChecklistDraf
     duplicateList: (id) => apply(draftDuplicateList(latest.current, id)),
     removeList: (id) => apply(draftRemoveList(latest.current, id)),
   };
-  return <NestedChecklists lists={view.lists} items={view.items} actions={actions} mode="editor" typed={draft.typed} onTypedChange={(typed) => apply({ ...latest.current, typed })} />;
+  return <NestedChecklists lists={view.lists} items={view.items} actions={actions} mode="editor" disabled={disabled} typed={draft.typed} onTypedChange={(typed) => apply({ ...latest.current, typed })} />;
 }

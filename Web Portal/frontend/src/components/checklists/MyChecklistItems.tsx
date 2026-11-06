@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { checklistApi, type MyChecklistItem } from '../../api/checklist';
@@ -35,10 +35,15 @@ export function MyChecklistItems() {
   const [problem, setProblem] = useState<{ id: string; text: string } | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [all, setAll] = useState(false);
-  // A tick shows until the list is read again (an item done then leaves it).
-  useEffect(() => setTicks((t) => (Object.keys(t).length ? {} : t)), [q.data]);
+  // Each tick shows until its own save (and the list read again after it) is done — never taken away by another's.
+  const tickSeq = useRef(new Map<string, number>());
 
   async function tick(item: MyChecklistItem, done: boolean) {
+    const seq = (tickSeq.current.get(item.id) ?? 0) + 1;
+    tickSeq.current.set(item.id, seq);
+    const settle = () => {
+      if (tickSeq.current.get(item.id) === seq) setTicks((t) => Object.fromEntries(Object.entries(t).filter(([k]) => k !== item.id)));
+    };
     setTicks((t) => ({ ...t, [item.id]: done }));
     setProblem(null);
     try {
@@ -46,9 +51,11 @@ export function MyChecklistItems() {
       setSaid(done ? `Ticked “${item.text}” on ${item.taskKey}.` : `Unticked “${item.text}” on ${item.taskKey}.`);
       void qc.invalidateQueries({ queryKey: ['checklist', item.taskId] });
       await invalidateTaskQueries(qc);
+      // Read again: an item done has left the list (or shows as the server has it).
+      settle();
     } catch (err) {
       // Not saved: the tick goes back as it was.
-      setTicks((t) => Object.fromEntries(Object.entries(t).filter(([k]) => k !== item.id)));
+      settle();
       setProblem({ id: item.id, text: failureMessage(err, 'Couldn’t tick it. Please try again.') });
     }
   }

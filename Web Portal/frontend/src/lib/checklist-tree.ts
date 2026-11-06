@@ -419,8 +419,9 @@ export function draftRemoveList(d: ChecklistDraft, id: string): ChecklistDraft {
 }
 
 /**
- * What is sent: each checklist with items (empty ones left out), texts trimmed, and whatever was
- * typed in an add box and not added yet, where it was typed.
+ * What is sent: each checklist with items, or with a title of its own (1.23.3 review: an untouched
+ * empty "Checklist" is left out), texts trimmed, and whatever was typed in an add box and not added
+ * yet, where it was typed.
  */
 export function draftToTree(d: ChecklistDraft): ChecklistTree {
   let draft: ChecklistDraft = { ...d, typed: {} };
@@ -436,5 +437,5 @@ export function draftToTree(d: ChecklistDraft): ChecklistTree {
         const children = toNodes(n.children);
         return children.length ? { text: clean(n.text), children } : { text: clean(n.text) };
       });
-  return draft.lists.map((l) => ({ title: clean(l.title) || DEFAULT_CHECKLIST_TITLE, items: toNodes(l.items) })).filter((l) => l.items.length > 0);
+  return draft.lists.map((l) => ({ title: clean(l.title) || DEFAULT_CHECKLIST_TITLE, items: toNodes(l.items) })).filter((l) => l.items.length > 0 || l.title !== DEFAULT_CHECKLIST_TITLE);
 }

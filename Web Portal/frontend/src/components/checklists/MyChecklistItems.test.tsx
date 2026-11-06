@@ -26,9 +26,13 @@ const mine = (patch: Partial<MyChecklistItem>): MyChecklistItem => ({
 let items: MyChecklistItem[];
 let calls: { url: string; method: string; body: unknown }[];
 let refuse: string | null;
+let holdPut: string | null;
+let releasePut: (() => void) | null;
 beforeEach(() => {
   calls = [];
   refuse = null;
+  holdPut = null;
+  releasePut = null;
   items = [mine({ dueDate: '2020-01-03' }), mine({ id: 'i2', text: 'Wiring', isParent: true, openSubItems: 2, dueDate: '2099-02-01' }), mine({ id: 'i3', text: 'Pipes', taskId: 't2', taskKey: 'MICO-9', listTitle: 'Plumbing' })];
   vi.stubGlobal(
     'fetch',
@@ -36,7 +40,14 @@ beforeEach(() => {
       const method = init?.method ?? 'GET';
       calls.push({ url: String(url), method, body: typeof init?.body === 'string' ? JSON.parse(init.body) : null });
       if (String(url).endsWith('/me/checklist-items')) return json({ data: items });
-      if (method === 'PUT') return refuse ? json({ error: { code: 'CHECKLIST_PARENT', message: refuse } }, 400) : json({ data: { id: 'i1', done: true } });
+      if (method === 'PUT') {
+        if (refuse) return json({ error: { code: 'CHECKLIST_PARENT', message: refuse } }, 400);
+        const id = String(url).split('/').pop()!;
+        if (id === holdPut) await new Promise<void>((r) => (releasePut = r));
+        // Done: it leaves the list.
+        items = items.filter((i) => i.id !== id);
+        return json({ data: { id, done: true } });
+      }
       return json({ data: [] });
     }),
   );
@@ -110,5 +121,18 @@ describe('My Tasks: Checklist items for me (1.23.3)', () => {
     renderIt();
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/me/checklist-items'))).toBe(true));
     expect(screen.queryByRole('region', { name: /Checklist items for me/ })).toBeNull();
+  });
+
+  it('a second quick tick isn’t undone when the first one’s refresh comes back', async () => {
+    holdPut = 'i3';
+    renderIt();
+    await screen.findByRole('region', { name: /Checklist items for me/ });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Pipes (MICO-9)' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Label circuits (MICO-142)' }));
+    // "Label circuits" is saved and the list read again (without it); "Pipes" still waits.
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Label circuits (MICO-142)' })).toBeNull());
+    expect(screen.getByRole('checkbox', { name: 'Pipes (MICO-9)' })).toBeChecked();
+    releasePut!();
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Pipes (MICO-9)' })).toBeNull());
   });
 });

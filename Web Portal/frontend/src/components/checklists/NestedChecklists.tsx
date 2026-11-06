@@ -42,8 +42,8 @@ export interface ChecklistActions {
   toggle?: (id: string, done: boolean) => Promise<void> | void;
   /** Add one item; answers the new item's id (so typing goes on right after it). */
   addItem?: (at: ChecklistAt, text: string) => Promise<string | void> | string | void;
-  /** Add several items at once (pasted lines, AI steps). */
-  addItems?: (at: ChecklistAt, texts: string[]) => Promise<void> | void;
+  /** Add several items at once (pasted lines, AI steps; at most 100 a call); answers their ids when known. */
+  addItems?: (at: ChecklistAt, texts: string[]) => Promise<string[] | void> | string[] | void;
   rename?: (id: string, text: string) => Promise<void> | void;
   remove?: (id: string) => Promise<ChecklistRemovedBatch | void> | ChecklistRemovedBatch | void;
   duplicate?: (id: string) => Promise<void> | void;
@@ -81,8 +81,15 @@ export interface NestedChecklistsProps {
   /** What is typed in the add boxes, kept by the caller (a form: so Create never loses it). */
   typed?: Record<string, string>;
   onTypedChange?: (typed: Record<string, string>) => void;
+  /** Shown but not changeable (a form while it saves). */
+  disabled?: boolean;
 }
 
+/** The most items the server adds in one call (more are sent in turns, each after the last). */
+const BATCH_MAX = 100;
+/** How long "2 sub-items still open" stays. */
+const NOTE_MS = 4000;
+const NO_ACTIONS: ChecklistActions = {};
 const INDENT_PX = 20;
 const INDENT_LEVELS = 4;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -109,6 +116,10 @@ interface Ctx {
   tick: (node: CLNode, listId: string) => void;
   typed: Record<string, string>;
   setTyped: (changes: Record<string, string>) => void;
+  /** What is typed in a box now (not as it was when a save began). */
+  readTyped: (key: string) => string;
+  /** The add boxes are shown but can't be used (a form while it saves). */
+  addBoxDisabled: boolean;
   addAt: (at: ChecklistAt, texts: string[]) => Promise<string | null | false>;
   run: (listId: string | null, fallback: string, fn: () => unknown) => Promise<boolean>;
   askDelete: (node: CLNode, listId: string) => void;
@@ -138,7 +149,6 @@ function readCollapsed(userId: string | undefined, name: string | null): Set<str
 export function NestedChecklists({
   lists,
   items,
-  actions,
   people = [],
   mode = 'panel',
   today = '',
@@ -148,15 +158,31 @@ export function NestedChecklists({
   fromKeys,
   typed: typedProp,
   onTypedChange,
-}: NestedChecklistsProps) {
+  actions: givenActions,
+  disabled = false,
+}: Omit<NestedChecklistsProps, 'actions'> & { actions: ChecklistActions }) {
+  const actions = disabled ? NO_ACTIONS : givenActions;
   const panel = mode === 'panel';
   const userId = useAuthStore((s) => s.user?.id);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Ticks shown before the server has them (a parent follows its sub-items at once).
-  const [ticks, setTicks] = useState<Record<string, boolean>>({});
-  useEffect(() => setTicks((t) => (Object.keys(t).length ? {} : t)), [items]);
-  const cards = useMemo(() => checklistCards(lists, items, ticks), [lists, items, ticks]);
+  // Ticks shown before the server has them (a parent follows its sub-items at once). Each waits for
+  // its own save: a refresh brought by another change never takes it away; once saved, it goes when
+  // the list says the same (1.23.3 review).
+  const [ticks, setTicks] = useState<Record<string, { done: boolean; saved: boolean }>>({});
+  const tickSeq = useRef(new Map<string, number>());
+  const latestItems = useRef(items);
+  latestItems.current = items;
+  useEffect(
+    () =>
+      setTicks((t) => {
+        const kept = Object.fromEntries(Object.entries(t).filter(([, v]) => !v.saved));
+        return Object.keys(kept).length === Object.keys(t).length ? t : kept;
+      }),
+    [items],
+  );
+  const tickValues = useMemo(() => Object.fromEntries(Object.entries(ticks).map(([id, v]) => [id, v.done])), [ticks]);
+  const cards = useMemo(() => checklistCards(lists, items, tickValues), [lists, items, tickValues]);
   const overall = overallCounts(cards);
 
   // Collapsed parents, remembered per person per task on this device.
@@ -176,20 +202,30 @@ export function NestedChecklists({
   // Text typed in the add boxes: the caller's (a form), else our own.
   const [ownTyped, setOwnTyped] = useState<Record<string, string>>({});
   const typed = typedProp ?? ownTyped;
+  const typedNow = useRef(typed);
+  typedNow.current = typed;
   const setTyped = (changes: Record<string, string>) => {
-    const next = { ...typed };
+    const next = { ...typedNow.current };
     for (const [k, v] of Object.entries(changes)) {
       if (v) next[k] = v;
       else delete next[k];
     }
+    typedNow.current = next;
     if (!typedProp) setOwnTyped(next);
     onTypedChange?.(next);
   };
+  const readTyped = (key: string) => typedNow.current[key] ?? '';
 
   const [editing, setEditing] = useState<string | null>(null);
   const [composer, setComposer] = useState<ChecklistAt | null>(null);
   const [strip, setStrip] = useState<{ id: string; kind: 'assign' | 'due' } | null>(null);
   const [note, setNote] = useState<{ id: string; text: string } | null>(null);
+  // "2 sub-items still open" goes after a few seconds (or with the next change).
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), NOTE_MS);
+    return () => clearTimeout(t);
+  }, [note]);
   const [problem, setProblem] = useState<{ listId: string | null; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [undo, setUndo] = useState<{ batchId: string | null; text: string } | null>(null);
@@ -249,6 +285,7 @@ export function NestedChecklists({
 
   async function run(listId: string | null, fallback: string, fn: () => unknown): Promise<boolean> {
     setProblem(null);
+    setNote(null);
     try {
       await fn();
       return true;
@@ -258,23 +295,39 @@ export function NestedChecklists({
     }
   }
 
-  /** Add items at a place: several at once when that can be done in one go. The last new id (null: not known; false: failed). */
-  async function addAt(at: ChecklistAt, texts: string[]): Promise<string | null | false> {
-    if (texts.length === 0) return null;
-    let last: string | null = null;
-    const ok = await run(at.listId || null, 'Couldn’t add the item.', async () => {
-      if (texts.length > 1 && actions.addItems) {
-        await actions.addItems(at, texts);
-        return;
-      }
-      let place = at;
-      for (const text of texts) {
-        const id = await actions.addItem?.(place, text);
-        last = typeof id === 'string' ? id : null;
-        if (last) place = { ...place, afterId: last };
-      }
+  // Adds go one after another, in the order they were asked for (typing on while one saves).
+  const addQueue = useRef<Promise<unknown>>(Promise.resolve());
+  /**
+   * Add items at a place: several at once when that can be done in one go (100 a call, each after the
+   * last). The last new id (null: not known; false: failed).
+   */
+  function addAt(at: ChecklistAt, texts: string[]): Promise<string | null | false> {
+    if (texts.length === 0) return Promise.resolve(null);
+    const work = addQueue.current.then(async () => {
+      let last: string | null = null;
+      const ok = await run(at.listId || null, 'Couldn’t add the item.', async () => {
+        let place = at;
+        if (texts.length > 1 && actions.addItems) {
+          for (let i = 0; i < texts.length; i += BATCH_MAX) {
+            const ids = await actions.addItems(place, texts.slice(i, i + BATCH_MAX));
+            const lastId = Array.isArray(ids) ? ids[ids.length - 1] : undefined;
+            if (lastId) {
+              last = lastId;
+              place = { ...place, afterId: lastId };
+            }
+          }
+          return;
+        }
+        for (const text of texts) {
+          const id = await actions.addItem?.(place, text);
+          last = typeof id === 'string' ? id : null;
+          if (last) place = { ...place, afterId: last };
+        }
+      });
+      return ok ? last : false;
     });
-    return ok ? last : false;
+    addQueue.current = work.catch(() => undefined);
+    return work;
   }
 
   function tick(node: CLNode, listId: string) {
@@ -289,14 +342,27 @@ export function NestedChecklists({
     const next = !node.done;
     setNote(null);
     setProblem(null);
-    setTicks((t) => ({ ...t, [id]: next }));
+    const seq = (tickSeq.current.get(id) ?? 0) + 1;
+    tickSeq.current.set(id, seq);
+    const latest = () => tickSeq.current.get(id) === seq;
+    const drop = (t: Record<string, { done: boolean; saved: boolean }>) => Object.fromEntries(Object.entries(t).filter(([k]) => k !== id));
+    setTicks((t) => ({ ...t, [id]: { done: next, saved: false } }));
     Promise.resolve()
       .then(() => actions.toggle!(id, next))
-      .catch((err: unknown) => {
-        // Not saved: the tick goes back as it was.
-        setTicks((t) => Object.fromEntries(Object.entries(t).filter(([k]) => k !== id)));
-        setProblem({ listId: listId || null, text: failureMessage(err, 'Couldn’t update the checklist.') });
-      });
+      .then(
+        () => {
+          if (!latest()) return;
+          // Saved: gone now if the list already says so, else with the next read of it.
+          const shown = latestItems.current.find((i) => i.id === id);
+          setTicks((t) => (shown && shown.done === next ? drop(t) : t[id] ? { ...t, [id]: { done: next, saved: true } } : t));
+        },
+        (err: unknown) => {
+          if (!latest()) return;
+          // Not saved: the tick goes back as it was.
+          setTicks(drop);
+          setProblem({ listId: listId || null, text: failureMessage(err, 'Couldn’t update the checklist.') });
+        },
+      );
   }
 
   async function removeItem(id: string, text: string, subItems: number, listId: string) {
@@ -382,12 +448,19 @@ export function NestedChecklists({
     tick,
     typed,
     setTyped,
+    readTyped,
+    addBoxDisabled: disabled && Boolean(givenActions.addItem || givenActions.addItems),
     addAt,
     run,
     askDelete,
     hasParents,
     fromKeys,
   };
+
+  const standIn = useRef<{ waiting: boolean; adopted: string | null }>({ waiting: false, adopted: null });
+  if (cards[0]?.implicit) standIn.current = { waiting: true, adopted: null };
+  else if (standIn.current.waiting) standIn.current = { waiting: false, adopted: cards[0]?.list.id ?? null };
+  const isStandIn = (card: CLCard) => card.implicit || card.list.id === standIn.current.adopted;
 
   const lastListId = cards[cards.length - 1]?.implicit ? null : (cards[cards.length - 1]?.list.id ?? null);
   const canAddList = Boolean(actions.addList) && lists.length < CHECKLISTS_MAX;
@@ -407,8 +480,9 @@ export function NestedChecklists({
     <>
       {cards.map((card) => (
         <ChecklistCard
-          key={card.list.id || 'implicit'}
+          key={isStandIn(card) ? 'implicit' : card.list.id}
           card={card}
+          slot={isStandIn(card) ? '' : card.list.id}
           headingLevel={panel ? 4 : 3}
           problem={problem && problem.listId !== null && problem.listId === card.list.id ? problem.text : null}
           renaming={renamingList === card.list.id}
@@ -598,6 +672,7 @@ function NewListBox({ value, onChange, onSubmit, onCancel }: { value: string; on
 /** One checklist: its title (renamed in place), "5/8" and a bar, its menu, its items and a box to add more. */
 function ChecklistCard({
   card,
+  slot,
   headingLevel,
   problem,
   renaming,
@@ -606,6 +681,8 @@ function ChecklistCard({
   suggestion,
 }: {
   card: CLCard;
+  /** Whose add box's typing this is (the stand-in "Checklist" keeps its own when the real one takes its place). */
+  slot: string;
   headingLevel: 3 | 4;
   problem: string | null;
   renaming: boolean;
@@ -646,7 +723,7 @@ function ChecklistCard({
         <p className="py-1 text-sm text-ink-3">{c.actions.addItem || c.actions.addItems ? 'No steps yet — break the work down below.' : 'No checklist items.'}</p>
       ) : null}
       <ItemList nodes={card.roots} parent={null} listId={listId} listTitle={title} />
-      {c.actions.addItem || c.actions.addItems ? <EndBox card={card} /> : null}
+      {c.actions.addItem || c.actions.addItems || c.addBoxDisabled ? <EndBox card={card} slot={slot} /> : null}
     </div>
   );
 }
@@ -992,22 +1069,31 @@ function indentTarget(cards: CLCard[], at: ChecklistAt): CLNode | null {
   return prev && prev.depth < CHECKLIST_DEPTH_MAX - 1 ? prev : null;
 }
 
+/**
+ * Add what was typed in a box: the box is cleared at once (ready for the next while this one saves),
+ * and if the save is refused its words come back — unless something new was typed meanwhile.
+ */
+async function submitTyped(c: Ctx, at: ChecklistAt, key: string, text: string): Promise<string | null | false> {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  c.setTyped({ [key]: '' });
+  const added = await c.addAt(at, lines);
+  if (added === false && !c.readTyped(key).trim()) c.setTyped({ [key]: text });
+  return added;
+}
+
 /** Keys an add box shares: Enter adds, Tab / Shift+Tab move the box in / out a level (with what's typed). */
-function useAddBoxKeys(at: ChecklistAt, text: string, onAdded: (newId: string | null) => void) {
+function useAddBoxKeys(at: ChecklistAt, key: string, text: string, onAdded: (newId: string | null) => void) {
   const c = useCtx();
-  const key = composerKey(at);
   return async (e: KeyboardEvent<HTMLInputElement>) => {
     if (isEnter(e)) {
       e.preventDefault();
-      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      if (lines.length === 0) {
+      if (!text.trim()) {
         onAdded(null);
         return;
       }
-      const added = await c.addAt(at, lines);
-      if (added === false) return;
-      c.setTyped({ [key]: '' });
-      onAdded(added);
+      const added = await submitTyped(c, at, key, text);
+      if (added !== false) onAdded(added);
     } else if (e.key === 'Tab' && !e.shiftKey && text.trim()) {
       const target = indentTarget(c.cards, at);
       if (!target) return;
@@ -1037,9 +1123,14 @@ function Composer({ at, depth, label }: { at: ChecklistAt; depth: number; label:
     c.openComposer(null);
   });
   useEffect(() => ref.current?.focus(), [key]);
-  const onKey = useAddBoxKeys(at, value, (newId) => {
+  const onKey = useAddBoxKeys(at, key, value, (newId) => {
     if (newId === null && !value.trim()) c.openComposer(null);
-    else if (newId) c.openComposer({ ...at, afterId: newId });
+    else if (newId) {
+      // Typing goes on right after the new item, with anything typed while it saved.
+      const next = { ...at, afterId: newId };
+      c.setTyped({ [key]: '', [composerKey(next)]: c.readTyped(key) });
+      c.openComposer(next);
+    }
   });
   return (
     <li data-testid="checklist-composer" style={{ paddingInlineStart: indentOf(depth) }} className="py-0.5">
@@ -1057,7 +1148,8 @@ function Composer({ at, depth, label }: { at: ChecklistAt; depth: number; label:
           const lines = linesOf(e.clipboardData.getData('text'));
           if (lines.length < 2) return;
           e.preventDefault();
-          void c.addAt(at, lines).then((r) => r !== false && c.openComposer(null));
+          c.setTyped({ [key]: '' });
+          void c.addAt(at, lines).then((r) => (r === false ? !c.readTyped(key).trim() && c.setTyped({ [key]: lines.join('\n') }) : c.openComposer(null)));
         }}
         onBlur={() => {
           if (!value.trim()) c.openComposer(null);
@@ -1069,20 +1161,14 @@ function Composer({ at, depth, label }: { at: ChecklistAt; depth: number; label:
 }
 
 /** The box at the end of a checklist: Enter adds at the top level and keeps the box ready; pasted lines add one each. */
-function EndBox({ card }: { card: CLCard }) {
+function EndBox({ card, slot }: { card: CLCard; slot: string }) {
   const c = useCtx();
   const at: ChecklistAt = { listId: card.list.id, parentId: null, afterId: null };
-  const key = composerKey(at);
+  // Its typing is kept by the box's own place (the stand-in "Checklist" keeps it when the real one comes).
+  const key = composerKey({ listId: slot, parentId: null, afterId: null });
   const value = c.typed[key] ?? '';
-  const [adding, setAdding] = useState(false);
-  const onKey = useAddBoxKeys(at, value, () => undefined);
-  async function addTyped() {
-    const lines = value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (!lines.length || adding) return;
-    setAdding(true);
-    if ((await c.addAt(at, lines)) !== false) c.setTyped({ [key]: '' });
-    setAdding(false);
-  }
+  const onKey = useAddBoxKeys(at, key, value, () => undefined);
+  const disabled = c.addBoxDisabled;
   return (
     <div className="mt-1.5 flex items-center gap-2">
       <input
@@ -1092,26 +1178,23 @@ function EndBox({ card }: { card: CLCard }) {
         placeholder="Add an item…"
         maxLength={CHECKLIST_TEXT_MAX * 20}
         value={value}
+        disabled={disabled}
         data-unsaved={value.trim() !== '' || undefined}
         onChange={(e) => c.setTyped({ [key]: e.target.value })}
-        onKeyDown={(e) => {
-          if (isEnter(e)) {
-            e.preventDefault();
-            void addTyped();
-          } else void onKey(e);
-        }}
+        onKeyDown={(e) => void onKey(e)}
         onPaste={(e) => {
-          const lines = linesOf(`${value}${e.clipboardData.getData('text')}`);
-          if (!/\n/.test(e.clipboardData.getData('text')) || lines.length < 2) return;
+          const pasted = e.clipboardData.getData('text');
+          const lines = linesOf(`${value}${pasted}`);
+          if (!/\n/.test(pasted) || lines.length < 2) return;
           e.preventDefault();
-          void c.addAt(at, lines).then((r) => r !== false && c.setTyped({ [key]: '' }));
+          void submitTyped(c, at, key, lines.join('\n'));
         }}
-        className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 sm:h-9 [@media(pointer:coarse)]:h-11"
+        className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:opacity-60 sm:h-9 [@media(pointer:coarse)]:h-11"
       />
       <button
         type="button"
-        onClick={() => void addTyped()}
-        disabled={value.trim() === '' || adding}
+        onClick={() => void submitTyped(c, at, key, value)}
+        disabled={disabled || value.trim() === ''}
         className="h-10 flex-none rounded-lg border border-line px-3 text-xs font-semibold text-brand transition-colors hover:border-brand disabled:opacity-50 sm:h-9 [@media(pointer:coarse)]:h-11"
       >
         Add item

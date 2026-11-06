@@ -700,3 +700,95 @@ describe('TaskDrawerContainer — clients (1.23)', () => {
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Also show its description' })).toBeChecked());
   });
 });
+
+describe('TaskDrawerContainer: writing a first checklist with the keyboard (1.23.3 review)', () => {
+  type Item = { id: string; taskId: string; listId: string; parentId: string | null; depth: number; text: string; done: boolean; position: number };
+  let lists: { id: string; taskId: string; title: string; position: number; done: number; total: number }[];
+  let items: Item[];
+  let posts: Record<string, unknown>[];
+  let release: (() => void) | null;
+  let slowGet = false;
+  let releaseGet: (() => void) | null = null;
+  beforeEach(() => {
+    lists = [];
+    items = [];
+    posts = [];
+    release = null;
+    slowGet = false;
+    releaseGet = null;
+    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        const method = init?.method ?? 'GET';
+        if (u.endsWith('/tasks/t1/checklist') && method === 'GET') {
+          // Reading the checklist again after an add can be slow too.
+          if (slowGet && posts.length > 1) {
+            slowGet = false;
+            await new Promise<void>((r) => (releaseGet = r));
+          }
+          return json({ data: { items, lists, progress: 0, done: 0, total: items.length } });
+        }
+        if (u.endsWith('/tasks/t1/checklist/deleted')) return json({ data: [] });
+        if (u.endsWith('/tasks/t1/checklist') && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as { text: string; parentId?: string };
+          posts.push(body);
+          // The first add waits (a slow connection); the server makes the task's first "Checklist" with it.
+          if (posts.length === 1) await new Promise<void>((r) => (release = r));
+          if (!lists.length) lists = [{ id: 'L1', taskId: 't1', title: 'Checklist', position: 0, done: 0, total: 0 }];
+          const made: Item = { id: `n${posts.length}`, taskId: 't1', listId: 'L1', parentId: body.parentId ?? null, depth: body.parentId ? 1 : 0, text: body.text, done: false, position: items.length };
+          items = [...items, made];
+          return json({ data: made }, 201);
+        }
+        return base(url, init);
+      }),
+    );
+  });
+
+  it('“Buy wire”, Enter, then “Buy tape” at once: nothing typed is lost, focus stays in the box, Enter adds it too', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    const box = await screen.findByRole('textbox', { name: 'Add an item to “Checklist”' });
+    await userEvent.type(box, 'Buy wire{Enter}');
+    await waitFor(() => expect(release).not.toBeNull());
+    // Still saving the first: keep typing.
+    await userEvent.keyboard('Buy tape');
+    release!();
+    await waitFor(() => expect(screen.getAllByTestId('checklist-item').map((li) => li.getAttribute('data-item-id'))).toEqual(['n1']));
+    const after = screen.getByRole('textbox', { name: 'Add an item to “Checklist”' });
+    expect(after).toHaveValue('Buy tape');
+    expect(after).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(posts).toEqual([{ text: 'Buy wire' }, { text: 'Buy tape', listId: 'L1' }]));
+    await waitFor(() => expect(screen.getAllByTestId('checklist-item')).toHaveLength(2));
+    expect(screen.getByRole('textbox', { name: 'Add an item to “Checklist”' })).toHaveFocus();
+  });
+
+  it('Enter in a new sub-item adds it, and typing goes on right after it once it is there', async () => {
+    lists = [{ id: 'L1', taskId: 't1', title: 'Checklist', position: 0, done: 0, total: 1 }];
+    items = [{ id: 'w', taskId: 't1', listId: 'L1', parentId: null, depth: 0, text: 'Wiring', done: false, position: 0 }];
+    posts = [{ text: 'skip the slow first add' }];
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TaskDrawerContainer taskId="t1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'More actions for “Wiring”' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add sub-item' }));
+    slowGet = true;
+    await userEvent.type(screen.getByRole('textbox', { name: 'New sub-item of “Wiring”' }), 'Label circuits{Enter}');
+    await waitFor(() => expect(releaseGet).not.toBeNull());
+    // The checklist is still being read again: keep typing the next one.
+    await userEvent.keyboard('Test breakers');
+    releaseGet!();
+    const next = await screen.findByRole('textbox', { name: 'New item after “Label circuits”' });
+    expect(next).toHaveFocus();
+    expect(next).toHaveValue('Test breakers');
+  });
+});

@@ -723,7 +723,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const checklistField = !editing ? (
     <div>
       <Label optional>Checklists</Label>
-      <ChecklistDraftEditor draft={draft.checklists} onChange={(checklists) => set({ checklists })} />
+      <ChecklistDraftEditor draft={draft.checklists} onChange={(checklists) => set({ checklists })} disabled={saving || !!created} />
     </div>
   ) : null;
   const formFields = (

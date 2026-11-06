@@ -370,3 +370,83 @@ describe('NestedChecklists: merged tasks (1.23.1 → 1.23.3)', () => {
     expect(within(card('From MICO-14 · Checklist')).queryByTestId('checklist-from')).toBeNull();
   });
 });
+
+describe('NestedChecklists: review fixes (1.23.3)', () => {
+  it('a tick waiting for its own save stays when the list is read again for another change', async () => {
+    const toggle = vi.fn(() => new Promise<void>(() => {}));
+    const { rerender } = panel({ toggle });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Test breakers' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Pipes' }));
+    // The first save's refresh arrives (a new list, nothing changed yet): both ticks still wait.
+    rerender(<NestedChecklists lists={LISTS} items={ITEMS.map((i) => ({ ...i }))} actions={{ toggle }} people={PEOPLE} today="2026-11-06" mode="panel" />);
+    expect(screen.getByRole('checkbox', { name: 'Test breakers' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Pipes' })).toBeChecked();
+  });
+
+  it('a tick goes once its save is done and the list says so', async () => {
+    let finish: () => void = () => {};
+    const toggle = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    const { rerender } = panel({ toggle });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Pipes' }));
+    rerender(<NestedChecklists lists={LISTS} items={ITEMS.map((i) => (i.id === 'c' ? { ...i, done: true } : i))} actions={{ toggle }} people={PEOPLE} today="2026-11-06" mode="panel" />);
+    await act(async () => finish());
+    expect(screen.getByRole('checkbox', { name: 'Pipes' })).toBeChecked();
+  });
+
+  it('"N sub-items still open" goes after a few seconds, or with the next change', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    panel({ toggle: vi.fn() });
+    await user.click(screen.getByRole('checkbox', { name: 'Wiring' }));
+    expect(within(row('Wiring')).getByRole('status')).toHaveTextContent('1 sub-item still open');
+    act(() => vi.advanceTimersByTime(6000));
+    expect(within(row('Wiring')).queryByRole('status')).toBeNull();
+    await user.click(screen.getByRole('checkbox', { name: 'Wiring' }));
+    expect(within(row('Wiring')).getByRole('status')).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: 'Pipes' }));
+    expect(within(row('Wiring')).queryByRole('status')).toBeNull();
+  });
+
+  it('more than 100 pasted lines go in batches of 100, each after the last', async () => {
+    let call = 0;
+    const addItems = vi.fn(async (_at: unknown, texts: string[]) => {
+      const n = call++;
+      return texts.map((_, i) => `b${n}-${i}`);
+    });
+    panel({ addItem: vi.fn(), addItems });
+    const box = within(card('Plumbing')).getByRole('textbox', { name: 'Add an item to “Plumbing”' });
+    box.focus();
+    await userEvent.paste(Array.from({ length: 250 }, (_, i) => `Step ${i + 1}`).join('\n'));
+    await waitFor(() => expect(addItems).toHaveBeenCalledTimes(3));
+    expect(addItems.mock.calls.map((c) => [c[0], (c[1] as string[]).length, (c[1] as string[])[0]])).toEqual([
+      [{ listId: 'L2', parentId: null, afterId: null }, 100, 'Step 1'],
+      [{ listId: 'L2', parentId: null, afterId: 'b0-99' }, 100, 'Step 101'],
+      [{ listId: 'L2', parentId: null, afterId: 'b1-99' }, 50, 'Step 201'],
+    ]);
+  });
+
+  it('the stand-in "Checklist" becomes the real one without losing the add box, its focus or what is typed', async () => {
+    const addItem = vi.fn(async () => 'n1');
+    const { rerender } = render(<NestedChecklists lists={[]} items={[]} actions={{ addItem }} mode="panel" today="2026-11-06" />);
+    const box = screen.getByRole('textbox', { name: 'Add an item to “Checklist”' });
+    await userEvent.type(box, 'Buy wire{Enter}');
+    expect(box).toHaveValue('');
+    await userEvent.keyboard('Buy tape');
+    rerender(<NestedChecklists lists={[{ id: 'L1', title: 'Checklist' }]} items={[item('n1', 'L1', null, 'Buy wire')]} actions={{ addItem }} mode="panel" today="2026-11-06" />);
+    const after = screen.getByRole('textbox', { name: 'Add an item to “Checklist”' });
+    expect(after).toBe(box);
+    expect(after).toHaveFocus();
+    expect(after).toHaveValue('Buy tape');
+    await userEvent.keyboard('{Enter}');
+    expect(addItem).toHaveBeenLastCalledWith({ listId: 'L1', parentId: null, afterId: null }, 'Buy tape');
+  });
+
+  it('a refused add puts its words back in the box (unless something new was typed meanwhile)', async () => {
+    const addItem = vi.fn().mockRejectedValue(new Error('This task has 500 checklist items: nothing more fits.'));
+    panel({ addItem });
+    const box = within(card('Plumbing')).getByRole('textbox', { name: 'Add an item to “Plumbing”' });
+    await userEvent.type(box, 'Drains{Enter}');
+    expect(await within(card('Plumbing')).findByRole('alert')).toHaveTextContent('nothing more fits');
+    expect(box).toHaveValue('Drains');
+  });
+});

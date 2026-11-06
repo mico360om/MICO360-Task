@@ -44,12 +44,28 @@ describe('ChecklistDraftEditor: checklists written before the task (or template)
     await userEvent.click(screen.getByRole('button', { name: 'More actions for “Wiring”' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Delete “Wiring” and its 2 sub-items?' })).getByRole('button', { name: 'Delete' }));
-    expect(sent()).toEqual([{ title: 'Plumbing', items: [{ text: 'Pipes' }] }]);
+    // "Electrical" is empty now, but a checklist with a title of its own is kept (1.23.3 review).
+    expect(sent()).toEqual([
+      { title: 'Electrical', items: [] },
+      { title: 'Plumbing', items: [{ text: 'Pipes' }] },
+    ]);
   });
 
   it('text typed and not added is part of the draft (sent with the rest)', async () => {
     render(<Harness tree={[{ title: 'Checklist', items: [{ text: 'Gate' }] }]} />);
     await userEvent.type(screen.getByRole('textbox', { name: 'Add an item to “Checklist”' }), 'Fence');
     expect(sent()).toEqual([{ title: 'Checklist', items: [{ text: 'Gate' }, { text: 'Fence' }] }]);
+  });
+});
+
+describe('ChecklistDraftEditor: while the form saves (1.23.3 review)', () => {
+  it('can be read but not changed', () => {
+    render(<ChecklistDraftEditor draft={draftFromTree([{ title: 'Electrical', items: [{ text: 'Wiring' }] }])} onChange={() => {}} disabled />);
+    expect(screen.getByRole('textbox', { name: 'Add an item to “Electrical”' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /More actions for/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Actions for the checklist/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add checklist' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit “Wiring”' })).toBeNull();
+    expect(screen.getByText('Wiring')).toBeInTheDocument();
   });
 });

@@ -314,16 +314,21 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
     onError: failed('Couldn’t delete the task.'),
   });
 
+  /** Every view of the checklist refreshed; done once the checklist itself has been read again. */
   const invalidateChecklist = () => {
-    void queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
     void queryClient.invalidateQueries({ queryKey: ['checklist-deleted', taskId] });
     refreshTaskViews(); // progress + checklist counts on cards, My Tasks' items for me, the calendar, the history
+    return queryClient.invalidateQueries({ queryKey: ['checklist', taskId] });
   };
-  /** A checklist change saved, then every view of it refreshed; a refusal carries the server's words. */
+  /**
+   * A checklist change saved, then every view of it refreshed; a refusal carries the server's words.
+   * It answers once the checklist has been read again (1.23.3 review), so what comes next — typing on
+   * after a new item, its sub-item box — has its place on screen.
+   */
   const saveChecklist = <T,>(action: () => Promise<T>, fallback: string) =>
     attempt(async () => {
       const result = await action();
-      invalidateChecklist();
+      await invalidateChecklist();
       return result;
     }, fallback);
   const cl = checklistApi(apiClient);
@@ -443,7 +448,7 @@ function TaskDrawerPanel({ taskId, onClose, stepper, mergeNotice, focusItemId }:
             onRenameChecklistItem={(id, text) => saveChecklist(() => cl.rename(id, text), 'Couldn’t rename the checklist item.').then(() => undefined)}
             onRemoveChecklistItem={(id) => saveChecklist(() => cl.remove(id), 'Couldn’t delete the checklist item.')}
             checklistActions={{
-              addItems: (at, texts) => saveChecklist(() => cl.addMany(taskId, texts, placeOf(at)), 'Couldn’t add the items.').then(() => undefined),
+              addItems: (at, texts) => saveChecklist(() => cl.addMany(taskId, texts, placeOf(at)), 'Couldn’t add the items.').then((r) => (Array.isArray(r?.items) ? r.items.map((i) => i.id) : undefined)),
               duplicate: (id) => saveChecklist(() => cl.duplicate(id), 'Couldn’t duplicate the item.').then(() => undefined),
               move: (id, how) => saveChecklist(() => cl.move(id, how), 'Couldn’t move the item.').then(() => undefined),
               assign: (id, userId) => saveChecklist(() => cl.assign(id, userId), 'Couldn’t change who it’s for.').then(() => undefined),
