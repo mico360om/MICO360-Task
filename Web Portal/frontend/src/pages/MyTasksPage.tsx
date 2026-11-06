@@ -41,6 +41,7 @@ import { LoadError } from '../components/ui/LoadError';
 import { InspectionChip } from '../components/inspections/inspection-ui';
 import { ApprovalChip } from '../components/approvals/ApprovalChip';
 import { ToApproveSection } from '../components/approvals/ToApproveSection';
+import { MyChecklistItems } from '../components/checklists/MyChecklistItems';
 import { ProjectAvatar, type ProjectLook } from '../components/ProjectAvatar';
 import { TaskKey } from '../components/TaskKey';
 import { projectOption } from '../components/project-option';
@@ -369,6 +370,9 @@ export function MyTasksPage() {
 
       {/* Tasks waiting for my approval (people who run a project, and admins). */}
       <ToApproveSection onOpen={(id) => openTask(id)} />
+
+      {/* 1.23.3: checklist items of other tasks given to me (each opens its task at the item). */}
+      <MyChecklistItems />
 
       {/* Saved filter presets */}
       {counts.total > 0 ? <SavedViewsBar current={currentFilters} onApply={applyView} /> : null}
