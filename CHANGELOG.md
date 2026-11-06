@@ -31,6 +31,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   tasks show once their next copy is made (the Calendar shows the copies to come). Months follow the
   company time zone.
 
+### Improvements
+- On a phone, the view switches (Board | Table, List | Table, Day | Month) are full-size touch targets:
+  44 px wide as well as tall.
+
 ## [1.23.2] - 2026-11-06
 
 ### New features
