@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { checklistTreeSchema } from './checklist-tree-schema';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { TaskService } from './task-service';
 import type { CarryForwardService } from './carry-forward-service';
@@ -90,6 +91,8 @@ const createSchema = z.object({
   assigneeIds: z.array(idString).max(100).optional(),
   /** Its checklist's items, in order (a task template fills them in), written with the task. */
   checklist: z.array(requiredText).max(100).optional(),
+  /** 1.23.3: its checklists with titles and nesting (the New task form, templates); wins over `checklist`. */
+  checklists: checklistTreeSchema.optional(),
   /** Its external contacts, in order, written with the task (checked by the shared rules; at most 20). */
   externalContacts: z.array(externalContactSchema).max(100).optional(),
   /** The inspection form it is carried out with (a scheduled check, or a one-off task with a form). */

@@ -1,3 +1,4 @@
+import { flatTexts } from '../tasks/checklist-tree';
 import type {
   ProjectSnapshot,
   ProjectTemplateInput,
@@ -43,7 +44,8 @@ export function createMemoryTemplateRepository(seed: { projects?: ProjectSnapsho
         priority: t.priority,
         dueOffsetDays: t.dueOffsetDays,
         roleId: t.roleKey ? roleIds.get(t.roleKey) ?? null : null,
-        checklist: [...t.checklist],
+        checklist: flatTexts(t.checklists),
+        checklists: structuredClone(t.checklists),
       })),
       columnCount: input.columns.length,
       roleCount: roles.length,
@@ -81,24 +83,24 @@ export function createMemoryTemplateRepository(seed: { projects?: ProjectSnapsho
       return projectTemplates.delete(templateId);
     },
     async listTaskTemplates() {
-      return [...taskTemplates.values()].sort(byName).map((t) => ({ ...t, checklist: [...t.checklist] }));
+      return [...taskTemplates.values()].sort(byName).map((t) => structuredClone(t));
     },
     async findTaskTemplate(templateId) {
       const t = taskTemplates.get(templateId);
-      return t ? { ...t, checklist: [...t.checklist] } : null;
+      return t ? structuredClone(t) : null;
     },
     async createTaskTemplate(input: TaskTemplateInput, actorId) {
       const at = new Date();
-      const t: TaskTemplateRecord = { id: id('tk'), ...input, checklist: [...input.checklist], createdById: actorId, createdAt: at, updatedAt: at };
+      const t: TaskTemplateRecord = { id: id('tk'), ...structuredClone(input), checklist: flatTexts(input.checklists), createdById: actorId, createdAt: at, updatedAt: at };
       taskTemplates.set(t.id, t);
-      return { ...t, checklist: [...t.checklist] };
+      return structuredClone(t);
     },
     async updateTaskTemplate(templateId, input) {
       const before = taskTemplates.get(templateId);
       if (!before) return null;
-      const t: TaskTemplateRecord = { ...before, ...input, checklist: [...input.checklist], updatedAt: new Date() };
+      const t: TaskTemplateRecord = { ...before, ...structuredClone(input), checklist: flatTexts(input.checklists), updatedAt: new Date() };
       taskTemplates.set(t.id, t);
-      return { ...t, checklist: [...t.checklist] };
+      return structuredClone(t);
     },
     async deleteTaskTemplate(templateId) {
       return taskTemplates.delete(templateId);

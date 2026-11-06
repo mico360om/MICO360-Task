@@ -1,3 +1,4 @@
+import { checklistTreeOf as tree, flatTexts } from '../tasks/checklist-tree';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTemplateService, checkProjectTemplate, TEMPLATE_LIMITS, type TemplateActor } from './template-service';
 import { createMemoryTemplateRepository } from './memory-template-repository';
@@ -22,7 +23,7 @@ const simple = (over: Partial<ProjectTemplateInput> = {}): ProjectTemplateInput 
   description: null,
   columns: board,
   roles: [{ key: 'insp', name: 'Inspector' }],
-  tasks: [{ title: 'Inspect', description: null, priority: 'NORMAL', dueOffsetDays: 5, roleKey: 'insp', checklist: ['Valves'] }],
+  tasks: [{ title: 'Inspect', description: null, priority: 'NORMAL', dueOffsetDays: 5, roleKey: 'insp', checklists: tree(['Valves']) }],
   ...over,
 });
 
@@ -38,10 +39,10 @@ const rig: ProjectSnapshot = {
     { name: 'Done', category: 'DONE', color: '#2E7D53' },
   ],
   tasks: [
-    { id: 't1', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', dueDate: day('2026-11-01'), assigneeIds: ['omar', 'sara'], checklist: ['Agenda'] },
-    { id: 't2', title: 'Inspect valves', description: null, priority: 'NORMAL', dueDate: day('2026-11-06'), assigneeIds: ['sara', 'omar'], checklist: [] },
-    { id: 't3', title: 'Write report', description: null, priority: 'LOW', dueDate: null, assigneeIds: ['layla'], checklist: [] },
-    { id: 't4', title: 'Prep', description: null, priority: 'NORMAL', dueDate: day('2026-10-29'), assigneeIds: [], checklist: [] },
+    { id: 't1', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', dueDate: day('2026-11-01'), assigneeIds: ['omar', 'sara'], checklists: tree(['Agenda']) },
+    { id: 't2', title: 'Inspect valves', description: null, priority: 'NORMAL', dueDate: day('2026-11-06'), assigneeIds: ['sara', 'omar'], checklists: tree([]) },
+    { id: 't3', title: 'Write report', description: null, priority: 'LOW', dueDate: null, assigneeIds: ['layla'], checklists: tree([]) },
+    { id: 't4', title: 'Prep', description: null, priority: 'NORMAL', dueDate: day('2026-10-29'), assigneeIds: [], checklists: tree([]) },
   ],
 };
 
@@ -50,7 +51,7 @@ let active: Set<string>;
 let service: ReturnType<typeof createTemplateService>;
 
 beforeEach(() => {
-  repo = createMemoryTemplateRepository({ projects: [structuredClone(rig)], tasks: [{ id: 't1', projectId: 'p-rig', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', checklist: ['Agenda', 'Attendees'] }] });
+  repo = createMemoryTemplateRepository({ projects: [structuredClone(rig)], tasks: [{ id: 't1', projectId: 'p-rig', title: 'Kick-off', description: 'Meet on site', priority: 'HIGH', checklists: tree(['Agenda', 'Attendees']) }] });
   active = new Set(['admin', 'lead', 'member', 'omar', 'sara']);
   // lead runs Rig 7; member is on its team; outsider can't see it.
   service = createTemplateService({
@@ -68,7 +69,7 @@ beforeEach(() => {
 describe('who may manage templates', () => {
   it('only an administrator creates one from scratch', async () => {
     await expect(service.createProjectTemplate(simple(), lead)).rejects.toMatchObject({ status: 403 });
-    await expect(service.createTaskTemplate({ name: 'x', title: 'x', description: null, priority: 'NORMAL', checklist: [] }, member)).rejects.toMatchObject({ status: 403 });
+    await expect(service.createTaskTemplate({ name: 'x', title: 'x', description: null, priority: 'NORMAL', checklists: tree([]) }, member)).rejects.toMatchObject({ status: 403 });
     const t = await service.createProjectTemplate(simple(), admin);
     expect(t).toMatchObject({ name: 'Rig inspection', createdById: 'admin', taskCount: 1 });
   });
@@ -155,7 +156,7 @@ describe('saving a project as a template', () => {
     const t = await service.saveProjectAsTemplate('p-rig', { name: 'x', description: null, roles: [{ userId: 'nobody', name: 'Ghost' }] }, lead);
     expect(t.roles).toEqual([]);
     const big = repo.projects.get('p-rig')!;
-    big.tasks = Array.from({ length: TEMPLATE_LIMITS.tasks + 1 }, (_, i) => ({ id: `b${i}`, title: `T${i}`, description: null, priority: 'NORMAL' as const, dueDate: null, assigneeIds: [], checklist: [] }));
+    big.tasks = Array.from({ length: TEMPLATE_LIMITS.tasks + 1 }, (_, i) => ({ id: `b${i}`, title: `T${i}`, description: null, priority: 'NORMAL' as const, dueDate: null, assigneeIds: [], checklists: tree([]) }));
     await expect(service.saveProjectAsTemplate('p-rig', { name: 'x', description: null, roles: [] }, lead)).rejects.toMatchObject({ status: 400 });
   });
 
@@ -188,15 +189,15 @@ describe('saving a project as a template', () => {
 });
 
 describe('saving: what is dropped, and what is published', () => {
-  it('says beforehand when it keeps only the first 100 checklist items of a task, or the first 20 columns', async () => {
+  it('1.23.3: keeps every checklist item of a task (titles and nesting), and says beforehand when it keeps only the first 20 columns', async () => {
     const snap = repo.projects.get('p-rig')!;
-    snap.tasks[0]!.checklist = Array.from({ length: 130 }, (_, i) => `Item ${i + 1}`);
+    snap.tasks[0]!.checklists = tree(Array.from({ length: 130 }, (_, i) => `Item ${i + 1}`));
     snap.columns = Array.from({ length: 24 }, (_, i) => ({ name: `Col ${i + 1}`, category: 'TODO' as const, color: '#3A6EA5' }));
     const draft = await service.projectDraft('p-rig', lead);
-    expect(draft).toMatchObject({ columnsTotal: 24, columnCount: 20, checklistTrimmed: 1, checklistItems: 100 });
+    expect(draft).toMatchObject({ columnsTotal: 24, columnCount: 20, checklistTrimmed: 0, checklistItems: 130 });
     const t = await service.saveProjectAsTemplate('p-rig', { name: 'x', description: null, roles: [] }, lead);
     expect(t.columns).toHaveLength(20);
-    expect(t.tasks[0]!.checklist).toHaveLength(100);
+    expect(t.tasks[0]!.checklist).toHaveLength(130);
   });
 
   it('leaves the task descriptions out when asked', async () => {
@@ -210,7 +211,7 @@ describe('saving: what is dropped, and what is published', () => {
 
   it('refuses a project whose checklists add up to more than a template holds in all', async () => {
     const snap = repo.projects.get('p-rig')!;
-    snap.tasks = Array.from({ length: 60 }, (_, i) => ({ id: `c${i}`, title: `T${i}`, description: null, priority: 'NORMAL' as const, dueDate: null, assigneeIds: [], checklist: Array.from({ length: 90 }, (_, j) => `i${j}`) }));
+    snap.tasks = Array.from({ length: 60 }, (_, i) => ({ id: `c${i}`, title: `T${i}`, description: null, priority: 'NORMAL' as const, dueDate: null, assigneeIds: [], checklists: tree(Array.from({ length: 90 }, (_, j) => `i${j}`)) }));
     expect((await service.projectDraft('p-rig', lead)).checklistItems).toBe(5400);
     await expect(service.saveProjectAsTemplate('p-rig', { name: 'x', description: null, roles: [] }, lead)).rejects.toThrow(`at most ${TEMPLATE_LIMITS.checklistTotal.toLocaleString('en-US')} checklist items`);
   });
@@ -234,7 +235,7 @@ describe('the rules a template keeps', () => {
     expect(() => checkProjectTemplate(simple({ roles: [{ key: 'a', name: 'Inspector' }, { key: 'b', name: ' inspector ' }] }))).toThrow(/Two roles are called/);
   });
   it('holds at most 5,000 checklist items in all (100 per task)', () => {
-    const tasks = Array.from({ length: 51 }, (_, i) => ({ title: `T${i}`, description: null, priority: 'NORMAL' as const, dueOffsetDays: null, roleKey: null, checklist: Array.from({ length: 99 }, (_, j) => `i${j}`) }));
+    const tasks = Array.from({ length: 51 }, (_, i) => ({ title: `T${i}`, description: null, priority: 'NORMAL' as const, dueOffsetDays: null, roleKey: null, checklists: tree(Array.from({ length: 99 }, (_, j) => `i${j}`)) }));
     expect(() => checkProjectTemplate(simple({ roles: [], tasks }))).toThrow('A template can hold at most 5,000 checklist items in all; this one has 5,049.');
     expect(() => checkProjectTemplate(simple({ roles: [], tasks: tasks.slice(0, 50) }))).not.toThrow();
   });
@@ -253,10 +254,10 @@ describe('making a project from a template', () => {
         columns: [{ name: 'Backlog', category: 'BACKLOG', color: '#948985' }, ...board],
         roles: [{ key: 'insp', name: 'Inspector' }, { key: 'lead', name: 'Site lead' }],
         tasks: [
-          { title: 'Kick-off', description: null, priority: 'HIGH', dueOffsetDays: 0, roleKey: 'lead', checklist: ['Agenda'] },
-          { title: 'Inspect', description: 'Walk it', priority: 'NORMAL', dueOffsetDays: 5, roleKey: 'insp', checklist: [] },
-          { title: 'Report', description: null, priority: 'LOW', dueOffsetDays: null, roleKey: null, checklist: [] },
-          { title: 'Prep', description: null, priority: 'LOW', dueOffsetDays: -2, roleKey: null, checklist: [] },
+          { title: 'Kick-off', description: null, priority: 'HIGH', dueOffsetDays: 0, roleKey: 'lead', checklists: tree(['Agenda']) },
+          { title: 'Inspect', description: 'Walk it', priority: 'NORMAL', dueOffsetDays: 5, roleKey: 'insp', checklists: tree([]) },
+          { title: 'Report', description: null, priority: 'LOW', dueOffsetDays: null, roleKey: null, checklists: tree([]) },
+          { title: 'Prep', description: null, priority: 'LOW', dueOffsetDays: -2, roleKey: null, checklists: tree([]) },
         ],
       }),
       admin,

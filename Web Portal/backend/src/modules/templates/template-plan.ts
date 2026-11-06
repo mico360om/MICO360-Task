@@ -1,3 +1,4 @@
+import type { ChecklistTree } from '../tasks/checklist-tree';
 import { shiftDayKey } from '../../lib/due-date';
 import type { Priority } from '../tasks/task-repository';
 
@@ -47,7 +48,7 @@ export interface PlanSourceTask {
   priority: Priority;
   dueOffsetDays: number | null;
   roleId: string | null;
-  checklist: string[];
+  checklists: ChecklistTree;
 }
 
 /** A template task as it will be created for one start day. */
@@ -64,7 +65,7 @@ export interface PlannedTask {
   roleName: string | null;
   /** The person filling its role; null: nobody (the project's usual default applies — its owner). */
   assigneeId: string | null;
-  checklist: string[];
+  checklists: ChecklistTree;
 }
 
 /**
@@ -90,7 +91,7 @@ export function planTemplateTasks(
       roleId,
       roleName: roleId ? roleNames.get(roleId)! : null,
       assigneeId: roleId ? fillers[roleId] ?? null : null,
-      checklist: [...t.checklist],
+      checklists: structuredClone(t.checklists),
     };
   });
 }

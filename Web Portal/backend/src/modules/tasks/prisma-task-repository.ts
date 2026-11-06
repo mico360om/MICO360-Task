@@ -17,6 +17,8 @@ import { summarizeExternalContacts } from './external-contacts';
 import { toExternalContactRecord } from './prisma-external-contact-repository';
 import { LIVE_PROJECT_WHERE } from '../companies/company-access';
 import { currentAcceptance } from '../clients/sign-off';
+import { checklistTreeOf, leafCounts } from './checklist-tree';
+import { rowsFromTree } from './checklist-service';
 
 type TagRelation = { tag: { id: string; name: string; color: string } };
 type AssigneeRelation = { user: { id: string; username: string; firstName: string | null; lastName: string | null } };
@@ -29,7 +31,7 @@ type EnrichedTask = Omit<Task, 'carryForwardLog' | 'mergedIntoId' | 'mergedAt' |
   column?: { category: string; enabled?: boolean } | null;
   tags?: TagRelation[];
   assignees?: AssigneeRelation[];
-  checklist?: { done: boolean }[];
+  checklist?: { id: string; parentId: string | null; done: boolean }[];
   _count?: { comments: number; attachments: number };
   /** Its external contacts, in order: names and companies on list rows, every field for a single task. */
   externalContacts?: { name: string; company: string | null }[];
@@ -83,8 +85,9 @@ function toRecord(t: EnrichedTask): TaskRecord {
           counts: {
             comments: t._count?.comments ?? 0,
             attachments: t._count?.attachments ?? 0,
-            checklistDone: (t.checklist ?? []).filter((c) => c.done).length,
-            checklistTotal: (t.checklist ?? []).length,
+            // 1.23.3: the real to-do items only (no sub-items), so a card's 8/12 is never double-counted.
+            checklistDone: leafCounts(t.checklist ?? []).done,
+            checklistTotal: leafCounts(t.checklist ?? []).total,
           },
         }
       : {}),
@@ -164,13 +167,14 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
     async create(data: CreateTaskData) {
       const tagNames = data.tagNames ?? [];
       const assigneeIds = [...new Set(data.assigneeIds ?? [])];
-      const checklist = data.checklist ?? [];
+      // 1.23.3: its checklists (the tree the New task form and templates send; an old flat list is one "Checklist").
+      const tree = data.checklists ?? checklistTreeOf(data.checklist ?? []);
       const externalContacts = data.externalContacts ?? [];
       // A key a task had before it moved project still finds that task: never give it to another one.
       if (await isOldKey(prisma, data.key)) throw new TaskKeyConflictError(data.key);
       try {
         // Task, tags, assignees and checklist are one nested write — all of it lands or none of it does.
-        const t = await prisma.task.create({
+        const write = (db: Pick<PrismaClient, 'task'>) => db.task.create({
           include: withColumn,
           data: {
             key: data.key,
@@ -207,11 +211,19 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
                 }
               : {}),
             ...(assigneeIds.length ? { assignees: { create: assigneeIds.map((userId) => ({ userId })) } } : {}),
-            ...(checklist.length ? { checklist: { create: checklist.map((text, position) => ({ text, position })) } } : {}),
             ...(externalContacts.length
               ? { externalContacts: { create: externalContacts.map((c, position) => ({ ...c, position, createdById: data.createdById })) } }
               : {}),
           },
+        });
+        if (tree.length === 0) return toRecord(await write(prisma));
+        // With its checklists, one transaction: all of it lands or none of it does.
+        const t = await prisma.$transaction(async (tx) => {
+          const made = await write(tx);
+          const rows = rowsFromTree(made.id, tree, data.createdById, new Date());
+          await tx.checklistList.createMany({ data: rows.lists });
+          if (rows.items.length) await tx.checklistItem.createMany({ data: rows.items });
+          return made;
         });
         return toRecord(t);
       } catch (err) {
@@ -259,7 +271,7 @@ export function createPrismaTaskRepository(prisma: PrismaClient): TaskRepository
           ...listScalars,
           ...withColumn,
           assignees: { select: { user: { select: { id: true, username: true, firstName: true, lastName: true } } } },
-          checklist: { select: { done: true } },
+          checklist: { where: { deletedAt: null }, select: { id: true, parentId: true, done: true } },
           _count: { select: { comments: true, attachments: true } },
         },
         orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],

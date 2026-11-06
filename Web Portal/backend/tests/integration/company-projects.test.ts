@@ -1,3 +1,4 @@
+import { checklistTreeOf as tree, flatTexts } from '../../src/modules/tasks/checklist-tree';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { buildApp } from '../../src/app';
@@ -190,7 +191,7 @@ describe('Projects’ companies (integration, over HTTP)', () => {
   it('a template project asks for its companies too', async () => {
     const { A } = w.companies;
     const tpl = await templateRepo.createProjectTemplate(
-      { name: `Tpl ${w.tag}`, description: null, columns: [{ name: 'To Do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }], roles: [], tasks: [{ title: 'First', description: null, priority: 'NORMAL', dueOffsetDays: 0, roleKey: null, checklist: [] }] },
+      { name: `Tpl ${w.tag}`, description: null, columns: [{ name: 'To Do', category: 'TODO', color: '#3A6EA5' }, { name: 'Done', category: 'DONE', color: '#2E7D53' }], roles: [], tasks: [{ title: 'First', description: null, priority: 'NORMAL', dueOffsetDays: 0, roleKey: null, checklists: tree([]) }] },
       w.people.admin,
     );
     templates.push(tpl.id);

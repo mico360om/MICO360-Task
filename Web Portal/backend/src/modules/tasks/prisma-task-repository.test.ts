@@ -48,6 +48,25 @@ describe('createPrismaTaskRepository', () => {
     expect(data.assignees.create).toEqual([{ userId: 'u2' }, { userId: 'u3' }]);
   });
 
+  it('1.23.3: writes its checklists (titles, nesting) with the task in one transaction; an old flat list is one "Checklist"', async () => {
+    const create = vi.fn(async () => row({ id: 'tNew' }));
+    const lists = vi.fn(async () => ({ count: 1 }));
+    const items = vi.fn(async () => ({ count: 2 }));
+    const tx = { task: { create }, checklistList: { createMany: lists }, checklistItem: { createMany: items } };
+    const client = { ...tx, taskKeyAlias: noAliases, $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+    const repo = createPrismaTaskRepository(client as unknown as PrismaClient);
+    await repo.create({ key: 'MICO-1', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1', checklists: [{ title: 'Electrical', items: [{ text: 'Panel', children: [{ text: 'Label' }] }] }] });
+    expect(client.$transaction).toHaveBeenCalledTimes(1);
+    expect((create.mock.calls[0] as unknown as [{ data: Record<string, any> }])[0].data.checklist).toBeUndefined();
+    const listRows = (lists.mock.calls[0] as unknown as [{ data: any[] }])[0].data;
+    const itemRows = (items.mock.calls[0] as unknown as [{ data: any[] }])[0].data;
+    expect(listRows).toEqual([expect.objectContaining({ taskId: 'tNew', title: 'Electrical', position: 0, createdById: 'u1' })]);
+    expect(itemRows.map((i) => [i.text, i.parentId === null ? null : 'Panel', i.listId === listRows[0].id])).toEqual([['Panel', null, true], ['Label', 'Panel', true]]);
+    await repo.create({ key: 'MICO-2', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1', checklist: ['One', 'Two'] });
+    expect((lists.mock.calls[1] as unknown as [{ data: any[] }])[0].data[0]).toMatchObject({ title: 'Checklist' });
+    expect((items.mock.calls[1] as unknown as [{ data: any[] }])[0].data.map((i: { text: string }) => i.text)).toEqual(['One', 'Two']);
+  });
+
   it('records the meeting a task was created from, and reads it back', async () => {
     const create = vi.fn(async () => row({ meetingId: 'm1' }));
     const repo = createPrismaTaskRepository({ task: { create }, taskKeyAlias: noAliases } as unknown as PrismaClient);
@@ -58,6 +77,21 @@ describe('createPrismaTaskRepository', () => {
     const plain = await createPrismaTaskRepository({ task: { create: vi.fn(async () => row()) }, taskKeyAlias: noAliases } as unknown as PrismaClient)
       .create({ key: 'MICO-2', title: 'T', projectId: 'p1', columnId: 'c1', createdById: 'u1' });
     expect(plain.meetingId).toBeNull();
+  });
+
+  it('1.23.3: a card counts the live checklist leaves — a parent and deleted items never count', async () => {
+    const checklist = [
+      { id: 'p', parentId: null, done: false },
+      { id: 'a', parentId: 'p', done: true },
+      { id: 'b', parentId: 'p', done: false },
+      { id: 'c', parentId: null, done: true },
+    ];
+    const findMany = vi.fn(async () => [row({ carryForwardLog: undefined, assignees: [], checklist, _count: { comments: 0, attachments: 0 } })]);
+    const repo = createPrismaTaskRepository({ task: { findMany } } as unknown as PrismaClient);
+    const [t] = await repo.list({});
+    const args = (findMany.mock.calls[0] as unknown as [{ select: Record<string, any> }])[0];
+    expect(args.select.checklist).toEqual({ where: { deletedAt: null }, select: { id: true, parentId: true, done: true } });
+    expect(t!.counts).toMatchObject({ checklistDone: 2, checklistTotal: 3 });
   });
 
   it('turns a duplicate key into TaskKeyConflictError (so the service can retry)', async () => {
@@ -179,7 +213,14 @@ describe('createPrismaRecurrencePort', () => {
       id: 's1', projectId: 'p1', title: 'Daily standup', description: 'notes', columnId: 'done', priority: 'HIGH', estimatedHours: 1,
       createdById: 'creator', recurrenceParentId: null, meetingId: 'm1', project: { code: 'MICO' },
       assignees: [{ userId: 'u1' }, { userId: 'gone' }], watchers: [{ userId: 'w1' }], tags: [{ tagId: 'tag1' }],
-      checklist: [{ text: 'Prepare slides', position: 0 }],
+      dueDate: new Date('2026-09-21T00:00:00Z'),
+      // 1.23.3: a checklist with a sub-item given to someone (kept) and one to someone who has left.
+      checklistLists: [{ id: 'L1', taskId: 's1', title: 'Before', position: 0, createdById: 'creator', createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null, deletedById: null, deletedBatchId: null }],
+      checklist: [
+        { id: 'i1', taskId: 's1', listId: 'L1', parentId: null, text: 'Prepare slides', done: true, position: 0, createdAt: new Date(0), updatedAt: new Date(0), assigneeId: null, dueDate: null, completedAt: new Date(0), completedById: 'u1', deletedAt: null, deletedById: null, deletedBatchId: null },
+        { id: 'i2', taskId: 's1', listId: 'L1', parentId: 'i1', text: 'Charts', done: true, position: 0, createdAt: new Date(0), updatedAt: new Date(0), assigneeId: 'u1', dueDate: new Date('2026-09-20T00:00:00Z'), completedAt: new Date(0), completedById: 'u1', deletedAt: null, deletedById: null, deletedBatchId: null },
+        { id: 'i3', taskId: 's1', listId: 'L1', parentId: 'i1', text: 'Notes', done: false, position: 1, createdAt: new Date(0), updatedAt: new Date(0), assigneeId: 'gone', dueDate: null, completedAt: null, completedById: null, deletedAt: null, deletedById: null, deletedBatchId: null },
+      ],
     };
     let attempts = 0;
     const created: Record<string, any>[] = [];
@@ -210,6 +251,8 @@ describe('createPrismaRecurrencePort', () => {
       // 'gone' has left (inactive / no access): the audience query doesn't return them.
       user: { findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.filter((id) => id !== 'gone').map((id) => ({ id }))) },
       activity: { create: vi.fn(async () => ({})) },
+      checklistList: { createMany: vi.fn(async () => ({ count: 1 })) },
+      checklistItem: { createMany: vi.fn(async () => ({ count: 3 })) },
       // Old keys of tasks that moved away (none here; `aliasKeys` are old keys of another project).
       taskKeyAlias: {
         findUnique: vi.fn(async ({ where }: { where: { key: string } }) => ((opts.aliasKeys ?? []).includes(where.key) ? { id: 'alias' } : null)),
@@ -241,7 +284,17 @@ describe('createPrismaRecurrencePort', () => {
     expect(data.assignees.create).toEqual([{ userId: 'u1' }]);
     expect(data.watchers.create).toEqual([{ userId: 'w1' }]);
     expect(data.tags.create).toEqual([{ tagId: 'tag1' }]);
-    expect(data.checklist.create).toEqual([{ text: 'Prepare slides', position: 0 }]);
+    // 1.23.3 (design call 2): the checklists, ticks cleared, each item's person kept (while they may still
+    // open the project), its due day moved as far as the task's (21 Sep → 28 Sep: a week).
+    const lists = fake.checklistList.createMany.mock.calls[0][0].data;
+    const items = fake.checklistItem.createMany.mock.calls[0][0].data;
+    expect(lists).toEqual([expect.objectContaining({ taskId: 'next', title: 'Before', position: 0 })]);
+    expect(items.map((i: any) => [i.text, i.done, i.assigneeId, i.dueDate?.toISOString() ?? null, i.listId === lists[0].id])).toEqual([
+      ['Prepare slides', false, null, null, true],
+      ['Charts', false, 'u1', '2026-09-27T00:00:00.000Z', true],
+      ['Notes', false, null, null, true],
+    ]);
+    expect(items[1].parentId).toBe(items[0].id);
     // A task made from a meeting: its next copy links to the same meeting.
     expect(data.meetingId).toBe('m1');
     // The rule moves on; the first task stays marked as part of its series (it starts it). Its version

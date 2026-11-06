@@ -1,3 +1,4 @@
+import type { ChecklistTree } from '../tasks/checklist-tree';
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
 export type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 
@@ -73,8 +74,8 @@ export interface StartingTask {
   dueDate: Date | null;
   /** Who does it; null = the project's owner (the usual default for a new task), when it has one. */
   assigneeIds: string[] | null;
-  /** Its checklist items' text, in order (none done). */
-  checklist: string[];
+  /** 1.23.3: its checklists with titles and nesting (none done). */
+  checklists: ChecklistTree;
 }
 
 /** What a project made from a template starts with: its board and its tasks, keyed CODE-1, CODE-2… in order. */

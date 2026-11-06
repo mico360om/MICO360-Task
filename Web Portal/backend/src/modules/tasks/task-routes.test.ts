@@ -28,6 +28,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
   const rows = new Map<string, TaskRecord>();
   /** Checklists written with a task on create (as the real nested write does). */
   const checklists = new Map<string, string[]>();
+  const trees = new Map<string, unknown>();
   /** External contacts written with a task on create (as the real nested write does). */
   const externalContacts = new Map<string, unknown[]>();
   let seq = 0;
@@ -72,6 +73,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
       }
       for (const userId of data.assigneeIds ?? []) stores.links?.add(`${rec.id}:${userId}`);
       if (data.checklist?.length) checklists.set(rec.id, [...data.checklist]);
+      if (data.checklists?.length) trees.set(rec.id, data.checklists);
       if (data.externalContacts?.length) {
         externalContacts.set(rec.id, [...data.externalContacts]);
         rec.externalSummary = summarizeExternalContacts(data.externalContacts);
@@ -124,7 +126,7 @@ function inMemory(stores: { tags?: TagRepository; links?: Set<string>; dueToday?
     async getCodeById(id) { return id === 'p1' ? 'MICO' : id === 'p2' ? 'RIG' : null; },
     async getTaskSettings(id) { return id === 'p1' || id === 'p2' ? { defaultDueToday: stores.dueToday?.has(id) ?? false } : null; },
   };
-  return { tasks, projects, rows, checklists, externalContacts };
+  return { tasks, projects, rows, checklists, trees, externalContacts };
 }
 
 const tokenService = createTokenService({
@@ -342,6 +344,24 @@ describe('Task routes', () => {
     expect(blank.statusCode).toBe(400);
     const tooMany = await app2.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'x', projectId: 'p1', columnId: 'c1', checklist: Array.from({ length: 101 }, (_, i) => `Item ${i}`) } });
     expect(tooMany.statusCode).toBe(400);
+    expect(mem.rows.size).toBe(1);
+  });
+
+  it('1.23.3: creates a task with its checklists (titles, nesting), and refuses one past the limits before creating anything', async () => {
+    const mem = inMemory();
+    const app2 = await buildApp({ authService, tokenService, taskService: createTaskService(mem) });
+    const headers = { authorization: `Bearer ${await token(['EMPLOYEE'])}` };
+    const checklists = [{ title: 'Electrical', items: [{ text: 'Panel', children: [{ text: ' Label ' }] }] }, { title: '', items: [{ text: 'Paint' }] }];
+    const res = await app2.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'Fit-out', projectId: 'p1', columnId: 'c1', checklists } });
+    expect(res.statusCode).toBe(201);
+    expect(mem.trees.get(res.json().data.id)).toEqual([
+      { title: 'Electrical', items: [{ text: 'Panel', children: [{ text: 'Label' }] }] },
+      { title: 'Checklist', items: [{ text: 'Paint' }] },
+    ]);
+    let deep: { text: string; children?: unknown[] } = { text: 'leaf' };
+    for (let i = 0; i < 25; i++) deep = { text: `l${i}`, children: [deep] };
+    const tooDeep = await app2.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload: { title: 'x', projectId: 'p1', columnId: 'c1', checklists: [{ title: 'D', items: [deep] }] } });
+    expect(tooDeep.statusCode).toBe(400);
     expect(mem.rows.size).toBe(1);
   });
 
