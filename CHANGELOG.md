@@ -38,6 +38,31 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
   the two charts for administrators, Approvals for the people who can approve. New widgets in later
   releases appear in everyone's Dashboard at the default's place.
 
+- Project health (1.23.5): every project now has one health mark — Red, Amber or Green, with a dot —
+  worked out by one fixed rule that the Projects page, the project page and the Management page (and its
+  PDF and weekly email) all share, its reasons always shown. Besides late tasks, late milestones, missing
+  checks and a quiet project (as before), it now also looks at progress against time ("62% done, 85% of
+  the time used": 20+ points behind is Amber, 40+ Red), tasks blocked for over 7 days (a Blocked column, or
+  waiting on a task that is itself late — planned sequences don't count; 5 or more is Red), milestones at
+  risk (due within 7 days with half or more of the work they wait on still open) and one person holding
+  40% or more of the open work (8+ tasks; teams of two or fewer don't count).
+- Projects page cards show the health mark (its reasons on hover or a tap), the worst risk in one line,
+  and who is accountable — the project's manager (else its owner) — with their face.
+- The project page's Overview tab has five new cards: Health (the mark with every reason, and completion),
+  Risks (spotted automatically, each with a short explanation and who is accountable: a milestone's
+  people, the project manager, the people a blocked or late task is assigned to, or the owner of a quiet
+  project — first 5, then "Show all"), Next actions (the project's next things to do — late, blocked, due
+  within 7 days, or dated with no one assigned — in the Dashboard's order, with its Complete, Reschedule,
+  Assign and Open buttons; first 7, then "Show all"), Recent activity (the last 10 changes) and
+  Accountable owners (the owner, the managers and each open milestone's people).
+- Completion by weight: in a project's Edit form, "Count completion by: Number of tasks | Weight". By
+  weight, each task counts its points (1–10) instead of one each — give milestones and big jobs more; a
+  task without its own weight counts its priority's default (Urgent 4, High 3, Normal 2, Low 1, changeable
+  per project). The task form, the task panel and the Table view (a Weight column you can change in place)
+  show the weight for such projects. Their completion then counts by weight on the cards, the project page
+  ("62% by weight · 70% by count"), the Management page and its PDF, Reports, the Dashboard's completion
+  chart, the Client portal and the client page. Nothing changes until a project switches.
+
 ### Bug fixes
 - My Tasks and board tables: the "Overdue" filter judged lateness by the computer's clock instead of the
   table's own day, so it could disagree with the rest of the table for a moment around midnight.
