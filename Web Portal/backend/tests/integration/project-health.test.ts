@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { buildCompanyWorld, type CompanyWorld } from './company-world';
+import { buildCompanyWorld, dropCompanyWorld, type CompanyWorld } from './company-world';
 import { buildCompanyApp, type CompanyApp } from './company-app';
 import { shiftDayKey, todayKey } from '../../src/lib/due-date';
 import { portabilityProblems } from '../../src/lib/sql-portability';
@@ -113,7 +113,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await app.close();
+  await app?.close();
+  // Its own projects first (their tasks, links, history), then the world — other DB tests count every person.
+  if (made.length) {
+    await prisma.activity.deleteMany({ where: { projectId: { in: made } } });
+    await prisma.task.updateMany({ where: { projectId: { in: made } }, data: { mergedIntoId: null } });
+    await prisma.task.deleteMany({ where: { projectId: { in: made } } });
+    await prisma.kanbanColumn.deleteMany({ where: { projectId: { in: made } } });
+    await prisma.projectCompany.deleteMany({ where: { projectId: { in: made } } });
+    await prisma.project.deleteMany({ where: { id: { in: made } } });
+  }
+  if (w) await dropCompanyWorld(prisma, w);
   await prisma.$disconnect();
 });
 
