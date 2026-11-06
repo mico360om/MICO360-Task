@@ -1,5 +1,5 @@
 import { dayText, instantDayText } from '../lib/day-words';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
@@ -30,7 +30,7 @@ import { useApprovals } from '../components/approvals/ToApproveSection';
 import { PrioritiesWidget } from '../components/dashboard/PrioritiesWidget';
 import { CustomizeIcon, CustomizePanel, type LayoutTarget } from '../components/dashboard/CustomizePanel';
 import { dashboardApi, LAYOUT_DEFAULTS_KEY, MY_LAYOUT_KEY, type DashboardLayout, type LayoutGroup, type WidgetId, type WidgetSize } from '../api/dashboard';
-import { builtInLayout, CUSTOMIZE_WORDS, layoutOrDefault, previewFor } from '../lib/dashboard-layout';
+import { builtInLayout, CUSTOMIZE_WORDS, layoutOrDefault, previewFor, sameLayout } from '../lib/dashboard-layout';
 import { ApprovalChip } from '../components/approvals/ApprovalChip';
 import { isWaitingForApproval } from '../lib/approvals';
 import { myDueCounts } from '../lib/dashboard-tiles';
@@ -140,6 +140,19 @@ export function DashboardPage() {
   }, [defaultsQ.data, defaultsQ.isError, editing]);
   const layout = editing ? previewFor(editing.draft, editing.target === 'everyone' ? 'everyone' : 'admins') : saved;
 
+  // Focus goes back to "Customize dashboard" when the panel closes (it had moved into the panel).
+  const customizeButton = useRef<HTMLButtonElement>(null);
+  const [backToButton, setBackToButton] = useState(false);
+  useEffect(() => {
+    if (editing || !backToButton) return;
+    customizeButton.current?.focus();
+    setBackToButton(false);
+  }, [editing, backToButton]);
+  const closeEditing = () => {
+    setEditing(null);
+    setBackToButton(true);
+  };
+
   const startEditing = () => {
     setEditError(null);
     setSaid('');
@@ -163,7 +176,9 @@ export function DashboardPage() {
     try {
       const api = dashboardApi(apiClient);
       if (editing.target === 'mine') {
-        const answer = await api.saveMyLayout(editing.reset ? null : editing.draft);
+        // Someone following the default who changed nothing keeps following it (future defaults reach them).
+        const unchanged = !layoutQ.data?.customized && sameLayout(editing.draft, { widgets: layoutOrDefault(layoutQ.data?.defaultLayout, isAdmin).widgets.filter(allowed) });
+        const answer = await api.saveMyLayout(editing.reset || unchanged ? null : editing.draft);
         qc.setQueryData(MY_LAYOUT_KEY, answer);
         setSaid(CUSTOMIZE_WORDS.saved);
       } else {
@@ -172,7 +187,7 @@ export function DashboardPage() {
         await qc.invalidateQueries({ queryKey: MY_LAYOUT_KEY });
         setSaid(CUSTOMIZE_WORDS.savedDefault(editing.target));
       }
-      setEditing(null);
+      closeEditing();
     } catch {
       setEditError(CUSTOMIZE_WORDS.saveFailed);
     } finally {
@@ -398,11 +413,13 @@ export function DashboardPage() {
                 View my tasks
               </Link>
               <button
+                ref={customizeButton}
                 type="button"
                 onClick={startEditing}
                 aria-expanded={!!editing}
                 aria-controls="customize-dashboard"
-                disabled={!!editing}
+                // Not while the arrangement is unread: Done would save the built-in default over theirs.
+                disabled={!!editing || !layoutQ.isSuccess}
                 className={`${BAND_LINK} gap-1.5 border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20 disabled:opacity-70`}
               >
                 <CustomizeIcon />
@@ -430,7 +447,7 @@ export function DashboardPage() {
             loading={waitingForDefault}
             onReset={resetDraft}
             onCancel={() => {
-              setEditing(null);
+              closeEditing();
               setEditError(null);
               setSaid('');
             }}

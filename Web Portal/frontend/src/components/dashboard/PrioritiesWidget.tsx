@@ -8,7 +8,7 @@ import { assigneesApi } from '../../api/assignees';
 import { membersApi } from '../../api/members';
 import { meetingsApi } from '../../api/meetings';
 import { invalidateTaskQueries } from '../../lib/task-cache';
-import { approvalNotice, approvedNotice, approveLabel, sendBackLabel, sentBackNotice } from '../../lib/approvals';
+import { approvalNotice, approvedNotice, approveLabel, isWaitingForApproval, sendBackLabel, sentBackNotice } from '../../lib/approvals';
 import {
   CHIP_LABEL,
   chipsShown,
@@ -100,6 +100,12 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
     },
     [qc],
   );
+  /** After the person's own change: every task view, this list among them (read fresh). */
+  const refreshAll = useCallback(async () => {
+    fresh.current = true;
+    await invalidateTaskQueries(qc);
+    setGone(new Set());
+  }, [qc]);
   // Live: another person's change in a project of the list, or a notice of the person's own (a new task for them).
   const live = useRef<ReturnType<typeof setTimeout> | null>(null);
   const soon = useCallback(() => {
@@ -124,8 +130,7 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
     try {
       const said = await work();
       setNotice(said);
-      await invalidateTaskQueries(qc);
-      await refresh(true);
+      await refreshAll();
     } catch (e) {
       setGone((g) => new Set([...g].filter((id) => id !== row.id)));
       setProblem({ id: row.id, text: messageOf(e, 'That didn’t work. Please try again.') });
@@ -144,8 +149,7 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
     } catch (e) {
       setNotice({ text: messageOf(e, 'Couldn’t undo it. Please try again.') });
     }
-    await invalidateTaskQueries(qc);
-    await refresh(true);
+    await refreshAll();
   }
 
   const tasks = tasksApi(apiClient);
@@ -157,10 +161,13 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
       async () => {
         const moved = await tasks.move(t.id, t.doneColumnId!);
         const waits = approvalNotice(t.doneColumnId!, moved);
+        // Waiting for approval in the very column it was in (a Review column, or a project without one):
+        // moving it "back" would change nothing, so there is no Undo (review I1).
+        const stays = isWaitingForApproval(moved) && moved.columnId === t.columnId;
         return {
           text: waits ?? `Completed ${t.key}.`,
           openTaskId: t.id,
-          undo: async () => {
+          undo: stays ? undefined : async () => {
             await tasks.move(t.id, t.columnId);
             return waits ? `${t.key} no longer waits for approval.` : `${t.key} is open again.`;
           },
@@ -251,6 +258,45 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
     );
   };
 
+  /** 1.23.3 checklist items: Tick (Undo unticks it) and Reschedule. */
+  const tick = (row: PriorityRow) => {
+    const c = row.checklistItem!;
+    return act(
+      row,
+      async () => {
+        await dash.tickChecklistItem(c.id, true);
+        return {
+          text: `Ticked “${c.text}” on ${c.task.key}.`,
+          openTaskId: c.task.id,
+          undo: async () => {
+            await dash.tickChecklistItem(c.id, false);
+            return `“${c.text}” is open again.`;
+          },
+        };
+      },
+      { leaves: true },
+    );
+  };
+
+  const stepReschedule = (row: PriorityRow, day: string) => {
+    const c = row.checklistItem!;
+    return act(
+      row,
+      async () => {
+        await dash.rescheduleChecklistItem(c.id, day);
+        return {
+          text: `“${c.text}” is now due ${dayText(day, { weekday: 'short', year: false })}.`,
+          openTaskId: c.task.id,
+          undo: async () => {
+            await dash.rescheduleChecklistItem(c.id, c.dueDate);
+            return `“${c.text}” is back to its day.`;
+          },
+        };
+      },
+      { leaves: false },
+    );
+  };
+
   const total = data?.total ?? 0;
   return (
     <section className="card p-5" aria-labelledby="dash-priorities-heading" data-testid="priorities-widget">
@@ -324,6 +370,8 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
               }}
               onItemDone={() => void itemDone(row)}
               onItemReschedule={(day) => void itemReschedule(row, day)}
+              onStepTick={() => void tick(row)}
+              onStepReschedule={(day) => void stepReschedule(row, day)}
             />
           ))}
         </ul>
@@ -356,8 +404,7 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
                 setSending(null);
                 setGone((g) => new Set([...g, row?.id ?? '']));
                 setNotice({ text: sentBackNotice(t.key), openTaskId: t.id });
-                await invalidateTaskQueries(qc);
-                await refresh(true);
+                await refreshAll();
               })
               .catch((e) => setSendError(messageOf(e, 'Couldn’t send it back. Please try again.')))
               .finally(() => setBusy(null));
@@ -403,15 +450,17 @@ interface ItemProps {
   onSendBack: (t: PriorityTask) => void;
   onItemDone: () => void;
   onItemReschedule: (day: string) => void;
+  onStepTick: () => void;
+  onStepReschedule: (day: string) => void;
 }
 
 /** One row: why (the strongest reason, then small tags), what it is, and its quick actions. */
-function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask, onComplete, onReschedule, onAssign, onApprove, onSendBack, onItemDone, onItemReschedule }: ItemProps) {
+function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask, onComplete, onReschedule, onAssign, onApprove, onSendBack, onItemDone, onItemReschedule, onStepTick, onStepReschedule }: ItemProps) {
   const [first, ...rest] = tagsOf(row);
   const t = row.task;
   const a = row.actionItem;
   const c = row.checklistItem;
-  const label = t?.key ?? (a ? `“${a.description}”` : c ? c.text : '');
+  const label = t?.key ?? (a ? `“${a.description}”` : c ? `“${c.text}”` : '');
   const due = t?.dueDate ?? a?.dueDate ?? c?.dueDate ?? null;
   const saysDue = [row.reason, ...row.also].some((r) => r.code === 'overdue' || r.code === 'due-today' || r.code === 'due-soon' || r.code === 'team-overdue');
   const disabled = busy || locked;
@@ -517,9 +566,17 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
           </button>
         ) : null}
         {c ? (
-          <button type="button" className={ACTION} aria-label={`Open ${c.task.key}`} onClick={() => onOpenTask(c.task.id)}>
-            Open task
-          </button>
+          <>
+            {c.can.tick ? (
+              <button type="button" className={ACTION} aria-label={`Tick ${label}`} disabled={disabled} onClick={onStepTick}>
+                <TickIcon /> Tick
+              </button>
+            ) : null}
+            {c.can.reschedule ? <RescheduleMenu label={label} today={today} weekStart={weekStart} value={c.dueDate} disabled={disabled} onPick={onStepReschedule} /> : null}
+            <button type="button" className={ACTION} aria-label={`Open ${c.task.key}`} onClick={() => onOpenTask(c.task.id)}>
+              Open task
+            </button>
+          </>
         ) : null}
       </div>
     </li>

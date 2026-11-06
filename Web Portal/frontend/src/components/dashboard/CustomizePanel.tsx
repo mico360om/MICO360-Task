@@ -1,4 +1,5 @@
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { useEffect, useRef } from 'react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type Announcements, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { DashboardLayout, LayoutGroup, WidgetId, WidgetPlace, WidgetSize } from '../../api/dashboard';
 import { CUSTOMIZE_WORDS, moveBy, movedAnnouncement, moveTo, setSize, toggleHidden, WIDGET_NAME } from '../../lib/dashboard-layout';
@@ -43,11 +44,23 @@ export function CustomizePanel({ isAdmin, target, onTarget, draft, onChange, sta
     onChange(next, movedAnnouncement(next, active.id as WidgetId));
   };
   const targets: LayoutTarget[] = ['mine', 'admins', 'everyone'];
+  // Opened: the keyboard and screen reader start at its heading.
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), []);
+  // A drag is said in the widgets' names (dnd-kit's own words would read their ids).
+  const nameOf = (id: string | number) => WIDGET_NAME[id as WidgetId] ?? String(id);
+  const at = (id: string | number) => ids.indexOf(id as WidgetId) + 1;
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${nameOf(active.id)}, position ${at(active.id)} of ${ids.length}.`,
+    onDragOver: ({ active, over }) => (over ? `${nameOf(active.id)} is over position ${at(over.id)} of ${ids.length}.` : undefined),
+    onDragEnd: ({ active, over }) => (over ? `${nameOf(active.id)} dropped at position ${at(over.id)} of ${ids.length}.` : `${nameOf(active.id)} dropped.`),
+    onDragCancel: ({ active }) => `Moving ${nameOf(active.id)} was cancelled.`,
+  };
   const doneLabel = target === 'mine' ? CUSTOMIZE_WORDS.done : `${CUSTOMIZE_WORDS.saveDefault} ${target === 'admins' ? 'for administrators' : 'for everyone else'}`;
 
   return (
     <section className="card border-brand/30 p-4 sm:p-5" aria-labelledby="customize-heading" data-testid="customize-panel">
-      <h2 id="customize-heading" className="font-display text-base font-semibold text-ink">
+      <h2 id="customize-heading" ref={heading} tabIndex={-1} className="font-display text-base font-semibold text-ink outline-none">
         {CUSTOMIZE_WORDS.title}
       </h2>
       <p className="mt-0.5 text-sm text-ink-2">{CUSTOMIZE_WORDS.note}</p>
@@ -85,7 +98,7 @@ export function CustomizePanel({ isAdmin, target, onTarget, draft, onChange, sta
           ))}
         </div>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} accessibility={{ announcements }}>
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
             <ol className="mt-3 flex flex-col gap-2" aria-label="Widgets, in order">
               {draft.widgets.map((w, i) => (

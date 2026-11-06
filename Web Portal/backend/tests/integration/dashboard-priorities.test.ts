@@ -5,7 +5,9 @@ import { buildCompanyApp, type CompanyApp } from './company-app';
 import { shiftDayKey, todayKey } from '../../src/lib/due-date';
 import { portabilityProblems } from '../../src/lib/sql-portability';
 import type { PrioritiesAnswer, PriorityRow } from '../../src/modules/dashboard/priorities-service';
-import { priorityProbe } from '../../src/modules/dashboard/prisma-priority-sources';
+import { createActionItemPrioritySource, priorityProbe } from '../../src/modules/dashboard/prisma-priority-sources';
+import { createActionItemService } from '../../src/modules/meetings/action-item-service';
+import { createPrismaActionItemRepository } from '../../src/modules/meetings/prisma-action-item-repository';
 import type { Viewer } from '../../src/modules/companies/company-access';
 import { prioritiesFromBase } from './dashboard-helpers';
 
@@ -145,8 +147,8 @@ describe('an employee’s own open tasks (ana)', () => {
     const dep = row(a, T.dep)!;
     expect(dep.reason.code).toBe('blocked-by');
     expect(dep.task!.blockers).toEqual([{ id: T.blocker, key: expect.stringMatching(/^BLOCKER/) }]);
-    // Waiting on another task: Open and Reschedule, no Complete.
-    expect(dep.task!.can).toMatchObject({ complete: false, reschedule: true });
+    // Waiting on another task: Open and Reschedule only (design call 2).
+    expect(dep.task!.can).toEqual({ complete: false, reschedule: true, assign: false, approve: false });
     // Blocked only by a task in a project she can't open: nothing at all.
     expect(has(a, T.onlyHidden)).toBe(false);
     expect(a.counts.blocked).toBe(2);
@@ -301,6 +303,32 @@ describe('meeting action items', () => {
       expect(has(await list(w.as.bob, { 'x-company-id': w.companies.B }), id)).toBe(false);
     } finally {
       await prisma.actionItem.update({ where: { id }, data: { dueDate: null } });
+    }
+  });
+});
+
+describe('review I5: an item due later is never looked at', () => {
+  it('only the meetings of items with a date reason are checked, all at once', async () => {
+    const later = await prisma.meeting.create({ data: { title: `Later ${w.tag}`, projectId: w.projects.PA, organizerId: w.people.ana, createdById: w.people.ana, startAt: new Date(), status: 'SCHEDULED' } });
+    const soonItem = await prisma.actionItem.create({ data: { meetingId: w.meetings.MA, projectId: w.projects.PA, description: `soon ${w.tag}`, assigneeId: w.people.ana, createdById: w.people.ana, dueDate: due(1) } });
+    const laterItem = await prisma.actionItem.create({ data: { meetingId: later.id, projectId: w.projects.PA, description: `later ${w.tag}`, assigneeId: w.people.ana, createdById: w.people.ana, dueDate: due(20) } });
+    try {
+      const asked: string[] = [];
+      const source = createActionItemPrioritySource({
+        prisma,
+        actionItems: createActionItemService({ actionItems: createPrismaActionItemRepository(prisma), timeZone: TZ }),
+        canOpenMeeting: async (_v, meetingId) => {
+          asked.push(meetingId);
+          return true;
+        },
+      });
+      const rows = await source.collect({ viewer: w.as.ana, pick: null, today, timeZone: TZ });
+      expect(rows.map((r) => r.id)).toContain(soonItem.id);
+      expect(rows.map((r) => r.id)).not.toContain(laterItem.id);
+      expect(asked).toEqual([w.meetings.MA]);
+    } finally {
+      await prisma.actionItem.deleteMany({ where: { id: { in: [soonItem.id, laterItem.id] } } });
+      await prisma.meeting.delete({ where: { id: later.id } });
     }
   });
 });

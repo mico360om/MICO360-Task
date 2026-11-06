@@ -169,6 +169,19 @@ describe('quick actions', () => {
     expect(await screen.findByText('RIG-4 needs approval, so it’s waiting for a project manager.')).toBeInTheDocument();
   });
 
+  it('review I1: one that waits for approval in the column it was in — no Undo (moving it "back" would change nothing)', async () => {
+    current = answer([taskRow({ task: task({ columnId: 'c-review' }) })]);
+    const f = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const base = f.getMockImplementation() as (input: string, init?: RequestInit) => Promise<Response>;
+    f.mockImplementation(async (input: string, init?: RequestInit) =>
+      String(input).endsWith('/move') ? json({ data: { id: 't1', key: 'RIG-4', columnId: 'c-review', approvalRequestedAt: '2026-11-06T08:00:00Z' } }) : base(input, init),
+    );
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Complete RIG-4' }));
+    expect(await screen.findByText('RIG-4 needs approval, so it’s waiting for a project manager.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
   it('a refusal brings the row back and says why', async () => {
     current = answer([taskRow()]);
     refuse = /PATCH .*\/move$/;
@@ -256,12 +269,34 @@ describe('quick actions', () => {
     expect(sent('PATCH', /\/action-items\/a1$/)[1]!.body).toEqual({ status: 'OPEN' });
   });
 
-  it('a checklist item (1.23.3) opens its task', async () => {
+  it('a checklist item (1.23.3): Tick (Undo unticks), Reschedule, Open the task', async () => {
     current = answer([
       { id: 'checklist-item:c1', kind: 'checklist-item', reason: { code: 'overdue', days: 1 }, also: [], chips: ['overdue'], group: 1, checklistItem: { id: 'c1', text: 'Torque the bolts', dueDate: '2026-11-05', task: { id: 't9', key: 'RIG-9', title: 'Flange', projectId: 'p1' }, can: { tick: true, reschedule: true } } },
     ]);
     const open = show();
-    await userEvent.click(await screen.findByRole('button', { name: 'Open RIG-9' }));
+    expect(await screen.findByText('Torque the bolts')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Tick “Torque the bolts”' }));
+    await waitFor(() => expect(sent('PUT', /\/checklist\/c1$/)).toHaveLength(1));
+    expect(sent('PUT', /\/checklist\/c1$/)[0]!.body).toEqual({ done: true });
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(sent('PUT', /\/checklist\/c1$/)).toHaveLength(2));
+    expect(sent('PUT', /\/checklist\/c1$/)[1]!.body).toEqual({ done: false });
+    await userEvent.click(await screen.findByRole('button', { name: 'Reschedule “Torque the bolts”' }));
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Reschedule “Torque the bolts”' })).getByRole('button', { name: /Tomorrow/ }));
+    await waitFor(() => expect(sent('PUT', /\/checklist\/c1$/)).toHaveLength(3));
+    expect(sent('PUT', /\/checklist\/c1$/)[2]!.body).toEqual({ dueDate: '2026-11-07' });
+    await userEvent.click(screen.getByRole('button', { name: 'Open RIG-9' }));
     expect(open).toHaveBeenCalledWith('t9', ['t9']);
+  });
+
+  it('a checklist item the person may not tick or move offers only Open', async () => {
+    current = answer([
+      { id: 'checklist-item:c2', kind: 'checklist-item', reason: { code: 'due-today' }, also: [], chips: ['today'], group: 4, checklistItem: { id: 'c2', text: 'Parent step', dueDate: TODAY, task: { id: 't9', key: 'RIG-9', title: 'Flange', projectId: 'p1' }, can: { tick: false, reschedule: false } } },
+    ]);
+    show();
+    expect(await screen.findByText('Parent step')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Tick / })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Reschedule / })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open RIG-9' })).toBeInTheDocument();
   });
 });

@@ -169,6 +169,36 @@ describe('Customize dashboard', () => {
     expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/users/me/dashboard-layout'))).toBe(false);
   });
 
+  it('Done without a change keeps following the default (nothing saved as their own); focus goes to the panel, and back to the button', async () => {
+    signIn(false);
+    show();
+    const button = await screen.findByRole('button', { name: 'Customize dashboard' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(screen.getByRole('heading', { name: 'Customize dashboard' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ layout: null }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Customize dashboard' })).toHaveFocus());
+  });
+
+  it('Cancel puts the focus back on the button', async () => {
+    signIn(false);
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Customize dashboard' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Customize dashboard' })).toHaveFocus();
+  });
+
+  it('while the arrangement can’t be read, Customize waits (it would save the built-in default over theirs)', async () => {
+    signIn(false);
+    const f = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const base = f.getMockImplementation() as (input: string, init?: RequestInit) => Promise<Response>;
+    f.mockImplementation(async (input: string, init?: RequestInit) => (String(input).endsWith('/dashboard-layout') ? json({ error: { code: 'X', message: 'down' } }, 500) : base(input, init)));
+    show();
+    await waitFor(() => expect(order().length).toBeGreaterThan(0));
+    expect(screen.getByRole('button', { name: 'Customize dashboard' })).toBeDisabled();
+  });
+
   it('a save that fails says so and keeps the panel open', async () => {
     signIn(false);
     const f = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;

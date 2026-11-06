@@ -101,6 +101,11 @@ export function setSize(layout: DashboardLayout, id: WidgetId, size: WidgetSize)
   return { widgets: layout.widgets.map((w) => (w.id === id ? { ...w, size } : w)) };
 }
 
+/** The same widgets, in the same order, each shown/hidden and sized the same. */
+export function sameLayout(a: DashboardLayout, b: DashboardLayout): boolean {
+  return a.widgets.length === b.widgets.length && a.widgets.every((w, i) => w.id === b.widgets[i]!.id && w.hidden === b.widgets[i]!.hidden && w.size === b.widgets[i]!.size);
+}
+
 /** An administrator arranging "everyone else's" default sees it without the admin-only charts. */
 export function previewFor(layout: DashboardLayout, group: LayoutGroup): DashboardLayout {
   if (group === 'admins') return layout;

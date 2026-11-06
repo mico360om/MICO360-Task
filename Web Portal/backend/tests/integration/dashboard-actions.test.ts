@@ -135,6 +135,17 @@ describe('Complete, with Undo', () => {
     expect(rowOf(await cached(w.as.amy), id)).toBeUndefined();
   });
 
+  it('review I1: one already in the Review column waits right there — the column it came from is where it is, so the page offers no Undo', async () => {
+    const id = await task('INREVIEW', w.projects.PA, { assignees: [w.people.ana], due: due(0), needsApproval: true, column: 'REVIEW' });
+    const row = rowOf(await cached(w.as.ana), id)!.task!;
+    const moved = await send('PATCH', w.as.ana, `/tasks/${id}/move`, { columnId: row.doneColumnId });
+    expect(moved.body.data).toMatchObject({ columnId: row.columnId, columnCategory: 'REVIEW' });
+    expect(moved.body.data!.approvalRequestedAt).toBeTruthy();
+    // Moving it "back" to the column it is in changes nothing: it still waits (so an Undo would be a lie).
+    const again = await send('PATCH', w.as.ana, `/tasks/${id}/move`, { columnId: row.columnId });
+    expect(again.body.data!.approvalRequestedAt).toBeTruthy();
+  });
+
   it('refused for a task the person can’t open (403), and nothing changes', async () => {
     const id = await task('HIDDEN', w.projects.PB, { assignees: [w.people.ben], due: due(-1) });
     const res = await send('PATCH', w.as.ana, `/tasks/${id}/move`, { columnId: cols[w.projects.PB]!.DONE });
@@ -199,6 +210,23 @@ describe('Reschedule, with Undo', () => {
     const undo = await send('PUT', w.as.ana, `/tasks/${id}`, { dueDate: r.dueDate, startDate: r.startAt, expectedVersion: res.body.data!.version });
     expect(undo.status).toBe(200);
     expect(rowOf(await cached(w.as.ana), id)!.task).toMatchObject({ dueDate: r.dueDate, startDate: r.startDate });
+  });
+
+  it('a repeating task moves only this occurrence (the rule notes the day it replaced); Undo puts the rule back', async () => {
+    const rule = { freq: 'WEEKLY', interval: 1, weekdays: [new Date(`${shiftDayKey(today, 1)}T12:00:00Z`).getUTCDay()] };
+    const id = await task('REPEAT', w.projects.PA, { assignees: [w.people.ana], due: due(1) });
+    await prisma.task.update({ where: { id }, data: { recurrenceRule: rule } });
+    priorities.changed();
+    const r = rowOf(await cached(w.as.ana), id)!.task!;
+    expect(r.recurrenceRule).toEqual(rule);
+    const moved = await send('PUT', w.as.ana, `/tasks/${id}`, { dueDate: shiftDayKey(today, 3), recurrenceRule: { ...rule, resumeFrom: r.dueDate }, expectedVersion: r.version });
+    expect(moved.status).toBe(200);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id } })).recurrenceRule).toMatchObject({ resumeFrom: r.dueDate });
+    const undo = await send('PUT', w.as.ana, `/tasks/${id}`, { dueDate: r.dueDate, recurrenceRule: rule, expectedVersion: moved.body.data!.version });
+    expect(undo.status).toBe(200);
+    const back = await prisma.task.findUniqueOrThrow({ where: { id } });
+    expect((back.recurrenceRule as { resumeFrom?: string }).resumeFrom).toBeUndefined();
+    expect(back.dueDate!.toISOString().slice(0, 10)).toBe(r.dueDate);
   });
 
   it('an Undo made from a copy someone has since changed is refused (409), not silently written', async () => {

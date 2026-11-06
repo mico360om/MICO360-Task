@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createPrioritiesService, PRIORITY_LIMIT } from './priorities-service';
+import { changesPriorities, createPrioritiesService, PRIORITY_LIMIT } from './priorities-service';
 import { CHECKLIST_ITEMS_STUB, type PrioritySource, type SourcedCandidate, type TaskRowData } from './priority-sources';
 
 // 1.23.4 — "My Priorities Today" put together: every source's rows ranked as one list, the counts, the
@@ -111,6 +111,23 @@ describe('one ranked list from every source', () => {
     expect(answer.items.map((r) => r.id).sort()).toEqual(['action-item:free', 'action-item:other-task', 'task:t1']);
   });
 
+  it('review I2: its task fetched but not a row (no reason of its own) — the action item stays', async () => {
+    const item: SourcedCandidate = {
+      kind: 'action-item',
+      id: 'ai',
+      key: null,
+      priority: 'NORMAL',
+      dueDate: day('2026-11-07'),
+      createdAt: day('2026-10-01'),
+      row: { actionItem: { id: 'ai', description: 'Send it', dueDate: '2026-11-07', priority: 'NORMAL', status: 'OPEN', meeting: null, projectId: null, can: { done: true, reschedule: true } } },
+      watch: [],
+      linkedTaskId: 'far',
+    };
+    // The task is due in 4 days: fetched by the loose edge, but no reason — not a row.
+    const answer = await service([source('tasks', [ownTask('far', '2026-11-10')]), source('items', [item])]).get(me, null);
+    expect(answer.items.map((r) => r.id)).toEqual(['action-item:ai']);
+  });
+
   it('a source that fails fails the whole answer — an outage never reads as “nothing urgent”', async () => {
     const broken: PrioritySource = { name: 'tasks', collect: async () => Promise.reject(new Error('db down')) };
     await expect(service([broken, source('items', [])]).get(me, null)).rejects.toThrow('db down');
@@ -192,5 +209,24 @@ describe('cached per person for 30 seconds', () => {
     await first;
     await s.get(me, null);
     expect(rows).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('review I3: what clears the cache', () => {
+  it('task, meeting, project and inspection events do; chat, presence and notices don’t', () => {
+    for (const e of ['task:created', 'task:updated', 'task:moved', 'task:deleted', 'task:assignees', 'meeting:action-items', 'meeting:updated', 'project:removed', 'project:updated', 'inspection:changed']) expect(changesPriorities(e), e).toBe(true);
+    for (const e of ['chat:message', 'chat:read', 'chat:reaction', 'presence:online', 'notification:new', 'typing']) expect(changesPriorities(e), e).toBe(false);
+  });
+
+  it('a change to the person’s own reach that no event says (their “Show my projects only” set by an administrator) is a new entry', async () => {
+    let mineOnly = false;
+    const tasks = source('tasks', []);
+    const s = service([tasks], { scopeKeyOf: async () => (mineOnly ? 'mine' : '') });
+    await s.get(me, null);
+    await s.get(me, null);
+    expect(tasks.calls).toBe(1);
+    mineOnly = true;
+    await s.get(me, null);
+    expect(tasks.calls).toBe(2);
   });
 });

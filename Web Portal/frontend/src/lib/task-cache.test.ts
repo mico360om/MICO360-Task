@@ -24,6 +24,15 @@ describe('invalidateTaskQueries', () => {
   });
 });
 
+describe('1.23.4: the Dashboard’s My Priorities Today', () => {
+  it('is read again after any task change (an edit in the task panel opened from it)', async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(['dashboard-priorities'], {});
+    await invalidateTaskQueries(qc);
+    expect(qc.getQueryState(['dashboard-priorities'])?.isInvalidated).toBe(true);
+  });
+});
+
 describe('the planning pages’ data', () => {
   it('the Timeline is read again when any project is saved (it sits under projects), and when the company day changes (a new key)', async () => {
     const qc = new QueryClient();

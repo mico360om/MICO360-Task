@@ -213,7 +213,10 @@ export function createPrismaTaskPrioritySource(prisma: PrismaClient, scopes: Pri
   };
 }
 
-/** A task as its row shows it; Complete is offered when the project has a Done column and nothing open blocks it. */
+/**
+ * A task as its row shows it. Complete needs the project's Done column; a task waiting on another (open)
+ * task offers Open and Reschedule only (design call 2: no Complete, no Assign).
+ */
 function taskRow(
   t: { id: string; key: string; title: string; priority: string; dueDate: Date | null; startDate: Date | null; version: number; columnId: string; recurrenceRule: unknown; project: ProjectBadge },
   timeZone: string,
@@ -234,7 +237,7 @@ function taskRow(
     blockers: extra.blockers,
     doneColumnId: extra.doneColumnId,
     recurrenceRule: t.recurrenceRule ?? null,
-    can: { complete: extra.doneColumnId !== null && extra.blockers.length === 0, reschedule: true, assign: true, approve: false },
+    can: { complete: extra.doneColumnId !== null && extra.blockers.length === 0, reschedule: true, assign: extra.blockers.length === 0, approve: false },
   };
 }
 
@@ -300,16 +303,21 @@ export function createActionItemPrioritySource(deps: {
   const reads = priorityReads(deps.prisma);
   return {
     name: 'action-items',
-    async collect({ viewer, pick, timeZone }) {
-      const items = (await deps.actionItems.listMine(viewer.id, { openOnly: true, ...(pick ? { pick: { companyId: pick } } : {}), admin: isAdmin(viewer.roles) })).filter((a) => a.dueDate);
+    async collect({ viewer, pick, today, timeZone }) {
+      // Only items with a date reason (late, today, the next 3 days): nothing is looked up for the rest (review I5).
+      const last = shiftDayKey(today, UPCOMING_DAYS);
+      const items = (await deps.actionItems.listMine(viewer.id, { openOnly: true, ...(pick ? { pick: { companyId: pick } } : {}), admin: isAdmin(viewer.roles) })).filter((a) => {
+        const day = dueDayKey(a.dueDate, timeZone);
+        return day !== null && day <= last;
+      });
       if (items.length === 0) return [];
       const meetingIds = [...new Set(items.map((a) => a.meetingId).filter((id): id is string => !!id))];
       const meetings = meetingIds.length ? await reads.meetings(meetingIds) : [];
       const meetingOf = new Map(meetings.map((m) => [m.id, m]));
       const projectOf = (a: (typeof items)[number]) => a.projectId ?? (a.meetingId ? (meetingOf.get(a.meetingId)?.projectId ?? null) : null);
       const live = await reads.liveProjectIds([...new Set(items.map(projectOf).filter((id): id is string => !!id))]);
-      const openable = new Set<string>();
-      for (const m of meetings) if (await deps.canOpenMeeting(viewer, m.id).catch(() => false)) openable.add(m.id);
+      const seen = await Promise.all(meetings.map((m) => deps.canOpenMeeting(viewer, m.id).catch(() => false)));
+      const openable = new Set(meetings.filter((_, i) => seen[i]).map((m) => m.id));
       const out: SourcedCandidate[] = [];
       for (const a of items) {
         const projectId = projectOf(a);

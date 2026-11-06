@@ -114,8 +114,12 @@ export interface PrioritySource {
 
 /**
  * The checklist-items source until 1.23.3 is merged: nothing. The real one returns `kind: 'checklist-item'`
- * candidates (their own due date, NORMAL priority unless the item says) with `row.checklistItem` and the
- * task's project in `watch`; the ranking and the page already handle them.
+ * candidates — open leaf items assigned to the person, overdue or due within 3 days (their own due date,
+ * NORMAL priority unless the item says) — with `row.checklistItem` (`can.tick` false for a parent, which
+ * follows its sub-items) and the task's project in `watch`. Already in place: the ranking (overdue / today /
+ * upcoming groups and chips), and the page's Tick (PUT /checklist/:itemId { done }, Undo unticks), Reschedule
+ * (PUT /checklist/:itemId { dueDate } — the merge confirms the field name, website api/dashboard.ts) and Open
+ * task. Left for the merge: opening the task panel AT the item (the 1.23.3 panel's item anchor).
  */
 export const CHECKLIST_ITEMS_STUB: PrioritySource = {
   name: 'checklist-items',

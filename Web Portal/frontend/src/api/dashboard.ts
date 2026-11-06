@@ -148,6 +148,10 @@ export function dashboardApi(client: ApiClient) {
     defaults: () => client.get<{ data: DefaultsAnswer }>('/settings/dashboard-default').then((r) => r.data),
     /** Administrators: a group's default (null: back to the built-in one). */
     saveDefault: (group: LayoutGroup, layout: DashboardLayout | null) => client.put<{ data: DefaultsAnswer }>('/settings/dashboard-default', { group, layout }).then((r) => r.data),
+    /** 1.23.3 checklist items: tick or untick one (PUT /checklist/:itemId, as the task panel does). */
+    tickChecklistItem: (itemId: string, done: boolean) => client.put<{ data: unknown }>(`/checklist/${itemId}`, { done }).then((r) => r.data),
+    /** 1.23.3 checklist items: a new due day (the 1.23.3 merge confirms the field's name). */
+    rescheduleChecklistItem: (itemId: string, dueDate: string | null) => client.put<{ data: unknown }>(`/checklist/${itemId}`, { dueDate }).then((r) => r.data),
     /** A task's new due day (PUT /tasks/:id — the server's rules as for any edit). */
     reschedule: (taskId: string, patch: ReschedulePatch) => client.put<{ data: ApiTask }>(`/tasks/${taskId}`, patch).then((r) => r.data),
   };

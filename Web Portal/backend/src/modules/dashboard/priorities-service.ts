@@ -10,6 +10,15 @@ export const PRIORITY_TTL_MS = 30_000;
 export const WATCH_LIMIT = 100;
 const CACHE_MAX = 2000;
 
+/**
+ * Review I3: does a live event sent to a project's room change someone's priorities? Task, meeting,
+ * project and inspection events do; chat (messages, receipts, reactions) and presence don't — they must
+ * not clear everyone's cache on every message.
+ */
+export function changesPriorities(event: string): boolean {
+  return /^(task|meeting|project|inspection):/.test(event);
+}
+
 export interface PriorityRow extends PriorityRowData {
   /** `${kind}:${its id}` — one row per thing. */
   id: string;
@@ -39,6 +48,12 @@ export interface PrioritiesServiceDeps {
   timeZone: string;
   /** Administrators and the people who run a project (the Team chip). */
   isManager: (viewer: PriorityViewer) => Promise<boolean>;
+  /**
+   * Review I3: what else decides the person's reach that no live event announces (an administrator's
+   * "Show my projects only", which an administrator may also set for them) — part of the cache key, read
+   * on every request (one row by its key). Absent: nothing.
+   */
+  scopeKeyOf?: (viewer: PriorityViewer) => Promise<string>;
   now?: () => Date;
 }
 
@@ -60,10 +75,12 @@ export function createPrioritiesService(deps: PrioritiesServiceDeps) {
     const req = { viewer, pick, today, timeZone: deps.timeZone };
     const [manager, ...lists] = await Promise.all([deps.isManager(viewer), ...deps.sources.map((s) => s.collect(req))]);
     const all = (lists as SourcedCandidate[][]).flat();
-    // A task (or a task waiting for approval) that is a row stands for the action items tracked as it.
-    const taskIds = new Set(all.filter((c) => c.kind === 'task' || c.kind === 'approval').map((c) => c.id));
-    const candidates = all.filter((c) => !(c.kind === 'action-item' && c.linkedTaskId && taskIds.has(c.linkedTaskId)));
-    const ranked = rankPriorities(candidates, { today, timeZone: deps.timeZone });
+    const ctx = { today, timeZone: deps.timeZone };
+    // A task (or a task waiting for approval) that is a row stands for the action items tracked as it —
+    // a row: one with a reason of its own (review I2: one only fetched by the loose date edge is not).
+    const rowTaskIds = new Set(rankPriorities(all.filter((c) => c.kind === 'task' || c.kind === 'approval'), ctx).map((r) => r.candidate.id));
+    const candidates = all.filter((c) => !(c.kind === 'action-item' && c.linkedTaskId && rowTaskIds.has(c.linkedTaskId)));
+    const ranked = rankPriorities(candidates, ctx);
     const watch = [...new Set(ranked.flatMap((r) => r.candidate.watch))].slice(0, WATCH_LIMIT);
     return {
       today,
@@ -84,7 +101,7 @@ export function createPrioritiesService(deps: PrioritiesServiceDeps) {
   return {
     /** The person's list (from the cache when it is under 30 s old, unless `fresh`). */
     async get(viewer: PriorityViewer, pick: string | null, opts: { fresh?: boolean } = {}): Promise<PrioritiesAnswer> {
-      const key = keyOf(viewer, pick);
+      const key = `${keyOf(viewer, pick)}|${deps.scopeKeyOf ? await deps.scopeKeyOf(viewer) : ''}`;
       const at = now().getTime();
       const hit = cache.get(key);
       if (!opts.fresh && hit && at - hit.at <= PRIORITY_TTL_MS) return hit.answer;
