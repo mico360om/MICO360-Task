@@ -47,8 +47,12 @@ export function createMemorySignInChallengeStore(): SignInChallengeStore & { row
       const r = byId(id);
       if (!r || r.consumedAt) return false;
       r.consumedAt = at;
-      r.attempts = Math.max(0, r.attempts - 1);
+      r.attempts -= 1;
       return true;
+    },
+    async end(id, at) {
+      const r = byId(id);
+      if (r && r.consumedAt === null) r.consumedAt = at;
     },
     async endAll(userId, at) {
       for (const r of rows) if (r.userId === userId && r.consumedAt === null) r.consumedAt = at;

@@ -56,6 +56,9 @@ export function createPrismaSignInChallengeStore(prisma: PrismaClient): SignInCh
       });
       return count === 1;
     },
+    async end(id, at) {
+      await prisma.signInChallenge.updateMany({ where: { id, consumedAt: null }, data: { consumedAt: at } });
+    },
     async endAll(userId, at) {
       await prisma.signInChallenge.updateMany({ where: { userId, consumedAt: null }, data: { consumedAt: at } });
     },

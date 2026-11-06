@@ -230,3 +230,35 @@ describe('Sign-in challenge: resend', () => {
     expect(await err(svc.resend('nope'))).toEqual({ code: 'SIGN_IN_EXPIRED', status: 401 });
   });
 });
+
+describe('Review fixes: a challenge used up by wrong codes never traps the person', () => {
+  it('after 5 wrong codes, signing in again starts a fresh challenge with a new code that works', async () => {
+    const svc = make();
+    const { token } = await svc.start(ada, 'VERIFY_EMAIL');
+    const wrong = lastCode() === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) await err(svc.verify(token, wrong));
+    clock += MIN;
+    const again = await svc.start(ada, 'VERIFY_EMAIL');
+    expect(again.codeSent).toBe(true);
+    expect(sent).toHaveLength(2);
+    expect(await svc.verify(again.token, lastCode())).toMatchObject({ userId: 'u1' });
+  });
+
+  it('“Send another code” on a used-up challenge sends nothing and says to sign in again', async () => {
+    const svc = make();
+    const { token } = await svc.start(ada, 'VERIFY_EMAIL');
+    const wrong = lastCode() === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) await err(svc.verify(token, wrong));
+    clock += MIN;
+    expect(await err(svc.resend(token))).toEqual({ code: 'TOO_MANY_WRONG_CODES', status: 429 });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('an email that couldn’t go ends its challenge without touching the wrong-code count', async () => {
+    failSend = true;
+    const svc = make();
+    await err(svc.start(ada, 'VERIFY_EMAIL'));
+    expect(store.rows[0]!.attempts).toBe(0);
+    expect(store.rows[0]!.consumedAt).not.toBeNull();
+  });
+});

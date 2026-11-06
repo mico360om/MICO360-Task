@@ -137,6 +137,22 @@ describe('Sign-in challenges in sign_in_challenges', () => {
     expect(await prisma.loginOtp.count({ where: { userId: other.id, consumedAt: null } })).toBe(1);
   });
 
+  it('review fixes: an email that couldn’t go leaves the wrong-code count at 0; 5 wrong codes then a new sign-in gives a fresh, working code', async () => {
+    const eve = await person('eve');
+    let fail = true;
+    const mails: string[] = [];
+    const svc = createSignInChallenges({ store: createPrismaSignInChallengeStore(prisma), key: 'db-test-key', mailer: { isConfigured: () => true, async sendSignInCode(_to, code) { if (fail) throw new Error('down'); mails.push(code); } } });
+    await svc.start({ id: eve.id, email: eve.email }, 'VERIFY_EMAIL').catch(() => undefined);
+    expect((await prisma.signInChallenge.findFirstOrThrow({ where: { userId: eve.id } })).attempts).toBe(0);
+    fail = false;
+    const first = await svc.start({ id: eve.id, email: eve.email }, 'VERIFY_EMAIL');
+    const wrong = mails[0] === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) await svc.verify(first.token, wrong).catch(() => undefined);
+    const again = await svc.start({ id: eve.id, email: eve.email }, 'VERIFY_EMAIL');
+    expect(again.codeSent).toBe(true);
+    expect(await svc.verify(again.token, mails.at(-1)!)).toMatchObject({ userId: eve.id });
+  });
+
   it('the right code works once even when sent twice at the same moment', async () => {
     const bo = await person('bo');
     const mails: string[] = [];

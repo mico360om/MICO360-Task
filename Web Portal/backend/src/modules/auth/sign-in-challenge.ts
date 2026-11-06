@@ -49,6 +49,8 @@ export interface SignInChallengeStore {
   claimAttempt(id: string, max: number): Promise<boolean>;
   /** Mark it used (and un-count the right guess). False if it was already used. */
   consume(id: string, at: Date): Promise<boolean>;
+  /** End it unused (its email didn't go, or its wrong codes ran out); the wrong-code count stays. */
+  end(id: string, at: Date): Promise<void>;
   /** End every open challenge of the person (their email changed, the account stopped). */
   endAll(userId: string, at: Date): Promise<void>;
 }
@@ -137,7 +139,9 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
     const sentTo = user.email.trim();
     const { token, tokenHash } = newChallengeToken();
     const open = await store.findOpen(user.id, kind, sentTo, at);
-    if (open && isOpen(open, at) && (await store.rotateToken(open.id, tokenHash))) {
+    // One whose wrong codes ran out is ended, and a fresh one starts (within the hourly allowances).
+    if (open && open.attempts >= WRONG_CODES_PER_CHALLENGE) await store.end(open.id, at);
+    else if (open && isOpen(open, at) && (await store.rotateToken(open.id, tokenHash))) {
       return { token, kind, sentTo: maskEmail(sentTo), codeSent: false, resendAt: iso(resendAtOf(open)), expiresAt: iso(open.expiresAt) };
     }
     if (!(await underHourlyLimit(user.id, at))) throw new TooManyCodesError();
@@ -148,7 +152,7 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
     try {
       await send(row, code);
     } catch (err) {
-      await store.consume(id, at).catch(() => undefined);
+      await store.end(id, at).catch(() => undefined);
       throw err;
     }
     return { token, kind, sentTo: maskEmail(sentTo), codeSent: true, resendAt: iso(resendAtOf(row)), expiresAt: iso(row.expiresAt) };
@@ -164,6 +168,8 @@ export function createSignInChallenges(deps: SignInChallengeDeps) {
   async function resend(token: string): Promise<ResendResult> {
     const at = now();
     const row = await openByToken(token, at);
+    // Its wrong codes ran out: no new code can help — sign in again for a fresh one.
+    if (row.attempts >= WRONG_CODES_PER_CHALLENGE) throw new TooManyWrongCodesError();
     const resendAt = resendAtOf(row);
     if (resendAt.getTime() > at.getTime()) {
       return { codeSent: false, resendAt: iso(resendAt), expiresAt: iso(row.expiresAt), retryAfterSeconds: Math.max(1, Math.ceil((resendAt.getTime() - at.getTime()) / 1000)) };
