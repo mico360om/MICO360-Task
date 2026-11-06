@@ -39,10 +39,11 @@ import { WaitingIcon } from '../approvals/ApprovalChip';
 import { APPROVAL_HINT, APPROVAL_LOCKED } from '../../lib/approvals';
 import { useAuthStore } from '../../stores/auth-store';
 import { TASK_TEMPLATES_KEY, templatesApi, type TaskTemplate } from '../../api/templates';
+import { hasChecklistData, templateTree } from '../../api/template-checklists';
 import { inspectionsApi } from '../../api/inspections';
 import { INSPECTION_LIMITS } from '../../lib/inspection-rules';
 import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
-import { draftFromTree, draftToTree, emptyDraft, treeLeafCount, treeOf, type ChecklistDraft } from '../../lib/checklist-tree';
+import { draftFromTree, draftToTree, emptyDraft, treeLeafCount, type ChecklistDraft } from '../../lib/checklist-tree';
 import { ExternalContactsField, changedContactFields, fieldsOnly, formContact, type FormContact } from './ExternalContactsField';
 import { externalContactsApi } from '../../api/external-contacts';
 import { isProjectArchived } from '../../lib/project-archive';
@@ -244,11 +245,11 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
   const templatesQ = useQuery({ queryKey: TASK_TEMPLATES_KEY, queryFn: () => templatesApi(apiClient).listTasks(), enabled: !editing, staleTime: 30_000 });
   // Only well-formed templates (a server without templates answers something else, or nothing).
   const taskTemplates = useMemo(
-    () => (Array.isArray(templatesQ.data) ? templatesQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.title === 'string' && (Array.isArray(t.checklists) || Array.isArray(t.checklist))) : []),
+    () => (Array.isArray(templatesQ.data) ? templatesQ.data.filter((t) => t && typeof t.name === 'string' && typeof t.title === 'string' && hasChecklistData(t)) : []),
     [templatesQ.data],
   );
   const [usedTemplate, setUsedTemplate] = useState<TaskTemplate | null>(null);
-  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklists: draftFromTree(treeOf(t.checklists, t.checklist)) });
+  const filledFrom = (t: TaskTemplate): Partial<Draft> => ({ title: t.title, description: t.description ?? '', priority: t.priority, checklists: draftFromTree(templateTree(t)) });
   function applyTemplate(id: string) {
     const t = taskTemplates.find((x) => x.id === id);
     if (!t) return;
@@ -633,7 +634,7 @@ export function TaskFormDialog({ onClose, task, onCreated, onSaved, projectId: f
         ariaLabel="Task template"
         placeholder="Choose a task template"
         options={taskTemplates.map((t) => {
-          const n = treeLeafCount(treeOf(t.checklists, t.checklist));
+          const n = treeLeafCount(templateTree(t));
           return { value: t.id, label: t.name, hint: n ? `${n} checklist item${n === 1 ? '' : 's'}` : undefined };
         })}
         value={usedTemplate?.id ?? ''}

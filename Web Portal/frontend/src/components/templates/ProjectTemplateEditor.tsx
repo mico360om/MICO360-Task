@@ -21,7 +21,8 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PriorityBadge } from '../ui/PriorityBadge';
 import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
-import { draftFromTree, draftToTree, templateChecklists, treeItemCount, treeLeafCount, treeOf, type ChecklistDraft } from '../../lib/checklist-tree';
+import { draftFromTree, draftToTree, templateChecklists, treeItemCount, treeLeafCount, type ChecklistDraft } from '../../lib/checklist-tree';
+import { templateTree } from '../../api/template-checklists';
 import { PRIORITIES, priorityLabel } from '../priority-option';
 import { count, TemplateGlyph } from './TemplateCard';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
@@ -74,7 +75,7 @@ const draftOf = (t?: ProjectTemplate | null): Draft =>
         description: t.description ?? '',
         columns: columnsOf(t.columns),
         roles: t.roles.map((r) => ({ key: r.id, name: r.name })),
-        tasks: t.tasks.map((x) => ({ id: x.id, title: x.title, description: x.description ?? '', priority: x.priority, dueOffsetDays: x.dueOffsetDays, roleKey: x.roleId, checklists: draftFromTree(treeOf(x.checklists, x.checklist)) })),
+        tasks: t.tasks.map((x) => ({ id: x.id, title: x.title, description: x.description ?? '', priority: x.priority, dueOffsetDays: x.dueOffsetDays, roleKey: x.roleId, checklists: draftFromTree(templateTree(x)) })),
       }
     : { name: '', description: '', columns: columnsOf(DEFAULT_BOARD), roles: [], tasks: [] };
 

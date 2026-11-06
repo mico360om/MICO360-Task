@@ -14,10 +14,11 @@ import { PriorityBadge } from '../ui/PriorityBadge';
 import { TaskFormDialog } from '../task-form/TaskFormDialog';
 import { TaskTemplateEditor } from './TaskTemplateEditor';
 import { Chip, count, TemplateCard, TemplateGlyph } from './TemplateCard';
-import { treeLeafCount, treeOf } from '../../lib/checklist-tree';
+import { treeLeafCount } from '../../lib/checklist-tree';
+import { templateTree } from '../../api/template-checklists';
 
 /** 1.23.3: a template's real to-do items (the ones without sub-items), as a task's "8/12" counts them. */
-const checklistCount = (t: TaskTemplate) => treeLeafCount(treeOf(t.checklists, t.checklist));
+const checklistCount = (t: TaskTemplate) => treeLeafCount(templateTree(t));
 
 const failure = (err: unknown) => (err instanceof ApiError && err.message && !/^Request failed/.test(err.message) ? err.message : 'Please try again.');
 

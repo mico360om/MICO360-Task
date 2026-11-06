@@ -10,7 +10,8 @@ import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { ChecklistDraftEditor } from '../checklists/ChecklistDraftEditor';
-import { draftFromTree, templateChecklists, treeOf } from '../../lib/checklist-tree';
+import { draftFromTree, templateChecklists } from '../../lib/checklist-tree';
+import { templateTree } from '../../api/template-checklists';
 import { stayOnEnter } from '../../lib/enter-key';
 import { priorityOptions } from '../priority-option';
 import { TemplateGlyph } from './TemplateCard';
@@ -34,7 +35,7 @@ export function TaskTemplateEditor({ template, onClose }: { template: TaskTempla
     description: template?.description ?? '',
     priority: (template?.priority ?? 'NORMAL') as Priority,
     // 1.23.3: its checklists, nested (text typed and not added yet is part of them: saved with the rest, and a change).
-    checklists: draftFromTree(treeOf(template?.checklists, template?.checklist)),
+    checklists: draftFromTree(template ? templateTree(template) : []),
   }));
   const [draft, setDraft] = useState(start);
   const [errors, setErrors] = useState<{ name?: string; title?: string }>({});
