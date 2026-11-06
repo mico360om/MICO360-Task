@@ -271,10 +271,11 @@ describe('quick actions', () => {
 
   it('a checklist item (1.23.3): Tick (Undo unticks), Reschedule, Open the task', async () => {
     current = answer([
-      { id: 'checklist-item:c1', kind: 'checklist-item', reason: { code: 'overdue', days: 1 }, also: [], chips: ['overdue'], group: 1, checklistItem: { id: 'c1', text: 'Torque the bolts', dueDate: '2026-11-05', task: { id: 't9', key: 'RIG-9', title: 'Flange', projectId: 'p1' }, can: { tick: true, reschedule: true } } },
+      { id: 'checklist-item:c1', kind: 'checklist-item', reason: { code: 'overdue', days: 1 }, also: [], chips: ['overdue'], group: 1, checklistItem: { id: 'c1', text: 'Torque the bolts', dueDate: '2026-11-05', listTitle: 'Commissioning', task: { id: 't9', key: 'RIG-9', title: 'Flange', projectId: 'p1' }, can: { tick: true, reschedule: true } } },
     ]);
     const open = show();
     expect(await screen.findByText('Torque the bolts')).toBeInTheDocument();
+    expect(screen.getByText(/Checklist item/)).toHaveTextContent('Checklist item · Commissioning · Flange');
     await userEvent.click(screen.getByRole('button', { name: 'Tick “Torque the bolts”' }));
     await waitFor(() => expect(sent('PUT', /\/checklist\/c1$/)).toHaveLength(1));
     expect(sent('PUT', /\/checklist\/c1$/)[0]!.body).toEqual({ done: true });
@@ -285,13 +286,16 @@ describe('quick actions', () => {
     await userEvent.click(within(screen.getByRole('dialog', { name: 'Reschedule “Torque the bolts”' })).getByRole('button', { name: /Tomorrow/ }));
     await waitFor(() => expect(sent('PUT', /\/checklist\/c1$/)).toHaveLength(3));
     expect(sent('PUT', /\/checklist\/c1$/)[2]!.body).toEqual({ dueDate: '2026-11-07' });
-    await userEvent.click(screen.getByRole('button', { name: 'Open RIG-9' }));
-    expect(open).toHaveBeenCalledWith('t9', ['t9']);
+    // Open goes to the task panel at that item (1.23.3: ?item=).
+    await userEvent.click(screen.getByRole('button', { name: 'Open RIG-9 at “Torque the bolts”' }));
+    expect(open).toHaveBeenLastCalledWith('t9', ['t9'], { item: 'c1' });
+    await userEvent.click(screen.getByRole('button', { name: /^Open RIG-9$/ }));
+    expect(open).toHaveBeenLastCalledWith('t9', ['t9'], { item: 'c1' });
   });
 
   it('a checklist item the person may not tick or move offers only Open', async () => {
     current = answer([
-      { id: 'checklist-item:c2', kind: 'checklist-item', reason: { code: 'due-today' }, also: [], chips: ['today'], group: 4, checklistItem: { id: 'c2', text: 'Parent step', dueDate: TODAY, task: { id: 't9', key: 'RIG-9', title: 'Flange', projectId: 'p1' }, can: { tick: false, reschedule: false } } },
+      { id: 'checklist-item:c2', kind: 'checklist-item', reason: { code: 'due-today' }, also: [], chips: ['today'], group: 4, checklistItem: { id: 'c2', text: 'Parent step', dueDate: TODAY, listTitle: 'Steps', task: { id: 't9', key: 'RIG-9', title: 'Flange', projectId: 'p1' }, can: { tick: false, reschedule: false } } },
     ]);
     show();
     expect(await screen.findByText('Parent step')).toBeInTheDocument();

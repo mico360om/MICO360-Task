@@ -26,7 +26,7 @@ import { dayText } from '../../lib/day-words';
 import { todayKey } from '../../lib/due-date';
 import { useCompanyTimeZone } from '../../lib/company-clock';
 import { useCompanyWeekStart } from '../../lib/useDatePrefs';
-import { useBoardRealtime } from '../../lib/useBoardRealtime';
+import { usePrioritiesRealtime } from './usePrioritiesRealtime';
 import { useNotificationRealtime } from '../../lib/useNotificationRealtime';
 import { relativeTime } from '../../lib/relative-time';
 import { TOUCH_TALL } from '../../lib/touch';
@@ -63,7 +63,7 @@ interface Notice {
  * with filter chips and the quick actions the person may do (the server's own rules decide each one).
  * Every action updates the list at once (and for others live), with Undo where it can be undone.
  */
-export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, list?: string[]) => void }) {
+export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, list?: string[], at?: { item?: string }) => void }) {
   const qc = useQueryClient();
   const fresh = useRef(false);
   const q = useQuery({
@@ -113,7 +113,7 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
     live.current = setTimeout(() => void refresh(false), 600);
   }, [refresh]);
   useEffect(() => () => void (live.current && clearTimeout(live.current)), []);
-  useBoardRealtime(data?.watch && data.watch.length ? data.watch : undefined, soon);
+  usePrioritiesRealtime(data?.watch, soon);
   useNotificationRealtime(soon);
 
   const rows = useMemo(() => (data?.items ?? []).filter((r) => !gone.has(r.id)), [data, gone]);
@@ -359,7 +359,7 @@ export function PrioritiesWidget({ onOpenTask }: { onOpenTask: (taskId: string, 
               busy={busy === row.id}
               locked={busy !== null}
               problem={problem?.id === row.id ? problem.text : null}
-              onOpenTask={(id) => onOpenTask(id, taskIds)}
+              onOpenTask={(id, at) => (at ? onOpenTask(id, taskIds, at) : onOpenTask(id, taskIds))}
               onComplete={(t) => void complete(row, t)}
               onReschedule={(t, day) => void reschedule(row, t, day)}
               onAssign={(t, p) => void assign(row, t, p)}
@@ -442,7 +442,7 @@ interface ItemProps {
   /** Another row's action is running: buttons wait. */
   locked: boolean;
   problem: string | null;
-  onOpenTask: (taskId: string) => void;
+  onOpenTask: (taskId: string, at?: { item?: string }) => void;
   onComplete: (t: PriorityTask) => void;
   onReschedule: (t: PriorityTask, day: string) => void;
   onAssign: (t: PriorityTask, person: { id: string; name: string }) => void;
@@ -487,7 +487,7 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
             {a.description}
           </p>
         ) : c ? (
-          <button type="button" onClick={() => onOpenTask(c.task.id)} aria-label={`Open ${c.task.key} at “${c.text}”`} className={`mt-1 flex min-w-0 max-w-full items-center gap-2 text-start ${TOUCH_TALL}`}>
+          <button type="button" onClick={() => onOpenTask(c.task.id, { item: c.id })} aria-label={`Open ${c.task.key} at “${c.text}”`} className={`mt-1 flex min-w-0 max-w-full items-center gap-2 text-start ${TOUCH_TALL}`}>
             <TaskKey value={c.task.key} dense="compact" />
             <bdi dir="auto" className="truncate text-sm font-medium text-ink hover:text-brand">
               {c.text}
@@ -502,7 +502,11 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
             </span>
           ) : null}
           {a ? <span>{a.meeting ? <>Action item · <bdi>{a.meeting.title}</bdi></> : 'Action item'}</span> : null}
-          {c ? <span>Checklist item · <bdi>{c.task.title}</bdi></span> : null}
+          {c ? (
+            <span>
+              Checklist item{c.listTitle ? <> · <bdi>{c.listTitle}</bdi></> : null} · <bdi>{c.task.title}</bdi>
+            </span>
+          ) : null}
           {row.kind === 'approval' && t?.requestedBy ? (
             <span>
               Finished by <bdi>{t.requestedBy.name}</bdi>
@@ -573,7 +577,7 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
               </button>
             ) : null}
             {c.can.reschedule ? <RescheduleMenu label={label} today={today} weekStart={weekStart} value={c.dueDate} disabled={disabled} onPick={onStepReschedule} /> : null}
-            <button type="button" className={ACTION} aria-label={`Open ${c.task.key}`} onClick={() => onOpenTask(c.task.id)}>
+            <button type="button" className={ACTION} aria-label={`Open ${c.task.key}`} onClick={() => onOpenTask(c.task.id, { item: c.id })}>
               Open task
             </button>
           </>

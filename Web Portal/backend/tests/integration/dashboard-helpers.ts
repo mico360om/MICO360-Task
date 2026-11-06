@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { createPrioritiesService } from '../../src/modules/dashboard/priorities-service';
-import { createActionItemPrioritySource, createApprovalPrioritySource, createPrismaTaskPrioritySource } from '../../src/modules/dashboard/prisma-priority-sources';
-import { CHECKLIST_ITEMS_STUB } from '../../src/modules/dashboard/priority-sources';
+import { createActionItemPrioritySource, createApprovalPrioritySource, createChecklistPrioritySource, createPrismaTaskPrioritySource } from '../../src/modules/dashboard/prisma-priority-sources';
+import { createPrismaChecklistQueries } from '../../src/modules/tasks/prisma-checklist-queries';
 import type { ProjectAccess } from '../../src/modules/projects/project-access';
 import type { ApprovalSource } from '../../src/modules/tasks/task-approval-routes';
 import type { ActionItemService } from '../../src/modules/meetings/action-item-service';
@@ -23,7 +23,7 @@ export function prioritiesFor(
       }),
       createApprovalPrioritySource({ prisma: client, approvals: deps.approvalSource, listProjectIds: (v, pick) => access.accessibleProjectIds(v.id, v.roles, pick) }),
       createActionItemPrioritySource({ prisma: client, actionItems: deps.actionItemService, canOpenMeeting: (v, m) => deps.meetingView(v, m) }),
-      CHECKLIST_ITEMS_STUB,
+      createChecklistPrioritySource({ prisma: client, mine: (u, p) => createPrismaChecklistQueries(client).mine(u, p), ownProjectIds: (v, pick) => access.ownProjectIds!(v.id, v.roles, pick) }),
     ],
     timeZone,
     isManager: (v) => deps.approvalSource.canApproveAny(v),

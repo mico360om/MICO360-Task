@@ -252,8 +252,7 @@ import { createEmailWebhookService } from './modules/email/email-webhook-service
 import { createPrismaEmailEventStore, createPrismaEmailLogStore, createPrismaSuppressionChecker } from './modules/email/prisma-email-event-store';
 import { createRealtime } from './realtime/realtime';
 import { changesPriorities, createPrioritiesService } from './modules/dashboard/priorities-service';
-import { createActionItemPrioritySource, createApprovalPrioritySource, createPrismaTaskPrioritySource } from './modules/dashboard/prisma-priority-sources';
-import { CHECKLIST_ITEMS_STUB } from './modules/dashboard/priority-sources';
+import { createActionItemPrioritySource, createApprovalPrioritySource, createChecklistPrioritySource, createPrismaTaskPrioritySource } from './modules/dashboard/prisma-priority-sources';
 import { createPrismaDashboardLayoutStore } from './modules/dashboard/dashboard-layout-store';
 import { createLogger } from './lib/logger';
 import { createErrorReporter } from './lib/error-reporter';
@@ -911,7 +910,7 @@ async function main(): Promise<void> {
   const resolveMeetingProjectId = async (meetingId: string) => (await meetingRepository.accessCore(meetingId))?.projectId ?? null;
   // 1.23.4 Smarter Dashboard — "My Priorities Today": own open tasks (My Tasks' scope), the team rows of
   // the projects the person runs (the list scope), approvals (the To approve list's), action items (My
-  // Action Items'), and — once 1.23.3 is merged — checklist items (CHECKLIST_ITEMS_STUB until then).
+  // Action Items'), and (1.23.3) the checklist items given to them (My Tasks' "Checklist items for me").
   const dashboardPriorities = createPrioritiesService({
     sources: [
       createPrismaTaskPrioritySource(prisma, {
@@ -921,7 +920,8 @@ async function main(): Promise<void> {
       }),
       createApprovalPrioritySource({ prisma, approvals: approvalSource, listProjectIds: (v, pick) => projectAccess.accessibleProjectIds(v.id, v.roles, pick) }),
       createActionItemPrioritySource({ prisma, actionItems: actionItemService, canOpenMeeting: async (v, meetingId) => (await meetingAccess.viewOf(v.id, v.roles, meetingId)) !== null }),
-      CHECKLIST_ITEMS_STUB,
+      // 1.23.3: open checklist items given to the person, overdue or due within 3 days (My Tasks' scope).
+      createChecklistPrioritySource({ prisma, mine: (u, p) => checklistQueries.mine(u, p), ownProjectIds: (v, pick) => projectAccess.ownProjectIds(v.id, v.roles, pick) }),
     ],
     timeZone: companyTz,
     isManager: (v) => approvalSource.canApproveAny(v),

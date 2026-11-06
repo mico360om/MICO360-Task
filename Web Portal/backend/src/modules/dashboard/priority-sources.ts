@@ -9,8 +9,8 @@ import type { ApprovalCandidate, DatedCandidate, Priority, TaskCandidate } from 
  *                    tasks there that need them (prisma-priority-sources.ts)
  *   approvals        the tasks waiting for their approval (the To approve list's scope)
  *   action-items     their meeting action items (My Action Items' scope)
- *   checklist-items  1.23.3: open checklist items assigned to them that are overdue or due within 3 days
- *                    (leaves only; a parent follows its sub-items) — CHECKLIST_ITEMS_STUB until then
+ *   checklist-items  1.23.3: open checklist items given to them that are overdue or due within 3 days
+ *                    (a parent is listed but can't be ticked: it follows its sub-items)
  *
  * A source gives the facts the ranking needs (priorities.ts) and, in `row`, what the page shows and acts
  * on. Only actions the person may do are offered (`can`); the server's own routes still decide.
@@ -83,11 +83,13 @@ export interface ActionItemRowData {
   can: { done: boolean; reschedule: boolean };
 }
 
-/** 1.23.3: a checklist item assigned to the person (a leaf), on its task. */
+/** 1.23.3: a checklist item given to the person, on its task (a parent can't be ticked: it follows its sub-items). */
 export interface ChecklistItemRowData {
   id: string;
   text: string;
   dueDate: string | null;
+  /** The checklist it is on ("Commissioning"). */
+  listTitle: string;
   task: { id: string; key: string; title: string; projectId: string };
   can: { tick: boolean; reschedule: boolean };
 }
@@ -113,13 +115,8 @@ export interface PrioritySource {
 }
 
 /**
- * The checklist-items source until 1.23.3 is merged: nothing. The real one returns `kind: 'checklist-item'`
- * candidates — open leaf items assigned to the person, overdue or due within 3 days (their own due date,
- * NORMAL priority unless the item says) — with `row.checklistItem` (`can.tick` false for a parent, which
- * follows its sub-items) and the task's project in `watch`. Already in place: the ranking (overdue / today /
- * upcoming groups and chips), and the page's Tick (PUT /checklist/:itemId { done }, Undo unticks), Reschedule
- * (PUT /checklist/:itemId { dueDate } — the merge confirms the field name, website api/dashboard.ts) and Open
- * task. Left for the merge: opening the task panel AT the item (the 1.23.3 panel's item anchor).
+ * The checklist-items source when no checklist reads are wired (unit tests of other parts): nothing. The
+ * server uses createChecklistPrioritySource (prisma-priority-sources.ts).
  */
 export const CHECKLIST_ITEMS_STUB: PrioritySource = {
   name: 'checklist-items',

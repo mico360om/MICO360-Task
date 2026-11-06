@@ -148,7 +148,7 @@ describe('the checklist-items hook (1.23.3 plugs in its source here)', () => {
       priority: 'NORMAL',
       dueDate: day(due),
       createdAt: day('2026-10-01'),
-      row: { checklistItem: { id, text: `Step ${id}`, dueDate: due, task: { id: 't1', key: 'RIG-1', title: 'Pump', projectId: 'p1' }, can: { tick: true, reschedule: true } } },
+      row: { checklistItem: { id, text: `Step ${id}`, dueDate: due, listTitle: 'Commissioning', task: { id: 't1', key: 'RIG-1', title: 'Pump', projectId: 'p1' }, can: { tick: true, reschedule: true } } },
       watch: ['p1'],
     });
     const checklist = source('checklist-items', [item('late', '2026-11-03'), item('soon', '2026-11-09'), item('later', '2026-11-20')]);
@@ -213,8 +213,8 @@ describe('cached per person for 30 seconds', () => {
 });
 
 describe('review I3: what clears the cache', () => {
-  it('task, meeting, project and inspection events do; chat, presence and notices don’t', () => {
-    for (const e of ['task:created', 'task:updated', 'task:moved', 'task:deleted', 'task:assignees', 'meeting:action-items', 'meeting:updated', 'project:removed', 'project:updated', 'inspection:changed']) expect(changesPriorities(e), e).toBe(true);
+  it('task, checklist (1.23.3), meeting, project and inspection events do; chat, presence and notices don’t', () => {
+    for (const e of ['task:created', 'task:updated', 'task:moved', 'task:deleted', 'task:assignees', 'checklist:changed', 'meeting:action-items', 'meeting:updated', 'project:removed', 'project:updated', 'inspection:changed']) expect(changesPriorities(e), e).toBe(true);
     for (const e of ['chat:message', 'chat:read', 'chat:reaction', 'presence:online', 'notification:new', 'typing']) expect(changesPriorities(e), e).toBe(false);
   });
 

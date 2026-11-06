@@ -307,6 +307,74 @@ describe('meeting action items', () => {
   });
 });
 
+describe('checklist items given to the person (1.23.3)', () => {
+  it('open items overdue or due within 3 days; a parent is listed but can’t be ticked; done, far, undated and other people’s are not', async () => {
+    const host = await task('CLHOST', w.projects.PA, { assignees: [w.people.cat] });
+    const checklist = await prisma.checklistList.create({ data: { taskId: host, title: `Commissioning ${w.tag}`, position: 0 } });
+    let pos = 0;
+    const item = async (text: string, o: { assignee?: string | null; due?: Date | null; done?: boolean; parentId?: string } = {}) =>
+      (await prisma.checklistItem.create({ data: { taskId: host, listId: checklist.id, text: `${text} ${w.tag}`, position: pos++, assigneeId: o.assignee === undefined ? w.people.ana : o.assignee, dueDate: o.due ?? null, done: o.done ?? false, parentId: o.parentId ?? null } })).id;
+    const late = await item('Torque the bolts', { due: due(-2) });
+    const soon = await item('Fit the gauge', { due: due(2) });
+    const far = await item('Paint the rail', { due: due(10) });
+    const done = await item('Clean the site', { due: due(-1), done: true });
+    const undated = await item('Order gaskets');
+    const parent = await item('Pressure test', { due: due(-1) });
+    const child = await item('Fill the line', { assignee: w.people.cat, due: due(10), parentId: parent });
+    const cats = await item('Cat’s step', { assignee: w.people.cat, due: due(-1) });
+    try {
+      const a = await list(w.as.ana);
+      const ids = a.items.filter((r) => r.kind === 'checklist-item').map((r) => r.checklistItem!.id);
+      expect(ids.sort()).toEqual([late, parent, soon].sort());
+      const lateRow = a.items.find((r) => r.checklistItem?.id === late)!;
+      expect(lateRow).toMatchObject({ kind: 'checklist-item', reason: { code: 'overdue', days: 2 }, group: 1, chips: ['overdue'] });
+      expect(lateRow.checklistItem).toMatchObject({ text: `Torque the bolts ${w.tag}`, dueDate: shiftDayKey(today, -2), listTitle: `Commissioning ${w.tag}`, task: { id: host, title: `CLHOST ${w.tag}`, projectId: w.projects.PA }, can: { tick: true, reschedule: true } });
+      expect(a.items.find((r) => r.checklistItem?.id === soon)!.reason).toEqual({ code: 'due-soon', days: 2 });
+      // A parent follows its sub-items: listed (it's late) but no tick.
+      expect(a.items.find((r) => r.checklistItem?.id === parent)!.checklistItem!.can).toEqual({ tick: false, reschedule: true });
+      expect(a.watch).toContain(w.projects.PA);
+      // cat's own late step is hers; the sub-item due in 10 days isn't.
+      const c = await list(w.as.cat);
+      expect(c.items.filter((r) => r.kind === 'checklist-item').map((r) => r.checklistItem!.id)).toEqual([cats]);
+      for (const id of [far, done, undated, child]) expect(a.items.some((r) => r.checklistItem?.id === id), id).toBe(false);
+    } finally {
+      await prisma.checklistItem.deleteMany({ where: { taskId: host } });
+      await prisma.checklistList.deleteMany({ where: { taskId: host } });
+      await prisma.task.update({ where: { id: host }, data: { deletedAt: new Date() } });
+    }
+  });
+
+  it('a finished task’s items, an archived project’s, and another company’s (with a pick) are left out', async () => {
+    const doneHost = await task('CLDONE', w.projects.PA, { assignees: [w.people.cat], column: 'DONE', completed: true });
+    const liveHost = await task('CLLIVE', w.projects.PA, { assignees: [w.people.cat] });
+    const pbHost = await task('CLPB', w.projects.PB, { assignees: [w.people.ben] });
+    const mk = async (taskId: string, assigneeId: string) => {
+      const l = await prisma.checklistList.create({ data: { taskId, title: 'Steps', position: 0 } });
+      return (await prisma.checklistItem.create({ data: { taskId, listId: l.id, text: `step ${taskId}`, position: 0, assigneeId, dueDate: due(0) } })).id;
+    };
+    const inDone = await mk(doneHost, w.people.ana);
+    const inLive = await mk(liveHost, w.people.ana);
+    const catB = await mk(pbHost, w.people.cat);
+    const has = (a: PrioritiesAnswer, id: string) => a.items.some((r) => r.checklistItem?.id === id);
+    try {
+      const a = await list(w.as.ana);
+      expect(has(a, inDone)).toBe(false);
+      expect(has(a, inLive)).toBe(true);
+      expect(has(await list(w.as.cat), catB)).toBe(true);
+      expect(has(await list(w.as.cat, { 'x-company-id': w.companies.A }), catB)).toBe(false);
+      await prisma.project.update({ where: { id: w.projects.PA }, data: { status: 'ARCHIVED' } });
+      expect(has(await list(w.as.ana), inLive)).toBe(false);
+    } finally {
+      await prisma.project.update({ where: { id: w.projects.PA }, data: { status: 'ACTIVE' } });
+      for (const t of [doneHost, liveHost, pbHost]) {
+        await prisma.checklistItem.deleteMany({ where: { taskId: t } });
+        await prisma.checklistList.deleteMany({ where: { taskId: t } });
+        await prisma.task.update({ where: { id: t }, data: { deletedAt: new Date() } });
+      }
+    }
+  });
+});
+
 describe('review I5: an item due later is never looked at', () => {
   it('only the meetings of items with a date reason are checked, all at once', async () => {
     const later = await prisma.meeting.create({ data: { title: `Later ${w.tag}`, projectId: w.projects.PA, organizerId: w.people.ana, createdById: w.people.ana, startAt: new Date(), status: 'SCHEDULED' } });
